@@ -10,7 +10,7 @@ config_version=5
 
 [application]
 
-config/name="The Stream"
+config/name="The Traveler"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
@@ -18,15 +18,16 @@ config/icon="res://icon.svg"
 [audio]
 
 driver/enable_input=true
-driver/input_device="Analogue 1/2 (3- Audient iD14)"
 
 [autoload]
 
-GameManager="*res://scripts/autoload/game_manager.gd"
-UpgradeManager="*res://scripts/autoload/upgrade_manager.gd"
 AudioManager="*res://scripts/autoload/audio_manager.gd"
+MaterialManager="*res://scripts/autoload/material_manager.gd"
+DefenseManager="*res://scripts/autoload/defense_manager.gd"
 EquipmentManager="*res://scripts/autoload/equipment_manager.gd"
-AuthManager="*res://scripts/autoload/auth_manager.gd"
+UpgradeManager="*res://scripts/autoload/upgrade_manager.gd"
+GameManager="*res://scripts/autoload/game_manager.gd"
+WeaponManager="*res://scripts/autoload/weapon_manager.gd"
 
 [display]
 
