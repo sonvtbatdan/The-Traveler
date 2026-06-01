@@ -61,17 +61,13 @@ var cash: float = 10000.0
 # Per-click view yield. Default = 1 view per click; raised by upgrades.
 var click_power: float = 1.0
 
-# Total views per second contributed by all owned VPS tools (Fanclub,
-# Collaborators, Publishers, ...). UpgradeManager._apply_upgrade adds to this.
+# Total fuel per second contributed by all owned Fuel System upgrades (Solar Panel,
+# Mining Drone, Asteroid Harvester, ...). UpgradeManager._apply_upgrade adds to this.
 var vps: float = 0.0
 
 # Total auto-clicks per second contributed by all owned auto-clickers. Each
 # auto-click adds click_power views, so the effective view rate scales with
 # click_power upgrades.
-var auto_click_rate: float = 0.0
-
-# Total comment auto-clicks per second from comment upgrade tools.
-var comment_auto_click_rate: float = 0.0
 
 # Placeholder multiplier referenced by the {parasocial} stat template token.
 # Currently inert in the math; will be wired into sub growth by a future task.
@@ -79,7 +75,7 @@ var parasocial: float = 1.0
 
 # Player-editable stat display template. The setter emits stat_template_changed
 # so consumers (stat_panel.gd) can re-render. Locked per the rewrite spec.
-var stat_template: String = "Views: {views}\nSubs: {subs}\nCash: ${cash}\nClick: x{click_power}\nVPS: {vps}":
+var stat_template: String = "Fuel: {views}\nCrew: {subs}\nCredits: {cash}\nThrust: x{click_power}\nFPS: {vps}":
 	set(value):
 		if stat_template == value:
 			return
@@ -117,15 +113,15 @@ func on_view_clicked() -> void:
 # ---------------------------------------------------------------------------
 
 func _process(delta: float) -> void:
-	# 1. Sub growth — log-scaled in the stable view count.
+	# 1. Sub growth — power-law scaled in the stable view count.
 	var stable: float = _subs + _passive_views
-	var sub_rate: float = K_SUB * (log(maxf(stable, 5.0)) / log(5.0))
+	var sub_rate: float = 0.5 * pow(maxf(stable, 0.0), 0.45)
 	_subs += sub_rate * delta
 
 	# 2. Tool view production. VPS tools tick directly; auto-clickers tick
 	# click_power views per auto-click-per-second so the autoclicker scales
-	# with future click_power upgrades.
-	var view_gain: float = (vps + auto_click_rate * click_power) * delta
+	# with future click_power upgrades. Led equipment applies a global ×mult on top.
+	var view_gain: float = vps * EquipmentManager.get_global_vps_multiplier() * delta
 	if view_gain > 0.0:
 		_passive_views += view_gain
 
@@ -307,7 +303,7 @@ func get_vps_estimate() -> float:
 # Examples: 12345 -> "12345", 1_280_000 -> "1.28 Million".
 func format_views(n: int) -> String:
 	if n < 1_000_000:
-		return str(n)
+		return format_grouped_int(n)
 	var v: float
 	var suffix: String
 	if n < 1_000_000_000:
@@ -318,10 +314,32 @@ func format_views(n: int) -> String:
 		v = n / 1_000_000_000_000.0;     suffix = "Trillion"
 	else:
 		v = n / 1_000_000_000_000_000.0; suffix = "Quadrillion"
-	var t := "%.2f" % v
+	var t := "%.3f" % v
 	while t.ends_with("0"): t = t.substr(0, t.length() - 1)
 	if t.ends_with("."): t = t.substr(0, t.length() - 1)
 	return t + " " + suffix
+
+# Float variant: comma-grouped with 3 decimal places for small values;
+# million/billion suffix with 3 decimal places (trailing zeros stripped) for large.
+func format_cash(f: float) -> String:
+	var sign_str: String = "-" if f < 0.0 else ""
+	var af := absf(f)
+	if af < 1_000_000.0:
+		return sign_str + format_grouped_float(af, 3)
+	var v: float
+	var suffix: String
+	if af < 1_000_000_000.0:
+		v = af / 1_000_000.0;             suffix = "Million"
+	elif af < 1_000_000_000_000.0:
+		v = af / 1_000_000_000.0;         suffix = "Billion"
+	elif af < 1_000_000_000_000_000.0:
+		v = af / 1_000_000_000_000.0;     suffix = "Trillion"
+	else:
+		v = af / 1_000_000_000_000_000.0; suffix = "Quadrillion"
+	var t := "%.3f" % v
+	while t.ends_with("0"): t = t.substr(0, t.length() - 1)
+	if t.ends_with("."): t = t.substr(0, t.length() - 1)
+	return sign_str + t + " " + suffix
 
 # Human-readable count: below 1000 prints as-is, otherwise scales to thousand
 # / million / billion / trillion / quadrillion with up to 2 decimal places
@@ -360,14 +378,57 @@ func format_count(n: int) -> String:
 func get_donation_rate_estimate() -> float:
 	return C_CONST * pow(maxf(_subs, 1.0), K_EXP)
 
+func get_cps() -> float:
+	return get_donation_rate_estimate()
+
+# Format an integer with comma thousands separators: 1234567 → "1,234,567"
+func format_grouped_int(n: int) -> String:
+	var sign_str: String = "-" if n < 0 else ""
+	var s: String = str(absi(n))
+	var result: String = ""
+	var count: int = 0
+	for i: int in range(s.length() - 1, -1, -1):
+		if count > 0 and count % 3 == 0:
+			result = "," + result
+		result = s[i] + result
+		count += 1
+	return sign_str + result
+
+# Format a float with comma thousands separators and fixed decimal places:
+# 1234567.891 → "1,234,567.891"
+func format_grouped_float(f: float, decimals: int = 3) -> String:
+	var sign_str: String = "-" if f < 0.0 else ""
+	f = absf(f)
+	var formatted: String = ("%." + str(decimals) + "f") % f
+	var dot_idx: int = formatted.find(".")
+	var int_str: String = formatted.substr(0, dot_idx) if dot_idx >= 0 else formatted
+	var dec_str: String = formatted.substr(dot_idx) if dot_idx >= 0 else ""
+	var grouped: String = ""
+	var count: int = 0
+	for i: int in range(int_str.length() - 1, -1, -1):
+		if count > 0 and count % 3 == 0:
+			grouped = "," + grouped
+		grouped = int_str[i] + grouped
+		count += 1
+	return sign_str + grouped + dec_str
+
+func reset_stats() -> void:
+	_subs          = 0.0
+	_passive_views = 0.0
+	cash           = 0.0
+	_invalidate_alpha_cache()
+	_emit_steady_signals()
+	save_game()
+
 # ---------------------------------------------------------------------------
 # Persistence
 # ---------------------------------------------------------------------------
 
-const SAVE_PATH := "user://game_save.cfg"
+const SAVE_PATH := "user://save.cfg"
 
 func save_game() -> void:
 	var cfg := ConfigFile.new()
+	cfg.load(SAVE_PATH)
 	cfg.set_value("player", "passive_views", _passive_views)
 	cfg.set_value("player", "subs", _subs)
 	cfg.set_value("player", "cash", cash)
@@ -390,13 +451,13 @@ func load_game() -> void:
 func render_stat_template() -> String:
 	# Total views per second = passive VPS tools + autoclickers (which scale
 	# with click_power). Truncated to int so format_count can handle it.
-	var total_vps: int = int(vps + auto_click_rate * click_power)
+	var total_vps: int = int(vps * EquipmentManager.get_global_vps_multiplier())
 	return stat_template \
 		.replace("{views}", format_views(views)) \
 		.replace("{subs}", format_views(subs)) \
 		.replace("{click_power}", str(click_power)) \
 		.replace("{parasocial}", str(parasocial)) \
-		.replace("{cash}", format_count(int(cash))) \
+		.replace("{cash}", format_cash(cash)) \
 		.replace("{goal}", format_count(current_goal)) \
 		.replace("{run}", str(run)) \
 		.replace("{time}", get_time_string()) \

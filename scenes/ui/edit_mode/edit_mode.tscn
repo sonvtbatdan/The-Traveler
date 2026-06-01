@@ -71,37 +71,27 @@ horizontal_alignment = 1
 [node name="EquipmentBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 toggle_mode = true
-text = "Equipment"
+text = "Weaponry"
 
 [node name="ScreenBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 toggle_mode = true
-text = "Screen"
+text = "Defense"
 
 [node name="StatBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 toggle_mode = true
-text = "Stat"
+text = "Power Core"
 
 [node name="UserBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 toggle_mode = true
 text = "User"
 
-[node name="ViewPanelBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
+[node name="ScreenGroupBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 toggle_mode = true
-text = "View Panel"
-
-[node name="CommentPanelBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
-layout_mode = 2
-toggle_mode = true
-text = "Comment Panel"
-
-[node name="ChatbotBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
-layout_mode = 2
-toggle_mode = true
-text = "Chatbot"
+text = "Screen"
 
 [node name="ActionSep" type="HSeparator" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
@@ -136,7 +126,12 @@ visible = false
 
 [node name="ResetEquipmentBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
-text = "Reset Equipment"
+text = "Reset Power Core"
+
+[node name="ShowWeaponBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
+layout_mode = 2
+toggle_mode = true
+text = "Show Weapons"
 
 [node name="Spacer" type="Control" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
@@ -145,8 +140,7 @@ size_flags_vertical = 3
 [node name="TitleLabel" type="Label" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 text = "THE
-STREAM
-must go on"
+TRAVELER"
 horizontal_alignment = 1
 
 [node name="ObjectListPanel" type="Panel" parent="SidePanel/VBox/TopHBox"]
@@ -262,7 +256,7 @@ text = "Apply"
 
 [node name="FileDialog" type="FileDialog" parent="."]
 title = "Upload Image"
-filters = PackedStringArray("*.png,*.jpg,*.jpeg,*.webp ; Image files")
+filters = PackedStringArray("*.png,*.jpg,*.jpeg,*.webp,*.gif ; Image files")
 file_mode = 0
 access = 2
 

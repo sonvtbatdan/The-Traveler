@@ -1,0 +1,19 @@
+[remap]
+
+importer="oggvorbisstr"
+type="AudioStreamOggVorbis"
+uid="uid://c3o78s3o2fduo"
+path="res://.godot/imported/Cadmium - Click & Scroll (feat. Eli Raain & Veronica Bravo) [NCS Release] - NoCopyrightSounds (128k).ogg-4a28c6caffcb704ccdcba5ad1e1e0b4e.oggvorbisstr"
+
+[deps]
+
+source_file="res://assets/audio/music/Cadmium - Click & Scroll (feat. Eli Raain & Veronica Bravo) [NCS Release] - NoCopyrightSounds (128k).ogg"
+dest_files=["res://.godot/imported/Cadmium - Click & Scroll (feat. Eli Raain & Veronica Bravo) [NCS Release] - NoCopyrightSounds (128k).ogg-4a28c6caffcb704ccdcba5ad1e1e0b4e.oggvorbisstr"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4

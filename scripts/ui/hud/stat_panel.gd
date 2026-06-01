@@ -1,6 +1,7 @@
 extends Panel
 
 const SETTINGS_PATH := "user://settings.cfg"
+const AudioMonitorScript := preload("res://scripts/ui/hud/audio_monitor.gd")
 
 const RESOLUTIONS: Array = [
 	{"label": "720p\n1280×720",   "size": Vector2i(1280,  720)},
@@ -11,20 +12,31 @@ const RESOLUTIONS: Array = [
 var _overlay_layer:    CanvasLayer   = null
 var _overlay_rect:     ColorRect     = null
 var _settings_panel:   Panel         = null
+var _confirm_panel:    Panel         = null
+var _confirm_msg_lbl:  Label         = null
+var _pending_action:   String        = ""
+
 var _res_btns:     Array[Button] = []
 var _music_slider: HSlider       = null
 var _sfx_slider:   HSlider       = null
+var _mute_btn:     Button        = null
 
-var _init_music_vol: float = 1.0
-var _init_sfx_vol:   float = 1.0
+var _init_music_vol:        float    = 1.0
+var _init_sfx_vol:          float    = 1.0
+var _pre_mute_music:        float    = -1.0   # -1 = not muted; ≥0 = saved pre-mute volume
+var _init_mute_on_audio:    bool     = false
+var _mute_on_audio_check:   CheckBox = null
+var _audio_monitor:         Node     = null
 
 func _ready() -> void:
-	# Must stay active while game is paused so SETTING/QUIT buttons still work.
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	_audio_monitor = AudioMonitorScript.new()
+	add_child(_audio_monitor)
 	_apply_style()
 	_load_settings()
 	_build_action_bar()
 	call_deferred("_build_settings_panel")
+	call_deferred("_anchor_bottom_right")
 
 func _apply_style() -> void:
 	var s := StyleBoxFlat.new()
@@ -39,17 +51,25 @@ func _apply_style() -> void:
 # ── Action bar ────────────────────────────────────────────────────────────────
 
 func _build_action_bar() -> void:
-	var hbox := HBoxContainer.new()
-	hbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	hbox.offset_left = 6; hbox.offset_right  = -6
-	hbox.offset_top  = 4; hbox.offset_bottom = -4
-	hbox.add_theme_constant_override("separation", 4)
-	add_child(hbox)
+	var vbox := VBoxContainer.new()
+	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vbox.offset_left = 6; vbox.offset_right  = -6
+	vbox.offset_top  = 4; vbox.offset_bottom = -4
+	vbox.add_theme_constant_override("separation", 3)
+	add_child(vbox)
 
+	var hbox := HBoxContainer.new()
+	hbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_theme_constant_override("separation", 4)
+	vbox.add_child(hbox)
+
+	_mute_btn = _make_btn("MUTE")
 	var setting_btn := _make_btn("SETTING")
 	var quit_btn    := _make_btn("QUIT")
+	hbox.add_child(_mute_btn)
 	hbox.add_child(setting_btn)
 	hbox.add_child(quit_btn)
+	_mute_btn.pressed.connect(_toggle_mute)
 	setting_btn.pressed.connect(_toggle_settings)
 	quit_btn.pressed.connect(_on_quit)
 
@@ -77,13 +97,11 @@ func _make_btn(txt: String) -> Button:
 # ── Settings overlay ──────────────────────────────────────────────────────────
 
 func _build_settings_panel() -> void:
-	# CanvasLayer at layer 100 — always on top of all game content.
 	_overlay_layer = CanvasLayer.new()
 	_overlay_layer.layer        = 100
 	_overlay_layer.process_mode = Node.PROCESS_MODE_ALWAYS
 	_overlay_layer.visible      = false
 
-	# Semi-transparent dark backdrop. MOUSE_FILTER_STOP blocks clicks to game.
 	_overlay_rect = ColorRect.new()
 	_overlay_rect.color        = Color(0.0, 0.0, 0.0, 0.60)
 	_overlay_rect.anchor_right  = 1.0
@@ -91,10 +109,10 @@ func _build_settings_panel() -> void:
 	_overlay_rect.mouse_filter  = Control.MOUSE_FILTER_STOP
 	_overlay_layer.add_child(_overlay_rect)
 
-	# Settings panel itself.
+	# ── Settings panel ─────────────────────────────────────────────────────────
 	_settings_panel = Panel.new()
 	_settings_panel.z_index = 1
-	_settings_panel.size    = Vector2(310, 320)
+	_settings_panel.size    = Vector2(310, 430)
 	_settings_panel.process_mode = Node.PROCESS_MODE_ALWAYS
 
 	var ps := StyleBoxFlat.new()
@@ -148,15 +166,118 @@ func _build_settings_panel() -> void:
 		_save_settings())
 
 	vbox.add_child(HSeparator.new())
+
+	# ── Behavior ──
+	vbox.add_child(_make_lbl("Behavior", 11, Color(0.60, 0.75, 0.90)))
+	_mute_on_audio_check = CheckBox.new()
+	_mute_on_audio_check.text = "Mute When Something Is Playing"
+	_mute_on_audio_check.button_pressed = _init_mute_on_audio
+	_mute_on_audio_check.add_theme_font_size_override("font_size", 10)
+	_mute_on_audio_check.process_mode = Node.PROCESS_MODE_ALWAYS
+	_mute_on_audio_check.toggled.connect(func(on: bool) -> void:
+		_audio_monitor.set_enabled(on)
+		_save_settings())
+	vbox.add_child(_mute_on_audio_check)
+
+	vbox.add_child(HSeparator.new())
+
+	# ── Resets ──
+	vbox.add_child(_make_lbl("Reset", 11, Color(0.90, 0.55, 0.55)))
+
+	var reset_purchases_btn := _make_btn("RESET PURCHASES")
+	reset_purchases_btn.process_mode = Node.PROCESS_MODE_ALWAYS
+	reset_purchases_btn.pressed.connect(func() -> void: _prompt_confirm("purchases"))
+	vbox.add_child(reset_purchases_btn)
+
+	var reset_game_btn := _make_btn("RESET GAME")
+	reset_game_btn.process_mode = Node.PROCESS_MODE_ALWAYS
+	reset_game_btn.pressed.connect(func() -> void: _prompt_confirm("game"))
+	vbox.add_child(reset_game_btn)
+
+	vbox.add_child(HSeparator.new())
 	var close_btn := _make_btn("CLOSE")
 	close_btn.process_mode = Node.PROCESS_MODE_ALWAYS
 	close_btn.pressed.connect(_close_settings)
 	vbox.add_child(close_btn)
 
 	_overlay_layer.add_child(_settings_panel)
+
+	# ── Confirm dialog (hidden by default) ─────────────────────────────────────
+	_confirm_panel = Panel.new()
+	_confirm_panel.z_index = 2
+	_confirm_panel.size    = Vector2(280, 160)
+	_confirm_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	_confirm_panel.visible = false
+
+	var cp_style := StyleBoxFlat.new()
+	cp_style.bg_color            = Color(0.08, 0.05, 0.05, 0.98)
+	cp_style.border_width_left   = 2; cp_style.border_width_right  = 2
+	cp_style.border_width_top    = 2; cp_style.border_width_bottom = 2
+	cp_style.border_color        = Color(0.80, 0.30, 0.30, 0.90)
+	cp_style.corner_radius_top_left     = 8; cp_style.corner_radius_top_right    = 8
+	cp_style.corner_radius_bottom_left  = 8; cp_style.corner_radius_bottom_right = 8
+	_confirm_panel.add_theme_stylebox_override("panel", cp_style)
+
+	var cv := VBoxContainer.new()
+	cv.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	cv.offset_left = 14; cv.offset_right  = -14
+	cv.offset_top  = 14; cv.offset_bottom = -14
+	cv.add_theme_constant_override("separation", 10)
+	_confirm_panel.add_child(cv)
+
+	var warn_icon := _make_lbl("⚠  ARE YOU SURE?", 13, Color(1.0, 0.65, 0.20))
+	warn_icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cv.add_child(warn_icon)
+
+	_confirm_msg_lbl = _make_lbl("", 10, Color(0.88, 0.72, 0.72))
+	_confirm_msg_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_confirm_msg_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
+	cv.add_child(_confirm_msg_lbl)
+
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	cv.add_child(spacer)
+
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 8)
+	cv.add_child(btn_row)
+
+	var cancel_btn := _make_btn("CANCEL")
+	cancel_btn.process_mode = Node.PROCESS_MODE_ALWAYS
+	cancel_btn.pressed.connect(_hide_confirm)
+	btn_row.add_child(cancel_btn)
+
+	var confirm_btn := _make_btn("CONFIRM")
+	confirm_btn.process_mode = Node.PROCESS_MODE_ALWAYS
+	# Tint confirm button red
+	var ck := func(bg: Color, bc: Color) -> StyleBoxFlat:
+		var s := StyleBoxFlat.new()
+		s.bg_color = bg
+		s.border_width_left = 1; s.border_width_right  = 1
+		s.border_width_top  = 1; s.border_width_bottom = 1
+		s.border_color = bc
+		s.corner_radius_top_left    = 3; s.corner_radius_top_right    = 3
+		s.corner_radius_bottom_left = 3; s.corner_radius_bottom_right = 3
+		s.content_margin_top = 4; s.content_margin_bottom = 4
+		return s
+	confirm_btn.add_theme_stylebox_override("normal",  ck.call(Color(0.30, 0.06, 0.06, 0.9), Color(0.65, 0.20, 0.20, 0.8)))
+	confirm_btn.add_theme_stylebox_override("hover",   ck.call(Color(0.45, 0.10, 0.10, 0.9), Color(0.85, 0.30, 0.30, 0.9)))
+	confirm_btn.add_theme_stylebox_override("pressed", ck.call(Color(0.20, 0.04, 0.04, 0.9), Color(0.65, 0.20, 0.20, 0.8)))
+	confirm_btn.add_theme_stylebox_override("focus",   ck.call(Color(0.30, 0.06, 0.06, 0.9), Color(0.65, 0.20, 0.20, 0.8)))
+	confirm_btn.add_theme_color_override("font_color", Color(1.0, 0.7, 0.7))
+	confirm_btn.pressed.connect(_execute_confirm)
+	btn_row.add_child(confirm_btn)
+
+	_overlay_layer.add_child(_confirm_panel)
+
 	get_tree().root.add_child(_overlay_layer)
 	_center_settings()
+	_center_confirm()
 	_update_res_btns()
+
+func _anchor_bottom_right() -> void:
+	size = Vector2(size.x, get_combined_minimum_size().y + 8.0)
+	position = Vector2(1240.0, 178.0)
 
 func _make_lbl(txt: String, sz: int, col: Color) -> Label:
 	var l := Label.new()
@@ -194,6 +315,52 @@ func _add_slider_row(parent: VBoxContainer, label_text: String, initial: float) 
 	parent.add_child(row)
 	return slider
 
+# ── Confirm dialog ────────────────────────────────────────────────────────────
+
+func _prompt_confirm(action: String) -> void:
+	_pending_action = action
+	match action:
+		"purchases":
+			_confirm_msg_lbl.text = "This will reset all WEAPONRY and DEFENSE\nupgrades and POWER CORE items to zero.\nThis cannot be undone."
+		"game":
+			_confirm_msg_lbl.text = "This will reset all Crew, Fuel, Credits,\nand Equipment to zero.\nThis cannot be undone."
+	_confirm_panel.visible = true
+	_settings_panel.visible = false
+
+func _hide_confirm() -> void:
+	_confirm_panel.visible = false
+	_settings_panel.visible = true
+	_pending_action = ""
+
+func _execute_confirm() -> void:
+	match _pending_action:
+		"purchases":
+			UpgradeManager.reset_all()
+			EquipmentManager.reset_all()
+			WeaponManager.reset_all()
+			DefenseManager.reset_all()
+		"game":
+			GameManager.reset_stats()
+			UpgradeManager.reset_all()
+			EquipmentManager.reset_all()
+	_pending_action = ""
+	_confirm_panel.visible = false
+	_close_settings()
+
+# ── Open / Close ──────────────────────────────────────────────────────────────
+
+func _toggle_mute() -> void:
+	if _pre_mute_music < 0.0:
+		_pre_mute_music = AudioManager.music_volume
+		AudioManager.set_music_volume(0.0)
+		_mute_btn.text = "UNMUTE"
+	else:
+		AudioManager.set_music_volume(_pre_mute_music)
+		if is_instance_valid(_music_slider):
+			_music_slider.value = _pre_mute_music
+		_pre_mute_music = -1.0
+		_mute_btn.text = "MUTE"
+
 func _toggle_settings() -> void:
 	if not is_instance_valid(_overlay_layer):
 		return
@@ -205,13 +372,15 @@ func _toggle_settings() -> void:
 func _open_settings() -> void:
 	_update_res_btns()
 	_center_settings()
-	_overlay_layer.visible = true
-	get_tree().paused = true
+	_center_confirm()
+	_settings_panel.visible = true
+	_confirm_panel.visible  = false
+	_overlay_layer.visible  = true
 
 func _close_settings() -> void:
 	if is_instance_valid(_overlay_layer):
 		_overlay_layer.visible = false
-	get_tree().paused = false
+	_pending_action = ""
 
 func _center_settings() -> void:
 	if not is_instance_valid(_settings_panel):
@@ -219,11 +388,19 @@ func _center_settings() -> void:
 	var vp := get_viewport().get_visible_rect().size
 	_settings_panel.position = ((vp - _settings_panel.size) * 0.5).floor()
 
-# Allow Escape key to close settings while paused.
+func _center_confirm() -> void:
+	if not is_instance_valid(_confirm_panel):
+		return
+	var vp := get_viewport().get_visible_rect().size
+	_confirm_panel.position = ((vp - _confirm_panel.size) * 0.5).floor()
+
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE and is_instance_valid(_overlay_layer) and _overlay_layer.visible:
-			_close_settings()
+			if _confirm_panel.visible:
+				_hide_confirm()
+			else:
+				_close_settings()
 			get_viewport().set_input_as_handled()
 
 # ── Resolution ────────────────────────────────────────────────────────────────
@@ -261,6 +438,8 @@ func _save_settings() -> void:
 	cfg.set_value("display", "height", res.y)
 	cfg.set_value("audio", "music_vol", AudioManager.music_volume)
 	cfg.set_value("audio", "sfx_vol",   AudioManager.sfx_volume)
+	var mute_on: bool = _mute_on_audio_check.button_pressed if _mute_on_audio_check else _init_mute_on_audio
+	cfg.set_value("behavior", "mute_on_other_audio", mute_on)
 	cfg.save(SETTINGS_PATH)
 
 func _load_settings() -> void:
@@ -273,8 +452,10 @@ func _load_settings() -> void:
 	var screen := DisplayServer.screen_get_size()
 	DisplayServer.window_set_position((screen - Vector2i(w, h)) / 2)
 
-	_init_music_vol = cfg.get_value("audio", "music_vol", 1.0)
-	_init_sfx_vol   = cfg.get_value("audio", "sfx_vol",   1.0)
+	_init_music_vol      = cfg.get_value("audio",    "music_vol",          1.0)
+	_init_sfx_vol        = cfg.get_value("audio",    "sfx_vol",            1.0)
+	_init_mute_on_audio  = cfg.get_value("behavior", "mute_on_other_audio", false)
 	AudioManager.set_music_volume(_init_music_vol)
 	AudioManager.set_sfx_volume(_init_sfx_vol)
-
+	if _audio_monitor and _init_mute_on_audio:
+		_audio_monitor.set_enabled(true)
