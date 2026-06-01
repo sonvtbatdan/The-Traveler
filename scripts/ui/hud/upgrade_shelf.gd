@@ -119,8 +119,8 @@ func set_edit_mode(active: bool) -> void:
 
 func _load_icon_tex(upgrade_id: String) -> Texture2D:
 	var data: Dictionary = UpgradeManager.UPGRADES[upgrade_id]
-	var tab: String = data.get("tab", "view")
-	var folder: String = "res://assets/sprites/comments/" if tab == "comment" \
+	var tab: String = data.get("tab", "weaponry")
+	var folder: String = "res://assets/sprites/comments/" if tab == "defense" \
 	                     else "res://assets/sprites/upgrades/"
 	var tex := load(folder + String(data["icon"])) as Texture2D
 	return tex

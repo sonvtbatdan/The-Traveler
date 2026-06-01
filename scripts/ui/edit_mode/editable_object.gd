@@ -7,7 +7,7 @@ signal object_clicked(obj: EditableObjectNode)
 
 const HANDLE_VISUAL := 10.0
 const HANDLE_HIT    := 22.0
-const MIN_SIZE := Vector2(30.0, 30.0)
+const MIN_SIZE := Vector2(1.0, 1.0)
 const GROUP_LAYER_MARKER := "res://__group_layer__"
 
 func is_group_layer() -> bool:
@@ -19,18 +19,21 @@ var _aspect_ratio := 1.0
 var _dragging := false
 var _drag_start_mouse := Vector2.ZERO
 var _drag_start_pos := Vector2.ZERO
-var _resizing := false
-var _resize_handle := -1
-var _resize_start_mouse := Vector2.ZERO
-var _resize_start_rect := Rect2()
 
 var _gameplay_mode := false
 var _price_label: Label = null
 var _counter_label: Label = null
 var _vps_label: Label = null
+var _cps_label: Label = null
 var _hover_tween: Tween = null
 var _pop_tween: Tween = null
 var _desc_panel: PanelContainer = null
+
+var _gif_frames: Array = []   # Array[ImageTexture]
+var _gif_delays: Array = []   # Array[float]
+var _gif_idx: int = 0
+var _gif_acc: float = 0.0
+
 
 var selected := false:
 	set(v):
@@ -39,6 +42,7 @@ var selected := false:
 
 var group_id := ""
 var source_path := ""
+var display_name := ""
 var layer_visible := true
 
 func _ready() -> void:
@@ -51,6 +55,16 @@ func _ready() -> void:
 	add_child(_price_label)
 	mouse_entered.connect(_on_mouse_entered)
 	mouse_exited.connect(_on_mouse_exited)
+
+func _process(delta: float) -> void:
+	if _gif_frames.is_empty():
+		return
+	_gif_acc += delta
+	var delay: float = _gif_delays[_gif_idx]
+	if _gif_acc >= delay:
+		_gif_acc -= delay
+		_gif_idx = (_gif_idx + 1) % _gif_frames.size()
+		texture_rect.texture = _gif_frames[_gif_idx]
 
 func init(tex: Texture2D, pos: Vector2, sz := Vector2.ZERO) -> void:
 	texture_rect.texture = tex
@@ -65,27 +79,47 @@ func init(tex: Texture2D, pos: Vector2, sz := Vector2.ZERO) -> void:
 	_setup_desc_panel()
 	if is_group_layer():
 		texture_rect.visible = false
+	if tex.has_meta("gif_frames"):
+		_gif_frames = tex.get_meta("gif_frames")
+		_gif_delays = tex.get_meta("gif_delays")
+		_gif_idx = 0
+		_gif_acc = 0.0
 
 func _setup_counter_label() -> void:
 	if group_id != "screen":
 		return
 	var base := source_path.get_file().get_basename().to_lower()
+
+	# Mirror _animate_screen_objects filter: sprites that get the click animation
+	# are the "content" sprites (girl, character, etc.) — not info overlays or frames.
+	if not is_group_layer() and not ("frame" in base or base in ["view", "sub", "screen", "base", "bg", "background"]):
+		add_to_group("view_screen")
+
 	var initial := ""
 	if base == "view":
 		initial = GameManager.format_views(GameManager.views)
 		GameManager.views_changed.connect(func(v: int) -> void:
 			if not is_instance_valid(_counter_label): return
-			_counter_label.text = GameManager.format_views(v)
-			_pop_counter())
+			var t := GameManager.format_views(v)
+			if t != _counter_label.text:
+				_counter_label.text = t
+				_pop_counter())
 	elif base == "sub":
 		initial = GameManager.format_views(GameManager.subs)
 		GameManager.subs_changed.connect(func(v: int) -> void:
-			if is_instance_valid(_counter_label): _counter_label.text = GameManager.format_views(v))
+			if not is_instance_valid(_counter_label): return
+			var t := GameManager.format_views(v)
+			if t != _counter_label.text:
+				_counter_label.text = t
+				_pop_counter())
 	elif base == "cash":
 		initial = "$" + GameManager.format_views(int(GameManager.cash))
 		GameManager.cash_changed.connect(func(v: float) -> void:
 			if not is_instance_valid(_counter_label): return
-			_counter_label.text = "$" + GameManager.format_views(int(v)))
+			var t := "$" + GameManager.format_views(int(v))
+			if t != _counter_label.text:
+				_counter_label.text = t
+				_pop_counter())
 	else:
 		return
 	_counter_label = Label.new()
@@ -100,6 +134,21 @@ func _setup_counter_label() -> void:
 	if font:
 		_counter_label.add_theme_font_override("font", font)
 	add_child(_counter_label)
+
+	if base == "cash":
+		_cps_label = Label.new()
+		_cps_label.visible = false
+		_cps_label.add_theme_color_override("font_color", Color(0.75, 0.90, 1.0, 0.9))
+		_cps_label.add_theme_font_size_override("font_size", 13)
+		_cps_label.add_theme_constant_override("outline_size", 2)
+		_cps_label.add_theme_color_override("font_outline_color", Color.BLACK)
+		_cps_label.position = Vector2(size.x + 6, size.y * 0.5 + 12)
+		if font:
+			_cps_label.add_theme_font_override("font", font)
+		add_child(_cps_label)
+		GameManager.subs_changed.connect(func(_s: int) -> void: _refresh_cps_label())
+		GameManager.game_loaded.connect(func() -> void: _refresh_cps_label())
+		_refresh_cps_label()
 
 	if base == "view":
 		_vps_label = Label.new()
@@ -194,8 +243,12 @@ func _pop_counter() -> void:
 
 func _refresh_vps_label() -> void:
 	if not is_instance_valid(_vps_label): return
-	var total_vps := int(GameManager.vps + GameManager.auto_click_rate * GameManager.click_power)
+	var total_vps := int(GameManager.vps * EquipmentManager.get_global_vps_multiplier())
 	_vps_label.text = "VPS  " + GameManager.format_views(total_vps)
+
+func _refresh_cps_label() -> void:
+	if not is_instance_valid(_cps_label): return
+	_cps_label.text = "CpS  $" + GameManager.format_cash(GameManager.get_cps())
 
 func set_gameplay_mode(v: bool) -> void:
 	_gameplay_mode = v
@@ -203,18 +256,27 @@ func set_gameplay_mode(v: bool) -> void:
 		_counter_label.visible = v
 	if _vps_label:
 		_vps_label.visible = v
+	if _cps_label:
+		_cps_label.visible = v
 	if not v:
 		_hide_hover_immediate()
 	if is_group_layer():
-		visible = not v   # always shown in edit mode, always hidden in gameplay
+		visible = not v
+	elif v and group_id == "stat":
+		visible = false
 	elif v and group_id == "equipment":
 		var item_id := source_path.get_file().get_basename().to_lower()
 		visible = layer_visible and EquipmentManager.get_owned(item_id) >= 1
+	elif v and group_id == "screen":
+		visible = false
+	elif v and group_id == "weaponry":
+		# WeaponManager.sync_from_canvas() sets layer_visible per purchase state.
+		visible = layer_visible
 	else:
 		visible = layer_visible
 
 func get_state() -> Dictionary:
-	return { "path": source_path, "group": group_id, "pos": position, "size": size, "z_index": z_index, "layer_visible": layer_visible }
+	return { "path": source_path, "group": group_id, "pos": position, "size": size, "z_index": z_index, "layer_visible": layer_visible, "flip_h": texture_rect.flip_h if texture_rect else false, "display_name": display_name }
 
 func apply_state(state: Dictionary) -> void:
 	position = state["pos"]
@@ -231,6 +293,8 @@ func _sync_rect_size() -> void:
 		_counter_label.position = Vector2(size.x + 6, size.y * 0.5 - 12)
 	if _vps_label:
 		_vps_label.position = Vector2(size.x + 6, size.y * 0.5 + 12)
+	if _cps_label:
+		_cps_label.position = Vector2(size.x + 6, size.y * 0.5 + 12)
 	if _desc_panel:
 		_desc_panel.position = Vector2(size.x + 8.0, 0.0)
 	queue_redraw()
@@ -241,40 +305,8 @@ func _draw() -> void:
 	if is_group_layer():
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.06, 0.08, 0.12, 0.30), true)
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.3, 0.4, 0.6, 0.85), false, 2.0)
-	if not selected:
-		return
-	draw_rect(Rect2(Vector2.ZERO, size), Color(1.0, 1.0, 1.0, 0.9), false, 2.0)
-	for r in _handle_rects():
-		draw_rect(r, Color.WHITE, true)
-		draw_rect(r, Color(0.2, 0.2, 0.2), false, 1.0)
-
-func _handle_rects() -> Array:
-	var h := HANDLE_VISUAL
-	var h2 := h / 2.0
-	var w := size.x
-	var ht := size.y
-	return [
-		Rect2(-h2, -h2, h, h),
-		Rect2(w - h2, -h2, h, h),
-		Rect2(-h2, ht - h2, h, h),
-		Rect2(w - h2, ht - h2, h, h),
-	]
-
-func _hit_handle(local_pos: Vector2) -> int:
-	var h := HANDLE_HIT
-	var h2 := h / 2.0
-	var w := size.x
-	var ht := size.y
-	var hit_rects := [
-		Rect2(-h2, -h2, h, h),
-		Rect2(w - h2, -h2, h, h),
-		Rect2(-h2, ht - h2, h, h),
-		Rect2(w - h2, ht - h2, h, h),
-	]
-	for i in hit_rects.size():
-		if hit_rects[i].has_point(local_pos):
-			return i
-	return -1
+	if selected:
+		draw_rect(Rect2(Vector2.ZERO, size), Color(1.0, 1.0, 1.0, 0.35), true)
 
 func _gui_input(event: InputEvent) -> void:
 	if _gameplay_mode:
@@ -284,39 +316,29 @@ func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			get_viewport().set_input_as_handled()
-			var lp := get_local_mouse_position()
-			_resize_handle = _hit_handle(lp)
-			if _resize_handle >= 0:
-				_resizing = true
-				_resize_start_mouse = get_global_mouse_position()
-				_resize_start_rect = Rect2(position, size)
-			else:
+			object_clicked.emit(self)
+			if selected:  # Only drag if already selected via object list
 				_dragging = true
 				_drag_start_mouse = get_global_mouse_position()
 				_drag_start_pos = position
-			selected = true
-			object_clicked.emit(self)
 		else:
-			if _dragging or _resizing:
+			if _dragging:
 				transform_ended.emit(self)
 			_dragging = false
-			_resizing = false
 
 	elif event is InputEventMouseMotion:
 		if _dragging:
 			position = _drag_start_pos + (get_global_mouse_position() - _drag_start_mouse)
 			if is_group_layer():
 				transform_motion.emit(self)
-		elif _resizing:
-			_apply_resize()
-			if is_group_layer():
-				transform_motion.emit(self)
-			queue_redraw()
 
 func _handle_gameplay_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		get_viewport().set_input_as_handled()
 		object_clicked.emit(self)
+		if group_id == "weaponry" and source_path.get_file().get_basename().to_lower() == "view":
+			_flash_ship()
+			_collect_near_asteroids()
 
 func _on_mouse_entered() -> void:
 	if not _gameplay_mode or group_id != "active" or is_group_layer():
@@ -365,6 +387,22 @@ func _hide_hover_immediate() -> void:
 	if _desc_panel:
 		_desc_panel.visible = false
 
+func _flash_ship() -> void:
+	if _hover_tween:
+		_hover_tween.kill()
+		_hover_tween = null
+	pivot_offset = size / 2.0
+	var t := create_tween()
+	t.tween_property(texture_rect, "modulate", Color(2.5, 2.5, 2.5, 1.0), 0.07)
+	t.tween_property(texture_rect, "modulate", Color.WHITE, 0.25)
+
+func _collect_near_asteroids() -> void:
+	var ship_center: Vector2 = global_position + size / 2.0
+	var local: Vector2 = ship_center - Vector2(270.0, 8.0)
+	for node: Node in get_tree().get_nodes_in_group("asteroid_main"):
+		if node.has_method("collect_near"):
+			node.collect_near(local, 10.0)
+
 # --- Gameplay animations ---
 
 func animate_screen_click() -> void:
@@ -384,28 +422,3 @@ func animate_upgrade_result(success: bool) -> void:
 		var t := create_tween()
 		t.tween_property(texture_rect, "modulate", Color(1.0, 0.3, 0.3, 1.0), 0.1)
 		t.tween_property(texture_rect, "modulate", Color.WHITE, 0.3)
-
-func _apply_resize() -> void:
-	var delta := get_global_mouse_position() - _resize_start_mouse
-	var sr := _resize_start_rect
-	var new_w: float
-	var new_h: float
-	match _resize_handle:
-		0:  # TL — bottom-right fixed
-			new_w = max(sr.size.x - delta.x, MIN_SIZE.x)
-			new_h = new_w / _aspect_ratio
-			position = Vector2(sr.end.x - new_w, sr.end.y - new_h)
-		1:  # TR — bottom-left fixed
-			new_w = max(sr.size.x + delta.x, MIN_SIZE.x)
-			new_h = new_w / _aspect_ratio
-			position = Vector2(sr.position.x, sr.end.y - new_h)
-		2:  # BL — top-right fixed
-			new_w = max(sr.size.x - delta.x, MIN_SIZE.x)
-			new_h = new_w / _aspect_ratio
-			position = Vector2(sr.end.x - new_w, sr.position.y)
-		3:  # BR — top-left fixed
-			new_w = max(sr.size.x + delta.x, MIN_SIZE.x)
-			new_h = new_w / _aspect_ratio
-			position = sr.position
-	size = Vector2(new_w, new_h)
-	_sync_rect_size()

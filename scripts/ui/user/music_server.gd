@@ -20,6 +20,7 @@ var _pending_skip_first    := false
 var _playlist_skip_first   := false
 var _fetch_thread:         Thread = null
 var _recv_buf              := ""
+var _observing             := false
 
 var playlist_ids:    Array = []
 var playlist_titles: Array = []
@@ -37,6 +38,7 @@ signal playlist_pos_changed(idx: int)
 func start() -> void:
 	if _running:
 		return
+	_observing = false
 	var tools       := ProjectSettings.globalize_path(TOOLS_DIR)
 	var mpv_path    := tools + "mpv.exe"
 	var ytdlp_path  := tools + "yt-dlp.exe"
@@ -67,9 +69,12 @@ func stop() -> void:
 		return
 	_ipc({"command": ["quit"]})
 	_tcp.disconnect_from_host()
+	if _mpv_pid != -1:
+		OS.execute("taskkill.exe", ["/F", "/T", "/PID", str(_mpv_pid)])
+		_mpv_pid = -1
 	_connected = false
 	_running   = false
-	_mpv_pid   = -1
+	_observing = false
 	_pending_url = ""
 	_pending_playlist = []
 
@@ -186,6 +191,9 @@ func _queue_playlist(ids: Array, skip_first: bool = false) -> void:
 # ── IPC / TCP ─────────────────────────────────────────────────────────────────
 
 func _observe_properties() -> void:
+	if _observing:
+		return
+	_observing = true
 	_ipc({"command": ["observe_property", 1, "time-pos"]})
 	_ipc({"command": ["observe_property", 2, "duration"]})
 	_ipc({"command": ["observe_property", 3, "playlist-pos"]})
@@ -203,6 +211,11 @@ func _process(dt: float) -> void:
 	if _connected:
 		if st != StreamPeerTCP.STATUS_CONNECTED:
 			_connected = false
+			_running   = false
+			_observing = false
+			if _mpv_pid != -1:
+				OS.execute("taskkill.exe", ["/F", "/T", "/PID", str(_mpv_pid)])
+				_mpv_pid = -1
 			browser_disconnected.emit()
 		else:
 			var n := _tcp.get_available_bytes()
@@ -212,8 +225,11 @@ func _process(dt: float) -> void:
 	else:
 		_total_t += dt
 		if _total_t >= CONNECT_LIMIT:
-			_running = false
 			_tcp.disconnect_from_host()
+			if _mpv_pid != -1:
+				OS.execute("taskkill.exe", ["/F", "/T", "/PID", str(_mpv_pid)])
+				_mpv_pid = -1
+			_running = false
 			start_failed.emit("Timeout — bridge or mpv failed to start (check tools/ has mpv.exe, yt-dlp.exe, mpv-bridge.ps1)")
 			return
 		_retry_t += dt

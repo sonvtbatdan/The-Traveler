@@ -4,7 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Godot 4 GDScript — "The Stream", a Twitch-streamer idle/clicker game. Entry scene: `scenes/main.tscn`. Toggle edit mode with the `toggle_edit_mode` input action (mapped in `project.godot`).
+Godot 4 GDScript — "The Traveler", a spaceship idle/clicker game. You captain a ship traveling through deep space — clicking the engine boosts fuel production, upgrades automate fuel harvesting and distress signal scanning, and credits accumulate from cosmic cargo events. Entry scene: `scenes/main.tscn`. Toggle edit mode with the `toggle_edit_mode` input action (mapped in `project.godot`).
+
+## Theme Mapping (internal → display)
+
+| Internal variable | Display label |
+|-------------------|---------------|
+| `views` | Fuel |
+| `subs` | Crew |
+| `cash` | Credits |
+| `click_power` | Thrust |
+| `vps` | FPS (Fuel Per Second) |
+| `comment_auto_click_rate` | Defense scan rate |
+| Upgrade tab `"weaponry"` | WEAPONRY panel |
+| Upgrade tab `"defense"` | DEFENSE panel |
+| Comment panel | Distress Signals / Space Radio |
 
 ## Commands
 
@@ -21,7 +35,7 @@ Godot 4 GDScript — "The Stream", a Twitch-streamer idle/clicker game. Entry sc
 
 | Name | File | Role |
 |------|------|------|
-| `GameManager` | `scripts/autoload/game_manager.gd` | Economy: views, subs, cash, click_power, vps, auto_click_rate, comment_auto_click_rate, donations |
+| `GameManager` | `scripts/autoload/game_manager.gd` | Economy: fuel(views), crew(subs), credits(cash), click_power, vps, auto_click_rate, scan_rate(comment_auto_click_rate) |
 | `UpgradeManager` | `scripts/autoload/upgrade_manager.gd` | UPGRADES catalog, owned counts, factory accumulator, save/load |
 | `AudioManager` | `scripts/autoload/audio_manager.gd` | Music/SFX, volume control |
 | `EquipmentManager` | `scripts/autoload/equipment_manager.gd` | Auto-scans `assets/upgrades/equipment/*.png`, cost = 20 × 1.6^index |
@@ -30,12 +44,13 @@ Godot 4 GDScript — "The Stream", a Twitch-streamer idle/clicker game. Entry sc
 
 Root `Control` with these direct children:
 
-- `EditMode` — `CanvasLayer` layer=10 (`scripts/ui/edit_mode/edit_mode.gd`): drag/resize for "screen", "equipment", "stat" groups, persisted to `user://layout.cfg`
+- `StreamScreen` — `Panel` at (270, 8), size 700×764: chứa scrolling background + overlay + border
+- `EditMode` — `CanvasLayer` layer=10 (`scripts/ui/edit_mode/edit_mode.gd`): drag/resize, persisted to `res://default_layout.cfg`
 - `UserPanel` — `CanvasLayer` layer=5 (`scripts/ui/user_panel/user_panel.gd`): PANEL_SCALE=0.5, contains TodoList, MusicPlayer, WeatherClock
-- `ToolsColumn` — `Panel` with `scripts/ui/upgrade/upgrade_list.gd`: two tabs (VIEW / COMMENT)
-- `StatPanel` — `Panel` with `scripts/ui/hud/stat_panel.gd`: stat display + action bar (SETTING, QUIT)
-- `ChatbotPanel` — `scripts/ui/chatbot/chatbot_panel.gd`: Chat display panel (AI backend disconnected; Whisper STT mic input active)
-- `EquipmentColumn` — equipment shop UI
+- `ViewColumn` — `Panel` with `scripts/ui/upgrade/upgrade_list.gd`: WEAPONRY tab only
+- `CommentColumn` — `Panel` with `scripts/ui/upgrade/upgrade_list.gd`: DEFENSE tab only
+- `StatPanel` — `Panel` 192×100 with `scripts/ui/hud/stat_panel.gd`: VBox gồm hàng buttons (MUTE/SETTING/QUIT) + slider BG + slider OV
+- `EquipmentColumn` — ship module shop UI (header: "POWER CORE")
 
 ### CanvasLayer conventions
 
@@ -47,22 +62,73 @@ Root `Control` with these direct children:
 
 ---
 
+## Scrolling Background System
+
+### Files
+
+| File | Role |
+|------|------|
+| `scripts/gameplay/scrolling_background.gd` | Tiles `assets/screen/background.png`, speed=40, z_index=0 |
+| `scripts/gameplay/overlay.gd` | Tiles `assets/screen/overlay.png`, speed=80, z_index=1 |
+
+Cả hai được tạo trong `main.gd._add_scrolling_background/overlay()` và thêm vào `StreamScreen` (group `"scrolling_bg"` / `"scrolling_overlay"`).
+
+### Cơ chế tiling
+
+- Chỉ 1 column dọc, `n_rows = ceili(screen_h / tile_h) + 1`
+- `_tile_x` = x position của cột trong StreamScreen (mặc định căn giữa)
+- `_offset` tăng mỗi frame → khi `>= tile_h` thì wrap về 0 (seamless scroll)
+
+### Image scaling — QUAN TRỌNG
+
+Không dùng `TextureRect.stretch_mode` để scale. Thay vào đó:
+```gdscript
+var img := _source_img.duplicate()
+img.resize(int(_tile_w), int(_tile_h), Image.INTERPOLATE_BILINEAR)
+_tex = ImageTexture.create_from_image(img)
+```
+`_source_img` là `Image` load từ file gốc (2048×2048). Resize CPU-side → texture đúng kích cỡ → `TextureRect.STRETCH_KEEP` chỉ hiển thị, không scale thêm.
+
+### apply_layout_rect
+
+```gdscript
+bg.apply_layout_rect(rel_pos: Vector2, sz: Vector2)
+```
+`rel_pos` = vị trí tương đối trong StreamScreen (= viewport_pos − (270, 8)). `sz` = kích thước tile. Được gọi deferred từ `main.gd._apply_screen_layouts()` sau khi đọc `res://default_layout.cfg`.
+
+### Sliders (StatPanel)
+
+- **BG slider** — kết nối group `"scrolling_bg"`, gọi `set_tile_scale(v)` → `_rebuild()` → resize image mới
+- **OV slider** — kết nối group `"scrolling_overlay"`, cùng cơ chế
+- Cả hai được lưu vào `user://settings.cfg` key `display/bg_scale` và `display/ov_scale`
+- `apply_layout_rect` ghi đè slider; `_rebuild()` từ slider reset `_tile_x` về centered
+
+### Edit Mode — Screen Group
+
+- Group `"screen"` là entry đầu tiên trong `GROUPS` (render sau cùng trong ObjectsContainer = background)
+- Assets: `assets/screen/` — chỉ load `background.png` và `overlay.png` (bỏ qua Spaceship.png)
+- Placement mặc định: `SCREEN_ORIGIN = (270, 8)`, `SCREEN_TILE_SZ = 700`
+- **Invisible trong gameplay mode** — scrolling scripts xử lý visual, edit objects chỉ dùng để căn chỉnh
+- Layout lưu vào `res://default_layout.cfg` (không phải `user://`)
+
+---
+
 ## GameManager
 
 ### Key fields
 
 ```gdscript
-var cash: float                       # earned from Poisson donation events
-var click_power: float = 1.0          # views per player click
-var vps: float = 0.0                  # views/sec from VPS upgrade tools
-var auto_click_rate: float = 0.0      # auto-clicks/sec (each × click_power views)
-var comment_auto_click_rate: float = 0.0  # auto comment dismissals/sec
-var parasocial: float = 1.0           # multiplier (future: wired to sub growth)
+var cash: float                       # credits earned from cosmic cargo events
+var click_power: float = 1.0          # fuel per engine click (thrust)
+var vps: float = 0.0                  # fuel/sec from Fuel System upgrades
+var auto_click_rate: float = 0.0      # autopilot engine boosts/sec (each × click_power)
+var comment_auto_click_rate: float = 0.0  # scan automation rate (signals/sec)
+var parasocial: float = 1.0           # crew morale multiplier (future)
 var stat_template: String             # editable display template
 
 # Read-only computed getters
-var views: int        # int(_subs + _passive_views)
-var subs: int         # int(_subs)
+var views: int        # fuel (int(_subs + _passive_views))
+var subs: int         # crew (int(_subs))
 var stable_views: int
 var displayed_views: int
 ```
@@ -81,11 +147,13 @@ format_count(n: int) -> String   # plain below 1000; then "1 thousand" / "1 mill
 render_stat_template() -> String # replaces all {tokens} in stat_template
 ```
 
-**VPS display rule:** always use `format_views()` for VPS — both in StatPanel template and in the screen overlay label in `editable_object.gd`.
+**FPS display rule:** always use `format_views()` for FPS — both in StatPanel template and in the screen overlay label in `editable_object.gd`.
 
 ### Stat template tokens
 
-`{views}`, `{subs}`, `{cash}`, `{click_power}`, `{parasocial}`, `{goal}`, `{run}`, `{time}`, `{vps}`
+`{views}` (fuel), `{subs}` (crew), `{cash}` (credits), `{click_power}` (thrust), `{parasocial}` (morale), `{goal}`, `{run}`, `{time}`, `{vps}` (fps)
+
+Default template: `"Fuel: {views}\nCrew: {subs}\nCredits: {cash}\nThrust: x{click_power}\nFPS: {vps}"`
 
 ---
 
@@ -98,28 +166,28 @@ const UPGRADES = {
     "id": {
         "name": "Display Name",
         "icon": "filename.png",           # in assets/upgrades/active/
-        "cost": 100.0,                    # cash cost
-        "tab": "view",                    # "view" or "comment"
+        "cost": 100.0,                    # fuel cost (views)
+        "tab": "fuel",                    # "fuel" or "scan"
         # one or more effect fields:
-        "vps": 1.0,                       # adds to GameManager.vps
-        "click_power": 1.0,               # adds to GameManager.click_power
-        "auto_click_rate": 1.0,           # adds to GameManager.auto_click_rate
-        "comment_click_rate": 1.0,        # adds to GameManager.comment_auto_click_rate
-        "factory": true,                  # special: see factory mechanic below
-        "desc": "Tooltip text",
+        "vps": 1.0,                       # adds to GameManager.vps (fuel/sec)
+        "auto_click_rate": 1.0,           # adds to GameManager.auto_click_rate (autopilot boosts)
+        "comment_click_rate": 1.0,        # adds to GameManager.comment_auto_click_rate (scan rate)
+        "desc": "Flavor text",
     },
 }
 ```
 
-### View tab upgrades
-`fanclub`, `collaborators`, `publishers`, `agency`, `streaming_agency`, `broadcast_network`, `media_conglomerate`, `streaming_empire`, `auto_clicker` (+ more)
+### Weaponry tab upgrades
+`autopilot_booster` (autopilot, +1/s), `solar_panel` ($100, +2 fps), `mining_drone` ($1.5k, +35 fps), `asteroid_harvester` ($25k, +650 fps), `dark_matter_extractor` ($400k, +12k fps), `nebula_harvester` ($8M, +275k fps), `stellar_forge` ($200M, +8M fps), `quantum_synthesizer` ($5B, +230M fps), `galactic_fuel_web` ($150B, +8.5B fps)
 
-### Comment tab upgrades
-`comment_react` ($100, +1/s), `reaction_bot` ($500, +5/s), `reaction_machine` ($10k, +50/s), `reaction_farm` ($50k, +200/s), `reaction_factory` ($500k, factory), `reaction_industry` ($2M, +1000/s), `reaction_economic_zone` ($5M, +3000/s)
+### Defense tab upgrades
+`comm_relay` ($500, +1/s), `signal_filter` ($8k, +20/s), `scanner_array` ($150k, +450/s), `sensor_grid` ($3M, +10k/s), `scan_station` ($75M, +300k/s), `deep_space_array` ($2.5B, +12M/s), `galactic_sensor_web` ($100B, +600M/s)
 
-### Factory mechanic
+### Upgrade purchase currency
+Upgrades bought with **fuel** (`GameManager.stable_views`).
 
-`reaction_factory` spawns a virtual `reaction_machine` (+50 comment_click_rate) every 5 seconds per owned factory, via `_factory_acc` float accumulator in `UpgradeManager._process()`. Persisted as `_virtual_machines: int` in `upgrades_save.cfg`.
+### Upgrade purchase currency
+Upgrades are bought with **fuel** (`GameManager.stable_views`). Credits (cash) accumulate passively from cargo events and are not spent on upgrades.
 
 ---
 
@@ -128,47 +196,32 @@ const UPGRADES = {
 ### `scripts/ui/hud/stat_panel.gd`
 
 - Displays `GameManager.render_stat_template()` in TemplateLabel
-- `_build_action_bar()`: adds HSeparator + styled mini Panel + HBox (SETTING, QUIT) below StatVBox
+- `_build_action_bar()`: VBox gồm 3 hàng — HBox (MUTE/SETTING/QUIT), BG slider, OV slider
+- BG slider (0.1–10): scale tile background → group `"scrolling_bg"` → `set_tile_scale()`
+- OV slider (0.1–10): scale tile overlay → group `"scrolling_overlay"` → `set_tile_scale()`
 - Settings overlay: CanvasLayer(layer=100, PROCESS_MODE_ALWAYS) added to `get_tree().root`
   - ColorRect (0,0,0,0.6) with MOUSE_FILTER_STOP blocks all input to scene below
-  - Panel 310×320 with: Resolution section (720p/1080p/2K buttons), Volume section (Music/SFX sliders)
+  - Panel 310×430 với: Resolution, Volume, Behavior, Reset sections
 - `_open_settings()`: show overlay + `get_tree().paused = true`
 - `_close_settings()`: hide overlay + `get_tree().paused = false`
 - Escape key closes settings via `_input()`
 - StatPanel has `process_mode = PROCESS_MODE_ALWAYS` so it updates while paused
-- Saves to `user://settings.cfg` on every change
-
-### `scripts/ui/hud/comment_panel.gd`
-
-- Comment buttons in VBoxContainer, font_size=13
-- `_comment_acc: float` accumulates fractional auto-dismiss ticks from `GameManager.comment_auto_click_rate`
-- `_auto_dismiss_n(n: int)`: collects available buttons in one pass
-  - If `n >= available.size()`: instant (no tween), O(N) single pass
-  - Otherwise: animate each via `_on_comment_pressed()`
-- Every 5 positive dismissals → `GameManager.add_bonus_subs(1)`
+- Saves to `user://settings.cfg` on every change (gồm cả `bg_scale`, `ov_scale`)
 
 ### `scripts/ui/upgrade/upgrade_list.gd`
 
-- Tab bar (VIEW / COMMENT) built at top; ScrollContainer offset_top=50 to clear it
-- `_current_tab: String` filters by `UPGRADES[id].get("tab", "view")`
+- Tab bar (WEAPONRY / DEFENSE) built at top; ScrollContainer offset_top=50 to clear it
+- `_current_tab: String` filters by `UPGRADES[id].get("tab", "weaponry")`
 - `_switch_tab(tab)` rebuilds item list and updates button highlight colors
-
-### `scripts/ui/chatbot/chatbot_panel.gd`
-
-- Chat display panel — AI backend currently disconnected
-- Whisper STT mic input still active (`godot_whisper` addon)
-- `UserTodoList` integration: `add_task()`, `set_task()`, `clear_task()` via `[CMD:todo_*]` tags
-- `_set_reminder()`: timer-based reminders via `[REMINDER:N:msg]` tags
-- `_build_context()`: builds game-state string (time, stats, upgrades, todo list) — ready to inject into future AI system prompt
-- `login_panel.gd` repurposed as API key entry panel (not spawned at startup)
 
 ### `scripts/ui/edit_mode/editable_object.gd`
 
 - `EditableObjectNode` (`class_name`) — every in-canvas placed sprite
-- `group_id: String` — one of `"screen" | "equipment" | "stat"`
+- `group_id: String` — one of `"screen" | "weaponry" | "defense" | "power_core" | "user"`
 - `_gameplay_mode: bool` — edit handles vs gameplay click routing
-- VPS label uses `GameManager.format_views(total_vps)` (NOT format_count)
-- `group_id == "screen" && basename == "view"` → `GameManager.on_view_clicked()`
+- FPS label uses `GameManager.format_views(total_vps)` (NOT format_count)
+- `group_id == "weaponry" && basename == "view"` → `GameManager.on_view_clicked()` (engine boost click)
+- `group_id == "screen"` → invisible trong gameplay (`visible = false`); scrolling scripts xử lý visual
 
 ---
 
@@ -176,8 +229,9 @@ const UPGRADES = {
 
 | Folder | Contents |
 |--------|----------|
+| `assets/screen/` | `background.png` (2048×2048) + `overlay.png` (2048×2048) — nguồn cho scrolling system |
 | `assets/upgrades/active/` | 48×48 PNG icons, one per upgrade id |
-| `assets/upgrades/equipment/` | Equipment icons, auto-scanned by EquipmentManager (sorted order = cost order) |
+| `assets/upgrades/equipment/` | Ship module icons, auto-scanned by EquipmentManager (sorted order = cost order) |
 | `assets/fonts/Gameplay.ttf` | Pixel/retro font for main UI |
 | `assets/audio/music/` | OGG Vorbis music files streamed by AudioManager |
 
@@ -189,14 +243,14 @@ EquipmentManager cost formula: `20 * pow(1.6, sorted_index)`
 
 | File | Contents |
 |------|----------|
-| `game_save.cfg` | passive_views, subs, cash |
-| `upgrades_save.cfg` | owned counts per upgrade id + `factory/virtual_machines` |
-| `settings.cfg` | resolution (w, h), music_vol, sfx_vol; `[ai]` section: groq_api_key, tavily_api_key |
-| `layout.cfg` | positions/sizes of draggable groups |
-| `equipment.cfg` | owned equipment items |
-| `user_panel.cfg` | UserPanel widget states |
-| `session.cfg` | Chatbot conversation history |
-| `audio_config.cfg` | AudioManager internal state |
+| `user://game_save.cfg` | passive_views (fuel), subs (crew), cash (credits) |
+| `user://upgrades_save.cfg` | owned counts per upgrade id |
+| `user://settings.cfg` | resolution (w, h), music_vol, sfx_vol, bg_scale, ov_scale |
+| `user://equipment.cfg` | owned ship module items |
+| `user://user_panel.cfg` | UserPanel widget states |
+| `user://session.cfg` | Chatbot conversation history |
+| `user://audio_config.cfg` | AudioManager internal state |
+| `res://default_layout.cfg` | positions/sizes của tất cả edit mode objects (tất cả groups kể cả "screen") |
 
 ---
 
@@ -276,6 +330,10 @@ Nếu một tác vụ yêu cầu đọc những file này để **hiểu context
 ## Risky Areas
 
 - Removing autoloads without updating `main.gd` references causes load failure
-- Edit mode groups are hardcoded: `["screen", "equipment", "stat"]` — adding a new group requires updating `edit_mode.gd` GROUPS const, `edit_mode.tscn` toggle buttons, and `assets/<group>/` folder
+- Edit mode groups hiện tại: `["screen", "weaponry", "defense", "power_core", "user"]` — thêm group mới cần update `GROUPS`, `GROUP_FOLDERS`, `edit_mode.tscn` (button), `assets/<folder>/`; group "screen" có logic riêng qua `_auto_load_screen_group()`
+- Scrolling background/overlay dùng `Image.resize()` CPU-side — KHÔNG dùng TextureRect stretch_mode. `EXPAND_IGNORE_SIZE` sẽ khiến texture render ở native size (2048px) rồi bị clip, trông như "crop"
+- `res://default_layout.cfg` lưu layout edit mode (không phải `user://`) — đọc từ `main.gd._apply_screen_layouts()` deferred sau `_ready()`
+- StreamScreen position = (270, 8) trong viewport; các tọa độ relative của scrolling bg = `viewport_pos − (270, 8)`
 - `.uid` files sit next to every `.gd` and `.tscn` — Godot regenerates them on first editor open; scripts created headlessly may be missing UIDs
 - `UpgradeManager.load_game()` must run before `GameManager.load_game()` (UpgradeManager resets GameManager rate fields to 0 then re-applies owned upgrades)
+- Internal GDScript variable names (views, subs, cash) are kept for API stability — they map to Fuel, Crew, Credits in all player-facing UI

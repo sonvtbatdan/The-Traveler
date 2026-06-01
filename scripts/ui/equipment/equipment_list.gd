@@ -8,9 +8,16 @@ var _panel_style: StyleBoxFlat = null
 
 func _ready() -> void:
 	_apply_panel_style()
+	_rebuild_items()
+	EquipmentManager.items_reset.connect(_rebuild_items)
+
+func _rebuild_items() -> void:
 	for child in vbox.get_children():
 		child.free()
-	for id in EquipmentManager.ITEMS:
+	var sorted_ids: Array = EquipmentManager.ITEMS.keys()
+	sorted_ids.sort_custom(func(a: String, b: String) -> bool:
+		return float(EquipmentManager.ITEMS[a]["price"]) < float(EquipmentManager.ITEMS[b]["price"]))
+	for id in sorted_ids:
 		var item: Control = EquipmentItem.instantiate()
 		vbox.add_child(item)
 		item.setup(id)

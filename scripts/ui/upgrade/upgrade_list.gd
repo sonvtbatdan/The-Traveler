@@ -9,7 +9,7 @@ const UpgradeItem := preload("res://scenes/ui/upgrade/upgrade_item.tscn")
 @export var max_panel_h: float = 0.0
 
 var _panel_style: StyleBoxFlat = null
-var _current_tab: String = "view"
+var _current_tab: String = "weaponry"
 var _tab_view_btn: Button    = null
 var _tab_comment_btn: Button = null
 
@@ -21,6 +21,7 @@ func _ready() -> void:
 		_build_tab_bar()
 	_build_items(_current_tab)
 	call_deferred("_fit_size")
+	UpgradeManager.upgrades_reset.connect(_on_upgrades_reset)
 
 func _apply_panel_style() -> void:
 	_panel_style = StyleBoxFlat.new()
@@ -45,13 +46,13 @@ func _build_tab_bar() -> void:
 	hbox.offset_right  = -4.0
 	add_child(hbox)
 
-	_tab_view_btn    = _make_tab_btn("VIEW")
-	_tab_comment_btn = _make_tab_btn("COMMENT")
+	_tab_view_btn    = _make_tab_btn("WEAPONRY")
+	_tab_comment_btn = _make_tab_btn("DEFENSE")
 	hbox.add_child(_tab_view_btn)
 	hbox.add_child(_tab_comment_btn)
 
-	_tab_view_btn.pressed.connect(func(): _switch_tab("view"))
-	_tab_comment_btn.pressed.connect(func(): _switch_tab("comment"))
+	_tab_view_btn.pressed.connect(func(): _switch_tab("weaponry"))
+	_tab_comment_btn.pressed.connect(func(): _switch_tab("defense"))
 
 	scroll.offset_top = 50.0
 	_update_tab_buttons()
@@ -83,16 +84,19 @@ func _update_tab_buttons() -> void:
 	var active_col   := Color(0.4, 0.75, 1.0)
 	var inactive_col := Color(0.45, 0.50, 0.60)
 	_tab_view_btn.add_theme_color_override("font_color",
-		active_col if _current_tab == "view" else inactive_col)
+		active_col if _current_tab == "weaponry" else inactive_col)
 	_tab_comment_btn.add_theme_color_override("font_color",
-		active_col if _current_tab == "comment" else inactive_col)
+		active_col if _current_tab == "defense" else inactive_col)
+
+func _on_upgrades_reset() -> void:
+	call_deferred("_build_items", _current_tab)
 
 func _build_items(tab: String) -> void:
 	for child in vbox.get_children():
 		child.free()
 	for id in UpgradeManager.UPGRADES:
 		var data: Dictionary = UpgradeManager.UPGRADES[id]
-		if data.get("tab", "view") != tab:
+		if data.get("tab", "weaponry") != tab:
 			continue
 		var item: Control = UpgradeItem.instantiate()
 		vbox.add_child(item)

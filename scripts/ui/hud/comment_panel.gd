@@ -7,16 +7,19 @@ const MAX_COMMENTS := 30
 const NEGATIVE_LIFETIME := 10.0
 
 const POSITIVE_COMMENTS := [
-	"poggers", "LUL", "ez clap", "GG", "W",
-	"let's go!", "nice stream", "W streamer", "sub hype", "clip it",
-	"PogChamp", "Pog", "KEKW", "hype", "insane",
-	"+1", "nice one", "banger", "keep going", "love it",
+	"fuel cache located", "crew morale high", "clear skies ahead",
+	"anomaly resolved", "cargo secured", "warp lane open",
+	"distress beacon cleared", "signal acquired", "rendezvous success",
+	"engine output optimal", "nav data updated", "sector all clear",
+	"survivor rescued", "resource node found", "trajectory confirmed",
+	"comms nominal", "dock approach approved", "hull integrity stable",
 ]
 
 const NEGATIVE_COMMENTS := [
-	"zzz", "boring", "unsubbing", "trash", "bad stream",
-	"F", "L", "nope", "meh", "yikes",
-	"cringe", "ratio", "not funny", "mid", "reported",
+	"hull breach detected", "fuel leak warning", "navigation error",
+	"hostile contact", "engine overload", "reactor fault",
+	"crew desertion", "power surge", "debris field ahead",
+	"comms blackout", "oxygen reserves low", "unknown anomaly",
 ]
 
 var _clicked_positive: int = 0
@@ -68,11 +71,11 @@ func _fetch_ai_comments() -> void:
 		"messages": [
 			{
 				"role": "system",
-				"content": "You generate short Twitch chat messages. Output exactly 10 messages, one per line. Prefix positive/hype messages with +, negative/critical with -. No other text, no numbering, no explanation."
+				"content": "You generate short space radio transmissions for a spaceship idle game. Output exactly 10 messages, one per line. Prefix positive/clear signals with +, negative/hazard signals with -. No other text, no numbering, no explanation."
 			},
 			{
 				"role": "user",
-				"content": "10 Twitch chat reactions (1-5 words each): 7 positive (hype, GG, sub style) and 3 negative (bored, critical). One per line with + or - prefix only."
+				"content": "10 space radio transmissions (1-6 words each): 7 positive (clear skies, resource found, crew ready style) and 3 negative (hazard, warning, system failure). One per line with + or - prefix only."
 			}
 		]
 	})
@@ -111,13 +114,6 @@ func _process(delta: float) -> void:
 		_tick = 0.0
 		_spawn_comment()
 
-	var rate := GameManager.comment_auto_click_rate
-	if rate > 0.0:
-		_comment_acc += rate * delta
-		if _comment_acc >= 1.0:
-			var clicks := int(_comment_acc)
-			_comment_acc = fmod(_comment_acc, 1.0)
-			_auto_dismiss_n(clicks)
 
 func _spawn_comment() -> void:
 	if GameManager.views == 0:
@@ -217,8 +213,8 @@ func _auto_dismiss_n(n: int) -> void:
 			btn.disabled = true
 			if btn.get_meta("_positive", true):
 				_clicked_positive += 1
-				if _clicked_positive >= 5:
-					_clicked_positive -= 5
+				if _clicked_positive >= 20:
+					_clicked_positive -= 20
 					GameManager.add_bonus_subs(1)
 			_dismiss(btn, true)
 		else:
@@ -229,8 +225,8 @@ func _on_comment_pressed(btn: Button, is_positive: bool) -> void:
 	_dismiss(btn, false)
 	if is_positive:
 		_clicked_positive += 1
-		if _clicked_positive >= 5:
-			_clicked_positive -= 5
+		if _clicked_positive >= 20:
+			_clicked_positive -= 20
 			GameManager.add_bonus_subs(1)
 
 func _dismiss(btn: Button, instant: bool) -> void:

@@ -1,0 +1,237 @@
+================================================================
+  THE STREAM — HƯỚNG DẪN LUẬT CHƠI VÀ CÁC ITEM
+================================================================
+
+----------------------------------------------------------------
+  TỔNG QUAN
+----------------------------------------------------------------
+
+The Stream là game idle/clicker lấy chủ đề Twitch streamer.
+Bạn đóng vai một streamer đang cố gắng tăng lượt xem, subscriber,
+và kiếm tiền từ donation.
+
+Có 3 loại tài nguyên chính:
+  - VIEWS      : tiền tệ chính để mua upgrade bảng View & Comment
+  - SUBS       : tăng tự động, quyết định lượng donation nhận được
+  - CASH ($)   : tiền thật từ donation, dùng mua Equipment
+
+
+----------------------------------------------------------------
+  CÁC CHỈ SỐ CHÍNH
+----------------------------------------------------------------
+
+  Views
+    Tổng = Subs + Passive Views
+    Tăng qua: click trực tiếp, VPS tools, auto-clicker
+    Dùng để: mua upgrade trong bảng View và Comment
+
+  Subs
+    Tự tăng mỗi giây theo công thức log:
+      Sub/sec = 0.04 × log_5(max(views, 5))
+    Subs cao → donation event nhiều hơn và lớn hơn
+    Mỗi 5 lần dismiss comment thành công → +1 bonus Sub
+
+  Cash ($)
+    Nhận từ donation event (xảy ra ngẫu nhiên kiểu Poisson)
+    Số tiền mỗi donation phân phối theo Bounded Pareto [$1 – $1,000,000]
+    Donation rate tăng theo số Subs (công thức: 0.0181 × subs^0.663 $/giây)
+    Dùng để: mua Equipment
+
+  VpS (Views per Second)
+    Tổng = VPS tools + Auto-clicker rate × Click Power
+    Hiển thị ở màn hình "screen" nếu đặt widget View
+
+  Click Power
+    Số views nhận được mỗi lần click vào nhân vật (mặc định: 1)
+
+  CpS (Comments per Second)
+    Tốc độ auto-dismiss comment từ Comment tools
+
+
+----------------------------------------------------------------
+  VÒNG LẶP CHÍNH
+----------------------------------------------------------------
+
+  1. CLICK vào nhân vật trên màn hình → +Click Power Views
+  2. Dùng Views mua VIEW TOOLS → tăng VpS tự động
+  3. Views tự tăng → Subs tự tăng → Donations tự đến
+  4. Dùng Cash ($) mua EQUIPMENT → boost trực quan
+  5. Dismiss comment trong COMMENT PANEL → +Subs bonus
+  6. Dùng Views mua COMMENT TOOLS → auto-dismiss comment
+
+
+----------------------------------------------------------------
+  BẢNG VIEW TOOLS  (mua bằng Views)
+----------------------------------------------------------------
+
+Giá tăng 15% mỗi lần mua cùng 1 loại (price × 1.15^n).
+
+  AUTO-CLICKER              Giá gốc: 10 views
+    Tự động click 1 lần/giây.
+    Mỗi click = Click Power views (scale theo click power).
+    Effective VpS = auto_click_rate × click_power
+    → Giá rẻ nhất, hiệu quả tăng khi có nhiều upgrade khác.
+
+  FANCLUB                   Giá gốc: 200 views
+    Cộng đồng fan trung thành xem stream liên tục.
+    +5 Views per Second (VpS) mỗi cái sở hữu.
+
+  COLLABORATORS             Giá gốc: 4,000 views
+    Các streamer khác collab, kéo khán giả về.
+    +40 VpS mỗi cái.
+
+  PUBLISHERS                Giá gốc: 80,000 views
+    Publisher lớn quảng bá kênh ra thị trường rộng hơn.
+    +287 VpS mỗi cái.
+
+  TROJAN                    Giá gốc: 1,600,000 views
+    Phần mềm độc hại chạy stream ngầm trên máy tính bị nhiễm.
+    +2,016 VpS mỗi cái.
+
+  SATELLITE                 Giá gốc: 32,000,000 views
+    Thay thế truyền thông chính thống bằng stream của bạn.
+    +14,117 VpS mỗi cái.
+
+  CONCENTRATION CAMP        Giá gốc: 640,000,000 views
+    Không có gì ngoài stream.
+    +98,824 VpS mỗi cái.
+
+  ANIMAL-LANGUAGE-TRANSLATOR-INATOR   Giá gốc: 12,800,000,000 views
+    Dịch ngôn ngữ động vật — chúng cũng xem stream.
+    +691,775 VpS mỗi cái.
+
+  THE VATS                  Giá gốc: 256,000,000,000 views
+    Máy sản xuất content-consumer.
+    +4,842,432 VpS mỗi cái.
+
+
+----------------------------------------------------------------
+  BẢNG COMMENT TOOLS  (mua bằng Views)
+----------------------------------------------------------------
+
+Giá tăng 15% mỗi lần mua cùng 1 loại.
+Comment tools giúp auto-dismiss comment trong Comment Panel.
+Mỗi 5 lần dismiss → +1 Sub.
+
+  COMMENT REACT             Giá gốc: 1,000 views
+    Thuê agency react thay bạn.
+    +1 comment dismissed per second (CpS)
+
+  REACTION BOT              Giá gốc: 5,000 views
+    Script tự động react comment.
+    +5 CpS
+
+  REACTION MACHINE          Giá gốc: 100,000 views
+    Máy gồm nhiều bot.
+    +50 CpS
+
+  REACTION FARM             Giá gốc: 500,000 views
+    Trang trại các reaction machine.
+    +200 CpS
+
+  REACTION FACTORY          Giá gốc: 5,000,000 views
+    Nhà máy đặc biệt — KHÔNG cộng CpS trực tiếp.
+    Sản xuất 1 virtual Reaction Machine (+50 CpS) mỗi 5 giây
+    cho mỗi cái bạn sở hữu. Hiệu quả tăng dần theo thời gian.
+
+  REACTION INDUSTRY         Giá gốc: 20,000,000 views
+    Khu công nghiệp thuê để đặt nhà máy.
+    +1,000 CpS
+
+  REACTION ECONOMIC ZONE    Giá gốc: 50,000,000 views
+    Toàn bộ hệ sinh thái phản ứng.
+    +3,000 CpS
+
+
+----------------------------------------------------------------
+  EQUIPMENT  (mua bằng Cash $, mỗi item 1 lần duy nhất)
+----------------------------------------------------------------
+
+Equipment là các vật phẩm trang trí/boost được đặt trên màn
+hình qua Edit Mode. Mỗi item chỉ mua được 1 lần.
+
+Giá công thức: 200 × 1.6^index (sắp xếp từ rẻ đến đắt)
+  index 0 → $200
+  index 1 → $320
+  index 2 → $512
+  index 3 → $819
+  ... (tăng 60% mỗi bậc)
+
+Các item được auto-scan từ thư mục assets/upgrades/equipment/
+và hiển thị theo thứ tự giá tăng dần (rẻ nhất ở trên).
+
+Để mua: vào shop Equipment bên phải màn hình, click vào item.
+Sau khi mua, item xuất hiện trong Edit Mode để kéo/thả.
+
+
+----------------------------------------------------------------
+  COMMENT PANEL
+----------------------------------------------------------------
+
+Comment panel hiện các comment ngẫu nhiên xuất hiện theo thời gian.
+
+  - Click thủ công vào từng comment để dismiss.
+  - Mỗi 5 lần dismiss (thủ công hoặc auto) → +1 Sub bonus.
+  - Comment Tools tự động dismiss theo tốc độ CpS.
+  - Auto-dismiss hàng loạt (n >= available): instant, không animation.
+
+
+----------------------------------------------------------------
+  EDIT MODE
+----------------------------------------------------------------
+
+Nhấn phím toggle_edit_mode (xem project.godot) để vào/ra Edit Mode.
+
+  - Kéo sprite để di chuyển.
+  - Kéo góc để resize (giữ nguyên tỷ lệ).
+  - Sprite nhóm "screen":  click trong gameplay → +Views
+  - Sprite nhóm "equipment": hiện/ẩn tùy theo đã mua hay chưa
+  - Layout được lưu tự động vào user://layout.cfg
+
+
+----------------------------------------------------------------
+  AUTO-CLICKER OVERLAY
+----------------------------------------------------------------
+
+Khi sở hữu Auto-clicker, các hình bàn tay (hand cursor) xuất hiện
+xung quanh nhân vật trên màn hình:
+
+  - Các hand xếp liền kề nhau (cách 1px) theo silhouette nhân vật.
+  - Số hand trên 1 vòng = tính từ chu vi silhouette ÷ 11px.
+  - Khi đủ 1 vòng → vòng thứ 2 bắt đầu (cách ra ngoài 14px).
+  - Mỗi hand jab vào nhân vật mỗi 3 giây theo sóng tuần tự.
+  - Edge detection dựa trên alpha pixel của sprite.
+
+
+----------------------------------------------------------------
+  RESET
+----------------------------------------------------------------
+
+Trong Settings (nút SETTING):
+
+  RESET PURCHASES
+    Xóa toàn bộ upgrade View, Comment và Equipment.
+    Views, Subs, Cash giữ nguyên.
+
+  RESET GAME
+    Xóa tất cả: Views, Subs, Cash + toàn bộ upgrade & equipment.
+
+
+----------------------------------------------------------------
+  LƯU GAME
+----------------------------------------------------------------
+
+Game tự lưu khi:
+  - Mua upgrade hoặc equipment
+  - Thay đổi settings
+  - Đóng cửa sổ game
+
+File lưu tại:  user://  (thư mục Godot user data)
+  game_save.cfg      — Views, Subs, Cash
+  upgrades_save.cfg  — upgrade đã mua
+  equipment.cfg      — equipment đã mua
+  layout.cfg         — vị trí sprite trên màn hình
+  settings.cfg       — resolution, âm lượng
+
+
+================================================================

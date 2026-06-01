@@ -33,6 +33,10 @@ var _playlist_pos  := -1
 var _seeking       := false
 var _upd_seek      := false
 
+var _restore_pos:          float = 0.0   # saved playback position (seconds)
+var _restore_playlist_pos: int   = -1    # saved playlist index (-1 = single video)
+var _pending_restore:      bool  = false # seek when next duration arrives
+
 var _url_input:       LineEdit
 var _title_lbl:       _MarqueeLabel
 var _play_btn:        TextureButton
@@ -120,12 +124,18 @@ func _ready() -> void:
 	add_child(_http_thumb)
 	_http_thumb.request_completed.connect(_on_thumb_fetched)
 
+	var saved := _load_session()
+	_volume = float(saved["volume"])
+	if is_instance_valid(_vol_slider):
+		_vol_slider.value = _volume
 	AudioManager.set_music_volume(_volume)
 	_update_game_music_display()
 
-	var saved_url := _load_url()
-	if not saved_url.is_empty():
-		_url_input.text = saved_url
+	if not saved["url"].is_empty():
+		_url_input.text = saved["url"]
+		_restore_pos          = float(saved["position"])
+		_restore_playlist_pos = int(saved["playlist_pos"])
+		call_deferred("_auto_play_saved", saved["url"])
 
 func _process(delta: float) -> void:
 	if _loading and not _playlist_mode:
@@ -175,6 +185,19 @@ func _set_expanded(val: bool) -> void:
 		_mute_btn.reparent(_ctrl_row)
 		_expand_btn.reparent(_ctrl_row)
 		_ctrl_spacer.visible = true
+
+func _auto_play_saved(url: String) -> void:
+	if url.is_empty():
+		return
+	# For single video or playlist-at-pos-0: seek as soon as duration arrives.
+	# For playlist at pos > 0: wait until after skip_to() fires playlist_pos_changed.
+	if _restore_playlist_pos <= 0:
+		_pending_restore = true
+	_fetch_title(url)
+	_play_url(url)
+
+func _exit_tree() -> void:
+	_save_session()
 
 func _update_play_icon() -> void:
 	_play_btn.texture_normal = _tex_play if _playing else _tex_pause_pressed
@@ -446,6 +469,10 @@ func _on_duration_changed(dur: float) -> void:
 			_upd_seek = true
 			_seek_bar.value = _cur_pos / dur
 			_upd_seek = false
+	if _pending_restore and _restore_pos > 0.0 and dur > _restore_pos:
+		_pending_restore = false
+		_server.seek_to(_restore_pos)
+		_restore_pos     = 0.0
 
 func _on_seek_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
@@ -486,6 +513,9 @@ func _fmt_time(secs: float) -> String:
 
 func _on_playlist_pos_changed(idx: int) -> void:
 	_playlist_pos = idx
+	if _restore_playlist_pos >= 0 and idx == _restore_playlist_pos:
+		_restore_playlist_pos = -1
+		_pending_restore      = true
 	_duration = 0.0
 	_cur_pos  = 0.0
 	_elapsed_lbl.text = "--:--"
@@ -550,7 +580,10 @@ func _on_url_submitted(url: String) -> void:
 	if url.is_empty():
 		return
 	_url_input.text = url
-	_save_url(url)
+	_restore_pos          = 0.0
+	_restore_playlist_pos = -1
+	_pending_restore      = false
+	_save_session()
 	_fetch_title(url)
 	_play_url(url)
 
@@ -706,6 +739,7 @@ func _on_volume_changed(val: float) -> void:
 	_server.send({"cmd": "volume", "v": val})
 	if not _muted:
 		AudioManager.set_music_volume(val)
+	_save_session()
 
 func _on_browser_connected() -> void:
 	_loading = false
@@ -753,6 +787,8 @@ func _on_playlist_loaded(ids: Array) -> void:
 	else:
 		_status_lbl.text = "%d songs queued" % ids.size()
 		_playlist_pos = 0
+		if _restore_playlist_pos > 0 and _restore_playlist_pos < ids.size():
+			_server.skip_to(_restore_playlist_pos)
 		var titles := _server.playlist_titles
 		if not titles.is_empty():
 			_title_lbl.set_text(titles[0])
@@ -762,16 +798,24 @@ func _on_playlist_loaded(ids: Array) -> void:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-func _save_url(url: String) -> void:
+func _save_session() -> void:
 	var cfg := ConfigFile.new()
-	cfg.set_value("music", "last_url", url)
+	cfg.set_value("music", "last_url",          _url_input.text.strip_edges() if _url_input else "")
+	cfg.set_value("music", "last_position",     _cur_pos if _youtube_mode else 0.0)
+	cfg.set_value("music", "last_playlist_pos", _playlist_pos if (_youtube_mode and _playlist_mode) else -1)
+	cfg.set_value("music", "volume",            _volume)
 	cfg.save(SAVE_PATH)
 
-func _load_url() -> String:
+func _load_session() -> Dictionary:
 	var cfg := ConfigFile.new()
-	if cfg.load(SAVE_PATH) == OK:
-		return cfg.get_value("music", "last_url", "")
-	return ""
+	if cfg.load(SAVE_PATH) != OK:
+		return {"url": "", "position": 0.0, "playlist_pos": -1, "volume": 1.0}
+	return {
+		"url":          cfg.get_value("music", "last_url",          ""),
+		"position":     cfg.get_value("music", "last_position",     0.0),
+		"playlist_pos": cfg.get_value("music", "last_playlist_pos", -1),
+		"volume":       cfg.get_value("music", "volume",            1.0),
+	}
 
 func _extract_video_id(url: String) -> String:
 	if "youtu.be/" in url:

@@ -3,13 +3,19 @@ extends CanvasLayer
 const EditableObject := preload("res://scenes/ui/edit_mode/editable_object.tscn")
 const GifLoader      := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const LAYOUT_PATH := "res://default_layout.cfg"
-const GROUPS := ["stat", "screen", "equipment"]
+const GROUPS := ["screen", "weaponry", "defense", "power_core", "user"]
 const SCREEN_FIT_W := 1440.0
 const SCREEN_FIT_H := 780.0
 const GROUP_FOLDERS := {
-	"equipment": "upgrades/equipment",
+	"screen":     "screen",
+	"weaponry":   "weaponry",
+	"defense":    "defense",
+	"power_core": "powercore",
+	"user":       "user",
 }
-const EQUIPMENT_FIXED_RECT := Rect2(270.0, 8.0, 700.0, 390.0)
+# StreamScreen position and default tile size (2048×2048 image at scale 1.0 → 700×700px tile)
+const SCREEN_ORIGIN := Vector2(270.0, 8.0)
+const SCREEN_TILE_SZ := 700.0
 
 # Sentinel source_path for the synthetic Group Layer object.
 # Pinned at the top of each group's list; moving/resizing it propagates to
@@ -30,28 +36,23 @@ const SHELF_END_PREFIX   := "res://__shelf_end_"
 @onready var file_dialog: FileDialog = $FileDialog
 @onready var unsaved_dialog: Window = $UnsavedDialog
 
-@onready var btn_screen: Button       = $SidePanel/VBox/TopHBox/ButtonsColumn/ScreenBtn
-@onready var btn_equipment: Button    = $SidePanel/VBox/TopHBox/ButtonsColumn/EquipmentBtn
-@onready var btn_stat: Button         = $SidePanel/VBox/TopHBox/ButtonsColumn/StatBtn
+@onready var btn_screen: Button      = $SidePanel/VBox/TopHBox/ButtonsColumn/ScreenGroupBtn
+@onready var btn_weaponry: Button    = $SidePanel/VBox/TopHBox/ButtonsColumn/EquipmentBtn
+@onready var btn_defense: Button     = $SidePanel/VBox/TopHBox/ButtonsColumn/ScreenBtn
+@onready var btn_power_core: Button  = $SidePanel/VBox/TopHBox/ButtonsColumn/StatBtn
 @onready var btn_user: Button        = $SidePanel/VBox/TopHBox/ButtonsColumn/UserBtn
-@onready var btn_view_panel: Button    = $SidePanel/VBox/TopHBox/ButtonsColumn/ViewPanelBtn
-@onready var btn_comment_panel: Button = $SidePanel/VBox/TopHBox/ButtonsColumn/CommentPanelBtn
-@onready var btn_fit_screen: Button    = $SidePanel/VBox/TopHBox/ButtonsColumn/FitScreenBtn
-@onready var btn_setup_screen: Button  = $SidePanel/VBox/TopHBox/ButtonsColumn/SetupScreenBtn
+@onready var btn_fit_screen: Button       = $SidePanel/VBox/TopHBox/ButtonsColumn/FitScreenBtn
+@onready var btn_setup_screen: Button     = $SidePanel/VBox/TopHBox/ButtonsColumn/SetupScreenBtn
 @onready var btn_reset_screen: Button     = $SidePanel/VBox/TopHBox/ButtonsColumn/ResetScreenBtn
 @onready var btn_reset_equipment: Button  = $SidePanel/VBox/TopHBox/ButtonsColumn/ResetEquipmentBtn
+@onready var btn_show_weapon: Button      = $SidePanel/VBox/TopHBox/ButtonsColumn/ShowWeaponBtn
 @onready var btn_delete: Button           = $SidePanel/VBox/TopHBox/ButtonsColumn/DeleteBtn
 @onready var btn_save: Button             = $SidePanel/VBox/TopHBox/ButtonsColumn/SaveBtn
 @onready var btn_upload: Button           = $SidePanel/VBox/TopHBox/ButtonsColumn/UploadBtn
 @onready var transform_panel         = $SidePanel/VBox/TransformPanel
 
-var _active_group := "screen"
-var _user_panel: Node = null      # UserPanel sibling node
-var _user_editing := false        # whether User edit mode is active
-var _view_panel_node: Node = null
-var _view_panel_editing := false
-var _comment_panel_node: Node = null
-var _comment_panel_editing := false
+var _active_group := "weaponry"
+var _user_panel: Node = null
 var _shelf_node: Node = null
 var _is_open := false
 var _dirty := false
@@ -75,6 +76,8 @@ var _canvas_dragging := false
 var _canvas_drag_mouse_prev := Vector2.ZERO
 var _canvas_drag_undo_pushed := false
 var _layout_loaded := false
+var _pre_drag_states: Dictionary = {}  # obj -> {pos, size} recorded at drag-start
+var _show_weapons: bool = false
 
 func _ready() -> void:
 	layer = 10
@@ -85,22 +88,21 @@ func _ready() -> void:
 	object_list_panel.z_indices_changed.connect(_sort_canvas_z_order)
 	title_bar.gui_input.connect(_on_title_bar_input)
 	_user_panel = get_parent().get_node_or_null("UserPanel")
-	_view_panel_node = get_parent().get_node_or_null("ViewColumn")
-	_comment_panel_node = get_parent().get_node_or_null("CommentColumn")
 	_shelf_node = get_parent().get_node_or_null("UpgradeShelf")
-	btn_view_panel.pressed.connect(_on_view_panel_btn_pressed)
-	btn_comment_panel.pressed.connect(_on_comment_panel_btn_pressed)
 	object_list_panel.group_layer_visibility_toggled.connect(_on_group_layer_visibility_toggled)
+	object_list_panel.row_context_action.connect(_on_context_action)
 	btn_fit_screen.pressed.connect(_fit_screen_group)
 	btn_setup_screen.pressed.connect(_setup_screen_from_user)
 	btn_reset_screen.pressed.connect(_reset_screen_group)
 	btn_reset_equipment.pressed.connect(_on_reset_equipment_pressed)
+	btn_show_weapon.pressed.connect(_on_show_weapon_pressed)
 	btn_save.pressed.connect(_on_save_pressed)
 	btn_upload.pressed.connect(_on_upload_pressed)
 	btn_screen.pressed.connect(func() -> void: _set_group("screen"))
-	btn_equipment.pressed.connect(func() -> void: _set_group("equipment"))
-	btn_stat.pressed.connect(func() -> void: _set_group("stat"))
-	btn_user.pressed.connect(_on_user_btn_pressed)
+	btn_weaponry.pressed.connect(func() -> void: _set_group("weaponry"))
+	btn_defense.pressed.connect(func() -> void: _set_group("defense"))
+	btn_power_core.pressed.connect(func() -> void: _set_group("power_core"))
+	btn_user.pressed.connect(func() -> void: _set_group("user"))
 	unsaved_dialog.get_node("VBox/BtnRow/SaveBtn").pressed.connect(_on_dialog_save)
 	unsaved_dialog.get_node("VBox/BtnRow/DiscardBtn").pressed.connect(_on_dialog_discard)
 	unsaved_dialog.get_node("VBox/BtnRow/CancelBtn").pressed.connect(_on_dialog_cancel)
@@ -121,35 +123,95 @@ func _set_edit_ui_visible(v: bool) -> void:
 func _on_reset_equipment_pressed() -> void:
 	EquipmentManager.reset_all()
 
+func refresh_weaponry_gameplay() -> void:
+	for obj in _placed.get("weaponry", []):
+		if is_instance_valid(obj) and not _is_open:
+			obj.set_gameplay_mode(true)
+
+func _is_spaceship(obj: EditableObjectNode) -> bool:
+	return obj.group_id == "weaponry" and \
+		obj.source_path.get_file().get_basename().to_lower() == "spaceship"
+
+func _is_weapon(obj: EditableObjectNode) -> bool:
+	return obj.group_id == "weaponry" and \
+		not _is_spaceship(obj) and \
+		not obj.is_group_layer() and \
+		not obj.source_path.begins_with(SHELF_START_PREFIX) and \
+		not obj.source_path.begins_with(SHELF_END_PREFIX)
+
+func _apply_weapons_visibility() -> void:
+	if _active_group == "weaponry":
+		object_list_panel.refresh(_get_weaponry_list_objects())
+
+func _get_weaponry_list_objects() -> Array:
+	var result: Array = []
+	for obj in _placed.get("weaponry", []):
+		if not is_instance_valid(obj):
+			continue
+		if _is_weapon(obj) and not _show_weapons:
+			continue
+		result.append(obj)
+	return result
+
+func _move_weapons_by_delta(delta: Vector2) -> void:
+	for obj in _placed.get("weaponry", []):
+		if is_instance_valid(obj) and _is_weapon(obj):
+			obj.position += delta
+
+func _on_show_weapon_pressed() -> void:
+	_show_weapons = not _show_weapons
+	btn_show_weapon.button_pressed = _show_weapons
+	_apply_weapons_visibility()
+
 func _on_title_bar_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		_dragging_panel = true
 		_drag_offset = side_panel.global_position - get_viewport().get_mouse_position()
 
 func _input(event: InputEvent) -> void:
-	if _is_open and not _selected_objects.is_empty() and event is InputEventKey and event.pressed:
-		var dir := Vector2.ZERO
-		match event.keycode:
-			KEY_UP:    dir = Vector2(0.0, -1.0)
-			KEY_DOWN:  dir = Vector2(0.0,  1.0)
-			KEY_LEFT:  dir = Vector2(-1.0, 0.0)
-			KEY_RIGHT: dir = Vector2( 1.0, 0.0)
-		if dir != Vector2.ZERO:
-			var focus := get_viewport().gui_get_focus_owner()
-			if focus == null or not (focus is LineEdit):
+	if _is_open and event is InputEventKey and event.pressed:
+		if not event.echo and event.keycode == KEY_Z and event.ctrl_pressed:
+			_undo()
+			get_viewport().set_input_as_handled()
+			return
+		if not event.echo and event.keycode == KEY_DELETE and not _selected_objects.is_empty():
+			for obj in _selected_objects.duplicate():
+				_delete_object(obj)
+			get_viewport().set_input_as_handled()
+			return
+		if not _selected_objects.is_empty():
+			var dir := Vector2.ZERO
+			match event.keycode:
+				KEY_UP:    dir = Vector2(0.0, -1.0)
+				KEY_DOWN:  dir = Vector2(0.0,  1.0)
+				KEY_LEFT:  dir = Vector2(-1.0, 0.0)
+				KEY_RIGHT: dir = Vector2( 1.0, 0.0)
+			if dir != Vector2.ZERO:
 				if event.shift_pressed:
 					dir *= 10.0
+				var spaceship_selected := false
+				for obj in _selected_objects:
+					if is_instance_valid(obj) and _is_spaceship(obj):
+						spaceship_selected = true
+						break
 				if not event.echo:
-					for obj in _selected_objects:
-						if obj is EditableObjectNode and (obj as EditableObjectNode).is_group_layer():
-							_push_undo_group_transform(obj.group_id)
-						else:
-							_push_undo_transform(obj)
+					if spaceship_selected:
+						_push_undo_group_transform("weaponry")
+					else:
+						for obj in _selected_objects:
+							if obj is EditableObjectNode and (obj as EditableObjectNode).is_group_layer():
+								_push_undo_group_transform(obj.group_id)
+							else:
+								_push_undo_transform(obj)
 				for obj in _selected_objects:
 					obj.position += dir
 					if obj is EditableObjectNode and (obj as EditableObjectNode).is_group_layer():
 						_propagate_group_layer(obj.group_id, dir, obj.size.x, obj.size.x)
 						_group_layer_prev_state[obj.group_id] = {"pos": obj.position, "size": obj.size}
+				if spaceship_selected:
+					for w in _placed.get("weaponry", []):
+						if is_instance_valid(w) and _is_weapon(w) and not (w in _selected_objects):
+							w.position += dir
 				transform_panel.refresh(_primary_selected())
 				_dirty = true
 				get_viewport().set_input_as_handled()
@@ -203,17 +265,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventKey and event.pressed:
-		if not event.echo and event.keycode == KEY_Z and event.ctrl_pressed:
-			_undo()
-			get_viewport().set_input_as_handled()
-			return
 		if not event.echo and event.is_action_pressed("toggle_edit_mode"):
 			_request_close()
-			get_viewport().set_input_as_handled()
-			return
-		if not event.echo and event.keycode == KEY_DELETE and not _selected_objects.is_empty():
-			for obj in _selected_objects.duplicate():
-				_delete_object(obj)
 			get_viewport().set_input_as_handled()
 			return
 
@@ -247,8 +300,11 @@ func _unhandled_input(event: InputEvent) -> void:
 func toggle() -> void:
 	if not _is_open:
 		_is_open = true
+		_show_weapons = false
+		btn_show_weapon.button_pressed = false
 		_set_edit_ui_visible(true)
 		_set_group(_active_group)
+		_apply_weapons_visibility()
 	else:
 		_request_close()
 
@@ -259,13 +315,14 @@ func _set_group(group: String) -> void:
 	_active_group = group
 	_auto_load_group(group)
 	object_list_panel.set_group_label(group)
-	object_list_panel.refresh(_placed[group])
+	var _list_objs: Array = _get_weaponry_list_objects() if group == "weaponry" else _placed[group]
+	object_list_panel.refresh(_list_objs)
 	_update_group_buttons()
 	_update_object_interactivity()
 	_pending_object = null
 	_select_objects([])
 	if _shelf_node and _shelf_node.has_method("set_edit_mode"):
-		_shelf_node.set_edit_mode(group == "stat")
+		_shelf_node.set_edit_mode(group == "weaponry")
 
 func _auto_load_all_groups() -> void:
 	var prev := _active_group
@@ -318,25 +375,8 @@ func _init_group_z_indices() -> void:
 	_undo_stack.clear()
 	_dirty = false
 
-func _ensure_group_layer(group: String) -> void:
-	for obj in _placed[group]:
-		if is_instance_valid(obj) and obj.is_group_layer():
-			return
-	var tex := _make_group_layer_texture()
-	var prev := _active_group
-	_active_group = group
-	var sz: Vector2
-	var default_pos := GROUP_LAYER_DEFAULT_POS
-	if group in ["screen", "equipment"]:
-		sz = Vector2(700.0, 390.0)
-		if group == "equipment":
-			default_pos = EQUIPMENT_FIXED_RECT.position
-	else:
-		sz = Vector2(GROUP_LAYER_DEFAULT_SIZE, GROUP_LAYER_DEFAULT_SIZE)
-	var obj := _place_object(tex, Vector2.ZERO, sz, GROUP_LAYER_MARKER, true)
-	obj.position = default_pos
-	_active_group = prev
-	_group_layer_prev_state[group] = {"pos": obj.position, "size": obj.size}
+func _ensure_group_layer(_group: String) -> void:
+	pass  # Group layers removed — each object is positioned independently
 
 # 3x3 grid glyph: nine rounded squares on a dark backdrop.
 func _make_group_layer_texture() -> Texture2D:
@@ -365,7 +405,29 @@ func _make_group_layer_texture() -> Texture2D:
 					img.set_pixel(x0 + dx, y0 + dy, cell_color)
 	return ImageTexture.create_from_image(img)
 
+func _auto_load_screen_group() -> void:
+	var folder := "res://assets/screen/"
+	var files: Array[String] = ["background.png", "overlay.png"]
+	var placed_paths: Dictionary = {}
+	for obj in _placed["screen"]:
+		if is_instance_valid(obj):
+			placed_paths[obj.source_path] = true
+	for file: String in files:
+		var full_path: String = folder + file
+		if placed_paths.has(full_path):
+			continue
+		var tex := _load_tex(full_path)
+		if tex == null:
+			continue
+		var obj := _place_object(tex, Vector2.ZERO, Vector2(SCREEN_TILE_SZ, SCREEN_TILE_SZ), full_path, true)
+		obj.position = SCREEN_ORIGIN
+		obj.size     = Vector2(SCREEN_TILE_SZ, SCREEN_TILE_SZ)
+		obj._sync_rect_size()
+
 func _auto_load_group(group: String) -> void:
+	if group == "screen":
+		_auto_load_screen_group()
+		return
 	_ensure_group_layer(group)
 	var folder := "res://assets/" + (GROUP_FOLDERS.get(group, group) as String) + "/"
 	var dir := DirAccess.open(folder)
@@ -393,27 +455,27 @@ func _auto_load_group(group: String) -> void:
 						slot += 1
 		file = dir.get_next()
 	dir.list_dir_end()
-	if group == "stat":
+	if group == "weaponry":
 		_ensure_shelf_markers()
 
-## Returns the center position (in ObjectsContainer space) of a stat-group object
+## Returns the center position (in ObjectsContainer space) of a weaponry-group object
 ## with the given source_path. Returns Vector2.ZERO if not found.
 func get_stat_object_pos(source_path: String) -> Vector2:
-	for obj in _placed.get("stat", []):
+	for obj in _placed.get("weaponry", []):
 		if is_instance_valid(obj) and obj.source_path == source_path:
 			return obj.position + obj.size * 0.5
 	return Vector2.ZERO
 
-## Ensure every upgrade type has a start and end marker in the stat group.
+## Ensure every upgrade type has a start and end marker in the weaponry group.
 ## Markers are placed at default positions only if not already in the layout.
 func _ensure_shelf_markers() -> void:
 	var placed_paths: Dictionary = {}
-	for obj in _placed.get("stat", []):
+	for obj in _placed.get("weaponry", []):
 		if is_instance_valid(obj):
 			placed_paths[obj.source_path] = true
 
 	var prev_group := _active_group
-	_active_group = "stat"
+	_active_group = "weaponry"
 	var ids := UpgradeManager.UPGRADES.keys()
 	for i: int in ids.size():
 		var upgrade_id: String = ids[i]
@@ -432,65 +494,36 @@ func _ensure_shelf_markers() -> void:
 				obj.position = Vector2(930.0, def_y)
 	_active_group = prev_group
 
-func _on_user_btn_pressed() -> void:
-	_user_editing = not _user_editing
-	btn_user.button_pressed = _user_editing
-	if _user_panel and _user_panel.has_method("set_edit_mode"):
-		_user_panel.set_edit_mode(_user_editing)
-	if _user_editing:
-		btn_screen.button_pressed    = false
-		btn_equipment.button_pressed = false
-		btn_stat.button_pressed      = false
-		if _view_panel_editing:
-			_view_panel_editing = false
-			btn_view_panel.button_pressed = false
-			if _view_panel_node and _view_panel_node.has_method("set_edit_mode"):
-				_view_panel_node.set_edit_mode(false)
-		if _comment_panel_editing:
-			_comment_panel_editing = false
-			btn_comment_panel.button_pressed = false
-			if _comment_panel_node and _comment_panel_node.has_method("set_edit_mode"):
-				_comment_panel_node.set_edit_mode(false)
 
-func _on_view_panel_btn_pressed() -> void:
-	_view_panel_editing = not _view_panel_editing
-	btn_view_panel.button_pressed = _view_panel_editing
-	if _view_panel_node and _view_panel_node.has_method("set_edit_mode"):
-		_view_panel_node.set_edit_mode(_view_panel_editing)
-	if _view_panel_editing:
-		btn_screen.button_pressed    = false
-		btn_equipment.button_pressed = false
-		btn_stat.button_pressed      = false
-		if _user_editing:
-			_user_editing = false
-			btn_user.button_pressed = false
-			if _user_panel and _user_panel.has_method("set_edit_mode"):
-				_user_panel.set_edit_mode(false)
-		if _comment_panel_editing:
-			_comment_panel_editing = false
-			btn_comment_panel.button_pressed = false
-			if _comment_panel_node and _comment_panel_node.has_method("set_edit_mode"):
-				_comment_panel_node.set_edit_mode(false)
+func _on_context_action(action: String, obj: EditableObjectNode) -> void:
+	if not is_instance_valid(obj):
+		return
+	match action:
+		"copy":
+			_copy_object(obj)
+		"delete":
+			_delete_object(obj)
+			_select_objects([])
+			object_list_panel.highlight_objects([])
+			_dirty = true
 
-func _on_comment_panel_btn_pressed() -> void:
-	_comment_panel_editing = not _comment_panel_editing
-	btn_comment_panel.button_pressed = _comment_panel_editing
-	if _comment_panel_node and _comment_panel_node.has_method("set_edit_mode"):
-		_comment_panel_node.set_edit_mode(_comment_panel_editing)
-	if _comment_panel_editing:
-		btn_screen.button_pressed    = false
-		btn_equipment.button_pressed = false
-		btn_stat.button_pressed      = false
-		if _user_editing:
-			_user_editing = false
-			btn_user.button_pressed = false
-			if _user_panel and _user_panel.has_method("set_edit_mode"):
-				_user_panel.set_edit_mode(false)
-		if _view_panel_editing:
-			_view_panel_editing = false
-			btn_view_panel.button_pressed = false
-			if _view_panel_node and _view_panel_node.has_method("set_edit_mode"):
-				_view_panel_node.set_edit_mode(false)
+func _copy_object(obj: EditableObjectNode) -> void:
+	if obj.source_path == GROUP_LAYER_MARKER:
+		return
+	var tex := _load_tex(obj.source_path)
+	if tex == null:
+		return
+	var prev_group := _active_group
+	_active_group = obj.group_id
+	var new_obj := _place_object(tex, obj.position + Vector2(20.0, 20.0), obj.size, obj.source_path)
+	new_obj.layer_visible = obj.layer_visible
+	new_obj.visible = obj.layer_visible
+	if new_obj.texture_rect and obj.texture_rect:
+		new_obj.texture_rect.flip_h = obj.texture_rect.flip_h
+	_active_group = prev_group
+	_select_objects([new_obj])
+	object_list_panel.select_object(new_obj)
+	_update_object_interactivity()
 
 func _on_group_layer_visibility_toggled(group_id: String, vis: bool) -> void:
 	for obj in _placed[group_id]:
@@ -502,15 +535,14 @@ func _on_group_layer_visibility_toggled(group_id: String, vis: bool) -> void:
 	_dirty = true
 
 func _update_group_buttons() -> void:
-	btn_screen.button_pressed    = (_active_group == "screen")
-	btn_equipment.button_pressed = (_active_group == "equipment")
-	btn_stat.button_pressed      = (_active_group == "stat")
-	btn_user.button_pressed        = false
-	btn_view_panel.button_pressed  = false
-	btn_comment_panel.button_pressed = false
-	btn_fit_screen.visible    = (_active_group == "screen")
-	btn_setup_screen.visible  = (_active_group == "screen")
-	btn_reset_screen.visible  = (_active_group == "screen")
+	btn_screen.button_pressed     = (_active_group == "screen")
+	btn_weaponry.button_pressed   = (_active_group == "weaponry")
+	btn_defense.button_pressed    = (_active_group == "defense")
+	btn_power_core.button_pressed = (_active_group == "power_core")
+	btn_user.button_pressed       = (_active_group == "user")
+	btn_fit_screen.visible   = (_active_group == "weaponry")
+	btn_setup_screen.visible = (_active_group == "weaponry")
+	btn_reset_screen.visible = (_active_group == "weaponry")
 	btn_delete.disabled = _selected_objects.is_empty()
 
 func _update_object_interactivity() -> void:
@@ -527,7 +559,7 @@ func _update_object_interactivity() -> void:
 			else:
 				obj.set_gameplay_mode(true)
 				var is_frame: bool = "frame" in obj.source_path.get_file().to_lower()
-				if group == "screen" and not is_frame:
+				if group == "weaponry" and not is_frame:
 					obj.mouse_filter = Control.MOUSE_FILTER_STOP
 				else:
 					obj.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -552,34 +584,26 @@ func _on_canvas_object_clicked(obj: EditableObjectNode) -> void:
 	if not _is_open:
 		_handle_gameplay_click(obj)
 		return
-	if _selection_locked:
-		return
-	if Input.is_key_pressed(KEY_SHIFT):
-		var new_sel := _selected_objects.duplicate()
-		if obj in new_sel:
-			new_sel.erase(obj)
+	# Selection only via object list — canvas click never changes selection.
+	if obj in _selected_objects:
+		if _is_spaceship(obj):
+			# Capture entire weaponry group (ship + all weapons) for single-step undo.
+			_push_undo_group_transform("weaponry")
+			_pre_drag_states[obj] = {"pos": obj.position, "size": obj.size, "undo_group": true}
 		else:
-			new_sel.append(obj)
-		_select_objects(new_sel)
-		object_list_panel.highlight_objects(new_sel)
-	else:
-		_select_objects([obj])
-		object_list_panel.select_object(obj)
+			_pre_drag_states[obj] = {"pos": obj.position, "size": obj.size}
 
 func _on_equipment_item_purchased(_id: String) -> void:
 	_update_object_interactivity()
 
 func _handle_gameplay_click(obj: EditableObjectNode) -> void:
 	match obj.group_id:
-		"screen":
-			# Any click on a screen-group sprite (Girl, Screen, view, sub, etc.)
-			# grants click_power views. Frame sprites are mouse_filter = IGNORE
-			# in gameplay mode so they don't reach here at all.
+		"weaponry":
 			GameManager.on_view_clicked()
 			_animate_screen_objects()
 
 func _animate_screen_objects() -> void:
-	for obj in _placed["screen"]:
+	for obj in _placed["weaponry"]:
 		if not is_instance_valid(obj) or obj.is_group_layer():
 			continue
 		var base: String = obj.source_path.get_file().get_basename().to_lower()
@@ -627,7 +651,7 @@ func _sort_canvas_z_order() -> void:
 			if is_instance_valid(obj):
 				all_objs.append(obj)
 	# Compound key: group_index * 10000 + z_index ensures groups never overlap.
-	# GROUPS = ["stat","screen","equipment"] so equipment always renders on top.
+	# GROUPS = ["weaponry","defense","power_core","user"] — user renders on top.
 	all_objs.sort_custom(func(a, b):
 		var ka: int = GROUPS.find(a.group_id) * 10000 + a.z_index
 		var kb: int = GROUPS.find(b.group_id) * 10000 + b.z_index
@@ -678,7 +702,16 @@ func notify_transform_changed(obj: Control) -> void:
 		_group_drag_started[eobj.group_id] = false
 		_group_layer_prev_state[eobj.group_id] = {"pos": obj.position, "size": obj.size}
 	else:
-		_push_undo_transform(obj)
+		if _pre_drag_states.has(obj):
+			var pre: Dictionary = _pre_drag_states[obj]
+			var already_grouped: bool = pre.get("undo_group", false)
+			if not already_grouped and (obj.position != pre["pos"] or obj.size != pre["size"]):
+				_undo_stack.append({"type": "transform", "obj": obj, "pos": pre["pos"], "size": pre["size"]})
+			if _is_spaceship(obj):
+				var delta := obj.position - (pre["pos"] as Vector2)
+				if delta != Vector2.ZERO:
+					_move_weapons_by_delta(delta)
+			_pre_drag_states.erase(obj)
 	_dirty = true
 	if obj in _selected_objects:
 		transform_panel.refresh(_primary_selected())
@@ -826,18 +859,6 @@ func _request_close() -> void:
 
 func _close() -> void:
 	_selection_locked = false
-	if _user_editing:
-		_user_editing = false
-		if _user_panel and _user_panel.has_method("set_edit_mode"):
-			_user_panel.set_edit_mode(false)
-	if _view_panel_editing:
-		_view_panel_editing = false
-		if _view_panel_node and _view_panel_node.has_method("set_edit_mode"):
-			_view_panel_node.set_edit_mode(false)
-	if _comment_panel_editing:
-		_comment_panel_editing = false
-		if _comment_panel_node and _comment_panel_node.has_method("set_edit_mode"):
-			_comment_panel_node.set_edit_mode(false)
 	_is_open = false
 	_set_edit_ui_visible(false)
 	_pending_object = null
@@ -873,7 +894,7 @@ func _save_layout() -> void:
 	_dirty = false
 
 func _fit_screen_group() -> void:
-	var objs: Array = _placed["screen"]
+	var objs: Array = _placed["weaponry"]
 	var min_p := Vector2(INF, INF)
 	var max_p := Vector2(-INF, -INF)
 	var has := false
@@ -889,7 +910,7 @@ func _fit_screen_group() -> void:
 	var cur_h := max_p.y - min_p.y
 	if cur_w <= 0.0 or cur_h <= 0.0:
 		return
-	_push_undo_group_transform("screen")
+	_push_undo_group_transform("weaponry")
 	var vp := get_viewport().get_visible_rect().size
 	var tx := (vp.x - SCREEN_FIT_W) / 2.0
 	var ty := (vp.y - SCREEN_FIT_H) / 2.0
@@ -902,13 +923,6 @@ func _fit_screen_group() -> void:
 		obj.position = Vector2(tx + rel.x * sx, ty + rel.y * sy)
 		obj.size = Vector2(obj.size.x * sx, obj.size.y * sy)
 		obj._sync_rect_size()
-	for obj in objs:
-		if is_instance_valid(obj) and obj.is_group_layer():
-			obj.position = Vector2(tx, ty)
-			obj.size = Vector2(SCREEN_FIT_W, SCREEN_FIT_H)
-			obj._sync_rect_size()
-			_group_layer_prev_state["screen"] = {"pos": obj.position, "size": obj.size}
-			break
 	transform_panel.refresh(_primary_selected())
 	_dirty = true
 
@@ -925,9 +939,8 @@ func _setup_screen_from_user() -> void:
 	var target_pos := Vector2(user_rect.position.x + user_rect.size.x + 10.0, user_rect.position.y)
 	var target_sz  := Vector2(target_w, target_h)
 
-	var objs: Array = _placed["screen"]
+	var objs: Array = _placed["weaponry"]
 
-	# Measure current bounding box of all non-group-layer objects.
 	var min_p := Vector2(INF, INF)
 	var max_p := Vector2(-INF, -INF)
 	var has_objs := false
@@ -938,7 +951,7 @@ func _setup_screen_from_user() -> void:
 		max_p = max_p.max(obj.position + obj.size)
 		has_objs = true
 
-	_push_undo_group_transform("screen")
+	_push_undo_group_transform("weaponry")
 
 	if has_objs:
 		var cur_w := max_p.x - min_p.x
@@ -953,58 +966,54 @@ func _setup_screen_from_user() -> void:
 			obj.size     = Vector2(obj.size.x * sx, obj.size.y * sy)
 			obj._sync_rect_size()
 
-	# Set Group Layer to match the target rect exactly.
-	for obj in objs:
-		if is_instance_valid(obj) and obj.is_group_layer():
-			obj.position = target_pos
-			obj.size     = target_sz
-			obj._sync_rect_size()
-			_group_layer_prev_state["screen"] = {"pos": target_pos, "size": target_sz}
-			break
-
-	if _active_group == "screen":
-		object_list_panel.refresh(_placed["screen"])
+	if _active_group == "weaponry":
+		object_list_panel.refresh(_get_weaponry_list_objects())
 	transform_panel.refresh(_primary_selected())
 	_dirty = true
 
 func _reset_screen_group() -> void:
-	# Remove all existing screen objects from canvas and list panel
-	for obj in _placed["screen"].duplicate():
+	for obj in _placed["weaponry"].duplicate():
 		if is_instance_valid(obj):
 			object_list_panel.remove_object(obj)
 			obj.queue_free()
-	_placed["screen"].clear()
-	# Drop any selected screen objects
+	_placed["weaponry"].clear()
 	var new_sel: Array = []
 	for o in _selected_objects:
-		if is_instance_valid(o) and o.group_id != "screen":
+		if is_instance_valid(o) and o.group_id != "weaponry":
 			new_sel.append(o)
 	_selected_objects = new_sel
-	# Persist: clear screen section in layout.cfg
+
+	# Reload from saved layout (restore to last-saved positions/sizes)
 	var cfg := ConfigFile.new()
+	var prev_group := _active_group
+	_active_group = "weaponry"
 	if cfg.load(LAYOUT_PATH) == OK:
-		cfg.set_value("layout", "screen", [])
-		cfg.save(LAYOUT_PATH)
-	# Re-create a fresh Group Layer at default 700×390
-	_ensure_group_layer("screen")
+		for entry in cfg.get_value("layout", "weaponry", []):
+			if entry.get("path", "") == GROUP_LAYER_MARKER:
+				continue
+			var tex := _load_tex(entry["path"])
+			if tex:
+				var obj := _place_object(tex, Vector2.ZERO, entry["size"], entry["path"], true)
+				obj.position = entry["pos"]
+				obj.z_index = entry.get("z_index", 0)
+				obj.layer_visible = entry.get("layer_visible", true)
+				obj.visible = obj.layer_visible
+				if obj.texture_rect:
+					obj.texture_rect.flip_h = entry.get("flip_h", false)
+				obj.display_name = entry.get("display_name", "")
+	else:
+		_auto_load_group("weaponry")
+	_active_group = prev_group
+
 	_undo_stack.clear()
 	_dirty = false
-	if _active_group == "screen":
-		object_list_panel.set_group_label("screen")
-		object_list_panel.refresh(_placed["screen"])
+	_apply_weapons_visibility()
+	if _active_group == "weaponry":
+		object_list_panel.set_group_label("weaponry")
+		object_list_panel.refresh(_get_weaponry_list_objects())
 	btn_delete.disabled = _selected_objects.is_empty()
 	transform_panel.refresh(null)
 	_update_object_interactivity()
-
-func _enforce_equipment_layout() -> void:
-	for obj in _placed.get("equipment", []):
-		if not is_instance_valid(obj):
-			continue
-		obj.position = EQUIPMENT_FIXED_RECT.position
-		obj.size     = EQUIPMENT_FIXED_RECT.size
-		obj._sync_rect_size()
-		if obj.is_group_layer():
-			_group_layer_prev_state["equipment"] = {"pos": obj.position, "size": obj.size}
 
 func _load_tex(res_path: String) -> Texture2D:
 	if res_path == GROUP_LAYER_MARKER:
@@ -1031,9 +1040,9 @@ func _load_shelf_marker_tex(marker_path: String) -> Texture2D:
 	if not UpgradeManager.UPGRADES.has(upgrade_id):
 		return null
 	var data: Dictionary = UpgradeManager.UPGRADES[upgrade_id]
-	var tab: String = data.get("tab", "view")
-	var folder: String = "res://assets/sprites/comments/" if tab == "comment" \
-	                     else "res://assets/sprites/upgrades/"
+	var tab: String = data.get("tab", "weaponry")
+	var folder: String = "res://assets/sprites/comments/" if tab == "defense" \
+						 else "res://assets/sprites/upgrades/"
 	var icon_tex := load(folder + String(data["icon"])) as Texture2D
 	if icon_tex == null:
 		return null
@@ -1058,6 +1067,8 @@ func _load_layout() -> void:
 		var list = cfg.get_value("layout", group, [])
 		_active_group = group
 		for entry in list:
+			if entry.get("path", "") == GROUP_LAYER_MARKER:
+				continue  # Skip old group layer objects
 			var tex := _load_tex(entry["path"])
 			if tex:
 				var obj := _place_object(tex, Vector2.ZERO, entry["size"], entry["path"], true)
@@ -1065,18 +1076,18 @@ func _load_layout() -> void:
 				obj.z_index = entry.get("z_index", 0)
 				obj.layer_visible = entry.get("layer_visible", true)
 				obj.visible = obj.layer_visible
+				if obj.texture_rect:
+					obj.texture_rect.flip_h = entry.get("flip_h", false)
+				obj.display_name = entry.get("display_name", "")
 		_placed[group].sort_custom(func(a, b): return a.z_index > b.z_index)
 		var n: int = _placed[group].size()
 		for i in n:
 			if is_instance_valid(_placed[group][i]):
 				_placed[group][i].z_index = n - 1 - i
 	_active_group = prev_group
-	for group in GROUPS:
-		for obj in _placed[group]:
-			if is_instance_valid(obj) and obj.is_group_layer():
-				_group_layer_prev_state[group] = {"pos": obj.position, "size": obj.size}
 	_update_object_interactivity()
 	_sort_canvas_z_order()
 	_undo_stack.clear()
 	_dirty = false
 	_layout_loaded = true
+	WeaponManager.sync_from_canvas(_placed.get("weaponry", []))
