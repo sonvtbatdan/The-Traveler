@@ -133,6 +133,11 @@ layout_mode = 2
 toggle_mode = true
 text = "Show Weapons"
 
+[node name="SymmetricBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
+layout_mode = 2
+toggle_mode = true
+text = "Symmetric"
+
 [node name="Spacer" type="Control" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 size_flags_vertical = 3

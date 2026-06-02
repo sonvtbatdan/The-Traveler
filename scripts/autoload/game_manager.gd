@@ -16,6 +16,26 @@ signal stable_views_changed(v: int)
 # Fired once after save data is loaded so late-initialising nodes can refresh.
 signal game_loaded
 
+signal boost_changed(active: bool)
+signal ship_hp_changed(hp: int)
+signal ship_destroyed
+
+signal boss_hp_changed(hp: int)
+signal boss_spawned
+signal boss_killed
+
+var boss_hp:     int = 0
+var boss_max_hp: int = 0
+
+func take_boss_damage(dmg: int) -> void:
+	if boss_hp <= 0 or boss_max_hp <= 0:
+		return
+	boss_hp = maxi(0, boss_hp - dmg)
+	boss_hp_changed.emit(boss_hp)
+	if boss_hp <= 0:
+		boss_max_hp = 0
+		boss_killed.emit()
+
 # ---------------------------------------------------------------------------
 # Tunable constants
 # ---------------------------------------------------------------------------
@@ -72,6 +92,24 @@ var vps: float = 0.0
 # Placeholder multiplier referenced by the {parasocial} stat template token.
 # Currently inert in the math; will be wired into sub growth by a future task.
 var parasocial: float = 1.0
+
+var manual_boost: bool = false
+var ship_hp: int = 100
+const SHIP_MAX_HP: int = 100
+
+func set_boost(active: bool) -> void:
+	if manual_boost == active:
+		return
+	manual_boost = active
+	boost_changed.emit(active)
+
+func ship_take_damage(dmg: int) -> void:
+	if dmg <= 0 or ship_hp <= 0:
+		return
+	ship_hp = maxi(0, ship_hp - dmg)
+	ship_hp_changed.emit(ship_hp)
+	if ship_hp <= 0:
+		ship_destroyed.emit()
 
 # Player-editable stat display template. The setter emits stat_template_changed
 # so consumers (stat_panel.gd) can re-render. Locked per the rewrite spec.

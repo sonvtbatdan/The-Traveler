@@ -2,8 +2,12 @@ extends CanvasLayer
 
 const EditableObject := preload("res://scenes/ui/edit_mode/editable_object.tscn")
 const GifLoader      := preload("res://scripts/ui/edit_mode/gif_loader.gd")
-const LAYOUT_PATH := "res://default_layout.cfg"
+const LAYOUT_PATH        := "res://default_layout.cfg"
+const PRESET_LAYOUT_PATH := "res://preset_layout.cfg"
 const GROUPS := ["screen", "weaponry", "defense", "power_core", "user"]
+const ASSEMBLY_GROUPS := ["weaponry", "defense", "power_core"]
+# Spaceship z_index in ObjectsContainer — high enough so children at negative local z stay above background (z=0,1)
+const SHIP_ASSEMBLY_Z := 100
 const SCREEN_FIT_W := 1440.0
 const SCREEN_FIT_H := 780.0
 const GROUP_FOLDERS := {
@@ -46,6 +50,7 @@ const SHELF_END_PREFIX   := "res://__shelf_end_"
 @onready var btn_reset_screen: Button     = $SidePanel/VBox/TopHBox/ButtonsColumn/ResetScreenBtn
 @onready var btn_reset_equipment: Button  = $SidePanel/VBox/TopHBox/ButtonsColumn/ResetEquipmentBtn
 @onready var btn_show_weapon: Button      = $SidePanel/VBox/TopHBox/ButtonsColumn/ShowWeaponBtn
+@onready var btn_symmetric: Button        = $SidePanel/VBox/TopHBox/ButtonsColumn/SymmetricBtn
 @onready var btn_delete: Button           = $SidePanel/VBox/TopHBox/ButtonsColumn/DeleteBtn
 @onready var btn_save: Button             = $SidePanel/VBox/TopHBox/ButtonsColumn/SaveBtn
 @onready var btn_upload: Button           = $SidePanel/VBox/TopHBox/ButtonsColumn/UploadBtn
@@ -76,26 +81,32 @@ var _canvas_dragging := false
 var _canvas_drag_mouse_prev := Vector2.ZERO
 var _canvas_drag_undo_pushed := false
 var _layout_loaded := false
+var _layout_version: int = 1  # 1=old global z_index, 2=new local z_index (post-reparent)
 var _pre_drag_states: Dictionary = {}  # obj -> {pos, size} recorded at drag-start
 var _show_weapons: bool = false
+var _symmetric: bool = false
 
 func _ready() -> void:
 	layer = 10
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	for g in GROUPS:
 		_placed[g] = []
 	object_list_panel.row_selected.connect(_on_list_row_selected)
 	object_list_panel.file_dropped.connect(_on_file_dropped)
 	object_list_panel.z_indices_changed.connect(_sort_canvas_z_order)
+	object_list_panel.order_changed.connect(func(_a: int, _b: int) -> void: _dirty = true)
 	title_bar.gui_input.connect(_on_title_bar_input)
 	_user_panel = get_parent().get_node_or_null("UserPanel")
 	_shelf_node = get_parent().get_node_or_null("UpgradeShelf")
 	object_list_panel.group_layer_visibility_toggled.connect(_on_group_layer_visibility_toggled)
 	object_list_panel.row_context_action.connect(_on_context_action)
+	object_list_panel.display_name_changed.connect(func(_obj: EditableObjectNode): _dirty = true)
 	btn_fit_screen.pressed.connect(_fit_screen_group)
 	btn_setup_screen.pressed.connect(_setup_screen_from_user)
 	btn_reset_screen.pressed.connect(_reset_screen_group)
 	btn_reset_equipment.pressed.connect(_on_reset_equipment_pressed)
 	btn_show_weapon.pressed.connect(_on_show_weapon_pressed)
+	btn_symmetric.pressed.connect(func(): _symmetric = btn_symmetric.button_pressed)
 	btn_save.pressed.connect(_on_save_pressed)
 	btn_upload.pressed.connect(_on_upload_pressed)
 	btn_screen.pressed.connect(func() -> void: _set_group("screen"))
@@ -139,8 +150,89 @@ func _is_weapon(obj: EditableObjectNode) -> bool:
 		not obj.source_path.begins_with(SHELF_START_PREFIX) and \
 		not obj.source_path.begins_with(SHELF_END_PREFIX)
 
+func _find_ship_eo_in_placed() -> EditableObjectNode:
+	for obj in _placed.get("weaponry", []):
+		if is_instance_valid(obj) and _is_spaceship(obj):
+			return obj
+	return null
+
+# ── Symmetric helpers ─────────────────────────────────────────────────────────
+
+func _obj_label_name(obj: EditableObjectNode) -> String:
+	return obj.display_name if not obj.display_name.is_empty() \
+		else obj.source_path.get_file().get_basename()
+
+func _get_symmetry_axis_x() -> float:
+	var ship := _find_ship_eo_in_placed()
+	if ship == null or not is_instance_valid(ship):
+		return 0.0
+	return ship.size.x * 0.5
+
+func _find_symmetric_partner(obj: EditableObjectNode) -> EditableObjectNode:
+	if not _symmetric or _active_group not in ASSEMBLY_GROUPS:
+		return null
+	var label := _obj_label_name(obj)
+	var partner_label: String
+	if label.begins_with("L"):
+		partner_label = "R" + label.substr(1)
+	elif label.begins_with("R"):
+		partner_label = "L" + label.substr(1)
+	else:
+		return null
+	for g in ASSEMBLY_GROUPS:
+		for o: EditableObjectNode in _placed.get(g, []):
+			if is_instance_valid(o) and o != obj and _obj_label_name(o) == partner_label:
+				return o
+	return null
+
+func _apply_symmetric(changed: EditableObjectNode) -> void:
+	var partner := _find_symmetric_partner(changed)
+	if partner == null:
+		return
+	var ax := _get_symmetry_axis_x()
+	partner.position = Vector2(2.0 * ax - changed.position.x - changed.size.x, changed.position.y)
+	partner.size = changed.size
+	partner._sync_rect_size()
+	_dirty = true
+
+func _refresh_assembly_list() -> void:
+	var ship_eo := _find_ship_eo_in_placed()
+	var all_objs: Array = []
+	for g in ASSEMBLY_GROUPS:
+		for obj in _placed.get(g, []):
+			if is_instance_valid(obj) and not obj.is_group_layer() and not _is_spaceship(obj):
+				if _is_weapon(obj) and not _show_weapons:
+					continue
+				all_objs.append(obj)
+	object_list_panel.refresh_assembly(ship_eo, all_objs)
+
+func _reparent_assembly_objects() -> void:
+	var ship_eo := _find_ship_eo_in_placed()
+	if ship_eo == null or not is_instance_valid(ship_eo):
+		return
+	# ship_z là z_index hiện tại của spaceship trong ObjectsContainer (sau khi _load_layout renumber)
+	# Dùng để convert global z → local z: local_z = global_z - ship_z
+	# Kết quả: spaceship display = 0, trên hull = dương, dưới hull = âm
+	var ship_z := ship_eo.z_index
+	for g in ASSEMBLY_GROUPS:
+		for obj in _placed.get(g, []):
+			if not is_instance_valid(obj) or obj == ship_eo or obj.is_group_layer():
+				continue
+			if obj.get_parent() == objects_container:
+				var global_pos: Vector2 = obj.global_position
+				objects_container.remove_child(obj)
+				ship_eo.add_child(obj)
+				obj.position = global_pos - ship_eo.global_position
+				obj.z_index -= ship_z       # convert to local: 0=hull level, positive=above, negative=below
+				obj.z_as_relative = true    # effective z = SHIP_ASSEMBLY_Z + local_z → always above background
+	# Set spaceship's actual render z high enough for children at most-negative local z to stay above background
+	ship_eo.z_index = SHIP_ASSEMBLY_Z
+	_layout_version = 2
+
 func _apply_weapons_visibility() -> void:
-	if _active_group == "weaponry":
+	if _active_group in ASSEMBLY_GROUPS:
+		_refresh_assembly_list()
+	elif _active_group == "weaponry":
 		object_list_panel.refresh(_get_weaponry_list_objects())
 
 func _get_weaponry_list_objects() -> Array:
@@ -208,10 +300,11 @@ func _input(event: InputEvent) -> void:
 					if obj is EditableObjectNode and (obj as EditableObjectNode).is_group_layer():
 						_propagate_group_layer(obj.group_id, dir, obj.size.x, obj.size.x)
 						_group_layer_prev_state[obj.group_id] = {"pos": obj.position, "size": obj.size}
-				if spaceship_selected:
-					for w in _placed.get("weaponry", []):
-						if is_instance_valid(w) and _is_weapon(w) and not (w in _selected_objects):
-							w.position += dir
+				# Children of spaceship move automatically via parent-child — no explicit loop needed
+				if _symmetric:
+					for obj in _selected_objects:
+						if obj is EditableObjectNode:
+							_apply_symmetric(obj as EditableObjectNode)
 				transform_panel.refresh(_primary_selected())
 				_dirty = true
 				get_viewport().set_input_as_handled()
@@ -251,6 +344,10 @@ func _input(event: InputEvent) -> void:
 			if obj.is_group_layer():
 				_propagate_group_layer(obj.group_id, delta, obj.size.x, obj.size.x)
 				_group_layer_prev_state[obj.group_id] = {"pos": obj.position, "size": obj.size}
+		if _symmetric:
+			for obj in _selected_objects:
+				if is_instance_valid(obj) and obj is EditableObjectNode:
+					_apply_symmetric(obj as EditableObjectNode)
 		transform_panel.refresh(_primary_selected())
 		_dirty = true
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
@@ -297,14 +394,23 @@ func _unhandled_input(event: InputEvent) -> void:
 				_select_objects([])
 				object_list_panel.highlight_objects([])
 
+func is_open() -> bool:
+	return _is_open
+
 func toggle() -> void:
 	if not _is_open:
 		_is_open = true
 		_show_weapons = false
 		btn_show_weapon.button_pressed = false
+		_symmetric = false
+		btn_symmetric.button_pressed = false
 		_set_edit_ui_visible(true)
+		for child in objects_container.get_children():
+			if child.has_method("reset_to_origin"):
+				child.reset_to_origin()
 		_set_group(_active_group)
 		_apply_weapons_visibility()
+		get_tree().paused = true
 	else:
 		_request_close()
 
@@ -313,10 +419,15 @@ func toggle() -> void:
 func _set_group(group: String) -> void:
 	_selection_locked = false
 	_active_group = group
-	_auto_load_group(group)
-	object_list_panel.set_group_label(group)
-	var _list_objs: Array = _get_weaponry_list_objects() if group == "weaponry" else _placed[group]
-	object_list_panel.refresh(_list_objs)
+	if group in ASSEMBLY_GROUPS:
+		for g in ASSEMBLY_GROUPS:
+			_auto_load_group(g)
+		object_list_panel.set_group_label("ship assembly")
+		_refresh_assembly_list()
+	else:
+		_auto_load_group(group)
+		object_list_panel.set_group_label(group)
+		object_list_panel.refresh(_placed.get(group, []))
 	_update_group_buttons()
 	_update_object_interactivity()
 	_pending_object = null
@@ -520,6 +631,7 @@ func _copy_object(obj: EditableObjectNode) -> void:
 	new_obj.visible = obj.layer_visible
 	if new_obj.texture_rect and obj.texture_rect:
 		new_obj.texture_rect.flip_h = obj.texture_rect.flip_h
+	new_obj.set_screen_blend(obj.screen_blend)
 	_active_group = prev_group
 	_select_objects([new_obj])
 	object_list_panel.select_object(new_obj)
@@ -535,14 +647,15 @@ func _on_group_layer_visibility_toggled(group_id: String, vis: bool) -> void:
 	_dirty = true
 
 func _update_group_buttons() -> void:
+	var in_assembly: bool = _active_group in ASSEMBLY_GROUPS
 	btn_screen.button_pressed     = (_active_group == "screen")
-	btn_weaponry.button_pressed   = (_active_group == "weaponry")
-	btn_defense.button_pressed    = (_active_group == "defense")
-	btn_power_core.button_pressed = (_active_group == "power_core")
+	btn_weaponry.button_pressed   = in_assembly
+	btn_defense.button_pressed    = in_assembly
+	btn_power_core.button_pressed = in_assembly
 	btn_user.button_pressed       = (_active_group == "user")
-	btn_fit_screen.visible   = (_active_group == "weaponry")
-	btn_setup_screen.visible = (_active_group == "weaponry")
-	btn_reset_screen.visible = (_active_group == "weaponry")
+	btn_fit_screen.visible   = in_assembly
+	btn_setup_screen.visible = in_assembly
+	btn_reset_screen.visible = in_assembly
 	btn_delete.disabled = _selected_objects.is_empty()
 
 func _update_object_interactivity() -> void:
@@ -552,15 +665,18 @@ func _update_object_interactivity() -> void:
 				continue
 			if _is_open:
 				obj.set_gameplay_mode(false)
-				if group == _active_group or obj.is_group_layer():
-					obj.mouse_filter = Control.MOUSE_FILTER_STOP
-				else:
-					obj.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				var active: bool = (group == _active_group) or \
+					(_active_group in ASSEMBLY_GROUPS and group in ASSEMBLY_GROUPS) or \
+					obj.is_group_layer()
+				obj.mouse_filter = Control.MOUSE_FILTER_STOP if active else Control.MOUSE_FILTER_IGNORE
 			else:
 				obj.set_gameplay_mode(true)
 				var is_frame: bool = "frame" in obj.source_path.get_file().to_lower()
 				if group == "weaponry" and not is_frame:
-					obj.mouse_filter = Control.MOUSE_FILTER_STOP
+					var is_ref_png: bool = obj.source_path.get_extension().to_lower() == "png" \
+						and obj.source_path.get_file().get_basename().to_lower() != "spaceship"
+					obj.mouse_filter = Control.MOUSE_FILTER_IGNORE if is_ref_png \
+						else Control.MOUSE_FILTER_STOP
 				else:
 					obj.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
@@ -607,7 +723,7 @@ func _animate_screen_objects() -> void:
 		if not is_instance_valid(obj) or obj.is_group_layer():
 			continue
 		var base: String = obj.source_path.get_file().get_basename().to_lower()
-		if "frame" in base or base in ["view", "sub", "screen", "base", "bg", "background"]:
+		if "frame" in base or base in ["view", "sub", "screen", "base", "bg", "background", "spaceship"]:
 			continue
 		obj.animate_screen_click()
 
@@ -638,6 +754,8 @@ func _on_transform_live(pos: Vector2, sz: Vector2) -> void:
 	if primary.is_group_layer():
 		_propagate_group_layer(primary.group_id, pos - prev_pos, prev_sz.x, sz.x)
 		_group_layer_prev_state[primary.group_id] = {"pos": pos, "size": sz}
+	elif _symmetric:
+		_apply_symmetric(primary)
 	_dirty = true
 
 # Sync ObjectsContainer's tree order to match every object's z_index. Godot
@@ -645,20 +763,34 @@ func _on_transform_live(pos: Vector2, sz: Vector2) -> void:
 # z_index, so without this sync a visually-on-top object can be unclickable
 # because an underneath sibling absorbs the click.
 func _sort_canvas_z_order() -> void:
-	var all_objs: Array = []
-	for group in GROUPS:
-		for obj in _placed[group]:
-			if is_instance_valid(obj):
-				all_objs.append(obj)
-	# Compound key: group_index * 10000 + z_index ensures groups never overlap.
-	# GROUPS = ["weaponry","defense","power_core","user"] — user renders on top.
-	all_objs.sort_custom(func(a, b):
+	# Sort direct ObjectsContainer children (screen, spaceship, user)
+	var top_objs: Array = []
+	for group in ["screen", "user"]:
+		for obj in _placed.get(group, []):
+			if is_instance_valid(obj) and obj.get_parent() == objects_container:
+				top_objs.append(obj)
+	var ship_eo := _find_ship_eo_in_placed()
+	if ship_eo != null and is_instance_valid(ship_eo):
+		top_objs.append(ship_eo)
+	top_objs.sort_custom(func(a: EditableObjectNode, b: EditableObjectNode) -> bool:
 		var ka: int = GROUPS.find(a.group_id) * 10000 + a.z_index
 		var kb: int = GROUPS.find(b.group_id) * 10000 + b.z_index
 		return ka < kb
 	)
-	for i in all_objs.size():
-		objects_container.move_child(all_objs[i], i)
+	for i in top_objs.size():
+		objects_container.move_child(top_objs[i], i)
+	# Sort spaceship's children (assembly objects) by local z_index
+	if ship_eo != null and is_instance_valid(ship_eo):
+		var assembly_objs: Array = []
+		for g in ASSEMBLY_GROUPS:
+			for obj in _placed.get(g, []):
+				if is_instance_valid(obj) and obj != ship_eo and obj.get_parent() == ship_eo:
+					assembly_objs.append(obj)
+		assembly_objs.sort_custom(func(a: EditableObjectNode, b: EditableObjectNode) -> bool:
+			return a.z_index < b.z_index
+		)
+		for i in assembly_objs.size():
+			ship_eo.move_child(assembly_objs[i], i)
 
 # Move and/or resize all non-group-layer objects in a group by the same delta/scale.
 func _propagate_group_layer(group: String, delta_pos: Vector2, prev_w: float, new_w: float) -> void:
@@ -690,6 +822,17 @@ func _place_object(tex: Texture2D, pos: Vector2, sz := Vector2.ZERO, path := "",
 		obj.size = Vector2(767.0, 428.0)
 		obj._sync_rect_size()
 	_placed[_active_group].append(obj)
+	# Reparent assembly objects (non-spaceship) to be children of spaceship EO.
+	# Only for interactive placement (not silent=true which is used during load;
+	# load reparenting is handled by _reparent_assembly_objects() at end of _load_layout).
+	if not silent and _active_group in ASSEMBLY_GROUPS and not _is_spaceship(obj) and not obj.is_group_layer():
+		var ship_eo := _find_ship_eo_in_placed()
+		if ship_eo != null and is_instance_valid(ship_eo):
+			var gpos: Vector2 = obj.global_position
+			objects_container.remove_child(obj)
+			ship_eo.add_child(obj)
+			obj.position = gpos - ship_eo.global_position
+			obj.z_as_relative = true
 	if not silent:
 		object_list_panel.add_placed_object(obj)
 	_push_undo_add(obj)
@@ -707,16 +850,19 @@ func notify_transform_changed(obj: Control) -> void:
 			var already_grouped: bool = pre.get("undo_group", false)
 			if not already_grouped and (obj.position != pre["pos"] or obj.size != pre["size"]):
 				_undo_stack.append({"type": "transform", "obj": obj, "pos": pre["pos"], "size": pre["size"]})
-			if _is_spaceship(obj):
-				var delta := obj.position - (pre["pos"] as Vector2)
-				if delta != Vector2.ZERO:
-					_move_weapons_by_delta(delta)
+			# Children of spaceship move automatically via parent-child — no explicit _move_weapons_by_delta needed
 			_pre_drag_states.erase(obj)
+		if _symmetric and obj is EditableObjectNode:
+			_apply_symmetric(obj as EditableObjectNode)
 	_dirty = true
 	if obj in _selected_objects:
 		transform_panel.refresh(_primary_selected())
 
 func _on_group_layer_motion(obj: EditableObjectNode) -> void:
+	if not obj.is_group_layer():
+		if _symmetric:
+			_apply_symmetric(obj)
+		return
 	var group := obj.group_id
 	if not _group_drag_started.get(group, false):
 		_group_drag_started[group] = true
@@ -810,7 +956,12 @@ func _undo() -> void:
 			_active_group = entry["group"]
 			var restored := _place_object(entry["tex"], entry["pos"], entry["size"], entry["path"])
 			_active_group = prev_group
-			restored.position = entry["pos"]
+			# _place_object already set correct local position for assembly children
+			var parent_ctrl := restored.get_parent() as Control
+			if parent_ctrl == objects_container:
+				restored.position = entry["pos"]
+			elif parent_ctrl != null:
+				restored.position = (entry["pos"] as Vector2) - parent_ctrl.global_position
 			_update_object_interactivity()
 	_dirty = not _undo_stack.is_empty()
 
@@ -866,6 +1017,10 @@ func _close() -> void:
 	_update_object_interactivity()
 	if _shelf_node and _shelf_node.has_method("set_edit_mode"):
 		_shelf_node.set_edit_mode(false)
+	for child in objects_container.get_children():
+		if child.has_method("refresh_layout"):
+			child.refresh_layout()
+	get_tree().paused = false
 
 func _on_dialog_save() -> void:
 	_save_layout()
@@ -883,15 +1038,34 @@ func _on_dialog_cancel() -> void:
 # --- Persistence ---
 
 func _save_layout() -> void:
+	# Only normalize z_indices for non-assembly groups (screen, user).
+	# Assembly groups (weaponry/defense/power_core) use explicit local z_index:
+	# spaceship=0, above hull=positive, below hull=negative — must be preserved as-is.
+	for group in GROUPS:
+		if group in ASSEMBLY_GROUPS:
+			continue
+		var indexed: Array = []
+		for i in _placed[group].size():
+			if is_instance_valid(_placed[group][i]):
+				indexed.append({"obj": _placed[group][i], "i": i})
+		indexed.sort_custom(func(a, b) -> bool:
+			if a["obj"].z_index != b["obj"].z_index:
+				return a["obj"].z_index > b["obj"].z_index
+			return a["i"] < b["i"]
+		)
+		for k in indexed.size():
+			(indexed[k]["obj"] as EditableObjectNode).z_index = indexed.size() - 1 - k
+	_sort_canvas_z_order()
 	var cfg := ConfigFile.new()
+	cfg.set_value("meta", "version", 2)
 	for group in GROUPS:
 		var list: Array[Dictionary] = []
 		for obj in _placed[group]:
 			if is_instance_valid(obj):
 				list.append(obj.get_state())
 		cfg.set_value("layout", group, list)
-	cfg.save(LAYOUT_PATH)
-	_dirty = false
+	if cfg.save(LAYOUT_PATH) == OK:
+		_dirty = false
 
 func _fit_screen_group() -> void:
 	var objs: Array = _placed["weaponry"]
@@ -972,45 +1146,51 @@ func _setup_screen_from_user() -> void:
 	_dirty = true
 
 func _reset_screen_group() -> void:
-	for obj in _placed["weaponry"].duplicate():
-		if is_instance_valid(obj):
-			object_list_panel.remove_object(obj)
-			obj.queue_free()
-	_placed["weaponry"].clear()
+	# Xóa toàn bộ assembly groups
+	for g in ASSEMBLY_GROUPS:
+		for obj in _placed[g].duplicate():
+			if is_instance_valid(obj):
+				object_list_panel.remove_object(obj)
+				obj.queue_free()
+		_placed[g].clear()
 	var new_sel: Array = []
 	for o in _selected_objects:
-		if is_instance_valid(o) and o.group_id != "weaponry":
+		if is_instance_valid(o) and o.group_id not in ASSEMBLY_GROUPS:
 			new_sel.append(o)
 	_selected_objects = new_sel
 
-	# Reload from saved layout (restore to last-saved positions/sizes)
+	# Reload từ preset (vị trí đã căn chỉnh kỹ, không bị ghi đè bởi Save thường)
 	var cfg := ConfigFile.new()
 	var prev_group := _active_group
-	_active_group = "weaponry"
-	if cfg.load(LAYOUT_PATH) == OK:
-		for entry in cfg.get_value("layout", "weaponry", []):
-			if entry.get("path", "") == GROUP_LAYER_MARKER:
-				continue
-			var tex := _load_tex(entry["path"])
-			if tex:
-				var obj := _place_object(tex, Vector2.ZERO, entry["size"], entry["path"], true)
-				obj.position = entry["pos"]
-				obj.z_index = entry.get("z_index", 0)
-				obj.layer_visible = entry.get("layer_visible", true)
-				obj.visible = obj.layer_visible
-				if obj.texture_rect:
-					obj.texture_rect.flip_h = entry.get("flip_h", false)
-				obj.display_name = entry.get("display_name", "")
+	if cfg.load(PRESET_LAYOUT_PATH) == OK:
+		for g in ASSEMBLY_GROUPS:
+			_active_group = g
+			for entry in cfg.get_value("layout", g, []):
+				if entry.get("path", "") == GROUP_LAYER_MARKER:
+					continue
+				var tex := _load_tex(entry["path"])
+				if tex:
+					var obj := _place_object(tex, Vector2.ZERO, entry["size"], entry["path"], true)
+					obj.position = entry["pos"]
+					obj.z_index = entry.get("z_index", 0)
+					obj.layer_visible = entry.get("layer_visible", true)
+					obj.visible = obj.layer_visible
+					if obj.texture_rect:
+						obj.texture_rect.flip_h = entry.get("flip_h", false)
+					obj.display_name = entry.get("display_name", "")
+					if entry.get("blend_mode", 0) == 1:
+						obj.set_screen_blend(true)
 	else:
-		_auto_load_group("weaponry")
+		for g in ASSEMBLY_GROUPS:
+			_active_group = g
+			_auto_load_group(g)
 	_active_group = prev_group
 
+	_reparent_assembly_objects()
 	_undo_stack.clear()
 	_dirty = false
 	_apply_weapons_visibility()
-	if _active_group == "weaponry":
-		object_list_panel.set_group_label("weaponry")
-		object_list_panel.refresh(_get_weaponry_list_objects())
+	_refresh_assembly_list()
 	btn_delete.disabled = _selected_objects.is_empty()
 	transform_panel.refresh(null)
 	_update_object_interactivity()
@@ -1062,6 +1242,7 @@ func _load_layout() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(LAYOUT_PATH) != OK:
 		return
+	_layout_version = int(cfg.get_value("meta", "version", 1))
 	var prev_group := _active_group
 	for group in GROUPS:
 		var list = cfg.get_value("layout", group, [])
@@ -1079,6 +1260,8 @@ func _load_layout() -> void:
 				if obj.texture_rect:
 					obj.texture_rect.flip_h = entry.get("flip_h", false)
 				obj.display_name = entry.get("display_name", "")
+				if entry.get("blend_mode", 0) == 1:
+					obj.set_screen_blend(true)
 		_placed[group].sort_custom(func(a, b): return a.z_index > b.z_index)
 		var n: int = _placed[group].size()
 		for i in n:
@@ -1086,6 +1269,7 @@ func _load_layout() -> void:
 				_placed[group][i].z_index = n - 1 - i
 	_active_group = prev_group
 	_update_object_interactivity()
+	_reparent_assembly_objects()
 	_sort_canvas_z_order()
 	_undo_stack.clear()
 	_dirty = false

@@ -13,7 +13,11 @@ var _offset:     float = 0.0
 var _cols:       int   = 0
 var _screen_w:   float = 0.0
 var _screen_h:   float = 0.0
-var _tile_scale: float = 1.0
+var _tile_scale:  float = 1.0
+var _speed_mult:  float = 1.0
+
+func set_speed_mult(m: float) -> void:
+	_speed_mult = m
 
 func setup(screen_w: float, screen_h: float) -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -103,7 +107,7 @@ func _apply_positions() -> void:
 func _process(delta: float) -> void:
 	if _tile_h <= 0.0:
 		return
-	_offset += SPEED * delta
+	_offset += SPEED * _speed_mult * delta
 	if _offset >= _tile_h:
 		_offset -= _tile_h
 	_apply_positions()

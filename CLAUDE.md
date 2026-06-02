@@ -92,13 +92,21 @@ Cả hai được tạo trong `main.gd._add_scrolling_background/overlay()` và 
 
 ### Image scaling — QUAN TRỌNG
 
-Không dùng `TextureRect.stretch_mode` để scale. Thay vào đó:
+Không dùng `TextureRect.stretch_mode` để scale background/overlay tile. Thay vào đó:
 ```gdscript
 var img := _source_img.duplicate()
 img.resize(int(_tile_w), int(_tile_h), Image.INTERPOLATE_BILINEAR)
 _tex = ImageTexture.create_from_image(img)
 ```
 `_source_img` là `Image` load từ file gốc (2048×2048). Resize CPU-side → texture đúng kích cỡ → `TextureRect.STRETCH_KEEP` chỉ hiển thị, không scale thêm.
+
+**`EXPAND_IGNORE_SIZE` — NGUY HIỂM**: luôn render texture ở native size rồi clip, bất kể `size` set bao nhiêu. KHÔNG dùng khi muốn hiển thị nhỏ hơn native.
+
+**CPU resize chỉ hoạt động với `ImageTexture`** — texture load từ file PNG qua `load()` trả về `CompressedTexture2D`, KHÔNG phải `ImageTexture`. Đoạn code `tex as ImageTexture` sẽ trả về `null` → resize fail → trả về original full-size. GIF frames từ `GifLoader` mới là `ImageTexture` và resize được.
+
+**Scale sprite nhỏ (weapon, ship)** — dùng `eo.scale = Vector2(s, s)` + `eo.pivot_offset = eo.size * 0.5` trực tiếp trên `EditableObjectNode`. Force-apply mỗi frame trong `_process` để tránh bị override. **KHÔNG cần tạo TextureRect riêng** chỉ để scale — đó là over-engineering gây lỗi.
+
+**Nguyên tắc**: trước khi thêm system phức tạp (static rect, wrapper node...), thử `eo.scale` đơn giản trước. Nếu nó bị reset, force-apply trong `_process` là đủ.
 
 ### apply_layout_rect
 
@@ -380,6 +388,19 @@ The following files are considered **stable and complete**. Claude must **not ed
 | `scripts/autoload/audio_manager.gd` | Game music manager — đã có prev/next/shuffle/loop |
 | `scripts/ui/user/user_panel.gd` | UserPanel layout — z-order và position đã được căn chỉnh |
 | `tools/mpv-bridge.ps1` | PowerShell bridge — bidirectional async pipe, cực kỳ nhạy cảm |
+
+### Save/layout persistence — LOCKED FUNCTIONS (không sửa logic bên dưới)
+
+Các hàm sau đây đã được debug và ổn định. **Không thay đổi** trừ khi user rõ ràng yêu cầu:
+
+| Hàm | File | Lý do khoá |
+|-----|------|-----------|
+| `_save_layout()` | `edit_mode.gd` | Đọc `obj.position` khi game paused (gun_system dừng) → ghi đúng vào `res://default_layout.cfg`; check `cfg.save() == OK` trước khi reset `_dirty` |
+| `_load_layout()` | `edit_mode.gd` | Load cfg → tạo objects → set position/size/z_index đúng thứ tự; cuối gọi `WeaponManager.sync_from_canvas()` |
+| `_close()` | `edit_mode.gd` | Trước khi unpause: iterate `objects_container.get_children()` gọi `refresh_layout()` để gun_system sync origin mới; sau đó `get_tree().paused = false` |
+| `refresh_layout()` | `gun_system.gd` | Public wrapper gọi `_refresh_static_frames()` — cập nhật `_spaceship_origin` và `_weapon_eo_rels` từ positions hiện tại sau khi user edit |
+
+**Nguyên tắc save/load**: gun_system có `process_mode = PROCESS_MODE_PAUSABLE` → dừng khi tree paused → positions trong F4 mode là stable → save đọc đúng positions. Sau close F4: `refresh_layout()` sync gun_system về positions mới trước khi unpause. Không phá vỡ cycle này.
 
 Nếu một tác vụ yêu cầu đọc những file này để **hiểu context** thì được phép đọc. Chỉ không được **sửa** mà không có lệnh rõ ràng.
 

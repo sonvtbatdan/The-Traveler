@@ -12,6 +12,11 @@ const COST_KEY_ORDER: Array = ["metal", "nonmetal", "organic", "liquid"]
 
 var _cost_textures: Dictionary = {}
 
+func _fmt_damage(d: float) -> String:
+	if d < 1000.0:    return "%.0f" % d
+	if d < 1000000.0: return "%.1fk" % (d / 1000.0)
+	return "%.1fM" % (d / 1000000.0)
+
 func _fmt_cost_num(n: int) -> String:
 	if n < 1000: return str(n)
 	if n < 1000000: return "%dk" % (n / 1000)
@@ -27,6 +32,22 @@ func _ensure_cost_textures() -> void:
 			var img := raw.get_image().duplicate()
 			img.resize(12, 12, Image.INTERPOLATE_BILINEAR)
 			_cost_textures[key] = ImageTexture.create_from_image(img)
+
+const WEAPON_DPS: Dictionary = {
+	"gun":                    2.0,
+	"turret":                 1.5,
+	"railgun":                2.0,
+	"lightning_emitter":      2.7,
+	"left_canon_heavy_bolt":  2.0,
+}
+
+const WEAPON_SHOOT_SPEED: Dictionary = {
+	"gun":                    2.0,
+	"turret":                 1.5,
+	"railgun":                10.0,
+	"lightning_emitter":      1.3,
+	"left_canon_heavy_bolt":  1.0,
+}
 
 const WEAPON_ORDER: Array[String] = [
 	"gun", "turret", "lightning_emitter", "wing", "railgun",
@@ -82,18 +103,20 @@ func _build_tooltip() -> void:
 	_tooltip_lbl = RichTextLabel.new()
 	_tooltip_lbl.bbcode_enabled = true
 	_tooltip_lbl.fit_content = true
-	_tooltip_lbl.custom_minimum_size = Vector2(180, 0)
+	_tooltip_lbl.custom_minimum_size = Vector2(210, 0)
 	_tooltip_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_tooltip_lbl.add_theme_font_size_override("normal_font_size", 10)
+	_tooltip_lbl.add_theme_font_size_override("normal_font_size", 11)
 	_tooltip_lbl.add_theme_font_size_override("bold_font_size", 10)
-	_tooltip_lbl.add_theme_font_size_override("italics_font_size", 10)
-	_tooltip_lbl.add_theme_font_size_override("bold_italics_font_size", 10)
-	var _gf := load("res://assets/fonts/Gameplay.ttf") as FontFile
-	if _gf:
-		_tooltip_lbl.add_theme_font_override("bold_font", _gf)
-	var sys_italic := SystemFont.new()
-	sys_italic.font_italic = true
-	_tooltip_lbl.add_theme_font_override("italics_font", sys_italic)
+	_tooltip_lbl.add_theme_font_size_override("italics_font_size", 11)
+	_tooltip_lbl.add_theme_font_size_override("bold_italics_font_size", 11)
+	var _gameplay := load("res://assets/fonts/Gameplay.ttf") as FontFile
+	var _corbel   := load("res://assets/fonts/corbel.ttf")   as FontFile
+	var _corbeli  := load("res://assets/fonts/corbeli.ttf")  as FontFile
+	var _corbelz  := load("res://assets/fonts/corbelz.ttf")  as FontFile
+	if _gameplay: _tooltip_lbl.add_theme_font_override("bold_font",         _gameplay)
+	if _corbel:   _tooltip_lbl.add_theme_font_override("normal_font",       _corbel)
+	if _corbeli:  _tooltip_lbl.add_theme_font_override("italics_font",      _corbeli)
+	if _corbelz:  _tooltip_lbl.add_theme_font_override("bold_italics_font", _corbelz)
 	_tooltip.add_child(_tooltip_lbl)
 	add_child(_tooltip)
 
@@ -328,9 +351,25 @@ func _on_row_hover(weapon_id: String, row: Control) -> void:
 	var data: Dictionary = WeaponManager.WEAPONS.get(weapon_id, {})
 	var name_str: String = data.get("name", weapon_id)
 	var desc: String     = data.get("desc", "")
-	_tooltip_lbl.text = "[color=#ffdd44][b]%s[/b][/color]" % name_str
+
+	var txt := "[color=#ffdd44][b]%s[/b][/color]" % name_str
 	if not desc.is_empty():
-		_tooltip_lbl.text += "\n[i]%s[/i]" % desc
+		txt += "\n[i]%s[/i]" % desc
+
+	var shoot_speed: float = WEAPON_SHOOT_SPEED.get(weapon_id, 0.0)
+	if shoot_speed > 0.0:
+		var ss_s := ("%.0f" if fmod(shoot_speed, 1.0) == 0.0 else "%.1f") % shoot_speed
+		txt += "\n[i]Shoot speed: [b][color=#ffdd44]%s[/color][/b][/i]" % ss_s
+
+	var dps: float = WEAPON_DPS.get(weapon_id, 0.0)
+	if dps > 0.0:
+		var total: float = WeaponManager.damage_dealt.get(weapon_id, 0.0)
+		var total_s := _fmt_damage(total)
+		var dps_s   := "%.1f" % dps
+		txt += "\n[i]Total [b][color=#ffdd44]%s[/color][/b] damage dealt  |  [b][color=#ffdd44]%s[/color][/b] DpS[/i]" \
+			% [total_s, dps_s]
+
+	_tooltip_lbl.text = txt
 	_tooltip.visible = true
 	var rp := row.global_position
 	_tooltip.global_position = Vector2(rp.x + row.size.x + 4, rp.y)

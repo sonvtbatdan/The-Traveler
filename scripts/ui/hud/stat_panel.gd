@@ -21,12 +21,11 @@ var _music_slider: HSlider       = null
 var _sfx_slider:   HSlider       = null
 var _mute_btn:     Button        = null
 
-var _init_music_vol:        float    = 1.0
-var _init_sfx_vol:          float    = 1.0
-var _pre_mute_music:        float    = -1.0   # -1 = not muted; ≥0 = saved pre-mute volume
-var _init_mute_on_audio:    bool     = false
-var _mute_on_audio_check:   CheckBox = null
-var _audio_monitor:         Node     = null
+var _init_music_vol: float = 1.0
+var _init_sfx_vol:   float = 1.0
+var _pre_mute_music: float = -1.0   # -1 = not muted; ≥0 = saved pre-mute volume
+var _audio_monitor:  Node  = null
+var _mat_spins:      Dictionary = {}  # "metal"|"nonmetal"|"liquid"|"organic" -> SpinBox
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -73,6 +72,27 @@ func _build_action_bar() -> void:
 	setting_btn.pressed.connect(_toggle_settings)
 	quit_btn.pressed.connect(_on_quit)
 
+	var hbox2 := HBoxContainer.new()
+	hbox2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox2.add_theme_constant_override("separation", 4)
+	vbox.add_child(hbox2)
+
+	var reset_hp_btn := _make_btn("RESET HP")
+	var kill_boss_btn := _make_btn("KILL BOSS")
+	hbox2.add_child(reset_hp_btn)
+	hbox2.add_child(kill_boss_btn)
+	reset_hp_btn.pressed.connect(_on_reset_hp)
+	kill_boss_btn.pressed.connect(_on_kill_boss)
+
+func _on_reset_hp() -> void:
+	GameManager.ship_hp = GameManager.SHIP_MAX_HP
+	GameManager.ship_hp_changed.emit(GameManager.SHIP_MAX_HP)
+
+func _on_kill_boss() -> void:
+	var bf := get_tree().get_first_node_in_group("boss_fight")
+	if bf != null and bf.has_method("kill_boss"):
+		bf.call("kill_boss")
+
 func _make_btn(txt: String) -> Button:
 	var btn := Button.new()
 	btn.text = txt
@@ -112,7 +132,7 @@ func _build_settings_panel() -> void:
 	# ── Settings panel ─────────────────────────────────────────────────────────
 	_settings_panel = Panel.new()
 	_settings_panel.z_index = 1
-	_settings_panel.size    = Vector2(310, 430)
+	_settings_panel.size    = Vector2(330, 660)
 	_settings_panel.process_mode = Node.PROCESS_MODE_ALWAYS
 
 	var ps := StyleBoxFlat.new()
@@ -167,17 +187,55 @@ func _build_settings_panel() -> void:
 
 	vbox.add_child(HSeparator.new())
 
-	# ── Behavior ──
-	vbox.add_child(_make_lbl("Behavior", 11, Color(0.60, 0.75, 0.90)))
-	_mute_on_audio_check = CheckBox.new()
-	_mute_on_audio_check.text = "Mute When Something Is Playing"
-	_mute_on_audio_check.button_pressed = _init_mute_on_audio
-	_mute_on_audio_check.add_theme_font_size_override("font_size", 10)
-	_mute_on_audio_check.process_mode = Node.PROCESS_MODE_ALWAYS
-	_mute_on_audio_check.toggled.connect(func(on: bool) -> void:
-		_audio_monitor.set_enabled(on)
-		_save_settings())
-	vbox.add_child(_mute_on_audio_check)
+	# ── Weapon SFX ──
+	vbox.add_child(_make_lbl("Weapon SFX", 11, Color(0.60, 0.75, 0.90)))
+	var weapon_sfx_defs := [
+		["Gun",       "gun"],
+		["Turret",    "turret"],
+		["Railgun",   "railgun"],
+		["Canon",     "canon"],
+		["Lightning", "lightning"],
+	]
+	for wd in weapon_sfx_defs:
+		var key: String = wd[1]
+		var init_val: float = float(AudioManager.weapon_sfx_vols.get(key, 1.0))
+		var sl := _add_slider_row(vbox, wd[0], init_val)
+		sl.value_changed.connect(func(v: float) -> void:
+			AudioManager.weapon_sfx_vols[key] = v
+			_save_settings())
+
+	vbox.add_child(HSeparator.new())
+
+	# ── Materials ──
+	vbox.add_child(_make_lbl("Materials", 11, Color(0.60, 0.75, 0.90)))
+	var mat_defs := [
+		["Metal",     "metal"],
+		["Non-Metal", "nonmetal"],
+		["Liquid",    "liquid"],
+		["Organic",   "organic"],
+	]
+	for md in mat_defs:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		var lbl := _make_lbl(md[0], 10, Color(0.75, 0.82, 0.95))
+		lbl.custom_minimum_size = Vector2(72, 0)
+		lbl.vertical_alignment  = VERTICAL_ALIGNMENT_CENTER
+		var spin := SpinBox.new()
+		spin.min_value = 0
+		spin.max_value = 999999999
+		spin.step      = 1
+		spin.value     = MaterialManager.get(md[1])
+		spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		spin.process_mode          = Node.PROCESS_MODE_ALWAYS
+		spin.get_line_edit().process_mode = Node.PROCESS_MODE_ALWAYS
+		row.add_child(lbl)
+		row.add_child(spin)
+		vbox.add_child(row)
+		_mat_spins[md[1]] = spin
+	var apply_btn := _make_btn("APPLY MATERIALS")
+	apply_btn.process_mode = Node.PROCESS_MODE_ALWAYS
+	apply_btn.pressed.connect(_apply_materials)
+	vbox.add_child(apply_btn)
 
 	vbox.add_child(HSeparator.new())
 
@@ -369,10 +427,19 @@ func _toggle_settings() -> void:
 	else:
 		_open_settings()
 
+func _apply_materials() -> void:
+	for key in _mat_spins:
+		MaterialManager.set(key, int((_mat_spins[key] as SpinBox).value))
+	MaterialManager.materials_changed.emit()
+	MaterialManager.save_game()
+
 func _open_settings() -> void:
 	_update_res_btns()
 	_center_settings()
 	_center_confirm()
+	# Sync spinbox values với current materials
+	for key in _mat_spins:
+		(_mat_spins[key] as SpinBox).value = MaterialManager.get(key)
 	_settings_panel.visible = true
 	_confirm_panel.visible  = false
 	_overlay_layer.visible  = true
@@ -438,8 +505,8 @@ func _save_settings() -> void:
 	cfg.set_value("display", "height", res.y)
 	cfg.set_value("audio", "music_vol", AudioManager.music_volume)
 	cfg.set_value("audio", "sfx_vol",   AudioManager.sfx_volume)
-	var mute_on: bool = _mute_on_audio_check.button_pressed if _mute_on_audio_check else _init_mute_on_audio
-	cfg.set_value("behavior", "mute_on_other_audio", mute_on)
+	for key: String in AudioManager.weapon_sfx_vols:
+		cfg.set_value("weapon_sfx", key, float(AudioManager.weapon_sfx_vols[key]))
 	cfg.save(SETTINGS_PATH)
 
 func _load_settings() -> void:
@@ -451,11 +518,9 @@ func _load_settings() -> void:
 	DisplayServer.window_set_size(Vector2i(w, h))
 	var screen := DisplayServer.screen_get_size()
 	DisplayServer.window_set_position((screen - Vector2i(w, h)) / 2)
-
-	_init_music_vol      = cfg.get_value("audio",    "music_vol",          1.0)
-	_init_sfx_vol        = cfg.get_value("audio",    "sfx_vol",            1.0)
-	_init_mute_on_audio  = cfg.get_value("behavior", "mute_on_other_audio", false)
+	_init_music_vol = cfg.get_value("audio", "music_vol", 1.0)
+	_init_sfx_vol   = cfg.get_value("audio", "sfx_vol",   1.0)
 	AudioManager.set_music_volume(_init_music_vol)
 	AudioManager.set_sfx_volume(_init_sfx_vol)
-	if _audio_monitor and _init_mute_on_audio:
-		_audio_monitor.set_enabled(true)
+	for key: String in AudioManager.weapon_sfx_vols:
+		AudioManager.weapon_sfx_vols[key] = cfg.get_value("weapon_sfx", key, 1.0)
