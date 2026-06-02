@@ -34,6 +34,9 @@ var _gif_delays: Array = []   # Array[float]
 var _gif_idx: int = 0
 var _gif_acc: float = 0.0
 
+var screen_blend: bool = false
+var gif_paused:   bool = false
+
 
 var selected := false:
 	set(v):
@@ -57,7 +60,7 @@ func _ready() -> void:
 	mouse_exited.connect(_on_mouse_exited)
 
 func _process(delta: float) -> void:
-	if _gif_frames.is_empty():
+	if _gif_frames.is_empty() or gif_paused:
 		return
 	_gif_acc += delta
 	var delay: float = _gif_delays[_gif_idx]
@@ -65,6 +68,12 @@ func _process(delta: float) -> void:
 		_gif_acc -= delay
 		_gif_idx = (_gif_idx + 1) % _gif_frames.size()
 		texture_rect.texture = _gif_frames[_gif_idx]
+
+func reset_gif() -> void:
+	_gif_idx = 0
+	_gif_acc = 0.0
+	if not _gif_frames.is_empty() and texture_rect != null:
+		texture_rect.texture = _gif_frames[0]
 
 func init(tex: Texture2D, pos: Vector2, sz := Vector2.ZERO) -> void:
 	texture_rect.texture = tex
@@ -252,6 +261,8 @@ func _refresh_cps_label() -> void:
 
 func set_gameplay_mode(v: bool) -> void:
 	_gameplay_mode = v
+	if not v:
+		modulate.a = 1.0  # khôi phục nếu gun_system đã ẩn PNG bằng modulate
 	if _counter_label:
 		_counter_label.visible = v
 	if _vps_label:
@@ -271,12 +282,26 @@ func set_gameplay_mode(v: bool) -> void:
 		visible = false
 	elif v and group_id == "weaponry":
 		# WeaponManager.sync_from_canvas() sets layer_visible per purchase state.
+		# gun_system.gd tự hide gun/turret/emitter/railgun via modulate.a=0.0
 		visible = layer_visible
 	else:
 		visible = layer_visible
 
 func get_state() -> Dictionary:
-	return { "path": source_path, "group": group_id, "pos": position, "size": size, "z_index": z_index, "layer_visible": layer_visible, "flip_h": texture_rect.flip_h if texture_rect else false, "display_name": display_name }
+	# Spaceship stores SHIP_ASSEMBLY_Z internally for rendering; save as 0 (logical reference point)
+	var save_z := z_index
+	if group_id == "weaponry" and source_path.get_file().get_basename().to_lower() == "spaceship":
+		save_z = 0
+	return { "path": source_path, "group": group_id, "pos": global_position, "size": size, "z_index": save_z, "layer_visible": layer_visible, "flip_h": texture_rect.flip_h if texture_rect else false, "display_name": display_name, "blend_mode": 1 if screen_blend else 0 }
+
+func set_screen_blend(enabled: bool) -> void:
+	screen_blend = enabled
+	if enabled:
+		var mat := CanvasItemMaterial.new()
+		mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+		texture_rect.material = mat
+	else:
+		texture_rect.material = null
 
 func apply_state(state: Dictionary) -> void:
 	position = state["pos"]
@@ -329,8 +354,7 @@ func _gui_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion:
 		if _dragging:
 			position = _drag_start_pos + (get_global_mouse_position() - _drag_start_mouse)
-			if is_group_layer():
-				transform_motion.emit(self)
+			transform_motion.emit(self)
 
 func _handle_gameplay_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:

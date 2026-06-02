@@ -327,7 +327,7 @@ offset_bottom = 398.0
 z_index = 5
 script = ExtResource("10")
 
-[node name="StatPanel" type="Panel" parent="." unique_id=1835023821]
+[node name="QuickPanel" type="Panel" parent="." unique_id=1835023821]
 layout_mode = 0
 offset_left = 1240.0
 offset_top = 8.0

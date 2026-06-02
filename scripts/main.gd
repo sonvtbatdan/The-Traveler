@@ -7,9 +7,17 @@ const OverlayScript             := preload("res://scripts/gameplay/overlay.gd")
 const AsteroidLayerScript       := preload("res://scripts/gameplay/asteroid_layer.gd")
 const GunSystemScript           := preload("res://scripts/gameplay/gun_system.gd")
 const MaterialPanelScript       := preload("res://scripts/ui/hud/material_panel.gd")
+const BoostButtonScript         := preload("res://scripts/ui/hud/boost_button.gd")
+const ShipHpBarScript           := preload("res://scripts/ui/hud/ship_hp_bar.gd")
+const BossEditScript            := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
+const BossFightScript           := preload("res://scripts/gameplay/boss_fight.gd")
+const BossPanelScript           := preload("res://scripts/ui/hud/boss_panel.gd")
+const BossHpBarScript           := preload("res://scripts/ui/hud/boss_hp_bar.gd")
 
 @onready var edit_mode = $EditMode
 @onready var visual_container: HBoxContainer = %VisualContainer
+
+var _boss_edit_mode: Node = null
 
 func _ready() -> void:
 	get_tree().set_auto_accept_quit(false)
@@ -23,10 +31,16 @@ func _ready() -> void:
 	_add_scrolling_overlay()
 	_add_asteroid_layers()
 	_add_material_panel()
+	_add_boost_button()
+	_add_ship_hp_bar()
+	_add_boss_hp_bar()
+	_add_boss_panel()
+	GameManager.ship_destroyed.connect(_on_ship_destroyed)
 	GameManager.load_game()
 	UpgradeManager.load_game()
 	GameManager.game_loaded.emit()
 	call_deferred("_apply_screen_layouts")
+	call_deferred("_setup_boss_edit")
 
 func _add_scrolling_background() -> void:
 	var screen := get_node_or_null("StreamScreen") as Panel
@@ -110,6 +124,37 @@ func _add_asteroid_layers() -> void:
 	else:
 		screen.add_child(gun_sys)
 
+func _add_boost_button() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 50
+	layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(layer)
+	layer.add_child(BoostButtonScript.new())
+
+func _add_ship_hp_bar() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 50
+	layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(layer)
+	layer.add_child(ShipHpBarScript.new())
+
+func _add_boss_hp_bar() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 50
+	layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(layer)
+	layer.add_child(BossHpBarScript.new())
+
+func _add_boss_panel() -> void:
+	var bp := BossPanelScript.new()
+	bp.position = Vector2(1240.0, 318.0)
+	add_child(bp)
+
+func _on_ship_destroyed() -> void:
+	GameManager.set_boost(false)
+	# Hiển thị game over (simple: freeze tree)
+	get_tree().paused = true
+
 func _add_material_panel() -> void:
 	var panel := MaterialPanelScript.new()
 	panel.position = Vector2(1240.0, 8.0)
@@ -147,9 +192,32 @@ func _apply_title_fonts() -> void:
 		lbl.add_theme_font_size_override("font_size", 14)
 		lbl.offset_top = 5.0
 
+func _setup_boss_edit() -> void:
+	var objects_container := edit_mode.get_node_or_null("ObjectsContainer") as Control
+	if objects_container == null:
+		return
+	var bem := BossEditScript.new()
+	add_child(bem)
+	_boss_edit_mode = bem
+	bem.setup(objects_container)
+	var bf := BossFightScript.new()
+	objects_container.add_child(bf)
+	bf.setup(objects_container)
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_edit_mode"):
-		edit_mode.toggle()
+		if _boss_edit_mode != null and _boss_edit_mode.is_open():
+			_boss_edit_mode.show_toast("Bạn cần thoát mode F5 trước")
+		else:
+			edit_mode.toggle()
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("toggle_boss_edit_mode"):
+		if edit_mode.is_open():
+			if _boss_edit_mode != null:
+				_boss_edit_mode.show_toast("Bạn cần thoát mode F4 trước")
+		else:
+			if _boss_edit_mode != null:
+				_boss_edit_mode.toggle()
 		get_viewport().set_input_as_handled()
 
 func _on_upgrades_reset() -> void:

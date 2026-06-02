@@ -85,10 +85,13 @@ func get_tier_cost(id: String, tier: int) -> Dictionary:
 
 # Populated at runtime by sync_from_canvas() — not a const.
 var WEAPONS: Dictionary = {}  # id -> {name, desc, tiers:[file...], side_only?}
-var owned:   Dictionary = {}  # id -> {L:int, R:int}  (-1 = not purchased)
+var owned:        Dictionary = {}  # id -> {L:int, R:int}  (-1 = not purchased)
+var damage_dealt: Dictionary = {}  # id -> float (tổng damage đã deal trong session)
 
 # Canvas object refs: id -> {tier_int -> {side -> [EditableObjectNode, ...]}}
 var _canvas_objs: Dictionary = {}
+
+var ship_cx: float = 620.0  # horizontal center of spaceship in ObjectsContainer space
 
 func _ready() -> void:
 	pass  # Catalog built after layout loads via sync_from_canvas()
@@ -98,13 +101,13 @@ func _ready() -> void:
 ## Called by edit_mode.gd after _load_layout() completes.
 func sync_from_canvas(placed: Array) -> void:
 	# Find spaceship horizontal center (fallback to viewport half)
-	var ship_cx := 720.0
+	ship_cx = 720.0
 	for o in placed:
 		var eo := o as EditableObjectNode
 		if eo == null or not is_instance_valid(eo):
 			continue
 		if _eo_basename(eo) == "spaceship":
-			ship_cx = eo.position.x + eo.size.x * 0.5
+			ship_cx = eo.global_position.x + eo.size.x * 0.5
 			break
 
 	# Collect raw data: group_key -> {display, tiers: {tier: {side: [objs]}}}
@@ -131,7 +134,7 @@ func sync_from_canvas(placed: Array) -> void:
 		if is_center:
 			side = "C"
 		else:
-			var obj_cx: float = eo.position.x + eo.size.x * 0.5
+			var obj_cx: float = eo.global_position.x + eo.size.x * 0.5
 			side = "L" if obj_cx <= ship_cx else "R"
 		raw[key]["tiers"][t][side].append(eo)
 
@@ -195,6 +198,17 @@ func sync_from_canvas(placed: Array) -> void:
 
 # ── Queries ───────────────────────────────────────────────────────────────────
 
+func get_all_objects(id: String) -> Array:
+	var result: Array = []
+	var td: Dictionary = _canvas_objs.get(id, {})
+	for t in td:
+		for side in td[t]:
+			for o in td[t][side]:
+				var eo := o as EditableObjectNode
+				if eo != null and is_instance_valid(eo):
+					result.append(eo)
+	return result
+
 func get_active_objects(id: String) -> Array:
 	var result: Array = []
 	var td: Dictionary = _canvas_objs.get(id, {})
@@ -214,7 +228,7 @@ func get_active_positions(id: String) -> Array[Vector2]:
 			for o in td[t][side]:
 				var eo := o as EditableObjectNode
 				if eo != null and is_instance_valid(eo) and eo.visible:
-					result.append(eo.position + eo.size / 2.0)
+					result.append(eo.global_position + eo.size / 2.0)
 	return result
 
 func get_tier(id: String, side: String) -> int:
@@ -326,9 +340,14 @@ func _find_or_add_group(key: String, display: String, raw: Dictionary) -> String
 
 # ── Persistence ───────────────────────────────────────────────────────────────
 
+func record_damage(id: String, amount: float) -> void:
+	damage_dealt[id] = damage_dealt.get(id, 0.0) + amount
+
 func reset_all() -> void:
 	for id in owned:
-		owned[id] = {"L": -1, "R": -1}
+		var is_center: bool = WEAPON_CATALOG.get(id, {}).get("center", false)
+		owned[id] = {"C": -1} if is_center else {"L": -1, "R": -1}
+	damage_dealt.clear()
 	_refresh_all_visibility()
 	save_game()
 	weapons_reset.emit()

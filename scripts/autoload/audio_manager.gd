@@ -3,7 +3,17 @@ extends Node
 const MUSIC_DIR := "res://assets/audio/music/"
 
 var music_volume: float = 1.0
-var sfx_volume: float = 1.0
+var sfx_volume:   float = 1.0
+var weapon_sfx_vols: Dictionary = {
+	"gun":       1.0,
+	"turret":    1.0,
+	"canon":     1.0,
+	"lightning": 1.0,
+	"railgun":   1.0,
+}
+
+func get_weapon_sfx_vol(key: String) -> float:
+	return sfx_volume * float(weapon_sfx_vols.get(key, 1.0))
 
 var music_player: AudioStreamPlayer
 var sfx_player: AudioStreamPlayer

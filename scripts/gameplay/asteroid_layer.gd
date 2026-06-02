@@ -5,8 +5,9 @@ const MIN_SPEED: float = 30.0
 const MAX_SPEED: float = 120.0
 const MIN_W: float = 5.0
 const MAX_W: float = 50.0
-const MIN_COUNT: int = 5
-const MAX_COUNT: int = 50
+const BASE_MIN_COUNT: int = 35
+const BASE_MAX_COUNT: int = 70
+const COUNT_DRIFT_INTERVAL: float = 8.0
 const MIN_RPM: float = 3.0
 const MAX_RPM: float = 30.0
 const CONE_HALF_DEG: float = 15.0
@@ -19,9 +20,15 @@ var _source_imgs: Array[Image] = []
 var _img_types: Array[String] = []
 var _blur_mat: ShaderMaterial = null
 
-var _nodes: Array[TextureRect] = []
-var _velocities: Array[Vector2] = []
-var _rot_speeds: Array[float] = []
+var _nodes:      Array[TextureRect] = []
+var _velocities: Array[Vector2]    = []
+var _rot_speeds: Array[float]      = []
+var _hp:         Array[float]      = []
+
+var _target_count:    int   = 0
+var _drift_acc:       float = 0.0
+var _boost_active:    bool  = false
+var _spawn_scale:     float = 1.0  # 0.5 in boost mode
 
 func setup(screen_w: float, screen_h: float, is_under: bool) -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -35,9 +42,12 @@ func setup(screen_w: float, screen_h: float, is_under: bool) -> void:
 		_build_blur_mat()
 	else:
 		add_to_group("asteroid_main")
+		GameManager.boost_changed.connect(_on_boost_changed)
+		GameManager.boss_spawned.connect(_on_boss_spawned)
+		GameManager.boss_killed.connect(_on_boss_killed_restore)
 	_load_textures()
-	var count: int = randi_range(MIN_COUNT, MAX_COUNT)
-	for _i: int in count:
+	_target_count = randi_range(BASE_MIN_COUNT, BASE_MAX_COUNT)
+	for _i: int in _target_count:
 		_spawn(true)
 
 func _build_blur_mat() -> void:
@@ -92,7 +102,7 @@ func _spawn(initial: bool) -> void:
 	var type_name: String = _img_types[pick]
 	var sw: int = src_img.get_width()
 	var sh: int = src_img.get_height()
-	var w: float = randf_range(MIN_W, MAX_W)
+	var w: float = randf_range(MIN_W, MAX_W) * _spawn_scale
 	var h: float = w * (float(sh) / float(sw)) if sw > 0 else w
 
 	var x: float = randf_range(0.0, _screen_w)
@@ -136,6 +146,7 @@ func _spawn(initial: bool) -> void:
 	_nodes.append(tr)
 	_velocities.append(vel)
 	_rot_speeds.append(rot_speed)
+	_hp.append(_hp_for_size(w))
 
 func _on_asteroid_gui_input(event: InputEvent, tr: TextureRect) -> void:
 	if not (event is InputEventMouseButton):
@@ -153,6 +164,7 @@ func _on_asteroid_clicked(tr: TextureRect) -> void:
 	_nodes.remove_at(idx)
 	_velocities.remove_at(idx)
 	_rot_speeds.remove_at(idx)
+	_hp.remove_at(idx)
 	_fade_and_free(tr)
 	_spawn(false)
 
@@ -192,9 +204,80 @@ func collect_near(pos: Vector2, radius: float) -> void:
 				_nodes.remove_at(i)
 				_velocities.remove_at(i)
 				_rot_speeds.remove_at(i)
+				_hp.remove_at(i)
 				_fade_and_free(tr)
 				_spawn(false)
 		i -= 1
+
+func _on_boost_changed(active: bool) -> void:
+	_boost_active = active
+	_spawn_scale = 0.5 if active else 1.0
+	if GameManager.boss_max_hp <= 0:
+		_target_count = randi_range(BASE_MIN_COUNT, BASE_MAX_COUNT) * (4 if active else 1)
+
+func _on_boss_spawned() -> void:
+	_target_count = 0   # stop spawning; existing asteroids drift off naturally
+
+func _on_boss_killed_restore() -> void:
+	_target_count = randi_range(BASE_MIN_COUNT, BASE_MAX_COUNT) * (4 if _boost_active else 1)
+
+func _hull_damage_for_size(w: float) -> int:
+	if w < 10.0: return 0
+	if w < 20.0: return 1
+	if w < 30.0: return 2
+	if w < 40.0: return 3
+	return 4
+
+func check_ship_collision(ship_center_ss: Vector2, ship_radius: float) -> void:
+	var i := _nodes.size() - 1
+	while i >= 0:
+		var tr: TextureRect = _nodes[i]
+		if not is_instance_valid(tr):
+			i -= 1; continue
+		var ast_center := tr.position + tr.size * 0.5
+		var dist := ast_center.distance_to(ship_center_ss)
+		var ast_w: float = tr.texture.get_size().x if tr.texture != null else tr.size.x
+		var ast_radius := ast_w * 0.5
+		if dist < ship_radius + ast_radius:
+			var dmg := _hull_damage_for_size(ast_w)
+			if dmg > 0:
+				GameManager.ship_take_damage(dmg)
+				_nodes.remove_at(i); _velocities.remove_at(i)
+				_rot_speeds.remove_at(i); _hp.remove_at(i)
+				_fade_and_free(tr)
+				_spawn(false)
+			else:
+				# bounce off for tiny asteroids (<10px)
+				var bounce_dir := (_velocities[i]).bounce((ast_center - ship_center_ss).normalized())
+				_velocities[i] = bounce_dir
+		i -= 1
+
+func _hp_for_size(w: float) -> float:
+	if w < 25.0: return 1.0
+	if w < 35.0: return 2.0
+	if w < 45.0: return 3.0
+	return 4.0
+
+func damage_near(pos: Vector2, radius: float, dmg: float) -> bool:
+	for i in range(_nodes.size()):
+		var tr: TextureRect = _nodes[i]
+		if not is_instance_valid(tr):
+			continue
+		if (tr.position + tr.size * 0.5).distance_to(pos) > radius:
+			continue
+		_hp[i] -= dmg
+		if _hp[i] > 0.0:
+			return true
+		var type_name: String = tr.get_meta("type", "")
+		_collect_loot(type_name)
+		_nodes.remove_at(i)
+		_velocities.remove_at(i)
+		_rot_speeds.remove_at(i)
+		_hp.remove_at(i)
+		_fade_and_free(tr)
+		_spawn(false)
+		return true
+	return false
 
 func _collect_loot(type_name: String) -> void:
 	var r: float = randf()
@@ -240,6 +323,23 @@ func _collect_loot(type_name: String) -> void:
 				MaterialManager.add("nonmetal", 1)
 
 func _process(delta: float) -> void:
+	if not _is_under:
+		_drift_acc += delta
+		if _drift_acc >= COUNT_DRIFT_INTERVAL:
+			_drift_acc -= COUNT_DRIFT_INTERVAL
+			if GameManager.boss_max_hp <= 0:
+				var base: int = randi_range(BASE_MIN_COUNT, BASE_MAX_COUNT)
+				_target_count = base * (4 if _boost_active else 1)
+		# Spawn or despawn to reach target count
+		if _nodes.size() < _target_count:
+			_spawn(false)
+		elif _nodes.size() > _target_count and not _nodes.is_empty():
+			var last := _nodes[-1]
+			_nodes.remove_at(_nodes.size() - 1)
+			_velocities.remove_at(_velocities.size() - 1)
+			_rot_speeds.remove_at(_rot_speeds.size() - 1)
+			_hp.remove_at(_hp.size() - 1)
+			_fade_and_free(last)
 	var i: int = _nodes.size() - 1
 	while i >= 0:
 		var tr: TextureRect = _nodes[i]
@@ -256,5 +356,6 @@ func _process(delta: float) -> void:
 			_nodes.remove_at(i)
 			_velocities.remove_at(i)
 			_rot_speeds.remove_at(i)
+			_hp.remove_at(i)
 			_spawn(false)
 		i -= 1
