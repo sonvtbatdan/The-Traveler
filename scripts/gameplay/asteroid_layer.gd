@@ -11,6 +11,7 @@ const MIN_RPM: float = 3.0
 const MAX_RPM: float = 30.0
 const CONE_HALF_DEG: float = 15.0
 const MIN_HITBOX: float = 36.0
+const HP_PER_WIDTH: float = 1.5   # asteroid HP = width × this (tune to taste)
 
 var _is_under: bool = false
 var _screen_w: float = 0.0
@@ -22,6 +23,8 @@ var _blur_mat: ShaderMaterial = null
 var _nodes: Array[TextureRect] = []
 var _velocities: Array[Vector2] = []
 var _rot_speeds: Array[float] = []
+var _hp: Array[float] = []        # current HP, parallel to _nodes
+var _hp_max: Array[float] = []    # full HP, parallel to _nodes
 
 func setup(screen_w: float, screen_h: float, is_under: bool) -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -132,10 +135,14 @@ func _spawn(initial: bool) -> void:
 		tr.mouse_filter = Control.MOUSE_FILTER_STOP
 		tr.gui_input.connect(_on_asteroid_gui_input.bind(tr))
 
+	var hp: float = maxf(1.0, w * HP_PER_WIDTH)
+
 	add_child(tr)
 	_nodes.append(tr)
 	_velocities.append(vel)
 	_rot_speeds.append(rot_speed)
+	_hp.append(hp)
+	_hp_max.append(hp)
 
 func _on_asteroid_gui_input(event: InputEvent, tr: TextureRect) -> void:
 	if not (event is InputEventMouseButton):
@@ -148,12 +155,116 @@ func _on_asteroid_clicked(tr: TextureRect) -> void:
 	var idx: int = _nodes.find(tr)
 	if idx < 0:
 		return
-	var type_name: String = tr.get_meta("type", "")
-	_collect_loot(type_name)
-	_nodes.remove_at(idx)
-	_velocities.remove_at(idx)
-	_rot_speeds.remove_at(idx)
-	_fade_and_free(tr)
+	_destroy_index(idx, true)   # clicking grabs the whole rock regardless of HP
+
+# ── Damage API (used by weapon_system; works in this layer's local space) ─────
+
+## Damage the nearest asteroid whose body contains local_pos (within hit_radius).
+## Returns true if something was hit (so a bullet can despawn).
+func damage_point(local_pos: Vector2, hit_radius: float, amount: float) -> bool:
+	var best: int = -1
+	var best_d: float = INF
+	for i in range(_nodes.size()):
+		var tr: TextureRect = _nodes[i]
+		if not is_instance_valid(tr):
+			continue
+		var center: Vector2 = tr.position + tr.size * 0.5
+		var ar: float = maxf(tr.size.x, tr.size.y) * 0.5
+		var d: float = center.distance_to(local_pos)
+		if d <= ar + hit_radius and d < best_d:
+			best_d = d
+			best = i
+	if best < 0:
+		return false
+	_apply_damage(best, amount)
+	return true
+
+## Damage every asteroid within radius of center. Returns the centers that were
+## hit (for visual arcs). Iterates backward so destruction-driven shifts are safe.
+func damage_area(center: Vector2, radius: float, amount: float) -> Array:
+	var hit_centers: Array = []
+	var i: int = _nodes.size() - 1
+	while i >= 0:
+		var tr: TextureRect = _nodes[i]
+		if is_instance_valid(tr):
+			var c: Vector2 = tr.position + tr.size * 0.5
+			var ar: float = maxf(tr.size.x, tr.size.y) * 0.5
+			if c.distance_to(center) <= radius + ar:
+				hit_centers.append(c)
+				_apply_damage(i, amount)
+		i -= 1
+	return hit_centers
+
+## Piercing hit: deal dmg_pool to the nearest asteroid containing local_pos, and
+## return how much damage was ABSORBED (= min(dmg_pool, that asteroid's HP)).
+## The caller subtracts that from its projectile's remaining damage so the shot
+## keeps going with the leftover. Returns 0.0 if nothing was hit.
+func pierce_at(local_pos: Vector2, hit_radius: float, dmg_pool: float) -> float:
+	var best: int = -1
+	var best_d: float = INF
+	for i in range(_nodes.size()):
+		var tr: TextureRect = _nodes[i]
+		if not is_instance_valid(tr):
+			continue
+		var center: Vector2 = tr.position + tr.size * 0.5
+		var ar: float = maxf(tr.size.x, tr.size.y) * 0.5
+		var d: float = center.distance_to(local_pos)
+		if d <= ar + hit_radius and d < best_d:
+			best_d = d
+			best = i
+	if best < 0:
+		return 0.0
+	var absorbed: float = minf(dmg_pool, _hp[best])
+	_apply_damage(best, dmg_pool)
+	return absorbed
+
+## Damaged asteroids (HP < full), for drawing HP bars on the weapon layer.
+func get_damaged_asteroids() -> Array:
+	var out: Array = []
+	for i in range(_nodes.size()):
+		var tr: TextureRect = _nodes[i]
+		if not is_instance_valid(tr):
+			continue
+		if _hp[i] < _hp_max[i]:
+			out.append({
+				"pos": tr.position + tr.size * 0.5,
+				"w": tr.size.x,
+				"frac": clampf(_hp[i] / _hp_max[i], 0.0, 1.0),
+			})
+	return out
+
+func _apply_damage(i: int, amount: float) -> void:
+	if i < 0 or i >= _hp.size():
+		return
+	_hp[i] -= amount
+	if _hp[i] <= 0.0:
+		_destroy_index(i, true)
+	else:
+		_flash(_nodes[i])
+
+func _flash(tr: TextureRect) -> void:
+	if not is_instance_valid(tr):
+		return
+	tr.modulate = Color(2.4, 2.4, 2.4, 1.0)
+	var t := create_tween()
+	t.tween_property(tr, "modulate", Color.WHITE, 0.18)
+
+## Remove an asteroid from all parallel arrays (no loot/fade) and respawn one.
+func _remove_index(i: int) -> void:
+	_nodes.remove_at(i)
+	_velocities.remove_at(i)
+	_rot_speeds.remove_at(i)
+	_hp.remove_at(i)
+	_hp_max.remove_at(i)
+
+## Destroy an asteroid: optional loot, fade out, remove from arrays, respawn.
+func _destroy_index(i: int, give_loot: bool) -> void:
+	var tr: TextureRect = _nodes[i]
+	if give_loot and is_instance_valid(tr):
+		_collect_loot(String(tr.get_meta("type", "")))
+	_remove_index(i)
+	if is_instance_valid(tr):
+		_fade_and_free(tr)
 	_spawn(false)
 
 func _fade_and_free(tr: TextureRect) -> void:
@@ -187,13 +298,7 @@ func collect_near(pos: Vector2, radius: float) -> void:
 		if is_instance_valid(tr):
 			var center: Vector2 = tr.position + tr.size * 0.5
 			if center.distance_to(pos) <= radius:
-				var type_name: String = tr.get_meta("type", "")
-				_collect_loot(type_name)
-				_nodes.remove_at(i)
-				_velocities.remove_at(i)
-				_rot_speeds.remove_at(i)
-				_fade_and_free(tr)
-				_spawn(false)
+				_destroy_index(i, true)
 		i -= 1
 
 func _collect_loot(type_name: String) -> void:
@@ -244,17 +349,13 @@ func _process(delta: float) -> void:
 	while i >= 0:
 		var tr: TextureRect = _nodes[i]
 		if not is_instance_valid(tr):
-			_nodes.remove_at(i)
-			_velocities.remove_at(i)
-			_rot_speeds.remove_at(i)
+			_remove_index(i)
 			i -= 1
 			continue
 		tr.position += _velocities[i] * delta
 		tr.rotation += _rot_speeds[i] * delta
 		if tr.position.y > _screen_h:
 			tr.queue_free()
-			_nodes.remove_at(i)
-			_velocities.remove_at(i)
-			_rot_speeds.remove_at(i)
+			_remove_index(i)
 			_spawn(false)
 		i -= 1

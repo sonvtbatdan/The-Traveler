@@ -319,6 +319,7 @@ mouse_filter = 2
 script = ExtResource("9")
 
 [node name="WeaponPanel" type="Panel" parent="."]
+visible = false
 layout_mode = 0
 offset_left = 10.0
 offset_top = 8.0

@@ -28,6 +28,7 @@ EquipmentManager="*res://scripts/autoload/equipment_manager.gd"
 UpgradeManager="*res://scripts/autoload/upgrade_manager.gd"
 GameManager="*res://scripts/autoload/game_manager.gd"
 WeaponManager="*res://scripts/autoload/weapon_manager.gd"
+InventoryManager="*res://scripts/autoload/inventory_manager.gd"
 
 [display]
 

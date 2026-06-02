@@ -7,6 +7,8 @@ const OverlayScript             := preload("res://scripts/gameplay/overlay.gd")
 const AsteroidLayerScript       := preload("res://scripts/gameplay/asteroid_layer.gd")
 const GunSystemScript           := preload("res://scripts/gameplay/gun_system.gd")
 const MaterialPanelScript       := preload("res://scripts/ui/hud/material_panel.gd")
+const InventoryUIScript         := preload("res://scripts/ui/inventory/inventory_ui.gd")
+const WeaponSystemScript        := preload("res://scripts/gameplay/weapon_system.gd")
 
 @onready var edit_mode = $EditMode
 @onready var visual_container: HBoxContainer = %VisualContainer
@@ -23,6 +25,7 @@ func _ready() -> void:
 	_add_scrolling_overlay()
 	_add_asteroid_layers()
 	_add_material_panel()
+	add_child(InventoryUIScript.new())
 	GameManager.load_game()
 	UpgradeManager.load_game()
 	GameManager.game_loaded.emit()
@@ -99,6 +102,11 @@ func _add_asteroid_layers() -> void:
 	main_layer.setup(screen.size.x, screen.size.y, false)
 	screen.add_child(main_layer)
 
+	# Inventory-weapon firing + FX (sits on top of the asteroids, inside the screen).
+	var weapons := WeaponSystemScript.new()
+	weapons.setup()
+	screen.add_child(weapons)
+
 	var gun_sys := GunSystemScript.new()
 	gun_sys.setup()
 
@@ -109,6 +117,11 @@ func _add_asteroid_layers() -> void:
 		objects_container.add_child(gun_sys)
 	else:
 		screen.add_child(gun_sys)
+	# Auto-shoot OFF for now; inventory weapons will drive firing (Phase 5).
+	# MUST be after add_child: entering the tree auto-enables _process for a node
+	# that defines it, which would undo an earlier set_process(false).
+	# Re-enable: delete this line.
+	gun_sys.set_process(false)
 
 func _add_material_panel() -> void:
 	var panel := MaterialPanelScript.new()
@@ -132,6 +145,7 @@ func _notification(what: int) -> void:
 		WeaponManager.save_game()
 		DefenseManager.save_game()
 		MaterialManager.save_game()
+		InventoryManager.save_game()
 		get_tree().quit()
 
 func _apply_title_fonts() -> void:

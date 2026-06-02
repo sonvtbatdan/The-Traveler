@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Godot 4 GDScript — "The Traveler", a spaceship idle/clicker game. You captain a ship traveling through deep space — clicking the engine boosts fuel production, upgrades automate fuel harvesting and distress signal scanning, and credits accumulate from cosmic cargo events. Entry scene: `scenes/main.tscn`. Toggle edit mode with the `toggle_edit_mode` input action (mapped in `project.godot`).
 
+On top of the idle economy there is now a **real-time combat / crafting layer**: asteroids drift down the StreamScreen, clicking or shooting them yields four raw **materials** (metal / nonmetal / organic / liquid via `MaterialManager`), and those materials buy tiered **weapons** (`WeaponManager`) and **defense** levels (`DefenseManager`). Weapons mounted on the canvas auto-fire at asteroids (`gun_system.gd`). This layer runs in parallel with the fuel/crew/credits idle loop and uses a separate currency — see **Combat, Asteroids & Materials** below.
+
 ## Theme Mapping (internal → display)
 
 | Internal variable | Display label |
@@ -31,14 +33,21 @@ Godot 4 GDScript — "The Traveler", a spaceship idle/clicker game. You captain 
 
 ## Architecture
 
-### Autoloads (load order in project.godot)
+### Autoloads (registration order in project.godot)
+
+Registered in this exact order (matters: `MaterialManager` must exist before `WeaponManager`, which spends materials; see commit history):
 
 | Name | File | Role |
 |------|------|------|
-| `GameManager` | `scripts/autoload/game_manager.gd` | Economy: fuel(views), crew(subs), credits(cash), click_power, vps, auto_click_rate, scan_rate(comment_auto_click_rate) |
-| `UpgradeManager` | `scripts/autoload/upgrade_manager.gd` | UPGRADES catalog, owned counts, factory accumulator, save/load |
 | `AudioManager` | `scripts/autoload/audio_manager.gd` | Music/SFX, volume control |
+| `MaterialManager` | `scripts/autoload/material_manager.gd` | 4 raw-material currencies: `metal`, `nonmetal`, `organic`, `liquid`. `add()`/`spend()`, emits `materials_changed` / `material_added`. Saves to `user://materials.cfg` |
+| `DefenseManager` | `scripts/autoload/defense_manager.gd` | Single `current_level` (0–8) progression, `try_purchase(level)` (must be `current_level+1`). Saves to `user://save.cfg` section `[defense]` |
 | `EquipmentManager` | `scripts/autoload/equipment_manager.gd` | Auto-scans `assets/upgrades/equipment/*.png`, cost = 20 × 1.6^index |
+| `UpgradeManager` | `scripts/autoload/upgrade_manager.gd` | UPGRADES catalog, owned counts, factory accumulator, save/load |
+| `GameManager` | `scripts/autoload/game_manager.gd` | Economy: fuel(views), crew(subs), credits(cash), click_power, vps, auto_click_rate, scan_rate(comment_auto_click_rate) |
+| `WeaponManager` | `scripts/autoload/weapon_manager.gd` | Canvas-driven tiered weapon catalog, priced in materials. Built at runtime by `sync_from_canvas()` (not a const list). Saves to `user://save.cfg` section `[weapons]` |
+
+**Load vs. registration order:** `main.gd._ready()` calls `GameManager.load_game()` **then** `UpgradeManager.load_game()` — the *opposite* of the "Risky Areas" note below. Verify which is correct before relying on it. `MaterialManager` / `WeaponManager` / `DefenseManager` load lazily from their own panels' `_ready()` (and `WeaponManager.load_game()` runs inside `sync_from_canvas()`).
 
 ### Main Scene (`scenes/main.tscn`)
 
@@ -48,9 +57,11 @@ Root `Control` with these direct children:
 - `EditMode` — `CanvasLayer` layer=10 (`scripts/ui/edit_mode/edit_mode.gd`): drag/resize, persisted to `res://default_layout.cfg`
 - `UserPanel` — `CanvasLayer` layer=5 (`scripts/ui/user_panel/user_panel.gd`): PANEL_SCALE=0.5, contains TodoList, MusicPlayer, WeatherClock
 - `ViewColumn` — `Panel` with `scripts/ui/upgrade/upgrade_list.gd`: WEAPONRY tab only
-- `CommentColumn` — `Panel` with `scripts/ui/upgrade/upgrade_list.gd`: DEFENSE tab only
+- `CommentColumn` — `Panel` with `scripts/ui/upgrade/upgrade_list.gd`: DEFENSE tab — **hidden at runtime** (`main.gd._apply_title_fonts()` sets `$CommentColumn.visible = false`)
 - `StatPanel` — `Panel` 192×100 with `scripts/ui/hud/stat_panel.gd`: VBox gồm hàng buttons (MUTE/SETTING/QUIT) + slider BG + slider OV
 - `EquipmentColumn` — ship module shop UI (header: "POWER CORE")
+
+**Nodes created at runtime in `main.gd._ready()` (not in the .tscn):** defense panel (`defense_panel.gd`, left at 10,408) + `defense_visual.gd`; scrolling background + overlay; two `asteroid_layer.gd` instances (blurred under-layer + interactive `asteroid_main`); `gun_system.gd` (added to EditMode's `ObjectsContainer`, z_index 7); material HUD panel (`material_panel.gd`, top-right at 1240,8). `_notification(WM_CLOSE_REQUEST)` saves all six managers, then quits.
 
 ### CanvasLayer conventions
 
@@ -110,6 +121,46 @@ bg.apply_layout_rect(rel_pos: Vector2, sz: Vector2)
 - Placement mặc định: `SCREEN_ORIGIN = (270, 8)`, `SCREEN_TILE_SZ = 700`
 - **Invisible trong gameplay mode** — scrolling scripts xử lý visual, edit objects chỉ dùng để căn chỉnh
 - Layout lưu vào `res://default_layout.cfg` (không phải `user://`)
+
+---
+
+## Combat, Asteroids & Materials
+
+This is the big-picture loop the original idle docs don't cover. It spans `asteroid_layer.gd`, `gun_system.gd`, `weapon_manager.gd`, `material_manager.gd`, and the weapon/material/defense panels.
+
+### Material economy (`MaterialManager`)
+
+Four integer currencies — `metal`, `nonmetal`, `organic`, `liquid` — separate from the fuel/crew/credits idle economy. `add(type, n)` / `spend(type, n)` (clamped at 0). The `material_panel.gd` HUD subscribes to `materials_changed`. Materials are earned **only** from asteroids; they are spent **only** on weapons (`WeaponManager`).
+
+### Asteroids (`scripts/gameplay/asteroid_layer.gd`)
+
+- Two instances added to `StreamScreen`: a blurred, dimmed **under-layer** (`is_under=true`, z_index 0, custom 3×3 blur `ShaderMaterial`) and the interactive **main layer** (z_index 1, joins group `"asteroid_main"`).
+- Asteroids spawn from `assets/asteroid/*.png`, drift down within a ±15° cone, rotate, and respawn on exit. Type is parsed from the **leading non-digit chars** of the filename (`dirt`, `ice`, `jewel`, `metal`, `rare`).
+- **Collection** = click the asteroid OR a bullet hits it → `_collect_loot(type)` rolls a per-type random drop table into `MaterialManager.add(...)`. Hitbox min size `MIN_HITBOX = 36`.
+- Query API used by the gun: `get_asteroid_centers()`, `get_asteroid_sizes()`, `collect_near(pos, radius)`. **Centers are in StreamScreen-local space** — the gun adds `SS_OFFSET = (270, 8)` to convert to ObjectsContainer/viewport space.
+
+### Gun system (`scripts/gameplay/gun_system.gd`)
+
+- A full-rect `Control` (added to `ObjectsContainer`, z_index 7) that fires every `FIRE_INTERVAL = 0.5s` from each **active `"gun"` weapon object** (`WeaponManager.get_active_objects("gun")`).
+- Targets the nearest asteroid that is ≥100px above the gun muzzle; spawns a bullet (`atan2(dir.x, -dir.y)` rotation), an ejecting shell, an impact GIF on hit, and plays the gun-fire GIF (hides the static sprite during the animation). GIFs loaded via `GifLoader` (`Gun.gif`, `Gun-Impact50.gif`) from `assets/sprites/weapons/`.
+- All projectiles/animations are pooled in plain arrays and ticked manually in `_process` (same manual-pool pattern as the asteroids and scrolling bg).
+
+### Weapons (`scripts/autoload/weapon_manager.gd`) — canvas-driven catalog
+
+The single most important non-obvious pattern: **weapons are discovered from edit-mode-placed sprites, not declared as a static list.**
+
+- `WEAPON_CATALOG` (const) holds only metadata per id: `desc`, `base_cost` (per material), tier `mult` `[1.0, 2.5, 4.5]`, optional `center: true` (single mid-ship mount) and `requires: "wing"` (gate). `get_tier_cost(id, tier)` = `ceil(base_cost * mult[tier])`.
+- `sync_from_canvas(placed)` is called from **`edit_mode.gd` after the layout loads** (`WeaponManager.sync_from_canvas(_placed["weaponry"])`). It scans the `"weaponry"` edit group:
+  - finds the `spaceship` sprite to get the ship's horizontal center;
+  - parses each filename via `_parse_filename()` for **tier** (`" Mk2"`/`" MkII"` → tier 1, `" Mk3"`/`" MkIII"` → tier 2) and a key;
+  - assigns each sprite a **side**: `"C"` for `center` weapons, else `"L"`/`"R"` by whether its center is left/right of the ship;
+  - fuzzy-groups keys sharing the first 7 chars (`_find_or_add_group`) plus `KEY_ALIASES` (e.g. `homing_missle`→`homing_missile`) to tolerate filename typos.
+- `owned[id] = {L, R}` (or `{C}`); `-1` = not purchased. `_refresh_visibility()` shows **only the sprite for the currently-owned tier** per side (so buying Mk2 hides the Mk1 sprite, reveals the Mk2 one). `purchase()` checks `is_tier_available` (symmetric tiers per side), the `requires` gate, and material cost via `MaterialManager`.
+- `weapon_panel.gd` (`assets/weaponry/`) renders the shop in fixed `WEAPON_ORDER`.
+
+### Defense (`scripts/autoload/defense_manager.gd` + `defense_panel.gd`)
+
+Simple linear track: `current_level` 0→8, each level purchasable only as `current_level+1`. `defense_panel.gd` lists 8 named items (`assets/defense/lv1..lv8.png`); `defense_visual.gd` renders the on-ship visual. (Distinct from the old "DEFENSE" upgrade tab, which is hidden.)
 
 ---
 
@@ -234,6 +285,11 @@ Upgrades are bought with **fuel** (`GameManager.stable_views`). Credits (cash) a
 | `assets/upgrades/equipment/` | Ship module icons, auto-scanned by EquipmentManager (sorted order = cost order) |
 | `assets/fonts/Gameplay.ttf` | Pixel/retro font for main UI |
 | `assets/audio/music/` | OGG Vorbis music files streamed by AudioManager |
+| `assets/asteroid/` | Asteroid PNGs; leading non-digit chars of filename = material type (`dirt`/`ice`/`jewel`/`metal`/`rare`) |
+| `assets/sprites/weapons/` | Bullet/shell PNGs + `Gun.gif` / `Gun-Impact50.gif` animations for `gun_system.gd` |
+| `assets/weaponry/` | Weapon mount sprites (edit group `"weaponry"`); filename + `" Mk2"`/`" Mk3"` suffix drives `WeaponManager` tiers |
+| `assets/defense/` | `lv1.png`..`lv8.png` defense level icons |
+| `assets/stat/` | Material icons (`metal.png`, `non-metal.png`, `organic.png`, `Liquid.png`) for HUD/shop |
 
 EquipmentManager cost formula: `20 * pow(1.6, sorted_index)`
 
@@ -250,6 +306,8 @@ EquipmentManager cost formula: `20 * pow(1.6, sorted_index)`
 | `user://user_panel.cfg` | UserPanel widget states |
 | `user://session.cfg` | Chatbot conversation history |
 | `user://audio_config.cfg` | AudioManager internal state |
+| `user://materials.cfg` | material counts (metal, nonmetal, organic, liquid) |
+| `user://save.cfg` | shared file: `[weapons]` owned tiers per id/side + `[defense]` level |
 | `res://default_layout.cfg` | positions/sizes của tất cả edit mode objects (tất cả groups kể cả "screen") |
 
 ---
@@ -335,5 +393,8 @@ Nếu một tác vụ yêu cầu đọc những file này để **hiểu context
 - `res://default_layout.cfg` lưu layout edit mode (không phải `user://`) — đọc từ `main.gd._apply_screen_layouts()` deferred sau `_ready()`
 - StreamScreen position = (270, 8) trong viewport; các tọa độ relative của scrolling bg = `viewport_pos − (270, 8)`
 - `.uid` files sit next to every `.gd` and `.tscn` — Godot regenerates them on first editor open; scripts created headlessly may be missing UIDs
-- `UpgradeManager.load_game()` must run before `GameManager.load_game()` (UpgradeManager resets GameManager rate fields to 0 then re-applies owned upgrades)
+- `UpgradeManager.load_game()` must run before `GameManager.load_game()` (UpgradeManager resets GameManager rate fields to 0 then re-applies owned upgrades) — **but `main.gd._ready()` currently calls them in the opposite order (`GameManager` first). Verify intent before trusting either.**
 - Internal GDScript variable names (views, subs, cash) are kept for API stability — they map to Fuel, Crew, Credits in all player-facing UI
+- `WeaponManager.WEAPONS`/`owned` are empty until `edit_mode.gd` calls `sync_from_canvas()` after layout load — don't query weapons in `_ready()`; wait for the `catalog_updated` signal. Weapon ids come from **filenames** in `assets/weaponry/`, so renaming a sprite silently drops it from the catalog (mitigated by 7-char fuzzy match + `KEY_ALIASES`)
+- `WeaponManager` and `DefenseManager` share `user://save.cfg`; `WeaponManager.save_game()` does `erase_section("weapons")` then rewrites — safe, but both managers must use distinct sections (`[weapons]` / `[defense]`)
+- `project.godot` `[autoload]` has merge-conflicted twice on the autoload list; conflict markers there make Godot fail to open the project. Required set (no dups): AudioManager, MaterialManager, DefenseManager, EquipmentManager, UpgradeManager, GameManager, WeaponManager
