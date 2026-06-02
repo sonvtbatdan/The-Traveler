@@ -1,3 +1,4 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+addons/godot_whisper/bin/~libgodot_whisper.windows.template_release.x86_64.dll~RF1e90c25d.TMP
