@@ -319,6 +319,105 @@ CanvasLayer with high `layer` value beats any Control node's `z_index` — use l
 
 ---
 
+## Boss Fight System (`scripts/gameplay/boss_fight.gd`)
+
+### Architecture
+
+- **Root node:** `Control` (layer z=200, PROCESS_MODE_PAUSABLE)
+- **Clip container:** `_clip_node` (Control, clipped to StreamScreen bounds) — all projectiles rendered inside
+- **Boss EO:** `_boss_eo` (EditableObjectNode from objects_container) — animated sprite with rotation pivot at center
+- **Ship EO:** `_ship_eo` — for targeting, collision bounds
+- **Fire points:** `_fp1_node`, `_fp2_node`, `_fp3_node` (Node2D children of boss) — auto-follow boss rotation + translation
+
+### Phases and Cycle
+
+```
+enum Phase { IDLE, M1_ENTRY, M1_TRAVEL, M2, M3_ROT, M3_MOVE, M3_WARN, M3_FIRE,
+             M4_ROT, M4_TRAVEL, M5_ROT, M5_MOVE, DONE }
+```
+
+**Move sequence:** Random pick after each move completes → `_begin_random_move()` picks one of 5 moves uniformly.
+
+- **M1 (Spike Rain):** Spin + horizontal sweep + spiral spike bursts mỗi 0.2s. Duration ~8s.
+- **M2 (Vortex Wander):** Random movement + vortex bursts từ fp1, fp2 mỗi 1.5s. Duration ~8s.
+- **M3 (Laser):** Rotate 90° → align X → laser telegraph + fire. Total ~3.5s. Laser = one-shot 30 HP.
+- **M4 (Shot Drop):** Tween entry (trái/phải) → rotate 90° → sweep ngang 120 px/s + drops từ fp3 mỗi 1s. End khi chạm screen edge. Drops = 20 HP.
+- **M5 (Shoot Blob):** Rotate 90° → random wander y<450 trong 5s + blobs từ boss center mỗi 1s, homing. Blobs = 20 HP.
+
+**Entry tween:** M1/M2/M3/M4 tween vị trí trong 1.0–1.5s, set `_phase = Phase.M1_ENTRY` để block boss tick (nhưng projectiles vẫn tick — critical fix).
+
+### Move-Specific Details
+
+**M1:** Spikes → balls (ball1–4.gif) random pick, resize 10%, no blink, 30 px/s, damage 10.
+**M2:** Vortex từ fp1+fp2, GIF animated, rotate, 90 px/s, 15 HP.
+**M3:** Laser từ fp3 (rotated), telegraph flash 0.08s cycle, damage 30 (one-shot).
+**M4:** Drops từ fp3 (rotated), drop.gif animated + pre-resized 20% at load, 120 px/s down, 20 HP.
+**M5:** Blobs từ boss center, blob.gif animated, 80 px/s homing (straight line, no pause), 20 HP.
+
+### Projectile System
+
+**Dict format (in `_projectiles` array):**
+```gdscript
+{
+  "tr":        TextureRect,    # scene node in _clip_node local space
+  "vel":       Vector2,        # px/sec in clip space
+  "rot_spd":   float,          # rotation speed (0 = no spin)
+  "rot":       float,          # accumulated rotation
+  "dmg":       int,            # damage on hit
+  "type":      String,         # "spike", "ball", "vortex", "drop", "blob"
+  "frames":    Array[Texture2D],
+  "delays":    Array[float],   # per-frame GIF delays
+  "frame":     int,            # current frame
+  "acc":       float,          # frame accumulator
+  "blink_acc": float,          # for spike blink effect (sin wave, orange-red pulse)
+}
+```
+
+**Collision:** Pixel-perfect — tight rect broad-check → per-pixel alpha sampling (2px step).
+
+**Critical:** `_tick_projectiles(delta)` is called **before** `M1_ENTRY` early-return in `_process()`. If called after, projectiles freeze during boss tween. See `_process()` line ~284.
+
+### Asset Loading
+
+Animations loaded in `_load_assets()` via GifLoader:
+- firevortex.gif (M2)
+- laser.gif (M3)
+- ball1–4.gif (M1, random pick each spawn)
+- drop.gif (M4, pre-resized 20% at load → cached in `_drop_frames`, `_drop_size`)
+- blob.gif (M5)
+
+GifLoader extracts frames and delays metadata. Non-GIF textures fallback to single-frame array.
+
+### Key Functions and State
+
+| Function | Purpose |
+|----------|---------|
+| `spawn_boss()` | Initialize boss, set HP, emit signals, auto-activate manual boost |
+| `start_fight()` | Set boss visible, call `_begin_random_move()` |
+| `_begin_random_move()` | Reset rotation, random pick move 0–4 |
+| `_begin_m1/2/3/4()` | Tween setup + phase to M1_ENTRY or real phase |
+| `_begin_m5()` | No tween, phase straight to M5_ROT |
+| `_tick_m1/2/3/4/5_*()` | Move-specific tick logic |
+| `_spawn_spike/drop/blob()` | Create projectile dict, append to `_projectiles` |
+| `_tick_projectiles(delta)` | Move, animate, collide, cull all in-flight projectiles |
+| `kill_boss()` | Set HP=0, hide sprite, cleanup projectiles, emit signal |
+
+### Gotchas
+
+1. **M1_ENTRY early-return:** `_process()` checks `_phase == Phase.M1_ENTRY` and returns early (line ~283). **This must come AFTER `_tick_projectiles(delta)`** or projectiles freeze during tween.
+
+2. **Fire point caching:** Fire points are Node2D children of boss → Godot auto-rotates + translates them. Fallback to `boss_center + offset` if child invalid.
+
+3. **Drop/blob resize:** Drop frames are pre-resized at load (0.2×) into `_drop_frames` + `_drop_size` cache. Blob uses native size. Ball frames are resized at spawn (0.1×) because there are 4 variants.
+
+4. **Blob homing:** Blob fires once at ship center direction, flies straight (no state machine pause/redirect). Simple linear projectile, like vortex.
+
+5. **Collision damage:** Ships collide via `GameManager.ship_take_damage(dmg)`. One hit per projectile (removed after collision). Boss collision via `get_boss_hit_rect()` for external hitbox checks.
+
+6. **Screen edge detection (M4):** Boss position clamped to OC_BOUNDS. M4 manually checks `position.x >= end.x - size.x` to trigger end.
+
+---
+
 ## LOCKED MODULES — DO NOT MODIFY WITHOUT EXPLICIT USER PERMISSION
 
 The following files are considered **stable and complete**. Claude must **not edit them** in any session unless the user explicitly says "bạn được phép sửa [tên file]" hoặc tương đương rõ ràng. Nếu có bug liên quan, hãy **báo cáo** thay vì tự ý sửa.
