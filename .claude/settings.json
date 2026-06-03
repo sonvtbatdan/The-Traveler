@@ -1,5 +1,9 @@
 {
   "permissions": {
+    "allow": [
+      "Bash(\"C:\\\\Users\\\\minhv\\\\Godot\\\\Godot.exe\" --headless --check-only --script scripts/gameplay/boss_fight.gd --quit)",
+      "Bash(\"C:\\\\Users\\\\minhv\\\\Godot\\\\Godot.exe\" --headless --check-only --path . --quit)"
+    ],
     "defaultMode": "plan",
     "additionalDirectories": [
       "C:\\Users\\minhv\\AppData\\Roaming\\Godot\\app_userdata\\The Traveler"

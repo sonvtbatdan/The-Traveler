@@ -42,7 +42,7 @@ const LASER_DMG        := 30
 const M4_ROT_T          := 0.5
 const M4_TRAVEL_SPD     := 600.0            # 5× traversal speed
 const M4_DROP_INT       := 0.2             # drop a bomb every 0.2s
-const DROP_SPEED        := 120.0
+const DROP_SPEED        := 600.0           # bombs hang then drop fast
 const DROP_DMG          := 20
 const M4_START_LEFT_SS  := Vector2(10.0, 175.0)
 const M4_START_RIGHT_SS := Vector2(690.0, 175.0)
@@ -50,13 +50,16 @@ const M4_START_RIGHT_SS := Vector2(690.0, 175.0)
 # ── Move 5 constants ──────────────────────────────────────────────────────────
 const M5_DURATION   := 5.0
 const M5_ROT_T      := 0.5
-const M5_BLOB_INT   := 1.0 / 3.0           # 3× as many bombs (3× faster volleys)
+const M5_BLOB_INT   := 2.0 / 3.0           # half as many blobs (half the fire rate)
 const M5_MOVE_SPD   := 80.0
-const BLOB_SPEED    := 200.0
+const BLOB_SPEED    := 300.0               # 50% faster blobs
 const BLOB_DMG      := 20
 
 # ── Boss HP ───────────────────────────────────────────────────────────────────
 const BOSS_MAX_HP      := 2000
+
+# All boss attack damage is scaled by this (75% of the per-attack values above).
+const BOSS_DAMAGE_MULT := 0.75
 
 # ── Phase ─────────────────────────────────────────────────────────────────────
 enum Phase { IDLE, M1_ENTRY, M1_TRAVEL, M2, M3_ROT, M3_MOVE, M3_WARN, M3_FIRE, M4_ROT, M4_TRAVEL, M5_ROT, M5_MOVE, DONE }
@@ -97,6 +100,7 @@ var _blob_delays:   Array = []
 var _ship_img:        Image = null   # cached ship texture (fallback collision)
 var _ship_hitbox_img: Image = null   # Spaceshiphitbox.png — black pixels define hitbox
 var _ship_tight_uv:   Rect2 = Rect2(0.0, 0.0, 1.0, 1.0)  # UV rect of hitbox area
+var _ship_alpha_uv:   Rect2 = Rect2(0.0, 0.0, 1.0, 1.0)  # opaque (alpha) bounds of the ship sprite
 
 # ── Move 1 state ──────────────────────────────────────────────────────────────
 var _boss_spin  := 0.0
@@ -107,9 +111,10 @@ var _spiral_angle  := 0.0   # base angle for spiral spike pattern
 # ── Move 2 state ──────────────────────────────────────────────────────────────
 var _m2_target  := Vector2.ZERO
 var _vortex_acc := 0.0
+var _m2_dir     := 1.0   # horizontal sweep direction (+1 = right, -1 = left)
 
 # ── Move 3 state ──────────────────────────────────────────────────────────────
-var _m3_target_x_ss  := 0.0
+var _m3_target_cx_oc := 0.0   # player hitbox center X (OC/global space) for the laser
 var _laser_tr:         TextureRect = null
 var _laser_flash_acc  := 0.0
 var _laser_hit_done   := false
@@ -117,8 +122,10 @@ var _m3_shots         := 0    # how many laser shots fired this Move-3 cycle (fi
 var _laser_w          := LASER_W   # current beam width: thin warning, 3× wide on actual fire
 
 # ── Move 4 state ──────────────────────────────────────────────────────────────
-var _m4_dir      := 1.0
-var _m4_drop_acc := 0.0
+var _m4_dir            := 1.0
+var _m4_drop_acc       := 0.0
+var _m4_dropped_first  := false   # row dropped when entering the first third
+var _m4_dropped_last   := false   # row dropped when entering the last third
 
 # ── Move 5 state ──────────────────────────────────────────────────────────────
 var _m5_acc      := 0.0
@@ -205,10 +212,26 @@ func kill_boss() -> void:
 	GameManager.boss_max_hp = 0
 	GameManager.boss_killed.emit()
 
+## True axis-aligned bounding box of the (rotated/scaled, center-pivot) boss sprite,
+## via its TextureRect's real global transform — same pattern as _ship_hit_rect_oc().
+## Using _boss_eo.global_position directly is wrong once rotated (origin ≠ visible top-left).
 func get_boss_hit_rect() -> Rect2:
 	if _boss_eo == null or not is_instance_valid(_boss_eo) or not _boss_eo.visible:
 		return Rect2()
-	return Rect2(_boss_eo.global_position, _boss_eo.size)
+	var tr: TextureRect = _boss_eo.texture_rect
+	if tr == null:
+		return Rect2(_boss_eo.global_position, _boss_eo.size)   # fallback
+	var sz: Vector2 = tr.size
+	var xf := tr.get_global_transform()
+	var p0 := xf * Vector2(0.0, 0.0)
+	var p1 := xf * Vector2(sz.x, 0.0)
+	var p2 := xf * Vector2(0.0, sz.y)
+	var p3 := xf * Vector2(sz.x, sz.y)
+	var minp := Vector2(minf(minf(p0.x, p1.x), minf(p2.x, p3.x)),
+						minf(minf(p0.y, p1.y), minf(p2.y, p3.y)))
+	var maxp := Vector2(maxf(maxf(p0.x, p1.x), maxf(p2.x, p3.x)),
+						maxf(maxf(p0.y, p1.y), maxf(p2.y, p3.y)))
+	return Rect2(minp, maxp - minp)
 
 func start_fight() -> void:
 	if _boss_eo == null or not is_instance_valid(_boss_eo):
@@ -239,7 +262,12 @@ func _begin_m1() -> void:
 	tw.finished.connect(_on_m1_entry_done)
 
 func _begin_m2_tweened() -> void:
-	var target := _pick_m2_target()
+	# Start in a top corner (50/50 left vs right) and sweep toward the far side.
+	var go_left := randi() % 2 == 0   # start top-LEFT, sweep right
+	var top_y := OC_BOUNDS.position.y
+	var corner_x: float = OC_BOUNDS.position.x if go_left else OC_BOUNDS.end.x - _boss_eo.size.x
+	_m2_dir = 1.0 if go_left else -1.0
+	var target := Vector2(corner_x, top_y)
 	_phase     = Phase.M1_ENTRY   # block _process tick during tween
 	_phase_acc = 0.0
 	var tw := create_tween()
@@ -248,8 +276,7 @@ func _begin_m2_tweened() -> void:
 	tw.finished.connect(func() -> void:
 		_phase      = Phase.M2
 		_phase_acc  = 0.0
-		_vortex_acc = randf() * M2_VORTEX_INT
-		_m2_target  = _pick_m2_target())
+		_vortex_acc = 0.0)
 
 func _begin_m3_tweened() -> void:
 	var rx := randf_range(OC_BOUNDS.position.x, OC_BOUNDS.end.x - _boss_eo.size.x)
@@ -278,6 +305,14 @@ func _on_m1_entry_done() -> void:
 # =============================================================================
 
 func _draw() -> void:
+	# TEMP DEBUG: outline the player hitbox so we can confirm it sits on the ship. Remove once verified.
+	if GameManager.boss_max_hp > 0:
+		var hr := _ship_hit_rect_oc()
+		if hr.size != Vector2.ZERO:
+			draw_rect(Rect2(hr.position - global_position, hr.size), Color(0, 1, 0), false, 2.0)
+		var br := get_boss_hit_rect()
+		if br.size != Vector2.ZERO:
+			draw_rect(Rect2(br.position - global_position, br.size), Color(1, 0, 0), false, 2.0)
 	# ⚠ warning sign next to the boss's gun, shown for the whole Move-3 warning.
 	if _phase == Phase.M3_WARN and _boss_eo != null and is_instance_valid(_boss_eo):
 		var fp3_local := _get_fp3_world() - global_position   # this Control has no scale/rotation
@@ -297,6 +332,8 @@ func _draw_warning_sign(c: Vector2) -> void:
 	draw_circle(c + Vector2(0.0, s * 0.42), 2.0, dark)
 
 func _process(delta: float) -> void:
+	if GameManager.boss_max_hp > 0:
+		queue_redraw()   # TEMP DEBUG: keep the hitbox outline live during the fight
 	# Always hide boss when not in an active fight phase
 	if _boss_eo != null and is_instance_valid(_boss_eo):
 		if _phase == Phase.IDLE or _phase == Phase.DONE:
@@ -367,21 +404,30 @@ func _tick_m1(delta: float) -> void:
 func _tick_m2(delta: float) -> void:
 	_phase_acc += delta
 
-	var diff := _m2_target - _boss_eo.position
-	if diff.length() < 5.0:
-		_m2_target = _pick_m2_target()
-	else:
-		_boss_eo.position += diff.normalized() * M2_MOVE_SPD * delta
+	# Horizontal sweep at the top, bouncing off the side walls.
+	_boss_eo.position.x += _m2_dir * M2_MOVE_SPD * delta
+	var right_wall := OC_BOUNDS.end.x - _boss_eo.size.x
+	var left_wall  := OC_BOUNDS.position.x
+	if _boss_eo.position.x >= right_wall:
+		_boss_eo.position.x = right_wall
+		_m2_dir = -1.0
+	elif _boss_eo.position.x <= left_wall:
+		_boss_eo.position.x = left_wall
+		_m2_dir = 1.0
 
-	_vortex_acc += delta
-	if _vortex_acc >= M2_VORTEX_INT:
-		_vortex_acc -= M2_VORTEX_INT
-		var fp1_pos := _fp1_node.global_position if is_instance_valid(_fp1_node) \
-			else _boss_eo.global_position + _boss_eo.size / 2.0 + _fp1_off
-		var fp2_pos := _fp2_node.global_position if is_instance_valid(_fp2_node) \
-			else _boss_eo.global_position + _boss_eo.size / 2.0 + _fp2_off
-		_fire_vortex(fp1_pos)
-		_fire_vortex(fp2_pos)
+	# Fire rhythm: 2s firing, 1s pause (3s cycle).
+	if fmod(_phase_acc, 3.0) < 2.0:
+		_vortex_acc += delta
+		if _vortex_acc >= M2_VORTEX_INT:
+			_vortex_acc -= M2_VORTEX_INT
+			var fp1_pos := _fp1_node.global_position if is_instance_valid(_fp1_node) \
+				else _boss_eo.global_position + _boss_eo.size / 2.0 + _fp1_off
+			var fp2_pos := _fp2_node.global_position if is_instance_valid(_fp2_node) \
+				else _boss_eo.global_position + _boss_eo.size / 2.0 + _fp2_off
+			_fire_vortex(fp1_pos)
+			_fire_vortex(fp2_pos)
+	else:
+		_vortex_acc = 0.0
 
 	if _phase_acc >= M2_DURATION:
 		_begin_random_move()
@@ -405,15 +451,15 @@ func _tick_m3_rot(delta: float) -> void:
 		_boss_eo.rotation = PI / 2.0
 		_phase     = Phase.M3_MOVE
 		_phase_acc = 0.0
-		# Capture player X at the moment rotation completes (most accurate)
-		if _ship_eo != null and is_instance_valid(_ship_eo):
-			_m3_target_x_ss = _ship_eo.global_position.x + _ship_eo.size.x / 2.0 - SS_OFFSET.x
-		else:
-			_m3_target_x_ss = 350.0
+		# Capture player hitbox center X at the moment rotation completes (most accurate)
+		_m3_target_cx_oc = _ship_aim_point_oc().x
 
 func _tick_m3_move(delta: float) -> void:
+	# Position the boss so the BEAM (emitted from fp3) lands on the target, not the
+	# boss center. fp3's x-offset from boss.position is constant for the locked rotation.
+	var fp_dx := _get_fp3_world().x - _boss_eo.position.x
 	var target_oc := Vector2(
-		clampf(_m3_target_x_ss + SS_OFFSET.x - _boss_eo.size.x / 2.0,
+		clampf(_m3_target_cx_oc - fp_dx,
 			OC_BOUNDS.position.x, OC_BOUNDS.end.x - _boss_eo.size.x),
 		clampf(175.0 + SS_OFFSET.y - _boss_eo.size.y / 2.0,
 			OC_BOUNDS.position.y, OC_BOUNDS.end.y - _boss_eo.size.y)
@@ -452,9 +498,9 @@ func _tick_m3_fire(delta: float) -> void:
 	if not _laser_hit_done and _ship_eo != null and is_instance_valid(_ship_eo):
 		var fp3 := _get_fp3_world()
 		var laser_rect := Rect2(fp3.x - _laser_w / 2.0, fp3.y, _laser_w, OC_BOUNDS.end.y - fp3.y)
-		var ship_rect  := _ship_scaled_rect_oc()   # match the visible (scaled) ship, not the full footprint
+		var ship_rect  := _ship_hit_rect_oc()   # the ship's opaque region, centered on the visible ship
 		if laser_rect.intersects(ship_rect):
-			GameManager.ship_take_damage(LASER_DMG)
+			GameManager.ship_take_damage(int(round(LASER_DMG * BOSS_DAMAGE_MULT)))
 			_laser_hit_done = true
 	if _phase_acc >= M3_FIRE_T:
 		if _laser_tr != null and is_instance_valid(_laser_tr):
@@ -462,11 +508,8 @@ func _tick_m3_fire(delta: float) -> void:
 			_laser_tr = null
 		_m3_shots += 1
 		if _m3_shots < 3:
-			# Re-aim at the ship's CURRENT X, then slide there → warn → fire again.
-			if _ship_eo != null and is_instance_valid(_ship_eo):
-				_m3_target_x_ss = _ship_eo.global_position.x + _ship_eo.size.x / 2.0 - SS_OFFSET.x
-			else:
-				_m3_target_x_ss = 350.0
+			# Re-aim at the ship's CURRENT hitbox center, then slide there → warn → fire again.
+			_m3_target_cx_oc = _ship_aim_point_oc().x
 			_phase     = Phase.M3_MOVE
 			_phase_acc = 0.0
 		else:
@@ -500,33 +543,48 @@ func _tick_m4_rot(delta: float) -> void:
 		_phase     = Phase.M4_TRAVEL
 		_phase_acc = 0.0
 		_m4_drop_acc = 0.0
+		_m4_dropped_first = false
+		_m4_dropped_last  = false
 
 func _tick_m4_travel(delta: float) -> void:
 	_boss_eo.position.x += _m4_dir * M4_TRAVEL_SPD * delta
 
-	_m4_drop_acc += delta
-	while _m4_drop_acc >= M4_DROP_INT:
-		_m4_drop_acc -= M4_DROP_INT
-		_spawn_drop()
+	# Drop a full row of 8 bombs when the boss center crosses into the first / last
+	# third of the map. Nothing in the middle third.
+	var left := OC_BOUNDS.position.x
+	var third_w := OC_BOUNDS.size.x / 3.0
+	var center_x := _boss_eo.position.x + _boss_eo.size.x / 2.0
+	if not _m4_dropped_first and center_x >= left and center_x <= left + third_w:
+		_spawn_bomb_row(left, left + third_w)
+		_m4_dropped_first = true
+	if not _m4_dropped_last and center_x >= left + 2.0 * third_w:
+		_spawn_bomb_row(left + 2.0 * third_w, OC_BOUNDS.end.x)
+		_m4_dropped_last = true
 
 	var hit_right := _m4_dir > 0 and _boss_eo.position.x >= OC_BOUNDS.end.x - _boss_eo.size.x
 	var hit_left  := _m4_dir < 0 and _boss_eo.position.x <= OC_BOUNDS.position.x
 	if hit_right or hit_left:
 		_begin_random_move()
 
-func _spawn_drop() -> void:
+# Spawn 8 bombs evenly across [x0, x1] (OC space), each sized to the slot width so
+# they sit adjacent without overlapping. They hover 0.5s then drop straight down fast.
+func _spawn_bomb_row(x0: float, x1: float) -> void:
 	if _drop_frames.is_empty():
 		return
-	var origin := _fp3_node.global_position if is_instance_valid(_fp3_node) \
-		else _boss_eo.global_position + _boss_eo.size / 2.0
-	var local_pos := origin - OC_BOUNDS.position - _drop_size / 2.0
-	var tr := _make_projectile_rect(_drop_frames[0], _drop_size, local_pos)
-	_projectiles.append({
-		"tr": tr, "vel": Vector2(0.0, DROP_SPEED),
-		"rot_spd": 0.0, "rot": 0.0, "dmg": DROP_DMG, "type": "drop",
-		"frames": _drop_frames, "delays": _drop_delays, "frame": 0, "acc": 0.0,
-		"blink_acc": 0.0,
-	})
+	var slot := (x1 - x0) / 8.0
+	var sz := Vector2(slot, slot)
+	var y_oc := _boss_eo.position.y + _boss_eo.size.y / 2.0
+	for i in 8:
+		var cx := x0 + (float(i) + 0.5) * slot
+		var local_pos := Vector2(cx, y_oc) - OC_BOUNDS.position - sz / 2.0
+		var tr := _make_projectile_rect(_drop_frames[0], sz, local_pos)
+		_projectiles.append({
+			"tr": tr, "vel": Vector2.ZERO,
+			"rot_spd": 0.0, "rot": 0.0, "dmg": DROP_DMG, "type": "drop",
+			"frames": _drop_frames, "delays": _drop_delays, "frame": 0, "acc": 0.0,
+			"blink_acc": 0.0,
+			"delay": 0.75, "fall_speed": DROP_SPEED,
+		})
 
 # =============================================================================
 # Move 5 — rotate 90° CW + random wander + fire homing blobs
@@ -579,7 +637,7 @@ func _fire_blob() -> void:
 	if _ship_eo == null or not is_instance_valid(_ship_eo):
 		return
 	var origin := _boss_eo.global_position + _boss_eo.size / 2.0
-	var ship_ctr := _ship_eo.global_position + _ship_eo.size / 2.0
+	var ship_ctr := _ship_aim_point_oc()
 	var dir := (ship_ctr - origin)
 	if dir == Vector2.ZERO:
 		dir = Vector2(0.0, 1.0)
@@ -675,7 +733,7 @@ func _fire_vortex(origin_oc: Vector2) -> void:
 		return
 	if _ship_eo == null or not is_instance_valid(_ship_eo):
 		return
-	var ship_ctr  := _ship_eo.global_position + _ship_eo.size / 2.0
+	var ship_ctr  := _ship_aim_point_oc()
 	var dir       := (ship_ctr - origin_oc)
 	if dir == Vector2.ZERO:
 		dir = Vector2(0.0, 1.0)
@@ -715,16 +773,11 @@ func _tick_projectiles(delta: float) -> void:
 	# Lazy re-cache ship image if not yet available
 	if _ship_img == null:
 		_cache_ship_image()
-	# Full scaled rect for pixel UV mapping; tight rect computed from ship transform + hitbox data
-	var ship_rect_local  := Rect2()   # full rect (used by _pixel_hit UV computation)
-	var ship_tight_local := Rect2()   # pixel-tight rect (used for initial intersects check)
+	# Hit box = the ship sprite's opaque region (centered + scaled on the visible ship), in clip-local space.
+	var ship_hit_local := Rect2()
 	if _ship_eo != null and is_instance_valid(_ship_eo):
-		var full_oc  := _ship_scaled_rect_oc()
-		ship_rect_local = Rect2(full_oc.position - OC_BOUNDS.position, full_oc.size)
-		# Broad-phase uses the center-scaled full rect (the old top-left tight rect was wrong once
-		# the ship scales around its center pivot — it missed entirely at 0.25). _pixel_hit() below
-		# still refines to the actual opaque ship pixels, so this stays precise at every scale.
-		ship_tight_local = ship_rect_local
+		var hit_oc := _ship_hit_rect_oc()
+		ship_hit_local = Rect2(hit_oc.position - OC_BOUNDS.position, hit_oc.size)
 
 	# Clip bounds in local space (0,0 to size)
 	var clip_local := Rect2(Vector2.ZERO, OC_BOUNDS.size)
@@ -740,6 +793,15 @@ func _tick_projectiles(delta: float) -> void:
 			_projectiles.remove_at(i)
 			i -= 1
 			continue
+
+		# Hover delay (bomb rows): hold still, then start falling.
+		var hover: float = float(p.get("delay", 0.0))
+		if hover > 0.0:
+			hover -= delta
+			if hover <= 0.0:
+				hover = 0.0
+				p["vel"] = Vector2(0.0, float(p.get("fall_speed", DROP_SPEED)))
+			p["delay"] = hover
 
 		tr.position += (p["vel"] as Vector2) * delta
 
@@ -770,11 +832,10 @@ func _tick_projectiles(delta: float) -> void:
 			var blink := sin(ba * TAU * 5.0) * 0.5 + 0.5
 			tr.modulate = Color(1.0, 0.6 + blink * 0.4, blink * 0.2, 1.0)
 
-		# Pixel-perfect collision: tight rect broad check → per-pixel confirm
+		# Collision: overlap with the ship's opaque hit box.
 		var proj_rect := Rect2(tr.position, tr.size)
-		if ship_tight_local != Rect2() and proj_rect.intersects(ship_tight_local) \
-				and _pixel_hit(tr, proj_rect, ship_rect_local):
-			GameManager.ship_take_damage(int(p["dmg"]))
+		if ship_hit_local != Rect2() and proj_rect.intersects(ship_hit_local):
+			GameManager.ship_take_damage(int(round(float(p["dmg"]) * BOSS_DAMAGE_MULT)))
 			_flash_ship_red()
 			tr.queue_free()
 			_projectiles.remove_at(i)
@@ -802,6 +863,31 @@ func _ship_scaled_rect_oc() -> Rect2:
 	var sz  := _ship_eo.size * sc
 	var ctr := _ship_eo.global_position + _ship_eo.size * 0.5
 	return Rect2(ctr - sz * 0.5, sz)
+
+## Hitbox = the ship sprite's opaque region, mapped through the TextureRect's REAL global
+## transform (which already bakes in the ship's position, center pivot, scale and parents).
+## No manual reconstruction — tracks the visible ship exactly at any scale.
+func _ship_hit_rect_oc() -> Rect2:
+	if _ship_eo == null or not is_instance_valid(_ship_eo) or _ship_eo.texture_rect == null:
+		return Rect2()
+	var tr: TextureRect = _ship_eo.texture_rect
+	var full: Vector2 = tr.size
+	var xf := tr.get_global_transform()
+	var a := xf * (_ship_alpha_uv.position * full)
+	var b := xf * ((_ship_alpha_uv.position + _ship_alpha_uv.size) * full)
+	var top_left := Vector2(minf(a.x, b.x), minf(a.y, b.y))
+	return Rect2(top_left, (a - b).abs())
+
+## Single source of truth for boss aiming: the player's true hitbox center
+## (opaque region via the real transform), in OC/global space. All player-aimed
+## attacks (vortex, blob, laser) target this so shots track the visible ship at any scale.
+func _ship_aim_point_oc() -> Vector2:
+	var hr := _ship_hit_rect_oc()
+	if hr.size != Vector2.ZERO:
+		return hr.position + hr.size / 2.0
+	if _ship_eo != null and is_instance_valid(_ship_eo):
+		return _ship_eo.global_position + _ship_eo.size / 2.0   # fallback
+	return OC_BOUNDS.get_center()
 
 func _ship_tight_rect_oc() -> Rect2:
 	var full := _ship_scaled_rect_oc()
@@ -904,6 +990,7 @@ func _cache_ship_image() -> void:
 	_ship_img = tex.get_image()
 	if _ship_img != null:
 		_ship_tight_uv = _compute_tight_uv_black(_ship_img)
+		_ship_alpha_uv = _compute_tight_uv(_ship_img)   # opaque region of the visible ship
 		_create_ship_hitbox_node()
 
 func _create_ship_hitbox_node() -> void:
