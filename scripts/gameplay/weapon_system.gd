@@ -121,16 +121,21 @@ func _update_secondary(delta: float) -> void:
 		_aura_tick(radius, dmg)
 
 func _aura_tick(radius: float, dmg: float) -> void:
-	var ast := _ast()
-	if ast == null or not ast.has_method("damage_area"):
-		return
 	var center := _ship_center()
-	var hits: Array = ast.damage_area(center, radius, dmg)
-	for p: Vector2 in hits:
-		_arcs.append({"a": center, "b": p, "age": 0.0, "max_age": 0.18})
+	var ast := _ast()
+	if ast != null and ast.has_method("damage_area"):
+		var hits: Array = ast.damage_area(center, radius, dmg)
+		for p: Vector2 in hits:
+			_arcs.append({"a": center, "b": p, "age": 0.0, "max_age": 0.18})
+	# Boss also takes aura damage if within range.
+	var boss_rect := _boss_rect_local()
+	if boss_rect.has_area() and _circle_hits_rect(center, radius, boss_rect):
+		GameManager.take_boss_damage(int(dmg))
+		_arcs.append({"a": center, "b": boss_rect.position + boss_rect.size * 0.5, "age": 0.0, "max_age": 0.18})
 
 func _update_bullets(delta: float) -> void:
 	var ast := _ast()
+	var boss_rect := _boss_rect_local()
 	var i: int = _bullets.size() - 1
 	while i >= 0:
 		var b: Dictionary = _bullets[i]
@@ -142,7 +147,11 @@ func _update_bullets(delta: float) -> void:
 		if big:
 			# Piercing: spend damage equal to each rock's HP; leftover keeps flying.
 			var r: float = _ball_radius(b)
-			if ast != null and ast.has_method("pierce_at"):
+			if boss_rect.has_area() and _circle_hits_rect(pos, maxf(r, 4.0), boss_rect):
+				GameManager.take_boss_damage(int(b["dmg"]))
+				_spawn_impact(pos, true)
+				b["dmg"] = 0.0   # boss absorbs the whole ball
+			elif ast != null and ast.has_method("pierce_at"):
 				var absorbed: float = ast.pierce_at(pos, maxf(r, 4.0), float(b["dmg"]))
 				if absorbed > 0.0:
 					_spawn_impact(pos, true)
@@ -151,6 +160,10 @@ func _update_bullets(delta: float) -> void:
 				remove = true
 		else:
 			if ast != null and ast.has_method("damage_point") and ast.damage_point(pos, BULLET_HIT_RADIUS, float(b["dmg"])):
+				_spawn_impact(pos, false)
+				remove = true
+			elif boss_rect.has_area() and boss_rect.has_point(pos):
+				GameManager.take_boss_damage(int(b["dmg"]))
 				_spawn_impact(pos, false)
 				remove = true
 		var off: bool = pos.x < -48.0 or pos.x > size.x + 48.0 or pos.y < -48.0 or pos.y > size.y + 48.0
@@ -342,6 +355,25 @@ func _equipped_def(slot: String) -> Dictionary:
 
 func _ast() -> Node:
 	return get_tree().get_first_node_in_group("asteroid_main")
+
+## The boss's hit rect in this layer's local space (empty Rect2 if no live boss).
+## get_boss_hit_rect() is global; this control sits at StreamScreen's origin.
+func _boss_rect_local() -> Rect2:
+	if GameManager.boss_max_hp <= 0:
+		return Rect2()
+	var bf := get_tree().get_first_node_in_group("boss_fight")
+	if bf == null or not bf.has_method("get_boss_hit_rect"):
+		return Rect2()
+	var r: Rect2 = bf.get_boss_hit_rect()
+	if not r.has_area():
+		return Rect2()
+	return Rect2(r.position - global_position, r.size)
+
+func _circle_hits_rect(c: Vector2, radius: float, rect: Rect2) -> bool:
+	var nearest := Vector2(
+		clampf(c.x, rect.position.x, rect.position.x + rect.size.x),
+		clampf(c.y, rect.position.y, rect.position.y + rect.size.y))
+	return c.distance_to(nearest) <= radius
 
 func _inventory_open() -> bool:
 	var ui := get_tree().get_first_node_in_group("inventory_ui")

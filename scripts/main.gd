@@ -13,6 +13,8 @@ const BossEditScript            := preload("res://scripts/ui/boss_edit/boss_edit
 const BossFightScript           := preload("res://scripts/gameplay/boss_fight.gd")
 const BossPanelScript           := preload("res://scripts/ui/hud/boss_panel.gd")
 const BossHpBarScript           := preload("res://scripts/ui/hud/boss_hp_bar.gd")
+const InventoryUIScript         := preload("res://scripts/ui/inventory/inventory_ui.gd")
+const WeaponSystemScript        := preload("res://scripts/gameplay/weapon_system.gd")
 
 @onready var edit_mode = $EditMode
 @onready var visual_container: HBoxContainer = %VisualContainer
@@ -31,6 +33,11 @@ func _ready() -> void:
 	_add_scrolling_overlay()
 	_add_asteroid_layers()
 	_add_material_panel()
+	add_child(InventoryUIScript.new())
+	_add_boost_button()
+	_add_ship_hp_bar()
+	_add_boss_hp_bar()
+	_add_boss_panel()
 	GameManager.load_game()
 	UpgradeManager.load_game()
 	GameManager.game_loaded.emit()
@@ -123,11 +130,9 @@ func _add_asteroid_layers() -> void:
 		objects_container.add_child(gun_sys)
 	else:
 		screen.add_child(gun_sys)
-	# Auto-shoot OFF for now; inventory weapons will drive firing (Phase 5).
-	# MUST be after add_child: entering the tree auto-enables _process for a node
-	# that defines it, which would undo an earlier set_process(false).
-	# Re-enable: delete this line.
-	gun_sys.set_process(false)
+	# gun_system keeps running for ship float/movement + asteroid-vs-ship collision,
+	# but its mount auto-fire is retired via MOUNT_AUTOFIRE in gun_system.gd
+	# (inventory weapons are the player's guns now).
 
 func _add_boost_button() -> void:
 	var layer := CanvasLayer.new()

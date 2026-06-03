@@ -1,6 +1,7 @@
 extends Control
 
 const SS_OFFSET                := Vector2(270.0, 8.0)
+const MOUNT_AUTOFIRE           := false  # inventory weapons only — old ship-mount auto-fire retired. Set true to restore.
 const FIRE_INTERVAL            := 0.5    # gun: 2 shots/sec
 const TURRET_FIRE_INTERVAL     := 0.66   # turret: ~1.5 shots/sec
 const LIGHTNING_FIRE_INTERVAL  := 0.75
@@ -759,6 +760,7 @@ func _get_ast_centers_oc() -> Array[Vector2]:
 	return centers
 
 func _fire_gun(eo: EditableObjectNode) -> void:
+	if not MOUNT_AUTOFIRE: return
 	var gun_top := Vector2(eo.global_position.x + eo.size.x * 0.5, eo.global_position.y + eo.size.y * (1.0 - _current_scale) * 0.5)
 	var target: Vector2
 	if GameManager.boss_max_hp > 0:
@@ -789,6 +791,7 @@ func _fire_gun(eo: EditableObjectNode) -> void:
 	_start_gun_anim(eo, tier)
 
 func _fire_turret(eo: EditableObjectNode) -> void:
+	if not MOUNT_AUTOFIRE: return
 	var turret_top := Vector2(eo.global_position.x + eo.size.x * 0.5, eo.global_position.y + eo.size.y * (1.0 - _current_scale) * 0.5)
 	var target: Vector2
 	if GameManager.boss_max_hp > 0:
@@ -815,6 +818,7 @@ func _fire_turret(eo: EditableObjectNode) -> void:
 	_start_turret_anim(eo, ttier)
 
 func _fire_railgun_bullet(eo: EditableObjectNode, angle: float = 0.0) -> void:
+	if not MOUNT_AUTOFIRE: return
 	if _railgun_bullet_tex == null:
 		return
 	var top := Vector2(eo.global_position.x + eo.size.x * 0.5, eo.global_position.y + eo.size.y * (1.0 - _current_scale) * 0.5)
@@ -836,6 +840,7 @@ func _canon_interval_for(eo: EditableObjectNode) -> float:
 	return CANON_MK2_FIRE_INTERVAL if _canon_tier(eo) >= 1 else CANON_FIRE_INTERVAL
 
 func _fire_canon(eo: EditableObjectNode) -> void:
+	if not MOUNT_AUTOFIRE: return
 	_start_canon_anim(eo)
 
 func _start_canon_anim(eo: EditableObjectNode) -> void:
@@ -1202,6 +1207,7 @@ func _tick_gun_anims(delta: float) -> void:
 # ── Lightning Emitter ──────────────────────────────────────────────────────────
 
 func _fire_lightning(eo: EditableObjectNode) -> void:
+	if not MOUNT_AUTOFIRE: return
 	var float_off := Vector2(sin(_float_time * 2.3), cos(_float_time * 1.7)) * FLOAT_RADIUS
 	var emitter_oc := eo.global_position + eo.size * 0.5 + float_off
 	if GameManager.boss_max_hp > 0:
