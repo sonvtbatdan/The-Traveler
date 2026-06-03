@@ -35,11 +35,28 @@ const LASER_W          := 5.0
 const LASER_FLASH_CYC  := 0.08
 const LASER_DMG        := 30
 
+# ── Move 4 constants ──────────────────────────────────────────────────────────
+const M4_ROT_T          := 0.5
+const M4_TRAVEL_SPD     := 120.0
+const M4_DROP_INT       := 1.0
+const DROP_SPEED        := 120.0
+const DROP_DMG          := 20
+const M4_START_LEFT_SS  := Vector2(10.0, 175.0)
+const M4_START_RIGHT_SS := Vector2(690.0, 175.0)
+
+# ── Move 5 constants ──────────────────────────────────────────────────────────
+const M5_DURATION   := 5.0
+const M5_ROT_T      := 0.5
+const M5_BLOB_INT   := 1.0
+const M5_MOVE_SPD   := 80.0
+const BLOB_SPEED    := 80.0
+const BLOB_DMG      := 20
+
 # ── Boss HP ───────────────────────────────────────────────────────────────────
 const BOSS_MAX_HP      := 1000
 
 # ── Phase ─────────────────────────────────────────────────────────────────────
-enum Phase { IDLE, M1_ENTRY, M1_TRAVEL, M2, M3_ROT, M3_MOVE, M3_WARN, M3_FIRE, DONE }
+enum Phase { IDLE, M1_ENTRY, M1_TRAVEL, M2, M3_ROT, M3_MOVE, M3_WARN, M3_FIRE, M4_ROT, M4_TRAVEL, M5_ROT, M5_MOVE, DONE }
 
 var _phase     := Phase.IDLE
 var _phase_acc := 0.0
@@ -68,6 +85,12 @@ var _clip_node: Control = null
 var _vortex_frames: Array = []
 var _vortex_delays: Array = []
 var _laser_frames:  Array = []
+var _ball_anims:    Array = []   # array of {frames, delays} dicts for ball1-4
+var _drop_frames:   Array = []   # resized to 20%
+var _drop_delays:   Array = []
+var _drop_size:     Vector2 = Vector2.ZERO
+var _blob_frames:   Array = []
+var _blob_delays:   Array = []
 var _ship_img:        Image = null   # cached ship texture (fallback collision)
 var _ship_hitbox_img: Image = null   # Spaceshiphitbox.png — black pixels define hitbox
 var _ship_tight_uv:   Rect2 = Rect2(0.0, 0.0, 1.0, 1.0)  # UV rect of hitbox area
@@ -87,6 +110,15 @@ var _m3_target_x_ss  := 0.0
 var _laser_tr:         TextureRect = null
 var _laser_flash_acc  := 0.0
 var _laser_hit_done   := false
+
+# ── Move 4 state ──────────────────────────────────────────────────────────────
+var _m4_dir      := 1.0
+var _m4_drop_acc := 0.0
+
+# ── Move 5 state ──────────────────────────────────────────────────────────────
+var _m5_acc      := 0.0
+var _m5_blob_acc := 0.0
+var _m5_target   := Vector2.ZERO
 
 # ── Projectiles ───────────────────────────────────────────────────────────────
 var _projectiles: Array = []
@@ -180,10 +212,17 @@ func start_fight() -> void:
 	_boss_eo.pivot_offset = _boss_eo.size / 2.0
 	_boss_eo.rotation     = 0.0
 	_boss_spin = 0.0
-	match randi() % 3:
+	_begin_random_move()
+
+func _begin_random_move() -> void:
+	_boss_eo.rotation = 0.0
+	_boss_spin = 0.0
+	match randi() % 5:
 		0: _begin_m1()
 		1: _begin_m2_tweened()
 		2: _begin_m3_tweened()
+		3: _begin_m4()
+		4: _begin_m5()
 
 func _begin_m1() -> void:
 	_phase     = Phase.M1_ENTRY
@@ -241,6 +280,10 @@ func _process(delta: float) -> void:
 	if _boss_eo != null and is_instance_valid(_boss_eo):
 		if _phase == Phase.IDLE or _phase == Phase.DONE:
 			_boss_eo.visible = false
+
+	# Tick projectiles every frame regardless of phase
+	_tick_projectiles(delta)
+
 	if _phase == Phase.IDLE or _phase == Phase.DONE or _phase == Phase.M1_ENTRY:
 		return
 	if _boss_eo == null or not is_instance_valid(_boss_eo):
@@ -254,9 +297,12 @@ func _process(delta: float) -> void:
 		Phase.M3_MOVE:    _tick_m3_move(delta)
 		Phase.M3_WARN:    _tick_m3_warn(delta)
 		Phase.M3_FIRE:    _tick_m3_fire(delta)
+		Phase.M4_ROT:     _tick_m4_rot(delta)
+		Phase.M4_TRAVEL:  _tick_m4_travel(delta)
+		Phase.M5_ROT:     _tick_m5_rot(delta)
+		Phase.M5_MOVE:    _tick_m5_move(delta)
 
 	_clamp_boss()
-	_tick_projectiles(delta)
 
 func _clamp_boss() -> void:
 	if _boss_eo == null or not is_instance_valid(_boss_eo):
@@ -291,12 +337,7 @@ func _tick_m1(delta: float) -> void:
 			_spiral_angle += M1_SPIRAL_STEP
 
 	if _m1_prog >= 1.0:
-		_boss_eo.rotation = 0.0
-		_boss_spin = 0.0
-		_phase     = Phase.M2
-		_phase_acc = 0.0
-		_vortex_acc = 0.0
-		_m2_target = _pick_m2_target()
+		_begin_random_move()
 
 # =============================================================================
 # Move 2 — random movement + firevortex bursts
@@ -322,9 +363,7 @@ func _tick_m2(delta: float) -> void:
 		_fire_vortex(fp2_pos)
 
 	if _phase_acc >= M2_DURATION:
-		_phase     = Phase.M3_ROT
-		_phase_acc = 0.0
-		_boss_eo.pivot_offset = _boss_eo.size / 2.0
+		_begin_random_move()
 
 func _pick_m2_target() -> Vector2:
 	var max_y := OC_BOUNDS.position.y + M2_MAX_Y_SS - _boss_eo.size.y
@@ -395,10 +434,132 @@ func _tick_m3_fire(delta: float) -> void:
 		if _laser_tr != null and is_instance_valid(_laser_tr):
 			_laser_tr.queue_free()
 			_laser_tr = null
-		# Cycle back to Move 1 (deterministic, smooth tween)
-		_boss_eo.rotation = 0.0
-		_boss_spin = 0.0
-		_begin_m1()
+		_begin_random_move()
+
+# =============================================================================
+# Move 4 — rotate 90° CW → move horizontally + fire drops
+# =============================================================================
+
+func _begin_m4() -> void:
+	var go_left := randi() % 2 == 0
+	_m4_dir = -1.0 if go_left else 1.0
+	var start_ss := M4_START_RIGHT_SS if go_left else M4_START_LEFT_SS
+	var entry_pos := start_ss + SS_OFFSET - _boss_eo.size / 2.0
+	_phase     = Phase.M1_ENTRY
+	_phase_acc = 0.0
+	var tw := create_tween()
+	tw.tween_property(_boss_eo, "position", entry_pos, 1.0) \
+		.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+	tw.finished.connect(func() -> void:
+		_boss_eo.pivot_offset = _boss_eo.size / 2.0
+		_phase     = Phase.M4_ROT
+		_phase_acc = 0.0)
+
+func _tick_m4_rot(delta: float) -> void:
+	_phase_acc += delta
+	var t := minf(_phase_acc / M4_ROT_T, 1.0)
+	_boss_eo.rotation = lerp(0.0, PI / 2.0, t)
+	if t >= 1.0:
+		_boss_eo.rotation = PI / 2.0
+		_phase     = Phase.M4_TRAVEL
+		_phase_acc = 0.0
+		_m4_drop_acc = 0.0
+
+func _tick_m4_travel(delta: float) -> void:
+	_boss_eo.position.x += _m4_dir * M4_TRAVEL_SPD * delta
+
+	_m4_drop_acc += delta
+	while _m4_drop_acc >= M4_DROP_INT:
+		_m4_drop_acc -= M4_DROP_INT
+		_spawn_drop()
+
+	var hit_right := _m4_dir > 0 and _boss_eo.position.x >= OC_BOUNDS.end.x - _boss_eo.size.x
+	var hit_left  := _m4_dir < 0 and _boss_eo.position.x <= OC_BOUNDS.position.x
+	if hit_right or hit_left:
+		_begin_random_move()
+
+func _spawn_drop() -> void:
+	if _drop_frames.is_empty():
+		return
+	var origin := _fp3_node.global_position if is_instance_valid(_fp3_node) \
+		else _boss_eo.global_position + _boss_eo.size / 2.0
+	var local_pos := origin - OC_BOUNDS.position - _drop_size / 2.0
+	var tr := _make_projectile_rect(_drop_frames[0], _drop_size, local_pos)
+	_projectiles.append({
+		"tr": tr, "vel": Vector2(0.0, DROP_SPEED),
+		"rot_spd": 0.0, "rot": 0.0, "dmg": DROP_DMG, "type": "drop",
+		"frames": _drop_frames, "delays": _drop_delays, "frame": 0, "acc": 0.0,
+		"blink_acc": 0.0,
+	})
+
+# =============================================================================
+# Move 5 — rotate 90° CW + random wander + fire homing blobs
+# =============================================================================
+
+func _begin_m5() -> void:
+	_boss_eo.pivot_offset = _boss_eo.size / 2.0
+	_phase     = Phase.M5_ROT
+	_phase_acc = 0.0
+
+func _tick_m5_rot(delta: float) -> void:
+	_phase_acc += delta
+	var t := minf(_phase_acc / M5_ROT_T, 1.0)
+	_boss_eo.rotation = lerp(0.0, PI / 2.0, t)
+	if t >= 1.0:
+		_boss_eo.rotation = PI / 2.0
+		_phase       = Phase.M5_MOVE
+		_phase_acc   = 0.0
+		_m5_acc      = 0.0
+		_m5_blob_acc = 0.0
+		_m5_target   = _pick_m5_target()
+
+func _pick_m5_target() -> Vector2:
+	var max_y := OC_BOUNDS.position.y + M2_MAX_Y_SS - _boss_eo.size.y
+	return Vector2(
+		randf_range(OC_BOUNDS.position.x, OC_BOUNDS.end.x - _boss_eo.size.x),
+		randf_range(OC_BOUNDS.position.y, max_y)
+	)
+
+func _tick_m5_move(delta: float) -> void:
+	_m5_acc      += delta
+	_m5_blob_acc += delta
+
+	var diff := _m5_target - _boss_eo.position
+	if diff.length() < 5.0:
+		_m5_target = _pick_m5_target()
+	else:
+		_boss_eo.position += diff.normalized() * M5_MOVE_SPD * delta
+
+	_m5_blob_acc += delta
+	while _m5_blob_acc >= M5_BLOB_INT:
+		_m5_blob_acc -= M5_BLOB_INT
+		_fire_blob()
+
+	if _m5_acc >= M5_DURATION:
+		_begin_random_move()
+
+func _fire_blob() -> void:
+	if _blob_frames.is_empty():
+		return
+	if _ship_eo == null or not is_instance_valid(_ship_eo):
+		return
+	var origin := _boss_eo.global_position + _boss_eo.size / 2.0
+	var ship_ctr := _ship_eo.global_position + _ship_eo.size / 2.0
+	var dir := (ship_ctr - origin)
+	if dir == Vector2.ZERO:
+		dir = Vector2(0.0, 1.0)
+	else:
+		dir = dir.normalized()
+	var tex := _blob_frames[0] as Texture2D
+	var sz  := tex.get_size()
+	var local_pos := origin - OC_BOUNDS.position - sz / 2.0
+	var tr := _make_projectile_rect(tex, sz, local_pos)
+	_projectiles.append({
+		"tr": tr, "vel": dir * BLOB_SPEED,
+		"rot_spd": 0.0, "rot": 0.0, "dmg": BLOB_DMG, "type": "blob",
+		"frames": _blob_frames, "delays": _blob_delays, "frame": 0, "acc": 0.0,
+		"blink_acc": 0.0,
+	})
 
 # ── Laser helpers ─────────────────────────────────────────────────────────────
 
@@ -444,27 +605,27 @@ func _update_laser_pos() -> void:
 # =============================================================================
 
 func _spawn_spike(angle: float = -1.0) -> void:
-	var idx  := randi() % _spike_eos.size()
-	var seo  := _spike_eos[idx] as EditableObjectNode
-	if not is_instance_valid(seo):
+	if _ball_anims.is_empty():
 		return
-	var tex: Texture2D = seo.texture_rect.texture if seo.texture_rect != null else null
-	if tex == null:
-		return
-	# Use actual PNG pixel dimensions for correct aspect ratio
-	var tex_sz  := tex.get_size()
-	var aspect  := tex_sz.y / maxf(tex_sz.x, 1.0)
-	var sz      := Vector2(10.0, 10.0 * aspect)
-	# CPU-resize so TextureRect renders at exactly the target size (reliable vs STRETCH_SCALE)
-	var final_tex := _resize_tex(tex, sz)
 	var origin  := _boss_eo.global_position + _boss_eo.size / 2.0
-	var local_pos := origin - OC_BOUNDS.position - sz / 2.0
+	var local_pos := origin - OC_BOUNDS.position
 	var dir_angle := angle if angle >= 0.0 else randf() * TAU
-	var tr := _make_projectile_rect(final_tex, sz, local_pos)
+	var ball_anim := _ball_anims[randi() % _ball_anims.size()] as Dictionary
+	var frames: Array = ball_anim.get("frames", [])
+	if frames.is_empty():
+		return
+	var ball_tex := frames[0] as Texture2D
+	var orig_sz := ball_tex.get_size()
+	var sz := orig_sz * 0.1
+	var resized_frames: Array = []
+	for frame in frames:
+		resized_frames.append(_resize_tex(frame, sz))
+	local_pos -= sz / 2.0
+	var tr := _make_projectile_rect(resized_frames[0], sz, local_pos)
 	_projectiles.append({
 		"tr": tr, "vel": Vector2.from_angle(dir_angle) * SPIKE_SPEED,
-		"rot_spd": 0.0, "rot": 0.0, "dmg": SPIKE_DMG, "type": "spike",
-		"frames": [], "delays": [], "frame": 0, "acc": 0.0,
+		"rot_spd": 0.0, "rot": 0.0, "dmg": SPIKE_DMG, "type": "ball",
+		"frames": resized_frames, "delays": ball_anim.get("delays", []), "frame": 0, "acc": 0.0,
 		"blink_acc": 0.0,
 	})
 
@@ -561,7 +722,7 @@ func _tick_projectiles(delta: float) -> void:
 			p["acc"]   = fa
 			p["frame"] = fi
 
-		# Gold blink effect (spikes)
+		# Blink effect (spikes only)
 		if p.get("type") == "spike":
 			var ba: float = float(p.get("blink_acc", 0.0)) + delta
 			p["blink_acc"] = ba
@@ -805,3 +966,25 @@ func _load_assets() -> void:
 	var lt := GifLoader.load_gif("res://assets/bosses/elephant/laser.gif")
 	if lt != null:
 		_laser_frames = lt.get_meta("gif_frames") if lt.has_meta("gif_frames") else [lt]
+	for ball_idx in range(1, 5):
+		var bt := GifLoader.load_gif("res://assets/bosses/elephant/ball%d.gif" % ball_idx)
+		if bt != null:
+			var frames = bt.get_meta("gif_frames") if bt.has_meta("gif_frames") else [bt]
+			var delays = bt.get_meta("gif_delays") if bt.has_meta("gif_delays") else [0.05]
+			_ball_anims.append({
+				"frames": frames,
+				"delays": delays,
+			})
+	var dt := GifLoader.load_gif("res://assets/bosses/elephant/drop.gif")
+	if dt != null:
+		var raw_frames = dt.get_meta("gif_frames") if dt.has_meta("gif_frames") else [dt]
+		_drop_delays = dt.get_meta("gif_delays") if dt.has_meta("gif_delays") else [0.05]
+		if not raw_frames.is_empty():
+			var orig_sz := (raw_frames[0] as Texture2D).get_size()
+			_drop_size = orig_sz * 0.2
+			for frame in raw_frames:
+				_drop_frames.append(_resize_tex(frame, _drop_size))
+	var blt := GifLoader.load_gif("res://assets/bosses/elephant/blob.gif")
+	if blt != null:
+		_blob_frames = blt.get_meta("gif_frames") if blt.has_meta("gif_frames") else [blt]
+		_blob_delays = blt.get_meta("gif_delays") if blt.has_meta("gif_delays") else [0.05]
