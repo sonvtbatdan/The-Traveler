@@ -18,6 +18,7 @@ signal game_loaded
 
 signal boost_changed(active: bool)
 signal ship_hp_changed(hp: int)
+signal ship_shield_changed(shield: float)
 signal ship_destroyed
 
 signal boss_hp_changed(hp: int)
@@ -97,6 +98,13 @@ var manual_boost: bool = false
 var ship_hp: int = 100
 const SHIP_MAX_HP: int = 100
 
+# ── Shield (granted by an equipped Shield Generator in the Secondary slot) ─────
+const SHIELD_REGEN_DELAY: float = 3.0   # seconds of no damage before regen starts
+const SHIELD_REGEN_TIME:  float = 1.5   # seconds to refill 0 → capacity
+var ship_shield:       float = 0.0      # current shield points
+var _shield_max:       float = 0.0      # capacity of the equipped generator (0 = none equipped)
+var _shield_dmg_timer: float = 999.0    # time since last damage; regen once >= SHIELD_REGEN_DELAY
+
 func set_boost(active: bool) -> void:
 	if manual_boost == active:
 		return
@@ -106,10 +114,46 @@ func set_boost(active: bool) -> void:
 func ship_take_damage(dmg: int) -> void:
 	if dmg <= 0 or ship_hp <= 0:
 		return
-	ship_hp = maxi(0, ship_hp - dmg)
+	# Shield absorbs first; leftover spills into HP the same hit.
+	var d := float(dmg)
+	if ship_shield > 0.0:
+		var absorbed := minf(ship_shield, d)
+		ship_shield -= absorbed
+		d -= absorbed
+		ship_shield_changed.emit(ship_shield)
+	_shield_dmg_timer = 0.0   # any damage (even fully absorbed) restarts the regen delay
+	if d <= 0.0:
+		return
+	ship_hp = maxi(0, ship_hp - int(ceil(d)))
 	ship_hp_changed.emit(ship_hp)
 	if ship_hp <= 0:
 		ship_destroyed.emit()
+
+## Capacity granted by the Secondary-slot item (0 if it's not a shield item).
+func _equipped_shield_capacity() -> float:
+	var uid: int = InventoryManager.equipped_uid("secondary_weapon")
+	if uid == -1:
+		return 0.0
+	var item: Dictionary = InventoryManager.get_item(uid)
+	var def: Dictionary = InventoryManager.get_def(String(item.get("def", "")))
+	return float(def.get("stats", {}).get("shield_points", 0.0))
+
+## Per-frame: keep shield in sync with what's equipped, then regenerate.
+## (Polled here rather than via a signal to dodge the autoload-ready ordering trap.)
+func _tick_shield(delta: float) -> void:
+	var cap := _equipped_shield_capacity()
+	if cap != _shield_max:
+		if cap > 0.0 and _shield_max <= 0.0:
+			ship_shield = cap            # newly equipped → start at full shield
+		_shield_max = cap
+		ship_shield = clampf(ship_shield, 0.0, _shield_max)
+		ship_shield_changed.emit(ship_shield)
+	if _shield_max <= 0.0:
+		return
+	_shield_dmg_timer += delta
+	if _shield_dmg_timer >= SHIELD_REGEN_DELAY and ship_shield < _shield_max:
+		ship_shield = minf(_shield_max, ship_shield + (_shield_max / SHIELD_REGEN_TIME) * delta)
+		ship_shield_changed.emit(ship_shield)
 
 # Player-editable stat display template. The setter emits stat_template_changed
 # so consumers (stat_panel.gd) can re-render. Locked per the rewrite spec.
@@ -151,6 +195,7 @@ func on_view_clicked() -> void:
 # ---------------------------------------------------------------------------
 
 func _process(delta: float) -> void:
+	_tick_shield(delta)
 	# 1. Sub growth — power-law scaled in the stable view count.
 	var stable: float = _subs + _passive_views
 	var sub_rate: float = 0.5 * pow(maxf(stable, 0.0), 0.45)

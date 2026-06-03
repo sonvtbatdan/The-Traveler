@@ -107,12 +107,27 @@ const ITEM_DEFS: Dictionary = {
 			"energy_per_sec": 6,
 		},
 	},
+	"shield_generator": {
+		"name": "Shield Generator",
+		"icon": "",  # TODO final art → "res://assets/inventory/shield_generator.png"
+		"size": Vector2i(2, 2),
+		"tags": ["shield"],   # shield-only → fits the Secondary slot only (see SLOT_RULES)
+		"rarity": "rare",
+		"desc": "Projects a 20-pt energy shield that absorbs damage before your hull and recharges 3s after the last hit.",
+		# GameManager reads stats.shield_points (>0) on the equipped Secondary to enable the shield.
+		"stats": {
+			"shield_points": 20,
+			"regen_delay_sec": 3.0,
+			"regen_time_sec": 1.5,
+			"weight": 6,
+		},
+	},
 }
 
 # Items granted automatically the FIRST time a save is created (new game only).
 # Keeping this separate from ITEM_DEFS means future items (e.g. asteroid drops in
 # Phase 4) can be defined without being auto-placed in the backpack.
-const STARTER_ITEMS: Array[String] = ["gauss_cannon", "ionizing_field", "gatling_gun"]
+const STARTER_ITEMS: Array[String] = ["gauss_cannon", "shield_generator", "gatling_gun"]
 
 # ── Runtime state ─────────────────────────────────────────────────────────────
 # _items: uid(int) -> {"def": String, "where": String, "cell": Vector2i}

@@ -2,6 +2,7 @@ extends Control
 
 const SS_OFFSET                := Vector2(270.0, 8.0)
 const MOUNT_AUTOFIRE           := false  # inventory weapons only — old ship-mount auto-fire retired. Set true to restore.
+const BOSS_SHIP_SCALE_MULT     := 0.5    # ship (and hitbox) shrinks to half its boost size during a boss fight
 const FIRE_INTERVAL            := 0.5    # gun: 2 shots/sec
 const TURRET_FIRE_INTERVAL     := 0.66   # turret: ~1.5 shots/sec
 const LIGHTNING_FIRE_INTERVAL  := 0.75
@@ -150,14 +151,25 @@ func _ready() -> void:
 	WeaponManager.weapons_reset.connect(_refresh_static_frames)
 	WeaponManager.weapon_purchased.connect(func(_id: String, _side: String): _refresh_static_frames())
 	GameManager.boost_changed.connect(_on_boost_changed)
+	GameManager.boss_spawned.connect(_retarget_scale)   # ship shrinks when the boss fight starts
+	GameManager.boss_killed.connect(_retarget_scale)    # …and restores when it ends
 	_refresh_static_frames()
 
-func _on_boost_changed(active: bool) -> void:
-	var target: float = 0.5 if active else 1.0
+## Ship scale target: 0.5 while boosting / 1.0 idle, halved again during the boss fight.
+func _scale_target() -> float:
+	var t: float = 0.5 if GameManager.manual_boost else 1.0
+	if GameManager.boss_max_hp > 0:
+		t *= BOSS_SHIP_SCALE_MULT
+	return t
+
+func _retarget_scale() -> void:
 	if _scale_tween and _scale_tween.is_valid():
 		_scale_tween.kill()
 	_scale_tween = create_tween()
-	_scale_tween.tween_method(_set_current_scale, _current_scale, target, 1.0)
+	_scale_tween.tween_method(_set_current_scale, _current_scale, _scale_target(), 1.0)
+
+func _on_boost_changed(active: bool) -> void:
+	_retarget_scale()
 	var mult: float = 2.0 if active else 1.0
 	for bg in get_tree().get_nodes_in_group("scrolling_bg"):
 		if bg.has_method("set_speed_mult"):

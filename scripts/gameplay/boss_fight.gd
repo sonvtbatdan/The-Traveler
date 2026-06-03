@@ -30,9 +30,11 @@ const VORTEX_DMG       := 15
 # ── Move 3 constants ──────────────────────────────────────────────────────────
 const M3_ROT_T         := 0.5
 const M3_MOVE_SPD      := 600.0             # 5× — snaps to aim at the ship's X
-const M3_WARN_T        := 0.2               # flash 0.2s
+const M3_WARN_T        := 1.0               # dull warning flash for 1s
 const M3_FIRE_T        := 1.0               # fire 1s
 const LASER_W          := 5.0
+const LASER_FIRE_MULT  := 5.0               # actual beam = 5× the warning width (visual + hitbox)
+const LASER_WARN_MODULATE := Color(0.55, 0.6, 0.7, 0.7)  # dull mask during the warning
 const LASER_FLASH_CYC  := 0.08
 const LASER_DMG        := 30
 
@@ -276,8 +278,23 @@ func _on_m1_entry_done() -> void:
 # =============================================================================
 
 func _draw() -> void:
-	# Debug overlay — disabled for production
-	pass
+	# ⚠ warning sign next to the boss's gun, shown for the whole Move-3 warning.
+	if _phase == Phase.M3_WARN and _boss_eo != null and is_instance_valid(_boss_eo):
+		var fp3_local := _get_fp3_world() - global_position   # this Control has no scale/rotation
+		_draw_warning_sign(fp3_local + Vector2(28.0, -22.0))
+
+func _draw_warning_sign(c: Vector2) -> void:
+	var s := 18.0
+	var amber := Color(1.0, 0.78, 0.1)
+	var dark  := Color(0.12, 0.09, 0.0)
+	var p0 := c + Vector2(0.0, -s)            # top
+	var p1 := c + Vector2(s * 0.9, s * 0.7)   # bottom-right
+	var p2 := c + Vector2(-s * 0.9, s * 0.7)  # bottom-left
+	draw_colored_polygon(PackedVector2Array([p0, p1, p2]), amber)
+	draw_polyline(PackedVector2Array([p0, p1, p2, p0]), dark, 2.0)
+	# exclamation mark
+	draw_line(c + Vector2(0.0, -s * 0.35), c + Vector2(0.0, s * 0.18), dark, 3.0)
+	draw_circle(c + Vector2(0.0, s * 0.42), 2.0, dark)
 
 func _process(delta: float) -> void:
 	# Always hide boss when not in an active fight phase
@@ -417,14 +434,17 @@ func _tick_m3_warn(delta: float) -> void:
 	_phase_acc       += delta
 	_laser_flash_acc += delta
 	_update_laser_pos()
+	queue_redraw()   # keep the ⚠ warning sign drawn during the warning
 	if _laser_tr != null and is_instance_valid(_laser_tr):
 		_laser_tr.visible = fmod(_laser_flash_acc, LASER_FLASH_CYC * 2.0) < LASER_FLASH_CYC
 	if _phase_acc >= M3_WARN_T:
 		_phase     = Phase.M3_FIRE
 		_phase_acc = 0.0
-		_laser_w   = LASER_W * 3.0   # actual fire is 3× as wide as the warning
+		_laser_w   = LASER_W * LASER_FIRE_MULT   # actual fire expands to 5× the warning width
 		if _laser_tr != null and is_instance_valid(_laser_tr):
-			_laser_tr.visible = true
+			_laser_tr.visible  = true
+			_laser_tr.modulate = Color.WHITE     # bright on the real shot (was dull during warning)
+		queue_redraw()   # clear the warning sign now that it's firing
 
 func _tick_m3_fire(delta: float) -> void:
 	_phase_acc += delta
@@ -432,7 +452,7 @@ func _tick_m3_fire(delta: float) -> void:
 	if not _laser_hit_done and _ship_eo != null and is_instance_valid(_ship_eo):
 		var fp3 := _get_fp3_world()
 		var laser_rect := Rect2(fp3.x - _laser_w / 2.0, fp3.y, _laser_w, OC_BOUNDS.end.y - fp3.y)
-		var ship_rect  := Rect2(_ship_eo.global_position, _ship_eo.size)
+		var ship_rect  := _ship_scaled_rect_oc()   # match the visible (scaled) ship, not the full footprint
 		if laser_rect.intersects(ship_rect):
 			GameManager.ship_take_damage(LASER_DMG)
 			_laser_hit_done = true
@@ -590,8 +610,9 @@ func _spawn_laser() -> void:
 	# fp3 is in OC space; clip node is positioned at OC_BOUNDS.position, so we need local coords
 	var local_fp3 := fp3 - OC_BOUNDS.position
 	var h := OC_BOUNDS.size.y - local_fp3.y
-	_laser_w = LASER_W   # warning starts thin; widens to 3× when it actually fires
+	_laser_w = LASER_W   # warning starts thin; widens to 5× when it actually fires
 	_laser_tr = TextureRect.new()
+	_laser_tr.modulate     = LASER_WARN_MODULATE   # dull mask during the warning
 	_laser_tr.size         = Vector2(_laser_w, maxf(h, 1.0))
 	_laser_tr.position     = Vector2(local_fp3.x - _laser_w / 2.0, local_fp3.y)
 	_laser_tr.stretch_mode = TextureRect.STRETCH_SCALE
@@ -700,13 +721,10 @@ func _tick_projectiles(delta: float) -> void:
 	if _ship_eo != null and is_instance_valid(_ship_eo):
 		var full_oc  := _ship_scaled_rect_oc()
 		ship_rect_local = Rect2(full_oc.position - OC_BOUNDS.position, full_oc.size)
-		# Tight rect: ship local position/size (from node) × scale → world space
-		if _ship_hitbox_node != null:
-			var sc := _ship_eo.scale.x
-			var local_pos := _ship_hitbox_node.position * sc
-			var local_sz  := _ship_hitbox_node.size * sc
-			var tight_oc := _ship_eo.global_position + local_pos
-			ship_tight_local = Rect2(tight_oc - OC_BOUNDS.position, local_sz)
+		# Broad-phase uses the center-scaled full rect (the old top-left tight rect was wrong once
+		# the ship scales around its center pivot — it missed entirely at 0.25). _pixel_hit() below
+		# still refines to the actual opaque ship pixels, so this stays precise at every scale.
+		ship_tight_local = ship_rect_local
 
 	# Clip bounds in local space (0,0 to size)
 	var clip_local := Rect2(Vector2.ZERO, OC_BOUNDS.size)
