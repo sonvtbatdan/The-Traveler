@@ -26,6 +26,7 @@ var _ship: Control = null
 
 # Primary trigger state
 var _trigger_down := false
+var _mouse_was_down := false   # for press/release edge detection via polling
 var _repeat_acc := 0.0
 var _charge := 0.0
 
@@ -40,21 +41,17 @@ var _arcs: Array = []      # {a, b, age, max_age}
 
 func setup() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
-	mouse_filter = Control.MOUSE_FILTER_PASS   # fire on click but let asteroids/UI below still get it
+	# Input is read by polling in _process (so firing works even when the click lands
+	# on a sprite in a higher CanvasLayer, e.g. the boss). Stay transparent to mouse.
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	z_index = 50
 	_gauss_full_diam_px = clampf(_cm_to_px(GAUSS_FULL_DIAMETER_CM), 40.0, 120.0)
 
 # ── Input ─────────────────────────────────────────────────────────────────────
 
-func _gui_input(event: InputEvent) -> void:
-	if not (event is InputEventMouseButton):
-		return
-	var mb := event as InputEventMouseButton
-	if mb.button_index != MOUSE_BUTTON_LEFT or not mb.pressed:
-		return
-	# Press started inside the play area and wasn't eaten by UI above → begin firing.
+func _begin_trigger() -> void:
 	var def := _primary_def()
-	if def.is_empty() or _inventory_open():
+	if def.is_empty():
 		return
 	_trigger_down = true
 	if String(def.get("fire_mode", "")) == "charge":
@@ -62,6 +59,12 @@ func _gui_input(event: InputEvent) -> void:
 	else:
 		_fire_primary(def)   # repeat weapons fire immediately, then on cooldown
 		_repeat_acc = 0.0
+
+## Cursor inside the play area (this control fills StreamScreen). Clicks on side
+## panels / the inventory button (outside the screen) won't start firing.
+func _cursor_in_play() -> bool:
+	var m := get_local_mouse_position()
+	return m.x >= 0.0 and m.y >= 0.0 and m.x <= size.x and m.y <= size.y
 
 func _release_trigger() -> void:
 	if not _trigger_down:
@@ -75,12 +78,17 @@ func _release_trigger() -> void:
 # ── Frame update ────────────────────────────────────────────────────────────
 
 func _process(delta: float) -> void:
-	# Robust release: covers the button being let go outside this control.
-	if _trigger_down and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-		_release_trigger()
+	# Mouse trigger by polling (works regardless of what control is under the cursor).
+	var down := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
 	if _inventory_open():
 		_trigger_down = false
 		_charge = 0.0
+	else:
+		if down and not _mouse_was_down and _cursor_in_play() and not _primary_def().is_empty():
+			_begin_trigger()
+		elif _trigger_down and not down:
+			_release_trigger()
+	_mouse_was_down = down
 
 	_update_primary(delta)
 	_update_secondary(delta)

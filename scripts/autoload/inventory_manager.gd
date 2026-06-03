@@ -70,7 +70,7 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "rare",
 		"desc": "Charge up, then fire a big chunk of metal at a target. Heavy single-target burst — slow cadence, big hit.",
 		"stats": {
-			"damage": 220,
+			"damage": 110,
 			"cooldown_sec": 1.5,   # full charge time; damage scales linearly up to this
 			"weight": 8,
 			"energy_per_shot": 10,

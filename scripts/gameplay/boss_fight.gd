@@ -12,14 +12,15 @@ const M1_ENTRY_T       := 1.5
 const M1_TRAVEL_T      := 8.0
 const M1_ROT_SPEED     := 40.0 * TAU / 60.0
 const M1_SPIKE_INT     := 0.2
-const M1_SPIKES_PER_INT := 2               # 2 spikes per burst (spiral 2-arm)
+const M1_SPIKES_PER_INT := 6               # 6 spikes per burst (tripled; spiral 6-arm)
 const M1_SPIRAL_STEP   := 0.35            # radians to advance base angle each burst
-const SPIKE_SPEED      := 30.0
+const SPIKE_SPEED      := 90.0            # radial launch speed (≥3× original 30)
+const SPIKE_SPIN_RADIUS := 40.0          # effective radius for spin-induced tangential kick (tunable)
 const SPIKE_DMG        := 10
 
 # ── Move 2 constants ──────────────────────────────────────────────────────────
 const M2_DURATION      := 8.0
-const M2_VORTEX_INT    := 1.5
+const M2_VORTEX_INT    := 0.3                 # 5× faster volleys (5× the vortexes)
 const M2_MOVE_SPD      := 80.0
 const M2_MAX_Y_SS      := 450.0
 const VORTEX_SPEED     := 90.0               # 3× original
@@ -28,8 +29,8 @@ const VORTEX_DMG       := 15
 
 # ── Move 3 constants ──────────────────────────────────────────────────────────
 const M3_ROT_T         := 0.5
-const M3_MOVE_SPD      := 120.0
-const M3_WARN_T        := 1.0               # flash 1s
+const M3_MOVE_SPD      := 600.0             # 5× — snaps to aim at the ship's X
+const M3_WARN_T        := 0.2               # flash 0.2s
 const M3_FIRE_T        := 1.0               # fire 1s
 const LASER_W          := 5.0
 const LASER_FLASH_CYC  := 0.08
@@ -37,8 +38,8 @@ const LASER_DMG        := 30
 
 # ── Move 4 constants ──────────────────────────────────────────────────────────
 const M4_ROT_T          := 0.5
-const M4_TRAVEL_SPD     := 120.0
-const M4_DROP_INT       := 1.0
+const M4_TRAVEL_SPD     := 600.0            # 5× traversal speed
+const M4_DROP_INT       := 0.2             # drop a bomb every 0.2s
 const DROP_SPEED        := 120.0
 const DROP_DMG          := 20
 const M4_START_LEFT_SS  := Vector2(10.0, 175.0)
@@ -47,13 +48,13 @@ const M4_START_RIGHT_SS := Vector2(690.0, 175.0)
 # ── Move 5 constants ──────────────────────────────────────────────────────────
 const M5_DURATION   := 5.0
 const M5_ROT_T      := 0.5
-const M5_BLOB_INT   := 1.0
+const M5_BLOB_INT   := 1.0 / 3.0           # 3× as many bombs (3× faster volleys)
 const M5_MOVE_SPD   := 80.0
-const BLOB_SPEED    := 80.0
+const BLOB_SPEED    := 200.0
 const BLOB_DMG      := 20
 
 # ── Boss HP ───────────────────────────────────────────────────────────────────
-const BOSS_MAX_HP      := 1000
+const BOSS_MAX_HP      := 2000
 
 # ── Phase ─────────────────────────────────────────────────────────────────────
 enum Phase { IDLE, M1_ENTRY, M1_TRAVEL, M2, M3_ROT, M3_MOVE, M3_WARN, M3_FIRE, M4_ROT, M4_TRAVEL, M5_ROT, M5_MOVE, DONE }
@@ -110,6 +111,8 @@ var _m3_target_x_ss  := 0.0
 var _laser_tr:         TextureRect = null
 var _laser_flash_acc  := 0.0
 var _laser_hit_done   := false
+var _m3_shots         := 0    # how many laser shots fired this Move-3 cycle (fires 3×)
+var _laser_w          := LASER_W   # current beam width: thin warning, 3× wide on actual fire
 
 # ── Move 4 state ──────────────────────────────────────────────────────────────
 var _m4_dir      := 1.0
@@ -257,7 +260,8 @@ func _begin_m3_tweened() -> void:
 	tw.finished.connect(func() -> void:
 		_boss_eo.pivot_offset = _boss_eo.size / 2.0
 		_phase     = Phase.M3_ROT
-		_phase_acc = 0.0)
+		_phase_acc = 0.0
+		_m3_shots  = 0)
 
 func _on_m1_entry_done() -> void:
 	_phase        = Phase.M1_TRAVEL
@@ -417,6 +421,7 @@ func _tick_m3_warn(delta: float) -> void:
 	if _phase_acc >= M3_WARN_T:
 		_phase     = Phase.M3_FIRE
 		_phase_acc = 0.0
+		_laser_w   = LASER_W * 3.0   # actual fire is 3× as wide as the warning
 		if _laser_tr != null and is_instance_valid(_laser_tr):
 			_laser_tr.visible = true
 
@@ -425,7 +430,7 @@ func _tick_m3_fire(delta: float) -> void:
 	_update_laser_pos()
 	if not _laser_hit_done and _ship_eo != null and is_instance_valid(_ship_eo):
 		var fp3 := _get_fp3_world()
-		var laser_rect := Rect2(fp3.x - LASER_W / 2.0, fp3.y, LASER_W, OC_BOUNDS.end.y - fp3.y)
+		var laser_rect := Rect2(fp3.x - _laser_w / 2.0, fp3.y, _laser_w, OC_BOUNDS.end.y - fp3.y)
 		var ship_rect  := Rect2(_ship_eo.global_position, _ship_eo.size)
 		if laser_rect.intersects(ship_rect):
 			GameManager.ship_take_damage(LASER_DMG)
@@ -434,7 +439,17 @@ func _tick_m3_fire(delta: float) -> void:
 		if _laser_tr != null and is_instance_valid(_laser_tr):
 			_laser_tr.queue_free()
 			_laser_tr = null
-		_begin_random_move()
+		_m3_shots += 1
+		if _m3_shots < 3:
+			# Re-aim at the ship's CURRENT X, then slide there → warn → fire again.
+			if _ship_eo != null and is_instance_valid(_ship_eo):
+				_m3_target_x_ss = _ship_eo.global_position.x + _ship_eo.size.x / 2.0 - SS_OFFSET.x
+			else:
+				_m3_target_x_ss = 350.0
+			_phase     = Phase.M3_MOVE
+			_phase_acc = 0.0
+		else:
+			_begin_random_move()
 
 # =============================================================================
 # Move 4 — rotate 90° CW → move horizontally + fire drops
@@ -530,7 +545,6 @@ func _tick_m5_move(delta: float) -> void:
 	else:
 		_boss_eo.position += diff.normalized() * M5_MOVE_SPD * delta
 
-	_m5_blob_acc += delta
 	while _m5_blob_acc >= M5_BLOB_INT:
 		_m5_blob_acc -= M5_BLOB_INT
 		_fire_blob()
@@ -575,9 +589,10 @@ func _spawn_laser() -> void:
 	# fp3 is in OC space; clip node is positioned at OC_BOUNDS.position, so we need local coords
 	var local_fp3 := fp3 - OC_BOUNDS.position
 	var h := OC_BOUNDS.size.y - local_fp3.y
+	_laser_w = LASER_W   # warning starts thin; widens to 3× when it actually fires
 	_laser_tr = TextureRect.new()
-	_laser_tr.size         = Vector2(LASER_W, maxf(h, 1.0))
-	_laser_tr.position     = Vector2(local_fp3.x - LASER_W / 2.0, local_fp3.y)
+	_laser_tr.size         = Vector2(_laser_w, maxf(h, 1.0))
+	_laser_tr.position     = Vector2(local_fp3.x - _laser_w / 2.0, local_fp3.y)
 	_laser_tr.stretch_mode = TextureRect.STRETCH_SCALE
 	_laser_tr.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
 	_laser_tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -597,8 +612,8 @@ func _update_laser_pos() -> void:
 	var fp3 := _get_fp3_world()
 	var local_fp3 := fp3 - OC_BOUNDS.position
 	var h := OC_BOUNDS.size.y - local_fp3.y
-	_laser_tr.position = Vector2(local_fp3.x - LASER_W / 2.0, local_fp3.y)
-	_laser_tr.size     = Vector2(LASER_W, maxf(h, 1.0))
+	_laser_tr.position = Vector2(local_fp3.x - _laser_w / 2.0, local_fp3.y)
+	_laser_tr.size     = Vector2(_laser_w, maxf(h, 1.0))
 
 # =============================================================================
 # Projectile spawning
@@ -622,8 +637,12 @@ func _spawn_spike(angle: float = -1.0) -> void:
 		resized_frames.append(_resize_tex(frame, sz))
 	local_pos -= sz / 2.0
 	var tr := _make_projectile_rect(resized_frames[0], sz, local_pos)
+	# Radial launch + tangential kick from the boss's spin → fast, curving spray.
+	var radial := Vector2.from_angle(dir_angle)
+	var tangential := Vector2.from_angle(dir_angle + PI * 0.5)   # flip sign if it curves the wrong way
+	var spike_vel := radial * SPIKE_SPEED + tangential * (M1_ROT_SPEED * SPIKE_SPIN_RADIUS)
 	_projectiles.append({
-		"tr": tr, "vel": Vector2.from_angle(dir_angle) * SPIKE_SPEED,
+		"tr": tr, "vel": spike_vel,
 		"rot_spd": 0.0, "rot": 0.0, "dmg": SPIKE_DMG, "type": "ball",
 		"frames": resized_frames, "delays": ball_anim.get("delays", []), "frame": 0, "acc": 0.0,
 		"blink_acc": 0.0,

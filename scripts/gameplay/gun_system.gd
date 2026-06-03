@@ -466,8 +466,8 @@ func _process(delta: float) -> void:
 
 func _handle_ship_movement(delta: float) -> void:
 	var mv := Vector2(
-		float(Input.is_action_pressed("ui_right")) - float(Input.is_action_pressed("ui_left")),
-		float(Input.is_action_pressed("ui_down"))  - float(Input.is_action_pressed("ui_up"))
+		float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A)),
+		float(Input.is_physical_key_pressed(KEY_S)) - float(Input.is_physical_key_pressed(KEY_W))
 	)
 	if mv == Vector2.ZERO:
 		return
