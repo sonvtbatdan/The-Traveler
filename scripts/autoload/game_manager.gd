@@ -24,6 +24,7 @@ signal ship_destroyed
 signal boss_hp_changed(hp: int)
 signal boss_spawned
 signal boss_killed
+signal boss_defeated   # authoritative "boss HP reached zero" (victory) — NOT emitted on player death
 
 var boss_hp:     int = 0
 var boss_max_hp: int = 0
@@ -35,7 +36,8 @@ func take_boss_damage(dmg: int) -> void:
 	boss_hp_changed.emit(boss_hp)
 	if boss_hp <= 0:
 		boss_max_hp = 0
-		boss_killed.emit()
+		boss_killed.emit()      # cleanup (hides boss, clears projectiles)
+		boss_defeated.emit()    # victory banner
 
 # ---------------------------------------------------------------------------
 # Tunable constants

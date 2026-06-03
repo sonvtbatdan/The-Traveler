@@ -5,6 +5,8 @@ const OC_BOUNDS  := Rect2(270.0, 8.0, 700.0, 764.0)
 
 const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 
+const BOSS_VISUAL_SCALE := 2.0   # boss sprite drawn at 2× (scaled around its center pivot)
+
 # ── Move 1 constants ──────────────────────────────────────────────────────────
 const M1_START_SS      := Vector2(10.0, 175.0)
 const M1_END_SS        := Vector2(650.0, 175.0)
@@ -14,7 +16,7 @@ const M1_ROT_SPEED     := 40.0 * TAU / 60.0
 const M1_SPIKE_INT     := 0.2
 const M1_SPIKES_PER_INT := 6               # 6 spikes per burst (tripled; spiral 6-arm)
 const M1_SPIRAL_STEP   := 0.35            # radians to advance base angle each burst
-const SPIKE_SPEED      := 90.0            # radial launch speed (≥3× original 30)
+const SPIKE_SPEED      := 108.0           # radial launch speed (+20%)
 const SPIKE_SPIN_RADIUS := 40.0          # effective radius for spin-induced tangential kick (tunable)
 const SPIKE_DMG        := 10
 
@@ -23,7 +25,7 @@ const M2_DURATION      := 8.0
 const M2_VORTEX_INT    := 0.3                 # 5× faster volleys (5× the vortexes)
 const M2_MOVE_SPD      := 80.0
 const M2_MAX_Y_SS      := 450.0
-const VORTEX_SPEED     := 90.0               # 3× original
+const VORTEX_SPEED     := 108.0              # +20%
 const VORTEX_ROT_SPEED := 60.0 * TAU / 60.0   # 1 rot/s (×2)
 const VORTEX_DMG       := 15
 
@@ -42,7 +44,7 @@ const LASER_DMG        := 30
 const M4_ROT_T          := 0.5
 const M4_TRAVEL_SPD     := 600.0            # 5× traversal speed
 const M4_DROP_INT       := 0.2             # drop a bomb every 0.2s
-const DROP_SPEED        := 600.0           # bombs hang then drop fast
+const DROP_SPEED        := 720.0           # bombs hang then drop fast (+20%)
 const DROP_DMG          := 20
 const M4_START_LEFT_SS  := Vector2(10.0, 175.0)
 const M4_START_RIGHT_SS := Vector2(690.0, 175.0)
@@ -52,7 +54,7 @@ const M5_DURATION   := 5.0
 const M5_ROT_T      := 0.5
 const M5_BLOB_INT   := 2.0 / 3.0           # half as many blobs (half the fire rate)
 const M5_MOVE_SPD   := 80.0
-const BLOB_SPEED    := 300.0               # 50% faster blobs
+const BLOB_SPEED    := 360.0               # +20%
 const BLOB_DMG      := 20
 
 # ── Boss HP ───────────────────────────────────────────────────────────────────
@@ -175,6 +177,7 @@ func _force_reset() -> void:
 	if _boss_eo != null and is_instance_valid(_boss_eo):
 		_boss_eo.visible  = false
 		_boss_eo.rotation = 0.0
+		_boss_eo.scale    = Vector2.ONE
 	_phase     = Phase.IDLE
 	_phase_acc = 0.0
 
@@ -206,6 +209,7 @@ func kill_boss() -> void:
 	if _boss_eo != null and is_instance_valid(_boss_eo):
 		_boss_eo.visible  = false
 		_boss_eo.rotation = 0.0
+		_boss_eo.scale    = Vector2.ONE
 	_phase     = Phase.IDLE
 	_phase_acc = 0.0
 	GameManager.boss_hp     = 0
@@ -239,6 +243,7 @@ func start_fight() -> void:
 	_boss_eo.visible      = true
 	_boss_eo.pivot_offset = _boss_eo.size / 2.0
 	_boss_eo.rotation     = 0.0
+	_boss_eo.scale        = Vector2(BOSS_VISUAL_SCALE, BOSS_VISUAL_SCALE)
 	_boss_spin = 0.0
 	_begin_random_move()
 
