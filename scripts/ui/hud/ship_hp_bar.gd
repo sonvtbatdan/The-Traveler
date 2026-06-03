@@ -49,6 +49,8 @@ func _on_hp_changed(hp: int) -> void:
 	_fill.size.x = BAR_W * ratio
 	_fill.color  = _hp_color(ratio)
 	_label.text  = "HP  %d / %d" % [hp, GameManager.SHIP_MAX_HP]
+	if hp > 0:   # clear the red "DESTROYED" tint after respawn
+		_label.add_theme_color_override("font_color", Color.WHITE)
 
 func _on_destroyed() -> void:
 	_fill.size.x = 0.0

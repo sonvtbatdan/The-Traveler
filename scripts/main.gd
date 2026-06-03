@@ -20,12 +20,14 @@ const WeaponSystemScript        := preload("res://scripts/gameplay/weapon_system
 @onready var visual_container: HBoxContainer = %VisualContainer
 
 var _boss_edit_mode: Node = null
+var _death_layer: CanvasLayer = null
 
 func _ready() -> void:
 	get_tree().set_auto_accept_quit(false)
 	DisplayServer.window_set_current_screen(DisplayServer.get_primary_screen())
 	UpgradeManager.upgrade_purchased.connect(_on_upgrade_purchased)
 	UpgradeManager.upgrades_reset.connect(_on_upgrades_reset)
+	GameManager.ship_destroyed.connect(_on_ship_destroyed)
 	_apply_title_fonts()
 	_add_defense_panel()
 	add_child(DefenseVisualScript.new())
@@ -162,8 +164,70 @@ func _add_boss_panel() -> void:
 
 func _on_ship_destroyed() -> void:
 	GameManager.set_boost(false)
-	# Hiển thị game over (simple: freeze tree)
+	# Exit the boss battle (hide boss, clear projectiles, restore normal asteroid play).
+	var bf := get_tree().get_first_node_in_group("boss_fight")
+	if bf != null and bf.has_method("kill_boss"):
+		# Deferred: ship_destroyed can fire INSIDE boss_fight._tick_projectiles, and
+		# kill_boss() clears _projectiles — mutating it mid-loop crashes. Run it after the frame.
+		bf.call_deferred("kill_boss")
+	_show_death_screen()
 	get_tree().paused = true
+
+func _show_death_screen() -> void:
+	if _death_layer != null:
+		return
+	_death_layer = CanvasLayer.new()
+	_death_layer.layer = 200
+	_death_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(_death_layer)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0.0, 0.0, 0.0, 0.7)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.process_mode = Node.PROCESS_MODE_ALWAYS
+	dim.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and (e as InputEventMouseButton).pressed:
+			_dismiss_death_screen())
+	_death_layer.add_child(dim)
+
+	var font := load("res://assets/fonts/Gameplay.ttf") as FontFile
+
+	var title := Label.new()
+	title.text = "YOU DIED"
+	title.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if font:
+		title.add_theme_font_override("font", font)
+	title.add_theme_font_size_override("font_size", 54)
+	title.add_theme_color_override("font_color", Color(0.9, 0.15, 0.15))
+	title.add_theme_color_override("font_outline_color", Color.BLACK)
+	title.add_theme_constant_override("outline_size", 6)
+	_death_layer.add_child(title)
+
+	var hint := Label.new()
+	hint.text = "Click to continue"
+	hint.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hint.offset_top = 60.0
+	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if font:
+		hint.add_theme_font_override("font", font)
+	hint.add_theme_font_size_override("font_size", 16)
+	hint.add_theme_color_override("font_color", Color(0.8, 0.85, 0.95))
+	_death_layer.add_child(hint)
+
+func _dismiss_death_screen() -> void:
+	get_tree().paused = false
+	# Auto-respawn at full HP.
+	GameManager.ship_hp = GameManager.SHIP_MAX_HP
+	GameManager.ship_hp_changed.emit(GameManager.SHIP_MAX_HP)
+	if _death_layer != null:
+		_death_layer.queue_free()
+		_death_layer = null
 
 func _add_material_panel() -> void:
 	var panel := MaterialPanelScript.new()

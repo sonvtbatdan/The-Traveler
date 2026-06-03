@@ -402,7 +402,8 @@ func _tick_m3_move(delta: float) -> void:
 			OC_BOUNDS.position.y, OC_BOUNDS.end.y - _boss_eo.size.y)
 	)
 	var diff := target_oc - _boss_eo.position
-	if diff.length() < 3.0:
+	var step := M3_MOVE_SPD * delta
+	if diff.length() <= maxf(step, 3.0):   # arrive within one step → no overshoot/vibration
 		_boss_eo.position  = target_oc
 		_phase             = Phase.M3_WARN
 		_phase_acc         = 0.0
@@ -410,7 +411,7 @@ func _tick_m3_move(delta: float) -> void:
 		_laser_hit_done    = false
 		_spawn_laser()
 	else:
-		_boss_eo.position += diff.normalized() * M3_MOVE_SPD * delta
+		_boss_eo.position += diff.normalized() * step
 
 func _tick_m3_warn(delta: float) -> void:
 	_phase_acc       += delta
@@ -712,6 +713,9 @@ func _tick_projectiles(delta: float) -> void:
 
 	var i := _projectiles.size() - 1
 	while i >= 0:
+		if i >= _projectiles.size():   # guard: array may have shrunk via re-entrancy
+			i -= 1
+			continue
 		var p  : Dictionary = _projectiles[i]
 		var tr : TextureRect = p["tr"]
 		if not is_instance_valid(tr):
