@@ -39,6 +39,25 @@ var _bullets: Array = []   # {pos, vel, dmg, big, life}
 var _impacts: Array = []   # {pos, age, max_age, radius, color}
 var _arcs: Array = []      # {a, b, age, max_age}
 
+# Extra damageable targets registered by fight controllers (e.g. orb sub-bosses).
+# Each entry: {get_rect: Callable → Rect2 (stream-local), on_hit: Callable(dmg:float)}
+var _extra_targets: Array = []
+
+# Provider for dynamic multi-targets (e.g. shielded bullets). fn() → Array[{rect,on_hit}]
+var _multi_hit_provider: Callable = Callable()
+
+func add_hit_target(get_rect: Callable, on_hit: Callable) -> void:
+	_extra_targets.append({"get_rect": get_rect, "on_hit": on_hit})
+
+func clear_extra_targets() -> void:
+	_extra_targets.clear()
+
+func set_multi_hit_provider(fn: Callable) -> void:
+	_multi_hit_provider = fn
+
+func clear_multi_hit_provider() -> void:
+	_multi_hit_provider = Callable()
+
 func setup() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	# Input is read by polling in _process (so firing works even when the click lands
@@ -46,6 +65,7 @@ func setup() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	z_index = 50
 	_gauss_full_diam_px = clampf(_cm_to_px(GAUSS_FULL_DIAMETER_CM), 40.0, 120.0)
+	add_to_group("weapon_system")
 
 # ── Input ─────────────────────────────────────────────────────────────────────
 
@@ -159,7 +179,15 @@ func _update_bullets(delta: float) -> void:
 				GameManager.take_boss_damage(int(b["dmg"]))
 				_spawn_impact(pos, true)
 				b["dmg"] = 0.0   # boss absorbs the whole ball
-			elif ast != null and ast.has_method("pierce_at"):
+			else:
+				for et: Dictionary in _extra_targets:
+					var er: Rect2 = (et["get_rect"] as Callable).call()
+					if er.has_area() and _circle_hits_rect(pos, maxf(r, 4.0), er):
+						(et["on_hit"] as Callable).call(float(b["dmg"]))
+						_spawn_impact(pos, true)
+						b["dmg"] = 0.0
+						break
+			if ast != null and ast.has_method("pierce_at") and float(b["dmg"]) > 0.0:
 				var absorbed: float = ast.pierce_at(pos, maxf(r, 4.0), float(b["dmg"]))
 				if absorbed > 0.0:
 					_spawn_impact(pos, true)
@@ -174,6 +202,22 @@ func _update_bullets(delta: float) -> void:
 				GameManager.take_boss_damage(int(b["dmg"]))
 				_spawn_impact(pos, false)
 				remove = true
+			else:
+				for et: Dictionary in _extra_targets:
+					var er: Rect2 = (et["get_rect"] as Callable).call()
+					if er.has_area() and er.has_point(pos):
+						(et["on_hit"] as Callable).call(float(b["dmg"]))
+						_spawn_impact(pos, false)
+						remove = true
+						break
+				if not remove and _multi_hit_provider.is_valid():
+					for mh: Dictionary in _multi_hit_provider.call():
+						var mr: Rect2 = mh["rect"]
+						if mr.has_area() and mr.has_point(pos):
+							(mh["on_hit"] as Callable).call(float(b["dmg"]))
+							_spawn_impact(pos, false)
+							remove = true
+							break
 		var off: bool = pos.x < -48.0 or pos.x > size.x + 48.0 or pos.y < -48.0 or pos.y > size.y + 48.0
 		if remove or off or float(b["life"]) > 4.0:
 			_bullets.remove_at(i)
