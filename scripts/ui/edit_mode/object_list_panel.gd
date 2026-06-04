@@ -50,6 +50,7 @@ func _build_rename_dialog() -> void:
 	_rename_dialog.size = Vector2i(280, 110)
 	_rename_dialog.unresizable = true
 	_rename_dialog.visible = false
+	_rename_dialog.modal = true
 	_rename_dialog.close_requested.connect(func(): _rename_dialog.hide())
 
 	var vbox := VBoxContainer.new()
