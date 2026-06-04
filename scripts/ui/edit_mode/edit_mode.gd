@@ -95,7 +95,6 @@ func _ready() -> void:
 	object_list_panel.group_layer_visibility_toggled.connect(_on_group_layer_visibility_toggled)
 	object_list_panel.row_context_action.connect(_on_context_action)
 	object_list_panel.display_name_changed.connect(func(_obj: EditableObjectNode): _dirty = true)
-	btn_fit_screen.pressed.connect(_fit_screen_group)
 	btn_setup_screen.pressed.connect(_setup_screen_from_user)
 	btn_reset_screen.pressed.connect(_reset_screen_group)
 	btn_symmetric.pressed.connect(func(): _symmetric = btn_symmetric.button_pressed)
@@ -915,7 +914,7 @@ func _undo() -> void:
 				object_list_panel.remove_object(obj)
 				obj.queue_free()
 			_selected_objects.erase(obj)
-					transform_panel.refresh(_primary_selected())
+			transform_panel.refresh(_primary_selected())
 		"transform":
 			var obj = entry["obj"]
 			if is_instance_valid(obj):
