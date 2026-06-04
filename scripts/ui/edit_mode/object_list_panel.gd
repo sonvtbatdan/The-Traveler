@@ -21,14 +21,10 @@ var _selected_row: Control = null
 var _dragging_row: Control = null
 var _is_assembly_mode: bool = false
 
-var _context_obj: EditableObjectNode = null
 var _context_menu: PopupMenu = null
-var _rename_dialog: AcceptDialog = null
-var _rename_line_edit: LineEdit = null
 
 func _ready() -> void:
 	_build_context_menu()
-	_build_rename_dialog()
 
 func _build_context_menu() -> void:
 	_context_menu = PopupMenu.new()
@@ -38,77 +34,73 @@ func _build_context_menu() -> void:
 	_context_menu.add_separator()
 	_context_menu.add_item("Delete", 3)
 	_context_menu.id_pressed.connect(_on_context_item_pressed)
-	call_deferred("_add_popups_to_root")
-
-func _add_popups_to_root() -> void:
-	get_tree().root.add_child(_context_menu)
-	get_tree().root.add_child(_rename_dialog)
-
-func _build_rename_dialog() -> void:
-	_rename_dialog = AcceptDialog.new()
-	_rename_dialog.title = "Rename"
-	_rename_dialog.size = Vector2i(280, 110)
-	_rename_dialog.confirmed.connect(_on_rename_ok)
-	_rename_dialog.cancelled.connect(func(): get_tree().paused = false)
-
-	var vbox := _rename_dialog.get_vbox()
-	vbox.add_theme_constant_override("separation", 8)
-
-	_rename_line_edit = LineEdit.new()
-	_rename_line_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_rename_line_edit.focus_mode = Control.FOCUS_ALL
-	_rename_line_edit.text_submitted.connect(func(_t: String): _on_rename_ok())
-	vbox.add_child(_rename_line_edit)
+	call_deferred("add_child", _context_menu)
 
 func _on_context_item_pressed(id: int) -> void:
-	if _context_obj == null or not is_instance_valid(_context_obj):
+	# Lấy object từ row hiện tại khi context menu show
+	var obj: EditableObjectNode = null
+	if _selected_row != null:
+		for entry in _rows:
+			if entry["row"] == _selected_row:
+				obj = entry["canvas_obj"] as EditableObjectNode
+				break
+
+	if obj == null or not is_instance_valid(obj):
 		return
+
 	match id:
 		0:  # Mirror
-			if _context_obj.texture_rect:
-				_context_obj.texture_rect.flip_h = not _context_obj.texture_rect.flip_h
-			_context_obj = null
+			if obj.texture_rect:
+				obj.texture_rect.flip_h = not obj.texture_rect.flip_h
 		1:  # Rename
-			_show_rename_dialog(_context_obj)
+			_show_rename_dialog(obj)
 		2:  # Copy
-			var obj := _context_obj
-			_context_obj = null
 			row_context_action.emit("copy", obj)
 		3:  # Delete
-			var obj := _context_obj
-			_context_obj = null
 			row_context_action.emit("delete", obj)
 
 func _show_rename_dialog(obj: EditableObjectNode) -> void:
-	_context_obj = obj
-	_rename_line_edit.text = obj.display_name if not obj.display_name.is_empty() \
-		else obj.source_path.get_file().get_basename()
-	get_tree().paused = true
-	_rename_dialog.popup_centered_ratio(0.3)
-	_rename_line_edit.grab_focus()
-	_rename_line_edit.select_all()
+	var dialog := AcceptDialog.new()
+	dialog.title = "Rename Layer"
+	dialog.size = Vector2i(320, 120)
+	add_child(dialog)
 
-func _on_rename_ok() -> void:
-	if _rename_dialog == null:
-		return
-	get_tree().paused = false
-	if _context_obj == null or not is_instance_valid(_context_obj):
-		_context_obj = null
-		return
-	var new_name := _rename_line_edit.text.strip_edges()
-	if not new_name.is_empty():
-		_context_obj.display_name = new_name
-		for entry in _rows:
-			if entry["canvas_obj"] == _context_obj:
-				var row: Control = entry["row"]
-				var hbox := row.get_child(0) as HBoxContainer
-				if hbox and hbox.get_child_count() > 1:
-					var lbl := hbox.get_child(1) as Label
-					if lbl:
-						lbl.text = new_name
-				break
-		display_name_changed.emit(_context_obj)
-	_context_obj = null
+	var vbox := dialog.get_vbox()
+	vbox.add_theme_constant_override("separation", 10)
+
+	var label := Label.new()
+	label.text = "Enter new name:"
+	vbox.add_child(label)
+
+	var text_edit := LineEdit.new()
+	text_edit.text = obj.display_name if not obj.display_name.is_empty() else obj.source_path.get_file().get_basename()
+	text_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_edit.focus_mode = Control.FOCUS_ALL
+	vbox.add_child(text_edit)
+
+	dialog.confirmed.connect(func():
+		var new_name := text_edit.text.strip_edges()
+		if not new_name.is_empty():
+			obj.display_name = new_name
+			for entry in _rows:
+				if entry["canvas_obj"] == obj:
+					var row: Control = entry["row"]
+					var hbox := row.get_child(0) as HBoxContainer
+					if hbox and hbox.get_child_count() > 1:
+						var lbl := hbox.get_child(1) as Label
+						if lbl:
+							lbl.text = new_name
+					break
+			display_name_changed.emit(obj)
+	)
+
+	dialog.cancelled.connect(func():
+		pass  # Không làm gì, chỉ đóng dialog
+	)
+
+	dialog.popup_centered()
+	text_edit.grab_focus()
+	text_edit.select_all()
 
 # --- OS drag-drop (import) ---
 
