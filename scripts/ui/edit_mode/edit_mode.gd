@@ -241,7 +241,7 @@ func _on_title_bar_input(event: InputEvent) -> void:
 		_drag_offset = side_panel.global_position - get_viewport().get_mouse_position()
 
 func _input(event: InputEvent) -> void:
-	if _is_open and event is InputEventKey and event.pressed:
+	if _is_open and event is InputEventKey and event.pressed and not object_list_panel._rename_dialog.visible:
 		if not event.echo and event.keycode == KEY_Z and event.ctrl_pressed:
 			_undo()
 			get_viewport().set_input_as_handled()
