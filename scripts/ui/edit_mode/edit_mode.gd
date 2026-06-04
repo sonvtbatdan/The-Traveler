@@ -630,7 +630,6 @@ func _update_group_buttons() -> void:
 	btn_defense.button_pressed    = in_assembly
 	btn_power_core.button_pressed = in_assembly
 	btn_user.button_pressed       = (_active_group == "user")
-	btn_fit_screen.visible   = in_assembly
 	btn_setup_screen.visible = in_assembly
 	btn_reset_screen.visible = in_assembly
 
