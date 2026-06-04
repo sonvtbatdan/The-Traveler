@@ -50,8 +50,12 @@ func _build_rename_dialog() -> void:
 	_rename_dialog.size = Vector2i(280, 110)
 	_rename_dialog.unresizable = true
 	_rename_dialog.visible = false
-	_rename_dialog.modal = true
-	_rename_dialog.close_requested.connect(func(): _rename_dialog.hide())
+	_rename_dialog.top_level = true
+	_rename_dialog.process_mode = Node.PROCESS_MODE_WHEN_PAUSED
+	_rename_dialog.close_requested.connect(func():
+		_rename_dialog.hide()
+		get_tree().paused = false
+	)
 
 	var vbox := VBoxContainer.new()
 	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -77,7 +81,10 @@ func _build_rename_dialog() -> void:
 
 	var cancel_btn := Button.new()
 	cancel_btn.text = "Cancel"
-	cancel_btn.pressed.connect(func(): _rename_dialog.hide())
+	cancel_btn.pressed.connect(func():
+		_rename_dialog.hide()
+		get_tree().paused = false
+	)
 	btn_row.add_child(cancel_btn)
 
 func _on_context_item_pressed(id: int) -> void:
@@ -103,6 +110,7 @@ func _show_rename_dialog(obj: EditableObjectNode) -> void:
 	_context_obj = obj
 	_rename_line_edit.text = obj.display_name if not obj.display_name.is_empty() \
 		else obj.source_path.get_file().get_basename()
+	get_tree().paused = true
 	_rename_dialog.popup_centered()
 	_rename_line_edit.call_deferred("grab_focus")
 	_rename_line_edit.call_deferred("select_all")
@@ -111,6 +119,7 @@ func _on_rename_ok() -> void:
 	if _rename_dialog == null or not _rename_dialog.visible:
 		return
 	_rename_dialog.hide()
+	get_tree().paused = false
 	if _context_obj == null or not is_instance_valid(_context_obj):
 		_context_obj = null
 		return
