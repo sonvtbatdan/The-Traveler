@@ -226,6 +226,33 @@
         "status": "pending_test",
         "notes": "Code fix complete. Need to test: click weaponry group → should show only weaponry items; click defense → only defense items, etc."
       }
+    },
+    {
+      "id": 9,
+      "timestamp": "2026-06-05T00:15:00Z",
+      "task": "Fix: Rename dialog stuck - keyboard input not received by LineEdit",
+      "files_modified": [
+        {
+          "path": "scripts/ui/edit_mode/edit_mode.gd",
+          "lines": "244",
+          "action": "modified",
+          "diff_summary": "Add check to skip key input handling when rename dialog is open"
+        }
+      ],
+      "changes_summary": "Issue: When rename dialog popup, typing in LineEdit didn't work - all keystrokes were consumed.\n\nRoot Cause: _input() function line 244 was consuming ALL key events when _is_open=true, even when rename dialog visible.\n\nFix: Added condition to skip key input handling when rename_dialog.visible==true:\n- Old: if _is_open and event is InputEventKey and event.pressed:\n- New: if _is_open and event is InputEventKey and event.pressed and not object_list_panel._rename_dialog.visible:\n\nNow rename dialog receives keyboard input correctly.",
+      "commands_executed": [
+        "git add scripts/ui/edit_mode/edit_mode.gd",
+        "git commit -m 'fix: allow keyboard input in rename dialog'"
+      ],
+      "git_commit_hash": "6bb645f",
+      "rollback_steps": [
+        "git reset --soft HEAD~1",
+        "git checkout scripts/ui/edit_mode/edit_mode.gd"
+      ],
+      "verification": {
+        "status": "ready_test",
+        "notes": "Fix complete. Test: Click rename on an object → rename dialog should now accept keyboard input."
+      }
     }
   ]
 }
