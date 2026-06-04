@@ -50,8 +50,6 @@ func _build_rename_dialog() -> void:
 	_rename_dialog.size = Vector2i(280, 110)
 	_rename_dialog.unresizable = true
 	_rename_dialog.visible = false
-	_rename_dialog.top_level = true
-	_rename_dialog.process_mode = Node.PROCESS_MODE_WHEN_PAUSED
 	_rename_dialog.close_requested.connect(func():
 		_rename_dialog.hide()
 		get_tree().paused = false
