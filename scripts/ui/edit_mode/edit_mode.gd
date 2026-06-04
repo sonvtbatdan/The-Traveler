@@ -673,7 +673,9 @@ func _on_canvas_object_clicked(obj: EditableObjectNode) -> void:
 	if not _is_open:
 		_handle_gameplay_click(obj)
 		return
-	# Selection only via object list — canvas click never changes selection.
+	# Click to select object
+	_select_objects([obj])
+	# Prepare for dragging if object is selected
 	if obj in _selected_objects:
 		if _is_spaceship(obj):
 			# Capture entire weaponry group (ship + all weapons) for single-step undo.
