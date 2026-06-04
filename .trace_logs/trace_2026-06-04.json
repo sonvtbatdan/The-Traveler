@@ -199,6 +199,33 @@
         "status": "complete",
         "notes": "All 6 phases completed. Edit mode now shows only active group items, removed 5 buttons (Delete, Upload, Fit Screen, Reset Power Core, Show Weapons), thrust added to power_core group."
       }
+    },
+    {
+      "id": 8,
+      "timestamp": "2026-06-05T00:00:00Z",
+      "task": "Fix: Group filtering not working - showing all items regardless of selected group",
+      "files_modified": [
+        {
+          "path": "scripts/ui/edit_mode/edit_mode.gd",
+          "lines": "186-193, 1135",
+          "action": "modified",
+          "diff_summary": "Filter _refresh_assembly_list() by _active_group; remove redundant call"
+        }
+      ],
+      "changes_summary": "Issue: When clicking weaponry/defense/power_core group buttons, all items from all groups were shown.\n\nRoot Cause: _refresh_assembly_list() looped through ALL ASSEMBLY_GROUPS and displayed them all.\n\nFix:\n- Line 189: Changed loop from 'for g in ASSEMBLY_GROUPS:' to 'var groups_to_show: Array = [_active_group] if _active_group in ASSEMBLY_GROUPS else ASSEMBLY_GROUPS'\n- Now only shows items from _active_group when clicking an assembly group button\n- Removed redundant _refresh_assembly_list() call at line 1135 in _reset_screen_group()",
+      "commands_executed": [
+        "git add scripts/ui/edit_mode/edit_mode.gd",
+        "git commit -m 'fix: show only active group items in assembly list'"
+      ],
+      "git_commit_hash": "71c3fe6",
+      "rollback_steps": [
+        "git reset --soft HEAD~1",
+        "git checkout scripts/ui/edit_mode/edit_mode.gd"
+      ],
+      "verification": {
+        "status": "pending_test",
+        "notes": "Code fix complete. Need to test: click weaponry group → should show only weaponry items; click defense → only defense items, etc."
+      }
     }
   ]
 }
