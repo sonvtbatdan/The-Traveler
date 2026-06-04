@@ -14,7 +14,7 @@ const GROUP_FOLDERS := {
 	"screen":     "screen",
 	"weaponry":   "weaponry",
 	"defense":    "defense",
-	"power_core": "powercore",
+	"power_core": "sprites/thrust",
 	"user":       "user",
 }
 # SpaceScreen position and default tile size (2048×2048 image at scale 1.0 → 700×700px tile)
@@ -78,7 +78,6 @@ var _canvas_drag_undo_pushed := false
 var _layout_loaded := false
 var _layout_version: int = 1  # 1=old global z_index, 2=new local z_index (post-reparent)
 var _pre_drag_states: Dictionary = {}  # obj -> {pos, size} recorded at drag-start
-var _show_weapons: bool = false
 var _symmetric: bool = false
 
 func _ready() -> void:
@@ -100,6 +99,7 @@ func _ready() -> void:
 	btn_setup_screen.pressed.connect(_setup_screen_from_user)
 	btn_reset_screen.pressed.connect(_reset_screen_group)
 	btn_symmetric.pressed.connect(func(): _symmetric = btn_symmetric.button_pressed)
+	# Removed: btn_fit_screen, btn_reset_equipment, btn_show_weapon, btn_delete, btn_upload
 	btn_save.pressed.connect(_on_save_pressed)
 	btn_screen.pressed.connect(func() -> void: _set_group("screen"))
 	btn_weaponry.pressed.connect(func() -> void: _set_group("weaponry"))
@@ -122,9 +122,6 @@ func _set_edit_ui_visible(v: bool) -> void:
 	if not v:
 		_dragging_panel = false
 		_canvas_dragging = false
-
-func _on_reset_equipment_pressed() -> void:
-	EquipmentManager.reset_all()
 
 func refresh_weaponry_gameplay() -> void:
 	for obj in _placed.get("weaponry", []):
@@ -193,8 +190,6 @@ func _refresh_assembly_list() -> void:
 	for g in ASSEMBLY_GROUPS:
 		for obj in _placed.get(g, []):
 			if is_instance_valid(obj) and not obj.is_group_layer() and not _is_spaceship(obj):
-				if _is_weapon(obj) and not _show_weapons:
-					continue
 				all_objs.append(obj)
 	object_list_panel.refresh_assembly(ship_eo, all_objs)
 
@@ -232,8 +227,6 @@ func _get_weaponry_list_objects() -> Array:
 	for obj in _placed.get("weaponry", []):
 		if not is_instance_valid(obj):
 			continue
-		if _is_weapon(obj) and not _show_weapons:
-			continue
 		result.append(obj)
 	return result
 
@@ -241,11 +234,6 @@ func _move_weapons_by_delta(delta: Vector2) -> void:
 	for obj in _placed.get("weaponry", []):
 		if is_instance_valid(obj) and _is_weapon(obj):
 			obj.position += delta
-
-func _on_show_weapon_pressed() -> void:
-	_show_weapons = not _show_weapons
-	btn_show_weapon.button_pressed = _show_weapons
-	_apply_weapons_visibility()
 
 func _on_title_bar_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
@@ -392,8 +380,6 @@ func is_open() -> bool:
 func toggle() -> void:
 	if not _is_open:
 		_is_open = true
-		_show_weapons = false
-		btn_show_weapon.button_pressed = false
 		_symmetric = false
 		btn_symmetric.button_pressed = false
 		_set_edit_ui_visible(true)
@@ -648,7 +634,6 @@ func _update_group_buttons() -> void:
 	btn_fit_screen.visible   = in_assembly
 	btn_setup_screen.visible = in_assembly
 	btn_reset_screen.visible = in_assembly
-	btn_delete.disabled = _selected_objects.is_empty()
 
 func _update_object_interactivity() -> void:
 	for group in GROUPS:
@@ -731,7 +716,6 @@ func _select_objects(objects: Array) -> void:
 	for obj in objects:
 		if is_instance_valid(obj):
 			_selected_objects.append(obj as EditableObjectNode)
-	btn_delete.disabled = _selected_objects.is_empty()
 	transform_panel.refresh(_primary_selected())
 
 func _on_transform_live(pos: Vector2, sz: Vector2) -> void:
@@ -891,7 +875,6 @@ func _delete_object(obj: EditableObjectNode) -> void:
 	object_list_panel.remove_object(obj)
 	_selected_objects.erase(obj)
 	obj.queue_free()
-	btn_delete.disabled = _selected_objects.is_empty()
 	transform_panel.refresh(_primary_selected())
 	_dirty = true
 
@@ -932,8 +915,7 @@ func _undo() -> void:
 				object_list_panel.remove_object(obj)
 				obj.queue_free()
 			_selected_objects.erase(obj)
-			btn_delete.disabled = _selected_objects.is_empty()
-			transform_panel.refresh(_primary_selected())
+					transform_panel.refresh(_primary_selected())
 		"transform":
 			var obj = entry["obj"]
 			if is_instance_valid(obj):
@@ -966,9 +948,6 @@ func _undo() -> void:
 
 func _on_save_pressed() -> void:
 	_save_layout()
-
-func _on_upload_pressed() -> void:
-	file_dialog.popup_centered(Vector2i(900, 600))
 
 func _on_file_dialog_files_selected(paths: PackedStringArray) -> void:
 	for path in paths:
@@ -1064,39 +1043,6 @@ func _save_layout() -> void:
 	if cfg.save(LAYOUT_PATH) == OK:
 		_dirty = false
 
-func _fit_screen_group() -> void:
-	var objs: Array = _placed["weaponry"]
-	var min_p := Vector2(INF, INF)
-	var max_p := Vector2(-INF, -INF)
-	var has := false
-	for obj in objs:
-		if not is_instance_valid(obj) or obj.is_group_layer():
-			continue
-		min_p = min_p.min(obj.position)
-		max_p = max_p.max(obj.position + obj.size)
-		has = true
-	if not has:
-		return
-	var cur_w := max_p.x - min_p.x
-	var cur_h := max_p.y - min_p.y
-	if cur_w <= 0.0 or cur_h <= 0.0:
-		return
-	_push_undo_group_transform("weaponry")
-	var vp := get_viewport().get_visible_rect().size
-	var tx := (vp.x - SCREEN_FIT_W) / 2.0
-	var ty := (vp.y - SCREEN_FIT_H) / 2.0
-	var sx := SCREEN_FIT_W / cur_w
-	var sy := SCREEN_FIT_H / cur_h
-	for obj in objs:
-		if not is_instance_valid(obj) or obj.is_group_layer():
-			continue
-		var rel: Vector2 = obj.position - min_p
-		obj.position = Vector2(tx + rel.x * sx, ty + rel.y * sy)
-		obj.size = Vector2(obj.size.x * sx, obj.size.y * sy)
-		obj._sync_rect_size()
-	transform_panel.refresh(_primary_selected())
-	_dirty = true
-
 func _setup_screen_from_user() -> void:
 	# base.png native size: 2754 × 1536 — aspect ratio drives screen width.
 	const BASE_ASPECT := 2754.0 / 1536.0
@@ -1188,7 +1134,6 @@ func _reset_screen_group() -> void:
 	_dirty = false
 	_apply_weapons_visibility()
 	_refresh_assembly_list()
-	btn_delete.disabled = _selected_objects.is_empty()
 	transform_panel.refresh(null)
 	_update_object_interactivity()
 
