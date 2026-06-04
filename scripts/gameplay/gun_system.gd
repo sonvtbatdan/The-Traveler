@@ -2,13 +2,11 @@ extends Control
 
 const SS_OFFSET                := Vector2(270.0, 8.0)
 const MOUNT_AUTOFIRE           := false  # inventory weapons only — old ship-mount auto-fire retired. Set true to restore.
-const BOSS_SHIP_SCALE_MULT     := 0.5    # ship (and hitbox) shrinks to half its boost size during a boss fight
 const FIRE_INTERVAL            := 0.5    # gun: 2 shots/sec
 const TURRET_FIRE_INTERVAL     := 0.66   # turret: ~1.5 shots/sec
 const LIGHTNING_FIRE_INTERVAL  := 0.75
 const LIGHTNING_CHAIN_COUNT    := 3
 const LIGHTNING_DURATION       := 0.25
-const FLOAT_RADIUS             := 2.0
 const BULLET_SPEED             := 500.0
 const RAILGUN_BULLET_SPEED     := 900.0
 const CANON_FIRE_INTERVAL      := 1.0    # 1 shot/sec
@@ -94,13 +92,18 @@ var _turret_fire_accs:    Dictionary = {}
 var _lightning_fire_accs: Dictionary = {}
 
 var _lightning_chains:    Array = []   # [{lines: Array, age: float}]
-var _float_time:          float = 0.0
 var _spaceship_eo:        EditableObjectNode = null
 var _spaceship_origin:    Vector2 = Vector2.ZERO
 var _spaceship_origin_sz: Vector2 = Vector2.ZERO
-var _current_scale:       float   = 1.0  # animated by tween (1.0 <-> 0.5)
-var _scale_tween:         Tween   = null
-var _ship_pop_tween:      Tween   = null
+var _child_f4_sizes:      Dictionary = {}  # EditableObjectNode -> Vector2 (F4 size for weapon, power_core, defense objects)
+
+# Gameplay Edit Mode (F6 toggle)
+var _gameplay_edit_mode:  bool = false
+var _selected_eo:         EditableObjectNode = null
+var _drag_handle:         int = -1  # 0-7: corners/edges, -1: move, -2: none
+var _drag_start_pos:      Vector2 = Vector2.ZERO
+var _drag_start_size:     Vector2 = Vector2.ZERO
+var _drag_start_mouse:    Vector2 = Vector2.ZERO
 var _weapon_eo_rels:      Dictionary = {}  # EditableObjectNode -> Vector2 (offset từ ship center)
 var _thrust_eos:          Array = []       # thrust.png reference EOs — hidden in gameplay
 var _auto_thrust_eos:     Array = []       # auto.gif reference EOs — hidden, display via TextureRect
@@ -126,50 +129,76 @@ func refresh_layout() -> void:
 	_refresh_static_frames()
 
 func reset_to_origin() -> void:
-	if _scale_tween and _scale_tween.is_valid():
-		_scale_tween.kill()
-		_scale_tween = null
-	if _ship_pop_tween and _ship_pop_tween.is_valid():
-		_ship_pop_tween.kill()
-		_ship_pop_tween = null
-	_current_scale = 1.0
 	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		_spaceship_eo.position     = _spaceship_origin
 		_spaceship_eo.scale        = Vector2.ONE
 		_spaceship_eo.pivot_offset = Vector2.ZERO
-	for raw_eo in _static_rects.keys():
-		if not is_instance_valid(raw_eo):
-			continue
-		var eo := raw_eo as EditableObjectNode
-		if eo == null or not is_instance_valid(_static_rects[raw_eo]):
-			continue
-		var rel_ro: Vector2 = _weapon_eo_rels.get(raw_eo, Vector2.ZERO)
-		(_static_rects[raw_eo] as TextureRect).position = _spaceship_origin_sz * 0.5 + rel_ro - eo.size * 0.5
+		# Reset all children to F4 state (size + scale)
+		for eo in _child_f4_sizes.keys():
+			if is_instance_valid(eo):
+				# Weapon: update animation TextureRect
+				if _static_rects.has(eo) and is_instance_valid(_static_rects[eo]):
+					var tr := _static_rects[eo] as TextureRect
+					tr.position = eo.position
+					tr.size = _child_f4_sizes[eo]
+				# Thrust manual mode: update manual thrust TextureRect
+				elif _manual_thrust_rects.has(eo) and is_instance_valid(_manual_thrust_rects[eo]):
+					var tr := _manual_thrust_rects[eo] as TextureRect
+					tr.position = eo.position
+					tr.size = _child_f4_sizes[eo]
+				# Power core, defense: update EditableObjectNode
+				else:
+					eo.size = _child_f4_sizes[eo]
+			eo.scale = Vector2.ONE
+
+func _input(event: InputEvent) -> void:
+	# F6 toggle gameplay edit mode
+	if event is InputEventKey and event.pressed:
+		if event.keycode == KEY_F6:
+			_gameplay_edit_mode = !_gameplay_edit_mode
+			_selected_eo = null
+			get_tree().root.set_input_as_handled()
+			return
+
+	if not _gameplay_edit_mode:
+		return
+
+	# Mouse click detect
+	if event is InputEventMouseButton and event.pressed:
+		var mouse_pos := get_global_mouse_position()
+		_selected_eo = _find_object_at_pos(mouse_pos)
+		_drag_start_mouse = mouse_pos
+		_drag_start_pos = _selected_eo.position if _selected_eo else Vector2.ZERO
+		_drag_start_size = _selected_eo.size if _selected_eo else Vector2.ZERO
+		_drag_handle = _find_handle_at_pos(mouse_pos) if _selected_eo else -2
+		get_tree().root.set_input_as_handled()
+
+	# Mouse move (drag)
+	if event is InputEventMouseMotion and (_drag_handle >= -1):
+		var mouse_pos := get_global_mouse_position()
+		var delta := mouse_pos - _drag_start_mouse
+
+		if _drag_handle == -1 and _selected_eo:  # Move
+			_selected_eo.position = _drag_start_pos + delta
+		elif _drag_handle >= 0 and _selected_eo:  # Resize
+			_resize_from_handle(_selected_eo, _drag_handle, delta)
+		get_tree().root.set_input_as_handled()
+
+	# Mouse release
+	if event is InputEventMouseButton and not event.pressed:
+		if _selected_eo and _gameplay_edit_mode:
+			_save_layout()
+		_drag_handle = -2
+		get_tree().root.set_input_as_handled()
 
 func _ready() -> void:
 	WeaponManager.catalog_updated.connect(_refresh_static_frames)
 	WeaponManager.weapons_reset.connect(_refresh_static_frames)
 	WeaponManager.weapon_purchased.connect(func(_id: String, _side: String): _refresh_static_frames())
 	GameManager.boost_changed.connect(_on_boost_changed)
-	GameManager.boss_spawned.connect(_retarget_scale)   # ship shrinks when the boss fight starts
-	GameManager.boss_killed.connect(_retarget_scale)    # …and restores when it ends
 	_refresh_static_frames()
 
-## Ship scale target: 0.5 while boosting / 1.0 idle, halved again during the boss fight.
-func _scale_target() -> float:
-	var t: float = 0.5 if GameManager.manual_boost else 1.0
-	if GameManager.boss_max_hp > 0:
-		t *= BOSS_SHIP_SCALE_MULT
-	return t
-
-func _retarget_scale() -> void:
-	if _scale_tween and _scale_tween.is_valid():
-		_scale_tween.kill()
-	_scale_tween = create_tween()
-	_scale_tween.tween_method(_set_current_scale, _current_scale, _scale_target(), 1.0)
-
 func _on_boost_changed(active: bool) -> void:
-	_retarget_scale()
 	var mult: float = 2.0 if active else 1.0
 	for bg in get_tree().get_nodes_in_group("scrolling_bg"):
 		if bg.has_method("set_speed_mult"):
@@ -185,9 +214,6 @@ func _on_boost_changed(active: bool) -> void:
 			_static_rects[eo].visible = not active
 		if _manual_thrust_rects.has(eo) and is_instance_valid(_manual_thrust_rects[eo]):
 			(_manual_thrust_rects[eo] as TextureRect).visible = active
-
-func _set_current_scale(s: float) -> void:
-	_current_scale = s
 
 func _load_assets() -> void:
 	var rb := load("res://assets/sprites/weapons/Gun Bullet Sprite.png") as Texture2D
@@ -427,38 +453,39 @@ func _process(delta: float) -> void:
 		bi -= 1
 	if GameManager.manual_boost and _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		_handle_ship_movement(delta)
-	_float_time += delta
-	var ship_off    := Vector2(sin(_float_time * 1.9), cos(_float_time * 1.3)) * FLOAT_RADIUS
-	var emitter_off := Vector2(sin(_float_time * 2.3), cos(_float_time * 1.7)) * FLOAT_RADIUS
-	var ship_center := _spaceship_origin + ship_off + _spaceship_origin_sz * 0.5
 
 	# Spaceship: position + scale force-apply mỗi frame
 	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
-		_spaceship_eo.position     = _spaceship_origin + ship_off
-		_spaceship_eo.pivot_offset = _spaceship_origin_sz * 0.5
-		if not (_ship_pop_tween and _ship_pop_tween.is_valid()):
-			_spaceship_eo.scale = Vector2(_current_scale, _current_scale)
+		_spaceship_eo.position     = _spaceship_origin
+		_spaceship_eo.scale        = Vector2.ONE
+		_spaceship_eo.pivot_offset = Vector2.ZERO
 
-	# Weapon EOs: tính trực tiếp từ ship_center + rel * scale — không lag
-	for raw_eo in _weapon_eo_rels.keys():
-		if not is_instance_valid(raw_eo):
-			continue
-		var eo := raw_eo as EditableObjectNode
-		if eo == null:
-			continue
-		var rel: Vector2   = _weapon_eo_rels[raw_eo]
-		var wc: Vector2    = ship_center + rel * _current_scale   # weapon visual center (global)
-		var wp: Vector2    = wc - eo.size * 0.5                   # top-left global position
-		# Convert global wp to local position relative to parent (spaceship or ObjectsContainer)
-		var parent_node := eo.get_parent() as Control
-		if parent_node != null and parent_node != get_parent():
-			eo.position = wp - parent_node.global_position
-		else:
-			eo.position = wp
-		if _static_rects.has(raw_eo) and is_instance_valid(_static_rects[raw_eo]):
-			var tr: TextureRect = _static_rects[raw_eo] as TextureRect
-			if eo.source_path.get_file().get_basename().to_lower().begins_with("lightning"):
-				tr.position = _spaceship_origin_sz * 0.5 + rel - eo.size * 0.5 + emitter_off
+	# Children: apply F4 size force mỗi frame
+	var debug_idx := 0
+	for eo in _child_f4_sizes.keys():
+		debug_idx += 1
+		if is_instance_valid(eo):
+			var eo_name: String = (eo.get_meta("display_name", "UNKNOWN") as String)
+			print_debug("_process [", debug_idx, "/4] ", eo_name, ": static=", _static_rects.has(eo), " manual=", _manual_thrust_rects.has(eo))
+			# Weapon: update animation TextureRect (hiển thị thực tế)
+			if _static_rects.has(eo) and is_instance_valid(_static_rects[eo]):
+				var tr := _static_rects[eo] as TextureRect
+				tr.position = eo.position
+				tr.size = _child_f4_sizes[eo]
+				print_debug("  → STATIC: tr.size=", tr.size, " texture.size=", tr.texture.get_size() if tr.texture else "null")
+			# Thrust manual mode: update manual thrust TextureRect
+			elif _manual_thrust_rects.has(eo) and is_instance_valid(_manual_thrust_rects[eo]):
+				var tr := _manual_thrust_rects[eo] as TextureRect
+				tr.position = eo.position
+				tr.size = _child_f4_sizes[eo]
+				print_debug("  → MANUAL: tr.size=", tr.size, " texture.size=", tr.texture.get_size() if tr.texture else "null")
+			# Power core, defense: update EditableObjectNode
+			else:
+				print_debug("  → OTHER: eo.size=", _child_f4_sizes[eo])
+				eo.size = _child_f4_sizes[eo]
+
+	# Weapon EOs and static frames: positions are already set during layout load
+	# Children of spaceship automatically follow parent movement/scale
 	# Lightning emitter fire accumulator
 	for eo: EditableObjectNode in WeaponManager.get_active_objects("lightning_emitter"):
 		if not _lightning_fire_accs.has(eo):
@@ -475,6 +502,38 @@ func _process(delta: float) -> void:
 	_tick_lasers(delta)
 	if GameManager.manual_boost and _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		_check_ship_asteroid_collision()
+
+	# Draw edit mode overlay
+	if _gameplay_edit_mode:
+		queue_redraw()
+
+func _draw() -> void:
+	if not _gameplay_edit_mode or not _selected_eo or not is_instance_valid(_selected_eo):
+		return
+
+	# Convert global position to local (relative to gun_system canvas)
+	var local_pos := _selected_eo.global_position - global_position
+	var rect := Rect2(local_pos, _selected_eo.size)
+	var outline_color := Color.YELLOW
+	var handle_color := Color.WHITE
+	var handle_size := 8.0
+
+	# Draw outline rectangle
+	draw_rect(rect, Color.TRANSPARENT, false, 2.0)
+
+	# Draw 8 handles
+	var handles := [
+		rect.position,  # TL
+		Vector2(rect.get_center().x, rect.position.y),  # T
+		rect.position + Vector2(rect.size.x, 0),  # TR
+		Vector2(rect.position.x + rect.size.x, rect.get_center().y),  # R
+		rect.position + rect.size,  # BR
+		Vector2(rect.get_center().x, rect.position.y + rect.size.y),  # B
+		Vector2(rect.position.x, rect.position.y + rect.size.y),  # BL
+		Vector2(rect.position.x, rect.get_center().y),  # L
+	]
+	for h in handles:
+		draw_circle(h, handle_size, handle_color)
 
 func _handle_ship_movement(delta: float) -> void:
 	var mv := Vector2(
@@ -509,37 +568,15 @@ func _refresh_static_frames() -> void:
 			old.queue_free()
 	_static_rects.clear()
 	_manual_thrust_rects.clear()
+	_child_f4_sizes.clear()
 	var prev_ship := _spaceship_eo
 	_spaceship_eo = _find_spaceship_eo()
 	if _spaceship_eo != null:
-		if prev_ship == _spaceship_eo:
-			# Trừ float offset để tránh origin drift khi gọi giữa gameplay
-			var cur_off := Vector2(sin(_float_time * 1.9), cos(_float_time * 1.3)) * FLOAT_RADIUS
-			_spaceship_origin = _spaceship_eo.position - cur_off
-		else:
-			_spaceship_origin = _spaceship_eo.position
-			_spaceship_eo.object_clicked.connect(_on_ship_clicked)
+		_spaceship_origin    = _spaceship_eo.position
 		_spaceship_origin_sz = _spaceship_eo.size
-	# Cache weapon EO rels: offset từ ship center (layout gốc, không có float/scale)
+		if prev_ship != _spaceship_eo:
+			_spaceship_eo.object_clicked.connect(_on_ship_clicked)
 	_weapon_eo_rels.clear()
-	var ship_center: Vector2 = _spaceship_origin + _spaceship_origin_sz * 0.5
-	var parent := get_parent()
-	var cur_ship_off := Vector2(sin(_float_time * 1.9), cos(_float_time * 1.3)) * FLOAT_RADIUS
-	var _all_candidate_eos: Array = []
-	if is_instance_valid(parent):
-		for child in parent.get_children():
-			_all_candidate_eos.append(child)
-	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
-		for child in _spaceship_eo.get_children():
-			_all_candidate_eos.append(child)
-	for child in _all_candidate_eos:
-		var eo := child as EditableObjectNode
-		if eo == null or eo == _spaceship_eo or eo.is_group_layer():
-			continue
-		# Khôi phục vị trí gốc thực: bỏ ship_off và scale hiện tại
-		var eo_center: Vector2 = eo.global_position + eo.size * 0.5 - cur_ship_off
-		var true_eo_center: Vector2 = ship_center + (eo_center - ship_center) / _current_scale if _current_scale > 0.0 else eo_center
-		_weapon_eo_rels[eo] = true_eo_center - ship_center
 	# Reset railgun states khi catalog thay đổi (weapon mới mua/reset)
 	_railgun_states.clear()
 	# Ẩn toàn bộ PNG — chỉ dùng làm tham chiếu tọa độ
@@ -551,12 +588,14 @@ func _refresh_static_frames() -> void:
 	_auto_thrust_eos.clear()
 	_manual_thrust_eos.clear()
 	var _thrust_candidates: Array = []
+	var parent := get_parent()
 	if is_instance_valid(parent):
 		for child in parent.get_children():
 			_thrust_candidates.append(child)
 	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		for child in _spaceship_eo.get_children():
 			_thrust_candidates.append(child)
+	# First pass: collect all thrust EOs
 	for child in _thrust_candidates:
 		var eo := child as EditableObjectNode
 		if eo == null or eo.is_group_layer():
@@ -568,10 +607,13 @@ func _refresh_static_frames() -> void:
 		elif base == "auto":
 			_auto_thrust_eos.append(eo)
 			eo.modulate.a = 0.0
-			_setup_auto_thrust_idle(eo)
 		elif base == "manual":
 			_manual_thrust_eos.append(eo)
 			eo.modulate.a = 0.0
+			_child_f4_sizes[eo] = eo.size
+	# Second pass: setup auto thrust (which creates manual TR too)
+	for eo in _auto_thrust_eos:
+		_setup_auto_thrust_idle(eo)
 	# Tạo static frame (GIF frame 0) cho các vũ khí đang active
 	for eo: EditableObjectNode in WeaponManager.get_active_objects("gun"):
 		var cx: float = eo.global_position.x + eo.size.x * 0.5
@@ -606,18 +648,18 @@ func _refresh_static_frames() -> void:
 			continue
 		_setup_static_frame(eo, [ImageTexture.create_from_image(wing_img)])
 
+
 func _setup_static_frame(eo: EditableObjectNode, frames: Array) -> void:
 	if frames.is_empty():
 		return
+	var resized := _resize_frame(frames[0] as Texture2D, eo.size)
 	var tr := TextureRect.new()
-	tr.texture = _resize_frame(frames[0] as Texture2D, eo.size)
-	tr.size = eo.size
-	tr.stretch_mode = TextureRect.STRETCH_KEEP
+	tr.texture = resized
+	tr.stretch_mode = 0  # STRETCH_KEEP (image already resized)
 	tr.expand_mode  = TextureRect.EXPAND_KEEP_SIZE
 	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var rel_sf: Vector2 = _weapon_eo_rels.get(eo, Vector2.ZERO)
-	tr.position = _spaceship_origin_sz * 0.5 + rel_sf - eo.size * 0.5
+	tr.position = eo.position
 	tr.flip_h = eo.texture_rect.flip_h
 	tr.z_as_relative = false
 	tr.z_index = _eo_effective_z(eo)
@@ -626,24 +668,22 @@ func _setup_static_frame(eo: EditableObjectNode, frames: Array) -> void:
 	else:
 		add_child(tr)
 	_static_rects[eo] = tr
+	_child_f4_sizes[eo] = eo.size
 	eo.modulate.a = 0.0  # ẩn PNG nhưng giữ visible=true để get_active_objects vẫn tìm thấy
 
 ## Emitter: looping GIF animation + float effect (vị trí update mỗi frame trong _process)
 func _setup_emitter_idle(eo: EditableObjectNode) -> void:
 	if _emitter_frames.is_empty():
 		return
-	var resized: Array = []
-	for f in _emitter_frames:
-		resized.append(_resize_frame(f as Texture2D, eo.size))
 	var tr := TextureRect.new()
-	tr.texture = resized[0] as Texture2D
-	tr.size = eo.size
-	tr.stretch_mode = TextureRect.STRETCH_KEEP
+	tr.stretch_mode = 1  # STRETCH_SCALE
 	tr.expand_mode  = TextureRect.EXPAND_KEEP_SIZE
 	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var rel_em: Vector2 = _weapon_eo_rels.get(eo, Vector2.ZERO)
-	tr.position = _spaceship_origin_sz * 0.5 + rel_em - eo.size * 0.5
+	tr.custom_minimum_size = eo.size
+	tr.texture = _emitter_frames[0] as Texture2D
+	tr.size = eo.size
+	tr.position = eo.position
 	tr.flip_h = eo.texture_rect.flip_h
 	tr.z_as_relative = false
 	tr.z_index = _eo_effective_z(eo)
@@ -652,6 +692,7 @@ func _setup_emitter_idle(eo: EditableObjectNode) -> void:
 	else:
 		add_child(tr)
 	_static_rects[eo] = tr
+	_child_f4_sizes[eo] = eo.size
 	eo.modulate.a = 0.0
 	_gun_anims.append({"tr": tr, "frame": 0, "acc": 0.0,
 		"gun_eo": eo, "frames": resized, "delays": _emitter_delays, "loop": true})
@@ -659,19 +700,16 @@ func _setup_emitter_idle(eo: EditableObjectNode) -> void:
 func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 	if _auto_thrust_frames.is_empty():
 		return
-	var resized: Array = []
-	for f in _auto_thrust_frames:
-		resized.append(_resize_frame(f as Texture2D, eo.size))
+	print_debug("_setup_auto_thrust_idle: eo.size=", eo.size)
+	var resized := _resize_frame(_auto_thrust_frames[0] as Texture2D, eo.size)
 	var tr := TextureRect.new()
-	tr.texture = resized[0] as Texture2D
-	tr.size = eo.size
-	tr.stretch_mode = TextureRect.STRETCH_KEEP
+	tr.texture = resized
+	tr.stretch_mode = 0  # STRETCH_KEEP (image already resized)
 	tr.expand_mode  = TextureRect.EXPAND_KEEP_SIZE
 	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var rel_at: Vector2 = _weapon_eo_rels.get(eo, Vector2.ZERO)
-	var tr_pos: Vector2 = _spaceship_origin_sz * 0.5 + rel_at - eo.size * 0.5
-	tr.position = tr_pos
+	# Position relative to spaceship (child positioning, like weapons)
+	tr.position = eo.position
 	tr.flip_h = eo.texture_rect.flip_h
 	tr.visible = not GameManager.manual_boost
 	tr.z_as_relative = false
@@ -680,57 +718,47 @@ func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 		_spaceship_eo.add_child(tr)
 	else:
 		add_child(tr)
+	print_debug("_setup_auto_thrust_idle: after setup tr.size=", tr.size)
 	_static_rects[eo] = tr
+	_child_f4_sizes[eo] = eo.size
+	print_debug("_setup_auto_thrust_idle: _child_f4_sizes[eo]=", _child_f4_sizes[eo])
 	_gun_anims.append({"tr": tr, "frame": 0, "acc": 0.0,
-		"gun_eo": null, "frames": resized, "delays": _auto_thrust_delays, "loop": true})
+		"gun_eo": null, "frames": _auto_thrust_frames, "delays": _auto_thrust_delays, "loop": true})
 	if not _manual_thrust_frames.is_empty():
-		var mresized: Array = []
-		for f in _manual_thrust_frames:
-			mresized.append(_resize_frame(f as Texture2D, eo.size))
-		var mtr := TextureRect.new()
-		mtr.texture = mresized[0] as Texture2D
-		mtr.size = eo.size
-		mtr.stretch_mode = TextureRect.STRETCH_KEEP
-		mtr.expand_mode  = TextureRect.EXPAND_KEEP_SIZE
-		mtr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		mtr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		mtr.position = tr_pos
-		mtr.flip_h = eo.texture_rect.flip_h
-		mtr.visible = GameManager.manual_boost
-		mtr.z_as_relative = false
-		mtr.z_index = _eo_effective_z(eo)
-		if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
-			_spaceship_eo.add_child(mtr)
-		else:
-			add_child(mtr)
-		_manual_thrust_rects[eo] = mtr
-		_gun_anims.append({"tr": mtr, "frame": 0, "acc": 0.0,
-			"gun_eo": null, "frames": mresized, "delays": _manual_thrust_delays, "loop": true})
+		# Find corresponding manual EO by closest position match
+		var manual_eo: EditableObjectNode = null
+		var closest_dist := INF
+		for candidate in _manual_thrust_eos:
+			if is_instance_valid(candidate):
+				var dist := eo.position.distance_to(candidate.position)
+				if dist < closest_dist:
+					closest_dist = dist
+					manual_eo = candidate
 
-func _setup_manual_thrust_idle(eo: EditableObjectNode) -> void:
-	if _manual_thrust_frames.is_empty():
-		return
-	var resized: Array = []
-	for f in _manual_thrust_frames:
-		resized.append(_resize_frame(f as Texture2D, eo.size))
-	var tr := TextureRect.new()
-	tr.texture = resized[0] as Texture2D
-	tr.size = eo.size
-	tr.stretch_mode = TextureRect.STRETCH_KEEP
-	tr.expand_mode  = TextureRect.EXPAND_KEEP_SIZE
-	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tr.position = eo.position
-	tr.flip_h = eo.texture_rect.flip_h
-	tr.visible = GameManager.manual_boost   # shown only during manual boost
-	tr.z_index = eo.z_index
-	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
-		_spaceship_eo.add_child(tr)
-	else:
-		add_child(tr)
-	_static_rects[eo] = tr
-	_gun_anims.append({"tr": tr, "frame": 0, "acc": 0.0,
-		"gun_eo": null, "frames": resized, "delays": _manual_thrust_delays, "loop": true})
+		if manual_eo != null:
+			var manual_size := manual_eo.size
+			print_debug("_setup_auto_thrust_idle: manual thrust auto.size=", eo.size, " manual.size=", manual_size, " dist=", eo.position.distance_to(manual_eo.position))
+			var manual_resized := _resize_frame(_manual_thrust_frames[0] as Texture2D, manual_size)
+			var mtr := TextureRect.new()
+			mtr.texture = manual_resized
+			mtr.stretch_mode = 0  # STRETCH_KEEP (image already resized)
+			mtr.expand_mode  = TextureRect.EXPAND_KEEP_SIZE
+			mtr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			mtr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			mtr.position = manual_eo.position
+			mtr.flip_h = manual_eo.texture_rect.flip_h
+			mtr.visible = GameManager.manual_boost
+			mtr.z_as_relative = false
+			mtr.z_index = _eo_effective_z(manual_eo)
+			if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
+				_spaceship_eo.add_child(mtr)
+			else:
+				add_child(mtr)
+			print_debug("_setup_auto_thrust_idle: manual tr setup, mtr.size=", mtr.size)
+			_manual_thrust_rects[manual_eo] = mtr
+			_child_f4_sizes[manual_eo] = manual_size
+			_gun_anims.append({"tr": mtr, "frame": 0, "acc": 0.0,
+				"gun_eo": null, "frames": _manual_thrust_frames, "delays": _manual_thrust_delays, "loop": true})
 
 ## Trả về z_index tuyệt đối của một weapon EO trong CanvasLayer.
 ## Với z_as_relative=true (weapon là child của spaceship): effective_z = parent.z + local_z
@@ -743,15 +771,30 @@ func _eo_effective_z(eo: EditableObjectNode) -> int:
 	return parent_item.z_index + eo.z_index
 
 func _resize_frame(frame: Texture2D, target_size: Vector2) -> Texture2D:
+	# Try ImageTexture first
 	var tex := frame as ImageTexture
-	if tex == null:
-		return frame
-	var img := tex.get_image()
+	var img: Image = null
+	if tex != null:
+		img = tex.get_image()
+
+	# If not ImageTexture, try get_image() directly
 	if img == null:
+		img = frame.get_image()
+
+	# If still no image, return original
+	if img == null:
+		print_debug("_resize_frame: FAILED to get image, returning original frame")
 		return frame
+
+	var orig_size := img.get_size()
+	print_debug("_resize_frame: orig=", orig_size, " target=", target_size)
+
+	# Resize image
 	var copy := img.duplicate()
 	copy.resize(int(target_size.x), int(target_size.y), Image.INTERPOLATE_BILINEAR)
-	return ImageTexture.create_from_image(copy)
+	var result := ImageTexture.create_from_image(copy)
+	print_debug("_resize_frame: result texture size=", result.get_size())
+	return result
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -775,7 +818,7 @@ func _get_ast_centers_oc() -> Array[Vector2]:
 
 func _fire_gun(eo: EditableObjectNode) -> void:
 	if not MOUNT_AUTOFIRE: return
-	var gun_top := Vector2(eo.global_position.x + eo.size.x * 0.5, eo.global_position.y + eo.size.y * (1.0 - _current_scale) * 0.5)
+	var gun_top := Vector2(eo.global_position.x + eo.size.x * 0.5, eo.global_position.y + 0.0)
 	var target: Vector2
 	if GameManager.boss_max_hp > 0:
 		target = _boss_target_oc()
@@ -806,7 +849,7 @@ func _fire_gun(eo: EditableObjectNode) -> void:
 
 func _fire_turret(eo: EditableObjectNode) -> void:
 	if not MOUNT_AUTOFIRE: return
-	var turret_top := Vector2(eo.global_position.x + eo.size.x * 0.5, eo.global_position.y + eo.size.y * (1.0 - _current_scale) * 0.5)
+	var turret_top := Vector2(eo.global_position.x + eo.size.x * 0.5, eo.global_position.y + 0.0)
 	var target: Vector2
 	if GameManager.boss_max_hp > 0:
 		target = _boss_target_oc()
@@ -835,7 +878,7 @@ func _fire_railgun_bullet(eo: EditableObjectNode, angle: float = 0.0) -> void:
 	if not MOUNT_AUTOFIRE: return
 	if _railgun_bullet_tex == null:
 		return
-	var top := Vector2(eo.global_position.x + eo.size.x * 0.5, eo.global_position.y + eo.size.y * (1.0 - _current_scale) * 0.5)
+	var top := Vector2(eo.global_position.x + eo.size.x * 0.5, eo.global_position.y + 0.0)
 	_spawn_bullet(top, Vector2(0.0, -1.0).rotated(angle), 0.2, _railgun_bullet_tex, 2, RAILGUN_BULLET_SPEED)
 	_play_sfx(_sfx_railgun, "railgun")
 
@@ -846,8 +889,8 @@ func _queue_burst(from: Vector2, dirs: Array, dmg: float, tex: Texture2D, imp_id
 			"sfx": sfx, "weapon_key": weapon_key})
 
 func _canon_tier(eo: EditableObjectNode) -> int:
-	var rel: Vector2 = _weapon_eo_rels.get(eo, Vector2.ZERO)
-	var side: String = "L" if rel.x <= 0.0 else "R"
+	var cx: float = eo.global_position.x + eo.size.x * 0.5
+	var side: String = "L" if cx < WeaponManager.ship_cx else "R"
 	return WeaponManager.get_tier("left_canon_heavy_bolt", side)
 
 func _canon_interval_for(eo: EditableObjectNode) -> float:
@@ -875,7 +918,7 @@ func _fire_canon_bullet(eo: EditableObjectNode) -> void:
 	var btex := _bolt_bullet_mk2_tex if tier >= 1 and _bolt_bullet_mk2_tex != null else _bolt_bullet_tex
 	if btex == null:
 		return
-	var top := Vector2(eo.global_position.x + eo.size.x * 0.5, eo.global_position.y + eo.size.y * (1.0 - _current_scale) * 0.5)
+	var top := Vector2(eo.global_position.x + eo.size.x * 0.5, eo.global_position.y + 0.0)
 	var target: Vector2
 	if GameManager.boss_max_hp > 0:
 		target = _boss_target_oc()
@@ -918,7 +961,7 @@ func _tick_railgun(eo: EditableObjectNode, delta: float) -> void:
 			while float(st["frame_acc"]) >= RAILGUN_FIRING_FRAME_TIME:
 				st["frame_acc"] = float(st["frame_acc"]) - RAILGUN_FIRING_FRAME_TIME
 				st["frame"] = mini(int(st["frame"]) + 1, _railgun_frames.size() - 1)
-			tr.texture = _resize_frame(_railgun_frames[int(st["frame"])] as Texture2D, eo.size)
+			tr.texture = _railgun_frames[int(st["frame"])] as Texture2D
 			if float(st["phase_acc"]) >= RAILGUN_FIRING_DURATION:
 				st["phase"]     = "overheat"
 				st["phase_acc"] = 0.0
@@ -930,7 +973,7 @@ func _tick_railgun(eo: EditableObjectNode, delta: float) -> void:
 			while float(st["frame_acc"]) >= RAILGUN_OVERHEAT_FRAME_TIME:
 				st["frame_acc"] = float(st["frame_acc"]) - RAILGUN_OVERHEAT_FRAME_TIME
 				st["frame"] = maxi(int(st["frame"]) - 1, 0)
-			tr.texture = _resize_frame(_railgun_frames[int(st["frame"])] as Texture2D, eo.size)
+			tr.texture = _railgun_frames[int(st["frame"])] as Texture2D
 			if float(st["phase_acc"]) >= RAILGUN_OVERHEAT_DURATION:
 				st["phase"]     = "firing"
 				st["phase_acc"] = 0.0
@@ -958,12 +1001,11 @@ func _spawn_bullet(from: Vector2, dir: Vector2, dmg: float, tex: Texture2D, impa
 	var tr := TextureRect.new()
 	tr.texture = tex
 	tr.size = bsz
-	tr.stretch_mode = TextureRect.STRETCH_KEEP
+	tr.stretch_mode = 1  # STRETCH_SCALE
 	tr.expand_mode  = TextureRect.EXPAND_KEEP_SIZE
 	tr.pivot_offset = bsz / 2.0
 	tr.rotation = atan2(dir.x, -dir.y)
 	tr.position = from - bsz / 2.0
-	tr.scale = Vector2(_current_scale, _current_scale)
 	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	tr.z_as_relative = false
@@ -1050,7 +1092,7 @@ func _spawn_shell(gun_ss: Vector2, fire_dir: Vector2, eject_left: bool) -> void:
 	var tr := TextureRect.new()
 	tr.texture = _shell_tex
 	tr.size = ssz
-	tr.stretch_mode = TextureRect.STRETCH_KEEP
+	tr.stretch_mode = 1  # STRETCH_SCALE
 	tr.expand_mode  = TextureRect.EXPAND_KEEP_SIZE
 	tr.pivot_offset = ssz / 2.0
 	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1098,7 +1140,7 @@ func _spawn_impact(ss_center: Vector2, screen: Node, asteroid_size: Vector2, dir
 		impact_size = IMPACT_SIZE * ast_scale
 	var tr := TextureRect.new()
 	tr.texture = imp_frames[0]
-	tr.stretch_mode = TextureRect.STRETCH_SCALE
+	tr.stretch_mode = 1  # STRETCH_SCALE
 	tr.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
 	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -1108,7 +1150,6 @@ func _spawn_impact(ss_center: Vector2, screen: Node, asteroid_size: Vector2, dir
 	tr.pivot_offset = impact_size * 0.5
 	tr.position = ss_center - impact_size * 0.5
 	tr.rotation = atan2(direction.y, direction.x) + PI * 0.5 + rot_offset
-	tr.scale = Vector2(_current_scale, _current_scale)
 	_impacts.append({"tr": tr, "frame": 0, "acc": 0.0, "frames": imp_frames, "delays": imp_delays})
 
 func _tick_impacts(delta: float) -> void:
@@ -1138,21 +1179,18 @@ func _tick_impacts(delta: float) -> void:
 func _start_weapon_anim(eo: EditableObjectNode, frames: Array, delays: Array) -> void:
 	if frames.is_empty():
 		return
-	var resized: Array = []
-	for f in frames:
-		resized.append(_resize_frame(f as Texture2D, eo.size))
 	# Ẩn static frame (frame 0 tĩnh) trong lúc animation chạy
 	if _static_rects.has(eo) and is_instance_valid(_static_rects[eo]):
 		_static_rects[eo].visible = false
 	var tr := TextureRect.new()
-	tr.texture = resized[0] as Texture2D
-	tr.size = eo.size
-	tr.stretch_mode = TextureRect.STRETCH_KEEP
+	tr.stretch_mode = 1  # STRETCH_SCALE
 	tr.expand_mode  = TextureRect.EXPAND_KEEP_SIZE
+	tr.custom_minimum_size = eo.size
+	tr.texture = frames[0] as Texture2D
+	tr.size = eo.size
 	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	var rel_wa: Vector2 = _weapon_eo_rels.get(eo, Vector2.ZERO)
-	tr.position = _spaceship_origin_sz * 0.5 + rel_wa - eo.size * 0.5
+	tr.position = eo.position
 	tr.flip_h   = eo.texture_rect.flip_h
 	tr.z_as_relative = false
 	tr.z_index  = _eo_effective_z(eo)
@@ -1160,7 +1198,7 @@ func _start_weapon_anim(eo: EditableObjectNode, frames: Array, delays: Array) ->
 		_spaceship_eo.add_child(tr)
 	else:
 		add_child(tr)
-	_gun_anims.append({"tr": tr, "frame": 0, "acc": 0.0, "gun_eo": eo, "frames": resized, "delays": delays})
+	_gun_anims.append({"tr": tr, "frame": 0, "acc": 0.0, "gun_eo": eo, "frames": frames, "delays": delays})
 
 func _start_gun_anim(eo: EditableObjectNode, tier: int) -> void:
 	var frames: Array
@@ -1222,8 +1260,7 @@ func _tick_gun_anims(delta: float) -> void:
 
 func _fire_lightning(eo: EditableObjectNode) -> void:
 	if not MOUNT_AUTOFIRE: return
-	var float_off := Vector2(sin(_float_time * 2.3), cos(_float_time * 1.7)) * FLOAT_RADIUS
-	var emitter_oc := eo.global_position + eo.size * 0.5 + float_off
+	var emitter_oc := eo.global_position + eo.size * 0.5
 	if GameManager.boss_max_hp > 0:
 		var boss_t := _boss_target_oc()
 		if is_finite(boss_t.x):
@@ -1328,7 +1365,7 @@ func _check_ship_asteroid_collision() -> void:
 		return
 	var ship_center_oc := _spaceship_eo.global_position + _spaceship_origin_sz * 0.5
 	var ship_center_ss := ship_center_oc - SS_OFFSET
-	var ship_radius    := _spaceship_origin_sz.x * 0.5 * _current_scale
+	var ship_radius    := _spaceship_origin_sz.x * 0.5
 	ast_node.check_ship_collision(ship_center_ss, ship_radius)
 
 # ── Laser (click ship) ─────────────────────────────────────────────────────────
@@ -1338,16 +1375,6 @@ func _on_ship_clicked(_obj: EditableObjectNode) -> void:
 		return
 	if not _sfx_lasers.is_empty():
 		_play_sfx(_sfx_lasers[randi() % _sfx_lasers.size()])
-	# Pop effect: to nhẹ 3% rồi về lại _current_scale
-	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
-		if _ship_pop_tween and _ship_pop_tween.is_valid():
-			_ship_pop_tween.kill()
-		var pop := _current_scale * 1.03
-		_ship_pop_tween = create_tween()
-		_ship_pop_tween.tween_property(_spaceship_eo, "scale",
-			Vector2(pop, pop), 0.05)
-		_ship_pop_tween.tween_property(_spaceship_eo, "scale",
-			Vector2(_current_scale, _current_scale), 0.15)
 	var ship_oc := _spaceship_eo.global_position + _spaceship_origin_sz * 0.5
 	if GameManager.boss_max_hp > 0:
 		var boss_t := _boss_target_oc()
@@ -1448,6 +1475,110 @@ func _tick_lasers(delta: float) -> void:
 					(node as CanvasItem).modulate.a = alpha
 			d["age"] = age; _lasers[i] = d
 		i -= 1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Gameplay Edit Mode Helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+func _find_object_at_pos(pos: Vector2) -> EditableObjectNode:
+	# Check auto thrust first (higher priority)
+	for eo in _auto_thrust_eos:
+		if is_instance_valid(eo) and _point_in_rect(pos, eo):
+			return eo
+	# Then manual thrust
+	for eo in _manual_thrust_eos:
+		if is_instance_valid(eo) and _point_in_rect(pos, eo):
+			return eo
+	return null
+
+func _point_in_rect(pos: Vector2, eo: EditableObjectNode) -> bool:
+	var rect := Rect2(eo.position, eo.size)
+	return rect.has_point(pos)
+
+func _find_handle_at_pos(mouse_pos: Vector2) -> int:
+	if not _selected_eo:
+		return -2
+	var rect := Rect2(_selected_eo.position, _selected_eo.size)
+	var handle_size := 8.0
+	var corners := [
+		rect.position,  # 0: TL
+		Vector2(rect.get_center().x, rect.position.y),  # 1: T
+		rect.position + Vector2(rect.size.x, 0),  # 2: TR
+		Vector2(rect.position.x + rect.size.x, rect.get_center().y),  # 3: R
+		rect.position + rect.size,  # 4: BR
+		Vector2(rect.get_center().x, rect.position.y + rect.size.y),  # 5: B
+		Vector2(rect.position.x, rect.position.y + rect.size.y),  # 6: BL
+		Vector2(rect.position.x, rect.get_center().y),  # 7: L
+	]
+	for i in range(corners.size()):
+		if (mouse_pos - corners[i]).length() < handle_size:
+			return i
+	# Check if inside rect (move)
+	if rect.has_point(mouse_pos):
+		return -1
+	return -2
+
+func _resize_from_handle(eo: EditableObjectNode, handle: int, delta: Vector2) -> void:
+	var new_pos = _drag_start_pos
+	var new_size = _drag_start_size
+
+	match handle:
+		0:  # TL
+			new_pos += delta
+			new_size -= delta
+		1:  # T
+			new_pos.y += delta.y
+			new_size.y -= delta.y
+		2:  # TR
+			new_pos.y += delta.y
+			new_size.x += delta.x
+			new_size.y -= delta.y
+		3:  # R
+			new_size.x += delta.x
+		4:  # BR
+			new_size += delta
+		5:  # B
+			new_size.y += delta.y
+		6:  # BL
+			new_pos.x += delta.x
+			new_size.x -= delta.x
+			new_size.y += delta.y
+		7:  # L
+			new_pos.x += delta.x
+			new_size.x -= delta.x
+
+	# Min size
+	new_size = new_size.max(Vector2(10, 10))
+	eo.position = new_pos
+	eo.size = new_size
+	eo._sync_rect_size()  # Update TextureRect in EditableObjectNode
+
+func _save_layout() -> void:
+	var cfg := ConfigFile.new()
+	var layout_path = "res://default_layout.cfg"
+	if cfg.load(layout_path) != OK:
+		return
+
+	# Update selected object in config
+	if _selected_eo:
+		var found := false
+		for group in ["weaponry", "defense", "power_core"]:
+			var arr = cfg.get_value("layout", group, [])
+			for i in range(arr.size()):
+				var entry = arr[i] as Dictionary
+				# Match by path to update position/size
+				if entry.get("path") == _selected_eo.source_path:
+					entry["pos"] = _selected_eo.position
+					entry["size"] = _selected_eo.size
+					arr[i] = entry
+					found = true
+					break
+			if found:
+				cfg.set_value("layout", group, arr)
+				break
+
+	if cfg.save(layout_path) == OK:
+		print("Layout saved: %s" % _selected_eo.name if _selected_eo else "Layout saved")
 
 func _find_spaceship_eo() -> EditableObjectNode:
 	var parent := get_parent()

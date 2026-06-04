@@ -43,6 +43,9 @@ const M3_SNAP_MIN  := 0.5
 const M3_SNAP_MAX  := 1.5
 const M3_DURATION  := 10.0
 const M3_RECALL_T  := 1.2
+const M3_BODY_SPAWN_INT := 1.5  # spawn chromeleonbody every 1.5s
+const M3_BODY_MOVE_SPD  := 40.0 # px/s
+const M3_BODY_MOVE_RPM  := 10.0 # rotation per minute
 
 const M4_MOVE_SPD   := 150.0
 const M4_MOVE_RPM   := 40.0
@@ -118,6 +121,8 @@ var _bullet_resized_frames: Array = []  # resized textures, cached per chromebul
 var _last_cb_idx:     int   = 0    # last random chromebullet index
 var _ball_frames:     Array = []
 var _ball_delays:     Array = []
+var _body_frames:     Array = []
+var _body_delays:     Array = []
 var _blue_bullet_tex:  Texture2D = null
 var _teal_bullet_tex:  Texture2D = null
 var _blue_bullet_resized: Texture2D = null
@@ -157,6 +162,7 @@ var _m2_shoot_acc: float = 0.0
 # M3 state
 var _body_wp:   Vector2 = Vector2.ZERO
 var _body_rot:  float   = 0.0
+var _m3_body_instances: Array = []  # {tr, pos, wp, rot, frame_idx, anim_acc}
 var _blue_wp:   Vector2 = Vector2.ZERO
 var _teal_wp:   Vector2 = Vector2.ZERO
 var _blue_rot:  float   = 0.0
@@ -167,6 +173,7 @@ var _blue_snapping:    bool  = false
 var _teal_snapping:    bool  = false
 var _blue_shoot_acc:   float = 0.0
 var _teal_shoot_acc:   float = 0.0
+var _m3_body_spawn_acc: float = 0.0
 
 # M4 state
 var _m4_charge_dir: Vector2 = Vector2.ZERO
@@ -483,18 +490,22 @@ func _begin_m3() -> void:
 	_phase = Phase.M3_ACTIVE
 	_phase_timer = 0.0
 	_detach_orbs()
+	_cleanup_m3_body_instances()
+	_spawn_m3_body_instance()  # spawn first chromeleonbody instance
 	_show_only(_chromeleonbody_eo)
 	_blueorb_eo.visible = true
 	_tealorb_eo.visible = true
 	_body_wp = _pick_wander_wp(Y_LIMIT)
 	_blue_wp = _pick_wander_wp(Y_LIMIT)
 	_teal_wp = _pick_wander_wp(Y_LIMIT)
+	_body_rot = 0.0
 	_blue_snap_timer = randf_range(M3_SNAP_MIN, M3_SNAP_MAX)
 	_teal_snap_timer = randf_range(M3_SNAP_MIN, M3_SNAP_MAX)
 	_blue_snapping = false
 	_teal_snapping = false
 	_blue_shoot_acc = 0.0
 	_teal_shoot_acc = 0.0
+	_m3_body_spawn_acc = 0.0
 
 func _tick_m3(delta: float) -> void:
 	_phase_timer += delta
@@ -504,6 +515,15 @@ func _tick_m3(delta: float) -> void:
 		_body_wp = _tick_wander(_chromeleonbody_eo, _body_wp, delta, M3_BODY_SPD, Y_LIMIT)
 		_body_rot += M3_BODY_RPM * TAU / 60.0 * delta
 		_chromeleonbody_eo.texture_rect.rotation = _body_rot
+
+	# Tick chromeleonbody instances (wandering + respawn at bounds)
+	_tick_m3_body_instances(delta)
+
+	# Spawn chromeleonbody instances periodically
+	_m3_body_spawn_acc += delta
+	if _m3_body_spawn_acc >= M3_BODY_SPAWN_INT:
+		_m3_body_spawn_acc = 0.0
+		_spawn_m3_body_instance()
 
 	# Orb snap rotation + movement + shooting
 	_tick_orb_m3(_blueorb_eo, delta, true)
@@ -563,6 +583,56 @@ func _tick_orb_m3(eo: EditableObjectNode, delta: float, is_blue: bool) -> void:
 				[Vector2(-1,-1).normalized(), Vector2(1,-1).normalized(),
 				 Vector2(-1,1).normalized(), Vector2(1,1).normalized()], _teal_bullet_size)
 
+func _tick_m3_body_instances(delta: float) -> void:
+	var i := _m3_body_instances.size() - 1
+	while i >= 0:
+		var inst: Dictionary = _m3_body_instances[i]
+		var tr: TextureRect = inst["tr"]
+		if not is_instance_valid(tr):
+			_m3_body_instances.remove_at(i); i -= 1; continue
+
+		# Wander to waypoint
+		var pos: Vector2 = inst["pos"]
+		var wp: Vector2 = inst["wp"]
+		var diff := wp - pos
+		if diff.length() < M3_BODY_MOVE_SPD * delta + 5.0:
+			inst["pos"] = wp
+			inst["wp"] = _pick_wander_wp(Y_LIMIT)
+		else:
+			inst["pos"] += diff.normalized() * M3_BODY_MOVE_SPD * delta
+			_clamp_eo_pos(inst, Y_LIMIT)
+
+		# Update TextureRect position
+		tr.position = inst["pos"] - OC_BOUNDS.position - Vector2(32.0, 32.0)
+
+		# Rotate
+		inst["rot"] = (inst.get("rot", 0.0) as float) + M3_BODY_MOVE_RPM * TAU / 60.0 * delta
+		tr.rotation = inst["rot"] as float
+
+		# Animate frames
+		inst["anim_acc"] = (inst.get("anim_acc", 0.0) as float) + delta
+		var delay: float = _body_delays[int(inst.get("frame_idx", 0))] if int(inst.get("frame_idx", 0)) < _body_delays.size() else 0.1
+		if inst["anim_acc"] as float >= delay:
+			inst["anim_acc"] = 0.0
+			var next_idx := (int(inst.get("frame_idx", 0)) + 1) % _body_frames.size()
+			inst["frame_idx"] = next_idx
+			tr.texture = _body_frames[next_idx] as Texture2D
+
+		i -= 1
+
+func _clamp_eo_pos(inst: Dictionary, y_max: float) -> void:
+	var pos: Vector2 = inst.get("pos", Vector2.ZERO) as Vector2
+	pos.x = clampf(pos.x, OC_BOUNDS.position.x, OC_BOUNDS.end.x - 64.0)
+	pos.y = clampf(pos.y, OC_BOUNDS.position.y, y_max - 64.0)
+	inst["pos"] = pos
+
+func _cleanup_m3_body_instances() -> void:
+	for inst: Dictionary in _m3_body_instances:
+		var tr = inst.get("tr")
+		if tr != null and is_instance_valid(tr):
+			tr.queue_free()
+	_m3_body_instances.clear()
+
 func _begin_m3_recall() -> void:
 	_phase = Phase.M3_RECALL
 	_phase_timer = 0.0
@@ -586,6 +656,7 @@ func _tick_m3_recall(delta: float) -> void:
 		_finish_m3_recall()
 
 func _finish_m3_recall() -> void:
+	_cleanup_m3_body_instances()
 	_reattach_orbs()
 	_show_only(_chromeleon_eo)
 	_check_hp_or_next()
@@ -1257,6 +1328,34 @@ func _random_bullet_sz() -> Vector2:
 	var sz := _bullet_sizes[_last_cb_idx] as Vector2
 	return sz if sz != Vector2.ZERO else Vector2(1.0, 1.0)
 
+func _spawn_m3_body_instance() -> void:
+	if _body_frames.is_empty():
+		return
+	var frame: Texture2D = _body_frames[0]
+	if frame == null:
+		return
+	var sz := Vector2(64.0, 64.0)
+	var lpos := _pick_wander_wp(Y_LIMIT) - OC_BOUNDS.position - sz / 2.0
+	var tr := TextureRect.new()
+	tr.texture = frame
+	tr.size = sz
+	tr.stretch_mode = TextureRect.STRETCH_KEEP
+	tr.pivot_offset = sz / 2.0
+	tr.position = lpos
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	tr.z_as_relative = false
+	tr.z_index = 150
+	_clip_node.add_child(tr)
+	_m3_body_instances.append({
+		"tr": tr,
+		"pos": lpos + OC_BOUNDS.position,  # viewport pos
+		"wp": _pick_wander_wp(Y_LIMIT),   # next waypoint
+		"rot": 0.0,
+		"frame_idx": 0,
+		"anim_acc": 0.0
+	})
+
 # =============================================================================
 # Projectile system
 # =============================================================================
@@ -1573,6 +1672,14 @@ func _load_assets() -> void:
 			_ball_frames = ball_tex.get_meta("gif_frames")
 		if ball_tex.has_meta("gif_delays"):
 			_ball_delays = ball_tex.get_meta("gif_delays")
+
+	# chromeleonbody animation (for M3 projectiles)
+	var body_tex := GifLoader.load_gif("res://assets/bosses/chromeleon/chromeleonbody.gif")
+	if body_tex != null:
+		if body_tex.has_meta("gif_frames"):
+			_body_frames = body_tex.get_meta("gif_frames")
+		if body_tex.has_meta("gif_delays"):
+			_body_delays = body_tex.get_meta("gif_delays")
 
 	# bluebullet
 	var bt := GifLoader.load_gif("res://assets/bosses/chromeleon/bluebullet.gif")
