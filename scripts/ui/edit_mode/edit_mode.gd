@@ -1036,6 +1036,10 @@ func _save_layout() -> void:
 		var list: Array[Dictionary] = []
 		for obj in _placed[group]:
 			if is_instance_valid(obj):
+				# Skip thrust objects (thrust.png, auto.gif, manual.gif) in weaponry — they belong in power_core
+				var base := obj.source_path.get_file().get_basename().to_lower()
+				if group == "weaponry" and base in ["thrust", "auto", "manual"]:
+					continue
 				list.append(obj.get_state())
 		cfg.set_value("layout", group, list)
 	if cfg.save(LAYOUT_PATH) == OK:
