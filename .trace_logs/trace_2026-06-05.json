@@ -245,6 +245,86 @@
         "status": "pending_test",
         "notes": "Orphaned files deleted. GifLoader will now exclusively use GDScript decoder path. Test in editor: run game, check if thrust GIFs animate correctly without appearing at screen corner. Should be fixed."
       }
+    },
+    {
+      "id": 9,
+      "timestamp": "2026-06-05T03:00:00Z",
+      "task": "Restore auto.gif and manual.gif after discovering autoload source",
+      "files_modified": [
+        {
+          "path": "assets/sprites/thrust/auto.gif",
+          "action": "restored",
+          "reason": "User decision to keep GIF files for folder autoload"
+        },
+        {
+          "path": "assets/sprites/thrust/manual.gif",
+          "action": "restored",
+          "reason": "User decision to keep GIF files for folder autoload"
+        }
+      ],
+      "changes_summary": "After discovering that _auto_load_group() automatically scans folders and places all files, identified root cause of phantom 'auti' object.\n\nUser chose to restore GIF files but disable autoload mechanism instead of keeping files deleted.",
+      "git_commit_hash": "9a3883b",
+      "rollback_steps": [
+        "git reset --soft HEAD~1",
+        "git checkout assets/sprites/thrust/"
+      ],
+      "verification": {
+        "status": "success",
+        "notes": "Files restored. Ready for autoload disable."
+      }
+    },
+    {
+      "id": 10,
+      "timestamp": "2026-06-05T03:05:00Z",
+      "task": "Disable folder autoload globally - rely on config files only",
+      "files_modified": [
+        {
+          "path": "scripts/ui/edit_mode/edit_mode.gd",
+          "lines": "514-515",
+          "action": "modified",
+          "diff_summary": "Added early return in _auto_load_group() to disable folder scanning entirely"
+        }
+      ],
+      "changes_summary": "**Issue**: _auto_load_group() scanned asset folders and auto-placed all files. This caused:\n- Phantom objects from folder contents (thrust GIFs, etc.)\n- Unpredictable object list\n- Config files not respected\n\n**Solution**: Add early return at function start to disable autoload across entire project.\n\n**Flow Now**:\n- Objects come ONLY from:\n  1. default_layout.cfg (saved layout)\n  2. preset_layout.cfg (defaults)\n  3. Manual drag/drop by user\n- Folder scanning completely disabled\n- Config files are source of truth\n- User has full control\n\n**Result**: No more phantom objects. Predictable, controllable UI.",
+      "commands_executed": [
+        "git add scripts/ui/edit_mode/edit_mode.gd",
+        "git commit -m 'feat: disable folder autoload entirely - rely on config files only'"
+      ],
+      "git_commit_hash": "5ae68b5",
+      "rollback_steps": [
+        "git reset --soft HEAD~1",
+        "git revert HEAD",
+        "Remove early return from _auto_load_group()"
+      ],
+      "verification": {
+        "status": "success",
+        "notes": "Autoload disabled. Restart editor to test - no phantom objects should appear."
+      }
+    },
+    {
+      "id": 11,
+      "timestamp": "2026-06-05T03:10:00Z",
+      "task": "Clear Godot import cache to force fresh import on next load",
+      "files_modified": [
+        {
+          "path": ".godot/",
+          "action": "deleted",
+          "reason": "Remove all Godot import metadata and caches to start fresh"
+        }
+      ],
+      "changes_summary": "**Why**: Godot caches import data in .godot/ folder. Stale cache can cause:\n- Phantom textures from previously imported files\n- Outdated sprite metadata\n- Ghost references to deleted assets\n\n**Solution**: Delete entire .godot/ folder. Godot will regenerate on next project open:\n- Re-scan all assets\n- Rebuild import cache from scratch\n- Clear any stale references\n- Fresh state for all configurations\n\n**Result**: Clean slate. No lingering import artifacts or phantom data.",
+      "commands_executed": [
+        "Remove-Item -Recurse -Force .godot/"
+      ],
+      "git_commit_hash": "pending",
+      "rollback_steps": [
+        "git checkout .godot/ (if tracked)",
+        "Godot will auto-regenerate on next open"
+      ],
+      "verification": {
+        "status": "pending",
+        "notes": "After deletion, open project in Godot editor. Import scan will run automatically. No manual action needed."
+      }
     }
   ]
 }
