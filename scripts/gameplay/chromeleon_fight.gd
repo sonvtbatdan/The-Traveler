@@ -1597,7 +1597,7 @@ func _reload_bullet_sizes() -> void:
 	# Update chromebullet sizes (fallback to native size if not in F5)
 	for i in _bullet_frames.size():
 		var bn := "chromebullet%d" % (i + 1)
-		var native_fallback := _bullet_native_sizes[i] if i < _bullet_native_sizes.size() else Vector2.ZERO
+		var native_fallback: Vector2 = _bullet_native_sizes[i] if i < _bullet_native_sizes.size() else Vector2.ZERO
 		if i < _bullet_sizes.size():
 			_bullet_sizes[i] = sz_map.get(bn, native_fallback) as Vector2
 
