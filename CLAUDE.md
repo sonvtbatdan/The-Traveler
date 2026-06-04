@@ -4,23 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Godot 4 GDScript — "The Traveler", a spaceship idle/clicker game. You captain a ship traveling through deep space — clicking the engine boosts fuel production, upgrades automate fuel harvesting and distress signal scanning, and credits accumulate from cosmic cargo events. Entry scene: `scenes/main.tscn`. Toggle edit mode with the `toggle_edit_mode` input action (mapped in `project.godot`).
+Godot 4 GDScript — "The Traveler", a spaceship idle/clicker game. You captain a ship traveling through deep space. Entry scene: `scenes/main.tscn`. Toggle edit mode with the `toggle_edit_mode` input action (mapped in `project.godot`).
 
-On top of the idle economy there is now a **real-time combat / crafting layer**: asteroids drift down the StreamScreen, clicking or shooting them yields four raw **materials** (metal / nonmetal / organic / liquid via `MaterialManager`), and those materials buy tiered **weapons** (`WeaponManager`) and **defense** levels (`DefenseManager`). Weapons mounted on the canvas auto-fire at asteroids (`gun_system.gd`). This layer runs in parallel with the fuel/crew/credits idle loop and uses a separate currency — see **Combat, Asteroids & Materials** below.
+The game features a **real-time combat / crafting and idle harvesting layer**: asteroids drift down the SpaceScreen, clicking or shooting them yields four raw **materials** (metal / nonmetal / organic / liquid via `MaterialManager`). Upgrades (`UpgradeManager`) passively generate these materials, and equipment/weapons cost these materials. Weapons mounted on the canvas auto-fire at asteroids (`gun_system.gd`).
 
 ## Theme Mapping (internal → display)
 
 | Internal variable | Display label |
 |-------------------|---------------|
-| `views` | Fuel |
-| `subs` | Crew |
-| `cash` | Credits |
-| `click_power` | Thrust |
-| `vps` | FPS (Fuel Per Second) |
-| `comment_auto_click_rate` | Defense scan rate |
+| `metal`           | Metal         |
+| `nonmetal`        | Nonmetal      |
+| `organic`         | Organic       |
+| `liquid`          | Liquid        |
 | Upgrade tab `"weaponry"` | WEAPONRY panel |
 | Upgrade tab `"defense"` | DEFENSE panel |
-| Comment panel | Distress Signals / Space Radio |
 
 ## Commands
 
@@ -44,20 +41,20 @@ Registered in this exact order (matters: `MaterialManager` must exist before `We
 | `DefenseManager` | `scripts/autoload/defense_manager.gd` | Single `current_level` (0–8) progression, `try_purchase(level)` (must be `current_level+1`). Saves to `user://save.cfg` section `[defense]` |
 | `EquipmentManager` | `scripts/autoload/equipment_manager.gd` | Auto-scans `assets/upgrades/equipment/*.png`, cost = 20 × 1.6^index |
 | `UpgradeManager` | `scripts/autoload/upgrade_manager.gd` | UPGRADES catalog, owned counts, factory accumulator, save/load |
-| `GameManager` | `scripts/autoload/game_manager.gd` | Economy: fuel(views), crew(subs), credits(cash), click_power, vps, auto_click_rate, scan_rate(comment_auto_click_rate) |
+| `GameManager` | `scripts/autoload/game_manager.gd` | Core game state (Ship HP, Shield, Boost, Boss fight) |
 | `WeaponManager` | `scripts/autoload/weapon_manager.gd` | Canvas-driven tiered weapon catalog, priced in materials. Built at runtime by `sync_from_canvas()` (not a const list). Saves to `user://save.cfg` section `[weapons]` |
 
-**Load vs. registration order:** `main.gd._ready()` calls `GameManager.load_game()` **then** `UpgradeManager.load_game()` — the *opposite* of the "Risky Areas" note below. Verify which is correct before relying on it. `MaterialManager` / `WeaponManager` / `DefenseManager` load lazily from their own panels' `_ready()` (and `WeaponManager.load_game()` runs inside `sync_from_canvas()`).
+**Load vs. registration order:** `main.gd._ready()` calls `UpgradeManager.load_game()` then `GameManager.load_game()`. `MaterialManager` / `WeaponManager` / `DefenseManager` load lazily from their own panels' `_ready()` (and `WeaponManager.load_game()` runs inside `sync_from_canvas()`).
 
 ### Main Scene (`scenes/main.tscn`)
 
 Root `Control` with these direct children:
 
-- `StreamScreen` — `Panel` at (270, 8), size 700×764: chứa scrolling background + overlay + border
+- `SpaceScreen` — `Panel` at (270, 8), size 700×764: chứa scrolling background + overlay + border
 - `EditMode` — `CanvasLayer` layer=10 (`scripts/ui/edit_mode/edit_mode.gd`): drag/resize, persisted to `res://default_layout.cfg`
 - `UserPanel` — `CanvasLayer` layer=5 (`scripts/ui/user_panel/user_panel.gd`): PANEL_SCALE=0.5, contains TodoList, MusicPlayer, WeatherClock
 - `ViewColumn` — `Panel` with `scripts/ui/upgrade/upgrade_list.gd`: WEAPONRY tab only
-- `CommentColumn` — `Panel` with `scripts/ui/upgrade/upgrade_list.gd`: DEFENSE tab — **hidden at runtime** (`main.gd._apply_title_fonts()` sets `$CommentColumn.visible = false`)
+- `CommentColumn` — `Panel` with `scripts/ui/upgrade/upgrade_list.gd`: DEFENSE tab — **hidden at runtime**
 - `StatPanel` — `Panel` 192×100 with `scripts/ui/hud/stat_panel.gd`: VBox gồm hàng buttons (MUTE/SETTING/QUIT) + slider BG + slider OV
 - `EquipmentColumn` — ship module shop UI (header: "POWER CORE")
 
@@ -82,12 +79,12 @@ Root `Control` with these direct children:
 | `scripts/gameplay/scrolling_background.gd` | Tiles `assets/screen/background.png`, speed=40, z_index=0 |
 | `scripts/gameplay/overlay.gd` | Tiles `assets/screen/overlay.png`, speed=80, z_index=1 |
 
-Cả hai được tạo trong `main.gd._add_scrolling_background/overlay()` và thêm vào `StreamScreen` (group `"scrolling_bg"` / `"scrolling_overlay"`).
+Cả hai được tạo trong `main.gd._add_scrolling_background/overlay()` và thêm vào `SpaceScreen` (group `"scrolling_bg"` / `"scrolling_overlay"`).
 
 ### Cơ chế tiling
 
 - Chỉ 1 column dọc, `n_rows = ceili(screen_h / tile_h) + 1`
-- `_tile_x` = x position của cột trong StreamScreen (mặc định căn giữa)
+- `_tile_x` = x position của cột trong SpaceScreen (mặc định căn giữa)
 - `_offset` tăng mỗi frame → khi `>= tile_h` thì wrap về 0 (seamless scroll)
 
 ### Image scaling — QUAN TRỌNG
@@ -113,7 +110,7 @@ _tex = ImageTexture.create_from_image(img)
 ```gdscript
 bg.apply_layout_rect(rel_pos: Vector2, sz: Vector2)
 ```
-`rel_pos` = vị trí tương đối trong StreamScreen (= viewport_pos − (270, 8)). `sz` = kích thước tile. Được gọi deferred từ `main.gd._apply_screen_layouts()` sau khi đọc `res://default_layout.cfg`.
+`rel_pos` = vị trí tương đối trong SpaceScreen (= viewport_pos − (270, 8)). `sz` = kích thước tile. Được gọi deferred từ `main.gd._apply_screen_layouts()` sau khi đọc `res://default_layout.cfg`.
 
 ### Sliders (StatPanel)
 
@@ -142,10 +139,10 @@ Four integer currencies — `metal`, `nonmetal`, `organic`, `liquid` — separat
 
 ### Asteroids (`scripts/gameplay/asteroid_layer.gd`)
 
-- Two instances added to `StreamScreen`: a blurred, dimmed **under-layer** (`is_under=true`, z_index 0, custom 3×3 blur `ShaderMaterial`) and the interactive **main layer** (z_index 1, joins group `"asteroid_main"`).
+- Two instances added to `SpaceScreen`: a blurred, dimmed **under-layer** (`is_under=true`, z_index 0, custom 3×3 blur `ShaderMaterial`) and the interactive **main layer** (z_index 1, joins group `"asteroid_main"`).
 - Asteroids spawn from `assets/asteroid/*.png`, drift down within a ±15° cone, rotate, and respawn on exit. Type is parsed from the **leading non-digit chars** of the filename (`dirt`, `ice`, `jewel`, `metal`, `rare`).
 - **Collection** = click the asteroid OR a bullet hits it → `_collect_loot(type)` rolls a per-type random drop table into `MaterialManager.add(...)`. Hitbox min size `MIN_HITBOX = 36`.
-- Query API used by the gun: `get_asteroid_centers()`, `get_asteroid_sizes()`, `collect_near(pos, radius)`. **Centers are in StreamScreen-local space** — the gun adds `SS_OFFSET = (270, 8)` to convert to ObjectsContainer/viewport space.
+- Query API used by the gun: `get_asteroid_centers()`, `get_asteroid_sizes()`, `collect_near(pos, radius)`. **Centers are in SpaceScreen-local space** — the gun adds `SS_OFFSET = (270, 8)` to convert to ObjectsContainer/viewport space.
 
 ### Gun system (`scripts/gameplay/gun_system.gd`)
 
@@ -177,42 +174,16 @@ Simple linear track: `current_level` 0→8, each level purchasable only as `curr
 ### Key fields
 
 ```gdscript
-var cash: float                       # credits earned from cosmic cargo events
-var click_power: float = 1.0          # fuel per engine click (thrust)
-var vps: float = 0.0                  # fuel/sec from Fuel System upgrades
-var auto_click_rate: float = 0.0      # autopilot engine boosts/sec (each × click_power)
-var comment_auto_click_rate: float = 0.0  # scan automation rate (signals/sec)
-var parasocial: float = 1.0           # crew morale multiplier (future)
-var stat_template: String             # editable display template
-
-# Read-only computed getters
-var views: int        # fuel (int(_subs + _passive_views))
-var subs: int         # crew (int(_subs))
-var stable_views: int
-var displayed_views: int
+var ship_hp: int
+var ship_max_hp: int
+var shield: float
+var shield_max: float
+var is_boss_active: bool
 ```
 
 ### Signals
 
-`views_changed(int)`, `subs_changed(int)`, `cash_changed(float)`, `stable_views_changed(int)`, `stat_template_changed(String)`, `game_loaded`
-
-`game_loaded` is emitted from `main.gd` after both `UpgradeManager.load_game()` and `GameManager.load_game()` complete — connect to it for late-initialising nodes that need loaded data.
-
-### Formatting
-
-```gdscript
-format_views(n: int) -> String   # plain integer up to 999,999; then "1.28 Million" / "Billion" etc.
-format_count(n: int) -> String   # plain below 1000; then "1 thousand" / "1 million" etc.
-render_stat_template() -> String # replaces all {tokens} in stat_template
-```
-
-**FPS display rule:** always use `format_views()` for FPS — both in StatPanel template and in the screen overlay label in `editable_object.gd`.
-
-### Stat template tokens
-
-`{views}` (fuel), `{subs}` (crew), `{cash}` (credits), `{click_power}` (thrust), `{parasocial}` (morale), `{goal}`, `{run}`, `{time}`, `{vps}` (fps)
-
-Default template: `"Fuel: {views}\nCrew: {subs}\nCredits: {cash}\nThrust: x{click_power}\nFPS: {vps}"`
+`ship_hp_changed(int)`, `shield_changed(float)`, `boss_state_changed(bool)`
 
 ---
 
@@ -225,28 +196,20 @@ const UPGRADES = {
     "id": {
         "name": "Display Name",
         "icon": "filename.png",           # in assets/upgrades/active/
-        "cost": 100.0,                    # fuel cost (views)
-        "tab": "fuel",                    # "fuel" or "scan"
-        # one or more effect fields:
-        "vps": 1.0,                       # adds to GameManager.vps (fuel/sec)
-        "auto_click_rate": 1.0,           # adds to GameManager.auto_click_rate (autopilot boosts)
-        "comment_click_rate": 1.0,        # adds to GameManager.comment_auto_click_rate (scan rate)
+        "cost_type": "metal",             # e.g., "metal", "nonmetal", "organic", "liquid"
+        "cost": 100.0,                    # base material cost
+        "produces_type": "liquid",        # e.g., "liquid" or "metal" etc.
+        "mps": 1.0,                       # materials produced per second
         "desc": "Flavor text",
     },
 }
 ```
 
-### Weaponry tab upgrades
-`autopilot_booster` (autopilot, +1/s), `solar_panel` ($100, +2 fps), `mining_drone` ($1.5k, +35 fps), `asteroid_harvester` ($25k, +650 fps), `dark_matter_extractor` ($400k, +12k fps), `nebula_harvester` ($8M, +275k fps), `stellar_forge` ($200M, +8M fps), `quantum_synthesizer` ($5B, +230M fps), `galactic_fuel_web` ($150B, +8.5B fps)
-
-### Defense tab upgrades
-`comm_relay` ($500, +1/s), `signal_filter` ($8k, +20/s), `scanner_array` ($150k, +450/s), `sensor_grid` ($3M, +10k/s), `scan_station` ($75M, +300k/s), `deep_space_array` ($2.5B, +12M/s), `galactic_sensor_web` ($100B, +600M/s)
+### Upgrades Catalog
+`solar_panel` (Solar Panel), `mining_drone` (Mining Drone), `asteroid_harvester` (Asteroid Harvester), `dark_matter_extractor` (Dark Matter Extractor), `nebula_harvester` (Nebula Harvester), `stellar_forge` (Stellar Forge), `quantum_synthesizer` (Quantum Synthesizer), `galactic_fuel_web` (Galactic Fuel Web)
 
 ### Upgrade purchase currency
-Upgrades bought with **fuel** (`GameManager.stable_views`).
-
-### Upgrade purchase currency
-Upgrades are bought with **fuel** (`GameManager.stable_views`). Credits (cash) accumulate passively from cargo events and are not spent on upgrades.
+Upgrades are bought with materials matching `cost_type` from `MaterialManager`.
 
 ---
 
@@ -254,18 +217,13 @@ Upgrades are bought with **fuel** (`GameManager.stable_views`). Credits (cash) a
 
 ### `scripts/ui/hud/stat_panel.gd`
 
-- Displays `GameManager.render_stat_template()` in TemplateLabel
-- `_build_action_bar()`: VBox gồm 3 hàng — HBox (MUTE/SETTING/QUIT), BG slider, OV slider
-- BG slider (0.1–10): scale tile background → group `"scrolling_bg"` → `set_tile_scale()`
-- OV slider (0.1–10): scale tile overlay → group `"scrolling_overlay"` → `set_tile_scale()`
+- Contains control buttons (MUTE, SETTING, QUIT) and cheat buttons (RESET HP, KILL BOSS).
 - Settings overlay: CanvasLayer(layer=100, PROCESS_MODE_ALWAYS) added to `get_tree().root`
   - ColorRect (0,0,0,0.6) with MOUSE_FILTER_STOP blocks all input to scene below
-  - Panel 310×430 với: Resolution, Volume, Behavior, Reset sections
-- `_open_settings()`: show overlay + `get_tree().paused = true`
-- `_close_settings()`: hide overlay + `get_tree().paused = false`
-- Escape key closes settings via `_input()`
-- StatPanel has `process_mode = PROCESS_MODE_ALWAYS` so it updates while paused
-- Saves to `user://settings.cfg` on every change (gồm cả `bg_scale`, `ov_scale`)
+  - Panel 330×660 with sections: Resolution, Volume, Weapon SFX, Materials (editable SpinBoxes), and Resets (RESET PURCHASES, RESET GAME).
+- `_open_settings()`: show overlay + sync SpinBoxes with current materials from `MaterialManager`.
+- `_close_settings()`: hide overlay.
+- Escape key closes settings via `_input()`.
 
 ### `scripts/ui/upgrade/upgrade_list.gd`
 
@@ -275,12 +233,11 @@ Upgrades are bought with **fuel** (`GameManager.stable_views`). Credits (cash) a
 
 ### `scripts/ui/edit_mode/editable_object.gd`
 
-- `EditableObjectNode` (`class_name`) — every in-canvas placed sprite
-- `group_id: String` — one of `"screen" | "weaponry" | "defense" | "power_core" | "user"`
-- `_gameplay_mode: bool` — edit handles vs gameplay click routing
-- FPS label uses `GameManager.format_views(total_vps)` (NOT format_count)
-- `group_id == "weaponry" && basename == "view"` → `GameManager.on_view_clicked()` (engine boost click)
-- `group_id == "screen"` → invisible trong gameplay (`visible = false`); scrolling scripts xử lý visual
+- `EditableObjectNode` (`class_name`) — every in-canvas placed sprite.
+- `group_id: String` — one of `"screen" | "weaponry" | "defense" | "power_core" | "user"`.
+- `_gameplay_mode: bool` — edit handles vs gameplay click routing.
+- Displays resource price label (`_price_label`) in edit mode showing material cost (e.g. "100 Nonmetal").
+- `group_id == "screen"` → invisible in gameplay (`visible = false`); scrolling background system handles rendering.
 
 ---
 
@@ -307,7 +264,7 @@ EquipmentManager cost formula: `20 * pow(1.6, sorted_index)`
 
 | File | Contents |
 |------|----------|
-| `user://game_save.cfg` | passive_views (fuel), subs (crew), cash (credits) |
+| `user://game_save.cfg` | ship HP/shield save state |
 | `user://upgrades_save.cfg` | owned counts per upgrade id |
 | `user://settings.cfg` | resolution (w, h), music_vol, sfx_vol, bg_scale, ov_scale |
 | `user://equipment.cfg` | owned ship module items |
@@ -382,7 +339,7 @@ CanvasLayer with high `layer` value beats any Control node's `z_index` — use l
 ### Architecture
 
 - **Root node:** `Control` (layer z=200, PROCESS_MODE_PAUSABLE)
-- **Clip container:** `_clip_node` (Control, clipped to StreamScreen bounds) — all projectiles rendered inside
+- **Clip container:** `_clip_node` (Control, clipped to SpaceScreen bounds) — all projectiles rendered inside
 - **Boss EO:** `_boss_eo` (EditableObjectNode from objects_container) — animated sprite with rotation pivot at center
 - **Ship EO:** `_ship_eo` — for targeting, collision bounds
 - **Fire points:** `_fp1_node`, `_fp2_node`, `_fp3_node` (Node2D children of boss) — auto-follow boss rotation + translation
@@ -511,10 +468,9 @@ Nếu một tác vụ yêu cầu đọc những file này để **hiểu context
 - Edit mode groups hiện tại: `["screen", "weaponry", "defense", "power_core", "user"]` — thêm group mới cần update `GROUPS`, `GROUP_FOLDERS`, `edit_mode.tscn` (button), `assets/<folder>/`; group "screen" có logic riêng qua `_auto_load_screen_group()`
 - Scrolling background/overlay dùng `Image.resize()` CPU-side — KHÔNG dùng TextureRect stretch_mode. `EXPAND_IGNORE_SIZE` sẽ khiến texture render ở native size (2048px) rồi bị clip, trông như "crop"
 - `res://default_layout.cfg` lưu layout edit mode (không phải `user://`) — đọc từ `main.gd._apply_screen_layouts()` deferred sau `_ready()`
-- StreamScreen position = (270, 8) trong viewport; các tọa độ relative của scrolling bg = `viewport_pos − (270, 8)`
+- SpaceScreen position = (270, 8) trong viewport; các tọa độ relative của scrolling bg = `viewport_pos − (270, 8)`
 - `.uid` files sit next to every `.gd` and `.tscn` — Godot regenerates them on first editor open; scripts created headlessly may be missing UIDs
 - `UpgradeManager.load_game()` must run before `GameManager.load_game()` (UpgradeManager resets GameManager rate fields to 0 then re-applies owned upgrades) — **but `main.gd._ready()` currently calls them in the opposite order (`GameManager` first). Verify intent before trusting either.**
-- Internal GDScript variable names (views, subs, cash) are kept for API stability — they map to Fuel, Crew, Credits in all player-facing UI
 - `WeaponManager.WEAPONS`/`owned` are empty until `edit_mode.gd` calls `sync_from_canvas()` after layout load — don't query weapons in `_ready()`; wait for the `catalog_updated` signal. Weapon ids come from **filenames** in `assets/weaponry/`, so renaming a sprite silently drops it from the catalog (mitigated by 7-char fuzzy match + `KEY_ALIASES`)
 - `WeaponManager` and `DefenseManager` share `user://save.cfg`; `WeaponManager.save_game()` does `erase_section("weapons")` then rewrites — safe, but both managers must use distinct sections (`[weapons]` / `[defense]`)
 - `project.godot` `[autoload]` has merge-conflicted twice on the autoload list; conflict markers there make Godot fail to open the project. Required set (no dups): AudioManager, MaterialManager, DefenseManager, EquipmentManager, UpgradeManager, GameManager, WeaponManager

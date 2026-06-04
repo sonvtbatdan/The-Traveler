@@ -54,7 +54,7 @@ size_flags_horizontal = 3
 size_flags_stretch_ratio = 3.2
 theme_override_constants/separation = 6
 
-[node name="StreamScreen" type="Panel" parent="." unique_id=191745830]
+[node name="SpaceScreen" type="Panel" parent="." unique_id=191745830]
 layout_mode = 0
 offset_left = 270.0
 offset_top = 8.0
@@ -62,7 +62,7 @@ offset_right = 970.0
 offset_bottom = 772.0
 theme_override_styles/panel = SubResource("StyleBoxFlat_tools")
 
-[node name="ScreenLabel" type="Label" parent="StreamScreen" unique_id=703181300]
+[node name="ScreenLabel" type="Label" parent="SpaceScreen" unique_id=703181300]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0

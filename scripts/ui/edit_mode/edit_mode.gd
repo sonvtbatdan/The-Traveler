@@ -17,7 +17,7 @@ const GROUP_FOLDERS := {
 	"power_core": "powercore",
 	"user":       "user",
 }
-# StreamScreen position and default tile size (2048×2048 image at scale 1.0 → 700×700px tile)
+# SpaceScreen position and default tile size (2048×2048 image at scale 1.0 → 700×700px tile)
 const SCREEN_ORIGIN := Vector2(270.0, 8.0)
 const SCREEN_TILE_SZ := 700.0
 
@@ -815,7 +815,12 @@ func _place_object(tex: Texture2D, pos: Vector2, sz := Vector2.ZERO, path := "",
 	obj.group_id = _active_group
 	obj.source_path = path
 	obj.mouse_filter = Control.MOUSE_FILTER_STOP if obj.group_id == _active_group else Control.MOUSE_FILTER_IGNORE
-	var offset := Vector2(100.0, 100.0 / (tex.get_width() / float(tex.get_height()))) / 2.0
+	var w := float(tex.get_width())
+	var h := float(tex.get_height())
+	var aspect := 1.0
+	if w > 0.0 and h > 0.0:
+		aspect = w / h
+	var offset := Vector2(100.0, 100.0 / aspect) / 2.0
 	obj.init(tex, pos - offset, sz)
 	if tex.get_width() == 2754 and tex.get_height() == 1536 and sz == Vector2.ZERO:
 		obj.position = Vector2(10.0, 7.0)

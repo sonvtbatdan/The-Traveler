@@ -1,14 +1,11 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    First-time setup for "The Stream" game.
+    First-time setup for "The Traveler" game.
     Run once after cloning the repository.
 .DESCRIPTION
     Downloads and installs:
       - mpv.exe  (media player, >100 MB — too large for git)
-      - Ollama   (local AI server)
-      - qwen2.5:7b  (AI chat model, ~4.7 GB)
-      - ggml-small.bin  (Whisper voice model, ~465 MB)
     yt-dlp.exe is already included in the repository.
 #>
 
@@ -110,115 +107,13 @@ if (Test-Path $ytPath) {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. Ollama
-# ─────────────────────────────────────────────────────────────────────────────
-Write-Header "Ollama (local AI server)"
-
-$ollamaExe = @(
-    (Get-Command ollama -ErrorAction SilentlyContinue)?.Source,
-    "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
-) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-
-if ($ollamaExe) {
-    Write-OK "Ollama already installed: $ollamaExe"
-} else {
-    Write-Info "Downloading Ollama installer..."
-    try {
-        $installer = "$env:TEMP\OllamaSetup.exe"
-        Invoke-WebRequest -Uri "https://ollama.com/download/OllamaSetup.exe" -OutFile $installer
-        Write-Info "Installing Ollama silently..."
-        Start-Process -FilePath $installer -ArgumentList "/S" -Wait -NoNewWindow
-        Remove-Item $installer -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 3
-        $ollamaExe = "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe"
-        if (Test-Path $ollamaExe) {
-            Write-OK "Ollama installed"
-        } else {
-            throw "Executable not found after install."
-        }
-    } catch {
-        Write-Fail "Ollama install failed: $_"
-        Write-Fail "Manual install: https://ollama.com"
-        $ollamaExe = $null
-    }
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 4. Start Ollama service & pull model
-# ─────────────────────────────────────────────────────────────────────────────
-if ($ollamaExe) {
-    Write-Header "Ollama service + qwen2.5:7b model"
-
-    # Start service if not running
-    $serviceUp = $false
-    try {
-        Invoke-RestMethod "http://127.0.0.1:11434/api/tags" -TimeoutSec 3 | Out-Null
-        $serviceUp = $true
-        Write-OK "Ollama service already running"
-    } catch {
-        Write-Info "Starting Ollama service..."
-        Start-Process -FilePath $ollamaExe -ArgumentList "serve" -WindowStyle Hidden
-        for ($i = 0; $i -lt 15; $i++) {
-            Start-Sleep -Seconds 2
-            try {
-                Invoke-RestMethod "http://127.0.0.1:11434/api/tags" -TimeoutSec 2 | Out-Null
-                $serviceUp = $true
-                break
-            } catch {}
-        }
-        if ($serviceUp) { Write-OK "Ollama service started" }
-        else             { Write-Fail "Ollama service failed to start" }
-    }
-
-    if ($serviceUp) {
-        $tags     = Invoke-RestMethod "http://127.0.0.1:11434/api/tags" -ErrorAction SilentlyContinue
-        $hasModel = $tags.models | Where-Object { $_.name -like "qwen2.5:7b*" }
-        if ($hasModel) {
-            Write-OK "qwen2.5:7b already downloaded"
-        } else {
-            Write-Info "Pulling qwen2.5:7b (~4.7 GB) — this will take a while..."
-            & $ollamaExe pull qwen2.5:7b
-            Write-OK "qwen2.5:7b ready"
-        }
-    }
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 5. Whisper model  (ggml-small.bin)
-# ─────────────────────────────────────────────────────────────────────────────
-Write-Header "Whisper voice model (ggml-small.bin)"
-
-$modelDir  = Join-Path $PROJECT_DIR "addons\godot_whisper\models"
-$modelPath = Join-Path $modelDir "ggml-small.bin"
-
-if ((Test-Path $modelPath) -and (Get-Item $modelPath).Length -gt 400MB) {
-    Write-OK "ggml-small.bin already present ($([int]((Get-Item $modelPath).Length/1MB)) MB)"
-} else {
-    if (Test-Path $modelPath) { Remove-Item $modelPath -Force }
-    if (-not (Test-Path $modelDir)) { New-Item -ItemType Directory -Path $modelDir -Force | Out-Null }
-    Write-Info "Downloading ggml-small.bin (~465 MB)..."
-    try {
-        Invoke-WebRequest `
-            -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin" `
-            -OutFile $modelPath
-        Write-OK "ggml-small.bin downloaded ($([int]((Get-Item $modelPath).Length/1MB)) MB)"
-        Write-Info "NOTE: Open the project in Godot editor once to re-import this file."
-    } catch {
-        Write-Fail "Download failed: $_"
-        Write-Fail "Manual: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"
-        Write-Fail "Save to: $modelPath"
-    }
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Done
 # ─────────────────────────────────────────────────────────────────────────────
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Green
 Write-Host "  Setup complete!" -ForegroundColor Green
 Write-Host "  1. Open project in Godot 4.6+" -ForegroundColor White
-Write-Host "  2. If prompted, reimport all resources" -ForegroundColor White
-Write-Host "  3. Press Play" -ForegroundColor White
+Write-Host "  2. Press Play" -ForegroundColor White
 Write-Host "============================================" -ForegroundColor Green
 Write-Host ""
 if ($Host.Name -eq "ConsoleHost") { pause }

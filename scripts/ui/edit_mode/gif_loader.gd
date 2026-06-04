@@ -1,10 +1,119 @@
 class_name GifLoader
 extends RefCounted
 
-## Pure-GDScript animated GIF loader.
-## Returns AnimatedTexture for multi-frame GIFs, ImageTexture for single-frame.
+## Animated GIF loader — two code paths:
+##
+##  1. Sprite sheet (fast): if tools/convert_gifs.gd has been run, a
+##     "<name>.sheet.png" + "<name>.sheet.json" exist next to the .gif.
+##     The PNG is loaded by Godot's native importer (stb_image, GPU upload)
+##     and sliced into per-frame AtlasTextures — no GDScript LZW needed.
+##
+##  2. GDScript fallback: the original pure-GDScript LZW decoder. Used the
+##     first time (before conversion) or for any GIF that wasn't converted.
+##
+## Both paths return the same format expected by callers:
+##   • Single-frame  → plain Texture2D
+##   • Multi-frame   → first-frame Texture2D with metadata:
+##       "gif_frames"  Array[Texture2D]  — one per frame
+##       "gif_delays"  Array[float]      — seconds per frame
+
+# In-memory cache (path → Texture2D). Prevents re-decoding within one session.
+static var _cache: Dictionary = {}
+
+# ---------------------------------------------------------------------------
+# Public API — unchanged from original; all call sites stay the same.
+# ---------------------------------------------------------------------------
 
 static func load_gif(path: String) -> Texture2D:
+	if _cache.has(path):
+		return _cache[path] as Texture2D
+
+	var result := _load_from_sheet(path)
+	if result == null:
+		result = _load_via_gdscript(path)
+
+	if result != null:
+		_cache[path] = result
+	return result
+
+# ---------------------------------------------------------------------------
+# Path 1 — sprite sheet (fast, native PNG)
+# ---------------------------------------------------------------------------
+
+static func _load_from_sheet(gif_path: String) -> Texture2D:
+	var base      := gif_path.get_basename()
+	var png_path  := base + ".sheet.png"
+	var json_path := base + ".sheet.json"
+
+	# Quick file-system check before doing anything heavier
+	var abs_png  := ProjectSettings.globalize_path(png_path)
+	var abs_json := ProjectSettings.globalize_path(json_path)
+	if not FileAccess.file_exists(abs_png) or not FileAccess.file_exists(abs_json):
+		return null
+
+	# Read JSON sidecar
+	var jf := FileAccess.open(abs_json, FileAccess.READ)
+	if jf == null:
+		return null
+	var meta: Variant = JSON.parse_string(jf.get_as_text())
+	jf.close()
+	if not meta is Dictionary:
+		return null
+
+	var cols: int  = int(meta.get("cols", 1))
+	var fw:   int  = int(meta.get("w",    1))
+	var fh:   int  = int(meta.get("h",    1))
+	var delays: Array = meta.get("delays", [])
+
+	# Load the sprite sheet via FileAccess so the raw PNG bytes are always used.
+	# Never use ResourceLoader/load() here: Godot's importer may pad non-POT
+	# textures internally, making AtlasTexture region coordinates wrong and
+	# causing visible misalignment. FileAccess bypasses the import pipeline and
+	# also works inside an exported PCK (as long as *.sheet.png is in the export
+	# non-resource filter).
+	var sheet_tex: Texture2D
+	var pf := FileAccess.open(png_path, FileAccess.READ)
+	if pf != null:
+		var img := Image.new()
+		if img.load_png_from_buffer(pf.get_buffer(pf.get_length())) == OK:
+			sheet_tex = ImageTexture.create_from_image(img)
+	if sheet_tex == null:
+		# Fallback: try the absolute OS path (works in editor, not in PCK)
+		var img2 := Image.load_from_file(abs_png)
+		if img2 != null:
+			sheet_tex = ImageTexture.create_from_image(img2)
+
+	if sheet_tex == null:
+		return null
+
+	# Single-frame shortcut
+	if cols <= 1:
+		return sheet_tex
+
+	# Slice into per-frame AtlasTextures (all share the same ImageTexture upload).
+	# filter_clip prevents bilinear sampling from bleeding into adjacent frames.
+	var frame_textures: Array = []
+	for i: int in cols:
+		var atlas := AtlasTexture.new()
+		atlas.atlas       = sheet_tex
+		atlas.region      = Rect2(i * fw, 0, fw, fh)
+		atlas.filter_clip = true
+		frame_textures.append(atlas)
+
+	# Pad delays array if JSON is shorter than frame count
+	while delays.size() < cols:
+		delays.append(0.1)
+
+	var first := frame_textures[0] as AtlasTexture
+	first.set_meta("gif_frames", frame_textures)
+	first.set_meta("gif_delays", delays)
+	return first
+
+# ---------------------------------------------------------------------------
+# Path 2 — GDScript LZW fallback (slow, always available)
+# ---------------------------------------------------------------------------
+
+static func _load_via_gdscript(path: String) -> Texture2D:
 	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null:
 		return null
@@ -13,8 +122,7 @@ static func load_gif(path: String) -> Texture2D:
 
 	if bytes.size() < 13:
 		return null
-	# Verify "GIF" signature ('G','I','F')
-	if bytes[0] != 71 or bytes[1] != 73 or bytes[2] != 70:
+	if bytes[0] != 71 or bytes[1] != 73 or bytes[2] != 70:  # 'G','I','F'
 		return null
 
 	var frames: Array = _decode_frames(bytes)
@@ -24,10 +132,8 @@ static func load_gif(path: String) -> Texture2D:
 	if frames.size() == 1:
 		return ImageTexture.create_from_image(frames[0]["image"] as Image)
 
-	# Build frame textures and store them as metadata on the first texture.
-	# editable_object.gd reads this metadata to drive animation via _process().
 	var frame_textures: Array = []
-	var frame_delays: Array = []
+	var frame_delays:   Array = []
 	for fd: Dictionary in frames:
 		frame_textures.append(ImageTexture.create_from_image(fd["image"] as Image))
 		frame_delays.append(fd["delay"])
@@ -37,16 +143,22 @@ static func load_gif(path: String) -> Texture2D:
 	first_tex.set_meta("gif_delays", frame_delays)
 	return first_tex
 
+# ---------------------------------------------------------------------------
+# GDScript LZW decoder (called by both _load_via_gdscript and convert_gifs.gd)
+# ---------------------------------------------------------------------------
 
 static func _decode_frames(bytes: PackedByteArray) -> Array:
-	var pos := 6  # skip 6-byte header
+	var pos := 6
 
 	var lsd_w: int = bytes[pos] | (bytes[pos + 1] << 8)
 	var lsd_h: int = bytes[pos + 2] | (bytes[pos + 3] << 8)
 	var packed: int = bytes[pos + 4]
-	var gct_flag: bool  = (packed >> 7) != 0
-	var gct_size: int   = packed & 7
-	pos += 7  # Logical Screen Descriptor is 7 bytes
+	var gct_flag: bool = (packed >> 7) != 0
+	var gct_size: int  = packed & 7
+	pos += 7
+
+	if lsd_w <= 0 or lsd_h <= 0:
+		return []
 
 	var gct: PackedByteArray
 	if gct_flag:
@@ -58,17 +170,16 @@ static func _decode_frames(bytes: PackedByteArray) -> Array:
 	canvas.fill(Color.TRANSPARENT)
 	var restore_canvas: Image = null
 
-	var gce_delay         := 0.1
-	var gce_transparent   := -1
-	var gce_disposal      := 0
-
-	var frames: Array = []
+	var gce_delay       := 0.1
+	var gce_transparent := -1
+	var gce_disposal    := 0
+	var frames: Array   = []
 
 	while pos < bytes.size() - 1:
 		var b: int = bytes[pos]
 		pos += 1
 
-		if b == 0x3B:  # Trailer
+		if b == 0x3B:
 			break
 
 		elif b == 0x2C:  # Image Descriptor
@@ -91,7 +202,6 @@ static func _decode_frames(bytes: PackedByteArray) -> Array:
 					color_table = bytes.slice(pos, pos + n * 3)
 					pos += n * 3
 
-			# Apply disposal of previous frame before drawing
 			match gce_disposal:
 				2: canvas.fill(Color.TRANSPARENT)
 				3:
@@ -105,7 +215,6 @@ static func _decode_frames(bytes: PackedByteArray) -> Array:
 			var mcs: int = bytes[pos]
 			pos += 1
 
-			# Collect LZW sub-blocks
 			var lzw_data := PackedByteArray()
 			while pos < bytes.size():
 				var sub_len: int = bytes[pos]
@@ -120,7 +229,6 @@ static func _decode_frames(bytes: PackedByteArray) -> Array:
 			if interlaced:
 				indices = _deinterlace(indices, iw, ih)
 
-			# Paint pixels onto canvas
 			var pi := 0
 			for py: int in ih:
 				for px: int in iw:
@@ -141,37 +249,33 @@ static func _decode_frames(bytes: PackedByteArray) -> Array:
 						))
 
 			frames.append({"image": canvas.duplicate(), "delay": maxf(gce_delay, 0.02)})
-			# Reset per-frame GCE state
 			gce_delay       = 0.1
 			gce_transparent = -1
 			gce_disposal    = 0
 
-		elif b == 0x21:  # Extension introducer
+		elif b == 0x21:  # Extension
 			if pos >= bytes.size():
 				break
 			var label: int = bytes[pos]
 			pos += 1
-
 			if label == 0xF9:  # Graphic Control Extension
 				if pos >= bytes.size():
 					break
 				var sub_len: int = bytes[pos]
 				pos += 1
 				if sub_len == 4 and pos + 4 <= bytes.size():
-					var gp: int      = bytes[pos]
-					gce_disposal     = (gp >> 3) & 7
+					var gp: int       = bytes[pos]
+					gce_disposal      = (gp >> 3) & 7
 					var has_transp: bool = (gp & 1) != 0
-					var raw_d: int   = bytes[pos + 1] | (bytes[pos + 2] << 8)
-					gce_delay        = raw_d / 100.0 if raw_d > 0 else 0.1
-					gce_transparent  = bytes[pos + 3] if has_transp else -1
+					var raw_d: int    = bytes[pos + 1] | (bytes[pos + 2] << 8)
+					gce_delay         = raw_d / 100.0 if raw_d > 0 else 0.1
+					gce_transparent   = bytes[pos + 3] if has_transp else -1
 					pos += sub_len
 				elif sub_len > 0:
 					pos += mini(sub_len, bytes.size() - pos)
-				# Block terminator
 				if pos < bytes.size() and bytes[pos] == 0:
 					pos += 1
 			else:
-				# Skip unknown extension sub-blocks
 				while pos < bytes.size():
 					var sub_len: int = bytes[pos]
 					pos += 1
@@ -179,12 +283,11 @@ static func _decode_frames(bytes: PackedByteArray) -> Array:
 						break
 					pos += mini(sub_len, bytes.size() - pos)
 		else:
-			break  # Unknown block — stop parsing
+			break
 
 	return frames
 
 
-## LZW decompression (GIF variant — LSB-first bit packing).
 static func _lzw_decode(data: PackedByteArray, min_code_size: int) -> PackedByteArray:
 	var result := PackedByteArray()
 	if data.is_empty() or min_code_size < 2 or min_code_size > 11:
@@ -193,12 +296,11 @@ static func _lzw_decode(data: PackedByteArray, min_code_size: int) -> PackedByte
 	var clear_code: int = 1 << min_code_size
 	var eoi_code:   int = clear_code + 1
 
-	# Code table: each entry is a PackedByteArray of pixel indices.
 	var code_table: Array = []
 	for i: int in clear_code:
 		code_table.append(PackedByteArray([i]))
-	code_table.append(PackedByteArray())  # placeholder for clear_code
-	code_table.append(PackedByteArray())  # placeholder for eoi_code
+	code_table.append(PackedByteArray())
+	code_table.append(PackedByteArray())
 
 	var code_size: int = min_code_size + 1
 	var next_code: int = eoi_code + 1
@@ -206,7 +308,6 @@ static func _lzw_decode(data: PackedByteArray, min_code_size: int) -> PackedByte
 	var prev_code: int = -1
 
 	while true:
-		# Read next code (LSB-first)
 		var code := 0
 		var filled := 0
 		while filled < code_size:
@@ -223,7 +324,6 @@ static func _lzw_decode(data: PackedByteArray, min_code_size: int) -> PackedByte
 
 		if code == eoi_code:
 			break
-
 		if code == clear_code:
 			while code_table.size() > eoi_code + 1:
 				code_table.pop_back()
@@ -231,8 +331,6 @@ static func _lzw_decode(data: PackedByteArray, min_code_size: int) -> PackedByte
 			next_code = eoi_code + 1
 			prev_code = -1
 			continue
-
-		# First code after clear
 		if prev_code == -1:
 			if code < clear_code:
 				result.append(code)
@@ -242,21 +340,18 @@ static func _lzw_decode(data: PackedByteArray, min_code_size: int) -> PackedByte
 		var entry: PackedByteArray
 		if code < code_table.size():
 			entry = code_table[code]
-			# skip empty placeholder entries (clear/eoi slots)
 			if entry.is_empty() and code >= clear_code:
 				break
 		elif code == next_code:
-			# Special case: code not yet added but equals next expected
 			entry = code_table[prev_code].duplicate()
 			entry.append(entry[0])
 		else:
-			break  # corrupted stream
+			break
 
 		result.append_array(entry)
 
 		if next_code < 4096:
-			var new_entry: PackedByteArray = code_table[prev_code]
-			new_entry = new_entry.duplicate()
+			var new_entry: PackedByteArray = code_table[prev_code].duplicate()
 			new_entry.append(entry[0])
 			code_table.append(new_entry)
 			next_code += 1
@@ -268,7 +363,6 @@ static func _lzw_decode(data: PackedByteArray, min_code_size: int) -> PackedByte
 	return result
 
 
-## Rearrange interlaced pixel rows into normal top-to-bottom order.
 static func _deinterlace(pixels: PackedByteArray, w: int, h: int) -> PackedByteArray:
 	var result := PackedByteArray()
 	result.resize(w * h)

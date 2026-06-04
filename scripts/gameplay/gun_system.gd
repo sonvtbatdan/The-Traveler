@@ -25,7 +25,7 @@ const SHELL_EJECT_SPEED := 80.0
 const SHELL_ROT_DELAY   := 0.1
 const SHELL_FADE_START  := 0.8
 const SHELL_LIFETIME    := 1.3
-const SCREEN_BOUNDS       := Rect2(270.0, 8.0, 700.0, 764.0)  # StreamScreen bounds
+const SCREEN_BOUNDS       := Rect2(270.0, 8.0, 700.0, 764.0)  # SpaceScreen bounds
 const SCREEN_BOUNDS_INSET := Rect2(280.0, 18.0, 680.0, 744.0) # inset 10px — bullets & lightning clip
 const IMPACT_SIZE       := Vector2(20.0, 23.0)                # W=20, H proportional (100:113)
 const CANON_MK2_FIRE_INTERVAL  := 0.6   # 6 frames × 0.1s = 1 shot per 0.6s
@@ -478,8 +478,10 @@ func _process(delta: float) -> void:
 
 func _handle_ship_movement(delta: float) -> void:
 	var mv := Vector2(
-		float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A)),
-		float(Input.is_physical_key_pressed(KEY_S)) - float(Input.is_physical_key_pressed(KEY_W))
+		(float(Input.is_physical_key_pressed(KEY_D)) + float(Input.is_physical_key_pressed(KEY_RIGHT)))
+		- (float(Input.is_physical_key_pressed(KEY_A)) + float(Input.is_physical_key_pressed(KEY_LEFT))),
+		(float(Input.is_physical_key_pressed(KEY_S)) + float(Input.is_physical_key_pressed(KEY_DOWN)))
+		- (float(Input.is_physical_key_pressed(KEY_W)) + float(Input.is_physical_key_pressed(KEY_UP)))
 	)
 	if mv == Vector2.ZERO:
 		return

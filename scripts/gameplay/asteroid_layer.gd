@@ -360,13 +360,14 @@ func _remove_index(i: int) -> void:
 func _destroy_index(i: int, give_loot: bool) -> void:
 	var tr: TextureRect = _nodes[i]
 	if give_loot and is_instance_valid(tr):
-		_collect_loot(String(tr.get_meta("type", "")))
+		var loot_pos := tr.position + tr.size * 0.5
+		_collect_loot(String(tr.get_meta("type", "")), loot_pos)
 	_remove_index(i)
 	if is_instance_valid(tr):
 		_fade_and_free(tr)
 	_spawn(false)
 
-func _collect_loot(type_name: String) -> void:
+func _collect_loot(type_name: String, pos: Vector2 = Vector2.ZERO) -> void:
 	var r: float = randf()
 	match type_name:
 		"dirt":
@@ -408,6 +409,30 @@ func _collect_loot(type_name: String) -> void:
 			else:
 				MaterialManager.add("liquid", 1)
 				MaterialManager.add("nonmetal", 1)
+	# Phase 4 — small chance to drop an inventory item from any asteroid type.
+	var dropped := InventoryManager.roll_asteroid_drop()
+	if dropped != "":
+		_show_item_drop(dropped, pos)
+
+func _show_item_drop(def_id: String, pos: Vector2) -> void:
+	var def := InventoryManager.get_def(def_id)
+	var rarity := String(def.get("rarity", "common"))
+	var col: Color = InventoryManager.RARITY_COLORS.get(rarity, Color(1.0, 1.0, 1.0))
+	var lbl := Label.new()
+	lbl.text = "✦ " + String(def.get("name", def_id))
+	lbl.position = pos - Vector2(50.0, 0.0)
+	lbl.add_theme_color_override("font_color", col)
+	lbl.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.9))
+	lbl.add_theme_constant_override("outline_size", 4)
+	var font := load("res://assets/fonts/Gameplay.ttf") as FontFile
+	if font != null:
+		lbl.add_theme_font_override("font", font)
+		lbl.add_theme_font_size_override("font_size", 11)
+	add_child(lbl)
+	var tween := create_tween()
+	tween.tween_property(lbl, "position:y", pos.y - 70.0, 2.2)
+	tween.parallel().tween_property(lbl, "modulate:a", 0.0, 2.2)
+	tween.tween_callback(lbl.queue_free)
 
 func _process(delta: float) -> void:
 	if not _is_under:
