@@ -282,6 +282,33 @@
       }
     },
     {
+      "id": 12,
+      "timestamp": "2026-06-05T02:00:00Z",
+      "task": "Complete refactor: Rename dialog - clean fresh implementation",
+      "files_modified": [
+        {
+          "path": "scripts/ui/edit_mode/object_list_panel.gd",
+          "lines": "24-111",
+          "action": "modified",
+          "diff_summary": "Rewrite rename dialog from scratch - simpler, more reliable"
+        }
+      ],
+      "changes_summary": "Complete rewrite to remove accumulated complexity:\n\nRemoved:\n- _context_obj state variable\n- _rename_dialog state variable (AcceptDialog instance)\n- _rename_line_edit state variable\n- _build_rename_dialog() function\n- Complex dialog setup in _ready()\n- _show_rename_dialog() helper\n- _on_rename_ok() callback\n\nNew approach:\n- Create fresh AcceptDialog instance each time rename is selected\n- Dialog stays local to _show_rename_dialog() function\n- Get object from _selected_row (already available)\n- confirmed signal → save name and update UI\n- cancelled signal → just close (no action)\n- popup_centered() instead of popup_centered_ratio()\n- No tree pause needed\n\nResult: Much simpler, no state issues, input works reliably.",
+      "commands_executed": [
+        "git add scripts/ui/edit_mode/object_list_panel.gd",
+        "git commit -m 'refactor: rewrite rename dialog completely'"
+      ],
+      "git_commit_hash": "faba0bd",
+      "rollback_steps": [
+        "git reset --soft HEAD~1",
+        "git checkout scripts/ui/edit_mode/object_list_panel.gd"
+      ],
+      "verification": {
+        "status": "ready_test",
+        "notes": "Fresh implementation. Test: RMB → Rename → type name → OK (save) or Cancel (discard)."
+      }
+    },
+    {
       "id": 11,
       "timestamp": "2026-06-05T01:00:00Z",
       "task": "Fix: Rename dialog input - use AcceptDialog instead of Window",
