@@ -77,7 +77,12 @@ func reset_gif() -> void:
 
 func init(tex: Texture2D, pos: Vector2, sz := Vector2.ZERO) -> void:
 	texture_rect.texture = tex
-	_aspect_ratio = tex.get_width() / float(tex.get_height())
+	var w := float(tex.get_width())
+	var h := float(tex.get_height())
+	if w > 0.0 and h > 0.0:
+		_aspect_ratio = w / h
+	else:
+		_aspect_ratio = 1.0
 	if sz == Vector2.ZERO:
 		sz = Vector2(200.0, 200.0 / _aspect_ratio)
 	position = pos
@@ -98,84 +103,7 @@ func init(tex: Texture2D, pos: Vector2, sz := Vector2.ZERO) -> void:
 		_gif_acc = 0.0
 
 func _setup_counter_label() -> void:
-	if group_id != "screen":
-		return
-	var base := source_path.get_file().get_basename().to_lower()
-
-	# Mirror _animate_screen_objects filter: sprites that get the click animation
-	# are the "content" sprites (girl, character, etc.) — not info overlays or frames.
-	if not is_group_layer() and not ("frame" in base or base in ["view", "sub", "screen", "base", "bg", "background"]):
-		add_to_group("view_screen")
-
-	var initial := ""
-	if base == "view":
-		initial = GameManager.format_views(GameManager.views)
-		GameManager.views_changed.connect(func(v: int) -> void:
-			if not is_instance_valid(_counter_label): return
-			var t := GameManager.format_views(v)
-			if t != _counter_label.text:
-				_counter_label.text = t
-				_pop_counter())
-	elif base == "sub":
-		initial = GameManager.format_views(GameManager.subs)
-		GameManager.subs_changed.connect(func(v: int) -> void:
-			if not is_instance_valid(_counter_label): return
-			var t := GameManager.format_views(v)
-			if t != _counter_label.text:
-				_counter_label.text = t
-				_pop_counter())
-	elif base == "cash":
-		initial = "$" + GameManager.format_views(int(GameManager.cash))
-		GameManager.cash_changed.connect(func(v: float) -> void:
-			if not is_instance_valid(_counter_label): return
-			var t := "$" + GameManager.format_views(int(v))
-			if t != _counter_label.text:
-				_counter_label.text = t
-				_pop_counter())
-	else:
-		return
-	_counter_label = Label.new()
-	_counter_label.text = initial
-	_counter_label.visible = false
-	_counter_label.add_theme_color_override("font_color", Color.WHITE)
-	_counter_label.add_theme_font_size_override("font_size", 18)
-	_counter_label.add_theme_constant_override("outline_size", 3)
-	_counter_label.add_theme_color_override("font_outline_color", Color.BLACK)
-	_counter_label.position = Vector2(size.x + 6, size.y * 0.5 - 12)
-	var font := load("res://assets/fonts/Gameplay.ttf") as FontFile
-	if font:
-		_counter_label.add_theme_font_override("font", font)
-	add_child(_counter_label)
-
-	if base == "cash":
-		_cps_label = Label.new()
-		_cps_label.visible = false
-		_cps_label.add_theme_color_override("font_color", Color(0.75, 0.90, 1.0, 0.9))
-		_cps_label.add_theme_font_size_override("font_size", 13)
-		_cps_label.add_theme_constant_override("outline_size", 2)
-		_cps_label.add_theme_color_override("font_outline_color", Color.BLACK)
-		_cps_label.position = Vector2(size.x + 6, size.y * 0.5 + 12)
-		if font:
-			_cps_label.add_theme_font_override("font", font)
-		add_child(_cps_label)
-		GameManager.subs_changed.connect(func(_s: int) -> void: _refresh_cps_label())
-		GameManager.game_loaded.connect(func() -> void: _refresh_cps_label())
-		_refresh_cps_label()
-
-	if base == "view":
-		_vps_label = Label.new()
-		_vps_label.visible = false
-		_vps_label.add_theme_color_override("font_color", Color(0.75, 0.90, 1.0, 0.9))
-		_vps_label.add_theme_font_size_override("font_size", 13)
-		_vps_label.add_theme_constant_override("outline_size", 2)
-		_vps_label.add_theme_color_override("font_outline_color", Color.BLACK)
-		_vps_label.position = Vector2(size.x + 6, size.y * 0.5 + 12)
-		if font:
-			_vps_label.add_theme_font_override("font", font)
-		add_child(_vps_label)
-		UpgradeManager.upgrade_purchased.connect(func(_id: String) -> void: _refresh_vps_label())
-		GameManager.game_loaded.connect(func() -> void: _refresh_vps_label())
-		_refresh_vps_label()
+	pass
 
 func _setup_price_label() -> void:
 	if group_id != "active" or is_group_layer():
@@ -183,7 +111,8 @@ func _setup_price_label() -> void:
 	var upgrade_id := source_path.get_file().get_basename().to_lower()
 	if UpgradeManager.UPGRADES.has(upgrade_id):
 		var price: float = UpgradeManager.UPGRADES[upgrade_id]["cost"]
-		_price_label.text = "$%.0f" % price
+		var cost_type: String = UpgradeManager.UPGRADES[upgrade_id].get("cost_type", "metal")
+		_price_label.text = "%d %s" % [int(price), cost_type.capitalize()]
 		_price_label.size = Vector2(size.x, 30.0)
 
 func _setup_desc_panel() -> void:
@@ -224,7 +153,8 @@ func _setup_desc_panel() -> void:
 	vbox.add_child(name_lbl)
 
 	var price_lbl := Label.new()
-	price_lbl.text = "$%.0f" % float(data["cost"])
+	var cost_type: String = data.get("cost_type", "metal")
+	price_lbl.text = "%d %s" % [int(data["cost"]), cost_type.capitalize()]
 	price_lbl.add_theme_color_override("font_color", Color(0.3, 1.0, 0.45))
 	price_lbl.add_theme_font_size_override("font_size", 11)
 	price_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -246,21 +176,7 @@ func _setup_desc_panel() -> void:
 	add_child(_desc_panel)
 	_desc_panel.position = Vector2(size.x + 8.0, 0.0)
 
-func _pop_counter() -> void:
-	if not is_instance_valid(_counter_label): return
-	if _pop_tween and _pop_tween.is_running(): return
-	_pop_tween = create_tween()
-	_pop_tween.tween_property(_counter_label, "scale", Vector2(1.02, 1.02), 0.08)
-	_pop_tween.tween_property(_counter_label, "scale", Vector2.ONE, 0.15)
-
-func _refresh_vps_label() -> void:
-	if not is_instance_valid(_vps_label): return
-	var total_vps := int(GameManager.vps * EquipmentManager.get_global_vps_multiplier())
-	_vps_label.text = "VPS  " + GameManager.format_views(total_vps)
-
-func _refresh_cps_label() -> void:
-	if not is_instance_valid(_cps_label): return
-	_cps_label.text = "CpS  $" + GameManager.format_cash(GameManager.get_cps())
+# Removed legacy counters
 
 func set_gameplay_mode(v: bool) -> void:
 	_gameplay_mode = v

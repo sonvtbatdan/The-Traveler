@@ -11,99 +11,111 @@ const ITEMS: Dictionary = {
 	"monitor": {
 		"name": "Navigation Screen",
 		"icon": "monitor.png",
+		"price_type": "metal",
 		"price": 150.0,
 		"targets": ["solar_panel"],
 		"multiplier": 2.0,
-		"desc": "×2 FPS for Solar Panel"
+		"desc": "×2 passive Liquid production for Solar Panel"
 	},
 	"monitor2": {
 		"name": "Sensor Display",
 		"icon": "monitor2.png",
+		"price_type": "nonmetal",
 		"price": 400.0,
 		"targets": ["mining_drone"],
 		"multiplier": 2.0,
-		"desc": "×2 FPS for Mining Drone"
+		"desc": "×2 passive Metal production for Mining Drone"
 	},
 	"micro": {
 		"name": "Signal Booster",
 		"icon": "Micro.png",
+		"price_type": "liquid",
 		"price": 900.0,
-		"targets": ["comm_relay", "signal_filter"],
-		"multiplier": 3.0,
-		"desc": "×3 Scan/s for Comm Relay & Signal Filter"
+		"targets": ["solar_panel", "mining_drone"],
+		"multiplier": 1.5,
+		"desc": "×1.5 production for Solar Panel & Mining Drone"
 	},
 	"monitor3": {
 		"name": "Targeting Array",
 		"icon": "monitor3.png",
+		"price_type": "metal",
 		"price": 3000.0,
 		"targets": ["asteroid_harvester"],
 		"multiplier": 2.0,
-		"desc": "×2 FPS for Asteroid Harvester"
+		"desc": "×2 passive Nonmetal production for Asteroid Harvester"
 	},
 	"headphone": {
 		"name": "Comm Amplifier",
 		"icon": "Headphone.png",
+		"price_type": "organic",
 		"price": 12000.0,
-		"targets": ["scanner_array", "sensor_grid"],
-		"multiplier": 2.5,
-		"desc": "×2.5 Scan/s for Scanner Array & Sensor Grid"
+		"targets": ["asteroid_harvester", "dark_matter_extractor"],
+		"multiplier": 1.5,
+		"desc": "×1.5 production for Asteroid Harvester & Dark Matter Extractor"
 	},
 	"monitor4": {
 		"name": "Deep Scanner",
 		"icon": "monitor4.png",
+		"price_type": "nonmetal",
 		"price": 25000.0,
 		"targets": ["dark_matter_extractor"],
 		"multiplier": 2.5,
-		"desc": "×2.5 FPS for Dark Matter Extractor"
+		"desc": "×2.5 passive Organic production for Dark Matter Extractor"
 	},
 	"led": {
 		"name": "Plasma Grid",
 		"icon": "led.png",
+		"price_type": "organic",
 		"price": 85000.0,
 		"targets": [],
 		"multiplier": 1.1,
 		"global_vps": true,
-		"desc": "×1.10 to Total FPS (global)"
+		"desc": "×1.10 to Total passive production (global)"
 	},
 	"2ndpc": {
 		"name": "Co-Processor",
 		"icon": "2ndpc.png",
+		"price_type": "liquid",
 		"price": 250000.0,
 		"targets": ["nebula_harvester"],
 		"multiplier": 3.0,
-		"desc": "×3 FPS for Nebula Harvester"
+		"desc": "×3 passive Liquid production for Nebula Harvester"
 	},
 	"goku": {
 		"name": "Warp Coil",
 		"icon": "Goku.png",
+		"price_type": "metal",
 		"price": 1500000.0,
-		"targets": ["deep_space_array"],
+		"targets": ["nebula_harvester", "stellar_forge"],
 		"multiplier": 2.0,
-		"desc": "×2 Scan/s for Deep Space Array"
+		"desc": "×2 production for Nebula Harvester & Stellar Forge"
 	},
 	"3rdpc": {
 		"name": "Fusion Core",
 		"icon": "3rdpc.png",
+		"price_type": "nonmetal",
 		"price": 6000000.0,
 		"targets": ["stellar_forge", "quantum_synthesizer"],
 		"multiplier": 3.0,
-		"desc": "×3 FPS for Stellar Forge & Quantum Synthesizer"
+		"desc": "×3 passive production for Stellar Forge & Quantum Synthesizer"
 	},
 	"vegeta": {
 		"name": "Void Resonator",
 		"icon": "Vegeta.png",
+		"price_type": "organic",
 		"price": 45000000.0,
-		"targets": ["galactic_sensor_web"],
+		"targets": ["quantum_synthesizer", "galactic_fuel_web"],
 		"multiplier": 2.0,
-		"desc": "×2 Scan/s for Galactic Sensor Web"
+		"desc": "×2 production for Quantum Synthesizer & Galactic Fuel Web"
 	},
 	"moon": {
 		"name": "Dyson Module",
 		"icon": "moon.png",
+		"price_type": "liquid",
 		"price": 250000000.0,
 		"targets": ["galactic_fuel_web"],
 		"multiplier": 4.0,
-		"desc": "×4 FPS for Galactic Fuel Web"
+		"desc": "×4 passive Liquid production for Galactic Fuel Web"
 	},
 }
 
@@ -117,10 +129,12 @@ func try_purchase(id: String) -> bool:
 		return false
 	if _owned.get(id, 0) >= 1:
 		return false
-	var price := float(ITEMS[id]["price"])
-	if not GameManager.spend_cash(price):
+	var price := int(ITEMS[id]["price"])
+	var price_type: String = ITEMS[id].get("price_type", "metal")
+	if not MaterialManager.spend(price_type, price):
 		return false
 	_owned[id] = 1
+	MaterialManager.save_game()
 	save_game()
 	item_purchased.emit(id)
 	UpgradeManager.recalculate_all_rates()

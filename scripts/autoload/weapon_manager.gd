@@ -103,8 +103,10 @@ func sync_from_canvas(placed: Array) -> void:
 	# Find spaceship horizontal center (fallback to viewport half)
 	ship_cx = 720.0
 	for o in placed:
+		if not is_instance_valid(o):
+			continue
 		var eo := o as EditableObjectNode
-		if eo == null or not is_instance_valid(eo):
+		if eo == null:
 			continue
 		if _eo_basename(eo) == "spaceship":
 			ship_cx = eo.global_position.x + eo.size.x * 0.5
@@ -113,8 +115,10 @@ func sync_from_canvas(placed: Array) -> void:
 	# Collect raw data: group_key -> {display, tiers: {tier: {side: [objs]}}}
 	var raw: Dictionary = {}
 	for o in placed:
+		if not is_instance_valid(o):
+			continue
 		var eo := o as EditableObjectNode
-		if eo == null or not is_instance_valid(eo):
+		if eo == null:
 			continue
 		var bn := _eo_basename(eo)
 		if bn == "spaceship" or bn.is_empty():
@@ -204,8 +208,10 @@ func get_all_objects(id: String) -> Array:
 	for t in td:
 		for side in td[t]:
 			for o in td[t][side]:
+				if not is_instance_valid(o):
+					continue
 				var eo := o as EditableObjectNode
-				if eo != null and is_instance_valid(eo):
+				if eo != null:
 					result.append(eo)
 	return result
 
@@ -215,8 +221,10 @@ func get_active_objects(id: String) -> Array:
 	for t in td:
 		for side in td[t]:
 			for o in td[t][side]:
+				if not is_instance_valid(o):
+					continue
 				var eo := o as EditableObjectNode
-				if eo != null and is_instance_valid(eo) and eo.visible:
+				if eo != null and eo.visible:
 					result.append(eo)
 	return result
 
@@ -226,8 +234,10 @@ func get_active_positions(id: String) -> Array[Vector2]:
 	for t in td:
 		for side in td[t]:
 			for o in td[t][side]:
+				if not is_instance_valid(o):
+					continue
 				var eo := o as EditableObjectNode
-				if eo != null and is_instance_valid(eo) and eo.visible:
+				if eo != null and eo.visible:
 					result.append(eo.global_position + eo.size / 2.0)
 	return result
 
@@ -301,8 +311,10 @@ func _refresh_visibility(id: String) -> void:
 		for side in td[t]:
 			var active: bool = get_tier(id, side) == int(t)
 			for o in td[t][side]:
+				if not is_instance_valid(o):
+					continue
 				var eo := o as EditableObjectNode
-				if eo != null and is_instance_valid(eo):
+				if eo != null:
 					eo.layer_visible = active
 					eo.visible       = active
 

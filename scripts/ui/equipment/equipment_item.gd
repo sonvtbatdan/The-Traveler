@@ -23,7 +23,7 @@ func setup(id: String) -> void:
 
 	_build_popup()
 	_apply_styles()
-	GameManager.cash_changed.connect(_on_cash_changed)
+	MaterialManager.materials_changed.connect(_refresh_state)
 	EquipmentManager.items_reset.connect(_refresh_state)
 	pressed.connect(_on_pressed)
 	mouse_entered.connect(_on_mouse_entered)
@@ -69,24 +69,20 @@ func _build_popup_text() -> String:
 	if not EquipmentManager.ITEMS.has(item_id):
 		return ""
 	var data: Dictionary = EquipmentManager.ITEMS[item_id]
-	var price := float(data["price"])
+	var price := int(data["price"])
+	var price_type: String = data.get("price_type", "metal")
 	var desc  := String(data.get("desc", ""))
 	var owned := EquipmentManager.get_owned(item_id)
 
 	var lines: PackedStringArray = []
 	lines.append("[b]" + String(data["name"]) + "[/b]")
-	lines.append("[b][color=#ffd84d]$" + _fmt_cash(price) + "[/color][/b]")
+	lines.append("[b][color=#ffd84d]" + str(price) + " " + price_type.capitalize() + "[/color][/b]")
 	lines.append("")
 	lines.append(desc)
 	if owned >= 1:
 		lines.append("")
 		lines.append("[color=#88ff88]✓ Purchased[/color]")
 	return "\n".join(lines)
-
-func _fmt_cash(v: float) -> String:
-	if v < 1_000_000.0:
-		return GameManager.format_grouped_float(v, 0)
-	return GameManager.format_cash(v)
 
 func _apply_styles() -> void:
 	var _make := func(bg: Color, border: Color, corner: int) -> StyleBoxFlat:
@@ -111,19 +107,17 @@ func _refresh_state() -> void:
 		disabled = true
 		modulate = Color(0.55, 0.55, 0.55, 0.75)
 	else:
-		var price: float = float(EquipmentManager.ITEMS[item_id]["price"])
-		price_label.text = "$" + _fmt_cash(price)
+		var price: int = int(EquipmentManager.ITEMS[item_id]["price"])
+		var price_type: String = EquipmentManager.ITEMS[item_id].get("price_type", "metal")
+		price_label.text = str(price) + " " + price_type.left(3).capitalize()
 		count_label.text = ""
-		disabled = not (GameManager.cash >= price)
+		disabled = not (MaterialManager.get_amount(price_type) >= price)
 		modulate = Color.WHITE
 	# Refresh popup text (owned status may have changed)
 	if is_instance_valid(_desc_popup):
 		var rtl := _desc_popup.get_node_or_null("RTL") as RichTextLabel
 		if rtl:
 			rtl.text = _build_popup_text()
-
-func _on_cash_changed(_c: float) -> void:
-	_refresh_state()
 
 func _on_mouse_entered() -> void:
 	if _desc_popup == null:

@@ -53,6 +53,9 @@ var _charge := 0.0
 var _aura_acc := 0.0
 var _aura_time := 0.0
 
+# Auto-fire toggle
+var _auto_fire := false
+
 # Transient FX (all in StreamScreen-local space)
 var _bullets: Array = []   # {pos, vel, dmg, big, life}
 var _missiles: Array = []  # Homing Missile choreography: {pos, vel, dmg, target, phase, angle, orbit_t, life}
@@ -84,6 +87,12 @@ func set_multi_hit_provider(fn: Callable) -> void:
 
 func clear_multi_hit_provider() -> void:
 	_multi_hit_provider = Callable()
+
+func set_auto_fire(enabled: bool) -> void:
+	_auto_fire = enabled
+
+func get_auto_fire() -> bool:
+	return _auto_fire
 
 func setup() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -128,12 +137,13 @@ func _process(delta: float) -> void:
 	# can't fire faster than the weapon's cooldown allows.
 	_primary_cd = maxf(0.0, _primary_cd - delta)
 	# Mouse trigger by polling (works regardless of what control is under the cursor).
-	var down := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	var down := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or _auto_fire
 	if _inventory_open():
 		_trigger_down = false
 		_charge = 0.0
 	else:
-		if down and not _mouse_was_down and _cursor_in_play() and not _primary_def().is_empty():
+		var can_fire := (down and not _mouse_was_down) or (_auto_fire and not _trigger_down)
+		if can_fire and _cursor_in_play() and not _primary_def().is_empty():
 			_begin_trigger()
 		elif _trigger_down and not down:
 			_release_trigger()
@@ -193,6 +203,9 @@ func _aura_tick(radius: float, dmg: float) -> void:
 	var boss_rect := _boss_rect_local()
 	if boss_rect.has_area() and _circle_hits_rect(center, radius, boss_rect):
 		GameManager.take_boss_damage(int(dmg))
+		var bf := get_tree().get_first_node_in_group("chromeleon_fight")
+		if bf != null and bf.has_method("flash_boss_hit"):
+			bf.flash_boss_hit()
 		_arcs.append({"a": center, "b": boss_rect.position + boss_rect.size * 0.5, "age": 0.0, "max_age": 0.18})
 
 func _update_bullets(delta: float) -> void:
@@ -222,6 +235,9 @@ func _update_bullets(delta: float) -> void:
 			var r: float = _ball_radius(b)
 			if boss_rect.has_area() and _circle_hits_rect(pos, maxf(r, 4.0), boss_rect):
 				GameManager.take_boss_damage(int(b["dmg"]))
+				var bf := get_tree().get_first_node_in_group("chromeleon_fight")
+				if bf != null and bf.has_method("flash_boss_hit"):
+					bf.flash_boss_hit()
 				_spawn_impact(pos, true)
 				b["dmg"] = 0.0   # boss absorbs the whole ball
 			else:
@@ -245,6 +261,9 @@ func _update_bullets(delta: float) -> void:
 				remove = true
 			elif boss_rect.has_area() and boss_rect.has_point(pos):
 				GameManager.take_boss_damage(int(b["dmg"]))
+				var bf := get_tree().get_first_node_in_group("chromeleon_fight")
+				if bf != null and bf.has_method("flash_boss_hit"):
+					bf.flash_boss_hit()
 				_spawn_impact(pos, false)
 				remove = true
 			else:

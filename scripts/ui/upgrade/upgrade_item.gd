@@ -25,7 +25,7 @@ func setup(id: String) -> void:
 
 	_build_desc_popup()
 	_apply_styles()
-	GameManager.stable_views_changed.connect(_on_stable_views_changed)
+	MaterialManager.materials_changed.connect(_refresh_state)
 	pressed.connect(_on_pressed)
 	mouse_entered.connect(_on_mouse_entered)
 	mouse_exited.connect(_on_mouse_exited)
@@ -75,32 +75,29 @@ func _hl(s: String) -> String:
 
 func _build_desc_content() -> String:
 	var data: Dictionary = UpgradeManager.UPGRADES[upgrade_id]
-	var tab       := String(data.get("tab", "weaponry"))
 	var item_name := String(data["name"])
 	var desc_txt  := String(data.get("desc", ""))
 	var owned     := UpgradeManager.get_owned_count(upgrade_id)
+	var cost_type := String(data.get("cost_type", "metal"))
+	var produces_type := String(data.get("produces_type", "liquid"))
 	var spent     := _calc_views_spent()
 
 	var lines: PackedStringArray = []
 	lines.append("[b]" + item_name + "[/b]")
 	lines.append("owned: " + _hl(str(owned)))
-	lines.append(_hl(GameManager.format_views(spent)) + " fuel spent total")
+	lines.append(_hl(str(spent)) + " " + cost_type.capitalize() + " spent total")
 	lines.append("[i]\"" + desc_txt + "\"[/i]")
 
-	if tab == "weaponry":
-		var global_mult := EquipmentManager.get_global_vps_multiplier()
-		var total_vps   := GameManager.vps * global_mult
-		if data.has("vps"):
-			var eq_mult        := EquipmentManager.get_multiplier_for_upgrade(upgrade_id)
-			var vps_each       := float(data["vps"]) * eq_mult
-			var item_total_vps := float(owned) * vps_each * global_mult
-			var pct            := (item_total_vps / total_vps * 100.0) if total_vps > 0.0 else 0.0
-			var eq_tag         := (" [color=#aaddff](×%.4g eq)[/color]" % eq_mult) if eq_mult != 1.0 else ""
-			lines.append("Each " + item_name + " produces " + _hl(GameManager.format_views(int(vps_each))) + " FPS" + eq_tag)
-			lines.append(_hl(str(owned)) + " " + item_name + " producing " +
-				_hl(GameManager.format_views(int(item_total_vps))) + " FPS (" + _hl("%.1f%%" % pct) + " of total)")
-		var fuel_so_far := UpgradeManager.get_views_produced(upgrade_id)
-		lines.append(_hl(GameManager.format_views(int(fuel_so_far))) + " fuel produced so far")
+	var eq_mult        := EquipmentManager.get_multiplier_for_upgrade(upgrade_id)
+	var mps_each       := float(data.get("mps", 0.0)) * eq_mult
+	var item_total_mps := float(owned) * mps_each
+	var eq_tag         := (" [color=#aaddff](×%.4g eq)[/color]" % eq_mult) if eq_mult != 1.0 else ""
+	lines.append("Each " + item_name + " produces " + _hl(str(int(mps_each))) + " " + produces_type.capitalize() + "/s" + eq_tag)
+	lines.append(_hl(str(owned)) + " " + item_name + " producing " +
+		_hl(str(int(item_total_mps))) + " " + produces_type.capitalize() + "/s")
+	
+	var produced_so_far := UpgradeManager.get_views_produced(upgrade_id)
+	lines.append(_hl(str(int(produced_so_far))) + " " + produces_type.capitalize() + " produced so far")
 
 	return "\n".join(lines)
 
@@ -154,15 +151,13 @@ func _exit_tree() -> void:
 
 func _refresh_state() -> void:
 	var price: int = UpgradeManager.get_current_price(upgrade_id)
-	var cost_text := GameManager.format_views(price) + " views"
-	if UpgradeManager.UPGRADES[upgrade_id].get("cost_type") == "per_credit":
-		cost_text += "/credit"
-	price_label.text = cost_text
+	var cost_type: String = UpgradeManager.UPGRADES[upgrade_id].get("cost_type", "metal")
+	price_label.text = str(price) + " " + cost_type.capitalize()
 
 	var count: int = UpgradeManager.get_owned_count(upgrade_id)
 	count_label.text = "x%d" % count if count > 0 else ""
 
-	var can_afford: bool = GameManager.stable_views >= price
+	var can_afford: bool = MaterialManager.get_amount(cost_type) >= price
 	disabled = not can_afford
 
 	if can_afford:
@@ -174,14 +169,13 @@ func _refresh_state() -> void:
 		name_label.add_theme_color_override("font_color", Color(0.35, 0.37, 0.40))
 		price_label.add_theme_color_override("font_color", Color(0.50, 0.12, 0.12))
 
-func _on_stable_views_changed(_v: int) -> void:
-	_refresh_state()
-
 func _on_pressed() -> void:
-	print("[ToolsList] pressed id=%s disabled=%s price=%d stable_views=%d" % [
+	var cost_type: String = UpgradeManager.UPGRADES[upgrade_id].get("cost_type", "metal")
+	print("[ToolsList] pressed id=%s disabled=%s price=%d cost_type=%s balance=%d" % [
 		upgrade_id, str(disabled),
 		UpgradeManager.get_current_price(upgrade_id),
-		GameManager.stable_views,
+		cost_type,
+		MaterialManager.get_amount(cost_type)
 	])
 	if UpgradeManager.try_purchase(upgrade_id):
 		print("[ToolsList]   purchase OK")

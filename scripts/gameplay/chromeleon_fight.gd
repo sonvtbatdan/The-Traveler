@@ -43,6 +43,9 @@ const M3_SNAP_MIN  := 0.5
 const M3_SNAP_MAX  := 1.5
 const M3_DURATION  := 10.0
 const M3_RECALL_T  := 1.2
+const M3_BODY_SPAWN_INT := 1.5  # spawn chromeleonbody every 1.5s
+const M3_BODY_MOVE_SPD  := 40.0 # px/s
+const M3_BODY_MOVE_RPM  := 10.0 # rotation per minute
 
 const M4_MOVE_SPD   := 150.0
 const M4_MOVE_RPM   := 40.0
@@ -113,13 +116,21 @@ var _clip_node: Control = null
 var _assets_loaded:   bool  = false
 var _bullet_frames:   Array = []
 var _bullet_sizes:    Array = []   # Vector2 per chromebullet, matching _bullet_frames
+var _bullet_native_sizes: Array = []  # native texture sizes for fallback
+var _bullet_resized_frames: Array = []  # resized textures, cached per chromebullet
 var _last_cb_idx:     int   = 0    # last random chromebullet index
 var _ball_frames:     Array = []
 var _ball_delays:     Array = []
+var _body_frames:     Array = []
+var _body_delays:     Array = []
 var _blue_bullet_tex:  Texture2D = null
 var _teal_bullet_tex:  Texture2D = null
-var _blue_bullet_size: Vector2   = Vector2(10.0, 10.0)
-var _teal_bullet_size: Vector2   = Vector2(10.0, 10.0)
+var _blue_bullet_resized: Texture2D = null
+var _teal_bullet_resized: Texture2D = null
+var _blue_bullet_native_size: Vector2 = Vector2.ZERO
+var _teal_bullet_native_size: Vector2 = Vector2.ZERO
+var _blue_bullet_size: Vector2   = Vector2.ZERO
+var _teal_bullet_size: Vector2   = Vector2.ZERO
 
 var _projectiles:      Array = []
 var _shielded_bullets: Array = []
@@ -133,6 +144,7 @@ var _anim_acc:      float = 0.0
 var _anim_backward: bool  = false
 var _anim_hold:     bool  = false
 var _anim_done:     bool  = false
+var _anim_phase_timer: float = 0.0   # timeout guard for anim-waiting phases
 signal anim_finished
 
 # M1 state
@@ -150,6 +162,7 @@ var _m2_shoot_acc: float = 0.0
 # M3 state
 var _body_wp:   Vector2 = Vector2.ZERO
 var _body_rot:  float   = 0.0
+var _m3_body_instances: Array = []  # {tr, pos, wp, rot, frame_idx, anim_acc}
 var _blue_wp:   Vector2 = Vector2.ZERO
 var _teal_wp:   Vector2 = Vector2.ZERO
 var _blue_rot:  float   = 0.0
@@ -160,6 +173,7 @@ var _blue_snapping:    bool  = false
 var _teal_snapping:    bool  = false
 var _blue_shoot_acc:   float = 0.0
 var _teal_shoot_acc:   float = 0.0
+var _m3_body_spawn_acc: float = 0.0
 
 # M4 state
 var _m4_charge_dir: Vector2 = Vector2.ZERO
@@ -209,8 +223,15 @@ func setup(oc: Control) -> void:
 	GameManager.boss_killed.connect(_on_boss_killed_ext)
 
 func _on_boss_killed_ext() -> void:
-	if _phase != Phase.IDLE and _phase != Phase.DONE:
-		_force_reset()
+	if _phase == Phase.IDLE or _phase == Phase.DONE:
+		return
+	# Already in the final sub-phases — the main body HP hitting 0 is expected here;
+	# let the orb fight run its course via _check_orb_win().
+	match _phase:
+		Phase.FINAL_ENTRY, Phase.FINAL_SUB1, Phase.FINAL_SUB2, Phase.FINAL_SUB3:
+			return
+	# M1-M4: player naturally depleted the body HP → begin final phase.
+	_begin_final()
 
 func _force_reset() -> void:
 	_cleanup_projectiles()
@@ -239,6 +260,7 @@ func spawn_boss() -> void:
 	if not _assets_loaded:
 		_load_assets()
 		_assets_loaded = true
+	_reload_bullet_sizes()
 	GameManager.boss_max_hp = BOSS_MAX_HP
 	GameManager.boss_hp     = BOSS_MAX_HP
 	GameManager.boss_hp_changed.emit(BOSS_MAX_HP)
@@ -266,7 +288,16 @@ func kill_boss() -> void:
 	GameManager.boss_killed.emit()
 
 func get_boss_hit_rect() -> Rect2:
-	var eo := _active_body()
+	# Main phase: body takes damage. Final phase: chromehead takes damage (via direct hits).
+	var eo: EditableObjectNode
+	match _phase:
+		Phase.FINAL_ENTRY, Phase.FINAL_SUB1, Phase.FINAL_SUB2, Phase.FINAL_SUB3:
+			# Final phase: return chromehead hitbox for direct bullet hits
+			eo = _chromehead_eo
+		_:
+			# M1-M4: return main body hitbox
+			eo = _active_body()
+
 	if eo == null or not is_instance_valid(eo) or not eo.visible:
 		return Rect2()
 	var tr: TextureRect = eo.texture_rect
@@ -280,6 +311,14 @@ func get_boss_hit_rect() -> Rect2:
 	var mx := Vector2(maxf(maxf(p0.x,p1.x),maxf(p2.x,p3.x)), maxf(maxf(p0.y,p1.y),maxf(p2.y,p3.y)))
 	return Rect2(mn, mx - mn)
 
+func flash_boss_hit() -> void:
+	var eo := _active_body()
+	if eo == null or not is_instance_valid(eo):
+		return
+	var tw := create_tween()
+	tw.tween_property(eo, "modulate", Color(2.0, 0.5, 0.5, 1.0), 0.04)
+	tw.tween_property(eo, "modulate", Color.WHITE, 0.15)
+
 func _start_fight() -> void:
 	_reattach_orbs()
 	_reattach_ball()
@@ -288,7 +327,13 @@ func _start_fight() -> void:
 	_tealorb_hp   = ORB_MAX_HP
 	_body_rot     = 0.0
 	_head_rot     = 0.0
+	_setup_pivots()
 	_begin_random_move()
+
+func _setup_pivots() -> void:
+	for eo: EditableObjectNode in [_chromeleonbody_eo, _chromehead_eo, _chromeball_eo, _blueorb_eo, _tealorb_eo]:
+		if is_instance_valid(eo) and eo.texture_rect != null:
+			eo.texture_rect.pivot_offset = eo.texture_rect.size / 2.0
 
 # =============================================================================
 # Move dispatch
@@ -375,9 +420,13 @@ func _begin_m2() -> void:
 	_ball_angle   = 0.0
 	_spin_acc     = 0.0
 	_m2_shoot_acc = 0.0
+	_anim_phase_timer = 0.0
 	_detach_ball()
 	_show_only(null)
 	if is_instance_valid(_chromeball_eo):
+		_chromeball_eo.gif_paused = true   # pause before visible so no rogue GIF frame shows
+		_chromeball_eo.reset_gif()
+		_chromeball_eo.texture_rect.pivot_offset = _chromeball_eo.texture_rect.size / 2.0
 		_chromeball_eo.visible = true
 		if not _ball_frames.is_empty():
 			_play_anim(_chromeball_eo.texture_rect, _ball_frames, _ball_delays, false, true)
@@ -386,6 +435,8 @@ func _begin_m2() -> void:
 			_on_m2_transform_done()
 
 func _on_m2_transform_done() -> void:
+	if _phase != Phase.M2_TRANSFORM:
+		return
 	_phase = Phase.M2_MOVE
 
 func _tick_m2_move(delta: float) -> void:
@@ -417,6 +468,7 @@ func _tick_m2_spin(delta: float) -> void:
 
 func _begin_m2_return() -> void:
 	_phase = Phase.M2_RETURN
+	_anim_phase_timer = 0.0
 	if is_instance_valid(_chromeball_eo) and not _ball_frames.is_empty():
 		_play_anim(_chromeball_eo.texture_rect, _ball_frames, _ball_delays, true, true)
 		anim_finished.connect(_on_m2_return_done, CONNECT_ONE_SHOT)
@@ -424,6 +476,8 @@ func _begin_m2_return() -> void:
 		_on_m2_return_done()
 
 func _on_m2_return_done() -> void:
+	if _phase != Phase.M2_RETURN:
+		return
 	_reattach_ball()
 	_show_only(_chromeleon_eo)
 	_check_hp_or_next()
@@ -436,18 +490,22 @@ func _begin_m3() -> void:
 	_phase = Phase.M3_ACTIVE
 	_phase_timer = 0.0
 	_detach_orbs()
+	_cleanup_m3_body_instances()
+	_spawn_m3_body_instance()  # spawn first chromeleonbody instance
 	_show_only(_chromeleonbody_eo)
 	_blueorb_eo.visible = true
 	_tealorb_eo.visible = true
 	_body_wp = _pick_wander_wp(Y_LIMIT)
 	_blue_wp = _pick_wander_wp(Y_LIMIT)
 	_teal_wp = _pick_wander_wp(Y_LIMIT)
+	_body_rot = 0.0
 	_blue_snap_timer = randf_range(M3_SNAP_MIN, M3_SNAP_MAX)
 	_teal_snap_timer = randf_range(M3_SNAP_MIN, M3_SNAP_MAX)
 	_blue_snapping = false
 	_teal_snapping = false
 	_blue_shoot_acc = 0.0
 	_teal_shoot_acc = 0.0
+	_m3_body_spawn_acc = 0.0
 
 func _tick_m3(delta: float) -> void:
 	_phase_timer += delta
@@ -457,6 +515,15 @@ func _tick_m3(delta: float) -> void:
 		_body_wp = _tick_wander(_chromeleonbody_eo, _body_wp, delta, M3_BODY_SPD, Y_LIMIT)
 		_body_rot += M3_BODY_RPM * TAU / 60.0 * delta
 		_chromeleonbody_eo.texture_rect.rotation = _body_rot
+
+	# Tick chromeleonbody instances (wandering + respawn at bounds)
+	_tick_m3_body_instances(delta)
+
+	# Spawn chromeleonbody instances periodically
+	_m3_body_spawn_acc += delta
+	if _m3_body_spawn_acc >= M3_BODY_SPAWN_INT:
+		_m3_body_spawn_acc = 0.0
+		_spawn_m3_body_instance()
 
 	# Orb snap rotation + movement + shooting
 	_tick_orb_m3(_blueorb_eo, delta, true)
@@ -506,15 +573,65 @@ func _tick_orb_m3(eo: EditableObjectNode, delta: float, is_blue: bool) -> void:
 		_blue_shoot_acc += delta
 		if _blue_shoot_acc >= M3_ORB_SHOOT:
 			_blue_shoot_acc = 0.0
-			_fire_orb_nsew(eo, _blue_fp_offset, _blue_rot, _blue_bullet_tex,
+			_fire_orb_nsew(eo, _blue_fp_offset, _blue_rot, _blue_bullet_resized if _blue_bullet_resized != null else _blue_bullet_tex,
 				[Vector2.UP, Vector2.DOWN, Vector2.LEFT, Vector2.RIGHT], _blue_bullet_size)
 	else:
 		_teal_shoot_acc += delta
 		if _teal_shoot_acc >= M3_ORB_SHOOT:
 			_teal_shoot_acc = 0.0
-			_fire_orb_nsew(eo, _teal_fp_offset, _teal_rot, _teal_bullet_tex,
+			_fire_orb_nsew(eo, _teal_fp_offset, _teal_rot, _teal_bullet_resized if _teal_bullet_resized != null else _teal_bullet_tex,
 				[Vector2(-1,-1).normalized(), Vector2(1,-1).normalized(),
 				 Vector2(-1,1).normalized(), Vector2(1,1).normalized()], _teal_bullet_size)
+
+func _tick_m3_body_instances(delta: float) -> void:
+	var i := _m3_body_instances.size() - 1
+	while i >= 0:
+		var inst: Dictionary = _m3_body_instances[i]
+		var tr: TextureRect = inst["tr"]
+		if not is_instance_valid(tr):
+			_m3_body_instances.remove_at(i); i -= 1; continue
+
+		# Wander to waypoint
+		var pos: Vector2 = inst["pos"]
+		var wp: Vector2 = inst["wp"]
+		var diff := wp - pos
+		if diff.length() < M3_BODY_MOVE_SPD * delta + 5.0:
+			inst["pos"] = wp
+			inst["wp"] = _pick_wander_wp(Y_LIMIT)
+		else:
+			inst["pos"] += diff.normalized() * M3_BODY_MOVE_SPD * delta
+			_clamp_eo_pos(inst, Y_LIMIT)
+
+		# Update TextureRect position
+		tr.position = inst["pos"] - OC_BOUNDS.position - Vector2(32.0, 32.0)
+
+		# Rotate
+		inst["rot"] = (inst.get("rot", 0.0) as float) + M3_BODY_MOVE_RPM * TAU / 60.0 * delta
+		tr.rotation = inst["rot"] as float
+
+		# Animate frames
+		inst["anim_acc"] = (inst.get("anim_acc", 0.0) as float) + delta
+		var delay: float = _body_delays[int(inst.get("frame_idx", 0))] if int(inst.get("frame_idx", 0)) < _body_delays.size() else 0.1
+		if inst["anim_acc"] as float >= delay:
+			inst["anim_acc"] = 0.0
+			var next_idx := (int(inst.get("frame_idx", 0)) + 1) % _body_frames.size()
+			inst["frame_idx"] = next_idx
+			tr.texture = _body_frames[next_idx] as Texture2D
+
+		i -= 1
+
+func _clamp_eo_pos(inst: Dictionary, y_max: float) -> void:
+	var pos: Vector2 = inst.get("pos", Vector2.ZERO) as Vector2
+	pos.x = clampf(pos.x, OC_BOUNDS.position.x, OC_BOUNDS.end.x - 64.0)
+	pos.y = clampf(pos.y, OC_BOUNDS.position.y, y_max - 64.0)
+	inst["pos"] = pos
+
+func _cleanup_m3_body_instances() -> void:
+	for inst: Dictionary in _m3_body_instances:
+		var tr = inst.get("tr")
+		if tr != null and is_instance_valid(tr):
+			tr.queue_free()
+	_m3_body_instances.clear()
 
 func _begin_m3_recall() -> void:
 	_phase = Phase.M3_RECALL
@@ -539,6 +656,7 @@ func _tick_m3_recall(delta: float) -> void:
 		_finish_m3_recall()
 
 func _finish_m3_recall() -> void:
+	_cleanup_m3_body_instances()
 	_reattach_orbs()
 	_show_only(_chromeleon_eo)
 	_check_hp_or_next()
@@ -552,9 +670,13 @@ func _begin_m4() -> void:
 	_phase_timer = 0.0
 	_ball_angle  = 0.0
 	_spin_acc    = 0.0
+	_anim_phase_timer = 0.0
 	_detach_ball()
 	_show_only(null)
 	if is_instance_valid(_chromeball_eo):
+		_chromeball_eo.gif_paused = true   # pause before visible so no rogue GIF frame shows
+		_chromeball_eo.reset_gif()
+		_chromeball_eo.texture_rect.pivot_offset = _chromeball_eo.texture_rect.size / 2.0
 		_chromeball_eo.visible = true
 		if not _ball_frames.is_empty():
 			_play_anim(_chromeball_eo.texture_rect, _ball_frames, _ball_delays, false, true)
@@ -563,6 +685,8 @@ func _begin_m4() -> void:
 			_on_m4_transform_done()
 
 func _on_m4_transform_done() -> void:
+	if _phase != Phase.M4_TRANSFORM:
+		return
 	_phase = Phase.M4_MOVE
 
 func _tick_m4_move(delta: float) -> void:
@@ -638,6 +762,7 @@ func _tick_m4_return_curve(delta: float) -> void:
 
 func _begin_m4_return_anim() -> void:
 	_phase = Phase.M4_RETURN
+	_anim_phase_timer = 0.0
 	if is_instance_valid(_chromeball_eo) and not _ball_frames.is_empty():
 		_play_anim(_chromeball_eo.texture_rect, _ball_frames, _ball_delays, true, true)
 		anim_finished.connect(_on_m4_return_done, CONNECT_ONE_SHOT)
@@ -645,6 +770,8 @@ func _begin_m4_return_anim() -> void:
 		_on_m4_return_done()
 
 func _on_m4_return_done() -> void:
+	if _phase != Phase.M4_RETURN:
+		return
 	_reattach_ball()
 	_show_only(_chromeleon_eo)
 	_check_hp_or_next()
@@ -659,6 +786,10 @@ func _begin_final() -> void:
 	_cleanup_shielded_bullets()
 	_blueorb_hp = ORB_MAX_HP
 	_tealorb_hp = ORB_MAX_HP
+	# Reset the boss HP bar to represent the combined orb HP pool.
+	GameManager.boss_max_hp = ORB_MAX_HP * 2
+	GameManager.boss_hp     = ORB_MAX_HP * 2
+	GameManager.boss_hp_changed.emit(GameManager.boss_hp)
 
 	# Hide current body, show chromehead
 	_show_only(null)
@@ -769,7 +900,7 @@ func _tick_final_sub3(delta: float) -> void:
 			_sub3_orb_b = 0.0
 			var orig_b2 := _blueorb_eo.global_position + _blueorb_eo.size / 2.0
 			var bdir_b2 := (ship_c - orig_b2).normalized()
-			_spawn_bullet(_blue_bullet_tex, orig_b2, bdir_b2 * ORB_BULLET_SPD, _blue_bullet_size)
+			_spawn_bullet(_blue_bullet_resized if _blue_bullet_resized != null else _blue_bullet_tex, orig_b2, bdir_b2 * ORB_BULLET_SPD, _blue_bullet_size)
 
 	if is_instance_valid(_tealorb_eo) and _tealorb_hp > 0:
 		_teal_fin_angle += FINAL_ORB_RPM * TAU / 60.0 * delta
@@ -791,7 +922,7 @@ func _tick_final_sub3(delta: float) -> void:
 			_sub3_orb_t = 0.0
 			var orig_t2 := _tealorb_eo.global_position + _tealorb_eo.size / 2.0
 			var bdir_t2 := (ship_c - orig_t2).normalized()
-			_spawn_bullet(_teal_bullet_tex, orig_t2, bdir_t2 * ORB_BULLET_SPD, _teal_bullet_size)
+			_spawn_bullet(_teal_bullet_resized if _teal_bullet_resized != null else _teal_bullet_tex, orig_t2, bdir_t2 * ORB_BULLET_SPD, _teal_bullet_size)
 
 	_check_orb_win()
 	if _phase_timer >= SUB3_DUR:
@@ -824,7 +955,7 @@ func _tick_patrol_teal(delta: float) -> void:
 	_teal_fin_shoot += delta
 	if _teal_fin_shoot >= FINAL_ORB_SHOOT:
 		_teal_fin_shoot = 0.0
-		_fire_orb_rotated(_tealorb_eo, _teal_fp_offset, _teal_fin_angle, _teal_bullet_tex, _teal_bullet_size)
+		_fire_orb_rotated(_tealorb_eo, _teal_fp_offset, _teal_fin_angle, _teal_bullet_resized if _teal_bullet_resized != null else _teal_bullet_tex, _teal_bullet_size)
 
 func _tick_patrol_blue(delta: float) -> void:
 	if not is_instance_valid(_blueorb_eo) or _blueorb_hp <= 0:
@@ -842,7 +973,7 @@ func _tick_patrol_blue(delta: float) -> void:
 	_blue_fin_shoot += delta
 	if _blue_fin_shoot >= FINAL_ORB_SHOOT:
 		_blue_fin_shoot = 0.0
-		_fire_orb_rotated(_blueorb_eo, _blue_fp_offset, _blue_fin_angle, _blue_bullet_tex, _blue_bullet_size)
+		_fire_orb_rotated(_blueorb_eo, _blue_fp_offset, _blue_fin_angle, _blue_bullet_resized if _blue_bullet_resized != null else _blue_bullet_tex, _blue_bullet_size)
 
 # =============================================================================
 # Orb HP + win condition
@@ -870,6 +1001,9 @@ func _on_blueorb_hit(dmg: float) -> void:
 	if _blueorb_hp <= 0:
 		return
 	_blueorb_hp = maxi(0, _blueorb_hp - int(dmg))
+	var total := _blueorb_hp + _tealorb_hp
+	GameManager.boss_hp = total
+	GameManager.boss_hp_changed.emit(total)
 	if _blueorb_hp <= 0 and is_instance_valid(_blueorb_eo):
 		_blueorb_eo.visible = false
 
@@ -877,6 +1011,9 @@ func _on_tealorb_hit(dmg: float) -> void:
 	if _tealorb_hp <= 0:
 		return
 	_tealorb_hp = maxi(0, _tealorb_hp - int(dmg))
+	var total := _blueorb_hp + _tealorb_hp
+	GameManager.boss_hp = total
+	GameManager.boss_hp_changed.emit(total)
 	if _tealorb_hp <= 0 and is_instance_valid(_tealorb_eo):
 		_tealorb_eo.visible = false
 
@@ -915,6 +1052,8 @@ func _end_fight_win() -> void:
 	_phase_timer = 0.0
 	GameManager.boss_hp     = 0
 	GameManager.boss_max_hp = 0
+	# Delay boss_killed so HUD stays visible and asteroids don't spawn yet
+	await get_tree().create_timer(0.1).timeout
 	GameManager.boss_killed.emit()
 	_show_victory_screen()
 
@@ -925,6 +1064,7 @@ func _end_fight_win() -> void:
 func _spawn_bullet_wave() -> void:
 	if _bullet_frames.is_empty():
 		return
+	print(">>> WAVE SPAWN at Y=%f, spawning %d bullets" % [WAVE_Y, SUB2_BLT_CNT])
 	for i in SUB2_BLT_CNT:
 		var x_vp := WAVE_X_MIN + i * (WAVE_X_MAX - WAVE_X_MIN) / float(SUB2_BLT_CNT - 1)
 		var tex  := _random_bullet()
@@ -972,7 +1112,7 @@ func _get_shielded_targets() -> Array:
 	var result: Array = []
 	for sb: Dictionary in _shielded_bullets:
 		var pos: Vector2 = sb["pos"]
-		var sz: Vector2  = sb.get("sz", Vector2(10.0, 10.0)) as Vector2
+		var sz: Vector2  = sb.get("sz", Vector2.ZERO) as Vector2
 		var sbref := sb
 		result.append({
 			"rect":   Rect2(pos - ws_gp - sz / 2.0, sz),
@@ -1057,14 +1197,30 @@ func _process(delta: float) -> void:
 
 	match _phase:
 		Phase.M1_CRAWL:        _tick_m1(delta)
+		Phase.M2_TRANSFORM:
+			_anim_phase_timer += delta
+			if _anim_phase_timer >= 15.0:
+				_on_m2_transform_done()
 		Phase.M2_MOVE:         _tick_m2_move(delta)
 		Phase.M2_SPIN:         _tick_m2_spin(delta)
+		Phase.M2_RETURN:
+			_anim_phase_timer += delta
+			if _anim_phase_timer >= 15.0:
+				_on_m2_return_done()
 		Phase.M3_ACTIVE:       _tick_m3(delta)
 		Phase.M3_RECALL:       _tick_m3_recall(delta)
+		Phase.M4_TRANSFORM:
+			_anim_phase_timer += delta
+			if _anim_phase_timer >= 15.0:
+				_on_m4_transform_done()
 		Phase.M4_MOVE:         _tick_m4_move(delta)
 		Phase.M4_SPIN:         _tick_m4_spin(delta)
 		Phase.M4_CHARGE:       _tick_m4_charge(delta)
 		Phase.M4_RETURN_CURVE: _tick_m4_return_curve(delta)
+		Phase.M4_RETURN:
+			_anim_phase_timer += delta
+			if _anim_phase_timer >= 15.0:
+				_on_m4_return_done()
 		Phase.FINAL_SUB1:      _tick_final_sub1(delta)
 		Phase.FINAL_SUB2:      _tick_final_sub2(delta)
 		Phase.FINAL_SUB3:      _tick_final_sub3(delta)
@@ -1161,12 +1317,44 @@ func _random_bullet() -> Texture2D:
 	if _bullet_frames.is_empty():
 		return null
 	_last_cb_idx = randi() % _bullet_frames.size()
+	# Return resized frame if available, fallback to raw frame
+	if _last_cb_idx < _bullet_resized_frames.size():
+		return _bullet_resized_frames[_last_cb_idx] as Texture2D
 	return _bullet_frames[_last_cb_idx] as Texture2D
 
 func _random_bullet_sz() -> Vector2:
 	if _bullet_sizes.size() <= _last_cb_idx:
-		return Vector2(8.0, 8.0)
-	return _bullet_sizes[_last_cb_idx] as Vector2
+		return Vector2.ZERO
+	var sz := _bullet_sizes[_last_cb_idx] as Vector2
+	return sz if sz != Vector2.ZERO else Vector2(1.0, 1.0)
+
+func _spawn_m3_body_instance() -> void:
+	if _body_frames.is_empty():
+		return
+	var frame: Texture2D = _body_frames[0]
+	if frame == null:
+		return
+	var sz := Vector2(64.0, 64.0)
+	var lpos := _pick_wander_wp(Y_LIMIT) - OC_BOUNDS.position - sz / 2.0
+	var tr := TextureRect.new()
+	tr.texture = frame
+	tr.size = sz
+	tr.stretch_mode = TextureRect.STRETCH_KEEP
+	tr.pivot_offset = sz / 2.0
+	tr.position = lpos
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	tr.z_as_relative = false
+	tr.z_index = 150
+	_clip_node.add_child(tr)
+	_m3_body_instances.append({
+		"tr": tr,
+		"pos": lpos + OC_BOUNDS.position,  # viewport pos
+		"wp": _pick_wander_wp(Y_LIMIT),   # next waypoint
+		"rot": 0.0,
+		"frame_idx": 0,
+		"anim_acc": 0.0
+	})
 
 # =============================================================================
 # Projectile system
@@ -1179,8 +1367,7 @@ func _spawn_bullet(tex: Texture2D, origin_vp: Vector2, vel: Vector2, sz: Vector2
 	var tr      := TextureRect.new()
 	tr.texture        = tex
 	tr.size           = sz
-	tr.stretch_mode   = TextureRect.STRETCH_SCALE
-	tr.expand_mode    = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode   = TextureRect.STRETCH_KEEP  # texture is pre-resized CPU-side
 	tr.pivot_offset   = sz / 2.0
 	tr.position       = lpos
 	tr.mouse_filter   = Control.MOUSE_FILTER_IGNORE
@@ -1221,6 +1408,18 @@ func _cleanup_projectiles() -> void:
 		if tr != null and is_instance_valid(tr):
 			tr.queue_free()
 	_projectiles.clear()
+
+func _resize_tex(tex: Texture2D, target_sz: Vector2) -> Texture2D:
+	# CPU-side resize (bilinear) → ImageTexture. Pattern: fixed-size bullets pre-cached.
+	# Called by _resize_all_bullets() at load time; cached results reused on spawn.
+	if tex == null or target_sz == Vector2.ZERO:
+		return tex
+	var img := tex.get_image()
+	if img == null:
+		return tex
+	var copy := img.duplicate() as Image
+	copy.resize(int(target_sz.x), int(target_sz.y), Image.INTERPOLATE_BILINEAR)
+	return ImageTexture.create_from_image(copy)
 
 # =============================================================================
 # EO helpers
@@ -1293,6 +1492,8 @@ func _reattach_ball() -> void:
 		_clamp_eo(_chromeleon_eo, OC_BOUNDS.end.y)
 	_chromeball_eo.texture_rect.rotation = 0.0
 	_chromeball_eo.visible = true
+	_chromeball_eo.gif_paused = false   # restore EO's own GIF loop
+	_chromeball_eo.reset_gif()
 
 func _show_only(target: EditableObjectNode) -> void:
 	for eo in [_chromeleon_eo, _chromeleonbody_eo, _chromehead_eo, _chromeball_eo, _blueorb_eo, _tealorb_eo]:
@@ -1445,15 +1646,6 @@ func _cache_fp_offsets() -> void:
 # =============================================================================
 
 func _load_assets() -> void:
-	# Read stored bullet sizes from boss_layout.cfg
-	var sz_map: Dictionary = {}
-	var cfg2 := ConfigFile.new()
-	if cfg2.load("res://boss_layout.cfg") == OK:
-		var entries: Array = cfg2.get_value("bosses", "chromeleon", [])
-		for entry: Dictionary in entries:
-			var bn: String = (entry.get("path", "") as String).get_file().get_basename().to_lower()
-			sz_map[bn] = entry.get("size", Vector2(8.0, 8.0))
-
 	# chromebullet1-12
 	for i in range(1, 13):
 		var bn   := "chromebullet%d" % i
@@ -1469,7 +1661,9 @@ func _load_assets() -> void:
 			if not frames.is_empty():
 				frame = frames[0] as Texture2D
 		_bullet_frames.append(frame)
-		_bullet_sizes.append(sz_map.get(bn, Vector2(8.0, 8.0)) as Vector2)
+		var native_sz := frame.get_size() if frame != null else Vector2.ZERO
+		_bullet_native_sizes.append(native_sz)
+		_bullet_sizes.append(native_sz)  # will be overwritten by _reload_bullet_sizes() if F5 defines size
 
 	# chromeball animation
 	var ball_tex := GifLoader.load_gif("res://assets/bosses/chromeleon/chromeball.gif")
@@ -1478,6 +1672,14 @@ func _load_assets() -> void:
 			_ball_frames = ball_tex.get_meta("gif_frames")
 		if ball_tex.has_meta("gif_delays"):
 			_ball_delays = ball_tex.get_meta("gif_delays")
+
+	# chromeleonbody animation (for M3 projectiles)
+	var body_tex := GifLoader.load_gif("res://assets/bosses/chromeleon/chromeleonbody.gif")
+	if body_tex != null:
+		if body_tex.has_meta("gif_frames"):
+			_body_frames = body_tex.get_meta("gif_frames")
+		if body_tex.has_meta("gif_delays"):
+			_body_delays = body_tex.get_meta("gif_delays")
 
 	# bluebullet
 	var bt := GifLoader.load_gif("res://assets/bosses/chromeleon/bluebullet.gif")
@@ -1489,7 +1691,8 @@ func _load_assets() -> void:
 			_blue_bullet_tex = bframes[0] as Texture2D
 		else:
 			_blue_bullet_tex = bt
-	_blue_bullet_size = sz_map.get("bluebullet", Vector2(10.0, 10.0)) as Vector2
+		_blue_bullet_native_size = _blue_bullet_tex.get_size() if _blue_bullet_tex != null else Vector2.ZERO
+		_blue_bullet_size = _blue_bullet_native_size
 
 	# tealbullet
 	var tt := GifLoader.load_gif("res://assets/bosses/chromeleon/tealbullet.gif")
@@ -1501,4 +1704,44 @@ func _load_assets() -> void:
 			_teal_bullet_tex = tframes[0] as Texture2D
 		else:
 			_teal_bullet_tex = tt
-	_teal_bullet_size = sz_map.get("tealbullet", Vector2(10.0, 10.0)) as Vector2
+		_teal_bullet_native_size = _teal_bullet_tex.get_size() if _teal_bullet_tex != null else Vector2.ZERO
+		_teal_bullet_size = _teal_bullet_native_size
+
+func _reload_bullet_sizes() -> void:
+	# Always re-read bullet sizes from boss_layout.cfg so F5 edits take effect
+	var sz_map: Dictionary = {}
+	var cfg2 := ConfigFile.new()
+	if cfg2.load("res://boss_layout.cfg") == OK:
+		var entries: Array = cfg2.get_value("bosses", "chromeleon", [])
+		for entry: Dictionary in entries:
+			var bn: String = (entry.get("path", "") as String).get_file().get_basename().to_lower()
+			var sz: Vector2 = entry.get("size", Vector2.ZERO) as Vector2
+			if sz != Vector2.ZERO:
+				sz_map[bn] = sz
+
+	# Update chromebullet sizes (fallback to native size if not in F5)
+	for i in _bullet_frames.size():
+		var bn := "chromebullet%d" % (i + 1)
+		var native_fallback: Vector2 = _bullet_native_sizes[i] if i < _bullet_native_sizes.size() else Vector2.ZERO
+		if i < _bullet_sizes.size():
+			_bullet_sizes[i] = sz_map.get(bn, native_fallback) as Vector2
+
+	# Update orb bullet sizes (fallback to native size if not in F5)
+	_blue_bullet_size = sz_map.get("bluebullet", _blue_bullet_native_size) as Vector2
+	_teal_bullet_size = sz_map.get("tealbullet", _teal_bullet_native_size) as Vector2
+
+	# Pre-cache resized bullet frames
+	_resize_all_bullets()
+
+func _resize_all_bullets() -> void:
+	# Resize chromebullets
+	_bullet_resized_frames.clear()
+	for i in _bullet_frames.size():
+		var frame: Texture2D = _bullet_frames[i]
+		var sz: Vector2 = _bullet_sizes[i] if i < _bullet_sizes.size() else Vector2.ZERO
+		var resized := _resize_tex(frame, sz) if sz != Vector2.ZERO else frame
+		_bullet_resized_frames.append(resized)
+
+	# Resize blue/teal bullets
+	_blue_bullet_resized = _resize_tex(_blue_bullet_tex, _blue_bullet_size) if _blue_bullet_size != Vector2.ZERO else _blue_bullet_tex
+	_teal_bullet_resized = _resize_tex(_teal_bullet_tex, _teal_bullet_size) if _teal_bullet_size != Vector2.ZERO else _teal_bullet_tex

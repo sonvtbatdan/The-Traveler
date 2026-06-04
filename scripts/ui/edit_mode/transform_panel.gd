@@ -49,10 +49,17 @@ func _on_pos_changed(_value: float) -> void:
 	_emit_live()
 
 func _on_w_changed(value: float) -> void:
-	if _syncing or _aspect_ratio <= 0.0:
+	if _syncing:
 		return
+	# Fallback: if aspect_ratio became invalid, recalculate from current dimensions
+	var aspect := _aspect_ratio
+	if aspect <= 0.0:
+		if h_spin.value > 0.0:
+			aspect = w_spin.value / h_spin.value
+		else:
+			aspect = 1.0
 	_syncing = true
-	var new_h := snappedf(value / _aspect_ratio, 1.0)
+	var new_h := snappedf(value / aspect, 1.0)
 	h_spin.value = new_h
 	x_spin.value = snappedf(_last_center.x - value * 0.5, 1.0)
 	y_spin.value = snappedf(_last_center.y - new_h * 0.5, 1.0)
@@ -60,10 +67,17 @@ func _on_w_changed(value: float) -> void:
 	_emit_live()
 
 func _on_h_changed(value: float) -> void:
-	if _syncing or _aspect_ratio <= 0.0:
+	if _syncing:
 		return
+	# Fallback: if aspect_ratio became invalid, recalculate from current dimensions
+	var aspect := _aspect_ratio
+	if aspect <= 0.0:
+		if w_spin.value > 0.0:
+			aspect = h_spin.value / w_spin.value
+		else:
+			aspect = 1.0
 	_syncing = true
-	var new_w := snappedf(value * _aspect_ratio, 1.0)
+	var new_w := snappedf(value * aspect, 1.0)
 	w_spin.value = new_w
 	x_spin.value = snappedf(_last_center.x - new_w * 0.5, 1.0)
 	y_spin.value = snappedf(_last_center.y - value * 0.5, 1.0)

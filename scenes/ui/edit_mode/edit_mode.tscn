@@ -103,20 +103,17 @@ text = "Save"
 [node name="UploadBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 text = "Upload"
+visible = false
 
 [node name="DeleteBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 text = "Delete"
 disabled = true
+visible = false
 
 [node name="FitScreenBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 text = "Fit 1440×780"
-visible = false
-
-[node name="SetupScreenBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
-layout_mode = 2
-text = "From User"
 visible = false
 
 [node name="ResetScreenBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
@@ -127,11 +124,13 @@ visible = false
 [node name="ResetEquipmentBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 text = "Reset Power Core"
+visible = false
 
 [node name="ShowWeaponBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 toggle_mode = true
 text = "Show Weapons"
+visible = false
 
 [node name="SymmetricBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2

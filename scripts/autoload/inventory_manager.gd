@@ -51,6 +51,17 @@ const RARITY_COLORS: Dictionary = {
 	"legendary": Color(0.95, 0.60, 0.20),
 }
 
+# Asteroid loot drop weights per rarity. Pool total / LOOT_DENOM ≈ base drop chance.
+# With the 4 current items the base chance is roughly 5.7 % per destroyed asteroid.
+# Rare items are ~3× less likely than common; epic ~10× less likely than common.
+const RARITY_LOOT_WEIGHTS: Dictionary = {
+	"common":    40,
+	"rare":      12,
+	"epic":       4,
+	"legendary":  1,
+}
+const LOOT_DENOM: int = 1000
+
 # All possible items. "size" = grid cells (cols, rows). "tags" describe what the
 # item IS (e.g. "weapon", "shield"); which slots accept it is decided by
 # SLOT_RULES above. "stats" hold raw, easy-to-tweak numbers; none are wired to
@@ -424,6 +435,35 @@ func _make_placeholder(d: Dictionary) -> Texture2D:
 		img.set_pixel(0, y, border)
 		img.set_pixel(w - 1, y, border)
 	return ImageTexture.create_from_image(img)
+
+# ── Asteroid loot (Phase 4) ─────────────────────────────────────────────────────
+
+## Roll for an item drop when an asteroid is destroyed.
+## Adds the item to the backpack and returns its def_id, or "" if nothing dropped.
+## Callers can use the returned id to show a visual notification.
+func roll_asteroid_drop() -> String:
+	# Build the weighted pool from the current ITEM_DEFS.
+	var pool_weight: int = 0
+	for id: String in ITEM_DEFS:
+		var r := String(ITEM_DEFS[id].get("rarity", "common"))
+		pool_weight += int(RARITY_LOOT_WEIGHTS.get(r, 0))
+	# pool_weight / LOOT_DENOM = base drop probability per asteroid.
+	if randf_range(0.0, float(LOOT_DENOM)) > float(pool_weight):
+		return ""
+	# Pick an item proportionally by rarity weight.
+	var pick: float = randf() * float(pool_weight)
+	var cum: float = 0.0
+	for id: String in ITEM_DEFS:
+		var r := String(ITEM_DEFS[id].get("rarity", "common"))
+		cum += float(int(RARITY_LOOT_WEIGHTS.get(r, 0)))
+		if pick < cum:
+			if not has_room_for(id):
+				return ""  # backpack full
+			var uid := add_to_backpack(id)
+			if uid == -1:
+				return ""
+			return id
+	return ""
 
 # ── Persistence (shared user://save.cfg, section [inventory]) ───────────────────
 

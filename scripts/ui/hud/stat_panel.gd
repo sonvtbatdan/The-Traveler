@@ -386,7 +386,7 @@ func _prompt_confirm(action: String) -> void:
 		"purchases":
 			_confirm_msg_lbl.text = "This will reset all WEAPONRY and DEFENSE\nupgrades and POWER CORE items to zero.\nThis cannot be undone."
 		"game":
-			_confirm_msg_lbl.text = "This will reset all Crew, Fuel, Credits,\nand Equipment to zero.\nThis cannot be undone."
+			_confirm_msg_lbl.text = "This will reset all Materials, Upgrades,\nand Equipment to zero.\nThis cannot be undone."
 	_confirm_panel.visible = true
 	_settings_panel.visible = false
 

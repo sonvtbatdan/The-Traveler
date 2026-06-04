@@ -50,7 +50,7 @@ func _ready() -> void:
 	call_deferred("_setup_boss_edit")
 
 func _add_scrolling_background() -> void:
-	var screen := get_node_or_null("StreamScreen") as Panel
+	var screen := get_node_or_null("SpaceScreen") as Panel
 	if screen == null:
 		return
 
@@ -82,7 +82,7 @@ func _add_scrolling_background() -> void:
 	screen.add_child(border)
 
 func _add_scrolling_overlay() -> void:
-	var screen := get_node_or_null("StreamScreen") as Panel
+	var screen := get_node_or_null("SpaceScreen") as Panel
 	if screen == null:
 		return
 	var ov := OverlayScript.new()
@@ -101,7 +101,7 @@ func _apply_screen_layouts() -> void:
 		var sz: Vector2   = entry.get("size", Vector2.ZERO)
 		if sz.x <= 0.0 or sz.y <= 0.0:
 			continue
-		# ObjectsContainer is viewport-space; StreamScreen sits at (270, 8)
+		# ObjectsContainer is viewport-space; SpaceScreen sits at (270, 8)
 		var rel := Vector2(pos.x - 270.0, pos.y - 8.0)
 		if path.ends_with("background.png"):
 			var bg := get_tree().get_first_node_in_group("scrolling_bg")
@@ -113,7 +113,7 @@ func _apply_screen_layouts() -> void:
 				ov.apply_layout_rect(rel, sz)
 
 func _add_asteroid_layers() -> void:
-	var screen := get_node_or_null("StreamScreen") as Panel
+	var screen := get_node_or_null("SpaceScreen") as Panel
 	if screen == null:
 		return
 	var main_layer := AsteroidLayerScript.new()
