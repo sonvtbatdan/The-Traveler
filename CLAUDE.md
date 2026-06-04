@@ -574,16 +574,41 @@ tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 - `WeaponManager` and `DefenseManager` share `user://save.cfg`; `WeaponManager.save_game()` does `erase_section("weapons")` then rewrites — safe, but both managers must use distinct sections (`[weapons]` / `[defense]`)
 - `project.godot` `[autoload]` has merge-conflicted twice on the autoload list; conflict markers there make Godot fail to open the project. Required set (no dups): AudioManager, MaterialManager, DefenseManager, EquipmentManager, UpgradeManager, GameManager, WeaponManager
 
+## Layout Config Files Workflow
+
+### Files Overview
+
+| File | Purpose | When updated |
+|------|---------|--------------|
+| `res://default_layout.cfg` | Current/working layout state | Auto-saved when user clicks "Save" in F4 |
+| `res://preset_layout.cfg` | Reset baseline (F5 loads from here) | Manually copied from default when layout is final |
+
+### Workflow: Adjust Layout → Set as Preset
+
+1. **Open edit mode (F4):** Loads from `default_layout.cfg`
+2. **Adjust positions/sizes:** Drag spaceship, weapons, etc.
+3. **Click Save:** Writes to `default_layout.cfg` (auto filters thrust objects)
+4. **Ready to set as baseline?** Copy `default_layout.cfg` → `preset_layout.cfg`
+5. **Press Reset (F5):** Loads from `preset_layout.cfg` (now has new positions)
+
+**Key:** `preset_layout.cfg` is source-of-truth for Reset. Without snapshot, F5 loads stale positions.
+
+### Autoload Disabled
+
+- `_auto_load_group()` in `edit_mode.gd` completely disabled (line 514: early return)
+- Objects come ONLY from config files or manual drag/drop
+- Folder scanning eliminated to prevent phantom objects
+
 ## Thrust Objects Policy
 
-**CRITICAL: Thrust objects (auto.gif, manual.gif, thrust.png) MUST NOT be in layout config files.**
+**CRITICAL: Thrust objects (auto.gif, manual.gif, thrust.png) behavior locked by design.**
 
-- **Thrust objects are dynamic UI animations** managed by `gun_system.gd` at runtime, not static layout
-- **default_layout.cfg & preset_layout.cfg must have empty `power_core=Array[Dictionary]([])` section**
-- If game engine saves thrust objects to config, code automatically filters them during save: `_save_layout()` in `edit_mode.gd` skips any object with basename in `["thrust", "auto", "manual"]` from weaponry group
-- **Why they must not load:**
-  1. `gun_system._on_spaceship_changed()` searches for thrust objects in spaceship children
-  2. If found, it creates TextureRect animations and positions them at object's pos
-  3. Stale layout objects at old positions (e.g., `-31, -80`) cause unscaled thrust GIFs to appear on screen
-  4. Can't click them (wrong interaction model), can't hide them cleanly
-- **Fix if thrust re-appears:** Delete all entries with path `res://assets/sprites/thrust/*` or `res://assets/weaponry/thrust.png` from both config files. Verify with: `grep -c thrust default_layout.cfg` (should return 0)
+- **Current state (post-2026-06-05):** Thrust GIFs now properly managed in config with controlled visibility
+- **Thrust objects are dynamic UI animations** managed by `gun_system.gd` at runtime
+- If thrust objects added to power_core in config:
+  1. `gun_system._on_spaceship_changed()` finds them and creates animations
+  2. Uses `_resize_frame()` to scale GIF frames to object's size
+  3. Respects GIF placement in config (not fixed corner position)
+- **Auto-load disabled:** Thrust folder no longer auto-places files on F4 group switch
+- **Save filter active:** If thrust somehow in weaponry, `_save_layout()` filters them out before save
+- **Fix if phantom thrust appears:** Delete entries with path `res://assets/sprites/thrust/*` from config, or verify autoload is disabled (`edit_mode.gd:514`)

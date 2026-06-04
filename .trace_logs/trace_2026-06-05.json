@@ -302,6 +302,30 @@
       }
     },
     {
+      "id": 12,
+      "timestamp": "2026-06-05T03:15:00Z",
+      "task": "Snapshot current layout to preset_layout.cfg as reset baseline",
+      "files_modified": [
+        {
+          "path": "preset_layout.cfg",
+          "action": "overwritten",
+          "diff_summary": "Copied all content from default_layout.cfg → preset_layout.cfg. Now includes current spaceship position (526.9369, 462.81024), weapon positions, and thrust objects (auto.gif, manual.gif)."
+        }
+      ],
+      "changes_summary": "**Purpose**: User chỉnh sửa layout trong Godot editor (F4), cần 'đóng băng' trạng thái này thành preset baseline.\n\n**Files**:\n- `default_layout.cfg` = working state (user edits save here)\n- `preset_layout.cfg` = reset baseline (F5 loads from here)\n\n**Workflow**:\n1. User adjusts layout in F4 (positions, sizes) → saves to default_layout.cfg\n2. When happy with layout → copy default → preset\n3. Next time user resets (F5) → loads from preset with new positions\n\n**Current Snapshot Includes**:\n- Spaceship: (526.9369, 462.81024) size (200, 172.07953)\n- All weapons & defense armor: current positions\n- power_core: auto.gif (2x), manual.gif\n- screen: background, overlay\n\n**Key Note**: preset_layout.cfg = source of truth for F5 Reset behavior. Without this snapshot, Reset would load from old cached positions.",
+      "commands_executed": [
+        "Copy default_layout.cfg → preset_layout.cfg (overwrite)"
+      ],
+      "git_commit_hash": "pending",
+      "rollback_steps": [
+        "git checkout preset_layout.cfg"
+      ],
+      "verification": {
+        "status": "pending_test",
+        "notes": "Open Godot → F4 → bấm Reset/F5 → spaceship & weapons should be at positions from this snapshot"
+      }
+    },
+    {
       "id": 11,
       "timestamp": "2026-06-05T03:10:00Z",
       "task": "Clear Godot import cache to force fresh import on next load",
