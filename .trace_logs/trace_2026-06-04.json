@@ -139,6 +139,33 @@
         "status": "pending",
         "notes": "Need to regenerate sprite sheets. chromeball/chromeleon GIFs loading via slow GDScript decoder, not fast PNG sheets."
       }
+    },
+    {
+      "id": 6,
+      "timestamp": "2026-06-04T22:25:00Z",
+      "task": "Edit Mode (F4) Reorganization - WIP - Large scope",
+      "files_modified": [
+        {
+          "path": "scripts/ui/edit_mode/edit_mode.gd",
+          "lines": "48-56, 100-106",
+          "action": "partially modified",
+          "diff_summary": "Removed @onready refs for deleted buttons + removed button.pressed connections"
+        }
+      ],
+      "changes_summary": "**Work in Progress**: Full scope of edit mode reorganization:\n\n**Changes to implement:**\n1. Remove/hide buttons (5 buttons total):\n   - Delete Button (DeleteBtn)\n   - Upload Button (UploadBtn)\n   - Fit 1440x780 (FitScreenBtn)\n   - Reset Power Core (ResetEquipmentBtn)\n   - Show Weapon toggle (ShowWeaponBtn)\n\n2. Reorganize groups:\n   - Thrust (sprites/thrust/*.png) → add to power_core group\n   - Weapons (already in weaponry) → keep\n   - Defense (defense/*.png) → keep\n   - Hitbox (SpaceshipHitbox.png) → move to defense, default hidden\n\n3. Change display behavior:\n   - Clicking group button shows ONLY that group's items (not all)\n   - Currently: shows active group + filters by _show_weapons flag\n   - Required: remove cross-group display, show single group only\n\n4. Code locations needing updates:\n   - edit_mode.gd: 17 references to removed buttons + functions\n   - edit_mode.tscn: hide 5 buttons in UI tree\n   - object_list_panel.gd: filter logic to show active group only\n   - GROUP_FOLDERS: add 'power_core' → 'powercore' (assets folder mapping)\n\n**Status**: Partial (removed @onready refs, removed button connections). Remaining: 15 references in functions, tscn hiding, group loading, filter logic.\n\n**Note**: Task requires ~4-5 edits across 3 files. Recommend sequential completion.",
+      "commands_executed": [
+        "git add scripts/ui/edit_mode/edit_mode.gd",
+        "git commit -m 'wip: edit_mode - remove deleted button references from @onready and connections'"
+      ],
+      "git_commit_hash": "e1584fb",
+      "rollback_steps": [
+        "git reset --soft HEAD~1",
+        "git checkout scripts/ui/edit_mode/edit_mode.gd"
+      ],
+      "verification": {
+        "status": "wip",
+        "notes": "Partial implementation. Remaining: remove ~15 more button references, hide buttons in tscn, add power_core/thrust loading, implement group-only display filter."
+      }
     }
   ]
 }
