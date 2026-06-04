@@ -186,7 +186,8 @@ func _apply_symmetric(changed: EditableObjectNode) -> void:
 func _refresh_assembly_list() -> void:
 	var ship_eo := _find_ship_eo_in_placed()
 	var all_objs: Array = []
-	for g in ASSEMBLY_GROUPS:
+	var groups_to_show: Array = [_active_group] if _active_group in ASSEMBLY_GROUPS else ASSEMBLY_GROUPS
+	for g in groups_to_show:
 		for obj in _placed.get(g, []):
 			if is_instance_valid(obj) and not obj.is_group_layer() and not _is_spaceship(obj):
 				all_objs.append(obj)
@@ -1131,7 +1132,6 @@ func _reset_screen_group() -> void:
 	_undo_stack.clear()
 	_dirty = false
 	_apply_weapons_visibility()
-	_refresh_assembly_list()
 	transform_panel.refresh(null)
 	_update_object_interactivity()
 
