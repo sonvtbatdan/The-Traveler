@@ -45,7 +45,6 @@ const SHELF_END_PREFIX   := "res://__shelf_end_"
 @onready var btn_defense: Button     = $SidePanel/VBox/TopHBox/ButtonsColumn/ScreenBtn
 @onready var btn_power_core: Button  = $SidePanel/VBox/TopHBox/ButtonsColumn/StatBtn
 @onready var btn_user: Button        = $SidePanel/VBox/TopHBox/ButtonsColumn/UserBtn
-@onready var btn_setup_screen: Button     = $SidePanel/VBox/TopHBox/ButtonsColumn/SetupScreenBtn
 @onready var btn_reset_screen: Button     = $SidePanel/VBox/TopHBox/ButtonsColumn/ResetScreenBtn
 @onready var btn_symmetric: Button        = $SidePanel/VBox/TopHBox/ButtonsColumn/SymmetricBtn
 @onready var btn_save: Button             = $SidePanel/VBox/TopHBox/ButtonsColumn/SaveBtn
@@ -95,7 +94,6 @@ func _ready() -> void:
 	object_list_panel.group_layer_visibility_toggled.connect(_on_group_layer_visibility_toggled)
 	object_list_panel.row_context_action.connect(_on_context_action)
 	object_list_panel.display_name_changed.connect(func(_obj: EditableObjectNode): _dirty = true)
-	btn_setup_screen.pressed.connect(_setup_screen_from_user)
 	btn_reset_screen.pressed.connect(_reset_screen_group)
 	btn_symmetric.pressed.connect(func(): _symmetric = btn_symmetric.button_pressed)
 	# Removed: btn_fit_screen, btn_reset_equipment, btn_show_weapon, btn_delete, btn_upload
@@ -631,7 +629,6 @@ func _update_group_buttons() -> void:
 	btn_defense.button_pressed    = in_assembly
 	btn_power_core.button_pressed = in_assembly
 	btn_user.button_pressed       = (_active_group == "user")
-	btn_setup_screen.visible = in_assembly
 	btn_reset_screen.visible = in_assembly
 
 func _update_object_interactivity() -> void:
@@ -1041,51 +1038,6 @@ func _save_layout() -> void:
 		cfg.set_value("layout", group, list)
 	if cfg.save(LAYOUT_PATH) == OK:
 		_dirty = false
-
-func _setup_screen_from_user() -> void:
-	# base.png native size: 2754 × 1536 — aspect ratio drives screen width.
-	const BASE_ASPECT := 2754.0 / 1536.0
-
-	var user_rect := Rect2(20.0, 20.0, 250.0, 390.0)
-	if _user_panel and _user_panel.has_method("get_display_rect"):
-		user_rect = _user_panel.get_display_rect()
-
-	var target_h  := user_rect.size.y
-	var target_w  := target_h * BASE_ASPECT
-	var target_pos := Vector2(user_rect.position.x + user_rect.size.x + 10.0, user_rect.position.y)
-	var target_sz  := Vector2(target_w, target_h)
-
-	var objs: Array = _placed["weaponry"]
-
-	var min_p := Vector2(INF, INF)
-	var max_p := Vector2(-INF, -INF)
-	var has_objs := false
-	for obj in objs:
-		if not is_instance_valid(obj) or obj.is_group_layer():
-			continue
-		min_p = min_p.min(obj.position)
-		max_p = max_p.max(obj.position + obj.size)
-		has_objs = true
-
-	_push_undo_group_transform("weaponry")
-
-	if has_objs:
-		var cur_w := max_p.x - min_p.x
-		var cur_h := max_p.y - min_p.y
-		var sx := target_sz.x / cur_w if cur_w > 0.0 else 1.0
-		var sy := target_sz.y / cur_h if cur_h > 0.0 else 1.0
-		for obj in objs:
-			if not is_instance_valid(obj) or obj.is_group_layer():
-				continue
-			var rel: Vector2 = obj.position - min_p
-			obj.position = target_pos + Vector2(rel.x * sx, rel.y * sy)
-			obj.size     = Vector2(obj.size.x * sx, obj.size.y * sy)
-			obj._sync_rect_size()
-
-	if _active_group == "weaponry":
-		object_list_panel.refresh(_get_weaponry_list_objects())
-	transform_panel.refresh(_primary_selected())
-	_dirty = true
 
 func _reset_screen_group() -> void:
 	# Xóa toàn bộ assembly groups

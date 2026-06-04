@@ -7,10 +7,24 @@ var _fill:      ColorRect = null
 var _track:     ColorRect = null
 var _label:     Label     = null
 var _move_lbl:  Label     = null
+var _auto_fire_slider: HSlider = null
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var font := load(FONT_PATH) as FontFile
+
+	# Auto-fire toggle (above move label)
+	_auto_fire_slider = HSlider.new()
+	_auto_fire_slider.min_value = 0
+	_auto_fire_slider.max_value = 1
+	_auto_fire_slider.step = 1
+	_auto_fire_slider.value = 0
+	_auto_fire_slider.custom_minimum_size = Vector2(60, 16)
+	_auto_fire_slider.size = Vector2(60, 16)
+	_auto_fire_slider.mouse_filter = Control.MOUSE_FILTER_STOP
+	_auto_fire_slider.value_changed.connect(_on_auto_fire_changed)
+	add_child(_auto_fire_slider)
+	_on_auto_fire_changed(0)  # Ensure auto-fire is OFF on startup
 
 	_label = Label.new()
 	_label.text = ""
@@ -52,6 +66,8 @@ func _ready() -> void:
 func _reposition() -> void:
 	var vp := get_viewport_rect().size
 	# Positioned above the player HP bar (player label at vp.y-96, bar at vp.y-82)
+	_auto_fire_slider.position = Vector2(vp.x - 145, vp.y - 150)
+	_auto_fire_slider.size = Vector2(60, 14)
 	_move_lbl.position = Vector2(vp.x - 145, vp.y - 134)
 	_move_lbl.size     = Vector2(BAR_W, 14.0)
 	_label.position    = Vector2(vp.x - 145, vp.y - 120)
@@ -82,6 +98,12 @@ func _on_boss_hp_changed(hp: int) -> void:
 
 func _on_boss_killed() -> void:
 	visible = false
+
+func _on_auto_fire_changed(value: float) -> void:
+	var enabled := bool(int(value))
+	var ws := get_tree().get_first_node_in_group("weapon_system")
+	if ws != null and ws.has_method("set_auto_fire"):
+		ws.set_auto_fire(enabled)
 
 func _bar_color(r: float) -> Color:
 	if r > 0.5:  return Color(0.9, 0.35, 0.1)

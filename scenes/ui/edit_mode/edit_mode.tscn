@@ -116,11 +116,6 @@ layout_mode = 2
 text = "Fit 1440×780"
 visible = false
 
-[node name="SetupScreenBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
-layout_mode = 2
-text = "From User"
-visible = false
-
 [node name="ResetScreenBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 text = "Reset Screen"
