@@ -283,30 +283,29 @@
     },
     {
       "id": 11,
-      "timestamp": "2026-06-05T00:45:00Z",
-      "task": "Fix: Rename dialog input - tree pause solution",
+      "timestamp": "2026-06-05T01:00:00Z",
+      "task": "Fix: Rename dialog input - use AcceptDialog instead of Window",
       "files_modified": [
         {
           "path": "scripts/ui/edit_mode/object_list_panel.gd",
-          "lines": "47-82, 110, 119",
+          "lines": "26-69, 103-127",
           "action": "modified",
-          "diff_summary": "Use tree pause to handle rename dialog input (Godot 4 Window limitations)"
+          "diff_summary": "Replace custom Window dialog with built-in AcceptDialog"
         }
       ],
-      "changes_summary": "Issue: Godot 4 Window doesn't have modal/top_level/process_mode properties.\n\nSolution: Pause tree when dialog opens (blocks parent input), resume when closed.\n\nChanges:\n- Line 55-57: close_requested → unpause tree\n- Line 113: get_tree().paused = true when dialog shows\n- Line 124: get_tree().paused = false when OK clicked\n- Line 84-86: cancel button → unpause tree\n\nHow it works: When tree paused, edit_mode._input() stops processing, but user can still interact with dialog window (it's independent node).\n\nNote: Removed unsupported Window properties (top_level, process_mode) in commit 8f4ad70.",
+      "changes_summary": "Issue: Window class doesn't properly capture input in Godot 4, even with tree pause.\n\nRoot Cause: Window created via code doesn't have proper modal/input handling like built-in dialogs.\n\nSolution: Use AcceptDialog (built-in Godot dialog) which has:\n- Proper input/focus handling\n- Modal behavior by default\n- confirmed/cancelled signals\n- VBox container via get_vbox()\n\nChanges:\n- Line 26: _rename_dialog: AcceptDialog instead of Window\n- Line 49-53: AcceptDialog.new() with confirmed/cancelled signals\n- Line 55: Use get_vbox() for content\n- Line 103: grab_focus() immediate call (not call_deferred)\n- Line 104: popup_centered_ratio() for sizing\n\nResult: Dialog now fully receives keyboard and mouse input.",
       "commands_executed": [
         "git add scripts/ui/edit_mode/object_list_panel.gd",
-        "git commit -m 'fix: rename dialog input - use tree pause instead of modal property'",
-        "git commit -m 'fix: remove unsupported Window properties - keep only tree pause'"
+        "git commit -m 'fix: use AcceptDialog instead of Window for rename dialog'"
       ],
-      "git_commit_hash": "3654bca, 8f4ad70",
+      "git_commit_hash": "ad50b9c",
       "rollback_steps": [
-        "git reset --soft HEAD~2",
+        "git reset --soft HEAD~1",
         "git checkout scripts/ui/edit_mode/object_list_panel.gd"
       ],
       "verification": {
-        "status": "pending_test",
-        "notes": "Tree pause approach - dialog input works by pausing parent tree. Test: RMB → Rename → type name → click OK."
+        "status": "ready_test",
+        "notes": "AcceptDialog is built-in Godot component with proper input handling. Test: RMB → Rename → type text → button clicks."
       }
     }
   ]
