@@ -23,7 +23,7 @@ var _is_assembly_mode: bool = false
 
 var _context_obj: EditableObjectNode = null
 var _context_menu: PopupMenu = null
-var _rename_dialog: Window = null
+var _rename_dialog: AcceptDialog = null
 var _rename_line_edit: LineEdit = null
 
 func _ready() -> void:
@@ -45,45 +45,20 @@ func _add_popups_to_root() -> void:
 	get_tree().root.add_child(_rename_dialog)
 
 func _build_rename_dialog() -> void:
-	_rename_dialog = Window.new()
+	_rename_dialog = AcceptDialog.new()
 	_rename_dialog.title = "Rename"
 	_rename_dialog.size = Vector2i(280, 110)
-	_rename_dialog.unresizable = true
-	_rename_dialog.visible = false
-	_rename_dialog.close_requested.connect(func():
-		_rename_dialog.hide()
-		get_tree().paused = false
-	)
+	_rename_dialog.confirmed.connect(_on_rename_ok)
+	_rename_dialog.cancelled.connect(func(): get_tree().paused = false)
 
-	var vbox := VBoxContainer.new()
-	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	vbox.offset_left = 12; vbox.offset_right = -12
-	vbox.offset_top = 8; vbox.offset_bottom = -8
+	var vbox := _rename_dialog.get_vbox()
 	vbox.add_theme_constant_override("separation", 8)
-	_rename_dialog.add_child(vbox)
 
 	_rename_line_edit = LineEdit.new()
 	_rename_line_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_rename_line_edit.focus_mode = Control.FOCUS_ALL
 	_rename_line_edit.text_submitted.connect(func(_t: String): _on_rename_ok())
 	vbox.add_child(_rename_line_edit)
-
-	var btn_row := HBoxContainer.new()
-	btn_row.alignment = BoxContainer.ALIGNMENT_END
-	btn_row.add_theme_constant_override("separation", 6)
-	vbox.add_child(btn_row)
-
-	var ok_btn := Button.new()
-	ok_btn.text = "OK"
-	ok_btn.pressed.connect(_on_rename_ok)
-	btn_row.add_child(ok_btn)
-
-	var cancel_btn := Button.new()
-	cancel_btn.text = "Cancel"
-	cancel_btn.pressed.connect(func():
-		_rename_dialog.hide()
-		get_tree().paused = false
-	)
-	btn_row.add_child(cancel_btn)
 
 func _on_context_item_pressed(id: int) -> void:
 	if _context_obj == null or not is_instance_valid(_context_obj):
@@ -109,14 +84,13 @@ func _show_rename_dialog(obj: EditableObjectNode) -> void:
 	_rename_line_edit.text = obj.display_name if not obj.display_name.is_empty() \
 		else obj.source_path.get_file().get_basename()
 	get_tree().paused = true
-	_rename_dialog.popup_centered()
-	_rename_line_edit.call_deferred("grab_focus")
-	_rename_line_edit.call_deferred("select_all")
+	_rename_dialog.popup_centered_ratio(0.3)
+	_rename_line_edit.grab_focus()
+	_rename_line_edit.select_all()
 
 func _on_rename_ok() -> void:
-	if _rename_dialog == null or not _rename_dialog.visible:
+	if _rename_dialog == null:
 		return
-	_rename_dialog.hide()
 	get_tree().paused = false
 	if _context_obj == null or not is_instance_valid(_context_obj):
 		_context_obj = null
