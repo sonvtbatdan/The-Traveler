@@ -45,15 +45,10 @@ const SHELF_END_PREFIX   := "res://__shelf_end_"
 @onready var btn_defense: Button     = $SidePanel/VBox/TopHBox/ButtonsColumn/ScreenBtn
 @onready var btn_power_core: Button  = $SidePanel/VBox/TopHBox/ButtonsColumn/StatBtn
 @onready var btn_user: Button        = $SidePanel/VBox/TopHBox/ButtonsColumn/UserBtn
-@onready var btn_fit_screen: Button       = $SidePanel/VBox/TopHBox/ButtonsColumn/FitScreenBtn
 @onready var btn_setup_screen: Button     = $SidePanel/VBox/TopHBox/ButtonsColumn/SetupScreenBtn
 @onready var btn_reset_screen: Button     = $SidePanel/VBox/TopHBox/ButtonsColumn/ResetScreenBtn
-@onready var btn_reset_equipment: Button  = $SidePanel/VBox/TopHBox/ButtonsColumn/ResetEquipmentBtn
-@onready var btn_show_weapon: Button      = $SidePanel/VBox/TopHBox/ButtonsColumn/ShowWeaponBtn
 @onready var btn_symmetric: Button        = $SidePanel/VBox/TopHBox/ButtonsColumn/SymmetricBtn
-@onready var btn_delete: Button           = $SidePanel/VBox/TopHBox/ButtonsColumn/DeleteBtn
 @onready var btn_save: Button             = $SidePanel/VBox/TopHBox/ButtonsColumn/SaveBtn
-@onready var btn_upload: Button           = $SidePanel/VBox/TopHBox/ButtonsColumn/UploadBtn
 @onready var transform_panel         = $SidePanel/VBox/TransformPanel
 
 var _active_group := "weaponry"
@@ -104,11 +99,8 @@ func _ready() -> void:
 	btn_fit_screen.pressed.connect(_fit_screen_group)
 	btn_setup_screen.pressed.connect(_setup_screen_from_user)
 	btn_reset_screen.pressed.connect(_reset_screen_group)
-	btn_reset_equipment.pressed.connect(_on_reset_equipment_pressed)
-	btn_show_weapon.pressed.connect(_on_show_weapon_pressed)
 	btn_symmetric.pressed.connect(func(): _symmetric = btn_symmetric.button_pressed)
 	btn_save.pressed.connect(_on_save_pressed)
-	btn_upload.pressed.connect(_on_upload_pressed)
 	btn_screen.pressed.connect(func() -> void: _set_group("screen"))
 	btn_weaponry.pressed.connect(func() -> void: _set_group("weaponry"))
 	btn_defense.pressed.connect(func() -> void: _set_group("defense"))
