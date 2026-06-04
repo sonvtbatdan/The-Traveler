@@ -54,6 +54,32 @@
         "status": "success",
         "notes": "GDScript parser error resolved."
       }
+    },
+    {
+      "id": 3,
+      "timestamp": "2026-06-04T21:45:00Z",
+      "task": "chromeleon_fight: Implement CPU-side bullet rescaling (elephant boss pattern)",
+      "files_modified": [
+        {
+          "path": "scripts/gameplay/chromeleon_fight.gd",
+          "lines": "113-125, 1310-1319, 1245-1250, 1261-1275, 1622-1632, 556-564, 887, 905, 832, 854",
+          "diff_summary": "Added pre-cache resized bullet frames using CPU-side resize (Image.resize) like elephant boss"
+        }
+      ],
+      "changes_summary": "Pattern: Load texture → get_image() → resize CPU-side → ImageTexture (cached). Changes:\n- Added _bullet_resized_frames, _blue/teal_bullet_resized fields (line 113-125)\n- Added _resize_tex() function (line 1310-1319) - duplicates image, CPU resize, returns ImageTexture\n- Added _resize_all_bullets() function (line 1622-1632) - pre-cache all resized frames on size reload\n- Modified _random_bullet() (line 1245-1250) - returns resized frame if available\n- Modified _spawn_bullet() (line 1261-1275) - changed STRETCH_SCALE to STRETCH_KEEP (texture pre-sized)\n- Updated all blue/teal bullet spawn calls to use resized versions (fallback to raw if not resized)",
+      "commands_executed": [
+        "git add scripts/gameplay/chromeleon_fight.gd",
+        "git commit -m 'chromeleon: implement elephant-style CPU-resized bullet caching'"
+      ],
+      "git_commit_hash": "131b60e",
+      "rollback_steps": [
+        "git reset --soft HEAD~1",
+        "git checkout scripts/gameplay/chromeleon_fight.gd"
+      ],
+      "verification": {
+        "status": "pending",
+        "notes": "Code changes complete. Pattern matches elephant boss: bullets are CPU-resized at load time (via _reload_bullet_sizes) and cached in _bullet_resized_frames. Spawn uses cached resized texture + STRETCH_KEEP mode. Need in-game test to verify rendering quality and performance."
+      }
     }
   ]
 }
