@@ -19,7 +19,25 @@ extends Control
 const BULLET_SPEED := 720.0
 const GAUSS_SPEED := 700.0           # heavy lumpy ball — slower so you can see it plough through
 const BULLET_HIT_RADIUS := 6.0
-const HOMING_TURN := 6.0              # how fast homing missiles bend toward their target
+const HOMING_TURN := 6.0              # (legacy) how fast old homing bullets bent toward their target
+# Homing Missile — cinematic 4-phase launch: eject → curve up → hang & aim → accelerate → strike+explode.
+# Phase durations (s):
+const MISSILE_EJECT_T := 0.2         # phase 1: pop off the back/underside
+const MISSILE_CURVE_T := 0.4         # phase 2: swoop upward (ease-out)
+const MISSILE_HANG_T  := 0.6         # phase 3: hover & rotate to lock on (longer = more dramatic)
+# Shape of the launch:
+const MISSILE_EJECT_DIST := 85.0     # how far it pops out during eject (wider peel-out)
+const MISSILE_ARC_WIDTH := 95.0      # how far out to the side the swoop/hang point sits
+const MISSILE_ARC_HEIGHT := 72.0     # height of the top-of-arc / hang point above the ship
+const MISSILE_FACE_TURN := 14.0      # how fast the nose rotates to match travel / lock target
+# Strike (phase 4):
+const MISSILE_SEEK_START := 40.0     # speed at the start of the strike (slow creep)
+const MISSILE_ACCEL := 900.0         # base acceleration toward the target
+const MISSILE_ACCEL_RAMP := 9.0      # acceleration grows ×this per second → slow start, hard whip
+const MISSILE_SPEED := 1400.0        # max strike speed
+const MISSILE_EXPLODE_DIST := 14.0   # "touched the cursor"
+const MISSILE_AOE_RADIUS := 44.0
+const MISSILE_MAX_LIFE := 4.0
 const GAUSS_FULL_DIAMETER_CM := 2.0  # full-charge ball ≈ this physical size (approx; tweak freely)
 
 var _gauss_full_diam_px: float = 76.0
@@ -37,6 +55,7 @@ var _aura_time := 0.0
 
 # Transient FX (all in StreamScreen-local space)
 var _bullets: Array = []   # {pos, vel, dmg, big, life}
+var _missiles: Array = []  # Homing Missile choreography: {pos, vel, dmg, target, phase, angle, orbit_t, life}
 var _impacts: Array = []   # {pos, age, max_age, radius, color}
 var _arcs: Array = []      # {a, b, age, max_age}
 
@@ -123,6 +142,7 @@ func _process(delta: float) -> void:
 	_update_primary(delta)
 	_update_secondary(delta)
 	_update_bullets(delta)
+	_update_missiles(delta)
 	_tick_fx(_impacts, delta)
 	_tick_fx(_arcs, delta)
 	queue_redraw()
@@ -302,18 +322,101 @@ func _spend_weapon_energy(def: Dictionary) -> bool:
 	return GameManager.try_spend_energy(cost)
 
 func _fire_homing(def: Dictionary) -> void:
+	# Cinematic launch: eject off the back → swoop up (ease-out) → hang & aim → rocket to cursor → explode.
 	var dmg := get_weapon_stat(def, "damage", 1.0)
-	var muzzle := _muzzle()
-	var tgt := _nearest_target(muzzle)
-	var dir := (tgt - muzzle) if tgt != Vector2.ZERO else (get_local_mouse_position() - muzzle)
-	if dir.length() < 0.01:
-		dir = Vector2.UP
-	dir = dir.normalized()
-	_bullets.append({
-		"pos": muzzle, "vel": dir * BULLET_SPEED, "dmg": dmg, "big": false,
-		"life": 0.0, "dmg_ref": dmg, "homing": true,
+	var ship_c := _ship_center()
+	var nose := _muzzle() - ship_c
+	if nose.length() < 0.01:
+		nose = Vector2.UP
+	nose = nose.normalized()
+	var half_ship := maxf(_muzzle().distance_to(ship_c), 24.0)
+	var down := -nose                                   # toward the back/underside
+	var side := 1.0 if randf() < 0.5 else -1.0          # peel off to one side
+	var p0 := ship_c + down * half_ship * 0.5           # spawn at the back/underside
+	var eject_dir := (down * 0.5 + Vector2(side, 0.0) * 1.0).normalized()   # out & slightly down
+	var p1 := p0 + eject_dir * MISSILE_EJECT_DIST       # eject end
+	var p2 := ship_c + Vector2(side * MISSILE_ARC_WIDTH, -MISSILE_ARC_HEIGHT)  # top-of-arc / hang point
+	var ctrl := Vector2(p2.x, p1.y)                     # bezier control → swoop out then up
+	_missiles.append({
+		"pos": p0, "vel": Vector2.ZERO, "dmg": dmg, "target": get_local_mouse_position(),
+		"phase": "eject", "pt": 0.0, "speed": 0.0, "seek_t": 0.0, "life": 0.0, "facing": eject_dir.angle(),
+		"p0": p0, "p1": p1, "p2": p2, "ctrl": ctrl,
 	})
-	_spawn_impact(muzzle, false)
+	_spawn_impact(p0, false)
+
+func _qbezier(a: Vector2, b: Vector2, c: Vector2, t: float) -> Vector2:
+	var u := 1.0 - t
+	return a * (u * u) + b * (2.0 * u * t) + c * (t * t)
+
+func _update_missiles(delta: float) -> void:
+	var i: int = _missiles.size() - 1
+	while i >= 0:
+		var m: Dictionary = _missiles[i]
+		m["life"] = float(m["life"]) + delta
+		var pos: Vector2 = m["pos"]
+		var explode := false
+		match String(m["phase"]):
+			"eject":  # phase 1 — pop off the back/underside
+				m["pt"] = float(m["pt"]) + delta
+				var t := clampf(float(m["pt"]) / MISSILE_EJECT_T, 0.0, 1.0)
+				var np: Vector2 = (m["p0"] as Vector2).lerp(m["p1"], t)
+				m["vel"] = np - pos
+				m["pos"] = np
+				if float(m["pt"]) >= MISSILE_EJECT_T:
+					m["phase"] = "curve"; m["pt"] = 0.0
+			"curve":  # phase 2 — swoop upward, ease-out (slows at the top)
+				m["pt"] = float(m["pt"]) + delta
+				var t := clampf(float(m["pt"]) / MISSILE_CURVE_T, 0.0, 1.0)
+				var te := 1.0 - pow(1.0 - t, 2.0)
+				var np := _qbezier(m["p1"], m["ctrl"], m["p2"], te)
+				m["vel"] = np - pos
+				m["pos"] = np
+				if float(m["pt"]) >= MISSILE_CURVE_T:
+					m["phase"] = "hang"; m["pt"] = 0.0
+			"hang":  # phase 3 — nearly stop, rotate to lock onto the cursor
+				m["pt"] = float(m["pt"]) + delta
+				var drift := -10.0 * clampf(float(m["pt"]) / MISSILE_HANG_T, 0.0, 1.0)
+				m["pos"] = (m["p2"] as Vector2) + Vector2(0.0, drift)
+				m["vel"] = Vector2.ZERO
+				if float(m["pt"]) >= MISSILE_HANG_T:
+					m["phase"] = "seek"; m["speed"] = MISSILE_SEEK_START; m["seek_t"] = 0.0
+			_:  # phase 4 — accelerate (ease-in) to the cursor, explode on touch.
+				# Acceleration grows over time → very slow creep, then a hard whip.
+				m["seek_t"] = float(m["seek_t"]) + delta
+				var accel := MISSILE_ACCEL * (1.0 + MISSILE_ACCEL_RAMP * float(m["seek_t"]))
+				m["speed"] = minf(MISSILE_SPEED, float(m["speed"]) + accel * delta)
+				var to_t: Vector2 = (m["target"] as Vector2) - pos
+				var step := float(m["speed"]) * delta
+				if to_t.length() <= maxf(step, MISSILE_EXPLODE_DIST):
+					m["pos"] = m["target"]
+					explode = true
+				else:
+					var dir := to_t.normalized()
+					m["vel"] = dir * float(m["speed"])
+					m["pos"] = pos + dir * step
+		# Rotation: match travel during eject/curve/seek; lock onto the target during hang.
+		var desired: float
+		if String(m["phase"]) == "hang":
+			desired = ((m["target"] as Vector2) - (m["pos"] as Vector2)).angle()
+		else:
+			var v: Vector2 = m["vel"]
+			desired = v.angle() if v.length() > 0.5 else float(m["facing"])
+		m["facing"] = lerp_angle(float(m["facing"]), desired, clampf(MISSILE_FACE_TURN * delta, 0.0, 1.0))
+		if not explode and float(m["life"]) > MISSILE_MAX_LIFE:
+			explode = true
+		if explode:
+			_missile_explode(m["pos"], float(m["dmg"]))
+			_missiles.remove_at(i)
+		else:
+			_missiles[i] = m
+		i -= 1
+
+## AoE blast: damage every target whose center is within MISSILE_AOE_RADIUS.
+func _missile_explode(pos: Vector2, dmg: float) -> void:
+	for t: Dictionary in _collect_targets():
+		if (t["center"] as Vector2).distance_to(pos) <= MISSILE_AOE_RADIUS + float(t["radius"]):
+			_apply_to(t, dmg)
+	_spawn_impact(pos, true)   # big flash
 
 func _fire_cone(def: Dictionary) -> void:
 	var dmg := get_weapon_stat(def, "damage", 1.0)
@@ -575,6 +678,18 @@ func _draw() -> void:
 			var tail: Vector2 = p - (b["vel"] as Vector2).normalized() * 10.0
 			draw_line(tail, p, col, 2.5)
 			draw_circle(p, 2.5, col)
+
+	# Homing missiles — big orange rounds, oriented to their facing (nose rotates per phase)
+	for m: Dictionary in _missiles:
+		var mp: Vector2 = m["pos"]
+		var f := float(m["facing"])
+		var fwd := Vector2(cos(f), sin(f))
+		var sd := Vector2(-fwd.y, fwd.x)
+		draw_line(mp - fwd * 12.0, mp - fwd * 32.0, Color(1.0, 0.7, 0.2, 0.7), 6.0)   # exhaust streak
+		draw_colored_polygon(PackedVector2Array([
+			mp + fwd * 16.0, mp - fwd * 11.0 + sd * 6.0, mp - fwd * 11.0 - sd * 6.0,
+		]), Color(1.0, 0.5, 0.1))
+		draw_circle(mp, 4.0, Color(1.0, 0.9, 0.5))
 
 	# Impacts (expanding fading ring)
 	for im: Dictionary in _impacts:

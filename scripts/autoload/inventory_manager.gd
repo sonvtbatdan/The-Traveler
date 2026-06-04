@@ -118,10 +118,10 @@ const ITEM_DEFS: Dictionary = {
 		"fire_mode": "repeat",   # auto-fires every cooldown_sec while held
 		"fire_type": "homing",   # picks the nearest target; missile curves toward it
 		"rarity": "rare",
-		"desc": "Locks onto the nearest target and curves into it. Heavy auto-tracking shots on a slow cadence.",
+		"desc": "Launches out the back, loops around the ship, then streaks to the cursor and bursts in an explosion.",
 		"stats": {
-			"damage": 95,
-			"cooldown_sec": 1.6,
+			"damage": 19,
+			"cooldown_sec": 0.53,
 			"weight": 5,
 			"energy": 7,   # energy per shot
 		},
