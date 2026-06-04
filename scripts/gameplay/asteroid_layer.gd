@@ -120,6 +120,8 @@ func _spawn(initial: bool) -> void:
 		rpm = -rpm
 	var rot_speed: float = rpm * TAU / 60.0
 
+	# CPU-side resize (bilinear) → ImageTexture. Pattern: random-size projectiles.
+	# No caching (one-shot per spawn); fallback for size-per-spawn variety.
 	var img := src_img.duplicate()
 	img.resize(int(w), int(h), Image.INTERPOLATE_BILINEAR)
 	var tex := ImageTexture.create_from_image(img)

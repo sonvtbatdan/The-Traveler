@@ -1003,6 +1003,8 @@ func _flash_ship_red() -> void:
 	tw.tween_property(_ship_eo, "modulate", Color.WHITE, 0.3)
 
 func _resize_tex(tex: Texture2D, target_sz: Vector2) -> Texture2D:
+	# CPU-side resize (bilinear) → ImageTexture. Pattern: fixed-size bullets pre-cached.
+	# Tier-specific sizes (10%, 20%) resized at load; frames cached for reuse on spawn.
 	var img := tex.get_image()
 	if img == null:
 		return tex   # fallback: STRETCH_SCALE in _make_projectile_rect will handle

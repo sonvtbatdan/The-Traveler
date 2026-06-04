@@ -462,6 +462,57 @@ Nếu một tác vụ yêu cầu đọc những file này để **hiểu context
 
 ---
 
+## Projectile & Asteroid Rescaling
+
+### CPU-Side Rescaling Pattern
+
+All projectiles (bullets, asteroids) must be **CPU-resized** for quality and consistency:
+
+```gdscript
+# Pattern A: Pre-cached (for fixed-size bullets)
+func _resize_tex(tex: Texture2D, target_sz: Vector2) -> Texture2D:
+    if tex == null or target_sz == Vector2.ZERO:
+        return tex
+    var img := tex.get_image()
+    if img == null:
+        return tex
+    var copy := img.duplicate() as Image
+    copy.resize(int(target_sz.x), int(target_sz.y), Image.INTERPOLATE_BILINEAR)
+    return ImageTexture.create_from_image(copy)
+```
+
+### Application by Use Case
+
+| Case | File | Pattern | Notes |
+|------|------|---------|-------|
+| **Chromeleon bullets** | `chromeleon_fight.gd` | Pre-cached | Size from F5 → load time → `_reload_bullet_sizes()` → `_resize_all_bullets()` |
+| **Elephant bullets** | `boss_fight.gd` | Pre-cached | Tier-specific hardcoded sizes → resized at load → cached in frames array |
+| **Asteroids** | `asteroid_layer.gd` | Runtime resize | Random size per spawn → `img.resize()` at spawn time → `ImageTexture.create_from_image()` |
+
+### TextureRect Configuration
+
+Once texture is **CPU-resized to target size**, use:
+```gdscript
+tr.stretch_mode = TextureRect.STRETCH_KEEP          # texture already sized; no GPU scaling
+tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE     # (asteroid only: used with STRETCH_KEEP_CENTERED)
+tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+```
+
+**Never use `STRETCH_SCALE`** after CPU resize — defeats the purpose. `STRETCH_SCALE` scales compressed textures poorly.
+
+### When Adding New Projectile
+
+1. **Fixed size** (known at load time): pre-cache pattern (like chromebullet)
+   - Load texture → store in array
+   - On size config change: `_resize_all()` → cache resized versions
+   - Spawn: pick from cache
+
+2. **Random/dynamic size**: runtime resize (like asteroid)
+   - Spawn: generate random size → duplicate source → `img.resize()` → `ImageTexture.create_from_image()`
+   - One-shot, discarded after use (no cache overhead)
+
+---
+
 ## Risky Areas
 
 - Removing autoloads without updating `main.gd` references causes load failure

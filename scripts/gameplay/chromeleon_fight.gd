@@ -1311,6 +1311,8 @@ func _cleanup_projectiles() -> void:
 	_projectiles.clear()
 
 func _resize_tex(tex: Texture2D, target_sz: Vector2) -> Texture2D:
+	# CPU-side resize (bilinear) → ImageTexture. Pattern: fixed-size bullets pre-cached.
+	# Called by _resize_all_bullets() at load time; cached results reused on spawn.
 	if tex == null or target_sz == Vector2.ZERO:
 		return tex
 	var img := tex.get_image()
