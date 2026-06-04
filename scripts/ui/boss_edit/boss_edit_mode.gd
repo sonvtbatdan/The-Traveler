@@ -25,6 +25,10 @@ var _adding_firepoint: bool       = false
 var _fire_points:      Dictionary = {}  # boss_name -> Array[{pos:Vector2, id:int}]
 var _selected_fp_idx:  int        = -1
 var _fp_id_counter:    Dictionary = {}  # boss_name -> int (next id)
+var _weapon_fire_points: Dictionary = {}  # "{boss}_{weapon_basename}" -> Array[{pos, id}]
+var _wp_fp_id_counter:   Dictionary = {}  # same composite key -> int (next id)
+var _fp_target_basename: String    = ""   # "" = boss main body, else weapon EO basename
+var _locked_bosses: Dictionary = {}   # boss_name -> bool
 
 # ── UI ─────────────────────────────────────────────────────────────────────────
 var _dim_overlay:     ColorRect     = null
@@ -41,8 +45,11 @@ var _z_spin:          SpinBox       = null
 var _delete_btn:      Button        = null
 var _grid_btn:        Button        = null
 var _add_fp_btn:      Button        = null
-var _toast_label:     Label         = null
-var _grid_overlay:    Control       = null
+var _toast_label:      Label         = null
+var _grid_overlay:     Control       = null
+var _fp_target_label:  Label         = null
+var _lock_btn:         Button        = null
+var _save_confirm_dlg: ConfirmationDialog = null
 
 # Panel drag state — each panel tracked separately
 var _dragging_asset:   bool    = false
@@ -192,6 +199,23 @@ func _build_asset_panel() -> void:
 	fp_hdr.add_theme_font_size_override("font_size", 11)
 	fp_hdr.modulate = Color(0.60, 0.63, 0.76)
 	root.add_child(fp_hdr)
+
+	_fp_target_label = Label.new()
+	_fp_target_label.text = "Target: (boss main)"
+	_fp_target_label.add_theme_font_size_override("font_size", 10)
+	_fp_target_label.modulate = Color(0.85, 0.80, 0.45)
+	root.add_child(_fp_target_label)
+
+	_lock_btn = Button.new()
+	_lock_btn.text = "LOCK"
+	_lock_btn.custom_minimum_size = Vector2(0.0, 22.0)
+	_lock_btn.add_theme_font_size_override("font_size", 10)
+	_lock_btn.pressed.connect(_on_lock_pressed)
+	root.add_child(_lock_btn)
+
+	_save_confirm_dlg = ConfirmationDialog.new()
+	_save_confirm_dlg.ok_button_text = "Overwrite"
+	add_child(_save_confirm_dlg)
 
 	var fp_scroll := ScrollContainer.new()
 	fp_scroll.custom_minimum_size = Vector2(0.0, 130.0)
@@ -392,6 +416,14 @@ func _make_layer_row(eo: EditableObjectNode) -> Control:
 				and (e as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT \
 				and (e as InputEventMouseButton).pressed:
 			_select_obj(cap_eo)
+			var base_eo := _get_base_eo(_active_boss)
+			if cap_eo != base_eo:
+				_fp_target_basename = cap_eo.source_path.get_file().get_basename().to_lower()
+			else:
+				_fp_target_basename = ""
+			_selected_fp_idx = -1
+			_refresh_fp_list()
+			_update_grid_overlay()
 	)
 	return row
 
@@ -420,6 +452,7 @@ func _close() -> void:
 	_is_open = false
 	_grid_mode = false
 	_adding_firepoint = false
+	_fp_target_basename = ""
 	_grid_btn.button_pressed  = false
 	_add_fp_btn.button_pressed = false
 	_grid_overlay.show_grid    = false
@@ -446,6 +479,7 @@ func _set_active_boss(boss_name: String) -> void:
 	if boss_name.is_empty():
 		return
 	_active_boss = boss_name
+	_fp_target_basename = ""
 	if _placed.get(boss_name, []).is_empty():
 		_load_or_create_boss(boss_name)
 	if not _fire_points.has(boss_name):
@@ -455,6 +489,7 @@ func _set_active_boss(boss_name: String) -> void:
 	_update_all_boss_interactivity()
 	_update_grid_overlay()
 	_refresh_fp_list()
+	_update_lock_btn()
 	for name: String in _boss_buttons:
 		(_boss_buttons[name] as Button).button_pressed = (name == boss_name)
 
@@ -484,15 +519,29 @@ func _load_or_create_boss(boss_name: String) -> void:
 	var base_path := folder + base_file
 	var base_tex := _load_full_tex(base_path)
 	if base_tex != null:
-		_place_base_eo(boss_name, base_tex, base_path, Vector2(570.0, 80.0), Vector2(120.0, 120.0))
+		# Calculate base size maintaining aspect ratio (120px width)
+		var base_w := float(base_tex.get_width())
+		var base_h := float(base_tex.get_height())
+		var base_aspect := 1.0
+		if base_w > 0.0 and base_h > 0.0:
+			base_aspect = base_w / base_h
+		var base_sz := Vector2(120.0, 120.0 / base_aspect)
+		_place_base_eo(boss_name, base_tex, base_path, Vector2(570.0, 80.0), base_sz)
 	var wi := 0
 	for fname: String in files:
 		if fname == base_file:
 			continue
 		var wtex := _load_full_tex(folder + fname)
 		if wtex != null:
+			# Calculate weapon size maintaining aspect ratio (40px width)
+			var w_w := float(wtex.get_width())
+			var w_h := float(wtex.get_height())
+			var w_aspect := 1.0
+			if w_w > 0.0 and w_h > 0.0:
+				w_aspect = w_w / w_h
+			var w_sz := Vector2(40.0, 40.0 / w_aspect)
 			_place_weapon_eo(boss_name, wtex, folder + fname,
-				Vector2(-30.0 + wi * 38.0, 10.0), Vector2(40.0, 40.0))
+				Vector2(-30.0 + wi * 38.0, 10.0), w_sz)
 			wi += 1
 
 func _place_base_eo(boss_name: String, tex: Texture2D, path: String,
@@ -633,12 +682,21 @@ func _add_firepoint_at(viewport_pos: Vector2) -> void:
 	if _active_boss.is_empty():
 		return
 	var ss_pos := viewport_pos - SCREEN_ORIGIN
-	if not _fire_points.has(_active_boss):
-		_fire_points[_active_boss] = []
-		_fp_id_counter[_active_boss] = 1
-	var fp_id: int = _fp_id_counter.get(_active_boss, 1)
-	_fire_points[_active_boss].append({"pos": ss_pos, "id": fp_id})
-	_fp_id_counter[_active_boss] = fp_id + 1
+	if _fp_target_basename.is_empty():
+		if not _fire_points.has(_active_boss):
+			_fire_points[_active_boss] = []
+			_fp_id_counter[_active_boss] = 1
+		var fp_id: int = _fp_id_counter.get(_active_boss, 1)
+		_fire_points[_active_boss].append({"pos": ss_pos, "id": fp_id})
+		_fp_id_counter[_active_boss] = fp_id + 1
+	else:
+		var key := _active_boss + "_" + _fp_target_basename
+		if not _weapon_fire_points.has(key):
+			_weapon_fire_points[key] = []
+			_wp_fp_id_counter[key] = 1
+		var fp_id: int = _wp_fp_id_counter.get(key, 1)
+		_weapon_fire_points[key].append({"pos": ss_pos, "id": fp_id})
+		_wp_fp_id_counter[key] = fp_id + 1
 	_dirty = true
 	_refresh_fp_list()
 	_update_grid_overlay()
@@ -653,25 +711,46 @@ func _select_fp(idx: int) -> void:
 func _delete_selected_fp() -> void:
 	if _selected_fp_idx < 0:
 		return
-	var fps: Array = _fire_points.get(_active_boss, [])
+	var fps: Array = _get_fp_array()
 	if _selected_fp_idx >= fps.size():
 		return
 	fps.remove_at(_selected_fp_idx)
+	_set_fp_array(fps)
 	_selected_fp_idx = -1
 	_dirty = true
 	_refresh_fp_list()
 	_update_grid_overlay()
 
+func _get_fp_array() -> Array:
+	if _fp_target_basename.is_empty():
+		return _fire_points.get(_active_boss, [])
+	return _weapon_fire_points.get(_active_boss + "_" + _fp_target_basename, [])
+
+func _set_fp_array(fps: Array) -> void:
+	if _fp_target_basename.is_empty():
+		_fire_points[_active_boss] = fps
+	else:
+		_weapon_fire_points[_active_boss + "_" + _fp_target_basename] = fps
+
+func _update_fp_target_label() -> void:
+	if _fp_target_label == null:
+		return
+	if _fp_target_basename.is_empty():
+		_fp_target_label.text = "Target: " + (_active_boss if not _active_boss.is_empty() else "(none)")
+	else:
+		_fp_target_label.text = "Target: " + _fp_target_basename
+
 func _update_grid_overlay() -> void:
 	if _grid_overlay == null:
 		return
-	_grid_overlay.fire_points     = _fire_points.get(_active_boss, [])
+	_grid_overlay.fire_points     = _get_fp_array()
 	_grid_overlay.selected_fp_idx = _selected_fp_idx
 
 func _refresh_fp_list() -> void:
+	_update_fp_target_label()
 	for child in _fp_vbox.get_children():
 		child.queue_free()
-	var fps: Array = _fire_points.get(_active_boss, [])
+	var fps: Array = _get_fp_array()
 	for i: int in fps.size():
 		_fp_vbox.add_child(_make_fp_row(fps[i], i))
 
@@ -727,6 +806,8 @@ func _update_all_boss_interactivity() -> void:
 			if not is_instance_valid(eo):
 				continue
 			eo.set_gameplay_mode(not _is_open)
+			# Hide non-active boss groups during edit mode; show only active group
+			eo.visible = is_active if _is_open else true
 			if _is_open:
 				eo.gif_paused = true
 				eo.reset_gif()
@@ -739,20 +820,34 @@ func _on_canvas_object_clicked(obj: EditableObjectNode) -> void:
 	if not _is_open or _grid_mode:
 		return
 	_select_obj(obj)
+	if is_instance_valid(obj):
+		var base_eo := _get_base_eo(_active_boss)
+		if obj != base_eo:
+			_fp_target_basename = obj.source_path.get_file().get_basename().to_lower()
+		else:
+			_fp_target_basename = ""
+	else:
+		_fp_target_basename = ""
+	_selected_fp_idx = -1
+	_refresh_fp_list()
+	_update_grid_overlay()
 
 # ── Gameplay visibility ────────────────────────────────────────────────────────
 
 func _on_boost_changed(_active: bool) -> void:
-	if _is_open:
-		return
-	_update_gameplay_visibility()
+	# Boss visibility is owned by each fight controller (boss_fight.start_fight /
+	# chromeleon._show_only), NOT by boost. Re-showing bosses on boost revealed the
+	# inactive boss during the other's fight — so do nothing here.
+	pass
 
 func _update_gameplay_visibility() -> void:
-	var show: bool = GameManager.manual_boost
+	# Keep ALL boss bases hidden during gameplay (children cascade-hide). The active
+	# boss is revealed by its own fight controller when spawned. Only called at setup()
+	# and _close(), where no fight is active, so always-hiding is safe.
 	for boss_name: String in _all_boss_names:
 		var base_eo := _get_base_eo(boss_name)
 		if is_instance_valid(base_eo) and base_eo.get_parent() == _objects_container:
-			base_eo.visible = show
+			base_eo.visible = false
 
 # ── Input ──────────────────────────────────────────────────────────────────────
 
@@ -770,10 +865,11 @@ func _input(event: InputEvent) -> void:
 		if dir != Vector2.ZERO:
 			if ke.shift_pressed:
 				dir *= 10.0
-			var fps: Array = _fire_points.get(_active_boss, [])
+			var fps: Array = _get_fp_array()
 			if _selected_fp_idx >= 0 and _selected_fp_idx < fps.size():
 				# Move selected fire point
 				fps[_selected_fp_idx]["pos"] = (fps[_selected_fp_idx]["pos"] as Vector2) + dir
+				_set_fp_array(fps)
 				_dirty = true
 				_refresh_fp_list()
 				_update_grid_overlay()
@@ -981,7 +1077,35 @@ func _undo() -> void:
 
 # ── Persistence ────────────────────────────────────────────────────────────────
 
+func _on_lock_pressed() -> void:
+	if _active_boss.is_empty():
+		return
+	var locked: bool = not _locked_bosses.get(_active_boss, false)
+	_locked_bosses[_active_boss] = locked
+	_update_lock_btn()
+	var cfg := ConfigFile.new()
+	cfg.load(LAYOUT_PATH)
+	cfg.set_value("locks", _active_boss, locked)
+	cfg.save(LAYOUT_PATH)
+
+func _update_lock_btn() -> void:
+	if _lock_btn == null or _active_boss.is_empty():
+		return
+	var locked: bool = _locked_bosses.get(_active_boss, false)
+	_lock_btn.text = "LOCKED" if locked else "LOCK"
+	_lock_btn.modulate = Color(1.3, 0.5, 0.5) if locked else Color.WHITE
+
 func _save_layout() -> void:
+	if not _active_boss.is_empty() and _locked_bosses.get(_active_boss, false):
+		_save_confirm_dlg.dialog_text = "Overwrite locked layout for '%s'?" % _active_boss
+		if _save_confirm_dlg.confirmed.is_connected(_do_save_layout):
+			_save_confirm_dlg.confirmed.disconnect(_do_save_layout)
+		_save_confirm_dlg.confirmed.connect(_do_save_layout, CONNECT_ONE_SHOT)
+		_save_confirm_dlg.popup_centered()
+		return
+	_do_save_layout()
+
+func _do_save_layout() -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(LAYOUT_PATH)
 	cfg.set_value("meta", "version", 1)
@@ -1001,11 +1125,24 @@ func _save_layout() -> void:
 				"z_index": eo.z_index,
 			})
 		cfg.set_value("bosses", boss_name, entries)
-		# Fire points
+		# Fire points — boss main body
 		var fp_data: Array[Dictionary] = []
 		for fp: Dictionary in _fire_points.get(boss_name, []):
 			fp_data.append({"pos": fp["pos"], "id": fp.get("id", 0)})
 		cfg.set_value("firepoints", boss_name, fp_data)
+		# Fire points — weapon EOs (blueorb, tealorb, etc.)
+		var wlist: Array = _placed.get(boss_name, [])
+		for i: int in range(1, wlist.size()):
+			var weo := wlist[i] as EditableObjectNode
+			if not is_instance_valid(weo):
+				continue
+			var wbn := weo.source_path.get_file().get_basename().to_lower()
+			var key := boss_name + "_" + wbn
+			var wfp_data: Array[Dictionary] = []
+			for fp: Dictionary in _weapon_fire_points.get(key, []):
+				wfp_data.append({"pos": fp["pos"], "id": fp.get("id", 0)})
+			if not wfp_data.is_empty():
+				cfg.set_value("firepoints", key, wfp_data)
 	cfg.save(LAYOUT_PATH)
 	_dirty = false
 
@@ -1036,7 +1173,7 @@ func _load_layout() -> void:
 					var eo := _place_weapon_eo(boss_name, tex, path, pos, sz)
 					if eo != null:
 						eo.z_index = entry.get("z_index", 1)
-		# Fire points
+		# Fire points — boss main body
 		_fire_points[boss_name] = []
 		var max_id := 0
 		for fp: Dictionary in cfg.get_value("firepoints", boss_name, []):
@@ -1044,6 +1181,24 @@ func _load_layout() -> void:
 			_fire_points[boss_name].append({"pos": fp.get("pos", Vector2.ZERO), "id": fp_id})
 			max_id = maxi(max_id, fp_id)
 		_fp_id_counter[boss_name] = max_id + 1
+		# Fire points — weapon EOs
+		var placed_list: Array = _placed.get(boss_name, [])
+		for i: int in range(1, placed_list.size()):
+			var weo := placed_list[i] as EditableObjectNode
+			if not is_instance_valid(weo):
+				continue
+			var wbn := weo.source_path.get_file().get_basename().to_lower()
+			var key := boss_name + "_" + wbn
+			_weapon_fire_points[key] = []
+			var wmax_id := 0
+			for fp: Dictionary in cfg.get_value("firepoints", key, []):
+				var fp_id: int = fp.get("id", wmax_id + 1)
+				_weapon_fire_points[key].append({"pos": fp.get("pos", Vector2.ZERO), "id": fp_id})
+				wmax_id = maxi(wmax_id, fp_id)
+			_wp_fp_id_counter[key] = wmax_id + 1
+	# Lock states
+	for boss_name: String in _all_boss_names:
+		_locked_bosses[boss_name] = cfg.get_value("locks", boss_name, false)
 
 # ── Asset loading ──────────────────────────────────────────────────────────────
 

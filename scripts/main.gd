@@ -11,6 +11,7 @@ const BoostButtonScript         := preload("res://scripts/ui/hud/boost_button.gd
 const ShipHpBarScript           := preload("res://scripts/ui/hud/ship_hp_bar.gd")
 const BossEditScript            := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
 const BossFightScript           := preload("res://scripts/gameplay/boss_fight.gd")
+const ChromeleonFightScript     := preload("res://scripts/gameplay/chromeleon_fight.gd")
 const BossPanelScript           := preload("res://scripts/ui/hud/boss_panel.gd")
 const BossHpBarScript           := preload("res://scripts/ui/hud/boss_hp_bar.gd")
 const InventoryUIScript         := preload("res://scripts/ui/inventory/inventory_ui.gd")
@@ -167,11 +168,13 @@ func _add_boss_panel() -> void:
 func _on_ship_destroyed() -> void:
 	GameManager.set_boost(false)
 	# Exit the boss battle (hide boss, clear projectiles, restore normal asteroid play).
-	var bf := get_tree().get_first_node_in_group("boss_fight")
-	if bf != null and bf.has_method("kill_boss"):
-		# Deferred: ship_destroyed can fire INSIDE boss_fight._tick_projectiles, and
-		# kill_boss() clears _projectiles — mutating it mid-loop crashes. Run it after the frame.
-		bf.call_deferred("kill_boss")
+	# Kill EVERY active boss controller — elephant and chromeleon both register in
+	# "boss_fight", so only killing the first left the other boss lingering after death.
+	for bf in get_tree().get_nodes_in_group("boss_fight"):
+		if bf.has_method("kill_boss"):
+			# Deferred: ship_destroyed can fire INSIDE a boss's _tick_projectiles, and
+			# kill_boss() clears _projectiles — mutating it mid-loop crashes. Run it after the frame.
+			bf.call_deferred("kill_boss")
 	_show_death_screen()
 	get_tree().paused = true
 
@@ -338,6 +341,10 @@ func _setup_boss_edit() -> void:
 	var bf := BossFightScript.new()
 	objects_container.add_child(bf)
 	bf.setup(objects_container)
+
+	var cf := ChromeleonFightScript.new()
+	objects_container.add_child(cf)
+	cf.setup(objects_container)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_edit_mode"):

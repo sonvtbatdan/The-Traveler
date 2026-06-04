@@ -3,9 +3,10 @@ extends Control
 const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
 const BAR_W     := 135.0
 
-var _fill:   ColorRect = null
-var _track:  ColorRect = null
-var _label:  Label     = null
+var _fill:      ColorRect = null
+var _track:     ColorRect = null
+var _label:     Label     = null
+var _move_lbl:  Label     = null
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -32,6 +33,15 @@ func _ready() -> void:
 	_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_track.add_child(_fill)
 
+	_move_lbl = Label.new()
+	_move_lbl.text = ""
+	if font:
+		_move_lbl.add_theme_font_override("font", font)
+	_move_lbl.add_theme_font_size_override("font_size", 9)
+	_move_lbl.add_theme_color_override("font_color", Color(0.55, 0.85, 1.0))
+	_move_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	add_child(_move_lbl)
+
 	visible = false   # hidden until boss spawns
 
 	GameManager.boss_spawned.connect(_on_boss_spawned)
@@ -42,8 +52,19 @@ func _ready() -> void:
 func _reposition() -> void:
 	var vp := get_viewport_rect().size
 	# Positioned above the player HP bar (player label at vp.y-96, bar at vp.y-82)
-	_label.position = Vector2(vp.x - 145, vp.y - 120)
-	_track.position = Vector2(vp.x - 145, vp.y - 106)
+	_move_lbl.position = Vector2(vp.x - 145, vp.y - 134)
+	_move_lbl.size     = Vector2(BAR_W, 14.0)
+	_label.position    = Vector2(vp.x - 145, vp.y - 120)
+	_track.position    = Vector2(vp.x - 145, vp.y - 106)
+
+func _process(_delta: float) -> void:
+	if not visible or _move_lbl == null:
+		return
+	var cf := get_tree().get_first_node_in_group("chromeleon_fight")
+	if cf != null and cf.has_method("get_move_name"):
+		_move_lbl.text = cf.get_move_name()
+	else:
+		_move_lbl.text = ""
 
 func _on_boss_spawned() -> void:
 	visible = true

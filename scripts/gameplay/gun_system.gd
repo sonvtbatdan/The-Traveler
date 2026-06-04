@@ -31,6 +31,11 @@ const IMPACT_SIZE       := Vector2(20.0, 23.0)                # W=20, H proporti
 const CANON_MK2_FIRE_INTERVAL  := 0.6   # 6 frames × 0.1s = 1 shot per 0.6s
 const CANON_MK2_IMPACT_RADIUS  := 30.0  # half of 60px explosion
 const SHIP_MOVE_SPD            := 200.0  # px/s, arrow key movement in manual boost
+const DASH_ENABLED            := false   # dash unplugged from gameplay for now (flip true to restore)
+const DASH_CD                 := 1.0     # dash cooldown (s)
+const DASH_COST               := 20.0    # energy per dash
+const DASH_SPEED              := 840.0   # px/s during the dash lunge
+const DASH_TIME               := 0.15    # dash duration (s) → ~126px
 
 var _bullet_tex:           Texture2D = null
 var _shell_tex:            Texture2D = null
@@ -98,6 +103,12 @@ var _float_time:          float = 0.0
 var _spaceship_eo:        EditableObjectNode = null
 var _spaceship_origin:    Vector2 = Vector2.ZERO
 var _spaceship_origin_sz: Vector2 = Vector2.ZERO
+
+# ── Dash state ────────────────────────────────────────────────────────────────
+var _dash_cd        := 0.0
+var _dash_time_left := 0.0
+var _dash_dir       := Vector2.ZERO
+var _space_was_down := false
 var _current_scale:       float   = 1.0  # animated by tween (1.0 <-> 0.5)
 var _scale_tween:         Tween   = null
 var _ship_pop_tween:      Tween   = null
@@ -477,13 +488,28 @@ func _process(delta: float) -> void:
 		_check_ship_asteroid_collision()
 
 func _handle_ship_movement(delta: float) -> void:
+	_dash_cd = maxf(0.0, _dash_cd - delta)
 	var mv := Vector2(
 		float(Input.is_physical_key_pressed(KEY_D)) - float(Input.is_physical_key_pressed(KEY_A)),
 		float(Input.is_physical_key_pressed(KEY_S)) - float(Input.is_physical_key_pressed(KEY_W))
 	)
-	if mv == Vector2.ZERO:
+	# Dash: SPACE rising edge, off cooldown, a direction held, enough energy.
+	# (DASH_ENABLED is false for now — keybinding still read, but no dash is triggered.)
+	var space_down := Input.is_physical_key_pressed(KEY_SPACE)
+	if DASH_ENABLED and space_down and not _space_was_down and _dash_cd <= 0.0 and mv != Vector2.ZERO:
+		if GameManager.try_spend_energy(DASH_COST):
+			_dash_dir       = mv.normalized()
+			_dash_time_left = DASH_TIME
+			_dash_cd        = DASH_CD
+	_space_was_down = space_down
+
+	if _dash_time_left > 0.0:
+		_dash_time_left -= delta
+		_spaceship_origin += _dash_dir * DASH_SPEED * delta
+	elif mv != Vector2.ZERO:
+		_spaceship_origin += mv.normalized() * SHIP_MOVE_SPD * delta
+	else:
 		return
-	_spaceship_origin += mv.normalized() * SHIP_MOVE_SPD * delta
 	_spaceship_origin.x = clampf(_spaceship_origin.x,
 		SCREEN_BOUNDS.position.x,
 		SCREEN_BOUNDS.end.x - _spaceship_origin_sz.x)

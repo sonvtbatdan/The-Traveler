@@ -89,14 +89,14 @@ func _on_reset_hp() -> void:
 	GameManager.ship_hp_changed.emit(GameManager.SHIP_MAX_HP)
 
 func _on_kill_boss() -> void:
-	# Route through the authoritative HP-zero path so the boss is hidden AND the
-	# "DISASTER AVOIDED" banner shows — same as defeating it in-game.
+	# Prefer the damage path so a real defeat fires (elephant shows its victory banner);
+	# fall back to force-killing every active boss controller.
 	if GameManager.boss_max_hp > 0 and GameManager.boss_hp > 0:
 		GameManager.take_boss_damage(GameManager.boss_hp)
 	else:
-		var bf := get_tree().get_first_node_in_group("boss_fight")
-		if bf != null and bf.has_method("kill_boss"):
-			bf.call("kill_boss")
+		for bf in get_tree().get_nodes_in_group("boss_fight"):
+			if bf.has_method("kill_boss"):
+				bf.call("kill_boss")
 
 func _make_btn(txt: String) -> Button:
 	var btn := Button.new()

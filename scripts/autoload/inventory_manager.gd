@@ -67,6 +67,7 @@ const ITEM_DEFS: Dictionary = {
 		"size": Vector2i(3, 2),
 		"tags": ["weapon"],
 		"fire_mode": "charge",   # hold to charge (up to cooldown_sec); damage scales with charge
+		"fire_type": "projectile",
 		"rarity": "rare",
 		"desc": "Charge up, then fire a big chunk of metal at a target. Heavy single-target burst — slow cadence, big hit.",
 		"stats": {
@@ -82,6 +83,7 @@ const ITEM_DEFS: Dictionary = {
 		"size": Vector2i(2, 2),
 		"tags": ["weapon", "shield"],
 		"fire_mode": "aura",   # always-on while equipped; damages everything within radius_px each tick
+		"fire_type": "aura",
 		"rarity": "epic",
 		"desc": "An electric area-effect aura around the ship. Always-on while equipped; damages every enemy within a radius each tick.",
 		"stats": {
@@ -98,6 +100,7 @@ const ITEM_DEFS: Dictionary = {
 		"size": Vector2i(3, 1),
 		"tags": ["weapon"],
 		"fire_mode": "repeat",   # hold to keep firing every cooldown_sec
+		"fire_type": "projectile",
 		"rarity": "common",
 		"desc": "Fires fast; hold to keep firing. The baseline rapid-fire weapon — light, cheap, reliable sustained fire.",
 		"stats": {
@@ -105,6 +108,95 @@ const ITEM_DEFS: Dictionary = {
 			"cooldown_sec": 0.12,
 			"weight": 4,
 			"energy_per_sec": 6,
+		},
+	},
+	"homing_missile": {
+		"name": "Homing Missile",
+		"icon": "",
+		"size": Vector2i(2, 1),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",   # auto-fires every cooldown_sec while held
+		"fire_type": "homing",   # picks the nearest target; missile curves toward it
+		"rarity": "rare",
+		"desc": "Launches out the back, loops around the ship, then streaks to the cursor and bursts in an explosion.",
+		"stats": {
+			"damage": 19,
+			"cooldown_sec": 0.53,
+			"weight": 5,
+			"energy": 7,   # energy per shot
+		},
+	},
+	"shotgun": {
+		"name": "Shotgun",
+		"icon": "",
+		"size": Vector2i(2, 1),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",
+		"fire_type": "cone",   # a spread of pellets that vanish after range_px
+		"rarity": "common",
+		"desc": "Short-range burst of pellets in a cone. Devastating up close, harmless at range.",
+		"stats": {
+			"damage": 18,         # per pellet
+			"pellets": 5,
+			"cooldown_sec": 0.7,
+			"range_px": 216,
+			"spread_deg": 34,
+			"weight": 5,
+			"energy": 8,   # energy per shot (whole volley)
+		},
+	},
+	"lasgun": {
+		"name": "Lasgun",
+		"icon": "",
+		"size": Vector2i(3, 1),
+		"tags": ["weapon"],
+		"fire_mode": "beam",          # continuous while held
+		"fire_type": "hitscan_beam",  # instant beam, stops at the first target
+		"rarity": "rare",
+		"desc": "A continuous beam that burns the first target in its line. Hold to sustain.",
+		"stats": {
+			"damage": 22,             # per tick
+			"tick_interval_sec": 0.15,
+			"range_px": 760,
+			"beam_width": 8,
+			"weight": 5,
+			"energy": 11,             # per tick (treated as ~/s when energy is on)
+		},
+	},
+	"arc": {
+		"name": "Arc",
+		"icon": "",
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",
+		"fire_type": "chain",   # hits a target, then jumps to nearby ones
+		"rarity": "rare",
+		"desc": "Lightning that strikes a target then chains to nearby ones.",
+		"stats": {
+			"damage": 30,
+			"cooldown_sec": 0.5,
+			"chain_jumps": 4,
+			"chain_range_px": 200,
+			"weight": 6,
+			"energy": 12,
+		},
+	},
+	"plasma_drill": {
+		"name": "Plasma Drill",
+		"icon": "",
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "beam",
+		"fire_type": "tether",   # short-range tether to the nearest target
+		"rarity": "epic",
+		"desc": "A short-range tether that latches the nearest target and drills it with massive sustained damage.",
+		"stats": {
+			"damage": 70,            # per tick
+			"tick_interval_sec": 0.2,
+			"range_px": 170,
+			"beam_width": 10,
+			"weight": 7,
+			"energy": 22,
 		},
 	},
 	"shield_generator": {
@@ -127,13 +219,16 @@ const ITEM_DEFS: Dictionary = {
 # Items granted automatically the FIRST time a save is created (new game only).
 # Keeping this separate from ITEM_DEFS means future items (e.g. asteroid drops in
 # Phase 4) can be defined without being auto-placed in the backpack.
-const STARTER_ITEMS: Array[String] = ["gauss_cannon", "shield_generator", "gatling_gun"]
+const STARTER_ITEMS: Array[String] = ["gauss_cannon", "shield_generator", "gatling_gun", "homing_missile", "shotgun", "lasgun", "arc", "plasma_drill"]
 
 # ── Runtime state ─────────────────────────────────────────────────────────────
 # _items: uid(int) -> {"def": String, "where": String, "cell": Vector2i}
 #   where = "backpack" or one of EQUIP_SLOTS; cell = backpack origin (col, row).
 var _items: Dictionary = {}
 var _next_uid: int = 1
+# Def ids ever granted as starters — so a newly-added starter item is granted to an
+# existing save exactly once, and trashed items aren't restored on the next load.
+var _granted: Array = []
 var _icon_cache: Dictionary = {}
 
 func _ready() -> void:
@@ -338,6 +433,7 @@ func save_game() -> void:
 	if cfg.has_section("inventory"):
 		cfg.erase_section("inventory")
 	cfg.set_value("inventory", "next_uid", _next_uid)
+	cfg.set_value("inventory", "granted", _granted)
 	var arr: Array = []
 	for uid: int in _items:
 		var it: Dictionary = _items[uid]
@@ -353,6 +449,7 @@ func load_game() -> void:
 		return
 	_items.clear()
 	_next_uid = int(cfg.get_value("inventory", "next_uid", 1))
+	_granted = cfg.get_value("inventory", "granted", [])
 	var arr: Array = cfg.get_value("inventory", "items", [])
 	for entry: Dictionary in arr:
 		var def_id := String(entry.get("def", ""))
@@ -364,7 +461,21 @@ func load_game() -> void:
 			"where": String(entry.get("where", "backpack")),
 			"cell": entry.get("cell", Vector2i.ZERO),
 		}
+	_backfill_starters()
 	inventory_changed.emit()
+
+## Grant any STARTER_ITEMS this save has never been granted before (e.g. weapons
+## added in a later update), once each. Existing items / trashed items are untouched.
+func _backfill_starters() -> void:
+	var changed := false
+	for def_id: String in STARTER_ITEMS:
+		if not _granted.has(def_id):
+			if add_to_backpack(def_id) != -1:
+				changed = true
+			_granted.append(def_id)
+			changed = true
+	if changed:
+		save_game()
 
 ## First run only (no [inventory] in the save): grant the STARTER_ITEMS. Once a
 ## save exists this never runs again — so it won't re-add items every load, and
@@ -374,4 +485,5 @@ func _seed_starter_items() -> void:
 	_next_uid = 1
 	for def_id: String in STARTER_ITEMS:
 		add_to_backpack(def_id)
+	_granted = STARTER_ITEMS.duplicate()
 	save_game()

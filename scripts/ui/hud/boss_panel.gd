@@ -3,10 +3,11 @@ extends Panel
 const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
 const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 
-var _elephant_btn: Button = null
+var _elephant_btn:   Button = null
+var _chromeleon_btn: Button = null
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(192.0, 90.0)
+	custom_minimum_size = Vector2(192.0, 160.0)
 	_apply_style()
 	_build_ui()
 	GameManager.boss_spawned.connect(_on_boss_spawned)
@@ -86,15 +87,54 @@ func _build_ui() -> void:
 	_elephant_btn.pressed.connect(_on_elephant_pressed)
 	vbox.add_child(_elephant_btn)
 
+	# ── Chromeleon button ──
+	_chromeleon_btn = Button.new()
+	_chromeleon_btn.text = "Chromeleon"
+	_chromeleon_btn.custom_minimum_size = Vector2(50.0, 50.0)
+	_chromeleon_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_chromeleon_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	if font:
+		_chromeleon_btn.add_theme_font_override("font", font)
+	_chromeleon_btn.add_theme_font_size_override("font_size", 11)
+	_chromeleon_btn.add_theme_color_override("font_color", Color.WHITE)
+	_chromeleon_btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_chromeleon_btn.expand_icon    = true
+	_chromeleon_btn.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+
+	var ctex := GifLoader.load_gif("res://assets/bosses/chromeleon/chromeleon.gif")
+	if ctex != null:
+		var cframes: Array = ctex.get_meta("gif_frames") if ctex.has_meta("gif_frames") else []
+		if not cframes.is_empty():
+			_chromeleon_btn.icon = cframes[0] as Texture2D
+		elif ctex is Texture2D:
+			_chromeleon_btn.icon = ctex as Texture2D
+
+	_chromeleon_btn.add_theme_stylebox_override("normal",   mk.call(Color(0.08, 0.14, 0.14, 0.9), Color(0.25, 0.65, 0.65, 0.8)))
+	_chromeleon_btn.add_theme_stylebox_override("hover",    mk.call(Color(0.12, 0.22, 0.22, 0.9), Color(0.40, 0.85, 0.85, 0.9)))
+	_chromeleon_btn.add_theme_stylebox_override("pressed",  mk.call(Color(0.05, 0.09, 0.09, 0.9), Color(0.25, 0.55, 0.55, 0.8)))
+	_chromeleon_btn.add_theme_stylebox_override("disabled", mk.call(Color(0.06, 0.08, 0.08, 0.6), Color(0.15, 0.30, 0.30, 0.5)))
+
+	_chromeleon_btn.pressed.connect(_on_chromeleon_pressed)
+	vbox.add_child(_chromeleon_btn)
+
 func _on_elephant_pressed() -> void:
 	var bf := get_tree().get_first_node_in_group("boss_fight")
 	if bf != null and bf.has_method("spawn_boss"):
 		bf.call("spawn_boss")
 
+func _on_chromeleon_pressed() -> void:
+	var cf := get_tree().get_first_node_in_group("chromeleon_fight")
+	if cf != null and cf.has_method("spawn_boss"):
+		cf.call("spawn_boss")
+
 func _on_boss_spawned() -> void:
 	if _elephant_btn != null:
 		_elephant_btn.disabled = true
+	if _chromeleon_btn != null:
+		_chromeleon_btn.disabled = true
 
 func _on_boss_killed() -> void:
 	if _elephant_btn != null:
 		_elephant_btn.disabled = false
+	if _chromeleon_btn != null:
+		_chromeleon_btn.disabled = false
