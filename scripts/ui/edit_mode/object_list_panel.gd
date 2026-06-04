@@ -65,7 +65,7 @@ func _show_rename_dialog(obj: EditableObjectNode) -> void:
 	dialog.size = Vector2i(320, 120)
 	add_child(dialog)
 
-	var vbox := dialog.get_vbox()
+	var vbox: VBoxContainer = dialog.get_vbox()
 	vbox.add_theme_constant_override("separation", 10)
 
 	var label := Label.new()
