@@ -277,7 +277,6 @@ func _on_row_gui_input(event: InputEvent, row: Control) -> void:
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		var obj := _canvas_obj_for_row(row)
 		if obj != null and not obj.is_group_layer():
-			_context_obj = obj
 			_select_row_node(row)
 			row_selected.emit(obj)
 			var mp := DisplayServer.mouse_get_position()
