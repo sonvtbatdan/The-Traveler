@@ -512,6 +512,7 @@ func _auto_load_screen_group() -> void:
 		obj._sync_rect_size()
 
 func _auto_load_group(group: String) -> void:
+	return  # DISABLED: autoload from folders entirely — rely on config files only
 	if group == "screen":
 		_auto_load_screen_group()
 		return
