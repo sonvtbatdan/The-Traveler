@@ -166,11 +166,13 @@ func _add_boss_panel() -> void:
 func _on_ship_destroyed() -> void:
 	GameManager.set_boost(false)
 	# Exit the boss battle (hide boss, clear projectiles, restore normal asteroid play).
-	var bf := get_tree().get_first_node_in_group("boss_fight")
-	if bf != null and bf.has_method("kill_boss"):
-		# Deferred: ship_destroyed can fire INSIDE boss_fight._tick_projectiles, and
-		# kill_boss() clears _projectiles — mutating it mid-loop crashes. Run it after the frame.
-		bf.call_deferred("kill_boss")
+	# Kill EVERY active boss controller — elephant and chromeleon both register in
+	# "boss_fight", so only killing the first left the other boss lingering after death.
+	for bf in get_tree().get_nodes_in_group("boss_fight"):
+		if bf.has_method("kill_boss"):
+			# Deferred: ship_destroyed can fire INSIDE a boss's _tick_projectiles, and
+			# kill_boss() clears _projectiles — mutating it mid-loop crashes. Run it after the frame.
+			bf.call_deferred("kill_boss")
 	_show_death_screen()
 	get_tree().paused = true
 

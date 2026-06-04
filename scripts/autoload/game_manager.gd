@@ -105,6 +105,10 @@ var ship_shield:       float = 0.0      # current shield points
 var _shield_max:       float = 0.0      # capacity of the equipped generator (0 = none equipped)
 var _shield_dmg_timer: float = 999.0    # time since last damage; regen once >= SHIELD_REGEN_DELAY
 
+# ── Invincibility frames ──────────────────────────────────────────────────────
+const SHIP_IFRAME_TIME: float = 0.3     # invincibility window after a hit
+var _iframe_timer: float = 0.0
+
 func set_boost(active: bool) -> void:
 	if manual_boost == active:
 		return
@@ -114,6 +118,9 @@ func set_boost(active: bool) -> void:
 func ship_take_damage(dmg: int) -> void:
 	if dmg <= 0 or ship_hp <= 0:
 		return
+	if _iframe_timer > 0.0:
+		return   # still invincible from a recent hit
+	_iframe_timer = SHIP_IFRAME_TIME
 	# Shield absorbs first; leftover spills into HP the same hit.
 	var d := float(dmg)
 	if ship_shield > 0.0:
@@ -195,6 +202,7 @@ func on_view_clicked() -> void:
 # ---------------------------------------------------------------------------
 
 func _process(delta: float) -> void:
+	_iframe_timer = maxf(0.0, _iframe_timer - delta)
 	_tick_shield(delta)
 	# 1. Sub growth — power-law scaled in the stable view count.
 	var stable: float = _subs + _passive_views

@@ -441,11 +441,13 @@ func _ship_center() -> Vector2:
 	var s := _ship_node()
 	if s == null:
 		return Vector2(size.x * 0.5, size.y * 0.6)
+	# Map through the ship's real transform so scale/pivot (0.5× during boss fights) are baked in.
 	# This control sits at StreamScreen's origin, so global → local is a subtraction.
-	return (s.global_position + s.size * 0.5) - global_position
+	return (s.get_global_transform() * (s.size * 0.5)) - global_position
 
 func _muzzle() -> Vector2:
 	var s := _ship_node()
 	if s == null:
 		return Vector2(size.x * 0.5, size.y * 0.6)
-	return (s.global_position + Vector2(s.size.x * 0.5, 0.0)) - global_position
+	# Top-center of the ship, through its real transform (handles the boss-fight 0.5× scale).
+	return (s.get_global_transform() * Vector2(s.size.x * 0.5, 0.0)) - global_position

@@ -1295,7 +1295,7 @@ func _reattach_ball() -> void:
 	_chromeball_eo.visible = true
 
 func _show_only(target: EditableObjectNode) -> void:
-	for eo in [_chromeleon_eo, _chromeleonbody_eo, _chromehead_eo, _chromeball_eo]:
+	for eo in [_chromeleon_eo, _chromeleonbody_eo, _chromehead_eo, _chromeball_eo, _blueorb_eo, _tealorb_eo]:
 		if is_instance_valid(eo):
 			eo.visible = (eo == target)
 

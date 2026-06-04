@@ -5,6 +5,8 @@ const OC_BOUNDS  := Rect2(270.0, 8.0, 700.0, 764.0)
 
 const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 
+const BOSS_VISUAL_SCALE := 2.0   # elephant drawn at 2× (scaled around its center pivot)
+
 # ── Move 1 constants ──────────────────────────────────────────────────────────
 const M1_START_SS      := Vector2(10.0, 175.0)
 const M1_END_SS        := Vector2(650.0, 175.0)
@@ -14,7 +16,7 @@ const M1_ROT_SPEED     := 40.0 * TAU / 60.0
 const M1_SPIKE_INT     := 0.2
 const M1_SPIKES_PER_INT := 6               # 6 spikes per burst (tripled; spiral 6-arm)
 const M1_SPIRAL_STEP   := 0.35            # radians to advance base angle each burst
-const SPIKE_SPEED      := 90.0            # radial launch speed (≥3× original 30)
+const SPIKE_SPEED      := 108.0           # radial launch speed (+20%)
 const SPIKE_SPIN_RADIUS := 40.0          # effective radius for spin-induced tangential kick (tunable)
 const SPIKE_DMG        := 10
 
@@ -23,7 +25,7 @@ const M2_DURATION      := 8.0
 const M2_VORTEX_INT    := 0.3                 # 5× faster volleys (5× the vortexes)
 const M2_MOVE_SPD      := 80.0
 const M2_MAX_Y_SS      := 450.0
-const VORTEX_SPEED     := 90.0               # 3× original
+const VORTEX_SPEED     := 108.0              # +20%
 const VORTEX_ROT_SPEED := 60.0 * TAU / 60.0   # 1 rot/s (×2)
 const VORTEX_DMG       := 15
 
@@ -42,7 +44,7 @@ const LASER_DMG        := 30
 const M4_ROT_T          := 0.5
 const M4_TRAVEL_SPD     := 600.0            # 5× traversal speed
 const M4_DROP_INT       := 0.2             # drop a bomb every 0.2s
-const DROP_SPEED        := 600.0           # bombs hang then drop fast
+const DROP_SPEED        := 720.0           # bombs hang then drop fast (+20%)
 const DROP_DMG          := 20
 const M4_START_LEFT_SS  := Vector2(10.0, 175.0)
 const M4_START_RIGHT_SS := Vector2(690.0, 175.0)
@@ -52,7 +54,7 @@ const M5_DURATION   := 5.0
 const M5_ROT_T      := 0.5
 const M5_BLOB_INT   := 2.0 / 3.0           # half as many blobs (half the fire rate)
 const M5_MOVE_SPD   := 80.0
-const BLOB_SPEED    := 300.0               # 50% faster blobs
+const BLOB_SPEED    := 360.0               # +20%
 const BLOB_DMG      := 20
 
 # ── Boss HP ───────────────────────────────────────────────────────────────────
@@ -66,6 +68,7 @@ enum Phase { IDLE, M1_ENTRY, M1_TRAVEL, M2, M3_ROT, M3_MOVE, M3_WARN, M3_FIRE, M
 
 var _phase     := Phase.IDLE
 var _phase_acc := 0.0
+var _forced_kill := false   # true when kill_boss() is a forced removal (player death / debug) → no victory banner
 
 # ── Scene refs ────────────────────────────────────────────────────────────────
 var _objects_container: Control            = null
@@ -165,7 +168,11 @@ func setup(oc: Control) -> void:
 
 func _on_boss_killed_internally() -> void:
 	if _phase != Phase.IDLE and _phase != Phase.DONE:
+		var won := not _forced_kill   # HP-zero defeat vs forced removal (player death / debug)
 		_force_reset()
+		if won:
+			_show_victory_screen()
+	_forced_kill = false
 
 func _force_reset() -> void:
 	_cleanup_projectiles()
@@ -175,6 +182,7 @@ func _force_reset() -> void:
 	if _boss_eo != null and is_instance_valid(_boss_eo):
 		_boss_eo.visible  = false
 		_boss_eo.rotation = 0.0
+		_boss_eo.scale    = Vector2.ONE
 	_phase     = Phase.IDLE
 	_phase_acc = 0.0
 
@@ -199,6 +207,7 @@ func spawn_boss() -> void:
 func kill_boss() -> void:
 	if _phase == Phase.IDLE or _phase == Phase.DONE:
 		return
+	_forced_kill = true   # forced removal (player death / debug) — suppress the victory banner
 	_cleanup_projectiles()
 	if _laser_tr != null and is_instance_valid(_laser_tr):
 		_laser_tr.queue_free()
@@ -206,11 +215,53 @@ func kill_boss() -> void:
 	if _boss_eo != null and is_instance_valid(_boss_eo):
 		_boss_eo.visible  = false
 		_boss_eo.rotation = 0.0
+		_boss_eo.scale    = Vector2.ONE
 	_phase     = Phase.IDLE
 	_phase_acc = 0.0
 	GameManager.boss_hp     = 0
 	GameManager.boss_max_hp = 0
 	GameManager.boss_killed.emit()
+
+func _show_victory_screen() -> void:
+	var cl := CanvasLayer.new()
+	cl.layer = 500
+	get_tree().root.add_child(cl)
+
+	var vp_sz := get_viewport().get_visible_rect().size
+	var bg    := ColorRect.new()
+	bg.color  = Color(0.0, 0.0, 0.0, 0.75)
+	bg.size   = vp_sz
+	cl.add_child(bg)
+
+	var cx := vp_sz.x / 2.0
+	var cy := vp_sz.y / 2.0
+
+	var font_path := "res://assets/fonts/Gameplay.ttf"
+	var font: FontFile = null
+	if ResourceLoader.exists(font_path):
+		font = load(font_path) as FontFile
+
+	var title := Label.new()
+	title.text = "DISASTER AVOIDED"
+	title.add_theme_font_size_override("font_size", 28)
+	title.add_theme_color_override("font_color", Color(0.3, 1.0, 0.45))
+	title.size = Vector2(640.0, 60.0)
+	title.position = Vector2(cx - 320.0, cy - 90.0)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	if font != null:
+		title.add_theme_font_override("font", font)
+	bg.add_child(title)
+
+	var btn := Button.new()
+	btn.text = "Continue to Universe"
+	btn.size = Vector2(240.0, 44.0)
+	btn.position = Vector2(cx - 120.0, cy + 10.0)
+	if font != null:
+		btn.add_theme_font_override("font", font)
+	btn.add_theme_font_size_override("font_size", 12)
+	var cl_ref := cl
+	btn.pressed.connect(func() -> void: cl_ref.queue_free())
+	bg.add_child(btn)
 
 ## True axis-aligned bounding box of the (rotated/scaled, center-pivot) boss sprite,
 ## via its TextureRect's real global transform — same pattern as _ship_hit_rect_oc().
@@ -239,6 +290,7 @@ func start_fight() -> void:
 	_boss_eo.visible      = true
 	_boss_eo.pivot_offset = _boss_eo.size / 2.0
 	_boss_eo.rotation     = 0.0
+	_boss_eo.scale        = Vector2(BOSS_VISUAL_SCALE, BOSS_VISUAL_SCALE)
 	_boss_spin = 0.0
 	_begin_random_move()
 
@@ -976,6 +1028,7 @@ func _find_eos() -> void:
 					_spike_eos.append(seo)
 		elif base == "spaceshiphitbox":
 			eo.visible = false
+			eo.layer_visible = false   # keep hidden through set_gameplay_mode() refreshes
 	# Cache ship image for pixel-perfect collision (update after finding ship EO)
 	_cache_ship_image()
 

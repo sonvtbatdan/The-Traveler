@@ -835,16 +835,19 @@ func _on_canvas_object_clicked(obj: EditableObjectNode) -> void:
 # ── Gameplay visibility ────────────────────────────────────────────────────────
 
 func _on_boost_changed(_active: bool) -> void:
-	if _is_open:
-		return
-	_update_gameplay_visibility()
+	# Boss visibility is owned by each fight controller (boss_fight.start_fight /
+	# chromeleon._show_only), NOT by boost. Re-showing bosses on boost revealed the
+	# inactive boss during the other's fight — so do nothing here.
+	pass
 
 func _update_gameplay_visibility() -> void:
-	var show: bool = GameManager.manual_boost
+	# Keep ALL boss bases hidden during gameplay (children cascade-hide). The active
+	# boss is revealed by its own fight controller when spawned. Only called at setup()
+	# and _close(), where no fight is active, so always-hiding is safe.
 	for boss_name: String in _all_boss_names:
 		var base_eo := _get_base_eo(boss_name)
 		if is_instance_valid(base_eo) and base_eo.get_parent() == _objects_container:
-			base_eo.visible = show
+			base_eo.visible = false
 
 # ── Input ──────────────────────────────────────────────────────────────────────
 
