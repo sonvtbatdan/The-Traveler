@@ -114,11 +114,14 @@ var _assets_loaded:   bool  = false
 var _bullet_frames:   Array = []
 var _bullet_sizes:    Array = []   # Vector2 per chromebullet, matching _bullet_frames
 var _bullet_native_sizes: Array = []  # native texture sizes for fallback
+var _bullet_resized_frames: Array = []  # resized textures, cached per chromebullet
 var _last_cb_idx:     int   = 0    # last random chromebullet index
 var _ball_frames:     Array = []
 var _ball_delays:     Array = []
 var _blue_bullet_tex:  Texture2D = null
 var _teal_bullet_tex:  Texture2D = null
+var _blue_bullet_resized: Texture2D = null
+var _teal_bullet_resized: Texture2D = null
 var _blue_bullet_native_size: Vector2 = Vector2.ZERO
 var _teal_bullet_native_size: Vector2 = Vector2.ZERO
 var _blue_bullet_size: Vector2   = Vector2.ZERO
@@ -550,13 +553,13 @@ func _tick_orb_m3(eo: EditableObjectNode, delta: float, is_blue: bool) -> void:
 		_blue_shoot_acc += delta
 		if _blue_shoot_acc >= M3_ORB_SHOOT:
 			_blue_shoot_acc = 0.0
-			_fire_orb_nsew(eo, _blue_fp_offset, _blue_rot, _blue_bullet_tex,
+			_fire_orb_nsew(eo, _blue_fp_offset, _blue_rot, _blue_bullet_resized if _blue_bullet_resized != null else _blue_bullet_tex,
 				[Vector2.UP, Vector2.DOWN, Vector2.LEFT, Vector2.RIGHT], _blue_bullet_size)
 	else:
 		_teal_shoot_acc += delta
 		if _teal_shoot_acc >= M3_ORB_SHOOT:
 			_teal_shoot_acc = 0.0
-			_fire_orb_nsew(eo, _teal_fp_offset, _teal_rot, _teal_bullet_tex,
+			_fire_orb_nsew(eo, _teal_fp_offset, _teal_rot, _teal_bullet_resized if _teal_bullet_resized != null else _teal_bullet_tex,
 				[Vector2(-1,-1).normalized(), Vector2(1,-1).normalized(),
 				 Vector2(-1,1).normalized(), Vector2(1,1).normalized()], _teal_bullet_size)
 
@@ -826,7 +829,7 @@ func _tick_final_sub3(delta: float) -> void:
 			_sub3_orb_b = 0.0
 			var orig_b2 := _blueorb_eo.global_position + _blueorb_eo.size / 2.0
 			var bdir_b2 := (ship_c - orig_b2).normalized()
-			_spawn_bullet(_blue_bullet_tex, orig_b2, bdir_b2 * ORB_BULLET_SPD, _blue_bullet_size)
+			_spawn_bullet(_blue_bullet_resized if _blue_bullet_resized != null else _blue_bullet_tex, orig_b2, bdir_b2 * ORB_BULLET_SPD, _blue_bullet_size)
 
 	if is_instance_valid(_tealorb_eo) and _tealorb_hp > 0:
 		_teal_fin_angle += FINAL_ORB_RPM * TAU / 60.0 * delta
@@ -848,7 +851,7 @@ func _tick_final_sub3(delta: float) -> void:
 			_sub3_orb_t = 0.0
 			var orig_t2 := _tealorb_eo.global_position + _tealorb_eo.size / 2.0
 			var bdir_t2 := (ship_c - orig_t2).normalized()
-			_spawn_bullet(_teal_bullet_tex, orig_t2, bdir_t2 * ORB_BULLET_SPD, _teal_bullet_size)
+			_spawn_bullet(_teal_bullet_resized if _teal_bullet_resized != null else _teal_bullet_tex, orig_t2, bdir_t2 * ORB_BULLET_SPD, _teal_bullet_size)
 
 	_check_orb_win()
 	if _phase_timer >= SUB3_DUR:
@@ -881,7 +884,7 @@ func _tick_patrol_teal(delta: float) -> void:
 	_teal_fin_shoot += delta
 	if _teal_fin_shoot >= FINAL_ORB_SHOOT:
 		_teal_fin_shoot = 0.0
-		_fire_orb_rotated(_tealorb_eo, _teal_fp_offset, _teal_fin_angle, _teal_bullet_tex, _teal_bullet_size)
+		_fire_orb_rotated(_tealorb_eo, _teal_fp_offset, _teal_fin_angle, _teal_bullet_resized if _teal_bullet_resized != null else _teal_bullet_tex, _teal_bullet_size)
 
 func _tick_patrol_blue(delta: float) -> void:
 	if not is_instance_valid(_blueorb_eo) or _blueorb_hp <= 0:
@@ -899,7 +902,7 @@ func _tick_patrol_blue(delta: float) -> void:
 	_blue_fin_shoot += delta
 	if _blue_fin_shoot >= FINAL_ORB_SHOOT:
 		_blue_fin_shoot = 0.0
-		_fire_orb_rotated(_blueorb_eo, _blue_fp_offset, _blue_fin_angle, _blue_bullet_tex, _blue_bullet_size)
+		_fire_orb_rotated(_blueorb_eo, _blue_fp_offset, _blue_fin_angle, _blue_bullet_resized if _blue_bullet_resized != null else _blue_bullet_tex, _blue_bullet_size)
 
 # =============================================================================
 # Orb HP + win condition
@@ -1243,6 +1246,9 @@ func _random_bullet() -> Texture2D:
 	if _bullet_frames.is_empty():
 		return null
 	_last_cb_idx = randi() % _bullet_frames.size()
+	# Return resized frame if available, fallback to raw frame
+	if _last_cb_idx < _bullet_resized_frames.size():
+		return _bullet_resized_frames[_last_cb_idx] as Texture2D
 	return _bullet_frames[_last_cb_idx] as Texture2D
 
 func _random_bullet_sz() -> Vector2:
@@ -1262,7 +1268,7 @@ func _spawn_bullet(tex: Texture2D, origin_vp: Vector2, vel: Vector2, sz: Vector2
 	var tr      := TextureRect.new()
 	tr.texture        = tex
 	tr.size           = sz
-	tr.stretch_mode   = TextureRect.STRETCH_SCALE
+	tr.stretch_mode   = TextureRect.STRETCH_KEEP  # texture is pre-resized CPU-side
 	tr.pivot_offset   = sz / 2.0
 	tr.position       = lpos
 	tr.mouse_filter   = Control.MOUSE_FILTER_IGNORE
@@ -1303,6 +1309,16 @@ func _cleanup_projectiles() -> void:
 		if tr != null and is_instance_valid(tr):
 			tr.queue_free()
 	_projectiles.clear()
+
+func _resize_tex(tex: Texture2D, target_sz: Vector2) -> Texture2D:
+	if tex == null or target_sz == Vector2.ZERO:
+		return tex
+	var img := tex.get_image()
+	if img == null:
+		return tex
+	var copy := img.duplicate() as Image
+	copy.resize(int(target_sz.x), int(target_sz.y), Image.INTERPOLATE_BILINEAR)
+	return ImageTexture.create_from_image(copy)
 
 # =============================================================================
 # EO helpers
@@ -1604,3 +1620,19 @@ func _reload_bullet_sizes() -> void:
 	# Update orb bullet sizes (fallback to native size if not in F5)
 	_blue_bullet_size = sz_map.get("bluebullet", _blue_bullet_native_size) as Vector2
 	_teal_bullet_size = sz_map.get("tealbullet", _teal_bullet_native_size) as Vector2
+
+	# Pre-cache resized bullet frames
+	_resize_all_bullets()
+
+func _resize_all_bullets() -> void:
+	# Resize chromebullets
+	_bullet_resized_frames.clear()
+	for i in _bullet_frames.size():
+		var frame: Texture2D = _bullet_frames[i]
+		var sz: Vector2 = _bullet_sizes[i] if i < _bullet_sizes.size() else Vector2.ZERO
+		var resized := _resize_tex(frame, sz) if sz != Vector2.ZERO else frame
+		_bullet_resized_frames.append(resized)
+
+	# Resize blue/teal bullets
+	_blue_bullet_resized = _resize_tex(_blue_bullet_tex, _blue_bullet_size) if _blue_bullet_size != Vector2.ZERO else _blue_bullet_tex
+	_teal_bullet_resized = _resize_tex(_teal_bullet_tex, _teal_bullet_size) if _teal_bullet_size != Vector2.ZERO else _teal_bullet_tex
