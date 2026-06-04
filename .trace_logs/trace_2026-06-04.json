@@ -125,6 +125,20 @@
         "status": "success",
         "notes": "CLAUDE.md updated with comprehensive rescale pattern guidance. Comments added to all three projectile systems (asteroid, elephant, chromeleon). Pattern: CPU-side Image.resize() with bilinear interpolation, caching for fixed-size, runtime for dynamic-size."
       }
+    },
+    {
+      "id": 5,
+      "timestamp": "2026-06-04T22:10:00Z",
+      "task": "Investigate PNG sprite sheet generation issue - frames stacking",
+      "files_modified": [],
+      "changes_summary": "Investigation findings:\n\n**Missing PNG sheets (frame stacking issue):**\n- chromeball.sheet.json EXISTS (2026-06-04 21:21:24) but chromeball.sheet.png MISSING\n- chromeleon.sheet.json EXISTS but chromeleon.sheet.png MISSING\n- Elephant boss: all PNG sheets present and correct (elephant.sheet.png: 873KB, etc)\n- Chromeleon chromebullet1-12: PNG sheets present\n\n**Root Cause:**\nGifLoader fallback to GDScript decode when PNG sheet missing (gif_loader.gd line 31-33):\n- If .sheet.json exists but .sheet.png missing → _load_via_gdscript() used (slower, frame accumulation risk)\n- chromeball/chromeleon GIFs decode at runtime instead of using pre-converted PNG\n\n**Symptom: 'frames stacking'**\nGIF decoder frame disposal mode issue (gif_loader.gd line 205-211):\n- Disposal mode 0 (keep canvas) accumulates pixels\n- If canvas not properly cleared between frames → visual overlap\n\n**Fix Required:**\n1. Run convert_gifs.gd to generate missing PNG sheets\n2. OR fix GIF decoder disposal logic for mode 0",
+      "commands_executed": [],
+      "git_commit_hash": null,
+      "rollback_steps": [],
+      "verification": {
+        "status": "pending",
+        "notes": "Need to regenerate sprite sheets. chromeball/chromeleon GIFs loading via slow GDScript decoder, not fast PNG sheets."
+      }
     }
   ]
 }

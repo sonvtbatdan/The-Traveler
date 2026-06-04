@@ -462,6 +462,54 @@ Nếu một tác vụ yêu cầu đọc những file này để **hiểu context
 
 ---
 
+## Sprite Sheet & GIF Loading
+
+### GIF → PNG Sprite Sheet Conversion
+
+All GIFs must be **pre-converted to PNG sprite sheets** for fast loading and correct frame rendering:
+
+**Command:**
+```bash
+godot --headless --script tools/convert_gifs.gd
+# Generates: <name>.sheet.png + <name>.sheet.json next to .gif
+```
+
+**Process (tools/convert_gifs.gd):**
+1. Find all .gif under res://assets/
+2. Decode using GDScript LZW (`GifLoader._decode_frames()`)
+3. Create horizontal sprite sheet: `Image.create(frame_width × frame_count, frame_height)`
+4. Blit each frame: `sheet.blit_rect(frame_img, src_rect, Vector2i(i × frame_width, 0))`
+5. Save `.sheet.png` + `.sheet.json` metadata (cols, w, h, delays[])
+6. **Open Godot editor once** to re-import `.sheet.png` (native GPU upload)
+
+**Loading (scripts/ui/edit_mode/gif_loader.gd):**
+- **Path 1 (fast):** if `.sheet.png` + `.sheet.json` exist → slice into AtlasTextures from PNG
+- **Path 2 (slow fallback):** if sheets missing → GDScript LZW decode at runtime (per load)
+
+### Frame Stacking / Disposal Mode Issue
+
+GIF disposal modes control frame accumulation:
+- **Mode 0/1 (default):** keep canvas (pixels stack)
+- **Mode 2:** clear to background
+- **Mode 3:** restore previous
+
+**Problem:** Missing PNG sheets force GDScript path → potential accumulation if disposal=0 not handled.
+
+**Solution:** Always run `convert_gifs.gd` after adding new GIFs:
+```bash
+# After adding chromeball.gif, chromeleon.gif, etc:
+godot --headless --script tools/convert_gifs.gd
+# Then open Godot editor once to import PNGs
+```
+
+**Debug:** Check if `.sheet.png` missing:
+```bash
+# If .sheet.json exists but .sheet.png missing → regenerate
+ls assets/bosses/*/*.sheet.png | wc -l   # should match .json count
+```
+
+---
+
 ## Projectile & Asteroid Rescaling
 
 ### CPU-Side Rescaling Pattern
