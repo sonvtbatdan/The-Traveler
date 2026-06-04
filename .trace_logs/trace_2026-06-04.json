@@ -1,0 +1,33 @@
+{
+  "date": "2026-06-04",
+  "description": "Daily trace log for rollback and recovery",
+  "entries": [
+    {
+      "id": 1,
+      "timestamp": "2026-06-04T21:30:00Z",
+      "task": "chromeleon_fight: Remove hardcoded bullet sizes, use F5-defined sizes from boss_layout.cfg",
+      "files_modified": [
+        {
+          "path": "scripts/gameplay/chromeleon_fight.gd",
+          "lines": "113-124, 1527-1575, 1245-1251, 1041, 1585-1604",
+          "action": "modified",
+          "diff_summary": "Removed all hardcoded bullet sizes (Vector2(8.0,8.0), Vector2(10.0,10.0)), replaced with F5-sourced sizes from boss_layout.cfg"
+        }
+      ],
+      "changes_summary": "- Line 113-124: Changed _bullet_sizes/native_sizes initialization from hardcode to empty/zero\n- Line 1527-1545: Load chromebullet assets, store native texture sizes as fallback\n- Line 1553-1575: Load blue/teal bullet assets, store native sizes\n- Line 1245-1251: Updated _random_bullet_sz() to use loaded sizes instead of hardcode\n- Line 1041: Changed shielded bullet fallback from Vector2(10.0,10.0) to Vector2.ZERO\n- Line 1585-1604: Updated _reload_bullet_sizes() to populate from F5 (boss_layout.cfg) with native-size fallback",
+      "commands_executed": [
+        "git add scripts/gameplay/chromeleon_fight.gd",
+        "git commit -m 'chromeleon: remove hardcoded bullet sizes, use F5-defined sizes from boss_layout.cfg'"
+      ],
+      "git_commit_hash": "93dca0a",
+      "rollback_steps": [
+        "git reset --soft HEAD~1",
+        "git checkout scripts/gameplay/chromeleon_fight.gd"
+      ],
+      "verification": {
+        "status": "pending",
+        "notes": "Changes compile successfully. Need to test in-game: spawn chromeleon boss, verify bullet sizes match F5 definitions. Check: chromebullet1-12, bluebullet, tealbullet all use correct sizes from boss_layout.cfg."
+      }
+    }
+  ]
+}
