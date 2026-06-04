@@ -573,3 +573,17 @@ tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 - `WeaponManager.WEAPONS`/`owned` are empty until `edit_mode.gd` calls `sync_from_canvas()` after layout load — don't query weapons in `_ready()`; wait for the `catalog_updated` signal. Weapon ids come from **filenames** in `assets/weaponry/`, so renaming a sprite silently drops it from the catalog (mitigated by 7-char fuzzy match + `KEY_ALIASES`)
 - `WeaponManager` and `DefenseManager` share `user://save.cfg`; `WeaponManager.save_game()` does `erase_section("weapons")` then rewrites — safe, but both managers must use distinct sections (`[weapons]` / `[defense]`)
 - `project.godot` `[autoload]` has merge-conflicted twice on the autoload list; conflict markers there make Godot fail to open the project. Required set (no dups): AudioManager, MaterialManager, DefenseManager, EquipmentManager, UpgradeManager, GameManager, WeaponManager
+
+## Thrust Objects Policy
+
+**CRITICAL: Thrust objects (auto.gif, manual.gif, thrust.png) MUST NOT be in layout config files.**
+
+- **Thrust objects are dynamic UI animations** managed by `gun_system.gd` at runtime, not static layout
+- **default_layout.cfg & preset_layout.cfg must have empty `power_core=Array[Dictionary]([])` section**
+- If game engine saves thrust objects to config, code automatically filters them during save: `_save_layout()` in `edit_mode.gd` skips any object with basename in `["thrust", "auto", "manual"]` from weaponry group
+- **Why they must not load:**
+  1. `gun_system._on_spaceship_changed()` searches for thrust objects in spaceship children
+  2. If found, it creates TextureRect animations and positions them at object's pos
+  3. Stale layout objects at old positions (e.g., `-31, -80`) cause unscaled thrust GIFs to appear on screen
+  4. Can't click them (wrong interaction model), can't hide them cleanly
+- **Fix if thrust re-appears:** Delete all entries with path `res://assets/sprites/thrust/*` or `res://assets/weaponry/thrust.png` from both config files. Verify with: `grep -c thrust default_layout.cfg` (should return 0)
