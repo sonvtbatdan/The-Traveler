@@ -284,28 +284,29 @@
     {
       "id": 11,
       "timestamp": "2026-06-05T00:45:00Z",
-      "task": "Fix: Rename dialog input - proper solution using tree pause",
+      "task": "Fix: Rename dialog input - tree pause solution",
       "files_modified": [
         {
           "path": "scripts/ui/edit_mode/object_list_panel.gd",
-          "lines": "47-86, 110, 119",
+          "lines": "47-82, 110, 119",
           "action": "modified",
-          "diff_summary": "Replace modal property with tree pause + top_level + process_mode"
+          "diff_summary": "Use tree pause to handle rename dialog input (Godot 4 Window limitations)"
         }
       ],
-      "changes_summary": "Issue: Godot 4 Window doesn't have 'modal' property.\n\nSolution: Pause tree when dialog opens (blocks all other input), resume when closed.\n\nChanges:\n- Line 53-54: Set top_level=true (independent window) + process_mode=PROCESS_MODE_WHEN_PAUSED (dialog works when paused)\n- Line 55-57: close_requested → also unpause tree\n- Line 113: get_tree().paused = true when dialog shows\n- Line 124: get_tree().paused = false when OK clicked\n- Line 84-86: cancel button → also unpause tree\n\nResult: Dialog fully captures input (keyboard + mouse) while paused. LineEdit receives all keystrokes, buttons respond to clicks.",
+      "changes_summary": "Issue: Godot 4 Window doesn't have modal/top_level/process_mode properties.\n\nSolution: Pause tree when dialog opens (blocks parent input), resume when closed.\n\nChanges:\n- Line 55-57: close_requested → unpause tree\n- Line 113: get_tree().paused = true when dialog shows\n- Line 124: get_tree().paused = false when OK clicked\n- Line 84-86: cancel button → unpause tree\n\nHow it works: When tree paused, edit_mode._input() stops processing, but user can still interact with dialog window (it's independent node).\n\nNote: Removed unsupported Window properties (top_level, process_mode) in commit 8f4ad70.",
       "commands_executed": [
         "git add scripts/ui/edit_mode/object_list_panel.gd",
-        "git commit -m 'fix: rename dialog input - use tree pause instead of modal property'"
+        "git commit -m 'fix: rename dialog input - use tree pause instead of modal property'",
+        "git commit -m 'fix: remove unsupported Window properties - keep only tree pause'"
       ],
-      "git_commit_hash": "3654bca",
+      "git_commit_hash": "3654bca, 8f4ad70",
       "rollback_steps": [
-        "git reset --soft HEAD~1",
+        "git reset --soft HEAD~2",
         "git checkout scripts/ui/edit_mode/object_list_panel.gd"
       ],
       "verification": {
-        "status": "complete",
-        "notes": "Proper fix complete. Rename dialog now fully interactive - keyboard input works, button clicks work. Test: RMB → Rename → type name → click OK."
+        "status": "pending_test",
+        "notes": "Tree pause approach - dialog input works by pausing parent tree. Test: RMB → Rename → type name → click OK."
       }
     }
   ]
