@@ -62,11 +62,12 @@ func _on_context_item_pressed(id: int) -> void:
 func _show_rename_dialog(obj: EditableObjectNode) -> void:
 	var dialog := AcceptDialog.new()
 	dialog.title = "Rename Layer"
-	dialog.size = Vector2i(320, 120)
+	dialog.size = Vector2i(320, 140)
 	add_child(dialog)
 
-	var vbox: VBoxContainer = dialog.get_vbox()
+	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 10)
+	dialog.add_child(vbox)
 
 	var label := Label.new()
 	label.text = "Enter new name:"
