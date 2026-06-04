@@ -253,6 +253,33 @@
         "status": "ready_test",
         "notes": "Fix complete. Test: Click rename on an object → rename dialog should now accept keyboard input."
       }
+    },
+    {
+      "id": 10,
+      "timestamp": "2026-06-05T00:30:00Z",
+      "task": "Fix: Rename dialog button click not working - input blocked by parent",
+      "files_modified": [
+        {
+          "path": "scripts/ui/edit_mode/object_list_panel.gd",
+          "lines": "53",
+          "action": "modified",
+          "diff_summary": "Add modal=true to rename dialog Window"
+        }
+      ],
+      "changes_summary": "Issue: Dialog highlight buttons but click doesn't work. Keyboard input also blocked.\n\nRoot Cause: Rename dialog was not modal, so input was still being dispatched to parent edit_mode. Even with edit_mode._input() skip check, window needed to explicitly capture input.\n\nFix: Added _rename_dialog.modal = true after creation. Modal window:\n- Blocks input to parent nodes\n- Captures keyboard AND mouse input\n- Focuses child controls properly\n\nThis complements the edit_mode._input() skip check from entry 9.",
+      "commands_executed": [
+        "git add scripts/ui/edit_mode/object_list_panel.gd",
+        "git commit -m 'fix: make rename dialog modal to properly handle input'"
+      ],
+      "git_commit_hash": "25fd949",
+      "rollback_steps": [
+        "git reset --soft HEAD~1",
+        "git checkout scripts/ui/edit_mode/object_list_panel.gd"
+      ],
+      "verification": {
+        "status": "complete",
+        "notes": "Fix complete. Rename dialog is now modal - should accept all input (keyboard, button clicks) without interference from parent."
+      }
     }
   ]
 }
