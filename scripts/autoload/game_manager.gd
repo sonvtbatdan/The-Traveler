@@ -18,6 +18,7 @@ signal game_loaded
 
 signal boost_changed(active: bool)
 signal ship_hp_changed(hp: int)
+signal ship_energy_changed(energy: float)
 signal ship_shield_changed(shield: float)
 signal ship_destroyed
 
@@ -109,6 +110,11 @@ var _shield_dmg_timer: float = 999.0    # time since last damage; regen once >= 
 const SHIP_IFRAME_TIME: float = 0.3     # invincibility window after a hit
 var _iframe_timer: float = 0.0
 
+# ── Energy (dash resource) ────────────────────────────────────────────────────
+const SHIP_MAX_ENERGY: float = 100.0
+const ENERGY_REGEN:    float = 5.0      # energy per second
+var ship_energy: float = 100.0
+
 func set_boost(active: bool) -> void:
 	if manual_boost == active:
 		return
@@ -135,6 +141,14 @@ func ship_take_damage(dmg: int) -> void:
 	ship_hp_changed.emit(ship_hp)
 	if ship_hp <= 0:
 		ship_destroyed.emit()
+
+## Spend energy for a dash; returns false (no spend) if there isn't enough.
+func try_spend_energy(amount: float) -> bool:
+	if ship_energy < amount:
+		return false
+	ship_energy -= amount
+	ship_energy_changed.emit(ship_energy)
+	return true
 
 ## Capacity granted by the Secondary-slot item (0 if it's not a shield item).
 func _equipped_shield_capacity() -> float:
@@ -203,6 +217,9 @@ func on_view_clicked() -> void:
 
 func _process(delta: float) -> void:
 	_iframe_timer = maxf(0.0, _iframe_timer - delta)
+	if ship_energy < SHIP_MAX_ENERGY:
+		ship_energy = minf(SHIP_MAX_ENERGY, ship_energy + ENERGY_REGEN * delta)
+		ship_energy_changed.emit(ship_energy)
 	_tick_shield(delta)
 	# 1. Sub growth — power-law scaled in the stable view count.
 	var stable: float = _subs + _passive_views

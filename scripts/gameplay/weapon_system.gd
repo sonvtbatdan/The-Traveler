@@ -19,6 +19,7 @@ extends Control
 const BULLET_SPEED := 720.0
 const GAUSS_SPEED := 700.0           # heavy lumpy ball — slower so you can see it plough through
 const BULLET_HIT_RADIUS := 6.0
+const HOMING_TURN := 6.0              # how fast homing missiles bend toward their target
 const GAUSS_FULL_DIAMETER_CM := 2.0  # full-charge ball ≈ this physical size (approx; tweak freely)
 
 var _gauss_full_diam_px: float = 76.0
@@ -27,7 +28,7 @@ var _ship: Control = null
 # Primary trigger state
 var _trigger_down := false
 var _mouse_was_down := false   # for press/release edge detection via polling
-var _repeat_acc := 0.0
+var _primary_cd := 0.0   # time (s) until the primary weapon may fire again; ticks down every frame
 var _charge := 0.0
 
 # Secondary aura state
@@ -38,6 +39,13 @@ var _aura_time := 0.0
 var _bullets: Array = []   # {pos, vel, dmg, big, life}
 var _impacts: Array = []   # {pos, age, max_age, radius, color}
 var _arcs: Array = []      # {a, b, age, max_age}
+
+# Beam state (Lasgun hitscan_beam / Plasma drill tether) — recomputed each frame while held
+var _beam_active := false
+var _beam_from := Vector2.ZERO
+var _beam_to := Vector2.ZERO
+var _beam_color := Color(1.0, 0.3, 0.3)
+var _beam_width := 8.0
 
 # Extra damageable targets registered by fight controllers (e.g. orb sub-bosses).
 # Each entry: {get_rect: Callable → Rect2 (stream-local), on_hit: Callable(dmg:float)}
@@ -76,9 +84,8 @@ func _begin_trigger() -> void:
 	_trigger_down = true
 	if String(def.get("fire_mode", "")) == "charge":
 		_charge = 0.0
-	else:
-		_fire_primary(def)   # repeat weapons fire immediately, then on cooldown
-		_repeat_acc = 0.0
+	# Repeat/other weapons fire from _update_primary, which respects the shared
+	# cooldown timer — so a click only fires if the cooldown has elapsed.
 
 ## Cursor inside the play area (this control fills StreamScreen). Clicks on side
 ## panels / the inventory button (outside the screen) won't start firing.
@@ -98,6 +105,9 @@ func _release_trigger() -> void:
 # ── Frame update ────────────────────────────────────────────────────────────
 
 func _process(delta: float) -> void:
+	# Primary cooldown ticks down in real time (not per-click), so rapid clicking
+	# can't fire faster than the weapon's cooldown allows.
+	_primary_cd = maxf(0.0, _primary_cd - delta)
 	# Mouse trigger by polling (works regardless of what control is under the cursor).
 	var down := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
 	if _inventory_open():
@@ -119,21 +129,25 @@ func _process(delta: float) -> void:
 
 func _update_primary(delta: float) -> void:
 	if not _trigger_down:
+		_beam_active = false
 		return
 	var def := _primary_def()
 	if def.is_empty():
 		_trigger_down = false
+		_beam_active = false
 		return
 	var mode := String(def.get("fire_mode", ""))
+	if mode != "beam":
+		_beam_active = false   # any non-beam weapon clears the beam visual
 	if mode == "repeat":
-		var cd: float = maxf(0.02, float(_stat(def, "cooldown_sec", 0.2)))
-		_repeat_acc += delta
-		while _repeat_acc >= cd:
-			_repeat_acc -= cd
-			_fire_primary(def)
+		# Fire only when the shared cooldown has elapsed (covers both click and hold).
+		if _primary_cd <= 0.0 and _fire_by_type(def):
+			_primary_cd = maxf(0.02, get_weapon_stat(def, "cooldown_sec", 0.2))
 	elif mode == "charge":
 		var maxc: float = maxf(0.1, float(_stat(def, "cooldown_sec", 3.0)))
 		_charge = minf(_charge + delta, maxc)
+	elif mode == "beam":
+		_update_beam(def)
 
 func _update_secondary(delta: float) -> void:
 	var def := _secondary_def()
@@ -167,6 +181,17 @@ func _update_bullets(delta: float) -> void:
 	var i: int = _bullets.size() - 1
 	while i >= 0:
 		var b: Dictionary = _bullets[i]
+		# Homing: bend the velocity toward the nearest target, keeping speed constant.
+		if b.get("homing", false):
+			var tgt := _nearest_target(b["pos"])
+			if tgt != Vector2.ZERO:
+				var cur: Vector2 = b["vel"]
+				var spd := cur.length()
+				if spd > 0.01:
+					var desired := (tgt - (b["pos"] as Vector2)).normalized() * spd
+					var steer := cur.lerp(desired, clampf(HOMING_TURN * delta, 0.0, 1.0))
+					if steer.length() > 0.01:
+						b["vel"] = steer.normalized() * spd
 		b["pos"] = (b["pos"] as Vector2) + (b["vel"] as Vector2) * delta
 		b["life"] = float(b["life"]) + delta
 		var pos: Vector2 = b["pos"]
@@ -218,6 +243,11 @@ func _update_bullets(delta: float) -> void:
 							_spawn_impact(pos, false)
 							remove = true
 							break
+		# Cone pellets: vanish once they've travelled their max range.
+		if not remove and b.has("max_dist"):
+			b["travel"] = float(b.get("travel", 0.0)) + (b["vel"] as Vector2).length() * delta
+			if float(b["travel"]) >= float(b["max_dist"]):
+				remove = true
 		var off: bool = pos.x < -48.0 or pos.x > size.x + 48.0 or pos.y < -48.0 or pos.y > size.y + 48.0
 		if remove or off or float(b["life"]) > 4.0:
 			_bullets.remove_at(i)
@@ -235,7 +265,240 @@ func _tick_fx(arr: Array, delta: float) -> void:
 # ── Firing ────────────────────────────────────────────────────────────────────
 
 func _fire_primary(def: Dictionary) -> void:
-	_spawn_bullet(float(_stat(def, "damage", 1.0)), false)
+	_spawn_bullet(float(get_weapon_stat(def, "damage", 1.0)), false)
+
+## Data-driven fire dispatch: one shot of the weapon, branched on its fire_type.
+## Returns false if the shot couldn't happen (e.g. not enough energy) so the
+## caller stops spamming the cooldown loop this frame.
+func _fire_by_type(def: Dictionary) -> bool:
+	match String(def.get("fire_type", "projectile")):
+		"homing":
+			if not _spend_weapon_energy(def):
+				return false
+			_fire_homing(def)
+		"cone":
+			if not _spend_weapon_energy(def):
+				return false
+			_fire_cone(def)
+		"chain":
+			if not _spend_weapon_energy(def):
+				return false
+			_fire_chain(def)
+		_:  # "projectile" and anything not yet implemented → a plain bullet
+			_fire_primary(def)
+	return true
+
+## Energy consumption is OFF for now (user will re-enable later). Flip this to true
+## to make weapons spend their "energy" stat per shot again.
+const WEAPONS_USE_ENERGY := false
+
+## Spend this weapon's per-shot energy (stat "energy"); true if paid (or free).
+func _spend_weapon_energy(def: Dictionary) -> bool:
+	if not WEAPONS_USE_ENERGY:
+		return true
+	var cost := get_weapon_stat(def, "energy", 0.0)
+	if cost <= 0.0:
+		return true
+	return GameManager.try_spend_energy(cost)
+
+func _fire_homing(def: Dictionary) -> void:
+	var dmg := get_weapon_stat(def, "damage", 1.0)
+	var muzzle := _muzzle()
+	var tgt := _nearest_target(muzzle)
+	var dir := (tgt - muzzle) if tgt != Vector2.ZERO else (get_local_mouse_position() - muzzle)
+	if dir.length() < 0.01:
+		dir = Vector2.UP
+	dir = dir.normalized()
+	_bullets.append({
+		"pos": muzzle, "vel": dir * BULLET_SPEED, "dmg": dmg, "big": false,
+		"life": 0.0, "dmg_ref": dmg, "homing": true,
+	})
+	_spawn_impact(muzzle, false)
+
+func _fire_cone(def: Dictionary) -> void:
+	var dmg := get_weapon_stat(def, "damage", 1.0)
+	var pellets := int(get_weapon_stat(def, "pellets", 5.0))
+	var spread := deg_to_rad(get_weapon_stat(def, "spread_deg", 30.0))
+	var rng := get_weapon_stat(def, "range_px", 180.0)
+	var muzzle := _muzzle()
+	var aim := get_local_mouse_position() - muzzle
+	if aim.length() < 0.01:
+		aim = Vector2.UP
+	var base := aim.angle()
+	for i in maxi(1, pellets):
+		var t := 0.0 if pellets <= 1 else (float(i) / float(pellets - 1) - 0.5)
+		var ang := base + t * spread
+		var dir := Vector2(cos(ang), sin(ang))
+		_bullets.append({
+			"pos": muzzle, "vel": dir * BULLET_SPEED, "dmg": dmg, "big": false,
+			"life": 0.0, "dmg_ref": dmg, "max_dist": rng, "travel": 0.0,
+		})
+	_spawn_impact(muzzle, false)
+
+## Nearest live target's center in this control's local space (asteroids, then the
+## boss, then registered sub-boss targets). Vector2.ZERO if there is nothing.
+func _nearest_target(from: Vector2) -> Vector2:
+	var best := Vector2.ZERO
+	var best_d := INF
+	var ast := _ast()
+	if ast != null and ast.has_method("get_asteroid_centers"):
+		for c: Vector2 in ast.get_asteroid_centers():
+			var d := from.distance_to(c)
+			if d < best_d:
+				best_d = d; best = c
+	var br := _boss_rect_local()
+	if br.has_area():
+		var bc := br.position + br.size * 0.5
+		var d := from.distance_to(bc)
+		if d < best_d:
+			best_d = d; best = bc
+	for et: Dictionary in _extra_targets:
+		var er: Rect2 = (et["get_rect"] as Callable).call()
+		if er.has_area():
+			var ec := er.position + er.size * 0.5
+			var d := from.distance_to(ec)
+			if d < best_d:
+				best_d = d; best = ec
+	return best
+
+# ── Shared targeting (beam / tether / chain) ──────────────────────────────────
+
+## Every live target as {center, radius, kind, on_hit}. kind ∈ rock/boss/extra/multi.
+func _collect_targets() -> Array:
+	var out: Array = []
+	var ast := _ast()
+	if ast != null and ast.has_method("get_asteroid_centers"):
+		var centers: Array = ast.get_asteroid_centers()
+		var sizes: Array = ast.get_asteroid_sizes() if ast.has_method("get_asteroid_sizes") else []
+		for i in centers.size():
+			var rad := 16.0
+			if i < sizes.size():
+				rad = maxf((sizes[i] as Vector2).x, (sizes[i] as Vector2).y) * 0.5
+			out.append({"center": centers[i], "radius": rad, "kind": "rock", "on_hit": Callable()})
+	var br := _boss_rect_local()
+	if br.has_area():
+		out.append({"center": br.position + br.size * 0.5, "radius": maxf(br.size.x, br.size.y) * 0.5,
+			"kind": "boss", "on_hit": Callable()})
+	for et: Dictionary in _extra_targets:
+		var er: Rect2 = (et["get_rect"] as Callable).call()
+		if er.has_area():
+			out.append({"center": er.position + er.size * 0.5, "radius": maxf(er.size.x, er.size.y) * 0.5,
+				"kind": "extra", "on_hit": et["on_hit"]})
+	if _multi_hit_provider.is_valid():
+		for mh: Dictionary in _multi_hit_provider.call():
+			var mr: Rect2 = mh["rect"]
+			if mr.has_area():
+				out.append({"center": mr.position + mr.size * 0.5, "radius": maxf(mr.size.x, mr.size.y) * 0.5,
+					"kind": "multi", "on_hit": mh["on_hit"]})
+	return out
+
+## Apply damage to one target dict (routes by kind).
+func _apply_to(t: Dictionary, dmg: float) -> void:
+	match String(t.get("kind", "")):
+		"rock":
+			var ast := _ast()
+			if ast != null and ast.has_method("damage_point"):
+				ast.damage_point(t["center"], BULLET_HIT_RADIUS, dmg)
+		"boss":
+			GameManager.take_boss_damage(int(dmg))
+		_:
+			var oh: Callable = t.get("on_hit", Callable())
+			if oh.is_valid():
+				oh.call(dmg)
+
+## Nearest target dict to `from` within `max_dist`, skipping any whose center is in
+## `exclude`. Returns {} if none.
+func _nearest_target_dict(from: Vector2, targets: Array, max_dist: float, exclude: Array = []) -> Dictionary:
+	var best := {}
+	var best_d := max_dist
+	for t: Dictionary in targets:
+		var c: Vector2 = t["center"]
+		if exclude.has(c):
+			continue
+		var d := from.distance_to(c)
+		if d <= best_d + float(t["radius"]) and d < best_d:
+			best_d = d; best = t
+	return best
+
+## First target a ray (origin, dir) hits within max_len; {} if none.
+func _beam_first_hit(origin: Vector2, dir: Vector2, max_len: float, width: float) -> Dictionary:
+	var best := {}
+	var best_along := max_len
+	for t: Dictionary in _collect_targets():
+		var to_t: Vector2 = (t["center"] as Vector2) - origin
+		var along := to_t.dot(dir)
+		if along < 0.0 or along > max_len:
+			continue
+		var perp := (to_t - dir * along).length()
+		if perp <= width + float(t["radius"]) and along < best_along:
+			best_along = along; best = t
+	return best
+
+# ── Beam weapons (hitscan_beam / tether) ──────────────────────────────────────
+
+func _update_beam(def: Dictionary) -> void:
+	var ft := String(def.get("fire_type", ""))
+	var muzzle := _muzzle()
+	var dmg := get_weapon_stat(def, "damage", 1.0)
+	var do_tick := _primary_cd <= 0.0
+	var interval := maxf(0.02, get_weapon_stat(def, "tick_interval_sec", 0.15))
+	_beam_width = get_weapon_stat(def, "beam_width", 8.0)
+	if ft == "tether":
+		var rng := get_weapon_stat(def, "range_px", 170.0)
+		var anchor := _nearest_target_dict(muzzle, _collect_targets(), rng)
+		if anchor.is_empty():
+			_beam_active = false
+			return
+		_beam_active = true
+		_beam_color = Color(0.4, 1.0, 0.85)
+		_beam_from = muzzle
+		_beam_to = anchor["center"]
+		if do_tick and _spend_weapon_energy(def):
+			_apply_to(anchor, dmg)
+			_spawn_impact(_beam_to, false)
+			_primary_cd = interval
+	else:  # hitscan_beam
+		var max_len := get_weapon_stat(def, "range_px", 760.0)
+		var aim := get_local_mouse_position() - muzzle
+		if aim.length() < 0.01:
+			aim = Vector2.UP
+		var dir := aim.normalized()
+		var hit := _beam_first_hit(muzzle, dir, max_len, _beam_width * 0.5)
+		_beam_active = true
+		_beam_color = Color(1.0, 0.3, 0.3)
+		_beam_from = muzzle
+		_beam_to = (hit["center"] as Vector2) if not hit.is_empty() else muzzle + dir * max_len
+		if do_tick and _spend_weapon_energy(def):
+			if not hit.is_empty():
+				_apply_to(hit, dmg)
+				_spawn_impact(_beam_to, false)
+			_primary_cd = interval
+
+# ── Chain weapon (Arc) ────────────────────────────────────────────────────────
+
+func _fire_chain(def: Dictionary) -> void:
+	var dmg := get_weapon_stat(def, "damage", 1.0)
+	var jumps := int(get_weapon_stat(def, "chain_jumps", 4.0))
+	var rng := get_weapon_stat(def, "chain_range_px", 200.0)
+	var muzzle := _muzzle()
+	var targets := _collect_targets()
+	# First link: the target nearest the cursor.
+	var cursor := get_local_mouse_position()
+	var cur := _nearest_target_dict(cursor, targets, INF)
+	if cur.is_empty():
+		return
+	var hit_centers: Array = []
+	var prev := muzzle
+	for _j in range(maxi(1, jumps)):
+		if cur.is_empty():
+			break
+		var c: Vector2 = cur["center"]
+		_apply_to(cur, dmg)
+		_arcs.append({"a": prev, "b": c, "age": 0.0, "max_age": 0.22})
+		hit_centers.append(c)
+		_spawn_impact(c, false)
+		prev = c
+		cur = _nearest_target_dict(c, targets, rng, hit_centers)
 
 func _fire_primary_charged(def: Dictionary, charge: float) -> void:
 	var maxc: float = maxf(0.1, float(_stat(def, "cooldown_sec", 1.5)))
@@ -290,6 +553,12 @@ func _draw() -> void:
 		var pulse: float = 0.5 + 0.5 * sin(_aura_time * 6.0)
 		draw_circle(c, r, Color(0.3, 0.7, 1.0, 0.05 + 0.05 * pulse))
 		_draw_ring(c, r, Color(0.5, 0.85, 1.0, 0.45 + 0.35 * pulse), 2.0)
+
+	# Beam (Lasgun / Plasma drill) — wide translucent outer + bright inner line
+	if _beam_active:
+		draw_line(_beam_from, _beam_to, Color(_beam_color.r, _beam_color.g, _beam_color.b, 0.25), _beam_width)
+		draw_line(_beam_from, _beam_to, Color(_beam_color.r, _beam_color.g, _beam_color.b, 0.95), maxf(2.0, _beam_width * 0.35))
+		draw_circle(_beam_to, _beam_width * 0.5, Color(1.0, 1.0, 1.0, 0.7))
 
 	# Lightning arcs
 	for a: Dictionary in _arcs:
@@ -391,6 +660,12 @@ func _cm_to_px(cm: float) -> float:
 func _stat(def: Dictionary, key: String, fallback: float) -> float:
 	var stats: Dictionary = def.get("stats", {})
 	return float(stats.get(key, fallback))
+
+## AFFIX HOOK — all firing code reads weapon stats through here. Today it just
+## returns the base value; rolled affix bonuses (e.g. +% damage, -cooldown) will
+## be applied at this single point later. Do not scatter stat math elsewhere.
+func get_weapon_stat(def: Dictionary, key: String, fallback: float) -> float:
+	return _stat(def, key, fallback)
 
 func _primary_def() -> Dictionary:
 	return _equipped_def("primary_weapon")
