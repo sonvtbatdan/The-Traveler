@@ -95,10 +95,6 @@ func _show_rename_dialog(obj: EditableObjectNode) -> void:
 			display_name_changed.emit(obj)
 	)
 
-	dialog.cancelled.connect(func():
-		pass  # Không làm gì, chỉ đóng dialog
-	)
-
 	dialog.popup_centered()
 	text_edit.grab_focus()
 	text_edit.select_all()
