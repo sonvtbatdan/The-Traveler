@@ -118,6 +118,10 @@ var _lasers:     Array = []   # [{lines: Array[Line2D], age: float}]
 const LASER_DURATION := 0.18
 const LASER_COUNT    := 3
 
+# Mode transition zoom tween
+var _scale_tween: Tween = null
+var _prev_scale_mult := 1.0
+
 func setup() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -457,31 +461,28 @@ func _process(delta: float) -> void:
 	# Spaceship: position + scale force-apply mỗi frame
 	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		_spaceship_eo.position     = _spaceship_origin
-		_spaceship_eo.scale        = Vector2.ONE
-		_spaceship_eo.pivot_offset = Vector2.ZERO
+		_spaceship_eo.pivot_offset = _spaceship_eo.size * 0.5  # Scale from center
+		# Scale 0.5 when manual boost or boss fight active (smooth tween)
+		var target_scale_mult := 0.5 if (GameManager.manual_boost or GameManager.boss_max_hp > 0) else 1.0
+		if target_scale_mult != _prev_scale_mult:
+			_animate_scale_transition(target_scale_mult)
+			_prev_scale_mult = target_scale_mult
 
 	# Children: apply F4 size force mỗi frame
-	var debug_idx := 0
 	for eo in _child_f4_sizes.keys():
-		debug_idx += 1
 		if is_instance_valid(eo):
-			var eo_name: String = (eo.get_meta("display_name", "UNKNOWN") as String)
-			print_debug("_process [", debug_idx, "/4] ", eo_name, ": static=", _static_rects.has(eo), " manual=", _manual_thrust_rects.has(eo))
 			# Weapon: update animation TextureRect (hiển thị thực tế)
 			if _static_rects.has(eo) and is_instance_valid(_static_rects[eo]):
 				var tr := _static_rects[eo] as TextureRect
 				tr.position = eo.position
 				tr.size = _child_f4_sizes[eo]
-				print_debug("  → STATIC: tr.size=", tr.size, " texture.size=", tr.texture.get_size() if tr.texture else "null")
 			# Thrust manual mode: update manual thrust TextureRect
 			elif _manual_thrust_rects.has(eo) and is_instance_valid(_manual_thrust_rects[eo]):
 				var tr := _manual_thrust_rects[eo] as TextureRect
 				tr.position = eo.position
 				tr.size = _child_f4_sizes[eo]
-				print_debug("  → MANUAL: tr.size=", tr.size, " texture.size=", tr.texture.get_size() if tr.texture else "null")
 			# Power core, defense: update EditableObjectNode
 			else:
-				print_debug("  → OTHER: eo.size=", _child_f4_sizes[eo])
 				eo.size = _child_f4_sizes[eo]
 
 	# Weapon EOs and static frames: positions are already set during layout load
@@ -544,13 +545,24 @@ func _handle_ship_movement(delta: float) -> void:
 	)
 	if mv == Vector2.ZERO:
 		return
-	_spaceship_origin += mv.normalized() * SHIP_MOVE_SPD * delta
+	# Speed +25% when manual boost or boss fight active
+	var speed_mult := 1.25 if (GameManager.manual_boost or GameManager.boss_max_hp > 0) else 1.0
+	_spaceship_origin += mv.normalized() * SHIP_MOVE_SPD * speed_mult * delta
 	_spaceship_origin.x = clampf(_spaceship_origin.x,
 		SCREEN_BOUNDS.position.x,
 		SCREEN_BOUNDS.end.x - _spaceship_origin_sz.x)
 	_spaceship_origin.y = clampf(_spaceship_origin.y,
 		SCREEN_BOUNDS.position.y,
 		SCREEN_BOUNDS.end.y - _spaceship_origin_sz.y)
+
+func _animate_scale_transition(target_scale: float) -> void:
+	if _scale_tween:
+		_scale_tween.kill()
+	if not is_instance_valid(_spaceship_eo):
+		return
+	_scale_tween = create_tween()
+	_scale_tween.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+	_scale_tween.tween_property(_spaceship_eo, "scale", Vector2(target_scale, target_scale), 0.3)
 
 # ── Static frame (frame 0 GIF thay cho PNG khi không bắn) ────────────────────
 
@@ -700,7 +712,6 @@ func _setup_emitter_idle(eo: EditableObjectNode) -> void:
 func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 	if _auto_thrust_frames.is_empty():
 		return
-	print_debug("_setup_auto_thrust_idle: eo.size=", eo.size)
 	var resized := _resize_frame(_auto_thrust_frames[0] as Texture2D, eo.size)
 	var tr := TextureRect.new()
 	tr.texture = resized
@@ -718,10 +729,8 @@ func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 		_spaceship_eo.add_child(tr)
 	else:
 		add_child(tr)
-	print_debug("_setup_auto_thrust_idle: after setup tr.size=", tr.size)
 	_static_rects[eo] = tr
 	_child_f4_sizes[eo] = eo.size
-	print_debug("_setup_auto_thrust_idle: _child_f4_sizes[eo]=", _child_f4_sizes[eo])
 	_gun_anims.append({"tr": tr, "frame": 0, "acc": 0.0,
 		"gun_eo": null, "frames": _auto_thrust_frames, "delays": _auto_thrust_delays, "loop": true})
 	if not _manual_thrust_frames.is_empty():
@@ -737,7 +746,6 @@ func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 
 		if manual_eo != null:
 			var manual_size := manual_eo.size
-			print_debug("_setup_auto_thrust_idle: manual thrust auto.size=", eo.size, " manual.size=", manual_size, " dist=", eo.position.distance_to(manual_eo.position))
 			var manual_resized := _resize_frame(_manual_thrust_frames[0] as Texture2D, manual_size)
 			var mtr := TextureRect.new()
 			mtr.texture = manual_resized
@@ -754,7 +762,6 @@ func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 				_spaceship_eo.add_child(mtr)
 			else:
 				add_child(mtr)
-			print_debug("_setup_auto_thrust_idle: manual tr setup, mtr.size=", mtr.size)
 			_manual_thrust_rects[manual_eo] = mtr
 			_child_f4_sizes[manual_eo] = manual_size
 			_gun_anims.append({"tr": mtr, "frame": 0, "acc": 0.0,
@@ -783,17 +790,14 @@ func _resize_frame(frame: Texture2D, target_size: Vector2) -> Texture2D:
 
 	# If still no image, return original
 	if img == null:
-		print_debug("_resize_frame: FAILED to get image, returning original frame")
 		return frame
 
 	var orig_size := img.get_size()
-	print_debug("_resize_frame: orig=", orig_size, " target=", target_size)
 
 	# Resize image
 	var copy := img.duplicate()
 	copy.resize(int(target_size.x), int(target_size.y), Image.INTERPOLATE_BILINEAR)
 	var result := ImageTexture.create_from_image(copy)
-	print_debug("_resize_frame: result texture size=", result.get_size())
 	return result
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1024,7 +1028,7 @@ func _tick_bullets(delta: float) -> void:
 		if not is_instance_valid(tr):
 			_bullets.remove_at(i); _bullet_vel.remove_at(i); _bullet_dmg.remove_at(i); _bullet_imp_idx.remove_at(i); i -= 1; continue
 		tr.position += _bullet_vel[i] * delta
-		var center := tr.position + tr.size * 0.5
+		var center := tr.global_position + tr.size * 0.5
 		var hit := false
 		if is_instance_valid(ast_node) and ast_node.has_method("get_asteroid_centers"):
 			var centers: Array[Vector2] = ast_node.get_asteroid_centers()
@@ -1071,9 +1075,13 @@ func _tick_bullets(delta: float) -> void:
 			var _bf := get_tree().get_first_node_in_group("boss_fight")
 			if _bf != null:
 				var brect: Rect2 = _bf.call("get_boss_hit_rect")
-				if brect.has_area() and brect.has_point(center):
-					GameManager.take_boss_damage(maxi(1, int(round(_bullet_dmg[i]))))
-					hit = true
+				if brect.has_area():
+					var bullet_rect := Rect2(tr.global_position, tr.size)
+					if brect.intersects(bullet_rect):
+						var dmg = maxi(1, int(round(_bullet_dmg[i])))
+						print("[GUN] BOSS HIT! dmg=%d" % dmg)
+						GameManager.take_boss_damage(dmg)
+						hit = true
 		if not hit:
 			hit = not SCREEN_BOUNDS_INSET.has_point(center)
 		if hit:
@@ -1578,7 +1586,7 @@ func _save_layout() -> void:
 				break
 
 	if cfg.save(layout_path) == OK:
-		print("Layout saved: %s" % _selected_eo.name if _selected_eo else "Layout saved")
+		pass
 
 func _find_spaceship_eo() -> EditableObjectNode:
 	var parent := get_parent()
