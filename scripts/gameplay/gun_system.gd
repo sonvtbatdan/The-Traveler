@@ -473,9 +473,10 @@ func _process(delta: float) -> void:
 		_handle_ship_movement(delta)
 
 	# Spaceship: position + scale force-apply mỗi frame.
-	# Shrink to 50% during a boss fight (scaled around the ship's center; children follow).
+	# Shrink to 35% during a boss fight (50% × 0.7 = another 30% smaller; scaled around
+	# the ship's center so its child hitbox shrinks with it).
 	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
-		var s: float = 0.5 if GameManager.boss_max_hp > 0 else 1.0
+		var s: float = 0.35 if GameManager.boss_max_hp > 0 else 1.0
 		_spaceship_eo.pivot_offset = _spaceship_origin_sz * 0.5
 		_spaceship_eo.position     = _spaceship_origin
 		_spaceship_eo.scale        = Vector2(s, s)

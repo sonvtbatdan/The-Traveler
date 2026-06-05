@@ -379,14 +379,6 @@ func _on_m1_entry_done() -> void:
 # =============================================================================
 
 func _draw() -> void:
-	# TEMP DEBUG: outline the player hitbox so we can confirm it sits on the ship. Remove once verified.
-	if GameManager.boss_max_hp > 0:
-		var hr := _ship_hit_rect_oc()
-		if hr.size != Vector2.ZERO:
-			draw_rect(Rect2(hr.position - global_position, hr.size), Color(0, 1, 0), false, 2.0)
-		var br := get_boss_hit_rect()
-		if br.size != Vector2.ZERO:
-			draw_rect(Rect2(br.position - global_position, br.size), Color(1, 0, 0), false, 2.0)
 	# ⚠ warning sign next to the boss's gun, shown for the whole Move-3 warning.
 	if _phase == Phase.M3_WARN and _boss_eo != null and is_instance_valid(_boss_eo):
 		var fp3_local := _get_fp3_world() - global_position   # this Control has no scale/rotation
@@ -407,7 +399,7 @@ func _draw_warning_sign(c: Vector2) -> void:
 
 func _process(delta: float) -> void:
 	if GameManager.boss_max_hp > 0:
-		queue_redraw()   # TEMP DEBUG: keep the hitbox outline live during the fight
+		queue_redraw()   # redraw for the Move-3 warning sign
 	# Always hide boss when not in an active fight phase
 	if _boss_eo != null and is_instance_valid(_boss_eo):
 		if _phase == Phase.IDLE or _phase == Phase.DONE:
