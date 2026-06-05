@@ -167,12 +167,13 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "rare",
 		"desc": "A continuous beam fired straight forward that burns the first target in its line. Hold to sustain.",
 		"stats": {
-			"damage": 66,             # per tick (3×)
+			"damage": 20,             # per tick (−70% from 66)
 			"tick_interval_sec": 0.15,
 			"range_px": 760,
 			"beam_width": 40,         # 5× wider (drives both the drawn beam and hit width)
 			"weight": 5,
-			"energy": 20,             # 20/s (energy currently OFF; see _spend_weapon_energy)
+			"energy": 20,             # 20/s sustained drain while firing
+			"activation_energy": 10,  # one-time cost the moment you start firing
 		},
 	},
 	"arc": {

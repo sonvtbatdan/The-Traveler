@@ -40,7 +40,7 @@ const MISSILE_AOE_RADIUS := 44.0
 const MISSILE_MAX_LIFE := 4.0
 
 # ── Lasgun BEAM look (tunable — core stays white, colour lives in the glow) ───
-const BEAM_GLOW_COLOR   := Color(0.45, 0.7, 1.0)  # cool blue (the haze/inner-glow colour)
+const BEAM_GLOW_COLOR   := Color(1.0, 0.70, 0.40) # beam glow colour — warm/hot (set blue to cool it)
 const BEAM_CORE_COLOR   := Color(1.0, 1.0, 1.0)   # pure white core (always)
 const BEAM_CORE_FRAC    := 0.10   # core width  = this × beam width (thin & sharp)
 const BEAM_INNER_FRAC   := 0.20   # inner glow width (−50%)
@@ -89,6 +89,19 @@ const FLARE_DEBRIS_SPEED   := 260.0  # px/s
 const FLARE_DEBRIS_LIFE    := 0.35   # seconds
 const FLARE_DEBRIS_GRAVITY := 600.0  # px/s² (arc downward)
 const FLARE_DEBRIS_SIZE    := 2.5    # px
+# Chunky energy splatter on contact (thick blobs with mass)
+const FLARE_CHUNK_RATE     := 28.0   # blobs spawned per second of contact
+const FLARE_CHUNK_SIZE     := 9.0    # blob radius (px)
+const FLARE_CHUNK_SPEED    := 200.0  # px/s
+const FLARE_CHUNK_LIFE     := 0.18   # seconds (short)
+const FLARE_CHUNK_LUMPS    := 0.35   # 0 = round, higher = chunkier/irregular
+
+# ── Beam ENVIRONMENT LIGHT — warm additive light that brightens nearby sprites ─
+const LIGHT_ENABLED        := true
+const LIGHT_COLOR          := Color(1.0, 0.55, 0.20)  # warm light cast on the scene
+const LIGHT_ENERGY         := 1.0    # overall brightness (0..~2)
+const LIGHT_IMPACT_RADIUS  := 110.0  # radius of the light puddle at the hit
+const LIGHT_BEAM_RADIUS    := 40.0   # half-width of the light strip along the beam
 const GAUSS_FULL_DIAMETER_CM := 2.0  # full-charge ball ≈ this physical size (approx; tweak freely)
 
 var _gauss_full_diam_px: float = 76.0
@@ -123,6 +136,12 @@ var _beam_was_active := false   # edge-detect the moment the beam turns on (fire
 var _fire_flash_t := 0.0   # remaining fire-flash time
 var _flare_debris: Array = []   # molten flecks off the hit: {pos, vel, life, max_life}
 var _flare_debris_acc := 0.0
+var _flare_chunks: Array = []   # chunky splatter blobs: {pos, vel, life, max_life, size, lumps}
+var _flare_chunk_acc := 0.0
+
+# Environment-light overlay (additive, on a CanvasLayer above gameplay so it brightens sprites)
+var _light_layer: CanvasLayer = null
+var _light: Control = null
 
 # Beam state (Lasgun hitscan_beam / Plasma drill tether) — recomputed each frame while held
 var _beam_active := false
@@ -137,6 +156,8 @@ var _extra_targets: Array = []
 
 # Provider for dynamic multi-targets (e.g. shielded bullets). fn() → Array[{rect,on_hit}]
 var _multi_hit_provider: Callable = Callable()
+
+var _out_of_energy_t := 0.0   # shows an "OUT OF ENERGY" message for a moment
 
 func add_hit_target(get_rect: Callable, on_hit: Callable) -> void:
 	_extra_targets.append({"get_rect": get_rect, "on_hit": on_hit})
@@ -175,12 +196,36 @@ func setup() -> void:
 	add_child(_glow)
 	_glow.draw.connect(_draw_beam_fx)
 
+	# Environment light: an additive overlay on a CanvasLayer ABOVE gameplay (asteroids=0,
+	# ship/boss=10) but below the HUD (50), clipped to the play area, so the beam's light
+	# brightens the boss/ship/asteroids/contact. (A single Light2D can't cross CanvasLayers.)
+	_light_layer = CanvasLayer.new()
+	_light_layer.layer = 11
+	add_child(_light_layer)
+	_light = Control.new()
+	_light.position = Vector2(270.0, 8.0)   # StreamScreen / play-area origin (matches beam coords)
+	_light.size = Vector2(700.0, 764.0)
+	_light.clip_contents = true
+	_light.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var lm := CanvasItemMaterial.new()
+	lm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	_light.material = lm
+	_light_layer.add_child(_light)
+	_light.draw.connect(_draw_light)
+
 # ── Input ─────────────────────────────────────────────────────────────────────
 
 func _begin_trigger() -> void:
 	var def := _primary_def()
 	if def.is_empty():
 		return
+	# One-time activation energy cost (Lasgun): pay the moment you start firing.
+	# Not enough → don't fire, and flash "OUT OF ENERGY".
+	var act := get_weapon_stat(def, "activation_energy", 0.0)
+	if act > 0.0 and (WEAPONS_USE_ENERGY or bool(def.get("uses_energy", false))):
+		if not GameManager.try_spend_energy(act):
+			_out_of_energy_t = 1.0
+			return
 	_trigger_down = true
 	if String(def.get("fire_mode", "")) == "charge":
 		_charge = 0.0
@@ -228,9 +273,12 @@ func _process(delta: float) -> void:
 	_tick_fx(_impacts, delta)
 	_tick_fx(_arcs, delta)
 	_beam_time += delta
+	_out_of_energy_t = maxf(0.0, _out_of_energy_t - delta)
 	_tick_beam_fx(delta)
 	if _glow != null:
 		_glow.queue_redraw()   # additive beam glow + flare
+	if _light != null:
+		_light.queue_redraw()  # environment light overlay
 	queue_redraw()
 
 func _update_primary(delta: float) -> void:
@@ -253,7 +301,7 @@ func _update_primary(delta: float) -> void:
 		var maxc: float = maxf(0.1, float(_stat(def, "cooldown_sec", 3.0)))
 		_charge = minf(_charge + delta, maxc)
 	elif mode == "beam":
-		_update_beam(def)
+		_update_beam(def, delta)
 
 func _update_secondary(delta: float) -> void:
 	var def := _secondary_def()
@@ -639,17 +687,26 @@ func _beam_first_hit(origin: Vector2, dir: Vector2, max_len: float, width: float
 
 # ── Beam weapons (hitscan_beam / tether) ──────────────────────────────────────
 
-func _update_beam(def: Dictionary) -> void:
+func _update_beam(def: Dictionary, delta: float) -> void:
 	var ft := String(def.get("fire_type", ""))
 	var muzzle := _muzzle()
 	var dmg := get_weapon_stat(def, "damage", 1.0)
 	var do_tick := _primary_cd <= 0.0
 	var interval := maxf(0.02, get_weapon_stat(def, "tick_interval_sec", 0.15))
 	_beam_width = get_weapon_stat(def, "beam_width", 8.0)
-	# Energy-gated beams cut out when the bar is empty (and resume as it regens).
-	if (WEAPONS_USE_ENERGY or bool(def.get("uses_energy", false))) and GameManager.ship_energy <= 0.0:
-		_beam_active = false
-		return
+	# CONTINUOUS energy drain — decoupled from the damage tick so it can't silently
+	# skip a subtraction. While the beam is held it drains the "energy" stat as a
+	# per-SECOND cost, scaled by delta → a true 20/s regardless of framerate. Regen
+	# (GameManager.ENERGY_REGEN = 5/s) keeps running in the background, so net −15/s.
+	# Check-then-pay every frame: if we can't afford this frame's slice, the beam
+	# cuts out and the trigger releases (must let go + re-press, paying activation).
+	if WEAPONS_USE_ENERGY or bool(def.get("uses_energy", false)):
+		var drain := get_weapon_stat(def, "energy", 0.0) * delta   # per-second cost × delta
+		if drain > 0.0 and not GameManager.try_spend_energy(drain):
+			_beam_active = false
+			_beam_hit = false
+			_trigger_down = false
+			return
 	if ft == "tether":
 		var rng := get_weapon_stat(def, "range_px", 170.0)
 		var anchor := _nearest_target_dict(muzzle, _collect_targets(), rng)
@@ -661,7 +718,7 @@ func _update_beam(def: Dictionary) -> void:
 		_beam_from = muzzle
 		_beam_to = anchor["center"]
 		_beam_hit = true
-		if do_tick and _spend_weapon_energy(def):
+		if do_tick:   # energy already drained continuously above; tick only deals damage
 			_apply_to(anchor, dmg)
 			_primary_cd = interval
 	else:  # hitscan_beam
@@ -680,7 +737,7 @@ func _update_beam(def: Dictionary) -> void:
 			_beam_to = muzzle + dir * edge
 		else:
 			_beam_to = muzzle + dir * max_len
-		if do_tick and _spend_weapon_energy(def):
+		if do_tick:   # energy already drained continuously above; tick only deals damage
 			if not hit.is_empty():
 				_apply_to(hit, dmg)
 			_primary_cd = interval
@@ -818,6 +875,18 @@ func _draw() -> void:
 	if _trigger_down and not pdef.is_empty() and String(pdef.get("fire_mode", "")) == "charge":
 		_draw_charge_bar(pdef)
 
+	# "OUT OF ENERGY" flash (tried to fire with too little energy)
+	if _out_of_energy_t > 0.0:
+		var fnt := ThemeDB.fallback_font
+		var fs := 18
+		var msg := "OUT OF ENERGY"
+		var tw := fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var mc := _ship_center()
+		var at := Vector2(mc.x - tw * 0.5, mc.y - 70.0)
+		var al := clampf(_out_of_energy_t, 0.0, 1.0)
+		draw_string(fnt, at + Vector2(1, 1), msg, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(0, 0, 0, 0.7 * al))
+		draw_string(fnt, at, msg, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1.0, 0.4, 0.3, al))
+
 ## Deterministic pseudo-random in -1..1 from two seeds (for the electric jag flicker).
 func _pseudo(a: float, b: float) -> float:
 	var v := sin(a * 12.9898 + b * 78.233) * 43758.5453
@@ -881,6 +950,39 @@ func _tick_beam_fx(delta: float) -> void:
 		fb["pos"] = (fb["pos"] as Vector2) + v * delta
 		_flare_debris[di] = fb
 		di -= 1
+
+	# Chunky energy splatter — thick blobs with mass, sprayed back+out, short-lived.
+	if _beam_active and _beam_hit:
+		var cdir := _beam_to - _beam_from
+		cdir = cdir.normalized() if cdir.length() > 0.001 else Vector2.UP
+		var cback := (-cdir).angle()
+		_flare_chunk_acc += FLARE_CHUNK_RATE * delta
+		while _flare_chunk_acc >= 1.0:
+			_flare_chunk_acc -= 1.0
+			var cang := cback + randf_range(-FLARE_SPARK_SPREAD, FLARE_SPARK_SPREAD)
+			var cspd := FLARE_CHUNK_SPEED * randf_range(0.4, 1.0)
+			var lumps: Array = []
+			for _k in range(8):
+				lumps.append(randf_range(1.0 - FLARE_CHUNK_LUMPS, 1.0 + FLARE_CHUNK_LUMPS))
+			_flare_chunks.append({
+				"pos": _beam_to, "vel": Vector2.from_angle(cang) * cspd,
+				"life": 0.0, "max_life": FLARE_CHUNK_LIFE * randf_range(0.7, 1.0),
+				"size": FLARE_CHUNK_SIZE * randf_range(0.7, 1.2), "lumps": lumps,
+			})
+	var ci := _flare_chunks.size() - 1
+	while ci >= 0:
+		var cb: Dictionary = _flare_chunks[ci]
+		cb["life"] = float(cb["life"]) + delta
+		if float(cb["life"]) >= float(cb["max_life"]):
+			_flare_chunks.remove_at(ci)
+			ci -= 1
+			continue
+		var cv: Vector2 = cb["vel"]
+		cv.y += FLARE_DEBRIS_GRAVITY * delta
+		cb["vel"] = cv
+		cb["pos"] = (cb["pos"] as Vector2) + cv * delta
+		_flare_chunks[ci] = cb
+		ci -= 1
 
 ## Drawn on the ADDITIVE _glow node (blend = ADD) → reads as light, not paint.
 func _draw_beam_fx() -> void:
@@ -992,8 +1094,22 @@ func _draw_flare(at: Vector2, dir: Vector2, _flick: float) -> void:
 	_glow.draw_circle(at, FLARE_CENTER_SIZE * randf_range(0.8, 1.2), Color(1.0, 1.0, 1.0, randf_range(0.7, 1.0)))
 	_glow.draw_circle(at, FLARE_CENTER_SIZE * 0.45, Color(FLARE_CORE_COLOR.r, FLARE_CORE_COLOR.g, FLARE_CORE_COLOR.b, 1.0))
 
-## Persistent molten flecks (drawn even after the beam stops, so they finish their arc).
+## Persistent molten flecks + chunky splatter (drawn even after the beam stops).
 func _draw_flare_debris() -> void:
+	# Chunky blobs first (under the fine flecks)
+	for cb: Dictionary in _flare_chunks:
+		var ct := clampf(1.0 - float(cb["life"]) / float(cb["max_life"]), 0.0, 1.0)
+		var cp: Vector2 = cb["pos"]
+		var r: float = float(cb["size"]) * (0.5 + 0.5 * ct)   # shrink as it dies
+		var lumps: Array = cb["lumps"]
+		var n: int = lumps.size()
+		var pts := PackedVector2Array()
+		for k in range(n):
+			var ang: float = TAU * float(k) / float(n)
+			pts.append(cp + Vector2(cos(ang), sin(ang)) * r * float(lumps[k]))
+		_glow.draw_colored_polygon(pts, Color(1.0, 0.6, 0.25, 0.85 * ct))   # molten body
+		_glow.draw_circle(cp, r * 0.4, Color(1.0, 0.9, 0.6, 0.9 * ct))       # hot center
+	# Fine molten flecks
 	for fb: Dictionary in _flare_debris:
 		var t := clampf(1.0 - float(fb["life"]) / float(fb["max_life"]), 0.0, 1.0)
 		var p: Vector2 = fb["pos"]
@@ -1001,6 +1117,23 @@ func _draw_flare_debris() -> void:
 		var tail := p - v.normalized() * FLARE_DEBRIS_SIZE * 2.2
 		_glow.draw_line(tail, p, Color(1.0, 0.75, 0.35, 0.7 * t), maxf(1.0, FLARE_DEBRIS_SIZE * 0.7))
 		_glow.draw_circle(p, FLARE_DEBRIS_SIZE * t, Color(1.0, 0.85, 0.5, t))
+
+## Warm environment light cast by the beam (additive, on the high CanvasLayer overlay).
+func _draw_light() -> void:
+	if not LIGHT_ENABLED or not _beam_active or _light == null:
+		return
+	var lc := LIGHT_COLOR
+	var e := LIGHT_ENERGY
+	# Soft light strip along the beam (brightens things it passes near)
+	_light.draw_line(_beam_from, _beam_to, Color(lc.r, lc.g, lc.b, 0.05 * e), LIGHT_BEAM_RADIUS * 2.0)
+	_light.draw_line(_beam_from, _beam_to, Color(lc.r, lc.g, lc.b, 0.09 * e), LIGHT_BEAM_RADIUS)
+	# Impact light puddle — stacked circles (big→small) → soft radial falloff
+	if _beam_hit:
+		var rings := 7
+		for i in range(rings):
+			var rad := LIGHT_IMPACT_RADIUS * float(i + 1) / float(rings)
+			_light.draw_circle(_beam_to, rad, Color(lc.r, lc.g, lc.b, 0.05 * e))
+		_light.draw_circle(_beam_to, LIGHT_IMPACT_RADIUS * 0.16, Color(1.0, 0.92, 0.72, 0.22 * e))
 
 func _draw_metal_ball(b: Dictionary) -> void:
 	var pos: Vector2 = b["pos"]
