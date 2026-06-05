@@ -311,6 +311,33 @@ func get_boss_hit_rect() -> Rect2:
 	var mx := Vector2(maxf(maxf(p0.x,p1.x),maxf(p2.x,p3.x)), maxf(maxf(p0.y,p1.y),maxf(p2.y,p3.y)))
 	return Rect2(mn, mx - mn)
 
+## Let an external defender (Swarm Host bats) destroy the nearest in-flight boss
+## projectile within `radius` of `center`. Projectiles live in _clip_node-local space,
+## which shares the StreamScreen origin (270,8) with weapon_system-local — so the bat's
+## own local position can be passed straight in. Returns {"hit":bool, "pos":Vector2}.
+func consume_projectile_near(center: Vector2, radius: float) -> Dictionary:
+	var best: int = -1
+	var best_d: float = INF
+	var best_pos := Vector2.ZERO
+	for i in range(_projectiles.size()):
+		var p: Dictionary = _projectiles[i]
+		var tr: TextureRect = p.get("tr")
+		if tr == null or not is_instance_valid(tr):
+			continue
+		var pc: Vector2 = tr.position + tr.size * 0.5
+		var pr: float = maxf(tr.size.x, tr.size.y) * 0.5
+		var d: float = pc.distance_to(center)
+		if d <= radius + pr and d < best_d:
+			best_d = d; best = i; best_pos = pc
+	if best < 0:
+		return {"hit": false, "pos": Vector2.ZERO}
+	var bp: Dictionary = _projectiles[best]
+	var btr: TextureRect = bp.get("tr")
+	if btr != null and is_instance_valid(btr):
+		btr.queue_free()
+	_projectiles.remove_at(best)
+	return {"hit": true, "pos": best_pos}
+
 func flash_boss_hit() -> void:
 	var eo := _active_body()
 	if eo == null or not is_instance_valid(eo):

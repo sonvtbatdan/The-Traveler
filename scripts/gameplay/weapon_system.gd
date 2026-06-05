@@ -120,6 +120,13 @@ var _aura_time := 0.0
 # Auto-fire toggle
 var _auto_fire := false
 
+# Batch D weapons (all in StreamScreen-local space)
+var _zone: Dictionary = {"active": false, "pos": Vector2.ZERO, "age": 0.0, "tick_acc": 0.0}  # Rift Maker growing void
+var _parasites: Array = []  # Parasite Gun darts in flight: {pos, vel, life}
+var _dots: Array = []       # attached parasites dealing DoT: {kind:"rock"/"boss", handle, dps, acc, life}
+var _bats: Array = []       # Swarm Host minions: {pos, vel, alive, respawn_t, atk_acc}
+var _block_flashes: Array = []  # bat block-impact pops: {pos, age, max_age}
+
 # Transient FX (all in StreamScreen-local space)
 var _bullets: Array = []   # {pos, vel, dmg, big, life}
 var _missiles: Array = []  # Homing Missile choreography: {pos, vel, dmg, target, phase, angle, orbit_t, life}
@@ -244,6 +251,7 @@ func _release_trigger() -> void:
 	var def := _primary_def()
 	if not def.is_empty() and String(def.get("fire_mode", "")) == "charge" and _charge > 0.0:
 		_fire_primary_charged(def, _charge)
+	_end_channel()   # collapse any held void / dismiss the swarm
 	_trigger_down = false
 	_charge = 0.0
 
@@ -270,8 +278,10 @@ func _process(delta: float) -> void:
 	_update_secondary(delta)
 	_update_bullets(delta)
 	_update_missiles(delta)
+	_update_parasites(delta)   # Parasite Gun darts + attached DoTs (tick regardless of trigger)
 	_tick_fx(_impacts, delta)
 	_tick_fx(_arcs, delta)
+	_tick_fx(_block_flashes, delta)
 	_beam_time += delta
 	_out_of_energy_t = maxf(0.0, _out_of_energy_t - delta)
 	_tick_beam_fx(delta)
@@ -284,15 +294,19 @@ func _process(delta: float) -> void:
 func _update_primary(delta: float) -> void:
 	if not _trigger_down:
 		_beam_active = false
+		_end_channel()   # released / not firing → collapse void, dismiss swarm
 		return
 	var def := _primary_def()
 	if def.is_empty():
 		_trigger_down = false
 		_beam_active = false
+		_end_channel()
 		return
 	var mode := String(def.get("fire_mode", ""))
 	if mode != "beam":
 		_beam_active = false   # any non-beam weapon clears the beam visual
+	if mode != "channel":
+		_end_channel()         # swapped off a channel weapon → clean up its zone/bats
 	if mode == "repeat":
 		# Fire only when the shared cooldown has elapsed (covers both click and hold).
 		if _primary_cd <= 0.0 and _fire_by_type(def):
@@ -302,6 +316,8 @@ func _update_primary(delta: float) -> void:
 		_charge = minf(_charge + delta, maxc)
 	elif mode == "beam":
 		_update_beam(def, delta)
+	elif mode == "channel":
+		_update_channel(def, delta)
 
 func _update_secondary(delta: float) -> void:
 	var def := _secondary_def()
@@ -447,6 +463,10 @@ func _fire_by_type(def: Dictionary) -> bool:
 			if not _spend_weapon_energy(def):
 				return false
 			_fire_chain(def)
+		"dot_stack":
+			if not _spend_weapon_energy(def):
+				return false
+			_fire_parasites(def)
 		_:  # "projectile" and anything not yet implemented → a plain bullet
 			_fire_primary(def)
 	return true
@@ -810,6 +830,237 @@ func _spawn_impact(pos: Vector2, big: bool) -> void:
 		"radius": 30.0 if big else 12.0,
 	})
 
+# ── Batch D weapons: growing_zone / dot_stack / minion ────────────────────────
+const PARASITE_SPEED      := 520.0
+const PARASITE_HIT_RADIUS := 10.0
+const BAT_SPEED           := 240.0
+const BAT_HIT_RANGE       := 40.0    # how close a bat must be to land an auto-attack
+const BAT_BLOCK_RADIUS    := 22.0    # how close a bat must be to pop a boss projectile
+
+## "channel" fire_mode: hold-to-sustain. Optional continuous energy drain (same as
+## beams; OFF unless the weapon sets uses_energy), then dispatch on fire_type.
+func _update_channel(def: Dictionary, delta: float) -> void:
+	if WEAPONS_USE_ENERGY or bool(def.get("uses_energy", false)):
+		var drain := get_weapon_stat(def, "energy", 0.0) * delta   # per-second cost × delta
+		if drain > 0.0 and not GameManager.try_spend_energy(drain):
+			_out_of_energy_t = 1.0
+			_end_channel()
+			_trigger_down = false
+			return
+	match String(def.get("fire_type", "")):
+		"growing_zone":
+			_tick_zone(def, delta)
+		"minion":
+			_tick_swarm(def, delta)
+
+## Collapse the Rift Maker void and dismiss the Swarm Host bats. Idempotent.
+func _end_channel() -> void:
+	_zone["active"] = false
+	_bats.clear()
+
+# ── Rift Maker (growing_zone) ──────────────────────────────────────────────────
+func _tick_zone(def: Dictionary, delta: float) -> void:
+	if not bool(_zone["active"]):
+		_zone["active"] = true
+		_zone["pos"] = get_local_mouse_position()   # placed where you press; stays put
+		_zone["age"] = 0.0
+		_zone["tick_acc"] = 0.0
+	var ramp: float = maxf(0.1, get_weapon_stat(def, "ramp_sec", 2.5))
+	_zone["age"] = minf(float(_zone["age"]) + delta, ramp)
+	var f: float = float(_zone["age"]) / ramp
+	var radius: float = lerpf(get_weapon_stat(def, "radius_min", 40.0), get_weapon_stat(def, "radius_max", 150.0), f)
+	var dmg_ps: float = lerpf(get_weapon_stat(def, "damage_min", 30.0), get_weapon_stat(def, "damage_max", 300.0), f)
+	var interval: float = maxf(0.05, get_weapon_stat(def, "tick_interval_sec", 0.3))
+	_zone["tick_acc"] = float(_zone["tick_acc"]) + delta
+	while float(_zone["tick_acc"]) >= interval:
+		_zone["tick_acc"] = float(_zone["tick_acc"]) - interval
+		var pos: Vector2 = _zone["pos"]
+		var hit_dmg := dmg_ps * interval
+		var ast := _ast()
+		if ast != null and ast.has_method("damage_area"):
+			ast.damage_area(pos, radius, hit_dmg)
+		var br := _boss_rect_local()
+		if br.has_area() and _circle_hits_rect(pos, radius, br):
+			GameManager.take_boss_damage(int(maxf(1.0, hit_dmg)))
+			var bf := get_tree().get_first_node_in_group("chromeleon_fight")
+			if bf != null and bf.has_method("flash_boss_hit"):
+				bf.flash_boss_hit()
+
+# ── Parasite Gun (dot_stack) ───────────────────────────────────────────────────
+func _fire_parasites(def: Dictionary) -> void:
+	var n := maxi(1, int(get_weapon_stat(def, "parasites", 5.0)))
+	var dps := get_weapon_stat(def, "dps", 6.0)
+	var tick := maxf(0.05, get_weapon_stat(def, "dot_tick_sec", 0.5))
+	var muzzle := _muzzle()
+	var aim := get_local_mouse_position() - muzzle
+	if aim.length() < 0.01:
+		aim = Vector2.UP
+	var base := aim.angle()
+	for i in n:
+		var t := 0.0 if n <= 1 else (float(i) / float(n - 1) - 0.5)
+		var ang := base + t * deg_to_rad(26.0)
+		var dir := Vector2(cos(ang), sin(ang))
+		_parasites.append({"pos": muzzle, "vel": dir * PARASITE_SPEED, "life": 0.0, "dps": dps, "tick": tick})
+	_spawn_impact(muzzle, false)
+
+## Darts in flight attach on first hit; attached parasites then tick DoT forever
+## (until the target dies). Runs every frame, independent of the trigger.
+func _update_parasites(delta: float) -> void:
+	var ast := _ast()
+	var br := _boss_rect_local()
+	var i := _parasites.size() - 1
+	while i >= 0:
+		var p: Dictionary = _parasites[i]
+		p["pos"] = (p["pos"] as Vector2) + (p["vel"] as Vector2) * delta
+		p["life"] = float(p["life"]) + delta
+		var pos: Vector2 = p["pos"]
+		var attached := false
+		if ast != null and ast.has_method("get_asteroid_handle_at"):
+			var h: TextureRect = ast.get_asteroid_handle_at(pos, PARASITE_HIT_RADIUS)
+			if h != null:
+				_dots.append({"kind": "rock", "handle": h, "dps": float(p["dps"]), "tick": float(p["tick"]), "acc": 0.0})
+				attached = true
+		if not attached and br.has_area() and br.has_point(pos):
+			_dots.append({"kind": "boss", "handle": null, "dps": float(p["dps"]), "tick": float(p["tick"]), "acc": 0.0})
+			attached = true
+		var off: bool = pos.x < -48.0 or pos.x > size.x + 48.0 or pos.y < -48.0 or pos.y > size.y + 48.0
+		if attached or off or float(p["life"]) > 4.0:
+			if attached:
+				_spawn_impact(pos, false)
+			_parasites.remove_at(i)
+		i -= 1
+	# Attached DoTs.
+	var di := _dots.size() - 1
+	while di >= 0:
+		var d: Dictionary = _dots[di]
+		var tick: float = maxf(0.05, float(d["tick"]))
+		d["acc"] = float(d["acc"]) + delta
+		var dead := false
+		while float(d["acc"]) >= tick:
+			d["acc"] = float(d["acc"]) - tick
+			var hit_dmg := float(d["dps"]) * tick
+			if String(d["kind"]) == "rock":
+				var h: TextureRect = d["handle"]
+				if h == null or not is_instance_valid(h):
+					dead = true; break
+				if ast == null or not ast.has_method("damage_asteroid") or not ast.damage_asteroid(h, hit_dmg):
+					dead = true; break   # asteroid destroyed → parasite dies with it
+			else:  # boss
+				if not _boss_rect_local().has_area():
+					dead = true; break
+				GameManager.take_boss_damage(int(maxf(1.0, hit_dmg)))
+		if dead:
+			_dots.remove_at(di)
+		di -= 1
+
+# ── Swarm Host (minion) ────────────────────────────────────────────────────────
+func _tick_swarm(def: Dictionary, delta: float) -> void:
+	var want := maxi(0, int(get_weapon_stat(def, "bats", 4.0)))
+	var respawn := maxf(0.1, get_weapon_stat(def, "respawn_sec", 3.0))
+	var atk_iv := maxf(0.05, get_weapon_stat(def, "attack_interval_sec", 0.4))
+	var dmg := get_weapon_stat(def, "damage", 5.0)
+	var roam := get_weapon_stat(def, "bat_range_px", 260.0)
+	var ship := _ship_center()
+	while _bats.size() < want:
+		_bats.append({"pos": ship + Vector2(randf_range(-30.0, 30.0), randf_range(-30.0, 30.0)),
+			"vel": Vector2.ZERO, "alive": true, "respawn_t": 0.0, "atk_acc": 0.0})
+	while _bats.size() > want:
+		_bats.remove_at(_bats.size() - 1)
+	# Boss controllers that can have their projectiles body-blocked.
+	var bosses: Array = []
+	for g: String in ["boss_fight", "chromeleon_fight"]:
+		var node := get_tree().get_first_node_in_group(g)
+		if node != null and node.has_method("consume_projectile_near"):
+			bosses.append(node)
+	var targets := _collect_targets()
+	for bi in _bats.size():
+		var bat: Dictionary = _bats[bi]
+		if not bool(bat["alive"]):
+			bat["respawn_t"] = float(bat["respawn_t"]) - delta
+			if float(bat["respawn_t"]) <= 0.0:
+				bat["alive"] = true
+				bat["pos"] = ship + Vector2(randf_range(-30.0, 30.0), randf_range(-30.0, 30.0))
+			_bats[bi] = bat
+			continue
+		var tgt := _nearest_target(bat["pos"])
+		var aim_pos: Vector2 = tgt if (tgt != Vector2.ZERO and ship.distance_to(tgt) <= roam) else ship
+		var to := aim_pos - (bat["pos"] as Vector2)
+		var desired := (to.normalized() * BAT_SPEED) if to.length() > 1.0 else Vector2.ZERO
+		bat["vel"] = (bat["vel"] as Vector2).lerp(desired, clampf(6.0 * delta, 0.0, 1.0))
+		bat["pos"] = (bat["pos"] as Vector2) + (bat["vel"] as Vector2) * delta
+		bat["atk_acc"] = float(bat["atk_acc"]) + delta
+		if tgt != Vector2.ZERO and (bat["pos"] as Vector2).distance_to(tgt) <= BAT_HIT_RANGE and float(bat["atk_acc"]) >= atk_iv:
+			bat["atk_acc"] = 0.0
+			var tdict := _nearest_target_dict(bat["pos"], targets, BAT_HIT_RANGE + 24.0)
+			if not tdict.is_empty():
+				_apply_to(tdict, dmg)
+		# Body-block: pop the nearest boss projectile; the bat dies on contact.
+		for node in bosses:
+			var res: Dictionary = node.consume_projectile_near(bat["pos"], BAT_BLOCK_RADIUS)
+			if bool(res.get("hit", false)):
+				bat["alive"] = false
+				bat["respawn_t"] = respawn
+				_block_flashes.append({"pos": res.get("pos", bat["pos"]), "age": 0.0, "max_age": 0.25})
+				break
+		_bats[bi] = bat
+
+## Live position of a parasite DoT's target (follows a drifting rock / the boss).
+func _dot_pos(d: Dictionary) -> Vector2:
+	if String(d["kind"]) == "rock":
+		var h: TextureRect = d["handle"]
+		if h != null and is_instance_valid(h):
+			return h.position + h.size * 0.5
+		return Vector2.ZERO
+	var br := _boss_rect_local()
+	return (br.position + br.size * 0.5) if br.has_area() else Vector2.ZERO
+
+## All Batch-D visuals (called from _draw()).
+func _draw_batch_d() -> void:
+	# Rift Maker — growing void at the placed spot.
+	if bool(_zone["active"]):
+		var zp: Vector2 = _zone["pos"]
+		var pdef := _primary_def()
+		var ramp: float = maxf(0.1, get_weapon_stat(pdef, "ramp_sec", 2.5)) if not pdef.is_empty() else 2.5
+		var f: float = clampf(float(_zone["age"]) / ramp, 0.0, 1.0)
+		var rmin: float = get_weapon_stat(pdef, "radius_min", 40.0) if not pdef.is_empty() else 40.0
+		var rmax: float = get_weapon_stat(pdef, "radius_max", 150.0) if not pdef.is_empty() else 150.0
+		var rad: float = lerpf(rmin, rmax, f)
+		draw_circle(zp, rad, Color(0.25, 0.05, 0.4, 0.28 + 0.22 * f))
+		draw_circle(zp, rad * 0.55, Color(0.08, 0.0, 0.18, 0.40))
+		_draw_ring(zp, rad, Color(0.8, 0.4, 1.0, 0.65), 2.0 + 2.0 * f)
+		var arms := 5
+		for a in arms:
+			var ang := _beam_time * 3.0 + TAU * float(a) / float(arms)
+			draw_line(zp, zp + Vector2(cos(ang), sin(ang)) * rad, Color(0.7, 0.3, 1.0, 0.22), 1.5)
+	# Parasite darts in flight.
+	for p: Dictionary in _parasites:
+		var pp: Vector2 = p["pos"]
+		var tail: Vector2 = pp - (p["vel"] as Vector2).normalized() * 8.0
+		draw_line(tail, pp, Color(0.5, 1.0, 0.4, 0.9), 2.0)
+		draw_circle(pp, 2.5, Color(0.7, 1.0, 0.5))
+	# Attached parasites — pulsing blobs that follow their target.
+	var pulse: float = 0.6 + 0.4 * sin(_beam_time * 10.0)
+	for d: Dictionary in _dots:
+		var dp := _dot_pos(d)
+		if dp != Vector2.ZERO:
+			draw_circle(dp, 4.0 * pulse, Color(0.4, 0.9, 0.3, 0.85))
+			draw_circle(dp, 2.0, Color(0.75, 1.0, 0.5))
+	# Swarm bats.
+	for bat: Dictionary in _bats:
+		if not bool(bat["alive"]):
+			continue
+		var bp: Vector2 = bat["pos"]
+		var fwd: Vector2 = (bat["vel"] as Vector2)
+		fwd = fwd.normalized() if fwd.length() > 0.01 else Vector2.RIGHT
+		var sd := Vector2(-fwd.y, fwd.x)
+		draw_colored_polygon(PackedVector2Array([bp + sd * 7.0, bp - fwd * 3.0, bp + fwd * 4.0]), Color(0.14, 0.11, 0.18))
+		draw_colored_polygon(PackedVector2Array([bp - sd * 7.0, bp - fwd * 3.0, bp + fwd * 4.0]), Color(0.14, 0.11, 0.18))
+		draw_circle(bp, 2.0, Color(0.6, 0.1, 0.7))
+	# Bat block-pops.
+	for bf2: Dictionary in _block_flashes:
+		var t: float = clampf(1.0 - float(bf2["age"]) / float(bf2["max_age"]), 0.0, 1.0)
+		_draw_ring(bf2["pos"], 14.0 * (1.0 - t), Color(0.7, 0.9, 1.0, t), 2.0)
+
 # ── Drawing ───────────────────────────────────────────────────────────────────
 
 func _draw() -> void:
@@ -823,6 +1074,9 @@ func _draw() -> void:
 		_draw_ring(c, r, Color(0.5, 0.85, 1.0, 0.45 + 0.35 * pulse), 2.0)
 
 	# (Beam glow + impact flare are drawn additively in _draw_beam_fx on the _glow node.)
+
+	# Batch D weapons (void / parasites / bats)
+	_draw_batch_d()
 
 	# Lightning arcs
 	for a: Dictionary in _arcs:

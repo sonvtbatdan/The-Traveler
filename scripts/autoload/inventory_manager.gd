@@ -212,6 +212,63 @@ const ITEM_DEFS: Dictionary = {
 			"energy": 22,
 		},
 	},
+	"rift_maker": {
+		"name": "Rift Maker",
+		"icon": "",
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "channel",        # hold to sustain
+		"fire_type": "growing_zone",   # places a void at a spot that grows in size + damage while held
+		"rarity": "legendary",
+		"desc": "Hold to tear open a void at a spot. It grows wider and hits harder the longer you hold it, then collapses when released.",
+		"stats": {
+			"damage_min": 30,          # damage/tick at placement
+			"damage_max": 300,         # damage/tick at full ramp
+			"ramp_sec": 2.5,           # time to grow from min → max
+			"tick_interval_sec": 0.3,
+			"radius_min": 40,
+			"radius_max": 150,
+			"weight": 9,
+			"energy": 18,              # per second (energy OFF until uses_energy set)
+		},
+	},
+	"parasite_gun": {
+		"name": "Parasite Gun",
+		"icon": "",
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",
+		"fire_type": "dot_stack",      # fires sticky parasites that attach and deal damage-over-time
+		"rarity": "epic",
+		"desc": "Fires a volley of parasites that latch onto whatever they hit and gnaw it for damage-over-time until it dies. Slow reload.",
+		"stats": {
+			"dps": 6,                  # damage/sec per attached parasite
+			"parasites": 5,            # parasites per volley
+			"cooldown_sec": 4.0,       # reload between volleys
+			"dot_tick_sec": 0.5,       # how often an attached parasite deals damage
+			"weight": 5,
+			"energy": 8,               # per volley (energy OFF until uses_energy set)
+		},
+	},
+	"swarm_host": {
+		"name": "Swarm Host",
+		"icon": "",
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "channel",        # hold to sustain the swarm
+		"fire_type": "minion",         # spawns bats that auto-attack + body-block boss projectiles
+		"rarity": "rare",
+		"desc": "Hold to release a swarm of bats that chase down the nearest target and body-block incoming boss fire. Downed bats respawn while held.",
+		"stats": {
+			"damage": 5,               # per bat hit
+			"attack_interval_sec": 0.4,
+			"bats": 4,
+			"respawn_sec": 3.0,
+			"bat_range_px": 260,       # how far a bat will roam to chase a target
+			"weight": 4,
+			"energy": 9,               # per second (energy OFF until uses_energy set)
+		},
+	},
 	"shield_generator": {
 		"name": "Shield Generator",
 		"icon": "",  # TODO final art → "res://assets/inventory/shield_generator.png"
@@ -232,7 +289,7 @@ const ITEM_DEFS: Dictionary = {
 # Items granted automatically the FIRST time a save is created (new game only).
 # Keeping this separate from ITEM_DEFS means future items (e.g. asteroid drops in
 # Phase 4) can be defined without being auto-placed in the backpack.
-const STARTER_ITEMS: Array[String] = ["gauss_cannon", "shield_generator", "gatling_gun", "homing_missile", "shotgun", "lasgun", "arc", "plasma_drill"]
+const STARTER_ITEMS: Array[String] = ["gauss_cannon", "shield_generator", "gatling_gun", "homing_missile", "shotgun", "lasgun", "arc", "plasma_drill", "rift_maker", "parasite_gun", "swarm_host"]
 
 # ── Runtime state ─────────────────────────────────────────────────────────────
 # _items: uid(int) -> {"def": String, "where": String, "cell": Vector2i}

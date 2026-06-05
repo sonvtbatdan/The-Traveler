@@ -38,3 +38,28 @@ Batch C: aura + screen_nuke (Ionizing field, Nuke)
 Batch D: growing_zone + dot_stack + minion (Rift maker, Parasite gun, Swarm host) — the most complex
 
 At the end: give me a plain-language summary of every file you added or changed, confirm all 12 weapons can be equipped and fired, and tell me how to undo it all if I want to.
+
+Phase 1 — The affix data + roller.
+
+Put all the affixes from Item_fixes_completed.xlsx into the game as data (id, prefix name, after-fix name, unit, min, max).
+Build the tier-band roller exactly as described in that file's "Tier rules" sheet: an affix rolls inside a band based on item tier — Low rolls between Min and the 33% cap, Mid between 33% and 66%, High between 66% and Max. Handle the negative affixes (energy_consumption, etc.) the same way (more-negative is the better roll). Make one function that takes an affix id + tier and returns a rolled value.
+Filter which affixes can roll on WEAPONS. Not all affixes belong on a weapon (e.g. +max HP, +shield, dash, drone damage are ship/equipment stats). For now, the weapon-eligible affix pool is ONLY these ids: damage_flat, damage_percentage, fire_rate, crit_chance, crit_damage, armor_penetration, poison, slow, freeze, burn, multishot, pierce, ricochet, splash_radius, knockback, projectile_speed, projectile/energy: energy_consumption_percentage, energy_leech, hp_leech, shield_leech, energy_regen_flat, energy_regen_percentage. Put this list in one clearly-named array so I can add/remove later. Every other affix is excluded from weapons.
+Pause and tell me it compiles.
+
+Phase 2 — Roll a weapon with affixes (1 prefix + 1 after-fix).
+
+Make a function that generates a weapon instance: pick a base weapon (from the 11), then roll one prefix affix and one after-fix affix, both drawn ONLY from the weapon-eligible pool, both rolled at the appropriate tier. (Prefix = a "prefix"-type affix, after-fix = an "of …"-type affix; in your sheet every affix has both a prefix and an after-fix name, so a rolled affix can supply either slot. Don't roll the same affix id twice on one weapon.)
+The weapon's display name should combine them: "[Prefix] [Base name] [After-fix]" — e.g. "Brutal Gatling gun of Barrage". If a slot rolls empty, just omit it.
+Store the rolled affixes and their rolled values ON the weapon instance, so each dropped weapon is unique.
+Now wire the affixes into the existing get_weapon_stat helper so the rolled values actually modify the weapon: e.g. damage_percentage raises its damage, fire_rate lowers its cooldown, energy_consumption reduces its energy cost, etc. Start by wiring the straightforward stat ones (damage, fire_rate, crit, energy cost, projectile_speed); for the more complex ones (poison, freeze, multishot, pierce, etc.) leave a clear TODO comment listing which aren't wired to effects yet — don't fake them.
+Pause so I can spawn a test weapon and confirm the name and stats reflect the rolls.
+
+Phase 3 — Boss fight drops 3 weapons.
+
+When a boss fight is won, generate 3 random weapons using the Phase 2 function and place them in the player's inventory (respect the existing inventory/backpack rules — if it's full, handle gracefully and tell me how).
+Pick the drop tier based on which boss / progress, if that info exists; if there's no progression yet, default all boss drops to Mid tier for now and leave a comment showing where to set tier per boss later.
+Show me what dropped (some simple feedback / list is fine).
+Pause so I can kill a boss and confirm 3 affixed weapons drop into my inventory.
+
+Throughout: numbers come from the spreadsheets, keep everything in clearly-named data tables/arrays so I can tweak, and at the end give me a plain-language summary of what each phase added and how the roll → name → stat pipeline flows.
+

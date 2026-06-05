@@ -4,7 +4,7 @@ Godot 4 GDScript. A spaceship idle/clicker with a real-time combat layer on top.
 
 This codebase carries scars from two pivots, which is why "legacy" exists:
 1. **Theme pivot** — it began as a YouTube/streamer idle clicker (views/subs/cash, comments, autoclickers). Internal variable names and several hidden panels are from that era.
-2. **Weapon pivot** — the player's guns used to be **sprites mounted on the ship in edit mode** (driven by `WeaponManager`, auto-firing). That was replaced by a **Diablo-2-style inventory** (`InventoryManager` + `weapon_system`). The old mount-firing is retired but the code still exists.
+2. **Weapon pivot** — the player's guns used to be **sprites mounted on the ship in edit mode** (driven by `WeaponManager`, auto-firing). That was replaced by a **Diablo-2-style inventory** (`InventoryManager` + `weapon_system`). The old mount auto-fire is retired (still inert in `gun_system.gd`), and the **old weapon shop has now been deleted**. `WeaponManager` survives only to position the cosmetic ship-weapon sprites + save/load.
 
 Entry scene: `scenes/main.tscn` → `scripts/main.gd`. Toggle the layout editor with **F4** (`toggle_edit_mode`); the boss editor with **F5** (`toggle_boss_edit_mode`).
 
@@ -47,7 +47,7 @@ Legend: ✅ Active · 🟡 Partial (some live, some dead) · ⚠️ Legacy / hid
 | EquipmentManager | `equipment_manager.gd` | ✅ | Auto-scans `assets/upgrades/equipment/*.png`; Power-Core items multiply idle production |
 | UpgradeManager | `upgrade_manager.gd` | ✅ | Fuel-production upgrade catalog + passive tick |
 | GameManager | `game_manager.gd` | ✅ | Central state: economy, ship HP/shield/energy/i-frames, boss HP, boost, save/load |
-| WeaponManager | `weapon_manager.gd` | 🟡 | Canvas weapon catalog; still **positions the cosmetic weapon sprites** on the ship, but its firing is retired |
+| WeaponManager | `weapon_manager.gd` | 🟡 | Only **positions the cosmetic weapon sprites** on the ship (via `sync_from_canvas`) + save/load. Firing is retired and the old weapon shop/purchase path has been deleted |
 | InventoryManager | `inventory_manager.gd` | ✅ | Backpack grid + equip slots; the player's real weapons |
 
 ---
@@ -56,15 +56,16 @@ Legend: ✅ Active · 🟡 Partial (some live, some dead) · ⚠️ Legacy / hid
 
 | Thing | Status | Where | Why |
 |---|---|---|---|
-| Mount auto-fire | ⚠️ disabled | `gun_system.gd` `MOUNT_AUTOFIRE=false` — `_fire_gun/_fire_turret/_fire_canon/_fire_railgun_bullet/_fire_lightning` early-return | Replaced by inventory weapons; rest of gun_system (movement/dash/collision) is still live |
-| Canvas weapon shop | ⚠️ hidden | `WeaponPanel` in `main.tscn` (`visible=false`) → `scripts/ui/weapon/weapon_panel.gd` | Old material-priced weapon store; superseded by inventory |
+| Mount auto-fire | ⚠️ retained but inert | `gun_system.gd` `MOUNT_AUTOFIRE=false` — `_fire_gun/_fire_turret/_fire_canon/_fire_railgun_bullet/_fire_lightning` early-return | Replaced by inventory weapons. Left in place on purpose (gun_system is fragile / partly LOCKED); the rest of gun_system (movement/dash/collision/sprite positioning) is still live |
+| Canvas weapon shop | 🗑️ **deleted** | was `WeaponPanel` in `main.tscn` + `scripts/ui/weapon/weapon_panel.gd` + `WeaponManager.purchase()/get_tier_cost()` | Old material-priced weapon store; removed — inventory is the only weapon source |
 | Old idle upgrade UI | ⚠️ hidden | `UpgradeArea` in `main.tscn` (`visible=false`) — rows FriendView/ReactHand/Ad/Algorithm/BotIntel/Content; `scripts/ui/upgrade/upgrade_list.gd`, `upgrade_item.gd` | Streamer-era upgrade panel; upgrades now surface elsewhere |
 | Comment / "Distress Signals" panel | ⚠️ hidden | `CommentColumn` set `visible=false` in `main.gd._apply_title_fonts`; `scripts/ui/hud/comment_panel.gd` | Streamer-era chat feed |
 | Defense tab / scan automation | ⚠️ vestigial | `DefenseManager`, `defense_panel.gd`, `defense_visual.gd`; `comment_auto_click_rate`/scan fields in GameManager | Progression + ship visual remain, but no scan/defense gameplay drives off them |
 | Auto-clicker overlay | 🗑️ orphaned | `scripts/gameplay/auto_clicker_overlay.gd` | Not referenced anywhere; idle-clicker hand cursors |
 | Views/Subs bar | 🗑️ orphaned | `scripts/ui/hud/view_sub_bar.gd` | Not referenced anywhere |
 | Ionizing Field item | ⚠️ unused | `inventory_manager.gd` `ITEM_DEFS.ionizing_field` | Defined (aura weapon+shield) but not in `STARTER_ITEMS`; works if granted |
-| Unwired item stats | ⚠️ data-only | `energy_per_shot`, `energy_per_sec`, `weight` in `ITEM_DEFS` | Present on items but not consumed by gameplay (firing doesn't cost energy) |
+| Per-weapon energy stats | 🟡 partial | `energy` / `energy_per_shot` / `energy_per_sec` in `ITEM_DEFS` | Only consumed by weapons flagged `uses_energy:true` — currently just the **Lasgun** (drains `energy`/sec + a 10 activation cost, cuts out at empty). On all other weapons these stats are still data-only (global `WEAPONS_USE_ENERGY=false`). |
+| `weight` item stat | ⚠️ data-only | `weight` in `ITEM_DEFS` | Present on items but not consumed by gameplay |
 | Theme/internal names | ℹ️ intentional | `views`/`subs`/`cash`/`comment_auto_click_rate` | Kept for API stability; map to Fuel/Crew/Credits (see §7) |
 
 ---
@@ -77,7 +78,7 @@ Legend: ✅ Active · 🟡 Partial (some live, some dead) · ⚠️ Legacy / hid
 | `main.gd` | ✅ | Root `Control`; instantiates all runtime systems, save/load, F4/F5 toggles, death + victory screens |
 | `asteroid_layer.gd` | ✅ | Asteroid spawn/drift/collect → materials; boss-aware (`boost_changed`/`boss_spawned`/`boss_killed`) |
 | `weapon_system.gd` | ✅ | Inventory weapon firing + FX; primary (repeat/charge) + secondary (aura); damages asteroids + boss |
-| `gun_system.gd` | 🟡 | Ship float/WASD movement/SPACE dash/scale/collision **(live)**; mount auto-fire **(dead)** |
+| `gun_system.gd` | 🟡 | Ship float/WASD movement/SPACE dash/scale/collision + cosmetic weapon-sprite positioning **(live)**; mount auto-fire **(retained but inert, `MOUNT_AUTOFIRE=false`)** |
 | `scrolling_background.gd` | ✅ | Tiled parallax background |
 | `overlay.gd` | ✅ | Tiled parallax overlay |
 | `boss_fight.gd` | ✅ | Elephant boss — 5 moves (M1–M5), projectile pool, "DISASTER AVOIDED" on defeat |
@@ -133,11 +134,6 @@ Legend: ✅ Active · 🟡 Partial (some live, some dead) · ⚠️ Legacy / hid
 | `upgrade_list.gd` | ⚠️ | WEAPONRY/DEFENSE tabbed upgrade list (hosted by hidden `UpgradeArea`) |
 | `upgrade_item.gd` | ⚠️ | One upgrade row |
 
-### `scripts/ui/weapon/`
-| File | Status | Role |
-|---|---|---|
-| `weapon_panel.gd` | ⚠️ | Old canvas weapon shop (`WeaponPanel`, hidden) |
-
 ### `scripts/ui/equipment/`  (✅ — Power Core shop)
 | File | Role |
 |---|---|
@@ -162,16 +158,21 @@ Legend: ✅ Active · 🟡 Partial (some live, some dead) · ⚠️ Legacy / hid
 
 ## 5. Player weapons (inventory)
 
-Defined in `inventory_manager.gd` `ITEM_DEFS`; behaviour in `weapon_system.gd`, dispatched purely on a `fire_mode` string (no per-name hardcoding):
+Defined in `inventory_manager.gd` `ITEM_DEFS`; behaviour in `weapon_system.gd`, dispatched purely on a `fire_mode` string (when/how it triggers) + a `fire_type` string (what it spawns) — no per-name hardcoding. All 9 are granted on first run **except Ionizing Field**.
 
-| Item | Slot | fire_mode | Status | Behaviour |
+| Item | Slot | fire_mode / fire_type | Status | Behaviour |
 |---|---|---|---|---|
-| Gatling Gun | primary | `repeat` | ✅ starter | Hold to fire every `cooldown_sec` (0.12 s), dmg 8 |
-| Gauss Cannon | primary | `charge` | ✅ starter | Hold to charge ≤1.5 s; release fires one big ball, dmg ∝ charge (≤110) |
-| Shield Generator | secondary | — | ✅ starter | Passive 20-pt shield read by `GameManager` |
-| Ionizing Field | secondary | `aura` | ⚠️ unused | Damages everything in radius each tick — defined, not granted |
+| Gatling Gun | primary | `repeat` / `projectile` | ✅ starter | Hold to fire every 0.12 s, dmg 8 |
+| Gauss Cannon | primary | `charge` / `projectile` | ✅ starter | Hold to charge ≤1.5 s; release fires one big ball, dmg ∝ charge (≤110) |
+| Homing Missile | primary | `repeat` / `homing` | ✅ starter | Cinematic launch (ejects, arcs behind the ship, hangs, then accelerates to the cursor and explodes), dmg 19 @ 0.53 s |
+| Shotgun | primary | `repeat` / `cone` | ✅ starter | 5 pellets, dmg 18 each, 34° spread, range 216, 0.7 s cooldown |
+| Lasgun | primary | `beam` / `hitscan_beam` | ✅ starter | Continuous beam **straight forward** (ignores cursor), dmg 20/tick @ 0.15 s, range 760, wide. **Uses energy:** drains 20/sec + a 10 activation cost on press; cuts out at empty (see §3). Heavy light/impact FX |
+| Arc | primary | `repeat` / `chain` | ✅ starter | Lightning that chains up to 4 jumps within 200 px, dmg 30 @ 0.5 s |
+| Plasma Drill | primary | `beam` / `tether` | ✅ starter | Short tether (range 170) locking the nearest target, dmg 70/tick @ 0.2 s |
+| Shield Generator | secondary | — | ✅ starter | Passive 20-pt shield read by `GameManager` (regen after 3 s) |
+| Ionizing Field | secondary | `aura` / `aura` | ⚠️ unused | Damages everything in radius (140 px) each tick — defined, **not** in `STARTER_ITEMS` |
 
-To add/retune a weapon you usually only edit `ITEM_DEFS` (the three `fire_mode`s already exist).
+To add/retune a weapon you usually only edit `ITEM_DEFS` (the `fire_mode`/`fire_type` combinations above already exist). Energy is opt-in per weapon via `uses_energy` (only the Lasgun uses it today).
 
 ---
 

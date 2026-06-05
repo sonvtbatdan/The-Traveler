@@ -71,18 +71,6 @@ const KEY_ALIASES: Dictionary = {
 	"homing_missle": "homing_missile",
 }
 
-func get_tier_cost(id: String, tier: int) -> Dictionary:
-	var entry: Dictionary = WEAPON_CATALOG.get(id, {})
-	if entry.is_empty():
-		return {}
-	var base: Dictionary = entry.get("base_cost", {})
-	var mults: Array = entry.get("mult", [1.0])
-	var m: float = mults[mini(tier, mults.size() - 1)] if not mults.is_empty() else 1.0
-	var result: Dictionary = {}
-	for k: String in base:
-		result[k] = ceili(float(base[k]) * m)
-	return result
-
 # Populated at runtime by sync_from_canvas() — not a const.
 var WEAPONS: Dictionary = {}  # id -> {name, desc, tiers:[file...], side_only?}
 var owned:        Dictionary = {}  # id -> {L:int, R:int}  (-1 = not purchased)
@@ -243,61 +231,6 @@ func get_active_positions(id: String) -> Array[Vector2]:
 
 func get_tier(id: String, side: String) -> int:
 	return owned.get(id, {}).get(side, -1)
-
-func is_tier_available(id: String, tier: int) -> bool:
-	if tier == 0:
-		return true
-	var data: Dictionary = WEAPONS.get(id, {})
-	var side_only: String = data.get("side_only", "")
-	if side_only != "":
-		return get_tier(id, side_only) >= tier - 1
-	return get_tier(id, "L") >= tier - 1 and get_tier(id, "R") >= tier - 1
-
-func _is_required_purchased(requires: String) -> bool:
-	if requires.is_empty():
-		return true
-	if WEAPON_CATALOG.get(requires, {}).get("center", false):
-		return get_tier(requires, "C") >= 0
-	return maxi(get_tier(requires, "L"), get_tier(requires, "R")) >= 0
-
-func can_purchase(id: String, side: String) -> bool:
-	var data: Dictionary = WEAPONS.get(id, {})
-	if data.is_empty():
-		return false
-	var side_only: String = data.get("side_only", "")
-	if side_only != "" and side != side_only:
-		return false
-	var next: int = get_tier(id, side) + 1
-	if next >= (data["tiers"] as Array).size():
-		return false
-	if not is_tier_available(id, next):
-		return false
-	if not _is_required_purchased(WEAPON_CATALOG.get(id, {}).get("requires", "")):
-		return false
-	var cost := get_tier_cost(id, next)
-	if not cost.is_empty():
-		if MaterialManager.metal    < cost.get("metal",    0) or \
-		   MaterialManager.nonmetal < cost.get("nonmetal", 0) or \
-		   MaterialManager.organic  < cost.get("organic",  0) or \
-		   MaterialManager.liquid   < cost.get("liquid",   0):
-			return false
-	return true
-
-func purchase(id: String, side: String) -> bool:
-	if not can_purchase(id, side):
-		return false
-	var next: int = get_tier(id, side) + 1
-	var cost := get_tier_cost(id, next)
-	if not cost.is_empty():
-		MaterialManager.spend("metal",    cost.get("metal",    0))
-		MaterialManager.spend("nonmetal", cost.get("nonmetal", 0))
-		MaterialManager.spend("organic",  cost.get("organic",  0))
-		MaterialManager.spend("liquid",   cost.get("liquid",   0))
-	owned[id][side] += 1
-	_refresh_visibility(id)
-	save_game()
-	weapon_purchased.emit(id, side)
-	return true
 
 # ── Visibility ────────────────────────────────────────────────────────────────
 

@@ -317,6 +317,35 @@ func pierce_at(local_pos: Vector2, hit_radius: float, dmg_pool: float) -> float:
 	_apply_damage(best, dmg_pool)
 	return absorbed
 
+## Return the nearest asteroid NODE (a stable handle) whose body contains local_pos
+## within hit_radius, or null. Lets a weapon latch onto ONE specific asteroid and
+## follow / damage it over time (e.g. the Parasite Gun's damage-over-time).
+func get_asteroid_handle_at(local_pos: Vector2, hit_radius: float) -> TextureRect:
+	var best: int = -1
+	var best_d: float = INF
+	for i in range(_nodes.size()):
+		var tr: TextureRect = _nodes[i]
+		if not is_instance_valid(tr):
+			continue
+		var center: Vector2 = tr.position + tr.size * 0.5
+		var ar: float = maxf(tr.size.x, tr.size.y) * 0.5
+		var d: float = center.distance_to(local_pos)
+		if d <= ar + hit_radius and d < best_d:
+			best_d = d
+			best = i
+	return _nodes[best] if best >= 0 else null
+
+## Deal damage to ONE specific asteroid by its node handle (from get_asteroid_handle_at).
+## Returns false if that asteroid no longer exists (destroyed / collected).
+func damage_asteroid(tr: TextureRect, amount: float) -> bool:
+	if tr == null or not is_instance_valid(tr):
+		return false
+	var idx: int = _nodes.find(tr)
+	if idx < 0:
+		return false
+	_apply_damage(idx, amount)
+	return true
+
 ## Damaged asteroids (HP < full), for drawing HP bars on the weapon layer.
 func get_damaged_asteroids() -> Array:
 	var out: Array = []
