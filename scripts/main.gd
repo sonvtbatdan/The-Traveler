@@ -236,8 +236,10 @@ func _dismiss_death_screen() -> void:
 
 func _on_boss_defeated() -> void:
 	GameManager.set_boost(false)
-	_show_victory_screen()
-	get_tree().paused = true
+	# The boss controller (boss_fight / chromeleon_fight) shows its own themed victory
+	# screen with a "Continue to Universe" button. Do NOT pause the tree or stack a
+	# second screen here — pausing froze that button (it isn't process-mode-always),
+	# which left the game stuck. Victory UI is owned by the boss controller now.
 
 func _show_victory_screen() -> void:
 	if _victory_layer != null:
@@ -295,7 +297,7 @@ func _dismiss_victory_screen() -> void:
 func _add_material_panel() -> void:
 	var panel := MaterialPanelScript.new()
 	panel.position = Vector2(1240.0, 8.0)
-	panel.size     = Vector2(192.0, 160.0)
+	panel.size     = Vector2(192.0, 196.0)   # +height for the $ balance row
 	add_child(panel)
 
 func _add_defense_panel() -> void:

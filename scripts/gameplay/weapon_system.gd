@@ -38,6 +38,57 @@ const MISSILE_SPEED := 1400.0        # max strike speed
 const MISSILE_EXPLODE_DIST := 14.0   # "touched the cursor"
 const MISSILE_AOE_RADIUS := 44.0
 const MISSILE_MAX_LIFE := 4.0
+
+# ── Lasgun BEAM look (tunable — core stays white, colour lives in the glow) ───
+const BEAM_GLOW_COLOR   := Color(0.45, 0.7, 1.0)  # cool blue (the haze/inner-glow colour)
+const BEAM_CORE_COLOR   := Color(1.0, 1.0, 1.0)   # pure white core (always)
+const BEAM_CORE_FRAC    := 0.10   # core width  = this × beam width (thin & sharp)
+const BEAM_INNER_FRAC   := 0.20   # inner glow width (−50%)
+const BEAM_HAZE_FRAC    := 0.75   # outer haze width (−50%)
+const BEAM_INNER_ALPHA  := 0.50   # inner glow opacity
+const BEAM_HAZE_ALPHA   := 0.16   # outer haze opacity (kept low; additive stacks it)
+const BEAM_FLICKER      := 0.12   # brightness shimmer amount (0 = steady)
+const BEAM_FLICKER_SPEED:= 28.0   # shimmer speed
+
+# ── Stylized-laser layers (each animates at its own rate → feels alive) ────────
+# Wobble / distortion (energy turbulence rippling down the beam)
+const BEAM_WOBBLE_AMP    := 4.0    # perpendicular ripple amplitude (px); 0 = perfectly straight
+const BEAM_WOBBLE_FREQ   := 0.05   # ripples per px along the beam
+const BEAM_WOBBLE_SPEED  := 7.0    # how fast the ripple scrolls down the beam
+# Scrolling energy pulses (bright dashes running gun→impact)
+const BEAM_PULSE_COUNT   := 5
+const BEAM_PULSE_SPEED   := 620.0  # px/s
+const BEAM_PULSE_LEN     := 46.0   # length of each pulse streak (px)
+# Electric / lightning crackle (subtle, fast flicker)
+const BEAM_ELEC_INTENSITY:= 0.5    # 0..1 opacity (0 = off)
+const BEAM_ELEC_SEGMENTS := 9
+const BEAM_ELEC_AMP      := 6.0    # jaggedness (px)
+const BEAM_ELEC_SPEED    := 22.0   # re-jag / flicker rate per second
+# Stretched particles streaming down the beam
+const BEAM_PARTICLE_RATE := 26.0   # spawned per second
+const BEAM_PARTICLE_SPEED:= 900.0  # px/s
+const BEAM_PARTICLE_LEN  := 18.0   # streak length (px)
+const BEAM_PARTICLE_LIFE := 0.6    # seconds
+# Bright flash at the muzzle the instant the beam turns on
+const BEAM_FIRE_FLASH_SIZE := 42.0 # radius (px)
+const BEAM_FIRE_FLASH_TIME := 0.12 # seconds
+
+# ── Lasgun IMPACT — cutting-torch / welding-arc burst (tunable) ───────────────
+const FLARE_CORE_COLOR     := Color(1.0, 1.0, 1.0)    # blinding white-hot center
+const FLARE_SPARK_COLOR    := Color(1.0, 0.55, 0.15)  # hot-orange sparks / debris
+const FLARE_GLOW_COLOR     := Color(1.0, 0.35, 0.10)  # tight hot glow around the hit
+const FLARE_CENTER_SIZE    := 4.0    # hard hot center radius (small & sharp)
+const FLARE_GLOW_SIZE      := 16.0   # tight glow radius (hot, not a soft halo)
+const FLARE_SPARKS         := 12     # spark streaks per frame (count jitters)
+const FLARE_SPARK_LEN      := 34.0   # max streak length (randomized per spark)
+const FLARE_SPARK_SPREAD   := 1.7    # cone half-angle (rad) around "back toward the gun"
+const FLARE_SPARK_WIDTH    := 2.0    # streak thickness
+# Flying molten debris flecks (persist + arc + die)
+const FLARE_DEBRIS_RATE    := 40.0   # spawned per second
+const FLARE_DEBRIS_SPEED   := 260.0  # px/s
+const FLARE_DEBRIS_LIFE    := 0.35   # seconds
+const FLARE_DEBRIS_GRAVITY := 600.0  # px/s² (arc downward)
+const FLARE_DEBRIS_SIZE    := 2.5    # px
 const GAUSS_FULL_DIAMETER_CM := 2.0  # full-charge ball ≈ this physical size (approx; tweak freely)
 
 var _gauss_full_diam_px: float = 76.0
@@ -61,6 +112,17 @@ var _bullets: Array = []   # {pos, vel, dmg, big, life}
 var _missiles: Array = []  # Homing Missile choreography: {pos, vel, dmg, target, phase, angle, orbit_t, life}
 var _impacts: Array = []   # {pos, age, max_age, radius, color}
 var _arcs: Array = []      # {a, b, age, max_age}
+
+# Additive draw layer for the beam glow + impact flare (light, not paint)
+var _glow: Node2D = null
+var _beam_hit := false     # true when the beam is touching something (draw the flare)
+var _beam_time := 0.0      # accumulator for the beam flicker / flare shimmer
+var _beam_particles: Array = []   # streaks streaming down the beam: {along, off, life}
+var _beam_part_acc := 0.0  # particle spawn accumulator
+var _beam_was_active := false   # edge-detect the moment the beam turns on (fire flash)
+var _fire_flash_t := 0.0   # remaining fire-flash time
+var _flare_debris: Array = []   # molten flecks off the hit: {pos, vel, life, max_life}
+var _flare_debris_acc := 0.0
 
 # Beam state (Lasgun hitscan_beam / Plasma drill tether) — recomputed each frame while held
 var _beam_active := false
@@ -102,6 +164,16 @@ func setup() -> void:
 	z_index = 50
 	_gauss_full_diam_px = clampf(_cm_to_px(GAUSS_FULL_DIAMETER_CM), 40.0, 120.0)
 	add_to_group("weapon_system")
+
+	# Additive glow layer for the beam + impact flare (makes it read as light, not paint).
+	_glow = Node2D.new()
+	var gm := CanvasItemMaterial.new()
+	gm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	_glow.material = gm
+	_glow.z_as_relative = false
+	_glow.z_index = z_index   # same depth as the rest of the weapon FX
+	add_child(_glow)
+	_glow.draw.connect(_draw_beam_fx)
 
 # ── Input ─────────────────────────────────────────────────────────────────────
 
@@ -155,6 +227,10 @@ func _process(delta: float) -> void:
 	_update_missiles(delta)
 	_tick_fx(_impacts, delta)
 	_tick_fx(_arcs, delta)
+	_beam_time += delta
+	_tick_beam_fx(delta)
+	if _glow != null:
+		_glow.queue_redraw()   # additive beam glow + flare
 	queue_redraw()
 
 func _update_primary(delta: float) -> void:
@@ -329,13 +405,17 @@ func _fire_by_type(def: Dictionary) -> bool:
 
 ## Energy consumption is OFF for now (user will re-enable later). Flip this to true
 ## to make weapons spend their "energy" stat per shot again.
-const WEAPONS_USE_ENERGY := false
+const WEAPONS_USE_ENERGY := false   # global master; individual weapons opt in via def "uses_energy"
 
-## Spend this weapon's per-shot energy (stat "energy"); true if paid (or free).
+## Spend this weapon's energy; true if paid (or free). Per-shot weapons spend the
+## full "energy" stat; beam weapons list "energy" as a per-SECOND rate, so they
+## spend this tick's share (energy × tick_interval).
 func _spend_weapon_energy(def: Dictionary) -> bool:
-	if not WEAPONS_USE_ENERGY:
+	if not (WEAPONS_USE_ENERGY or bool(def.get("uses_energy", false))):
 		return true
 	var cost := get_weapon_stat(def, "energy", 0.0)
+	if String(def.get("fire_mode", "")) == "beam":
+		cost *= maxf(0.02, get_weapon_stat(def, "tick_interval_sec", 0.15))
 	if cost <= 0.0:
 		return true
 	return GameManager.try_spend_energy(cost)
@@ -542,7 +622,8 @@ func _nearest_target_dict(from: Vector2, targets: Array, max_dist: float, exclud
 			best_d = d; best = t
 	return best
 
-## First target a ray (origin, dir) hits within max_len; {} if none.
+## First target a ray (origin, dir) hits within max_len. Returns {"target": <dict or {}>,
+## "along": <distance along the ray to that target's center, or max_len if none>}.
 func _beam_first_hit(origin: Vector2, dir: Vector2, max_len: float, width: float) -> Dictionary:
 	var best := {}
 	var best_along := max_len
@@ -554,7 +635,7 @@ func _beam_first_hit(origin: Vector2, dir: Vector2, max_len: float, width: float
 		var perp := (to_t - dir * along).length()
 		if perp <= width + float(t["radius"]) and along < best_along:
 			best_along = along; best = t
-	return best
+	return {"target": best, "along": best_along}
 
 # ── Beam weapons (hitscan_beam / tether) ──────────────────────────────────────
 
@@ -565,6 +646,10 @@ func _update_beam(def: Dictionary) -> void:
 	var do_tick := _primary_cd <= 0.0
 	var interval := maxf(0.02, get_weapon_stat(def, "tick_interval_sec", 0.15))
 	_beam_width = get_weapon_stat(def, "beam_width", 8.0)
+	# Energy-gated beams cut out when the bar is empty (and resume as it regens).
+	if (WEAPONS_USE_ENERGY or bool(def.get("uses_energy", false))) and GameManager.ship_energy <= 0.0:
+		_beam_active = false
+		return
 	if ft == "tether":
 		var rng := get_weapon_stat(def, "range_px", 170.0)
 		var anchor := _nearest_target_dict(muzzle, _collect_targets(), rng)
@@ -575,25 +660,29 @@ func _update_beam(def: Dictionary) -> void:
 		_beam_color = Color(0.4, 1.0, 0.85)
 		_beam_from = muzzle
 		_beam_to = anchor["center"]
+		_beam_hit = true
 		if do_tick and _spend_weapon_energy(def):
 			_apply_to(anchor, dmg)
-			_spawn_impact(_beam_to, false)
 			_primary_cd = interval
 	else:  # hitscan_beam
 		var max_len := get_weapon_stat(def, "range_px", 760.0)
-		var aim := get_local_mouse_position() - muzzle
-		if aim.length() < 0.01:
-			aim = Vector2.UP
-		var dir := aim.normalized()
-		var hit := _beam_first_hit(muzzle, dir, max_len, _beam_width * 0.5)
+		var dir := Vector2.UP   # fire straight forward (ship faces up); never tilts toward targets
+		var res := _beam_first_hit(muzzle, dir, max_len, _beam_width * 0.5)
+		var hit: Dictionary = res["target"]
 		_beam_active = true
-		_beam_color = Color(1.0, 0.3, 0.3)
+		_beam_color = BEAM_GLOW_COLOR   # cool-blue glow (core stays white in _draw_beam_fx)
 		_beam_from = muzzle
-		_beam_to = (hit["center"] as Vector2) if not hit.is_empty() else muzzle + dir * max_len
+		_beam_hit = not hit.is_empty()
+		if not hit.is_empty():
+			# Terminate the (straight) beam at the contact point — the near edge of the
+			# first obstacle along the ray — instead of bending to its center.
+			var edge := maxf(0.0, float(res["along"]) - float(hit["radius"]))
+			_beam_to = muzzle + dir * edge
+		else:
+			_beam_to = muzzle + dir * max_len
 		if do_tick and _spend_weapon_energy(def):
 			if not hit.is_empty():
 				_apply_to(hit, dmg)
-				_spawn_impact(_beam_to, false)
 			_primary_cd = interval
 
 # ── Chain weapon (Arc) ────────────────────────────────────────────────────────
@@ -676,11 +765,7 @@ func _draw() -> void:
 		draw_circle(c, r, Color(0.3, 0.7, 1.0, 0.05 + 0.05 * pulse))
 		_draw_ring(c, r, Color(0.5, 0.85, 1.0, 0.45 + 0.35 * pulse), 2.0)
 
-	# Beam (Lasgun / Plasma drill) — wide translucent outer + bright inner line
-	if _beam_active:
-		draw_line(_beam_from, _beam_to, Color(_beam_color.r, _beam_color.g, _beam_color.b, 0.25), _beam_width)
-		draw_line(_beam_from, _beam_to, Color(_beam_color.r, _beam_color.g, _beam_color.b, 0.95), maxf(2.0, _beam_width * 0.35))
-		draw_circle(_beam_to, _beam_width * 0.5, Color(1.0, 1.0, 1.0, 0.7))
+	# (Beam glow + impact flare are drawn additively in _draw_beam_fx on the _glow node.)
 
 	# Lightning arcs
 	for a: Dictionary in _arcs:
@@ -732,6 +817,190 @@ func _draw() -> void:
 	var pdef := _primary_def()
 	if _trigger_down and not pdef.is_empty() and String(pdef.get("fire_mode", "")) == "charge":
 		_draw_charge_bar(pdef)
+
+## Deterministic pseudo-random in -1..1 from two seeds (for the electric jag flicker).
+func _pseudo(a: float, b: float) -> float:
+	var v := sin(a * 12.9898 + b * 78.233) * 43758.5453
+	return (v - floor(v)) * 2.0 - 1.0
+
+## Per-frame beam FX bookkeeping (fire flash + streak particles). Visuals only.
+func _tick_beam_fx(delta: float) -> void:
+	# Muzzle flash the instant the beam turns on.
+	if _beam_active and not _beam_was_active:
+		_fire_flash_t = BEAM_FIRE_FLASH_TIME
+	_beam_was_active = _beam_active
+	_fire_flash_t = maxf(0.0, _fire_flash_t - delta)
+
+	# Spawn + advance streak particles streaming gun → impact along the beam.
+	var beam_len := _beam_from.distance_to(_beam_to)
+	if _beam_active:
+		_beam_part_acc += BEAM_PARTICLE_RATE * delta
+		while _beam_part_acc >= 1.0:
+			_beam_part_acc -= 1.0
+			_beam_particles.append({
+				"along": 0.0,
+				"off": randf_range(-_beam_width * 0.35, _beam_width * 0.35),
+				"life": 0.0,
+			})
+	var i := _beam_particles.size() - 1
+	while i >= 0:
+		var p: Dictionary = _beam_particles[i]
+		p["along"] = float(p["along"]) + BEAM_PARTICLE_SPEED * delta
+		p["life"] = float(p["life"]) + delta
+		if float(p["along"]) > beam_len or float(p["life"]) > BEAM_PARTICLE_LIFE:
+			_beam_particles.remove_at(i)
+		else:
+			_beam_particles[i] = p
+		i -= 1
+
+	# Molten debris flecks sprayed back toward the gun off the contact point.
+	if _beam_active and _beam_hit:
+		var bdir := _beam_to - _beam_from
+		bdir = bdir.normalized() if bdir.length() > 0.001 else Vector2.UP
+		var back_ang := (-bdir).angle()
+		_flare_debris_acc += FLARE_DEBRIS_RATE * delta
+		while _flare_debris_acc >= 1.0:
+			_flare_debris_acc -= 1.0
+			var ang := back_ang + randf_range(-FLARE_SPARK_SPREAD, FLARE_SPARK_SPREAD)
+			var spd := FLARE_DEBRIS_SPEED * randf_range(0.5, 1.0)
+			_flare_debris.append({
+				"pos": _beam_to, "vel": Vector2.from_angle(ang) * spd,
+				"life": 0.0, "max_life": FLARE_DEBRIS_LIFE * randf_range(0.6, 1.0),
+			})
+	var di := _flare_debris.size() - 1
+	while di >= 0:
+		var fb: Dictionary = _flare_debris[di]
+		fb["life"] = float(fb["life"]) + delta
+		if float(fb["life"]) >= float(fb["max_life"]):
+			_flare_debris.remove_at(di)
+			di -= 1
+			continue
+		var v: Vector2 = fb["vel"]
+		v.y += FLARE_DEBRIS_GRAVITY * delta   # arc down like molten flecks
+		fb["vel"] = v
+		fb["pos"] = (fb["pos"] as Vector2) + v * delta
+		_flare_debris[di] = fb
+		di -= 1
+
+## Drawn on the ADDITIVE _glow node (blend = ADD) → reads as light, not paint.
+func _draw_beam_fx() -> void:
+	if _glow == null:
+		return
+	_draw_flare_debris()   # molten flecks (keep flying even after the beam stops)
+	if not _beam_active:
+		return
+	var a := _beam_from
+	var b := _beam_to
+	var flick := 1.0 + sin(_beam_time * BEAM_FLICKER_SPEED) * BEAM_FLICKER   # subtle shimmer
+	var w := _beam_width
+	var g := _beam_color   # glow colour (blue for the Lasgun, teal for the tether)
+	# Outer haze — stacked soft lines → smooth blue falloff, no hard edge
+	_glow.draw_line(a, b, Color(g.r, g.g, g.b, BEAM_HAZE_ALPHA * 0.4 * flick), w * BEAM_HAZE_FRAC * 1.8)
+	_glow.draw_line(a, b, Color(g.r, g.g, g.b, BEAM_HAZE_ALPHA * 0.7 * flick), w * BEAM_HAZE_FRAC * 1.25)
+	_glow.draw_line(a, b, Color(g.r, g.g, g.b, BEAM_HAZE_ALPHA * flick),       w * BEAM_HAZE_FRAC)
+	# Inner glow — glow colour blended halfway to white
+	var iw := Color((g.r + 1.0) * 0.5, (g.g + 1.0) * 0.5, (g.b + 1.0) * 0.5, BEAM_INNER_ALPHA * flick)
+	_glow.draw_line(a, b, iw, maxf(2.0, w * BEAM_INNER_FRAC))
+
+	# Beam axis
+	var seg := b - a
+	var L := seg.length()
+	var dir := (seg / L) if L > 0.001 else Vector2.UP
+	var perp := Vector2(-dir.y, dir.x)
+
+	# (1) Energy wobble layer — rippling bright polyline (heat-haze / turbulence)
+	if BEAM_WOBBLE_AMP > 0.0 and L > 1.0:
+		var wprev := a
+		for s in range(1, 17):
+			var alo := L * float(s) / 16.0
+			var woff := sin(alo * BEAM_WOBBLE_FREQ - _beam_time * BEAM_WOBBLE_SPEED) * BEAM_WOBBLE_AMP
+			var wpt := a + dir * alo + perp * woff
+			_glow.draw_line(wprev, wpt, Color(g.r, g.g, g.b, 0.30 * flick), maxf(2.0, w * 0.16))
+			wprev = wpt
+
+	# (2) Scrolling energy pulses — bright dashes racing gun → impact
+	if L > 1.0:
+		for k in BEAM_PULSE_COUNT:
+			var phase := fmod(_beam_time * BEAM_PULSE_SPEED + float(k) * (L / float(maxi(1, BEAM_PULSE_COUNT))), L)
+			var pc := a + dir * phase
+			var pt := pc - dir * minf(BEAM_PULSE_LEN, phase)
+			_glow.draw_line(pt, pc, Color(1.0, 1.0, 1.0, 0.45 * flick), maxf(2.0, w * 0.22))
+
+	# (3) Electric crackle — jagged polyline, fast flicker (re-jags ELEC_SPEED×/sec)
+	if BEAM_ELEC_INTENSITY > 0.0 and L > 1.0:
+		var eseed := floorf(_beam_time * BEAM_ELEC_SPEED)
+		var ec := Color(0.75, 0.9, 1.0, BEAM_ELEC_INTENSITY * flick)
+		var eprev := a
+		for s in range(1, BEAM_ELEC_SEGMENTS + 1):
+			var alo := L * float(s) / float(BEAM_ELEC_SEGMENTS)
+			var eoff := 0.0
+			if s < BEAM_ELEC_SEGMENTS:
+				eoff = _pseudo(float(s), eseed) * BEAM_ELEC_AMP
+			var ept := a + dir * alo + perp * eoff
+			_glow.draw_line(eprev, ept, ec, 1.5)
+			eprev = ept
+
+	# Core — thin pure white, straight, on top
+	_glow.draw_line(a, b, Color(BEAM_CORE_COLOR.r, BEAM_CORE_COLOR.g, BEAM_CORE_COLOR.b, flick), maxf(1.5, w * BEAM_CORE_FRAC))
+
+	# (4) Stretched particles streaming down the beam
+	for p: Dictionary in _beam_particles:
+		var alo := float(p["along"])
+		if alo > L:
+			continue
+		var ppos := a + dir * alo + perp * float(p["off"])
+		var ptail := ppos - dir * BEAM_PARTICLE_LEN
+		var pl := clampf(1.0 - float(p["life"]) / BEAM_PARTICLE_LIFE, 0.0, 1.0)
+		_glow.draw_line(ptail, ppos, Color(1.0, 1.0, 1.0, 0.55 * pl), 2.0)
+
+	# (5) Fire flash at the muzzle the instant the beam turns on
+	if _fire_flash_t > 0.0:
+		var ft := _fire_flash_t / BEAM_FIRE_FLASH_TIME   # 1 → 0
+		var fr := BEAM_FIRE_FLASH_SIZE * (1.0 + (1.0 - ft) * 0.8)
+		_glow.draw_circle(a, fr, Color(g.r, g.g, g.b, 0.25 * ft))
+		_glow.draw_circle(a, fr * 0.4, Color(1.0, 1.0, 1.0, 0.7 * ft))
+
+	if _beam_hit:
+		_draw_flare(b, dir, flick)
+
+## Cutting-torch / welding-arc burst at the contact point. `dir` = beam direction
+## (sparks spray back toward the gun). Re-randomized every frame → crackles & alive.
+func _draw_flare(at: Vector2, dir: Vector2, _flick: float) -> void:
+	var back_ang := (-dir).angle()   # toward the gun
+	# Tight hot glow (small & hot, not a soft halo)
+	var gc := FLARE_GLOW_COLOR
+	_glow.draw_circle(at, FLARE_GLOW_SIZE, Color(gc.r, gc.g, gc.b, 0.20))
+	_glow.draw_circle(at, FLARE_GLOW_SIZE * 0.55, Color(gc.r, gc.g, gc.b, 0.35))
+	# Chaotic spark spray — short streaks in a backward+outward cone, jittered each frame
+	var n := maxi(1, FLARE_SPARKS + randi_range(-3, 3))
+	var sc := FLARE_SPARK_COLOR
+	for _i in n:
+		var ang := back_ang + randf_range(-FLARE_SPARK_SPREAD, FLARE_SPARK_SPREAD)
+		var d := Vector2.from_angle(ang)
+		var perp := Vector2(-d.y, d.x)
+		var ln := FLARE_SPARK_LEN * randf_range(0.35, 1.0)
+		var tip := at + d * ln
+		var br := randf_range(0.5, 1.0)   # per-spark brightness jitter
+		_glow.draw_polygon(
+			PackedVector2Array([at + perp * FLARE_SPARK_WIDTH * 0.5, at - perp * FLARE_SPARK_WIDTH * 0.5, tip]),
+			PackedColorArray([
+				Color(1.0, 0.85, 0.5, br),     # bright hot base
+				Color(1.0, 0.85, 0.5, br),
+				Color(sc.r, sc.g, sc.b, 0.0),  # fade to transparent tip
+			]))
+	# Hard hot center — tiny, blinding, brightness jitters every frame
+	_glow.draw_circle(at, FLARE_CENTER_SIZE * randf_range(0.8, 1.2), Color(1.0, 1.0, 1.0, randf_range(0.7, 1.0)))
+	_glow.draw_circle(at, FLARE_CENTER_SIZE * 0.45, Color(FLARE_CORE_COLOR.r, FLARE_CORE_COLOR.g, FLARE_CORE_COLOR.b, 1.0))
+
+## Persistent molten flecks (drawn even after the beam stops, so they finish their arc).
+func _draw_flare_debris() -> void:
+	for fb: Dictionary in _flare_debris:
+		var t := clampf(1.0 - float(fb["life"]) / float(fb["max_life"]), 0.0, 1.0)
+		var p: Vector2 = fb["pos"]
+		var v: Vector2 = fb["vel"]
+		var tail := p - v.normalized() * FLARE_DEBRIS_SIZE * 2.2
+		_glow.draw_line(tail, p, Color(1.0, 0.75, 0.35, 0.7 * t), maxf(1.0, FLARE_DEBRIS_SIZE * 0.7))
+		_glow.draw_circle(p, FLARE_DEBRIS_SIZE * t, Color(1.0, 0.85, 0.5, t))
 
 func _draw_metal_ball(b: Dictionary) -> void:
 	var pos: Vector2 = b["pos"]

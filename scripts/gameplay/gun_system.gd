@@ -34,6 +34,7 @@ const DASH_CD                 := 1.0     # dash cooldown (s)
 const DASH_COST               := 20.0    # energy per dash
 const DASH_SPEED              := 840.0   # px/s during the dash lunge
 const DASH_TIME               := 0.15    # dash duration (s) → ~126px
+const SHOW_THRUST_TRAILS      := true    # engine auto.gif/manual.gif flame overlays (sized via the control, not native)
 
 var _bullet_tex:           Texture2D = null
 var _shell_tex:            Texture2D = null
@@ -109,6 +110,15 @@ var _space_was_down := false
 var _current_scale:       float   = 1.0  # animated by tween (1.0 <-> 0.5)
 var _scale_tween:         Tween   = null
 var _ship_pop_tween:      Tween   = null
+var _child_f4_sizes:      Dictionary = {}  # EditableObjectNode -> Vector2 (F4 size for weapon, power_core, defense objects)
+
+# Gameplay Edit Mode (F6 toggle)
+var _gameplay_edit_mode:  bool = false
+var _selected_eo:         EditableObjectNode = null
+var _drag_handle:         int = -1  # 0-7: corners/edges, -1: move, -2: none
+var _drag_start_pos:      Vector2 = Vector2.ZERO
+var _drag_start_size:     Vector2 = Vector2.ZERO
+var _drag_start_mouse:    Vector2 = Vector2.ZERO
 var _weapon_eo_rels:      Dictionary = {}  # EditableObjectNode -> Vector2 (offset từ ship center)
 var _thrust_eos:          Array = []       # thrust.png reference EOs — hidden in gameplay
 var _auto_thrust_eos:     Array = []       # auto.gif reference EOs — hidden, display via TextureRect
@@ -217,8 +227,11 @@ func _on_boost_changed(active: bool) -> void:
 		var eo := raw_eo as EditableObjectNode
 		if _static_rects.has(eo) and is_instance_valid(_static_rects[eo]):
 			_static_rects[eo].visible = not active
-		if _manual_thrust_rects.has(eo) and is_instance_valid(_manual_thrust_rects[eo]):
-			(_manual_thrust_rects[eo] as TextureRect).visible = active
+	# Manual trails are keyed by the MANUAL eo, so toggle them via their own dict.
+	for key_eo in _manual_thrust_rects:
+		var mtr := _manual_thrust_rects[key_eo] as TextureRect
+		if is_instance_valid(mtr):
+			mtr.visible = active
 
 func _load_assets() -> void:
 	var rb := load("res://assets/sprites/weapons/Gun Bullet Sprite.png") as Texture2D
@@ -459,11 +472,13 @@ func _process(delta: float) -> void:
 	if GameManager.manual_boost and _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		_handle_ship_movement(delta)
 
-	# Spaceship: position + scale force-apply mỗi frame
+	# Spaceship: position + scale force-apply mỗi frame.
+	# Shrink to 50% during a boss fight (scaled around the ship's center; children follow).
 	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
+		var s: float = 0.5 if GameManager.boss_max_hp > 0 else 1.0
+		_spaceship_eo.pivot_offset = _spaceship_origin_sz * 0.5
 		_spaceship_eo.position     = _spaceship_origin
-		_spaceship_eo.scale        = Vector2.ONE
-		_spaceship_eo.pivot_offset = Vector2.ZERO
+		_spaceship_eo.scale        = Vector2(s, s)
 
 	# Children: apply F4 size force mỗi frame
 	var debug_idx := 0
@@ -675,8 +690,12 @@ func _setup_static_frame(eo: EditableObjectNode, frames: Array) -> void:
 	var resized := _resize_frame(frames[0] as Texture2D, eo.size)
 	var tr := TextureRect.new()
 	tr.texture = resized
-	tr.stretch_mode = 0  # STRETCH_KEEP (image already resized)
-	tr.expand_mode  = TextureRect.EXPAND_KEEP_SIZE
+	# STRETCH_SCALE + explicit size: renders at eo.size whether or not _resize_frame
+	# managed the crisp CPU resize (mirrors boss_fight._make_projectile_rect). This is
+	# the safe-fallback half — a texture-returning helper can't force this itself.
+	tr.stretch_mode = TextureRect.STRETCH_SCALE
+	tr.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+	tr.size = eo.size
 	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tr.position = eo.position
@@ -718,14 +737,16 @@ func _setup_emitter_idle(eo: EditableObjectNode) -> void:
 		"gun_eo": eo, "frames": resized, "delays": _emitter_delays, "loop": true})
 
 func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
+	if not SHOW_THRUST_TRAILS:
+		return   # thrust-trail flame overlays disabled — no auto/manual TextureRects created
 	if _auto_thrust_frames.is_empty():
 		return
 	print_debug("_setup_auto_thrust_idle: eo.size=", eo.size)
-	var resized := _resize_frame(_auto_thrust_frames[0] as Texture2D, eo.size)
 	var tr := TextureRect.new()
-	tr.texture = resized
-	tr.stretch_mode = 0  # STRETCH_KEEP (image already resized)
-	tr.expand_mode  = TextureRect.EXPAND_KEEP_SIZE
+	tr.texture = _auto_thrust_frames[0] as Texture2D
+	tr.stretch_mode = TextureRect.STRETCH_SCALE   # scale the frame to the control size (can't blow up to native)
+	tr.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+	tr.size = eo.size                             # F4-correct size
 	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	# Position relative to spaceship (child positioning, like weapons)
@@ -758,11 +779,11 @@ func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 		if manual_eo != null:
 			var manual_size := manual_eo.size
 			print_debug("_setup_auto_thrust_idle: manual thrust auto.size=", eo.size, " manual.size=", manual_size, " dist=", eo.position.distance_to(manual_eo.position))
-			var manual_resized := _resize_frame(_manual_thrust_frames[0] as Texture2D, manual_size)
 			var mtr := TextureRect.new()
-			mtr.texture = manual_resized
-			mtr.stretch_mode = 0  # STRETCH_KEEP (image already resized)
-			mtr.expand_mode  = TextureRect.EXPAND_KEEP_SIZE
+			mtr.texture = _manual_thrust_frames[0] as Texture2D
+			mtr.stretch_mode = TextureRect.STRETCH_SCALE
+			mtr.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
+			mtr.size = manual_size
 			mtr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 			mtr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			mtr.position = manual_eo.position
@@ -801,9 +822,12 @@ func _resize_frame(frame: Texture2D, target_size: Vector2) -> Texture2D:
 	if img == null:
 		img = frame.get_image()
 
-	# If still no image, return original
+	# Not Image-readable (e.g. a CompressedTexture2D whose get_image() returns null):
+	# return the source as-is. This is now FAIL-SAFE because the consumer's TextureRect
+	# uses STRETCH_SCALE + an explicit size, so it still renders at the target size
+	# instead of blowing up to native. (Mirrors boss_fight._resize_tex + _make_projectile_rect.)
 	if img == null:
-		print_debug("_resize_frame: FAILED to get image, returning original frame")
+		print_debug("_resize_frame: not Image-readable; consumer STRETCH_SCALE will size it")
 		return frame
 
 	var orig_size := img.get_size()

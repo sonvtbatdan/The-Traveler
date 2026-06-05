@@ -222,4 +222,3 @@ func load_game() -> void:
 			if count > 0 and UPGRADES.has(key):
 				owned[key] = count
 	recalculate_all_rates()
-

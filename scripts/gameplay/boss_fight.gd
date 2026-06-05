@@ -272,17 +272,12 @@ func get_boss_hit_rect() -> Rect2:
 	var tr: TextureRect = _boss_eo.texture_rect
 	if tr == null:
 		return Rect2(_boss_eo.global_position, _boss_eo.size)   # fallback
-	var sz: Vector2 = tr.size
+	# Rotation-INVARIANT box: stable center + scaled size, ignoring the boss's spin.
+	# (The old AABB-of-rotated-corners pulsed in size as the boss rotated during Move 1.)
 	var xf := tr.get_global_transform()
-	var p0 := xf * Vector2(0.0, 0.0)
-	var p1 := xf * Vector2(sz.x, 0.0)
-	var p2 := xf * Vector2(0.0, sz.y)
-	var p3 := xf * Vector2(sz.x, sz.y)
-	var minp := Vector2(minf(minf(p0.x, p1.x), minf(p2.x, p3.x)),
-						minf(minf(p0.y, p1.y), minf(p2.y, p3.y)))
-	var maxp := Vector2(maxf(maxf(p0.x, p1.x), maxf(p2.x, p3.x)),
-						maxf(maxf(p0.y, p1.y), maxf(p2.y, p3.y)))
-	return Rect2(minp, maxp - minp)
+	var center := xf * (tr.size * 0.5)        # visible center (position + pivot/scale), spin-independent
+	var scaled := tr.size * xf.get_scale()    # size with scale baked in, without rotation
+	return Rect2(center - scaled * 0.5, scaled)
 
 func start_fight() -> void:
 	if _boss_eo == null or not is_instance_valid(_boss_eo):
@@ -439,12 +434,11 @@ func _tick_m1(delta: float) -> void:
 	_spike_acc += delta
 	while _spike_acc >= M1_SPIKE_INT:
 		_spike_acc -= M1_SPIKE_INT
-		if not _spike_eos.is_empty():
-			# Spawn 3 spikes per interval in a spiral pattern
-			for i in M1_SPIKES_PER_INT:
-				var arm_angle := _boss_spin + _spiral_angle + float(i) * (TAU / M1_SPIKES_PER_INT)
-				_spawn_spike(arm_angle)
-			_spiral_angle += M1_SPIRAL_STEP
+		# Spiral burst of ball spikes (visual comes from _ball_anims; _spawn_spike guards itself).
+		for i in M1_SPIKES_PER_INT:
+			var arm_angle := _boss_spin + _spiral_angle + float(i) * (TAU / M1_SPIKES_PER_INT)
+			_spawn_spike(arm_angle)
+		_spiral_angle += M1_SPIRAL_STEP
 
 	if _m1_prog >= 1.0:
 		_begin_random_move()

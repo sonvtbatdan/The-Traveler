@@ -163,15 +163,16 @@ const ITEM_DEFS: Dictionary = {
 		"tags": ["weapon"],
 		"fire_mode": "beam",          # continuous while held
 		"fire_type": "hitscan_beam",  # instant beam, stops at the first target
+		"uses_energy": true,          # drains the energy bar at stats.energy per second
 		"rarity": "rare",
-		"desc": "A continuous beam that burns the first target in its line. Hold to sustain.",
+		"desc": "A continuous beam fired straight forward that burns the first target in its line. Hold to sustain.",
 		"stats": {
-			"damage": 22,             # per tick
+			"damage": 66,             # per tick (3×)
 			"tick_interval_sec": 0.15,
 			"range_px": 760,
-			"beam_width": 8,
+			"beam_width": 40,         # 5× wider (drives both the drawn beam and hit width)
 			"weight": 5,
-			"energy": 11,             # per tick (treated as ~/s when energy is on)
+			"energy": 20,             # 20/s (energy currently OFF; see _spend_weapon_energy)
 		},
 	},
 	"arc": {
@@ -391,6 +392,28 @@ func unequip(slot: String) -> bool:
 		return false
 	save_game()
 	item_unequipped.emit(slot, uid)
+	inventory_changed.emit()
+	return true
+
+## Sell price for one item instance. FLAT $1 for now.
+## TODO: real per-item / affix-based pricing goes here (read the item's def + rolled
+## affixes by uid and compute a value). Keep this the single source of sell pricing.
+func get_sell_price(uid: int) -> int:
+	return 1
+
+## Sell (delete) an item and pay the player. Works whether the item is in the
+## backpack or equipped — selling an equipped item just removes it from its slot
+## (unequip-then-sell). Returns false if the uid is unknown.
+func sell_item(uid: int) -> bool:
+	if not _items.has(uid):
+		return false
+	var price := get_sell_price(uid)
+	var where := String(_items[uid]["where"])   # "backpack" or an equip slot name
+	_items.erase(uid)
+	GameManager.add_money(price)
+	save_game()
+	if where != "backpack":
+		item_unequipped.emit(where, uid)   # let shield/weapon systems react
 	inventory_changed.emit()
 	return true
 

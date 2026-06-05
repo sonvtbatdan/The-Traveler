@@ -4,10 +4,18 @@ class_name InvItemWidget
 ## One placed item (in the backpack or an equip slot). Source of a drag, and —
 ## when equipped — also a drop target so you can swap items directly onto a slot.
 
+signal sell_requested(uid: int, def_id: String)
+
 var uid: int = -1
 var def_id: String = ""
 var slot_name: String = ""   # "" = in backpack; otherwise the equip slot it sits in
 var cell_size: int = 46
+
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed \
+			and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_RIGHT:
+		sell_requested.emit(uid, def_id)
+		accept_event()
 
 func setup(p_uid: int, p_def_id: String, p_cell_size: int, p_slot: String = "") -> void:
 	uid = p_uid

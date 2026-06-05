@@ -10,6 +10,7 @@ signal ship_hp_changed(hp: int)
 signal ship_energy_changed(energy: float)
 signal ship_shield_changed(shield: float)
 signal ship_destroyed
+signal money_changed(amount: int)   # green-$ player currency
 
 signal boss_hp_changed(hp: int)
 signal boss_spawned
@@ -30,6 +31,7 @@ func take_boss_damage(dmg: int) -> void:
 		boss_defeated.emit()    # victory banner
 
 var manual_boost: bool = false
+var money: int = 0   # green-$ currency; new game starts at 0 (Phase 2 will spend/earn it)
 var ship_hp: int = 100
 const SHIP_MAX_HP: int = 100
 
@@ -48,6 +50,11 @@ var _iframe_timer: float = 0.0
 const SHIP_MAX_ENERGY: float = 100.0
 const ENERGY_REGEN:    float = 5.0      # energy per second
 var ship_energy: float = 100.0
+
+func add_money(amount: int) -> void:
+	money += amount
+	money_changed.emit(money)
+	save_game()
 
 func set_boost(active: bool) -> void:
 	if manual_boost == active:
@@ -160,14 +167,17 @@ func save_game() -> void:
 	cfg.load(SAVE_PATH)
 	cfg.set_value("player", "ship_hp", ship_hp)
 	cfg.set_value("player", "ship_shield", ship_shield)
+	cfg.set_value("player", "money", money)
 	cfg.save(SAVE_PATH)
 
 func load_game() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(SAVE_PATH) != OK:
 		return
-	ship_hp = cfg.get_value("player", "ship_hp", SHIP_MAX_HP)
+	var loaded_hp: int = cfg.get_value("player", "ship_hp", SHIP_MAX_HP)
+	ship_hp = loaded_hp if loaded_hp > 0 else SHIP_MAX_HP   # recover from a dead-saved state
 	ship_shield = cfg.get_value("player", "ship_shield", 0.0)
+	money = cfg.get_value("player", "money", 0)
 	ship_hp_changed.emit(ship_hp)
 	ship_shield_changed.emit(ship_shield)
-
+	money_changed.emit(money)
