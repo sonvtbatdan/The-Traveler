@@ -7,7 +7,7 @@ extends CanvasLayer
 
 const CELL := 46
 const PANEL_SIZE := Vector2(920, 600)
-const SLOT_BOX := 64
+const SLOT_BOX := 60
 
 # Preloaded (not referenced by class_name) so this works on a fresh headless run
 # before the editor has registered the global class names.
@@ -26,6 +26,19 @@ const SLOT_LABELS := {
 	"drone_1":          "Drone I",
 	"drone_2":          "Drone II",
 	"wings":            "Wings",
+}
+# Background images for each slot
+const SLOT_ICONS := {
+	"primary_weapon":   "res://assets/inventory/slotweapon1.gif",
+	"secondary_weapon": "res://assets/inventory/slotweapon2.gif",
+	"thruster":         "res://assets/inventory/slotthruster.gif",
+	"command_bridge":   "res://assets/inventory/slotcommand.gif",
+	"hull":             "res://assets/inventory/slothull.gif",
+	"energy_core":      "res://assets/inventory/slotenergy.gif",
+	"radar":            "res://assets/inventory/slotradar.gif",
+	"drone_1":          "res://assets/inventory/slotdrone1.gif",
+	"drone_2":          "res://assets/inventory/slotdrone2.gif",
+	"wings":            "res://assets/inventory/slotwing.gif",
 }
 # Where each slot sits in the equip layout grid (col, row).
 const SLOT_LAYOUT := {
@@ -110,17 +123,20 @@ func _build_panel_contents() -> void:
 		es.setup(slot)
 		es.position = Vector2(sx, sy)
 		es.size = Vector2(SLOT_BOX, SLOT_BOX)
-		_style_slot(es)
+		_style_slot(es, slot)
 		_panel.add_child(es)
 		_slot_nodes[slot] = es
 
 		var lbl := Label.new()
 		lbl.text = SLOT_LABELS.get(slot, slot)
-		lbl.position = Vector2(sx - 24, sy + SLOT_BOX + 1)
-		lbl.size = Vector2(SLOT_BOX + 48, 14)
-		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		_apply_font(lbl, 9)
+		_apply_font(lbl, 8)
 		_panel.add_child(lbl)
+
+		# Measure text width and center the label on the slot
+		var text_size := lbl.get_minimum_size()
+		var slot_center_x := sx + SLOT_BOX * 0.5
+		lbl.position = Vector2(slot_center_x - text_size.x * 0.5, sy + SLOT_BOX + 13)
+		lbl.size = text_size
 
 	# Backpack (right side)
 	var bp_label := Label.new()
@@ -178,8 +194,9 @@ func _rebuild() -> void:
 		var def_id := String(InventoryManager.get_item(uid)["def"])
 		var es: Control = _slot_nodes[slot]
 		var w := ItemWidget.new()
-		w.position = Vector2(4, 4)
-		w.size = es.size - Vector2(8, 8)
+		w.position = Vector2.ZERO
+		w.size = es.size
+		print_debug("[EQUIP ITEM] ", slot, " slot.size=", es.size, " item.size=", w.size)
 		es.add_child(w)
 		w.setup(uid, def_id, CELL, slot)
 		w.sell_requested.connect(_on_sell_requested)
@@ -258,13 +275,36 @@ func _style_panel(p: Panel) -> void:
 	s.set_corner_radius_all(10)
 	p.add_theme_stylebox_override("panel", s)
 
-func _style_slot(p: Panel) -> void:
-	var s := StyleBoxFlat.new()
-	s.bg_color = Color(0.10, 0.13, 0.18, 0.95)
-	s.set_border_width_all(2)
-	s.border_color = Color(0.35, 0.45, 0.65, 0.8)
-	s.set_corner_radius_all(6)
-	p.add_theme_stylebox_override("panel", s)
+func _style_slot(p: Panel, slot_name: String = "") -> void:
+	# No border — background image only
+	# Add background image for the slot (GIF or PNG)
+	if slot_name != "" and SLOT_ICONS.has(slot_name):
+		var icon_path: String = SLOT_ICONS[slot_name]
+		var tex: Texture2D = null
+
+		# GIF files need GifLoader
+		if icon_path.get_extension().to_lower() == "gif":
+			tex = GifLoader.load_gif(icon_path)
+			# Get first frame if it's animated
+			if tex != null and tex.has_meta("gif_frames"):
+				var frames: Array = tex.get_meta("gif_frames")
+				if not frames.is_empty():
+					tex = frames[0] as Texture2D
+		else:
+			tex = load(icon_path) as Texture2D
+
+		if tex != null:
+			var bg := TextureRect.new()
+			bg.name = "SlotBackground_%s" % slot_name
+			bg.texture = tex
+			bg.stretch_mode = TextureRect.STRETCH_SCALE
+			bg.expand_mode = TextureRect.EXPAND_KEEP_SIZE
+			bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			bg.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			bg.custom_minimum_size = Vector2(SLOT_BOX, SLOT_BOX)
+			p.add_child(bg)
+			bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			p.move_child(bg, 0)  # move to back
 
 func _style_button(b: Button) -> void:
 	for state: String in ["normal", "hover", "pressed"]:

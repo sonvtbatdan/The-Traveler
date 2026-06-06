@@ -76,11 +76,19 @@ func _reposition() -> void:
 func _process(_delta: float) -> void:
 	if not visible or _move_lbl == null:
 		return
+	var name_str := ""
 	var cf := get_tree().get_first_node_in_group("chromeleon_fight")
 	if cf != null and cf.has_method("get_move_name"):
-		_move_lbl.text = cf.get_move_name()
-	else:
-		_move_lbl.text = ""
+		var s: String = cf.call("get_move_name")
+		if s != "":
+			name_str = s
+	if name_str == "":
+		var mf := get_tree().get_first_node_in_group("metalfly_fight")
+		if mf != null and mf.has_method("get_move_name"):
+			var s: String = mf.call("get_move_name")
+			if s != "":
+				name_str = s
+	_move_lbl.text = name_str
 
 func _on_boss_spawned() -> void:
 	visible = true

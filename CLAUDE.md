@@ -105,6 +105,28 @@ _tex = ImageTexture.create_from_image(img)
 
 **Nguyên tắc**: trước khi thêm system phức tạp (static rect, wrapper node...), thử `eo.scale` đơn giản trước. Nếu nó bị reset, force-apply trong `_process` là đủ.
 
+### Pivot Point Rule — QUAN TRỌNG
+
+**Mọi loại scale (zoom, shrink, transform) luôn lấy pivot point là center of image.**
+
+```gdscript
+# Setup before scaling:
+eo.pivot_offset = eo.size / 2.0
+
+# Then scale from center:
+eo.scale = Vector2(0.5, 0.5)  # Scales từ center, không từ top-left
+eo.rotation = TAU / 4          # Rotates từ center
+```
+
+**Áp dụng cho:**
+- Boss sprites (cocoon, metalfly, chromeleon, elephant)
+- Weapon sprites
+- Spaceship (manual boost / boss fight scale-down)
+- Projectiles (bullets, lasers, shards)
+- UI overlays (health bars, warnings)
+
+**Lý do:** Nếu không set `pivot_offset`, GDScript mặc định scale/rotate từ top-left → vị trí bị shift, không center. Dẫn đến movement bị sai, animation bị lệch.
+
 ### apply_layout_rect
 
 ```gdscript
@@ -149,6 +171,32 @@ Four integer currencies — `metal`, `nonmetal`, `organic`, `liquid` — separat
 - A full-rect `Control` (added to `ObjectsContainer`, z_index 7) that fires every `FIRE_INTERVAL = 0.5s` from each **active `"gun"` weapon object** (`WeaponManager.get_active_objects("gun")`).
 - Targets the nearest asteroid that is ≥100px above the gun muzzle; spawns a bullet (`atan2(dir.x, -dir.y)` rotation), an ejecting shell, an impact GIF on hit, and plays the gun-fire GIF (hides the static sprite during the animation). GIFs loaded via `GifLoader` (`Gun.gif`, `Gun-Impact50.gif`) from `assets/sprites/weapons/`.
 - All projectiles/animations are pooled in plain arrays and ticked manually in `_process` (same manual-pool pattern as the asteroids and scrolling bg).
+
+### Coordinate Systems — QUAN TRỌNG
+
+**Rule: Khi chỉ định tọa độ (position, spawn, etc.), luôn dùng SpaceScreen-local coordinates (screen coordinates).**
+
+- **SpaceScreen** là `Panel` ở vị trí (270, 8) trong viewport, kích thước 700×764
+- **Screen coordinates** = tọa độ relative to SpaceScreen origin (0, 0 = top-left corner của SpaceScreen)
+- **ObjectsContainer coordinates** = absolute coordinates trong viewport/ObjectsContainer
+
+**Conversion formula:**
+```gdscript
+var screen_pos := Vector2(150, 350)  # User-specified, screen coordinates
+var oc_pos := screen_pos + Vector2(270, 8)  # = (420, 358) in ObjectsContainer
+```
+
+**Áp dụng:**
+- `boss_layout.cfg` — luôn ghi ObjectsContainer coordinates (`oc_pos = screen_pos + SS_OFFSET`)
+- Boss spawn positions — specified as screen coordinates, convert trong code/config
+- UI annotations — give user screen coordinates for clarity
+
+**Examples:**
+| Use case | Screen coords | ObjectsContainer coords |
+|----------|---------------|-----------------------|
+| Cocoon spawn | (350, 150) | (620, 158) |
+| Metalfly spawn | (350, 150) | (620, 158) |
+| Firepoint | (596, 455) | (866, 463) |
 
 ### Weapons (`scripts/autoload/weapon_manager.gd`) — canvas-driven catalog
 
@@ -255,8 +303,109 @@ Upgrades are bought with materials matching `cost_type` from `MaterialManager`.
 | `assets/weaponry/` | Weapon mount sprites (edit group `"weaponry"`); filename + `" Mk2"`/`" Mk3"` suffix drives `WeaponManager` tiers |
 | `assets/defense/` | `lv1.png`..`lv8.png` defense level icons |
 | `assets/stat/` | Material icons (`metal.png`, `non-metal.png`, `organic.png`, `Liquid.png`) for HUD/shop |
+| `assets/bosses/*/` | Boss sprites — see **PNG Sprite Sheet Animation** section below |
 
 EquipmentManager cost formula: `20 * pow(1.6, sorted_index)`
+
+---
+
+## PNG Sprite Sheet Animation (Project-Wide Standard)
+
+**Rule: All animated GIFs (>1 frame) must be converted to PNG sprite sheets + JSON metadata.**
+
+### Why
+- GIF multi-frame animations can cause visual artifacts (frame stacking) in edit mode
+- PNG sprite sheets are static, reliable, and support arbitrary frame timing via JSON
+- Centralized frame/delay metadata enables consistent animation playback across edit + gameplay modes
+
+### Conversion Process
+
+1. **Create PNG sprite sheet:**
+   ```bash
+   python3 << 'EOF'
+   from PIL import Image
+   
+   gif = Image.open("animation.gif")
+   n_frames = gif.n_frames
+   frame_w, frame_h = gif.size
+   
+   # All frames in single row
+   sheet = Image.new('RGBA', (frame_w * n_frames, frame_h), (0, 0, 0, 0))
+   
+   for i in range(n_frames):
+       gif.seek(i)
+       frame = gif.convert('RGBA')
+       sheet.paste(frame, (i * frame_w, 0))
+   
+   sheet.save("animation.png", 'PNG')
+   EOF
+   ```
+
+2. **Create JSON metadata** (`animation.json`):
+   ```json
+   {
+     "version": 1,
+     "frame_width": 200,
+     "frame_height": 115,
+     "frame_count": 11,
+     "frames": [
+       {"index": 0, "x": 0, "y": 0, "width": 200, "height": 115, "delay": 0.1},
+       {"index": 1, "x": 200, "y": 0, "width": 200, "height": 115, "delay": 0.1},
+       ...
+     ]
+   }
+   ```
+   - `frame_width` × `frame_height`: individual frame dimensions
+   - `frame_count`: total frame count
+   - `delay`: seconds per frame (e.g., `0.1s` = 10 fps)
+   - `x`, `y`, `width`, `height`: bounding box of each frame in the sprite sheet
+
+3. **Update `boss_layout.cfg`** (or similar asset config):
+   ```ini
+   path: "res://assets/bosses/metalfly/Transform.png"
+   ```
+   (Point to PNG, not GIF. JSON metadata must be in same folder.)
+
+### Code Integration (Automatic)
+
+**`scripts/ui/edit_mode/png_sprite_loader.gd`** — Handles PNG sprite sheet loading:
+- Reads PNG + JSON metadata
+- Cuts frames from sprite sheet
+- Returns `Texture2D` with `get_meta("gif_frames")` and `get_meta("gif_delays")` (GifLoader-compatible format)
+
+**`scripts/ui/boss_edit/boss_edit_mode.gd._load_full_tex()`** — Auto-detects PNG + JSON:
+```gdscript
+if ext == "png":
+    var json_path := path.get_basename() + ".json"
+    if FileAccess.open(json_path, FileAccess.READ) != null:
+        return PngSpriteLoader.load_png_sprite(path)
+```
+
+**All EditableObjectNodes** automatically animate PNG sprite sheets in edit mode (same as GIF frames).
+
+### Gameplay Usage
+
+In boss fight scripts (`metalfly_fight.gd`, `chromeleon_fight.gd`, etc.):
+- `_load_assets()` uses `GifLoader` which now handles both GIF and PNG sprite metadata
+- Projectile animations and boss sprites render frame-by-frame
+- **No script changes required** — loader handles both formats transparently
+
+### Asset File Checklist
+
+For each animated asset:
+- ✓ PNG sprite sheet in `assets/bosses/[name]/animation.png`
+- ✓ JSON metadata in `assets/bosses/[name]/animation.json`
+- ✓ `boss_layout.cfg` points to `.png`, not `.gif`
+- ✓ Verify frame count matches JSON `frame_count`
+- ✓ Verify frame dimensions match PNG sprite sheet layout
+
+### Examples
+
+| Asset | Frames | Frame Size | Delay | Total Duration |
+|-------|--------|------------|-------|-----------------|
+| `Transform.png` | 11 | 200×115 | 0.1s | 1.1s |
+| `arrow.png` | 5 | 200×364 | 0.15s | 0.75s |
+| `fly.png` | 8 | 200×136 | 0.12s | 0.96s |
 
 ---
 
@@ -444,6 +593,8 @@ The following files are considered **stable and complete**. Claude must **not ed
 | `scripts/autoload/audio_manager.gd` | Game music manager — đã có prev/next/shuffle/loop |
 | `scripts/ui/user/user_panel.gd` | UserPanel layout — z-order và position đã được căn chỉnh |
 | `tools/mpv-bridge.ps1` | PowerShell bridge — bidirectional async pipe, cực kỳ nhạy cảm |
+| `scripts/ui/inventory/item_widget.gd` | Diablo-2 style inventory + tooltip system — tooltip functionality là critical |
+| `scripts/autoload/inventory_manager.gd` | Item data layer + `get_icon()` loader — chỉ sửa ITEM_DEFS, không động hàm load/get_icon |
 
 ### Save/layout persistence — LOCKED FUNCTIONS (không sửa logic bên dưới)
 

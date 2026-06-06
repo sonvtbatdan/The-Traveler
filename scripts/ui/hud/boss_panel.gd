@@ -5,9 +5,10 @@ const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 
 var _elephant_btn:   Button = null
 var _chromeleon_btn: Button = null
+var _metalfly_btn:   Button = null
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(192.0, 160.0)
+	custom_minimum_size = Vector2(192.0, 210.0)
 	_apply_style()
 	_build_ui()
 	GameManager.boss_spawned.connect(_on_boss_spawned)
@@ -117,6 +118,36 @@ func _build_ui() -> void:
 	_chromeleon_btn.pressed.connect(_on_chromeleon_pressed)
 	vbox.add_child(_chromeleon_btn)
 
+	# ── Metalfly button ──────────────────────────────────────────────────────
+	_metalfly_btn = Button.new()
+	_metalfly_btn.text = "Metalfly"
+	_metalfly_btn.custom_minimum_size = Vector2(50.0, 50.0)
+	_metalfly_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_metalfly_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	if font:
+		_metalfly_btn.add_theme_font_override("font", font)
+	_metalfly_btn.add_theme_font_size_override("font_size", 11)
+	_metalfly_btn.add_theme_color_override("font_color", Color.WHITE)
+	_metalfly_btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_metalfly_btn.expand_icon    = true
+	_metalfly_btn.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+
+	var mtex := GifLoader.load_gif("res://assets/bosses/metalfly/cocoon.gif")
+	if mtex != null:
+		var mframes: Array = mtex.get_meta("gif_frames") if mtex.has_meta("gif_frames") else []
+		if not mframes.is_empty():
+			_metalfly_btn.icon = mframes[0] as Texture2D
+		elif mtex is Texture2D:
+			_metalfly_btn.icon = mtex as Texture2D
+
+	_metalfly_btn.add_theme_stylebox_override("normal",   mk.call(Color(0.08, 0.12, 0.16, 0.9), Color(0.40, 0.55, 0.75, 0.8)))
+	_metalfly_btn.add_theme_stylebox_override("hover",    mk.call(Color(0.12, 0.18, 0.26, 0.9), Color(0.60, 0.80, 1.00, 0.9)))
+	_metalfly_btn.add_theme_stylebox_override("pressed",  mk.call(Color(0.05, 0.08, 0.12, 0.9), Color(0.35, 0.50, 0.70, 0.8)))
+	_metalfly_btn.add_theme_stylebox_override("disabled", mk.call(Color(0.06, 0.08, 0.10, 0.6), Color(0.20, 0.28, 0.38, 0.5)))
+
+	_metalfly_btn.pressed.connect(_on_metalfly_pressed)
+	vbox.add_child(_metalfly_btn)
+
 func _on_elephant_pressed() -> void:
 	var bf := get_tree().get_first_node_in_group("boss_fight")
 	if bf != null and bf.has_method("spawn_boss"):
@@ -127,14 +158,23 @@ func _on_chromeleon_pressed() -> void:
 	if cf != null and cf.has_method("spawn_boss"):
 		cf.call("spawn_boss")
 
+func _on_metalfly_pressed() -> void:
+	var mf := get_tree().get_first_node_in_group("metalfly_fight")
+	if mf != null and mf.has_method("spawn_boss"):
+		mf.call("spawn_boss")
+
 func _on_boss_spawned() -> void:
 	if _elephant_btn != null:
 		_elephant_btn.disabled = true
 	if _chromeleon_btn != null:
 		_chromeleon_btn.disabled = true
+	if _metalfly_btn != null:
+		_metalfly_btn.disabled = true
 
 func _on_boss_killed() -> void:
 	if _elephant_btn != null:
 		_elephant_btn.disabled = false
 	if _chromeleon_btn != null:
 		_chromeleon_btn.disabled = false
+	if _metalfly_btn != null:
+		_metalfly_btn.disabled = false

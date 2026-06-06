@@ -14,6 +14,7 @@ const BossFightScript           := preload("res://scripts/gameplay/boss_fight.gd
 const ChromeleonFightScript     := preload("res://scripts/gameplay/chromeleon_fight.gd")
 const BossPanelScript           := preload("res://scripts/ui/hud/boss_panel.gd")
 const BossHpBarScript           := preload("res://scripts/ui/hud/boss_hp_bar.gd")
+const MetalflyFightScript       := preload("res://scripts/gameplay/metalfly_fight.gd")
 const InventoryUIScript         := preload("res://scripts/ui/inventory/inventory_ui.gd")
 const WeaponSystemScript        := preload("res://scripts/gameplay/weapon_system.gd")
 
@@ -347,6 +348,10 @@ func _setup_boss_edit() -> void:
 	var cf := ChromeleonFightScript.new()
 	objects_container.add_child(cf)
 	cf.setup(objects_container)
+
+	var mf := MetalflyFightScript.new()
+	objects_container.add_child(mf)
+	mf.setup(objects_container)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_edit_mode"):

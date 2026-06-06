@@ -8,5 +8,5 @@ mouse_filter = 0
 
 [node name="TextureRect" type="TextureRect" parent="."]
 layout_mode = 0
-expand_mode = 4
+expand_mode = 3
 stretch_mode = 0

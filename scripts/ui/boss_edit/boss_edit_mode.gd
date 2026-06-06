@@ -1206,6 +1206,14 @@ func _load_full_tex(path: String) -> Texture2D:
 	var ext := path.get_extension().to_lower()
 	if ext == "gif":
 		return GifLoader.load_gif(path)
+	# Check for PNG sprite sheet with JSON metadata
+	if ext == "png":
+		var json_path := path.get_basename() + ".json"
+		var json_file := FileAccess.open(json_path, FileAccess.READ)
+		if json_file != null:
+			# PNG sprite sheet with metadata — use PngSpriteLoader
+			var PngSpriteLoader := preload("res://scripts/ui/edit_mode/png_sprite_loader.gd")
+			return PngSpriteLoader.load_png_sprite(path)
 	var tex := load(path) as Texture2D
 	if tex != null:
 		return tex

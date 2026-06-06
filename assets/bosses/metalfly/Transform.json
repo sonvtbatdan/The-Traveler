@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "frame_width": 200,
+  "frame_height": 115,
+  "frame_count": 11,
+  "frames": [
+    {
+      "index": 0,
+      "x": 0,
+      "y": 0,
+      "width": 200,
+      "height": 115,
+      "delay": 0.1
+    },
+    {
+      "index": 1,
+      "x": 200,
+      "y": 0,
+      "width": 200,
+      "height": 115,
+      "delay": 0.1
+    },
+    {
+      "index": 2,
+      "x": 400,
+      "y": 0,
+      "width": 200,
+      "height": 115,
+      "delay": 0.1
+    },
+    {
+      "index": 3,
+      "x": 600,
+      "y": 0,
+      "width": 200,
+      "height": 115,
+      "delay": 0.1
+    },
+    {
+      "index": 4,
+      "x": 800,
+      "y": 0,
+      "width": 200,
+      "height": 115,
+      "delay": 0.1
+    },
+    {
+      "index": 5,
+      "x": 1000,
+      "y": 0,
+      "width": 200,
+      "height": 115,
+      "delay": 0.1
+    },
+    {
+      "index": 6,
+      "x": 1200,
+      "y": 0,
+      "width": 200,
+      "height": 115,
+      "delay": 0.1
+    },
+    {
+      "index": 7,
+      "x": 1400,
+      "y": 0,
+      "width": 200,
+      "height": 115,
+      "delay": 0.1
+    },
+    {
+      "index": 8,
+      "x": 1600,
+      "y": 0,
+      "width": 200,
+      "height": 115,
+      "delay": 0.1
+    },
+    {
+      "index": 9,
+      "x": 1800,
+      "y": 0,
+      "width": 200,
+      "height": 115,
+      "delay": 0.1
+    },
+    {
+      "index": 10,
+      "x": 2000,
+      "y": 0,
+      "width": 200,
+      "height": 115,
+      "delay": 0.1
+    }
+  ]
+}

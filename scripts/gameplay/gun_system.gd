@@ -482,27 +482,20 @@ func _process(delta: float) -> void:
 		_spaceship_eo.scale        = Vector2(s, s)
 
 	# Children: apply F4 size force mỗi frame
-	var debug_idx := 0
 	for eo in _child_f4_sizes.keys():
-		debug_idx += 1
 		if is_instance_valid(eo):
-			var eo_name: String = (eo.get_meta("display_name", "UNKNOWN") as String)
-			print_debug("_process [", debug_idx, "/4] ", eo_name, ": static=", _static_rects.has(eo), " manual=", _manual_thrust_rects.has(eo))
 			# Weapon: update animation TextureRect (hiển thị thực tế)
 			if _static_rects.has(eo) and is_instance_valid(_static_rects[eo]):
 				var tr := _static_rects[eo] as TextureRect
 				tr.position = eo.position
 				tr.size = _child_f4_sizes[eo]
-				print_debug("  → STATIC: tr.size=", tr.size, " texture.size=", tr.texture.get_size() if tr.texture else "null")
 			# Thrust manual mode: update manual thrust TextureRect
 			elif _manual_thrust_rects.has(eo) and is_instance_valid(_manual_thrust_rects[eo]):
 				var tr := _manual_thrust_rects[eo] as TextureRect
 				tr.position = eo.position
 				tr.size = _child_f4_sizes[eo]
-				print_debug("  → MANUAL: tr.size=", tr.size, " texture.size=", tr.texture.get_size() if tr.texture else "null")
 			# Power core, defense: update EditableObjectNode
 			else:
-				print_debug("  → OTHER: eo.size=", _child_f4_sizes[eo])
 				eo.size = _child_f4_sizes[eo]
 
 	# Weapon EOs and static frames: positions are already set during layout load
@@ -742,7 +735,6 @@ func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 		return   # thrust-trail flame overlays disabled — no auto/manual TextureRects created
 	if _auto_thrust_frames.is_empty():
 		return
-	print_debug("_setup_auto_thrust_idle: eo.size=", eo.size)
 	var tr := TextureRect.new()
 	tr.texture = _auto_thrust_frames[0] as Texture2D
 	tr.stretch_mode = TextureRect.STRETCH_SCALE   # scale the frame to the control size (can't blow up to native)
@@ -760,10 +752,8 @@ func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 		_spaceship_eo.add_child(tr)
 	else:
 		add_child(tr)
-	print_debug("_setup_auto_thrust_idle: after setup tr.size=", tr.size)
 	_static_rects[eo] = tr
 	_child_f4_sizes[eo] = eo.size
-	print_debug("_setup_auto_thrust_idle: _child_f4_sizes[eo]=", _child_f4_sizes[eo])
 	_gun_anims.append({"tr": tr, "frame": 0, "acc": 0.0,
 		"gun_eo": null, "frames": _auto_thrust_frames, "delays": _auto_thrust_delays, "loop": true})
 	if not _manual_thrust_frames.is_empty():
@@ -779,7 +769,6 @@ func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 
 		if manual_eo != null:
 			var manual_size := manual_eo.size
-			print_debug("_setup_auto_thrust_idle: manual thrust auto.size=", eo.size, " manual.size=", manual_size, " dist=", eo.position.distance_to(manual_eo.position))
 			var mtr := TextureRect.new()
 			mtr.texture = _manual_thrust_frames[0] as Texture2D
 			mtr.stretch_mode = TextureRect.STRETCH_SCALE
@@ -796,7 +785,6 @@ func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 				_spaceship_eo.add_child(mtr)
 			else:
 				add_child(mtr)
-			print_debug("_setup_auto_thrust_idle: manual tr setup, mtr.size=", mtr.size)
 			_manual_thrust_rects[manual_eo] = mtr
 			_child_f4_sizes[manual_eo] = manual_size
 			_gun_anims.append({"tr": mtr, "frame": 0, "acc": 0.0,
@@ -828,17 +816,14 @@ func _resize_frame(frame: Texture2D, target_size: Vector2) -> Texture2D:
 	# uses STRETCH_SCALE + an explicit size, so it still renders at the target size
 	# instead of blowing up to native. (Mirrors boss_fight._resize_tex + _make_projectile_rect.)
 	if img == null:
-		print_debug("_resize_frame: not Image-readable; consumer STRETCH_SCALE will size it")
 		return frame
 
 	var orig_size := img.get_size()
-	print_debug("_resize_frame: orig=", orig_size, " target=", target_size)
 
 	# Resize image
 	var copy := img.duplicate()
 	copy.resize(int(target_size.x), int(target_size.y), Image.INTERPOLATE_BILINEAR)
 	var result := ImageTexture.create_from_image(copy)
-	print_debug("_resize_frame: result texture size=", result.get_size())
 	return result
 
 # ─────────────────────────────────────────────────────────────────────────────

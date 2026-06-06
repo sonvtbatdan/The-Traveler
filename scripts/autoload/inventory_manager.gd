@@ -84,7 +84,7 @@ const LOOT_DENOM: int = 1000
 const ITEM_DEFS: Dictionary = {
 	"gauss_cannon": {
 		"name": "Gauss Cannon",
-		"icon": "",  # TODO final art → "res://assets/inventory/gauss_cannon.png"
+		"icon": "res://assets/inventory/gausscanon.png",
 		"size": Vector2i(3, 2),
 		"tags": ["weapon"],
 		"fire_mode": "charge",   # hold to charge (up to cooldown_sec); damage scales with charge
@@ -100,7 +100,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"ionizing_field": {
 		"name": "Ionizing Field",
-		"icon": "",  # TODO final art → "res://assets/inventory/ionizing_field.png"
+		"icon": "res://assets/inventory/Ionizing-Field.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon", "shield"],
 		"fire_mode": "aura",   # always-on while equipped; damages everything within radius_px each tick
@@ -117,7 +117,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"gatling_gun": {
 		"name": "Gatling Gun",
-		"icon": "",  # TODO final art → "res://assets/inventory/gatling_gun.png"
+		"icon": "res://assets/inventory/gatling.png",
 		"size": Vector2i(3, 1),
 		"tags": ["weapon"],
 		"fire_mode": "repeat",   # hold to keep firing every cooldown_sec
@@ -133,7 +133,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"homing_missile": {
 		"name": "Homing Missile",
-		"icon": "",
+		"icon": "res://assets/inventory/homingmissile.png",
 		"size": Vector2i(2, 1),
 		"tags": ["weapon"],
 		"fire_mode": "repeat",   # auto-fires every cooldown_sec while held
@@ -149,7 +149,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"shotgun": {
 		"name": "Shotgun",
-		"icon": "",
+		"icon": "res://assets/inventory/shotgun.png",
 		"size": Vector2i(2, 1),
 		"tags": ["weapon"],
 		"fire_mode": "repeat",
@@ -168,7 +168,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"lasgun": {
 		"name": "Lasgun",
-		"icon": "",
+		"icon": "res://assets/inventory/laser.png",
 		"size": Vector2i(3, 1),
 		"tags": ["weapon"],
 		"fire_mode": "beam",          # continuous while held
@@ -188,7 +188,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"arc": {
 		"name": "Arc",
-		"icon": "",
+		"icon": "res://assets/inventory/arc.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
 		"fire_mode": "repeat",
@@ -206,7 +206,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"plasma_drill": {
 		"name": "Plasma Drill",
-		"icon": "",
+		"icon": "res://assets/inventory/drill.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
 		"fire_mode": "beam",
@@ -224,7 +224,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"rift_maker": {
 		"name": "Rift Maker",
-		"icon": "",
+		"icon": "res://assets/inventory/riftmarker.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
 		"fire_mode": "channel",        # hold to sustain
@@ -246,7 +246,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"parasite_gun": {
 		"name": "Parasite Gun",
-		"icon": "",
+		"icon": "res://assets/inventory/parasite.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
 		"fire_mode": "repeat",
@@ -264,7 +264,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"swarm_host": {
 		"name": "Swarm Host",
-		"icon": "",
+		"icon": "res://assets/inventory/swarmhost.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
 		"fire_mode": "channel",        # hold to sustain the swarm
@@ -283,7 +283,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"orbitals": {
 		"name": "Orbitals",
-		"icon": "",
+		"icon": "res://assets/inventory/orbital.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
 		"fire_mode": "orbital",     # always-on passive + hold to power up (new behaviour)
@@ -300,7 +300,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"shield_generator": {
 		"name": "Shield Generator",
-		"icon": "",  # TODO final art → "res://assets/inventory/shield_generator.png"
+		"icon": "res://assets/inventory/shield.png",
 		"size": Vector2i(2, 2),
 		"tags": ["shield"],   # shield-only → fits the Secondary slot only (see SLOT_RULES)
 		"rarity": "rare",
