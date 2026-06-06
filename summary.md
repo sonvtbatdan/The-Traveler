@@ -16,7 +16,7 @@ Legend: ✅ Active · 🟡 Partial (some live, some dead) · ⚠️ Legacy / hid
 
 `main.gd._ready()` wires everything up. The authoritative list of what is instantiated at runtime:
 
-- **Autoloads** (8, see §2) — always live.
+- **Autoloads** (9, see §2) — always live.
 - **Screen visuals** — `scrolling_background.gd` + `overlay.gd` (parallax starfield), added to `StreamScreen`.
 - **Asteroid field** — `asteroid_layer.gd` (spawn/drift/collect → materials).
 - **Player weapons** — `weapon_system.gd` (inventory-driven firing + FX).
@@ -29,7 +29,7 @@ Legend: ✅ Active · 🟡 Partial (some live, some dead) · ⚠️ Legacy / hid
 
 **Idle economy** ✅ — `GameManager` holds fuel(`views`)/crew(`subs`)/credits(`cash`); `UpgradeManager` ticks passive fuel production from purchased upgrades; `EquipmentManager` applies Power-Core multipliers. Bought with fuel.
 
-**Combat** ✅ — `asteroid_layer.gd` spawns asteroids; clicking or shooting them rolls a drop table into `MaterialManager` (metal/nonmetal/organic/liquid). `weapon_system.gd` reads the equipped **primary/secondary** items from `InventoryManager` each frame and fires toward the cursor. Damage routes through the `asteroid_main` group and the live boss.
+**Combat** ✅ — `asteroid_layer.gd` spawns asteroids; clicking or shooting them rolls a drop table into `MaterialManager` (metal/nonmetal/organic/liquid). `weapon_system.gd` reads the equipped weapons from `InventoryManager` each frame and fires the **primary on LEFT-click and the secondary on RIGHT-click, fully independently** (each slot has its own cooldown/charge/beam/zone state). Most weapons aim at the cursor; a few (Lasgun, Orbitals) don't. Damage routes through the `asteroid_main` group and the live boss. See §6 for the full inventory/affix system.
 
 **Ship control** ✅ — only during **manual boost** (`GameManager.manual_boost`). `gun_system.gd._handle_ship_movement` reads WASD (200 px/s) and SPACE (dash: ~126 px lunge, 20 energy, 1 s cooldown). `GameManager` owns `ship_hp` (100), `ship_shield` (from an equipped Shield Generator), `ship_energy` (dash fuel, max 100, +5/s regen), and 0.3 s invincibility frames after a hit.
 
@@ -48,7 +48,8 @@ Legend: ✅ Active · 🟡 Partial (some live, some dead) · ⚠️ Legacy / hid
 | UpgradeManager | `upgrade_manager.gd` | ✅ | Fuel-production upgrade catalog + passive tick |
 | GameManager | `game_manager.gd` | ✅ | Central state: economy, ship HP/shield/energy/i-frames, boss HP, boost, save/load |
 | WeaponManager | `weapon_manager.gd` | 🟡 | Only **positions the cosmetic weapon sprites** on the ship (via `sync_from_canvas`) + save/load. Firing is retired and the old weapon shop/purchase path has been deleted |
-| InventoryManager | `inventory_manager.gd` | ✅ | Backpack grid + equip slots; the player's real weapons |
+| AffixManager | `affix_manager.gd` | ✅ | Diablo-2 affix catalog (43 affixes) + weapon-eligible pool (22) + the tier-band `roll_affix(id, tier)` roller. Data only — no gameplay wiring here (see §6) |
+| InventoryManager | `inventory_manager.gd` | ✅ | The player's real weapons: item catalog (`ITEM_DEFS`), 10×6 backpack grid + 10 equip slots, per-instance affix rolls + hidden base-damage roll, weapon generation, sell, save/load (see §6) |
 
 ---
 
@@ -63,8 +64,8 @@ Legend: ✅ Active · 🟡 Partial (some live, some dead) · ⚠️ Legacy / hid
 | Defense tab / scan automation | ⚠️ vestigial | `DefenseManager`, `defense_panel.gd`, `defense_visual.gd`; `comment_auto_click_rate`/scan fields in GameManager | Progression + ship visual remain, but no scan/defense gameplay drives off them |
 | Auto-clicker overlay | 🗑️ orphaned | `scripts/gameplay/auto_clicker_overlay.gd` | Not referenced anywhere; idle-clicker hand cursors |
 | Views/Subs bar | 🗑️ orphaned | `scripts/ui/hud/view_sub_bar.gd` | Not referenced anywhere |
-| Ionizing Field item | ⚠️ unused | `inventory_manager.gd` `ITEM_DEFS.ionizing_field` | Defined (aura weapon+shield) but not in `STARTER_ITEMS`; works if granted |
-| Per-weapon energy stats | 🟡 partial | `energy` / `energy_per_shot` / `energy_per_sec` in `ITEM_DEFS` | Only consumed by weapons flagged `uses_energy:true` — currently just the **Lasgun** (drains `energy`/sec + a 10 activation cost, cuts out at empty). On all other weapons these stats are still data-only (global `WEAPONS_USE_ENERGY=false`). |
+| Ionizing Field item | 🟡 | `inventory_manager.gd` `ITEM_DEFS.ionizing_field` | Aura weapon+shield, secondary-only. Granted by the debug "one of each" load grant and works; but it's NOT in `STARTER_ITEMS` (so absent in normal mode) and is excluded from affix rolling (its "shield" tag keeps it out of `_weapon_base_ids`). |
+| Per-weapon energy stats | 🟡 partial | `energy` / `activation_energy` in `ITEM_DEFS` stats | Only consumed by weapons flagged `uses_energy:true` — currently the **Lasgun**, **Rift Maker**, and **Orbitals** (each drains `energy`/sec while firing + a 10 activation cost, and cuts out at empty). Other weapons' energy numbers are data-only (global `WEAPONS_USE_ENERGY=false`). |
 | `weight` item stat | ⚠️ data-only | `weight` in `ITEM_DEFS` | Present on items but not consumed by gameplay |
 | Theme/internal names | ℹ️ intentional | `views`/`subs`/`cash`/`comment_auto_click_rate` | Kept for API stability; map to Fuel/Crew/Credits (see §7) |
 
@@ -77,7 +78,7 @@ Legend: ✅ Active · 🟡 Partial (some live, some dead) · ⚠️ Legacy / hid
 |---|---|---|
 | `main.gd` | ✅ | Root `Control`; instantiates all runtime systems, save/load, F4/F5 toggles, death + victory screens |
 | `asteroid_layer.gd` | ✅ | Asteroid spawn/drift/collect → materials; boss-aware (`boost_changed`/`boss_spawned`/`boss_killed`) |
-| `weapon_system.gd` | ✅ | Inventory weapon firing + FX; primary (repeat/charge) + secondary (aura); damages asteroids + boss |
+| `weapon_system.gd` | ✅ | Inventory weapon firing + FX for BOTH slots independently (left=primary, right=secondary). Dispatches on `fire_mode`/`fire_type`; `get_weapon_stat()` applies the equipped item's affixes (§6). Damages asteroids + boss |
 | `gun_system.gd` | 🟡 | Ship float/WASD movement/SPACE dash/scale/collision + cosmetic weapon-sprite positioning **(live)**; mount auto-fire **(retained but inert, `MOUNT_AUTOFIRE=false`)** |
 | `scrolling_background.gd` | ✅ | Tiled parallax background |
 | `overlay.gd` | ✅ | Tiled parallax overlay |
@@ -102,9 +103,9 @@ Legend: ✅ Active · 🟡 Partial (some live, some dead) · ⚠️ Legacy / hid
 ### `scripts/ui/inventory/`  (all ✅)
 | File | Role |
 |---|---|
-| `inventory_ui.gd` | Backpack + equip-slots overlay |
+| `inventory_ui.gd` | Backpack + equip-slots overlay (open with **I**); sell-confirm popup |
 | `backpack_grid.gd` | `InvBackpackGrid` — grid cells + drag/drop |
-| `item_widget.gd` | `InvItemWidget` — a draggable item |
+| `item_widget.gd` | `InvItemWidget` — a draggable item; shows the rolled name + the D2 hover tooltip (`_make_custom_tooltip`) |
 | `equip_slot.gd` | `InvEquipSlot` — one equip slot with tag rules |
 
 ### `scripts/ui/edit_mode/`  (F4 layout editor — ✅ tooling)
@@ -156,31 +157,87 @@ Legend: ✅ Active · 🟡 Partial (some live, some dead) · ⚠️ Legacy / hid
 
 ---
 
-## 5. Player weapons (inventory)
+## 5. Player weapons (the catalog)
 
-Defined in `inventory_manager.gd` `ITEM_DEFS`; behaviour in `weapon_system.gd`, dispatched purely on a `fire_mode` string (when/how it triggers) + a `fire_type` string (what it spawns) — no per-name hardcoding. All 9 are granted on first run **except Ionizing Field**.
+Defined in `inventory_manager.gd` `ITEM_DEFS`; behaviour in `weapon_system.gd`, dispatched purely on a `fire_mode` string (when/how it triggers) + a `fire_type` string (what it spawns) — no per-name hardcoding. **Two slots fire independently: primary = left-click, secondary = right-click.** Base stats below are the catalog defaults; each *dropped copy* also rolls affixes + a hidden ±20% base-damage variance (see §6).
 
-| Item | Slot | fire_mode / fire_type | Status | Behaviour |
-|---|---|---|---|---|
-| Gatling Gun | primary | `repeat` / `projectile` | ✅ starter | Hold to fire every 0.12 s, dmg 8 |
-| Gauss Cannon | primary | `charge` / `projectile` | ✅ starter | Hold to charge ≤1.5 s; release fires one big ball, dmg ∝ charge (≤110) |
-| Homing Missile | primary | `repeat` / `homing` | ✅ starter | Cinematic launch (ejects, arcs behind the ship, hangs, then accelerates to the cursor and explodes), dmg 19 @ 0.53 s |
-| Shotgun | primary | `repeat` / `cone` | ✅ starter | 5 pellets, dmg 18 each, 34° spread, range 216, 0.7 s cooldown |
-| Lasgun | primary | `beam` / `hitscan_beam` | ✅ starter | Continuous beam **straight forward** (ignores cursor), dmg 20/tick @ 0.15 s, range 760, wide. **Uses energy:** drains 20/sec + a 10 activation cost on press; cuts out at empty (see §3). Heavy light/impact FX |
-| Arc | primary | `repeat` / `chain` | ✅ starter | Lightning that chains up to 4 jumps within 200 px, dmg 30 @ 0.5 s |
-| Plasma Drill | primary | `beam` / `tether` | ✅ starter | Short tether (range 170) locking the nearest target, dmg 70/tick @ 0.2 s |
-| Shield Generator | secondary | — | ✅ starter | Passive 20-pt shield read by `GameManager` (regen after 3 s) |
-| Ionizing Field | secondary | `aura` / `aura` | ⚠️ unused | Damages everything in radius (140 px) each tick — defined, **not** in `STARTER_ITEMS` |
+| Item | Slot | fire_mode / fire_type | Behaviour (catalog base) |
+|---|---|---|---|
+| Gatling Gun | primary | `repeat` / `projectile` | Hold to fire every 0.12 s, dmg 8 |
+| Gauss Cannon | primary | `charge` / `projectile` | Hold to charge ≤1.5 s; release one big ball, dmg ∝ charge (≤110) |
+| Homing Missile | primary | `repeat` / `homing` | Cinematic launch → arcs behind ship → seeks cursor → explodes, dmg 19 @ 0.53 s |
+| Shotgun | primary | `repeat` / `cone` | 5 pellets, dmg 18 each, 34° spread, range 216, 0.7 s |
+| Lasgun | primary | `beam` / `hitscan_beam` | Continuous beam **straight forward**, dmg 20/tick @ 0.15 s, range 760. **Uses energy** (10 + 20/s) |
+| Arc | primary | `repeat` / `chain` | Lightning chaining up to 4 jumps within 200 px, dmg 30 @ 0.5 s |
+| Plasma Drill | primary | `beam` / `tether` | Short tether (range 170) on the nearest target, dmg 70/tick @ 0.2 s |
+| Rift Maker | primary | `channel` / `growing_zone` | **Hold** to grow a void at the cursor; dmg 39→390/tick over 2.5 s, radius→90. **Uses energy** (10 + 20/s). Procedural vortex shader |
+| Parasite Gun | primary | `repeat` / `dot_stack` | Fires 5 parasites that stick to a target (tracks drifting asteroids) and deal 6 DPS each; 4 s reload |
+| Swarm Host | primary | `channel` / `minion` | **Hold** to keep 4 bats out; they chase/auto-attack (5 dmg @ 0.4 s) and **body-block boss projectiles**, respawning 3 s after dying |
+| Orbitals | primary | `orbital` / `orbital` | 3 balls orbit the ship (always-on, free), 38 dmg on contact; **hold** to overcharge to 3× spin (more hits). **Uses energy** (10 + 20/s) |
+| Shield Generator | secondary | — | Passive 20-pt shield read by `GameManager` (regen after 3 s) |
+| Ionizing Field | secondary | `aura` / `aura` | Always-on area damage in a 140 px radius each tick (secondary-only; see §3) |
 
-To add/retune a weapon you usually only edit `ITEM_DEFS` (the `fire_mode`/`fire_type` combinations above already exist). Energy is opt-in per weapon via `uses_energy` (only the Lasgun uses it today).
+To add/retune a weapon you usually only edit `ITEM_DEFS`. Energy is opt-in per weapon via `uses_energy` (Lasgun, Rift Maker, Orbitals today).
 
 ---
 
-## 6. Persistence
+## 6. Inventory, items & affixes (Diablo-2 system)
+
+### Item *type* vs item *instance*
+`ITEM_DEFS` (in `inventory_manager.gd`) is the **catalog** — one shared template per weapon/gear type (name, grid size, `tags`, `fire_mode`/`fire_type`, base `stats`). What you actually own are **instances**, tracked per unique id (`uid`) in `_items`:
+
+```
+_items[uid] = { def, where, cell, affixes, base_mult }
+```
+- `def` — which catalog entry · `where` — `"backpack"` or an equip-slot name · `cell` — backpack grid origin.
+- `affixes` — this copy's rolled magic mods · `base_mult` — this copy's hidden ±20% base-damage roll.
+
+So **two copies of the same weapon are different items** (different rolls). The catalog is the template; the instance is the unique drop.
+
+### Backpack & equip slots
+- Backpack = **10×6 grid**; multi-cell items occupy several cells; drag to rearrange (`backpack_grid.gd`).
+- **10 equip slots** (`EQUIP_SLOTS`): primary_weapon, secondary_weapon, thruster, command_bridge, hull, energy_core, radar, drone_1/2, wings. `SLOT_RULES` gates by `tags` (Primary takes any "weapon" but **not** "shield"; Secondary takes weapon or shield → so the shield/aura items are secondary-only).
+- `weapon_system.gd` reads the equipped **primary (left-click)** + **secondary (right-click)** every frame and fires them **independently**.
+- **Sell:** right-click an item → confirm popup → `sell_item` removes it and pays `GameManager.add_money` (flat **$1** via `get_sell_price`, a TODO hook).
+
+### How items are granted
+- **Debug (current):** `RESET_INVENTORY_ON_LOAD = true` → every load wipes the inventory and grants **one of every catalog item**; the **11 true weapons are rolled with affixes + a base roll** (like drops) at `WEAPON_ROLL_TIER` (currently **Low**). Mid-session changes are wiped on reload. (Shield Generator and Ionizing Field carry the "shield" tag, so they're granted plain — not affix-rolled.)
+- **Normal (flag off):** `STARTER_ITEMS` granted once into a new save (`_backfill_starters` hands out newly-added starters once); everything persists.
+
+### Affixes (`affix_manager.gd`)
+- Catalog of **43 affixes** (from `Item_fixes_completed.xlsx`): each has `prefix`, `after_fix`, `unit`, `min`, `max`. `WEAPON_AFFIX_POOL` = the **22** allowed on weapons (the rest are ship/equipment stats).
+- **`roll_affix(id, tier)`** rolls a value inside a **tier band** of Min→Max: **Low** Min→33%, **Mid** 33→66%, **High** 66→Max. Negative affixes (e.g. `energy_consumption_percentage`) roll toward the more-negative/better end at higher tiers.
+- A rolled weapon gets **1 prefix + 1 after-fix** affix (two distinct pool ids) **plus** a hidden **±20% base-damage** multiplier (`BASE_DAMAGE_VARIANCE`), stored on the instance.
+- **Name** (`item_display_name`): `"[Prefix] [Base] [After-fix]"`, e.g. *"Brutal Gatling Gun of Barrage"*.
+- **Tooltip** (`item_widget._make_custom_tooltip`): dark D2 box → rolled name → base stats (real Damage *incl.* the hidden roll + Fire rate) → separator → blue affix lines. Colours/labels are tunable at the top of `item_widget.gd`.
+
+### What affixes actually DO right now ⚠️
+All firing code reads stats through **`weapon_system.get_weapon_stat(def, key, …)`**, which applies the equipped instance's `base_mult` + affixes at one spot. **Only some are wired to gameplay:**
+
+| Wired ✅ (changes the weapon) | Rolled + shown, but NO effect yet ⚠️ |
+|---|---|
+| hidden ±20% base damage (`base_mult`) | crit_chance, crit_damage |
+| `damage_flat`, `damage_percentage` → damage | projectile_speed, armor_penetration |
+| `fire_rate` → lower cooldown/tick (faster) | poison, burn, slow, freeze |
+| `energy_consumption_percentage` → cheaper energy | multishot, pierce, ricochet, splash_radius, knockback |
+| | energy_leech, hp_leech, shield_leech, energy_regen_flat/percentage |
+
+The unwired ones each need a mechanic that doesn't exist yet (crit rolls, status effects, projectile-behaviour changes, on-hit/regen hooks) — listed in the TODO above `get_weapon_stat`. They are **not faked**: they appear on the item and in the tooltip, but don't change combat.
+
+### Test / tuning
+- **ROLL WEAPON** button (stat panel) drops a fresh rolled weapon at `WEAPON_ROLL_TIER`.
+- Tune in `inventory_manager.gd`: `WEAPON_ROLL_TIER` (1/2/3 = Low/Mid/High), `BASE_DAMAGE_VARIANCE`. Tooltip look: the `TT_*` consts in `item_widget.gd`.
+
+### Not done yet
+- **Phase 3** (per `minh_scope.md`): bosses drop 3 affixed weapons on defeat — **not implemented**.
+
+---
+
+## 7. Persistence
 
 | File | Written by | Contents |
 |---|---|---|
-| `user://save.cfg` | GameManager / DefenseManager / WeaponManager / InventoryManager | `[player]`, `[defense]`, `[weapons]`, `[inventory]` |
+| `user://save.cfg` | GameManager / DefenseManager / WeaponManager / InventoryManager | `[player]` (HP/shield + money), `[defense]`, `[weapons]`, `[inventory]` (items + per-item `affixes` + `base_mult`) |
 | `user://materials.cfg` | MaterialManager | material counts |
 | `user://settings.cfg` | stat_panel | resolution, volumes, bg/ov scale |
 | `user://equipment.cfg` | EquipmentManager | owned Power-Core items |
@@ -190,7 +247,7 @@ To add/retune a weapon you usually only edit `ITEM_DEFS` (the `fire_mode`/`fire_
 
 ---
 
-## 7. Theme map (internal → display)
+## 8. Theme map (internal → display)
 
 | Internal | Display |
 |---|---|
