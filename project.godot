@@ -10,30 +10,40 @@ config_version=5
 
 [application]
 
-config/name="The Stream"
+config/name="The Traveler"
+run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
-run/main_scene="res://scenes/main.tscn"
 
 [autoload]
 
-GameManager="*res://scripts/autoload/game_manager.gd"
-UpgradeManager="*res://scripts/autoload/upgrade_manager.gd"
 AudioManager="*res://scripts/autoload/audio_manager.gd"
+MaterialManager="*res://scripts/autoload/material_manager.gd"
+DefenseManager="*res://scripts/autoload/defense_manager.gd"
+EquipmentManager="*res://scripts/autoload/equipment_manager.gd"
+UpgradeManager="*res://scripts/autoload/upgrade_manager.gd"
+GameManager="*res://scripts/autoload/game_manager.gd"
+WeaponManager="*res://scripts/autoload/weapon_manager.gd"
+AffixManager="*res://scripts/autoload/affix_manager.gd"
+InventoryManager="*res://scripts/autoload/inventory_manager.gd"
 
 [display]
 
-window/size/viewport_width=1280
-window/size/viewport_height=720
-window/size/resizable=true
+window/size/viewport_width=1440
+window/size/viewport_height=780
 window/stretch/mode="canvas_items"
-window/stretch/aspect="keep"
 
 [input]
 
 toggle_edit_mode={
 "deadzone": 0.5,
-"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":4194335,"physical_keycode":4194335,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)]
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":4194335,"physical_keycode":4194335,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+toggle_boss_edit_mode={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":4194336,"physical_keycode":4194336,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
 }
 
 [physics]

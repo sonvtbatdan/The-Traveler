@@ -1,4 +1,22 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
-addons/godot_whisper/bin/~libgodot_whisper.windows.template_release.x86_64.dll~RF1e90c25d.TMP
+
+# Large binaries — downloaded automatically by tools/setup.ps1
+tools/mpv.exe
+tools/*.dll
+tools/mpv-bridge.log
+tools/mpv-ipc.log
+tools/mpv-player.log
+tools/mpv-test.log
+
+# Whisper model — downloaded by setup.ps1 (~465 MB, exceeds git limits)
+addons/godot_whisper/models/ggml-small.bin
+addons/godot_whisper/models/ggml-small.bin.uid
+
+# User-specific audio device preference (generated at runtime)
+audio_config.cfg
+
+# OS
+.DS_Store
+Thumbs.db

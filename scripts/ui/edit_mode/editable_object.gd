@@ -2,15 +2,16 @@ class_name EditableObjectNode
 extends Control
 
 signal transform_ended(obj: Control)
+signal transform_motion(obj: EditableObjectNode)
 signal object_clicked(obj: EditableObjectNode)
 
 const HANDLE_VISUAL := 10.0
 const HANDLE_HIT    := 22.0
-const MIN_SIZE := Vector2(30.0, 30.0)
-const ALL_UPGRADES_MARKER := "res://__all_upgrades__"
+const MIN_SIZE := Vector2(1.0, 1.0)
+const GROUP_LAYER_MARKER := "res://__group_layer__"
 
-func is_all_upgrades() -> bool:
-	return source_path == ALL_UPGRADES_MARKER
+func is_group_layer() -> bool:
+	return source_path == GROUP_LAYER_MARKER
 
 @onready var texture_rect: TextureRect = $TextureRect
 
@@ -18,16 +19,24 @@ var _aspect_ratio := 1.0
 var _dragging := false
 var _drag_start_mouse := Vector2.ZERO
 var _drag_start_pos := Vector2.ZERO
-var _resizing := false
-var _resize_handle := -1
-var _resize_start_mouse := Vector2.ZERO
-var _resize_start_rect := Rect2()
 
 var _gameplay_mode := false
 var _price_label: Label = null
 var _counter_label: Label = null
+var _vps_label: Label = null
+var _cps_label: Label = null
 var _hover_tween: Tween = null
+var _pop_tween: Tween = null
 var _desc_panel: PanelContainer = null
+
+var _gif_frames: Array = []   # Array[ImageTexture]
+var _gif_delays: Array = []   # Array[float]
+var _gif_idx: int = 0
+var _gif_acc: float = 0.0
+
+var screen_blend: bool = false
+var gif_paused:   bool = false
+
 
 var selected := false:
 	set(v):
@@ -36,6 +45,8 @@ var selected := false:
 
 var group_id := ""
 var source_path := ""
+var display_name := ""
+var layer_visible := true
 
 func _ready() -> void:
 	_price_label = Label.new()
@@ -48,9 +59,30 @@ func _ready() -> void:
 	mouse_entered.connect(_on_mouse_entered)
 	mouse_exited.connect(_on_mouse_exited)
 
+func _process(delta: float) -> void:
+	if _gif_frames.is_empty() or gif_paused:
+		return
+	_gif_acc += delta
+	var delay: float = _gif_delays[_gif_idx]
+	if _gif_acc >= delay:
+		_gif_acc -= delay
+		_gif_idx = (_gif_idx + 1) % _gif_frames.size()
+		texture_rect.texture = _gif_frames[_gif_idx]
+
+func reset_gif() -> void:
+	_gif_idx = 0
+	_gif_acc = 0.0
+	if not _gif_frames.is_empty() and texture_rect != null:
+		texture_rect.texture = _gif_frames[0]
+
 func init(tex: Texture2D, pos: Vector2, sz := Vector2.ZERO) -> void:
 	texture_rect.texture = tex
-	_aspect_ratio = tex.get_width() / float(tex.get_height())
+	var w := float(tex.get_width())
+	var h := float(tex.get_height())
+	if w > 0.0 and h > 0.0:
+		_aspect_ratio = w / h
+	else:
+		_aspect_ratio = 1.0
 	if sz == Vector2.ZERO:
 		sz = Vector2(200.0, 200.0 / _aspect_ratio)
 	position = pos
@@ -59,46 +91,32 @@ func init(tex: Texture2D, pos: Vector2, sz := Vector2.ZERO) -> void:
 	_setup_counter_label()
 	_setup_price_label()
 	_setup_desc_panel()
+	# Tag the ship body so weapon_system.gd can anchor muzzle/aura to it.
+	if group_id == "weaponry" and source_path.get_file().get_basename().to_lower() in ["view", "spaceship"]:
+		add_to_group("ship_body")
+	if is_group_layer():
+		texture_rect.visible = false
+	if tex.has_meta("gif_frames"):
+		_gif_frames = tex.get_meta("gif_frames")
+		_gif_delays = tex.get_meta("gif_delays")
+		_gif_idx = 0
+		_gif_acc = 0.0
 
 func _setup_counter_label() -> void:
-	if group_id != "screen":
-		return
-	var base := source_path.get_file().get_basename().to_lower()
-	var initial := ""
-	if base == "view":
-		initial = GameManager.format_count(GameManager.views)
-		GameManager.views_changed.connect(func(v: int) -> void:
-			if is_instance_valid(_counter_label): _counter_label.text = GameManager.format_count(v))
-	elif base == "sub":
-		initial = GameManager.format_count(GameManager.subs)
-		GameManager.subs_changed.connect(func(v: int) -> void:
-			if is_instance_valid(_counter_label): _counter_label.text = GameManager.format_count(v))
-	else:
-		return
-	_counter_label = Label.new()
-	_counter_label.text = initial
-	_counter_label.visible = false
-	_counter_label.add_theme_color_override("font_color", Color.WHITE)
-	_counter_label.add_theme_font_size_override("font_size", 18)
-	_counter_label.add_theme_constant_override("outline_size", 3)
-	_counter_label.add_theme_color_override("font_outline_color", Color.BLACK)
-	_counter_label.position = Vector2(size.x + 6, size.y * 0.5 - 12)
-	var font := load("res://fonts/GoodOldDOS.ttf") as FontFile
-	if font:
-		_counter_label.add_theme_font_override("font", font)
-	add_child(_counter_label)
+	pass
 
 func _setup_price_label() -> void:
-	if group_id != "upgrade" or is_all_upgrades():
+	if group_id != "active" or is_group_layer():
 		return
 	var upgrade_id := source_path.get_file().get_basename().to_lower()
 	if UpgradeManager.UPGRADES.has(upgrade_id):
 		var price: float = UpgradeManager.UPGRADES[upgrade_id]["cost"]
-		_price_label.text = "$%.0f" % price
+		var cost_type: String = UpgradeManager.UPGRADES[upgrade_id].get("cost_type", "metal")
+		_price_label.text = "%d %s" % [int(price), cost_type.capitalize()]
 		_price_label.size = Vector2(size.x, 30.0)
 
 func _setup_desc_panel() -> void:
-	if group_id != "upgrade" or is_all_upgrades():
+	if group_id != "active" or is_group_layer():
 		return
 	var upgrade_id := source_path.get_file().get_basename().to_lower()
 	if not UpgradeManager.UPGRADES.has(upgrade_id):
@@ -135,7 +153,8 @@ func _setup_desc_panel() -> void:
 	vbox.add_child(name_lbl)
 
 	var price_lbl := Label.new()
-	price_lbl.text = "$%.0f" % float(data["cost"])
+	var cost_type: String = data.get("cost_type", "metal")
+	price_lbl.text = "%d %s" % [int(data["cost"]), cost_type.capitalize()]
 	price_lbl.add_theme_color_override("font_color", Color(0.3, 1.0, 0.45))
 	price_lbl.add_theme_font_size_override("font_size", 11)
 	price_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -157,20 +176,51 @@ func _setup_desc_panel() -> void:
 	add_child(_desc_panel)
 	_desc_panel.position = Vector2(size.x + 8.0, 0.0)
 
+# Removed legacy counters
+
 func set_gameplay_mode(v: bool) -> void:
 	_gameplay_mode = v
+	if not v:
+		modulate.a = 1.0  # khôi phục nếu gun_system đã ẩn PNG bằng modulate
 	if _counter_label:
 		_counter_label.visible = v
+	if _vps_label:
+		_vps_label.visible = v
+	if _cps_label:
+		_cps_label.visible = v
 	if not v:
 		_hide_hover_immediate()
-	# Upgrade-group sprites (including the synthetic all_upgrades control) are
-	# editor-only handles now — purchasing happens via the ToolsList in main.tscn,
-	# so these are masked in gameplay but stay visible+placeable in edit mode.
-	if group_id == "upgrade":
+	if is_group_layer():
 		visible = not v
+	elif v and group_id == "stat":
+		visible = false
+	elif v and group_id == "equipment":
+		var item_id := source_path.get_file().get_basename().to_lower()
+		visible = layer_visible and EquipmentManager.get_owned(item_id) >= 1
+	elif v and group_id == "screen":
+		visible = false
+	elif v and group_id == "weaponry":
+		# WeaponManager.sync_from_canvas() sets layer_visible per purchase state.
+		# gun_system.gd tự hide gun/turret/emitter/railgun via modulate.a=0.0
+		visible = layer_visible
+	else:
+		visible = layer_visible
 
 func get_state() -> Dictionary:
-	return { "path": source_path, "group": group_id, "pos": position, "size": size, "z_index": z_index }
+	# Spaceship stores SHIP_ASSEMBLY_Z internally for rendering; save as 0 (logical reference point)
+	var save_z := z_index
+	if group_id == "weaponry" and source_path.get_file().get_basename().to_lower() == "spaceship":
+		save_z = 0
+	return { "path": source_path, "group": group_id, "pos": global_position, "size": size, "z_index": save_z, "layer_visible": layer_visible, "flip_h": texture_rect.flip_h if texture_rect else false, "display_name": display_name, "blend_mode": 1 if screen_blend else 0 }
+
+func set_screen_blend(enabled: bool) -> void:
+	screen_blend = enabled
+	if enabled:
+		var mat := CanvasItemMaterial.new()
+		mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+		texture_rect.material = mat
+	else:
+		texture_rect.material = null
 
 func apply_state(state: Dictionary) -> void:
 	position = state["pos"]
@@ -185,45 +235,22 @@ func _sync_rect_size() -> void:
 		_price_label.size = Vector2(size.x, 30.0)
 	if _counter_label:
 		_counter_label.position = Vector2(size.x + 6, size.y * 0.5 - 12)
+	if _vps_label:
+		_vps_label.position = Vector2(size.x + 6, size.y * 0.5 + 12)
+	if _cps_label:
+		_cps_label.position = Vector2(size.x + 6, size.y * 0.5 + 12)
 	if _desc_panel:
 		_desc_panel.position = Vector2(size.x + 8.0, 0.0)
 	queue_redraw()
 
 func _draw() -> void:
-	if not selected or _gameplay_mode:
+	if _gameplay_mode:
 		return
-	draw_rect(Rect2(Vector2.ZERO, size), Color(1.0, 1.0, 1.0, 0.9), false, 2.0)
-	for r in _handle_rects():
-		draw_rect(r, Color.WHITE, true)
-		draw_rect(r, Color(0.2, 0.2, 0.2), false, 1.0)
-
-func _handle_rects() -> Array:
-	var h := HANDLE_VISUAL
-	var h2 := h / 2.0
-	var w := size.x
-	var ht := size.y
-	return [
-		Rect2(-h2, -h2, h, h),
-		Rect2(w - h2, -h2, h, h),
-		Rect2(-h2, ht - h2, h, h),
-		Rect2(w - h2, ht - h2, h, h),
-	]
-
-func _hit_handle(local_pos: Vector2) -> int:
-	var h := HANDLE_HIT
-	var h2 := h / 2.0
-	var w := size.x
-	var ht := size.y
-	var hit_rects := [
-		Rect2(-h2, -h2, h, h),
-		Rect2(w - h2, -h2, h, h),
-		Rect2(-h2, ht - h2, h, h),
-		Rect2(w - h2, ht - h2, h, h),
-	]
-	for i in hit_rects.size():
-		if hit_rects[i].has_point(local_pos):
-			return i
-	return -1
+	if is_group_layer():
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.06, 0.08, 0.12, 0.30), true)
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.3, 0.4, 0.6, 0.85), false, 2.0)
+	if selected:
+		draw_rect(Rect2(Vector2.ZERO, size), Color(1.0, 1.0, 1.0, 0.35), true)
 
 func _gui_input(event: InputEvent) -> void:
 	if _gameplay_mode:
@@ -233,38 +260,31 @@ func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			get_viewport().set_input_as_handled()
-			var lp := get_local_mouse_position()
-			_resize_handle = _hit_handle(lp)
-			if _resize_handle >= 0:
-				_resizing = true
-				_resize_start_mouse = get_global_mouse_position()
-				_resize_start_rect = Rect2(position, size)
-			else:
+			object_clicked.emit(self)
+			if selected:  # Only drag if already selected via object list
 				_dragging = true
 				_drag_start_mouse = get_global_mouse_position()
 				_drag_start_pos = position
-			selected = true
-			object_clicked.emit(self)
 		else:
-			if _dragging or _resizing:
+			if _dragging:
 				transform_ended.emit(self)
 			_dragging = false
-			_resizing = false
 
 	elif event is InputEventMouseMotion:
 		if _dragging:
 			position = _drag_start_pos + (get_global_mouse_position() - _drag_start_mouse)
-		elif _resizing:
-			_apply_resize()
-			queue_redraw()
+			transform_motion.emit(self)
 
 func _handle_gameplay_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		get_viewport().set_input_as_handled()
 		object_clicked.emit(self)
+		if group_id == "weaponry" and source_path.get_file().get_basename().to_lower() == "view":
+			_flash_ship()
+			_collect_near_asteroids()
 
 func _on_mouse_entered() -> void:
-	if not _gameplay_mode or group_id != "upgrade" or is_all_upgrades():
+	if not _gameplay_mode or group_id != "active" or is_group_layer():
 		return
 	var upgrade_id := source_path.get_file().get_basename().to_lower()
 	if not UpgradeManager.UPGRADES.has(upgrade_id):
@@ -272,7 +292,7 @@ func _on_mouse_entered() -> void:
 	_show_hover()
 
 func _on_mouse_exited() -> void:
-	if not _gameplay_mode or group_id != "upgrade" or is_all_upgrades():
+	if not _gameplay_mode or group_id != "active" or is_group_layer():
 		return
 	_hide_hover()
 
@@ -310,6 +330,22 @@ func _hide_hover_immediate() -> void:
 	if _desc_panel:
 		_desc_panel.visible = false
 
+func _flash_ship() -> void:
+	if _hover_tween:
+		_hover_tween.kill()
+		_hover_tween = null
+	pivot_offset = size / 2.0
+	var t := create_tween()
+	t.tween_property(texture_rect, "modulate", Color(2.5, 2.5, 2.5, 1.0), 0.07)
+	t.tween_property(texture_rect, "modulate", Color.WHITE, 0.25)
+
+func _collect_near_asteroids() -> void:
+	var ship_center: Vector2 = global_position + size / 2.0
+	var local: Vector2 = ship_center - Vector2(270.0, 8.0)
+	for node: Node in get_tree().get_nodes_in_group("asteroid_main"):
+		if node.has_method("collect_near"):
+			node.collect_near(local, 10.0)
+
 # --- Gameplay animations ---
 
 func animate_screen_click() -> void:
@@ -329,28 +365,3 @@ func animate_upgrade_result(success: bool) -> void:
 		var t := create_tween()
 		t.tween_property(texture_rect, "modulate", Color(1.0, 0.3, 0.3, 1.0), 0.1)
 		t.tween_property(texture_rect, "modulate", Color.WHITE, 0.3)
-
-func _apply_resize() -> void:
-	var delta := get_global_mouse_position() - _resize_start_mouse
-	var sr := _resize_start_rect
-	var new_w: float
-	var new_h: float
-	match _resize_handle:
-		0:  # TL — bottom-right fixed
-			new_w = max(sr.size.x - delta.x, MIN_SIZE.x)
-			new_h = new_w / _aspect_ratio
-			position = Vector2(sr.end.x - new_w, sr.end.y - new_h)
-		1:  # TR — bottom-left fixed
-			new_w = max(sr.size.x + delta.x, MIN_SIZE.x)
-			new_h = new_w / _aspect_ratio
-			position = Vector2(sr.position.x, sr.end.y - new_h)
-		2:  # BL — top-right fixed
-			new_w = max(sr.size.x - delta.x, MIN_SIZE.x)
-			new_h = new_w / _aspect_ratio
-			position = Vector2(sr.end.x - new_w, sr.position.y)
-		3:  # BR — top-left fixed
-			new_w = max(sr.size.x + delta.x, MIN_SIZE.x)
-			new_h = new_w / _aspect_ratio
-			position = sr.position
-	size = Vector2(new_w, new_h)
-	_sync_rect_size()
