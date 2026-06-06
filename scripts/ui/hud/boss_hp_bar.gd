@@ -76,9 +76,9 @@ func _reposition() -> void:
 func _process(_delta: float) -> void:
 	if not visible or _move_lbl == null:
 		return
-	var cf := get_tree().get_first_node_in_group("chromeleon_fight")
-	if cf != null and cf.has_method("get_move_name"):
-		_move_lbl.text = cf.get_move_name()
+	var mgr := get_tree().get_first_node_in_group("boss_fight")
+	if mgr != null and mgr.has_method("get_move_name"):
+		_move_lbl.text = mgr.get_move_name()
 	else:
 		_move_lbl.text = ""
 

@@ -203,8 +203,6 @@ func setup(oc: Control) -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	z_index = 200
 	process_mode = Node.PROCESS_MODE_PAUSABLE
-	add_to_group("boss_fight")
-	add_to_group("chromeleon_fight")
 
 	var clip := Control.new()
 	clip.position      = OC_BOUNDS.position
@@ -220,9 +218,10 @@ func setup(oc: Control) -> void:
 	_load_fp_offsets()
 	_cache_fp_offsets()
 	# _load_assets() is deferred to first spawn_boss() to avoid startup lag
-	GameManager.boss_killed.connect(_on_boss_killed_ext)
+	# Boss-killed routing is handled by the Boss Manager (boss_fight.gd), the single listener.
 
-func _on_boss_killed_ext() -> void:
+# Called by the Boss Manager when GameManager.boss_killed fires (was a direct signal connection).
+func notify_boss_killed() -> void:
 	if _phase == Phase.IDLE or _phase == Phase.DONE:
 		return
 	# Already in the final sub-phases — the main body HP hitting 0 is expected here;
@@ -1218,6 +1217,11 @@ func _show_victory_screen() -> void:
 
 func _process(delta: float) -> void:
 	if _phase == Phase.IDLE or _phase == Phase.DONE:
+		# Safety net: never leave a boss part visible while idle, or the cluster just
+		# sits there spinning its idle GIF and looks "stuck". (Tree is paused in edit
+		# mode, so this never fights F4 placement.)
+		if _active_body() != null:
+			_show_only(null)
 		return
 	_tick_body_anim(delta)
 	_tick_projectiles(delta)

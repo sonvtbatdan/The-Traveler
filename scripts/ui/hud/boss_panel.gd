@@ -118,14 +118,16 @@ func _build_ui() -> void:
 	vbox.add_child(_chromeleon_btn)
 
 func _on_elephant_pressed() -> void:
-	var bf := get_tree().get_first_node_in_group("boss_fight")
-	if bf != null and bf.has_method("spawn_boss"):
-		bf.call("spawn_boss")
+	_spawn("elephant")
 
 func _on_chromeleon_pressed() -> void:
-	var cf := get_tree().get_first_node_in_group("chromeleon_fight")
-	if cf != null and cf.has_method("spawn_boss"):
-		cf.call("spawn_boss")
+	_spawn("chromeleon")
+
+# All bosses go through the single Boss Manager (group "boss_fight"); the id selects which.
+func _spawn(id: String) -> void:
+	var mgr := get_tree().get_first_node_in_group("boss_fight")
+	if mgr != null and mgr.has_method("spawn_boss"):
+		mgr.call("spawn_boss", id)
 
 func _on_boss_spawned() -> void:
 	if _elephant_btn != null:

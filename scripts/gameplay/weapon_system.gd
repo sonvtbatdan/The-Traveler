@@ -128,6 +128,9 @@ var _auto_fire := false
 const BASE_CRIT_CHANCE := 20   # % — TEMP TEST VALUE (every hit crits). SET BACK TO 0.0 when done!
 const BASE_CRIT_DAMAGE := 100.0   # % extra damage on a crit (100 = double)
 # Floating number look (Phase 1 = normal hits).
+# Show the real boss hitbox rect (the ship circle is drawn by gun_system).
+const SHOW_HITBOXES    := true
+const HITBOX_BOSS_COLOR := Color(1.0, 0.30, 0.30, 0.9)
 const DMG_NUM_COLOR    := Color(0.95, 0.97, 1.0)   # readable white over space
 const DMG_NUM_SIZE     := 13       # (−30% from 18)
 const DMG_NUM_LIFETIME := 0.7      # seconds before it fades out + frees
@@ -473,7 +476,7 @@ func _aura_tick(radius: float, dmg: float) -> void:
 	var boss_rect := _boss_rect_local()
 	if boss_rect.has_area() and _circle_hits_rect(center, radius, boss_rect):
 		GameManager.take_boss_damage(int(dmg))
-		var bf := get_tree().get_first_node_in_group("chromeleon_fight")
+		var bf := get_tree().get_first_node_in_group("boss_fight")
 		if bf != null and bf.has_method("flash_boss_hit"):
 			bf.flash_boss_hit()
 		_arcs.append({"a": center, "b": boss_rect.position + boss_rect.size * 0.5, "age": 0.0, "max_age": 0.18})
@@ -506,7 +509,7 @@ func _update_bullets(delta: float) -> void:
 			var r: float = _ball_radius(b)
 			if boss_rect.has_area() and _circle_hits_rect(pos, maxf(r, 4.0), boss_rect):
 				GameManager.take_boss_damage(int(b["dmg"]))
-				var bf := get_tree().get_first_node_in_group("chromeleon_fight")
+				var bf := get_tree().get_first_node_in_group("boss_fight")
 				if bf != null and bf.has_method("flash_boss_hit"):
 					bf.flash_boss_hit()
 				_spawn_impact(pos, true)
@@ -536,7 +539,7 @@ func _update_bullets(delta: float) -> void:
 				remove = true
 			elif boss_rect.has_area() and boss_rect.has_point(pos):
 				GameManager.take_boss_damage(int(b["dmg"]))
-				var bf := get_tree().get_first_node_in_group("chromeleon_fight")
+				var bf := get_tree().get_first_node_in_group("boss_fight")
 				if bf != null and bf.has_method("flash_boss_hit"):
 					bf.flash_boss_hit()
 				_spawn_impact(pos, false)
@@ -1266,7 +1269,7 @@ func _tick_zone(ctx: Dictionary, def: Dictionary, delta: float) -> void:
 		var br := _boss_rect_local()
 		if br.has_area() and _circle_hits_rect(pos, radius, br):
 			GameManager.take_boss_damage(int(maxf(1.0, hit_dmg)))
-			var bf := get_tree().get_first_node_in_group("chromeleon_fight")
+			var bf := get_tree().get_first_node_in_group("boss_fight")
 			if bf != null and bf.has_method("flash_boss_hit"):
 				bf.flash_boss_hit()
 			_on_damage_dealt(br.position + br.size * 0.5, hit_dmg, false)
@@ -1357,10 +1360,9 @@ func _tick_swarm(ctx: Dictionary, def: Dictionary, delta: float) -> void:
 		bats.remove_at(bats.size() - 1)
 	# Boss controllers that can have their projectiles body-blocked.
 	var bosses: Array = []
-	for g: String in ["boss_fight", "chromeleon_fight"]:
-		var node := get_tree().get_first_node_in_group(g)
-		if node != null and node.has_method("consume_projectile_near"):
-			bosses.append(node)
+	var bmgr := get_tree().get_first_node_in_group("boss_fight")
+	if bmgr != null and bmgr.has_method("consume_projectile_near"):
+		bosses.append(bmgr)
 	var targets := _collect_targets()
 	for bi in bats.size():
 		var bat: Dictionary = bats[bi]
@@ -1540,6 +1542,21 @@ func _draw_bats(bats: Array) -> void:
 # ── Drawing ───────────────────────────────────────────────────────────────────
 
 func _draw() -> void:
+	# Real boss hitboxes (red) — the exact shapes weapons test against; auto-hide when gone.
+	if SHOW_HITBOXES:
+		var br := _boss_rect_local()                      # main body / chromehead
+		if br.has_area():
+			draw_rect(br, HITBOX_BOSS_COLOR, false, 2.0)
+		for et: Dictionary in _extra_targets:             # Chromeleon orbs (add_hit_target)
+			var er: Rect2 = (et["get_rect"] as Callable).call()
+			if er.has_area():
+				draw_rect(er, HITBOX_BOSS_COLOR, false, 2.0)
+		if _multi_hit_provider.is_valid():                # Chromeleon shielded bullets
+			for mh: Dictionary in _multi_hit_provider.call():
+				var mr: Rect2 = mh["rect"]
+				if mr.has_area():
+					draw_rect(mr, HITBOX_BOSS_COLOR, false, 2.0)
+
 	# Secondary aura ring
 	var sdef := _secondary_def()
 	if not sdef.is_empty() and String(sdef.get("fire_mode", "")) == "aura":
@@ -2040,13 +2057,15 @@ func _ast() -> Node:
 func _boss_rect_local() -> Rect2:
 	if GameManager.boss_max_hp <= 0:
 		return Rect2()
-	var bf := get_tree().get_first_node_in_group("boss_fight")
-	if bf == null or not bf.has_method("get_boss_hit_rect"):
-		return Rect2()
-	var r: Rect2 = bf.get_boss_hit_rect()
-	if not r.has_area():
-		return Rect2()
-	return Rect2(r.position - global_position, r.size)
+	# Both boss controllers (Elephant + Chromeleon) live in the "boss_fight" group;
+	# only the ACTIVE one's get_boss_hit_rect() has area, so pick that one (don't just
+	# grab the first node, which may be the inactive boss → empty rect / unhittable).
+	for bf in get_tree().get_nodes_in_group("boss_fight"):
+		if bf.has_method("get_boss_hit_rect"):
+			var r: Rect2 = bf.get_boss_hit_rect()
+			if r.has_area():
+				return Rect2(r.position - global_position, r.size)
+	return Rect2()
 
 func _circle_hits_rect(c: Vector2, radius: float, rect: Rect2) -> bool:
 	var nearest := Vector2(

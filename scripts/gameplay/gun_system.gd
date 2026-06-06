@@ -1,6 +1,10 @@
 extends Control
 
 const SS_OFFSET                := Vector2(270.0, 8.0)
+# Show the real collision hitboxes (ship circle here + boss rect in weapon_system).
+const SHOW_HITBOXES            := true
+const HITBOX_SHIP_COLOR        := Color(0.30, 1.0, 0.40, 0.9)   # ship body (asteroid) hitbox
+const HITBOX_BOSS_COLOR        := Color(1.0, 0.30, 0.30, 0.9)   # boss hitbox (drawn by weapon_system)
 const MOUNT_AUTOFIRE           := false  # inventory weapons only — old ship-mount auto-fire retired. Set true to restore.
 const FIRE_INTERVAL            := 0.5    # gun: 2 shots/sec
 const TURRET_FIRE_INTERVAL     := 0.66   # turret: ~1.5 shots/sec
@@ -134,7 +138,6 @@ const LASER_DURATION := 0.18
 const LASER_COUNT    := 3
 
 # Mode transition zoom tween
-var _scale_tween: Tween = null
 var _prev_scale_mult := 1.0
 
 func setup() -> void:
@@ -473,19 +476,18 @@ func _process(delta: float) -> void:
 		else:
 			_burst_queue[bi] = entry
 		bi -= 1
-	if GameManager.manual_boost and _spaceship_eo != null and is_instance_valid(_spaceship_eo):
+	# WASD flies the ship in the asteroid screen too (not just manual boost).
+	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		_handle_ship_movement(delta)
 
-	# Spaceship: position + scale force-apply mỗi frame.
-	# Shrink to 35% during a boss fight (50% × 0.7 = another 30% smaller; scaled around
-	# the ship's center so its child hitbox shrinks with it).
+	# Spaceship: position + scale force-apply each frame. Ship sits at 0.70 normally and
+	# 0.35 during boost/boss (both 30% smaller than the old 1.0/0.5). Scaled around the
+	# ship's centre so its child hitbox shrinks with it; the asteroid collision radius
+	# is multiplied by this scale too (see _check_ship_asteroid_collision).
 	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
-		var s: float = 0.35 if GameManager.boss_max_hp > 0 else 1.0
-		_spaceship_eo.pivot_offset = _spaceship_origin_sz * 0.5
 		_spaceship_eo.position     = _spaceship_origin
-		_spaceship_eo.pivot_offset = _spaceship_eo.size * 0.5  # Scale from center
-		# Scale 0.5 when manual boost or boss fight active (smooth tween)
-		var target_scale_mult := 0.5 if (GameManager.manual_boost or GameManager.boss_max_hp > 0) else 1.0
+		_spaceship_eo.pivot_offset = _spaceship_eo.size * 0.5  # scale from centre
+		var target_scale_mult := 0.35 if (GameManager.manual_boost or GameManager.boss_max_hp > 0) else 0.70
 		if target_scale_mult != _prev_scale_mult:
 			_animate_scale_transition(target_scale_mult)
 			_prev_scale_mult = target_scale_mult
@@ -523,14 +525,18 @@ func _process(delta: float) -> void:
 	_tick_gun_anims(delta)
 	_tick_lightning_chains(delta)
 	_tick_lasers(delta)
-	if GameManager.manual_boost and _spaceship_eo != null and is_instance_valid(_spaceship_eo):
-		_check_ship_asteroid_collision()
+	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
+		_check_ship_asteroid_collision()   # ramming asteroids hurts in the asteroid screen too
 
-	# Draw edit mode overlay
-	if _gameplay_edit_mode:
-		queue_redraw()
+	queue_redraw()   # keep the hitbox overlay (and edit handles) live every frame
 
 func _draw() -> void:
+	# Real ship hitbox = the asteroid-collision circle (centre + scaled radius), always shown.
+	if SHOW_HITBOXES and _spaceship_eo != null and is_instance_valid(_spaceship_eo):
+		var sc: Vector2 = _spaceship_eo.get_global_transform() * (_spaceship_eo.size * 0.5) - global_position
+		var sr := _spaceship_origin_sz.x * 0.5 * _spaceship_eo.scale.x
+		draw_arc(sc, sr, 0.0, TAU, 40, HITBOX_SHIP_COLOR, 2.0)
+
 	if not _gameplay_edit_mode or not _selected_eo or not is_instance_valid(_selected_eo):
 		return
 
@@ -1405,9 +1411,11 @@ func _check_ship_asteroid_collision() -> void:
 	var ast_node := get_tree().get_first_node_in_group("asteroid_main")
 	if not is_instance_valid(ast_node) or not ast_node.has_method("check_ship_collision"):
 		return
-	var ship_center_oc := _spaceship_eo.global_position + _spaceship_origin_sz * 0.5
+	# Pivot-correct centre (global_position is the SCALED top-left, which shifts when the
+	# ship is scaled around its centre — using the transform avoids the offset).
+	var ship_center_oc: Vector2 = _spaceship_eo.get_global_transform() * (_spaceship_eo.size * 0.5)
 	var ship_center_ss := ship_center_oc - SS_OFFSET
-	var ship_radius    := _spaceship_origin_sz.x * 0.5
+	var ship_radius    := _spaceship_origin_sz.x * 0.5 * _spaceship_eo.scale.x   # shrinks with the ship
 	ast_node.check_ship_collision(ship_center_ss, ship_radius)
 
 # ── Laser (click ship) ─────────────────────────────────────────────────────────
