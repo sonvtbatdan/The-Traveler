@@ -6,8 +6,21 @@ extends CanvasLayer
 ## display is always in sync and invalid drags simply snap back.
 
 const CELL := 46
-const PANEL_SIZE := Vector2(920, 600)
-const SLOT_BOX := 60
+const PANEL_SIZE := Vector2(1100, 760)
+const SLOT_PAD := 10   # px of padding around an item inside its slot
+# Largest item footprint (in cells) each slot must hold at full backpack scale (no shrink).
+const SLOT_MAX_CELLS := {
+	"primary_weapon":   Vector2i(3, 2),
+	"secondary_weapon": Vector2i(3, 2),
+	"wings":            Vector2i(3, 2),
+	"hull":             Vector2i(2, 3),
+	"command_bridge":   Vector2i(2, 2),
+	"energy_core":      Vector2i(2, 2),
+	"radar":            Vector2i(2, 2),   # the "Artifact" slot — key stays "radar" (see EQUIP_SLOTS)
+	"drone_1":          Vector2i(2, 2),
+	"drone_2":          Vector2i(2, 2),
+	"thruster":         Vector2i(2, 2),
+}
 
 # Preloaded (not referenced by class_name) so this works on a fresh headless run
 # before the editor has registered the global class names.
@@ -22,7 +35,7 @@ const SLOT_LABELS := {
 	"command_bridge":   "Command Bridge",
 	"hull":             "Hull",
 	"energy_core":      "Energy Core",
-	"radar":            "Radar",
+	"radar":            "Artifact",   # label only — data-layer key remains "radar"
 	"drone_1":          "Drone I",
 	"drone_2":          "Drone II",
 	"wings":            "Wings",
@@ -40,12 +53,16 @@ const SLOT_ICONS := {
 	"drone_2":          "res://assets/inventory/slotdrone2.gif",
 	"wings":            "res://assets/inventory/slotwing.gif",
 }
-# Where each slot sits in the equip layout grid (col, row).
+# Equip grid geometry (panel-local). Pitch ≥ largest slot (158px) so centred slots never overlap.
+const GRID_ORIGIN := Vector2(40, 48)
+const GRID_PITCH  := Vector2(176, 135)
+# Where each slot sits in the equip cross (col, row).
 const SLOT_LAYOUT := {
 	"command_bridge":   Vector2i(1, 0),
-	"radar":            Vector2i(0, 1), "hull": Vector2i(1, 1), "energy_core": Vector2i(2, 1),
-	"primary_weapon":   Vector2i(0, 2), "wings": Vector2i(1, 2), "secondary_weapon": Vector2i(2, 2),
-	"thruster":         Vector2i(0, 3), "drone_1": Vector2i(1, 3), "drone_2": Vector2i(2, 3),
+	"primary_weapon":   Vector2i(0, 1), "hull": Vector2i(1, 1), "secondary_weapon": Vector2i(2, 1),
+	"drone_2":          Vector2i(0, 2),                          "drone_1": Vector2i(2, 2),
+	"energy_core":      Vector2i(0, 3), "wings": Vector2i(1, 3), "radar": Vector2i(2, 3),
+	"thruster":         Vector2i(1, 4),
 }
 
 var _font: FontFile
@@ -95,6 +112,11 @@ func _build_panel() -> void:
 	add_child(_panel)
 	_build_panel_contents()
 
+# Pixel size of a slot = its largest item footprint (cells × CELL) + padding on all sides.
+func _slot_size(slot: String) -> Vector2:
+	var cells: Vector2i = SLOT_MAX_CELLS.get(slot, Vector2i(2, 2))
+	return Vector2(cells) * CELL + Vector2(SLOT_PAD, SLOT_PAD) * 2.0
+
 func _build_panel_contents() -> void:
 	var title := Label.new()
 	title.text = "SHIP LOADOUT"
@@ -113,42 +135,35 @@ func _build_panel_contents() -> void:
 	close_btn.pressed.connect(close)
 	_panel.add_child(close_btn)
 
-	# Equip slots (left side)
-	var base := Vector2(60, 86)
+	# Equip slots (left side) — each sized to its largest item + padding, centred in a
+	# uniform grid cell. Slot art identifies each slot, so there are no text labels.
 	for slot: String in InventoryManager.EQUIP_SLOTS:
+		if not SLOT_LAYOUT.has(slot):
+			push_warning("[inventory_ui] no SLOT_LAYOUT entry for '%s' — skipping" % slot)
+			continue
 		var coords: Vector2i = SLOT_LAYOUT[slot]
-		var sx := base.x + coords.x * 112.0
-		var sy := base.y + coords.y * 100.0
+		var ssize: Vector2 = _slot_size(slot)
+		var cell_origin := GRID_ORIGIN + Vector2(coords) * GRID_PITCH
+		var slot_pos := cell_origin + (GRID_PITCH - ssize) * 0.5   # centre slot in its cell
 		var es := EquipSlot.new()
 		es.setup(slot)
-		es.position = Vector2(sx, sy)
-		es.size = Vector2(SLOT_BOX, SLOT_BOX)
+		es.position = slot_pos
+		es.size = ssize
 		_style_slot(es, slot)
 		_panel.add_child(es)
 		_slot_nodes[slot] = es
 
-		var lbl := Label.new()
-		lbl.text = SLOT_LABELS.get(slot, slot)
-		_apply_font(lbl, 8)
-		_panel.add_child(lbl)
-
-		# Measure text width and center the label on the slot
-		var text_size := lbl.get_minimum_size()
-		var slot_center_x := sx + SLOT_BOX * 0.5
-		lbl.position = Vector2(slot_center_x - text_size.x * 0.5, sy + SLOT_BOX + 13)
-		lbl.size = text_size
-
-	# Backpack (right side)
+	# Backpack (right side) — placed past the equip region (~x 600).
 	var bp_label := Label.new()
 	bp_label.text = "BACKPACK"
-	bp_label.position = Vector2(430, 52)
+	bp_label.position = Vector2(600, 52)
 	bp_label.size = Vector2(200, 20)
 	_apply_font(bp_label, 13)
 	_panel.add_child(bp_label)
 
 	_grid = BackpackGrid.new()
 	_grid.setup(InventoryManager.BACKPACK_COLS, InventoryManager.BACKPACK_ROWS, CELL)
-	_grid.position = Vector2(430, 80)
+	_grid.position = Vector2(600, 80)
 	_panel.add_child(_grid)
 
 	var hint := Label.new()
@@ -194,9 +209,11 @@ func _rebuild() -> void:
 		var def_id := String(InventoryManager.get_item(uid)["def"])
 		var es: Control = _slot_nodes[slot]
 		var w := ItemWidget.new()
-		w.position = Vector2.ZERO
-		w.size = es.size
-		print_debug("[EQUIP ITEM] ", slot, " slot.size=", es.size, " item.size=", w.size)
+		# Equipped items render at FULL backpack scale (def footprint × CELL — no shrink),
+		# centred in the slot (which is sized to hold the largest item + padding).
+		var item_cells: Vector2i = InventoryManager.def_size(def_id)
+		w.size = Vector2(item_cells) * CELL
+		w.position = (es.size - w.size) * 0.5
 		es.add_child(w)
 		w.setup(uid, def_id, CELL, slot)
 		w.sell_requested.connect(_on_sell_requested)
@@ -301,9 +318,8 @@ func _style_slot(p: Panel, slot_name: String = "") -> void:
 			bg.expand_mode = TextureRect.EXPAND_KEEP_SIZE
 			bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			bg.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			bg.custom_minimum_size = Vector2(SLOT_BOX, SLOT_BOX)
 			p.add_child(bg)
-			bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)   # fills the slot's real size
 			p.move_child(bg, 0)  # move to back
 
 func _style_button(b: Button) -> void:

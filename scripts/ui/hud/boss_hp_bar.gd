@@ -76,18 +76,12 @@ func _reposition() -> void:
 func _process(_delta: float) -> void:
 	if not visible or _move_lbl == null:
 		return
+	# The Boss Manager (group "boss_fight") delegates get_move_name() to the active boss,
+	# so this single lookup covers Chromeleon, Metalfly, and any future boss.
 	var name_str := ""
-	var cf := get_tree().get_first_node_in_group("chromeleon_fight")
-	if cf != null and cf.has_method("get_move_name"):
-		var s: String = cf.call("get_move_name")
-		if s != "":
-			name_str = s
-	if name_str == "":
-		var mf := get_tree().get_first_node_in_group("metalfly_fight")
-		if mf != null and mf.has_method("get_move_name"):
-			var s: String = mf.call("get_move_name")
-			if s != "":
-				name_str = s
+	var mgr := get_tree().get_first_node_in_group("boss_fight")
+	if mgr != null and mgr.has_method("get_move_name"):
+		name_str = mgr.call("get_move_name")
 	_move_lbl.text = name_str
 
 func _on_boss_spawned() -> void:

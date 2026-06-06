@@ -161,9 +161,7 @@ func _spawn(id: String) -> void:
 		mgr.call("spawn_boss", id)
 
 func _on_metalfly_pressed() -> void:
-	var mf := get_tree().get_first_node_in_group("metalfly_fight")
-	if mf != null and mf.has_method("spawn_boss"):
-		mf.call("spawn_boss")
+	_spawn("metalfly")
 
 func _on_boss_spawned() -> void:
 	if _elephant_btn != null:

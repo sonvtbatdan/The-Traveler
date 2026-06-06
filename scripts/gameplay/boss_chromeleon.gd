@@ -31,8 +31,9 @@ const M1_MAX_DUR   := 10.0
 const M2_MOVE_SPD  := 150.0
 const M2_MOVE_RPM  := 40.0
 const M2_SPIN_RPM  := 80.0
-const M2_SPINUP_T  := 3.0
-const M2_SHOOT_INT := 0.334
+const M2_SPINUP_T  := 3.0     # time to ramp up to full spin speed (controls spin FEEL — unchanged)
+const M2_SPIN_DUR  := 15.0    # how long the spin phase lasts (5x longer → 5x as many shots)
+const M2_SHOOT_INT := 0.111   # 3x faster fire than before (0.334) → 3x more projectiles in the spin phase
 
 const M3_BODY_SPD  := 25.0
 const M3_BODY_RPM  := 20.0
@@ -45,15 +46,27 @@ const M3_DURATION  := 10.0
 const M3_RECALL_T  := 1.2
 const M3_BODY_SPAWN_INT := 1.5  # spawn chromeleonbody every 1.5s
 const M3_BODY_MOVE_SPD  := 40.0 # px/s
+# Bullet hit radius as a fraction of its half-size — keeps the hitbox tight to the
+# diamond/hex VISUAL instead of the full square texture (transparent corners don't hit).
+const BULLET_HIT_FACTOR := 0.7
+# Safety net: if any single main-phase move runs longer than this (well above the
+# longest legit move, the ~15s spin), force-recover so the boss can never get stuck
+# "spinning in place doing nothing" again, whatever sub-phase breaks.
+const MOVE_HARD_CAP := 30.0
 const M3_BODY_MOVE_RPM  := 10.0 # rotation per minute
 
-const M4_MOVE_SPD   := 150.0
-const M4_MOVE_RPM   := 40.0
-const M4_SPIN_RPM   := 80.0
-const M4_SPINUP_T   := 2.0
-const M4_CHARGE_SPD := 120.0
+const M4_SPIN_DUR         := 1.0     # spin-in-place telegraph before the first charge
+const M4_CHARGE_MAX       := 600.0   # max charge speed (px/s)
+const M4_CHARGE_ACCEL     := 3000.0  # pass-1 ramp 0 → max (px/s^2)
+const M4_OFFSCREEN_T      := 1.0     # time spent out of the map between passes
+const M4_PASSES           := 5       # total charge passes
+const M4_CHARGE_RPM       := 80.0    # spin speed while telegraphing / charging
+const M4_OVERSHOOT_MARGIN := 90.0    # how far past the edge counts as "fully out"
+const M4_FINAL_T          := 1.0     # 5th charge: decelerating glide that stops at the ending spot
 const M4_HIT_DMG    := 40
-const M4_RETURN_T   := 1.5
+# TEST TOGGLE: when true the boss only ever performs Move 4. Set false to restore the
+# full random moveset (M1-M4).
+const DEBUG_M4_ONLY := true
 
 const FINAL_HEAD_SPD  := 25.0
 const FINAL_HEAD_RPM  := 20.0
@@ -80,13 +93,14 @@ enum Phase {
 	M1_CRAWL,
 	M2_TRANSFORM, M2_MOVE, M2_SPIN, M2_RETURN,
 	M3_ACTIVE, M3_RECALL,
-	M4_TRANSFORM, M4_MOVE, M4_SPIN, M4_CHARGE, M4_RETURN_CURVE, M4_RETURN,
+	M4_TRANSFORM, M4_MOVE, M4_SPIN, M4_CHARGE, M4_OFFSCREEN, M4_FINAL, M4_RETURN_CURVE, M4_RETURN,
 	FINAL_ENTRY, FINAL_SUB1, FINAL_SUB2, FINAL_SUB3,
 	DONE
 }
 
 var _phase        := Phase.IDLE
 var _phase_timer  := 0.0
+var _move_watchdog := 0.0   # time spent in the current main-phase move (stall safety net)
 
 var _objects_container: Control          = null
 var _ship_eo:           EditableObjectNode = null
@@ -177,6 +191,13 @@ var _m3_body_spawn_acc: float = 0.0
 
 # M4 state
 var _m4_charge_dir: Vector2 = Vector2.ZERO
+var _m4_pass:           int = 0
+var _m4_charge_spd:   float = 0.0
+var _m4_offscreen_timer: float = 0.0
+var _m4_exit_pos:    Vector2 = Vector2.ZERO
+var _m4_exit_dir:    Vector2 = Vector2.ZERO
+var _m4_was_inside:     bool = false
+var _m4_hit_done:       bool = false
 
 # Final state
 var _head_wp:           Vector2 = Vector2.ZERO
@@ -366,6 +387,10 @@ func _setup_pivots() -> void:
 # =============================================================================
 
 func _begin_random_move() -> void:
+	_move_watchdog = 0.0   # fresh move → reset the stall safety net
+	if DEBUG_M4_ONLY:
+		_begin_m4()
+		return
 	var r := randi() % 4
 	if r == 0:
 		_begin_m1()
@@ -381,6 +406,17 @@ func _check_hp_or_next() -> void:
 		_begin_final()
 	else:
 		_begin_random_move()
+
+# Watchdog recovery: a main-phase move hung past MOVE_HARD_CAP. Reset every transient
+# form/orb/clone state back to the idle cluster and start a fresh move so the boss can
+# never stay stuck "spinning in place doing nothing".
+func _recover_stuck_move() -> void:
+	_cleanup_m3_body_instances()
+	_reattach_orbs()
+	_reattach_ball()
+	_show_only(_chromeleon_eo)
+	_move_watchdog = 0.0
+	_check_hp_or_next()
 
 # =============================================================================
 # Move 1 — Crawl + Shoot
@@ -465,17 +501,27 @@ func _on_m2_transform_done() -> void:
 		return
 	_phase = Phase.M2_MOVE
 
+# Rotate the ball and fly it toward `target`; return true once it arrives. Single
+# source of truth for both ball moves so the "rotate but never translate" stall
+# (which spun the boss in place forever) cannot exist in two divergent copies.
+func _ball_travel(target: Vector2, spd: float, rpm: float, delta: float) -> bool:
+	_ball_angle += rpm * TAU / 60.0 * delta
+	if not is_instance_valid(_chromeball_eo):
+		return false
+	_chromeball_eo.texture_rect.rotation = _ball_angle
+	var diff := target - _chromeball_eo.position
+	if diff.length() < spd * delta + 3.0:
+		_chromeball_eo.position = target
+		return true
+	_chromeball_eo.position += diff.normalized() * spd * delta
+	return false
+
 func _tick_m2_move(delta: float) -> void:
 	_phase_timer += delta
-	_ball_angle  += M2_MOVE_RPM * TAU / 60.0 * delta
-	if is_instance_valid(_chromeball_eo):
-		_chromeball_eo.texture_rect.rotation = _ball_angle
-		var target := BALL_SPIN_POS - _chromeball_eo.size / 2.0
-		var diff   := target - _chromeball_eo.position
-		if diff.length() < M2_MOVE_SPD * delta + 3.0:
-			_chromeball_eo.position = target
-			_phase    = Phase.M2_SPIN
-			_spin_acc = 0.0
+	if is_instance_valid(_chromeball_eo) \
+			and _ball_travel(BALL_SPIN_POS - _chromeball_eo.size / 2.0, M2_MOVE_SPD, M2_MOVE_RPM, delta):
+		_phase    = Phase.M2_SPIN
+		_spin_acc = 0.0
 
 func _tick_m2_spin(delta: float) -> void:
 	_phase_timer  += delta
@@ -489,7 +535,7 @@ func _tick_m2_spin(delta: float) -> void:
 	if _m2_shoot_acc >= M2_SHOOT_INT:
 		_m2_shoot_acc = 0.0
 		_fire_ball_4dirs()
-	if _spin_acc >= M2_SPINUP_T:
+	if _spin_acc >= M2_SPIN_DUR:
 		_begin_m2_return()
 
 func _begin_m2_return() -> void:
@@ -713,78 +759,148 @@ func _begin_m4() -> void:
 func _on_m4_transform_done() -> void:
 	if _phase != Phase.M4_TRANSFORM:
 		return
-	_phase = Phase.M4_MOVE
+	_phase    = Phase.M4_SPIN   # spin in place where it transformed (no fly-to-park)
+	_spin_acc = 0.0
+	_m4_pass  = 0
 
-func _tick_m4_move(delta: float) -> void:
-	_phase_timer += delta
-	_ball_angle  += M4_MOVE_RPM * TAU / 60.0 * delta
-	if is_instance_valid(_chromeball_eo):
-		_chromeball_eo.texture_rect.rotation = _ball_angle
-		var target := BALL_SPIN_POS - _chromeball_eo.size / 2.0
-		var diff   := target - _chromeball_eo.position
-		if diff.length() < M4_MOVE_SPD * delta + 3.0:
-			_chromeball_eo.position = target
-			_phase    = Phase.M4_SPIN
-			_spin_acc = 0.0
-
+# Spin in place for M4_SPIN_DUR as a telegraph, then launch the first charge.
 func _tick_m4_spin(delta: float) -> void:
 	_phase_timer += delta
 	_spin_acc    += delta
-	var t: float   = minf(_spin_acc / M4_SPINUP_T, 1.0)
-	var rpm: float = lerpf(M4_MOVE_RPM, M4_SPIN_RPM, t)
-	_ball_angle += rpm * TAU / 60.0 * delta
+	_ball_angle  += M4_CHARGE_RPM * TAU / 60.0 * delta
 	if is_instance_valid(_chromeball_eo):
 		_chromeball_eo.texture_rect.rotation = _ball_angle
-	if _spin_acc >= M4_SPINUP_T:
-		_phase = Phase.M4_CHARGE
-		if is_instance_valid(_chromeball_eo):
-			var ship_c := _ship_center()
-			var ball_c := _chromeball_eo.global_position + _chromeball_eo.size / 2.0
-			var d := ship_c - ball_c
-			if d.length() < 0.01:
-				d = Vector2.DOWN
-			_m4_charge_dir = d.normalized()
+	if _spin_acc >= M4_SPIN_DUR:
+		_start_m4_dash()
+
+# Begin one charge pass. Pass 0 aims at the player and accelerates from rest;
+# later passes re-enter from the exit point and charge back across at max speed.
+func _start_m4_dash() -> void:
+	if not is_instance_valid(_chromeball_eo):
+		_begin_m4_return_anim()
+		return
+	if _m4_pass == 0:
+		# First charge: accelerate from where it transformed.
+		_m4_charge_spd = 0.0
+	else:
+		# Re-enter from a point on the edge within ±90° of the exit direction. This
+		# random angle ONLY varies WHERE it comes in — the charge itself still aims at
+		# the player (set below).
+		var entry_dir := _m4_exit_dir.rotated(randf_range(-PI / 2.0, PI / 2.0))
+		_chromeball_eo.position = _offscreen_entry_point(entry_dir, M4_OVERSHOOT_MARGIN) - _chromeball_eo.size / 2.0
+		_m4_charge_spd = M4_CHARGE_MAX
+		_chromeball_eo.visible = true
+	# The charge ALWAYS aims at the player.
+	var ship_c := _ship_center()
+	var ball_c := _chromeball_eo.global_position + _chromeball_eo.size / 2.0
+	var d := ship_c - ball_c
+	_m4_charge_dir = d.normalized() if d.length() > 0.01 else Vector2.DOWN
+	_m4_was_inside = false
+	_m4_hit_done   = false
+	_phase = Phase.M4_CHARGE
+
+# A point just outside the play-area edge in direction `dir` from the centre — used to
+# vary where the ball re-enters before charging at the player.
+func _offscreen_entry_point(dir: Vector2, margin: float) -> Vector2:
+	var dn := dir.normalized()
+	if dn == Vector2.ZERO:
+		dn = Vector2.DOWN
+	var c := OC_BOUNDS.get_center()
+	var hw := OC_BOUNDS.size.x * 0.5
+	var hh := OC_BOUNDS.size.y * 0.5
+	var tx: float = hw / absf(dn.x) if absf(dn.x) > 0.0001 else INF
+	var ty: float = hh / absf(dn.y) if absf(dn.y) > 0.0001 else INF
+	return c + dn * (minf(tx, ty) + margin)
 
 func _tick_m4_charge(delta: float) -> void:
 	_phase_timer += delta
 	if not is_instance_valid(_chromeball_eo):
-		_begin_m4_return_curve()
+		_begin_m4_return_anim()
 		return
-	_chromeball_eo.position += _m4_charge_dir * M4_CHARGE_SPD * delta
-	_ball_angle += M4_SPIN_RPM * TAU / 60.0 * delta
+	_m4_charge_spd = minf(_m4_charge_spd + M4_CHARGE_ACCEL * delta, M4_CHARGE_MAX)
+	_chromeball_eo.position += _m4_charge_dir * _m4_charge_spd * delta
+	_ball_angle += M4_CHARGE_RPM * TAU / 60.0 * delta
 	_chromeball_eo.texture_rect.rotation = _ball_angle
 
-	if _ship_eo != null and is_instance_valid(_ship_eo):
-		var ball_r := Rect2(_chromeball_eo.global_position, _chromeball_eo.size)
-		var ship_r := Rect2(_ship_eo.global_position, _ship_eo.size)
-		if ball_r.intersects(ship_r):
+	var ball_c := _chromeball_eo.global_position + _chromeball_eo.size / 2.0
+
+	# Collision vs the VISIBLE (scaled) ship — one hit per pass; the dash overshoots regardless.
+	if not _m4_hit_done and _ship_eo != null and is_instance_valid(_ship_eo):
+		var sc := _ship_eo.get_global_transform() * (_ship_eo.size * 0.5)
+		var sr := _ship_eo.size.x * 0.5 * _ship_eo.scale.x
+		var br := minf(_chromeball_eo.size.x, _chromeball_eo.size.y) * 0.5
+		if ball_c.distance_to(sc) <= sr + br:
 			GameManager.ship_take_damage(M4_HIT_DMG)
 			_flash_ship_red()
-			_begin_m4_return_curve()
-			return
+			_m4_hit_done = true
 
-	var bp := _chromeball_eo.position
-	if bp.x < OC_BOUNDS.position.x - 80.0 or bp.x > OC_BOUNDS.end.x + 80.0 or \
-	   bp.y < OC_BOUNDS.position.y - 80.0 or bp.y > OC_BOUNDS.end.y + 80.0:
-		_begin_m4_return_curve()
+	if OC_BOUNDS.has_point(ball_c):
+		_m4_was_inside = true
 
-func _begin_m4_return_curve() -> void:
-	_phase = Phase.M4_RETURN_CURVE
+	# Once it has crossed the map and fully overshot the edge, end this pass.
+	if _m4_was_inside and not OC_BOUNDS.grow(M4_OVERSHOOT_MARGIN).has_point(ball_c):
+		_m4_exit_pos = _chromeball_eo.position
+		_m4_exit_dir = _m4_charge_dir
+		_m4_pass += 1
+		_chromeball_eo.visible = false   # hide off-screen so it never overlaps the side panels
+		if _m4_pass >= M4_PASSES:
+			_chromeball_eo.position = BALL_SPIN_POS - _chromeball_eo.size / 2.0
+			_chromeball_eo.visible = true
+			_begin_m4_return_anim()
+		else:
+			_m4_offscreen_timer = 0.0
+			_phase = Phase.M4_OFFSCREEN
+
+# Wait off-screen, then re-enter from the exit point and charge back across.
+func _tick_m4_offscreen(delta: float) -> void:
+	_phase_timer += delta
+	_m4_offscreen_timer += delta
+	if _m4_offscreen_timer >= M4_OFFSCREEN_T:
+		# After 4 normal overshooting charges, the 5th is the finisher.
+		if _m4_pass >= M4_PASSES - 1:
+			_begin_m4_final()
+		else:
+			_start_m4_dash()
+
+# 5th charge: enter from the player's side and glide UP to the ending position
+# (middle-up), decelerating to a full stop within M4_FINAL_T, then play the unfolding
+# (transform-back) animation there. Aims at both the player (it sweeps through the
+# player on the way) and the ending spot (where it comes to rest).
+func _begin_m4_final() -> void:
+	_phase = Phase.M4_FINAL
+	_m4_hit_done = false
 	if not is_instance_valid(_chromeball_eo):
-		_phase = Phase.M4_RETURN
+		_begin_m4_return_anim()
 		return
+	var ship_c := _ship_center()
+	var entry_dir := ship_c - BALL_SPIN_POS   # from the ending spot toward the player
+	if entry_dir.length() < 0.01:
+		entry_dir = Vector2.DOWN
+	_chromeball_eo.position = _offscreen_entry_point(entry_dir, M4_OVERSHOOT_MARGIN) - _chromeball_eo.size / 2.0
+	_chromeball_eo.visible = true
 	var target := BALL_SPIN_POS - _chromeball_eo.size / 2.0
 	var tw := create_tween()
-	tw.set_ease(Tween.EASE_IN_OUT)
+	tw.set_ease(Tween.EASE_OUT)
 	tw.set_trans(Tween.TRANS_QUAD)
-	tw.tween_property(_chromeball_eo, "position", target, M4_RETURN_T)
+	tw.tween_property(_chromeball_eo, "position", target, M4_FINAL_T)
 	tw.tween_callback(func() -> void: _begin_m4_return_anim())
 
-func _tick_m4_return_curve(delta: float) -> void:
+func _tick_m4_final(delta: float) -> void:
 	_phase_timer += delta
-	_ball_angle += M4_SPIN_RPM * TAU / 60.0 * delta
-	if is_instance_valid(_chromeball_eo):
-		_chromeball_eo.texture_rect.rotation = _ball_angle
+	if not is_instance_valid(_chromeball_eo):
+		return
+	_ball_angle += M4_CHARGE_RPM * TAU / 60.0 * delta
+	_chromeball_eo.texture_rect.rotation = _ball_angle
+	# Still dangerous as it sweeps in — one hit vs the visible ship.
+	if not _m4_hit_done and _ship_eo != null and is_instance_valid(_ship_eo):
+		var ball_c := _chromeball_eo.global_position + _chromeball_eo.size / 2.0
+		var sc := _ship_eo.get_global_transform() * (_ship_eo.size * 0.5)
+		var sr := _ship_eo.size.x * 0.5 * _ship_eo.scale.x
+		var br := minf(_chromeball_eo.size.x, _chromeball_eo.size.y) * 0.5
+		if ball_c.distance_to(sc) <= sr + br:
+			GameManager.ship_take_damage(M4_HIT_DMG)
+			_flash_ship_red()
+			_m4_hit_done = true
 
 func _begin_m4_return_anim() -> void:
 	_phase = Phase.M4_RETURN
@@ -1055,7 +1171,7 @@ func get_move_name() -> String:
 			return "Move 2: Ball Spin"
 		Phase.M3_ACTIVE, Phase.M3_RECALL:
 			return "Move 3: Orb Detach"
-		Phase.M4_TRANSFORM, Phase.M4_MOVE, Phase.M4_SPIN, Phase.M4_CHARGE, Phase.M4_RETURN_CURVE, Phase.M4_RETURN:
+		Phase.M4_TRANSFORM, Phase.M4_SPIN, Phase.M4_CHARGE, Phase.M4_OFFSCREEN, Phase.M4_FINAL, Phase.M4_RETURN:
 			return "Move 4: Ball Charge"
 		Phase.FINAL_ENTRY, Phase.FINAL_SUB1:
 			return "FINAL — Sub 1"
@@ -1226,6 +1342,15 @@ func _process(delta: float) -> void:
 	_tick_body_anim(delta)
 	_tick_projectiles(delta)
 
+	# Stall safety net — only the main-phase moves (M1-M4), never the final phase.
+	# If a move runs past MOVE_HARD_CAP a sub-phase failed to advance, so recover.
+	if _phase != Phase.FINAL_ENTRY and _phase != Phase.FINAL_SUB1 \
+			and _phase != Phase.FINAL_SUB2 and _phase != Phase.FINAL_SUB3:
+		_move_watchdog += delta
+		if _move_watchdog >= MOVE_HARD_CAP:
+			_recover_stuck_move()
+			return
+
 	match _phase:
 		Phase.M1_CRAWL:        _tick_m1(delta)
 		Phase.M2_TRANSFORM:
@@ -1244,10 +1369,10 @@ func _process(delta: float) -> void:
 			_anim_phase_timer += delta
 			if _anim_phase_timer >= 15.0:
 				_on_m4_transform_done()
-		Phase.M4_MOVE:         _tick_m4_move(delta)
 		Phase.M4_SPIN:         _tick_m4_spin(delta)
 		Phase.M4_CHARGE:       _tick_m4_charge(delta)
-		Phase.M4_RETURN_CURVE: _tick_m4_return_curve(delta)
+		Phase.M4_OFFSCREEN:    _tick_m4_offscreen(delta)
+		Phase.M4_FINAL:        _tick_m4_final(delta)
 		Phase.M4_RETURN:
 			_anim_phase_timer += delta
 			if _anim_phase_timer >= 15.0:
@@ -1409,10 +1534,14 @@ func _spawn_bullet(tex: Texture2D, origin_vp: Vector2, vel: Vector2, sz: Vector2
 	_projectiles.append({"tr": tr, "vel": vel, "dmg": 12})
 
 func _tick_projectiles(delta: float) -> void:
-	var ship_rect := Rect2()
+	# Ship hitbox = the VISIBLE (scaled) ship as a circle, matching the green debug circle
+	# the player dodges with — not the full unscaled EO rect (which is far bigger than the
+	# shrunk ship during a boss fight and caused hits after a clean dodge).
+	var ship_c := Vector2.INF
+	var ship_r := 0.0
 	if _ship_eo != null and is_instance_valid(_ship_eo):
-		var hit_vp := Rect2(_ship_eo.global_position, _ship_eo.size)
-		ship_rect = Rect2(hit_vp.position - OC_BOUNDS.position, hit_vp.size)
+		ship_c = _ship_eo.get_global_transform() * (_ship_eo.size * 0.5) - OC_BOUNDS.position
+		ship_r = _ship_eo.size.x * 0.5 * _ship_eo.scale.x
 	var clip_rect := Rect2(Vector2.ZERO, OC_BOUNDS.size)
 	var i := _projectiles.size() - 1
 	while i >= 0:
@@ -1421,12 +1550,16 @@ func _tick_projectiles(delta: float) -> void:
 		if not is_instance_valid(tr):
 			_projectiles.remove_at(i); i -= 1; continue
 		tr.position += (p["vel"] as Vector2) * delta
-		var prc := Rect2(tr.position, tr.size)
-		if ship_rect != Rect2() and prc.intersects(ship_rect):
-			GameManager.ship_take_damage(int(p["dmg"]))
-			_flash_ship_red()
-			tr.queue_free()
-			_projectiles.remove_at(i); i -= 1; continue
+		# Bullet hitbox = a circle tight to the diamond/hex visual (BULLET_HIT_FACTOR),
+		# so the transparent corners of the square texture no longer register hits.
+		if ship_r > 0.0:
+			var bc := tr.position + tr.size * 0.5
+			var br := minf(tr.size.x, tr.size.y) * 0.5 * BULLET_HIT_FACTOR
+			if bc.distance_to(ship_c) <= ship_r + br:
+				GameManager.ship_take_damage(int(p["dmg"]))
+				_flash_ship_red()
+				tr.queue_free()
+				_projectiles.remove_at(i); i -= 1; continue
 		var ctr := tr.position + tr.size / 2.0
 		if not clip_rect.grow(60.0).has_point(ctr):
 			tr.queue_free()

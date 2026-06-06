@@ -584,6 +584,17 @@ func _handle_ship_movement(delta: float) -> void:
 		SCREEN_BOUNDS.position.y,
 		SCREEN_BOUNDS.end.y - _spaceship_origin_sz.y)
 
+# Smoothly tween the ship between its normal (0.70) and boost/boss (0.35) scale.
+# Pivot is centred each frame in _process, so it scales around the ship's middle.
+func _animate_scale_transition(target_mult: float) -> void:
+	if _spaceship_eo == null or not is_instance_valid(_spaceship_eo):
+		return
+	if _scale_tween != null and _scale_tween.is_valid():
+		_scale_tween.kill()
+	_scale_tween = create_tween()
+	_scale_tween.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+	_scale_tween.tween_property(_spaceship_eo, "scale", Vector2(target_mult, target_mult), 0.25)
+
 # ── Static frame (frame 0 GIF thay cho PNG khi không bắn) ────────────────────
 
 func _refresh_static_frames() -> void:
