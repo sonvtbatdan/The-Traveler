@@ -116,7 +116,20 @@ func _tick_shield(delta: float) -> void:
 		ship_shield = minf(_shield_max, ship_shield + (_shield_max / SHIELD_REGEN_TIME) * delta)
 		ship_shield_changed.emit(ship_shield)
 
+# ── Hit-stop (crit micro-freeze) ──────────────────────────────────────────────
+# Safe, scoped freeze via Engine.time_scale (NOT pausing the SceneTree). Restored on
+# a REAL-time deadline (immune to the scaling), so it always resumes and can't get
+# stuck; overlapping crits just extend the deadline.
+var _hitstop_until_ms: int = 0
+
+func hit_stop(ms: float, scale: float = 0.0) -> void:
+	_hitstop_until_ms = maxi(_hitstop_until_ms, Time.get_ticks_msec() + int(ms))
+	Engine.time_scale = scale
+
 func _process(delta: float) -> void:
+	if _hitstop_until_ms > 0 and Time.get_ticks_msec() >= _hitstop_until_ms:
+		_hitstop_until_ms = 0
+		Engine.time_scale = 1.0
 	_iframe_timer = maxf(0.0, _iframe_timer - delta)
 	if ship_energy < SHIP_MAX_ENERGY:
 		ship_energy = minf(SHIP_MAX_ENERGY, ship_energy + ENERGY_REGEN * delta)

@@ -122,6 +122,50 @@ var _aura_time := 0.0
 # Auto-fire toggle (applies to the primary slot only)
 var _auto_fire := false
 
+# ── Crit + floating damage numbers ────────────────────────────────────────────
+# Crit mechanic: roll crit_chance% per hit; on a crit, multiply damage by
+# (1 + crit_damage/100). Both read via get_weapon_stat so affixes raise them.
+const BASE_CRIT_CHANCE := 20   # % — TEMP TEST VALUE (every hit crits). SET BACK TO 0.0 when done!
+const BASE_CRIT_DAMAGE := 100.0   # % extra damage on a crit (100 = double)
+# Floating number look (Phase 1 = normal hits).
+# Show the real boss hitbox rect (the ship circle is drawn by gun_system).
+const SHOW_HITBOXES    := true
+const HITBOX_BOSS_COLOR := Color(1.0, 0.30, 0.30, 0.9)
+const DMG_NUM_COLOR    := Color(0.95, 0.97, 1.0)   # readable white over space
+const DMG_NUM_SIZE     := 13       # (−30% from 18)
+const DMG_NUM_LIFETIME := 0.7      # seconds before it fades out + frees
+const DMG_NUM_RISE     := 36.0     # px it floats upward
+const DMG_NUM_MAX      := 50       # cap on live numbers (fast tickers can't flood/lag)
+# Crit number / flash (Phase 2).
+const CRIT_NUM_SIZE    := 21       # (−30% from 30)
+const CRIT_POP_SCALE   := 1.6      # pops to this then settles to 1.0
+const CRIT_FLASH_COLOR := Color(1.0, 0.75, 0.25)
+const CRIT_FLASH_SIZE  := 46.0
+# Crit number LOOK — gold-gradient text + dark outline + starburst (no "CRIT!" word).
+const CRIT_GRAD_TOP     := Color("ffd24a")   # gradient top (bright warm yellow)
+const CRIT_GRAD_BOTTOM  := Color("f08a1d")   # gradient bottom (orange-gold)
+const CRIT_TEXT_OUTLINE := Color("3a1e0a")   # thick dark brown-black outline
+const CRIT_OUTLINE_SIZE := 6                  # outline thickness (px)
+const CRIT_STAR_CORE    := Color("f5641e")   # starburst core (orange)
+const CRIT_STAR_POINTS  := Color("c8341a")   # starburst tips (darker red-orange)
+const CRIT_STAR_OUTLINE := Color("3a1e0a")   # starburst dark outline
+const CRIT_STAR_SCALE   := 0.85               # star size relative to the number height
+const CRIT_TEXT_SHADER := "shader_type canvas_item;
+uniform vec4 top_color : source_color = vec4(1.0, 0.82, 0.29, 1.0);
+uniform vec4 bottom_color : source_color = vec4(0.94, 0.54, 0.11, 1.0);
+uniform float height = 24.0;
+varying float v_y;
+void vertex() { v_y = VERTEX.y / max(height, 1.0); }
+void fragment() { COLOR.rgb = mix(top_color.rgb, bottom_color.rgb, clamp(v_y, 0.0, 1.0)); }
+"
+const HITSTOP_MS       := 0        # crit micro-freeze (real ms); 0 = OFF (set ~40-60 to re-enable)
+const HITSTOP_SCALE    := 0.0      # Engine.time_scale during hit-stop (0 = full freeze)
+
+var _dmg_layer: CanvasLayer = null   # high CanvasLayer for floating numbers (above gameplay)
+var _dmg_host: Control = null
+var _dmg_numbers: Array = []         # live number nodes, for the DMG_NUM_MAX cap
+var _crit_text_shader: Shader = null # gold-gradient fill for crit numbers
+
 # Batch D SHARED pools (source-agnostic — a bullet/parasite is the same whoever fired it)
 var _rift_layer: CanvasLayer = null   # high CanvasLayer hosting both slots' vortex nodes
 var _orbital_node: Control = null     # draws both slots' orbiting balls + lightning (above the ship)
@@ -271,6 +315,19 @@ func setup() -> void:
 	_rift_layer.add_child(_orbital_node)
 	_orbital_node.draw.connect(_draw_orbitals_all)
 
+	# Floating damage numbers: their own high CanvasLayer (above gameplay, below HUD),
+	# host at the play-area origin so hit positions (StreamScreen-local) map straight in.
+	_dmg_layer = CanvasLayer.new()
+	_dmg_layer.layer = 13
+	add_child(_dmg_layer)
+	_dmg_host = Control.new()
+	_dmg_host.position = Vector2(270.0, 8.0)
+	_dmg_host.size = Vector2(700.0, 764.0)
+	_dmg_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_dmg_layer.add_child(_dmg_host)
+	_crit_text_shader = Shader.new()
+	_crit_text_shader.code = CRIT_TEXT_SHADER
+
 ## One vortex ColorRect with its own ShaderMaterial (shares the shader + noise texture).
 func _make_rift_node(shader: Shader, tex: Texture2D) -> ColorRect:
 	var mat := ShaderMaterial.new()
@@ -414,14 +471,16 @@ func _aura_tick(radius: float, dmg: float) -> void:
 		var hits: Array = ast.damage_area(center, radius, dmg)
 		for p: Vector2 in hits:
 			_arcs.append({"a": center, "b": p, "age": 0.0, "max_age": 0.18})
+			_on_damage_dealt(p, dmg, false)   # aura = area DoT → no crit
 	# Boss also takes aura damage if within range.
 	var boss_rect := _boss_rect_local()
 	if boss_rect.has_area() and _circle_hits_rect(center, radius, boss_rect):
 		GameManager.take_boss_damage(int(dmg))
-		var bf := get_tree().get_first_node_in_group("chromeleon_fight")
+		var bf := get_tree().get_first_node_in_group("boss_fight")
 		if bf != null and bf.has_method("flash_boss_hit"):
 			bf.flash_boss_hit()
 		_arcs.append({"a": center, "b": boss_rect.position + boss_rect.size * 0.5, "age": 0.0, "max_age": 0.18})
+		_on_damage_dealt(boss_rect.position + boss_rect.size * 0.5, dmg, false)
 
 func _update_bullets(delta: float) -> void:
 	var ast := _ast()
@@ -450,10 +509,11 @@ func _update_bullets(delta: float) -> void:
 			var r: float = _ball_radius(b)
 			if boss_rect.has_area() and _circle_hits_rect(pos, maxf(r, 4.0), boss_rect):
 				GameManager.take_boss_damage(int(b["dmg"]))
-				var bf := get_tree().get_first_node_in_group("chromeleon_fight")
+				var bf := get_tree().get_first_node_in_group("boss_fight")
 				if bf != null and bf.has_method("flash_boss_hit"):
 					bf.flash_boss_hit()
 				_spawn_impact(pos, true)
+				_on_damage_dealt(pos, float(b["dmg"]), bool(b.get("is_crit", false)))
 				b["dmg"] = 0.0   # boss absorbs the whole ball
 			else:
 				for et: Dictionary in _extra_targets:
@@ -461,25 +521,29 @@ func _update_bullets(delta: float) -> void:
 					if er.has_area() and _circle_hits_rect(pos, maxf(r, 4.0), er):
 						(et["on_hit"] as Callable).call(float(b["dmg"]))
 						_spawn_impact(pos, true)
+						_on_damage_dealt(pos, float(b["dmg"]), bool(b.get("is_crit", false)))
 						b["dmg"] = 0.0
 						break
 			if ast != null and ast.has_method("pierce_at") and float(b["dmg"]) > 0.0:
 				var absorbed: float = ast.pierce_at(pos, maxf(r, 4.0), float(b["dmg"]))
 				if absorbed > 0.0:
 					_spawn_impact(pos, true)
+					_on_damage_dealt(pos, absorbed, bool(b.get("is_crit", false)))
 					b["dmg"] = float(b["dmg"]) - absorbed
 			if float(b["dmg"]) <= 0.5:
 				remove = true
 		else:
 			if ast != null and ast.has_method("damage_point") and ast.damage_point(pos, BULLET_HIT_RADIUS, float(b["dmg"])):
 				_spawn_impact(pos, false)
+				_on_damage_dealt(pos, float(b["dmg"]), bool(b.get("is_crit", false)))
 				remove = true
 			elif boss_rect.has_area() and boss_rect.has_point(pos):
 				GameManager.take_boss_damage(int(b["dmg"]))
-				var bf := get_tree().get_first_node_in_group("chromeleon_fight")
+				var bf := get_tree().get_first_node_in_group("boss_fight")
 				if bf != null and bf.has_method("flash_boss_hit"):
 					bf.flash_boss_hit()
 				_spawn_impact(pos, false)
+				_on_damage_dealt(pos, float(b["dmg"]), bool(b.get("is_crit", false)))
 				remove = true
 			else:
 				for et: Dictionary in _extra_targets:
@@ -487,6 +551,7 @@ func _update_bullets(delta: float) -> void:
 					if er.has_area() and er.has_point(pos):
 						(et["on_hit"] as Callable).call(float(b["dmg"]))
 						_spawn_impact(pos, false)
+						_on_damage_dealt(pos, float(b["dmg"]), bool(b.get("is_crit", false)))
 						remove = true
 						break
 				if not remove and _multi_hit_provider.is_valid():
@@ -495,6 +560,7 @@ func _update_bullets(delta: float) -> void:
 						if mr.has_area() and mr.has_point(pos):
 							(mh["on_hit"] as Callable).call(float(b["dmg"]))
 							_spawn_impact(pos, false)
+							_on_damage_dealt(pos, float(b["dmg"]), bool(b.get("is_crit", false)))
 							remove = true
 							break
 		# Cone pellets: vanish once they've travelled their max range.
@@ -519,7 +585,7 @@ func _tick_fx(arr: Array, delta: float) -> void:
 # ── Firing ────────────────────────────────────────────────────────────────────
 
 func _fire_primary(def: Dictionary) -> void:
-	_spawn_bullet(float(get_weapon_stat(def, "damage", 1.0)), false)
+	_spawn_bullet(float(get_weapon_stat(def, "damage", 1.0)), false, 0.0, def)
 
 ## Data-driven fire dispatch: one shot of the weapon, branched on its fire_type.
 ## Returns false if the shot couldn't happen (e.g. not enough energy) so the
@@ -582,7 +648,7 @@ func _fire_homing(def: Dictionary) -> void:
 	_missiles.append({
 		"pos": p0, "vel": Vector2.ZERO, "dmg": dmg, "target": get_local_mouse_position(),
 		"phase": "eject", "pt": 0.0, "speed": 0.0, "seek_t": 0.0, "life": 0.0, "facing": eject_dir.angle(),
-		"p0": p0, "p1": p1, "p2": p2, "ctrl": ctrl,
+		"p0": p0, "p1": p1, "p2": p2, "ctrl": ctrl, "def": def,
 	})
 	_spawn_impact(p0, false)
 
@@ -647,17 +713,17 @@ func _update_missiles(delta: float) -> void:
 		if not explode and float(m["life"]) > MISSILE_MAX_LIFE:
 			explode = true
 		if explode:
-			_missile_explode(m["pos"], float(m["dmg"]))
+			_missile_explode(m["pos"], float(m["dmg"]), m.get("def", {}))
 			_missiles.remove_at(i)
 		else:
 			_missiles[i] = m
 		i -= 1
 
 ## AoE blast: damage every target whose center is within MISSILE_AOE_RADIUS.
-func _missile_explode(pos: Vector2, dmg: float) -> void:
+func _missile_explode(pos: Vector2, dmg: float, def: Dictionary = {}) -> void:
 	for t: Dictionary in _collect_targets():
 		if (t["center"] as Vector2).distance_to(pos) <= MISSILE_AOE_RADIUS + float(t["radius"]):
-			_apply_to(t, dmg)
+			_apply_to(t, dmg, def)
 	_spawn_impact(pos, true)   # big flash
 
 func _fire_cone(def: Dictionary) -> void:
@@ -674,9 +740,11 @@ func _fire_cone(def: Dictionary) -> void:
 		var t := 0.0 if pellets <= 1 else (float(i) / float(pellets - 1) - 0.5)
 		var ang := base + t * spread
 		var dir := Vector2(cos(ang), sin(ang))
+		var r := _roll_crit(def, dmg)   # each pellet rolls its own crit
 		_bullets.append({
-			"pos": muzzle, "vel": dir * BULLET_SPEED, "dmg": dmg, "big": false,
-			"life": 0.0, "dmg_ref": dmg, "max_dist": rng, "travel": 0.0,
+			"pos": muzzle, "vel": dir * BULLET_SPEED, "dmg": float(r["dmg"]), "big": false,
+			"life": 0.0, "dmg_ref": float(r["dmg"]), "max_dist": rng, "travel": 0.0,
+			"is_crit": bool(r["crit"]),
 		})
 	_spawn_impact(muzzle, false)
 
@@ -737,19 +805,27 @@ func _collect_targets() -> Array:
 					"kind": "multi", "on_hit": mh["on_hit"]})
 	return out
 
-## Apply damage to one target dict (routes by kind).
-func _apply_to(t: Dictionary, dmg: float) -> void:
+## Apply damage to one target dict (routes by kind). If `def` is given, the hit
+## rolls a crit (raising damage) and the floating number reflects it.
+func _apply_to(t: Dictionary, dmg: float, def: Dictionary = {}) -> void:
+	var final := dmg
+	var crit := false
+	if not def.is_empty():
+		var r := _roll_crit(def, dmg)
+		final = r["dmg"]
+		crit = r["crit"]
 	match String(t.get("kind", "")):
 		"rock":
 			var ast := _ast()
 			if ast != null and ast.has_method("damage_point"):
-				ast.damage_point(t["center"], BULLET_HIT_RADIUS, dmg)
+				ast.damage_point(t["center"], BULLET_HIT_RADIUS, final)
 		"boss":
-			GameManager.take_boss_damage(int(dmg))
+			GameManager.take_boss_damage(int(final))
 		_:
 			var oh: Callable = t.get("on_hit", Callable())
 			if oh.is_valid():
-				oh.call(dmg)
+				oh.call(final)
+	_on_damage_dealt(t.get("center", Vector2.ZERO), final, crit)
 
 ## Nearest target dict to `from` within `max_dist`, skipping any whose center is in
 ## `exclude`. Returns {} if none.
@@ -815,7 +891,7 @@ func _update_beam(ctx: Dictionary, def: Dictionary, delta: float) -> void:
 		ctx["beam_to"] = anchor["center"]
 		ctx["beam_hit"] = true
 		if do_tick:   # energy already drained continuously above; tick only deals damage
-			_apply_to(anchor, dmg)
+			_apply_to(anchor, dmg, def)
 			ctx["cd"] = interval
 	else:  # hitscan_beam
 		var max_len := get_weapon_stat(def, "range_px", 760.0)
@@ -835,7 +911,7 @@ func _update_beam(ctx: Dictionary, def: Dictionary, delta: float) -> void:
 			ctx["beam_to"] = muzzle + dir * max_len
 		if do_tick:   # energy already drained continuously above; tick only deals damage
 			if not hit.is_empty():
-				_apply_to(hit, dmg)
+				_apply_to(hit, dmg, def)
 			ctx["cd"] = interval
 
 # ── Chain weapon (Arc) ────────────────────────────────────────────────────────
@@ -857,7 +933,7 @@ func _fire_chain(def: Dictionary) -> void:
 		if cur.is_empty():
 			break
 		var c: Vector2 = cur["center"]
-		_apply_to(cur, dmg)
+		_apply_to(cur, dmg, def)
 		_arcs.append({"a": prev, "b": c, "age": 0.0, "max_age": 0.22})
 		hit_centers.append(c)
 		_spawn_impact(c, false)
@@ -868,21 +944,33 @@ func _fire_primary_charged(def: Dictionary, charge: float) -> void:
 	var maxc: float = maxf(0.1, float(_stat(def, "cooldown_sec", 1.5)))
 	var max_dmg: float = float(_stat(def, "damage", 1.0))
 	var dmg: float = max_dmg * clampf(charge / maxc, 0.0, 1.0)
-	_spawn_bullet(dmg, true, max_dmg)
+	_spawn_bullet(dmg, true, max_dmg, def)
 
-func _spawn_bullet(dmg: float, big: bool, dmg_ref: float = 0.0) -> void:
+func _spawn_bullet(dmg: float, big: bool, dmg_ref: float = 0.0, def: Dictionary = {}) -> void:
 	var muzzle := _muzzle()
 	var dir := (get_local_mouse_position() - muzzle)
 	if dir.length() < 0.01:
 		dir = Vector2.UP
 	dir = dir.normalized()
+	var ref := dmg_ref if dmg_ref > 0.0 else dmg
+	# Roll crit ONCE at spawn; bake the multiplier into both dmg and the size-reference
+	# (so the gauss ball keeps its size + pierce maths) and flag the bullet as a crit.
+	var is_crit := false
+	if not def.is_empty():
+		var r := _roll_crit(def, dmg)
+		if bool(r["crit"]):
+			var mult := float(r["dmg"]) / maxf(0.0001, dmg)
+			dmg = float(r["dmg"])
+			ref *= mult
+			is_crit = true
 	var b: Dictionary = {
 		"pos": muzzle,
 		"vel": dir * (GAUSS_SPEED if big else BULLET_SPEED),
 		"dmg": dmg,
 		"big": big,
 		"life": 0.0,
-		"dmg_ref": dmg_ref if dmg_ref > 0.0 else dmg,   # damage that maps to "full size"
+		"dmg_ref": ref,   # damage that maps to "full size"
+		"is_crit": is_crit,
 	}
 	if big:
 		# Fixed per-ball lumpiness so the metal ball keeps its shape as it shrinks.
@@ -905,6 +993,136 @@ func _spawn_impact(pos: Vector2, big: bool) -> void:
 		"max_age": 0.32 if big else 0.20,
 		"radius": 30.0 if big else 12.0,
 	})
+
+# ── Crit + floating damage numbers ────────────────────────────────────────────
+## Roll a crit for this hit. Returns {dmg, crit}. crit_chance/crit_damage read via
+## get_weapon_stat → AFFIX HOOK: the crit_chance/crit_damage affixes raise them.
+func _roll_crit(def: Dictionary, base: float) -> Dictionary:
+	var chance := get_weapon_stat(def, "crit_chance", BASE_CRIT_CHANCE)
+	var crit := randf() * 100.0 < chance
+	var dmg := base
+	if crit:
+		dmg = base * (1.0 + get_weapon_stat(def, "crit_damage", BASE_CRIT_DAMAGE) / 100.0)
+	return {"dmg": dmg, "crit": crit}
+
+## Single hook fired whenever damage lands: floating number always; on a crit also a
+## bigger coloured impact flash + a brief hit-stop.
+func _on_damage_dealt(pos: Vector2, amount: float, crit: bool) -> void:
+	_spawn_damage_number(pos, amount, crit)
+	if crit:
+		_spawn_crit_flash(pos)
+		if HITSTOP_MS > 0:   # set HITSTOP_MS to 0 to disable the crit micro-freeze entirely
+			GameManager.hit_stop(HITSTOP_MS, HITSTOP_SCALE)
+
+## Punchier, coloured impact ring + burst at a crit hit (reuses the _impacts pool).
+func _spawn_crit_flash(pos: Vector2) -> void:
+	_impacts.append({
+		"pos": pos,
+		"age": 0.0,
+		"max_age": 0.30,
+		"radius": CRIT_FLASH_SIZE,
+		"color": CRIT_FLASH_COLOR,   # marks it as a crit flash in _draw()
+	})
+
+## Floating damage number at a hit position: rises + fades, then frees itself. Normal
+## hits are a small white outlined number; crits are a gold-gradient number with a
+## thick dark outline and a starburst behind the left (built as one cluster Control).
+func _spawn_damage_number(world_pos: Vector2, amount: float, is_crit: bool) -> void:
+	if _dmg_host == null:
+		return
+	while _dmg_numbers.size() >= DMG_NUM_MAX:   # cap → drop oldest so fast tickers can't flood
+		var old: Variant = _dmg_numbers.pop_front()
+		if is_instance_valid(old):
+			(old as Node).queue_free()
+	var node: Control = _make_crit_number(roundi(amount)) if is_crit else _make_normal_number(roundi(amount))
+	node.pivot_offset = node.size * 0.5
+	node.position = world_pos - node.size * 0.5 + Vector2(randf_range(-6.0, 6.0), -10.0)
+	if is_crit:
+		node.scale = Vector2.ONE * CRIT_POP_SCALE
+	_dmg_host.add_child(node)
+	_dmg_numbers.append(node)
+	# Rise + fade as one unit; crits also pop their scale back down to 1.0.
+	var tw := create_tween().set_parallel(true)
+	tw.tween_property(node, "position:y", node.position.y - DMG_NUM_RISE, DMG_NUM_LIFETIME)
+	tw.tween_property(node, "modulate:a", 0.0, DMG_NUM_LIFETIME).set_ease(Tween.EASE_IN)
+	if is_crit:
+		tw.tween_property(node, "scale", Vector2.ONE, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.chain().tween_callback(func() -> void:
+		_dmg_numbers.erase(node)
+		node.queue_free())
+
+func _dmg_font() -> FontFile:
+	return load("res://assets/fonts/Gameplay.ttf") as FontFile
+
+## One number Label with explicit fill/outline (used for both normal numbers and the
+## crit cluster's two stacked layers).
+func _make_dmg_label(text: String, size: int, fill: Color, outline_col: Color, outline_size: int) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var font := _dmg_font()
+	if font != null:
+		l.add_theme_font_override("font", font)
+	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_color_override("font_color", fill)
+	l.add_theme_color_override("font_outline_color", outline_col)
+	l.add_theme_constant_override("outline_size", outline_size)
+	l.reset_size()
+	return l
+
+## Plain white outlined number.
+func _make_normal_number(n: int) -> Control:
+	return _make_dmg_label(str(n), DMG_NUM_SIZE, DMG_NUM_COLOR, Color(0, 0, 0, 0.9), 5)
+
+## Crit cluster: starburst (back) + dark-outline number + gold-gradient number, as a
+## single Control so it floats/pops/fades as one unit.
+func _make_crit_number(n: int) -> Control:
+	var cont := Control.new()
+	cont.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Back layer = the number rendered all-dark with a thick outline → the hard outline.
+	var back := _make_dmg_label(str(n), CRIT_NUM_SIZE, CRIT_TEXT_OUTLINE, CRIT_TEXT_OUTLINE, CRIT_OUTLINE_SIZE)
+	var lblsize := back.size
+	cont.custom_minimum_size = lblsize
+	cont.size = lblsize
+	# Starburst FIRST (drawn behind), anchored to the left of the number.
+	var star := Control.new()
+	star.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sr := CRIT_NUM_SIZE * CRIT_STAR_SCALE
+	star.position = Vector2(-sr * 0.25, lblsize.y * 0.5)
+	star.draw.connect(_draw_crit_star.bind(star, sr))
+	cont.add_child(star)
+	star.queue_redraw()
+	cont.add_child(back)
+	# Front layer = the gradient fill (no outline), exactly on top → dark rim shows.
+	var front := _make_dmg_label(str(n), CRIT_NUM_SIZE, Color.WHITE, Color(0, 0, 0, 0.0), 0)
+	var mat := ShaderMaterial.new()
+	mat.shader = _crit_text_shader
+	mat.set_shader_parameter("top_color", CRIT_GRAD_TOP)
+	mat.set_shader_parameter("bottom_color", CRIT_GRAD_BOTTOM)
+	mat.set_shader_parameter("height", maxf(1.0, lblsize.y))
+	front.material = mat
+	cont.add_child(front)
+	return cont
+
+## Spiky impact star, centred at the node's local origin (orange core, redder tips).
+func _draw_crit_star(node: Control, radius: float) -> void:
+	var spikes := 9
+	var inner := radius * 0.45
+	node.draw_colored_polygon(_star_points(Vector2.ZERO, radius + 2.0, inner + 2.0, spikes), CRIT_STAR_OUTLINE)
+	var pts := _star_points(Vector2.ZERO, radius, inner, spikes)
+	var cols := PackedColorArray()
+	for i in pts.size():
+		cols.append(CRIT_STAR_POINTS if i % 2 == 0 else CRIT_STAR_CORE)   # outer tips darker
+	node.draw_polygon(pts, cols)
+
+func _star_points(center: Vector2, outer_r: float, inner_r: float, spikes: int) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	var n := spikes * 2
+	for i in n:
+		var r := outer_r if i % 2 == 0 else inner_r
+		var ang := -PI / 2.0 + TAU * float(i) / float(n)
+		pts.append(center + Vector2(cos(ang), sin(ang)) * r)
+	return pts
 
 # ── Batch D weapons: growing_zone / dot_stack / minion ────────────────────────
 # Rift Maker vortex shader — based on the MIT-licensed "2D Swirling Vortex Portal"
@@ -1045,13 +1263,16 @@ func _tick_zone(ctx: Dictionary, def: Dictionary, delta: float) -> void:
 		var hit_dmg := dmg_ps * interval
 		var ast := _ast()
 		if ast != null and ast.has_method("damage_area"):
-			ast.damage_area(pos, radius, hit_dmg)
+			var zhits: Array = ast.damage_area(pos, radius, hit_dmg)
+			if not zhits.is_empty():
+				_on_damage_dealt(pos, hit_dmg, false)   # one number per pulse (area DoT → no crit)
 		var br := _boss_rect_local()
 		if br.has_area() and _circle_hits_rect(pos, radius, br):
 			GameManager.take_boss_damage(int(maxf(1.0, hit_dmg)))
-			var bf := get_tree().get_first_node_in_group("chromeleon_fight")
+			var bf := get_tree().get_first_node_in_group("boss_fight")
 			if bf != null and bf.has_method("flash_boss_hit"):
 				bf.flash_boss_hit()
+			_on_damage_dealt(br.position + br.size * 0.5, hit_dmg, false)
 
 # ── Parasite Gun (dot_stack) ───────────────────────────────────────────────────
 func _fire_parasites(def: Dictionary) -> void:
@@ -1112,10 +1333,13 @@ func _update_parasites(delta: float) -> void:
 					dead = true; break
 				if ast == null or not ast.has_method("damage_asteroid") or not ast.damage_asteroid(h, hit_dmg):
 					dead = true; break   # asteroid destroyed → parasite dies with it
+				_on_damage_dealt(h.position + h.size * 0.5, hit_dmg, false)   # DoT → no crit
 			else:  # boss
-				if not _boss_rect_local().has_area():
+				var br2 := _boss_rect_local()
+				if not br2.has_area():
 					dead = true; break
 				GameManager.take_boss_damage(int(maxf(1.0, hit_dmg)))
+				_on_damage_dealt(br2.position + br2.size * 0.5, hit_dmg, false)
 		if dead:
 			_dots.remove_at(di)
 		di -= 1
@@ -1136,10 +1360,9 @@ func _tick_swarm(ctx: Dictionary, def: Dictionary, delta: float) -> void:
 		bats.remove_at(bats.size() - 1)
 	# Boss controllers that can have their projectiles body-blocked.
 	var bosses: Array = []
-	for g: String in ["boss_fight", "chromeleon_fight"]:
-		var node := get_tree().get_first_node_in_group(g)
-		if node != null and node.has_method("consume_projectile_near"):
-			bosses.append(node)
+	var bmgr := get_tree().get_first_node_in_group("boss_fight")
+	if bmgr != null and bmgr.has_method("consume_projectile_near"):
+		bosses.append(bmgr)
 	var targets := _collect_targets()
 	for bi in bats.size():
 		var bat: Dictionary = bats[bi]
@@ -1161,7 +1384,7 @@ func _tick_swarm(ctx: Dictionary, def: Dictionary, delta: float) -> void:
 			bat["atk_acc"] = 0.0
 			var tdict := _nearest_target_dict(bat["pos"], targets, BAT_HIT_RANGE + 24.0)
 			if not tdict.is_empty():
-				_apply_to(tdict, dmg)
+				_apply_to(tdict, dmg, def)
 		# Body-block: pop the nearest boss projectile; the bat dies on contact.
 		for node in bosses:
 			var res: Dictionary = node.consume_projectile_near(bat["pos"], BAT_BLOCK_RADIUS)
@@ -1230,7 +1453,7 @@ func _update_orbital(ctx: Dictionary, delta: float) -> void:
 				best_d = d
 				best = t
 		if not best.is_empty():
-			_apply_to(best, dmg)
+			_apply_to(best, dmg, def)
 			hit_cd[k] = ORBITAL_HIT_COOLDOWN
 
 ## All orbitals visuals (drawn on _orbital_node, above the ship).
@@ -1319,6 +1542,21 @@ func _draw_bats(bats: Array) -> void:
 # ── Drawing ───────────────────────────────────────────────────────────────────
 
 func _draw() -> void:
+	# Real boss hitboxes (red) — the exact shapes weapons test against; auto-hide when gone.
+	if SHOW_HITBOXES:
+		var br := _boss_rect_local()                      # main body / chromehead
+		if br.has_area():
+			draw_rect(br, HITBOX_BOSS_COLOR, false, 2.0)
+		for et: Dictionary in _extra_targets:             # Chromeleon orbs (add_hit_target)
+			var er: Rect2 = (et["get_rect"] as Callable).call()
+			if er.has_area():
+				draw_rect(er, HITBOX_BOSS_COLOR, false, 2.0)
+		if _multi_hit_provider.is_valid():                # Chromeleon shielded bullets
+			for mh: Dictionary in _multi_hit_provider.call():
+				var mr: Rect2 = mh["rect"]
+				if mr.has_area():
+					draw_rect(mr, HITBOX_BOSS_COLOR, false, 2.0)
+
 	# Secondary aura ring
 	var sdef := _secondary_def()
 	if not sdef.is_empty() and String(sdef.get("fire_mode", "")) == "aura":
@@ -1361,10 +1599,16 @@ func _draw() -> void:
 		]), Color(1.0, 0.5, 0.1))
 		draw_circle(mp, 4.0, Color(1.0, 0.9, 0.5))
 
-	# Impacts (expanding fading ring)
+	# Impacts (expanding fading ring). A crit flash carries a "color" → bigger + a burst.
 	for im: Dictionary in _impacts:
 		var f: float = float(im["age"]) / float(im["max_age"])
-		_draw_ring(im["pos"], float(im["radius"]) * f, Color(1.0, 0.85, 0.4, clampf(1.0 - f, 0.0, 1.0)), 2.0)
+		var a: float = clampf(1.0 - f, 0.0, 1.0)
+		var icol: Color = im.get("color", Color(1.0, 0.85, 0.4))
+		if im.has("color"):
+			draw_circle(im["pos"], float(im["radius"]) * f * 0.7, Color(icol.r, icol.g, icol.b, 0.35 * a))   # burst
+			_draw_ring(im["pos"], float(im["radius"]) * f, Color(icol.r, icol.g, icol.b, a), 3.0)
+		else:
+			_draw_ring(im["pos"], float(im["radius"]) * f, Color(icol.r, icol.g, icol.b, a), 2.0)
 
 	# Asteroid HP bars
 	var ast := _ast()
@@ -1737,10 +1981,10 @@ const _AFFIX_ENERGY_KEYS   := ["energy", "activation_energy"]
 ## stat with any rolled affixes on the equipped instance applied. (Affixes ride on
 ## the def via `def["affixes"]`, attached in _equipped_def from the item instance.)
 ##
-## WIRED affixes (Phase 2): damage_flat & damage_percentage → damage; fire_rate →
-## cooldown/tick interval (faster); energy_consumption_percentage → energy cost.
+## WIRED affixes: damage_flat & damage_percentage → damage; fire_rate → cooldown/tick
+## interval (faster); energy_consumption_percentage → energy cost; crit_chance &
+## crit_damage → the crit roll (_roll_crit reads them through here).
 ## NOT YET WIRED (need new mechanics, not just a stat — left honest as TODO):
-##   crit_chance, crit_damage          → need a crit roll at hit time
 ##   projectile_speed                  → bullet speed is a shared const, not a stat key
 ##   armor_penetration                 → no enemy-armor system
 ##   poison, burn, slow, freeze        → need status-effect system
@@ -1772,6 +2016,12 @@ func get_weapon_stat(def: Dictionary, key: String, fallback: float) -> float:
 			"energy_consumption_percentage":
 				if key in _AFFIX_ENERGY_KEYS:
 					v = v * (1.0 + val / 100.0)        # val is negative → cheaper
+			"crit_chance":
+				if key == "crit_chance":
+					v += val                           # affix adds to base crit chance
+			"crit_damage":
+				if key == "crit_damage":
+					v += val                           # affix adds to base crit damage
 	return v * (1.0 + dmg_pct / 100.0)                 # dmg_pct is 0 for non-damage keys
 
 func _primary_def() -> Dictionary:
@@ -1807,13 +2057,15 @@ func _ast() -> Node:
 func _boss_rect_local() -> Rect2:
 	if GameManager.boss_max_hp <= 0:
 		return Rect2()
-	var bf := get_tree().get_first_node_in_group("boss_fight")
-	if bf == null or not bf.has_method("get_boss_hit_rect"):
-		return Rect2()
-	var r: Rect2 = bf.get_boss_hit_rect()
-	if not r.has_area():
-		return Rect2()
-	return Rect2(r.position - global_position, r.size)
+	# Both boss controllers (Elephant + Chromeleon) live in the "boss_fight" group;
+	# only the ACTIVE one's get_boss_hit_rect() has area, so pick that one (don't just
+	# grab the first node, which may be the inactive boss → empty rect / unhittable).
+	for bf in get_tree().get_nodes_in_group("boss_fight"):
+		if bf.has_method("get_boss_hit_rect"):
+			var r: Rect2 = bf.get_boss_hit_rect()
+			if r.has_area():
+				return Rect2(r.position - global_position, r.size)
+	return Rect2()
 
 func _circle_hits_rect(c: Vector2, radius: float, rect: Rect2) -> bool:
 	var nearest := Vector2(

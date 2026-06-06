@@ -10,11 +10,9 @@ const MaterialPanelScript       := preload("res://scripts/ui/hud/material_panel.
 const BoostButtonScript         := preload("res://scripts/ui/hud/boost_button.gd")
 const ShipHpBarScript           := preload("res://scripts/ui/hud/ship_hp_bar.gd")
 const BossEditScript            := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
-const BossFightScript           := preload("res://scripts/gameplay/boss_fight.gd")
-const ChromeleonFightScript     := preload("res://scripts/gameplay/chromeleon_fight.gd")
+const BossFightScript           := preload("res://scripts/gameplay/boss_fight.gd")  # Boss Manager (owns all boss modules)
 const BossPanelScript           := preload("res://scripts/ui/hud/boss_panel.gd")
 const BossHpBarScript           := preload("res://scripts/ui/hud/boss_hp_bar.gd")
-const MetalflyFightScript       := preload("res://scripts/gameplay/metalfly_fight.gd")
 const InventoryUIScript         := preload("res://scripts/ui/inventory/inventory_ui.gd")
 const WeaponSystemScript        := preload("res://scripts/gameplay/weapon_system.gd")
 
@@ -237,7 +235,7 @@ func _dismiss_death_screen() -> void:
 
 func _on_boss_defeated() -> void:
 	GameManager.set_boost(false)
-	# The boss controller (boss_fight / chromeleon_fight) shows its own themed victory
+	# The active boss module (via the boss_fight manager) shows its own themed victory
 	# screen with a "Continue to Universe" button. Do NOT pause the tree or stack a
 	# second screen here — pausing froze that button (it isn't process-mode-always),
 	# which left the game stuck. Victory UI is owned by the boss controller now.
@@ -341,17 +339,12 @@ func _setup_boss_edit() -> void:
 	add_child(bem)
 	_boss_edit_mode = bem
 	bem.setup(objects_container)
+	# Single Boss Manager owns all boss modules (elephant / chromeleon / metalfly)
+	# and is the only node in the "boss_fight" group. It instantiates the per-boss
+	# modules itself — do NOT create them separately here.
 	var bf := BossFightScript.new()
 	objects_container.add_child(bf)
 	bf.setup(objects_container)
-
-	var cf := ChromeleonFightScript.new()
-	objects_container.add_child(cf)
-	cf.setup(objects_container)
-
-	var mf := MetalflyFightScript.new()
-	objects_container.add_child(mf)
-	mf.setup(objects_container)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_edit_mode"):

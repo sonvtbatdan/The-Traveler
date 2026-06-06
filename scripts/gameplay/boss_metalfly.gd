@@ -151,8 +151,6 @@ func setup(oc: Control) -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	z_index = 200
 	process_mode = Node.PROCESS_MODE_PAUSABLE
-	add_to_group("boss_fight")
-	add_to_group("metalfly_fight")
 
 	var clip := Control.new()
 	clip.position = OC_BOUNDS.position
@@ -167,8 +165,8 @@ func setup(oc: Control) -> void:
 	_find_eos()
 	_load_fp_offsets()
 	_load_assets()
-	GameManager.boss_killed.connect(_on_boss_killed_internally)
-	GameManager.boss_hp_changed.connect(_on_boss_hp_changed)
+	# Boss-killed + boss_hp_changed routing is handled by the Boss Manager (boss_fight.gd),
+	# the single listener; it calls notify_boss_killed() / notify_hp_changed() on the active boss.
 
 func _process(delta: float) -> void:
 	# Cocoon Phase 1 movement (must be BEFORE early return!)
@@ -935,7 +933,7 @@ func _clamp_boss() -> void:
 	_boss_eo.position.x = clampf(_boss_eo.position.x, OC_BOUNDS.position.x, OC_BOUNDS.end.x - _boss_eo.size.x)
 	_boss_eo.position.y = clampf(_boss_eo.position.y, OC_BOUNDS.position.y, OC_BOUNDS.end.y - _boss_eo.size.y)
 
-func _on_boss_killed_internally() -> void:
+func notify_boss_killed() -> void:
 	if _phase != Phase.IDLE and _phase != Phase.DONE:
 		if _boss_phase == 1 and not _forced_kill:
 			# Phase 1 → Phase 2 transition
@@ -951,7 +949,7 @@ func _on_boss_killed_internally() -> void:
 				_show_victory_screen()
 	_forced_kill = false
 
-func _on_boss_hp_changed(new_hp: int) -> void:
+func notify_hp_changed(new_hp: int) -> void:
 	if new_hp < _last_hp and _phase != Phase.IDLE and _phase != Phase.DONE:
 		_flash_damage()
 	_last_hp = new_hp

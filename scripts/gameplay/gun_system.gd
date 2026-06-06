@@ -1,6 +1,10 @@
 extends Control
 
 const SS_OFFSET                := Vector2(270.0, 8.0)
+# Show the real collision hitboxes (ship circle here + boss rect in weapon_system).
+const SHOW_HITBOXES            := true
+const HITBOX_SHIP_COLOR        := Color(0.30, 1.0, 0.40, 0.9)   # ship body (asteroid) hitbox
+const HITBOX_BOSS_COLOR        := Color(1.0, 0.30, 0.30, 0.9)   # boss hitbox (drawn by weapon_system)
 const MOUNT_AUTOFIRE           := false  # inventory weapons only — old ship-mount auto-fire retired. Set true to restore.
 const FIRE_INTERVAL            := 0.5    # gun: 2 shots/sec
 const TURRET_FIRE_INTERVAL     := 0.66   # turret: ~1.5 shots/sec
@@ -132,6 +136,9 @@ var _manual_thrust_rects:  Dictionary = {} # auto EO -> manual TR (derived from 
 var _lasers:     Array = []   # [{lines: Array[Line2D], age: float}]
 const LASER_DURATION := 0.18
 const LASER_COUNT    := 3
+
+# Mode transition zoom tween
+var _prev_scale_mult := 1.0
 
 func setup() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -469,17 +476,21 @@ func _process(delta: float) -> void:
 		else:
 			_burst_queue[bi] = entry
 		bi -= 1
-	if GameManager.manual_boost and _spaceship_eo != null and is_instance_valid(_spaceship_eo):
+	# WASD flies the ship in the asteroid screen too (not just manual boost).
+	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		_handle_ship_movement(delta)
 
-	# Spaceship: position + scale force-apply mỗi frame.
-	# Shrink to 35% during a boss fight (50% × 0.7 = another 30% smaller; scaled around
-	# the ship's center so its child hitbox shrinks with it).
+	# Spaceship: position + scale force-apply each frame. Ship sits at 0.70 normally and
+	# 0.35 during boost/boss (both 30% smaller than the old 1.0/0.5). Scaled around the
+	# ship's centre so its child hitbox shrinks with it; the asteroid collision radius
+	# is multiplied by this scale too (see _check_ship_asteroid_collision).
 	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
-		var s: float = 0.35 if GameManager.boss_max_hp > 0 else 1.0
-		_spaceship_eo.pivot_offset = _spaceship_origin_sz * 0.5
 		_spaceship_eo.position     = _spaceship_origin
-		_spaceship_eo.scale        = Vector2(s, s)
+		_spaceship_eo.pivot_offset = _spaceship_eo.size * 0.5  # scale from centre
+		var target_scale_mult := 0.35 if (GameManager.manual_boost or GameManager.boss_max_hp > 0) else 0.70
+		if target_scale_mult != _prev_scale_mult:
+			_animate_scale_transition(target_scale_mult)
+			_prev_scale_mult = target_scale_mult
 
 	# Children: apply F4 size force mỗi frame
 	for eo in _child_f4_sizes.keys():
@@ -514,14 +525,18 @@ func _process(delta: float) -> void:
 	_tick_gun_anims(delta)
 	_tick_lightning_chains(delta)
 	_tick_lasers(delta)
-	if GameManager.manual_boost and _spaceship_eo != null and is_instance_valid(_spaceship_eo):
-		_check_ship_asteroid_collision()
+	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
+		_check_ship_asteroid_collision()   # ramming asteroids hurts in the asteroid screen too
 
-	# Draw edit mode overlay
-	if _gameplay_edit_mode:
-		queue_redraw()
+	queue_redraw()   # keep the hitbox overlay (and edit handles) live every frame
 
 func _draw() -> void:
+	# Real ship hitbox = the asteroid-collision circle (centre + scaled radius), always shown.
+	if SHOW_HITBOXES and _spaceship_eo != null and is_instance_valid(_spaceship_eo):
+		var sc: Vector2 = _spaceship_eo.get_global_transform() * (_spaceship_eo.size * 0.5) - global_position
+		var sr := _spaceship_origin_sz.x * 0.5 * _spaceship_eo.scale.x
+		draw_arc(sc, sr, 0.0, TAU, 40, HITBOX_SHIP_COLOR, 2.0)
+
 	if not _gameplay_edit_mode or not _selected_eo or not is_instance_valid(_selected_eo):
 		return
 
@@ -557,29 +572,28 @@ func _handle_ship_movement(delta: float) -> void:
 		(float(Input.is_physical_key_pressed(KEY_S)) + float(Input.is_physical_key_pressed(KEY_DOWN)))
 		- (float(Input.is_physical_key_pressed(KEY_W)) + float(Input.is_physical_key_pressed(KEY_UP)))
 	)
-	# Dash: SPACE rising edge, off cooldown, a direction held, enough energy.
-	# (DASH_ENABLED is false for now — keybinding still read, but no dash is triggered.)
-	var space_down := Input.is_physical_key_pressed(KEY_SPACE)
-	if DASH_ENABLED and space_down and not _space_was_down and _dash_cd <= 0.0 and mv != Vector2.ZERO:
-		if GameManager.try_spend_energy(DASH_COST):
-			_dash_dir       = mv.normalized()
-			_dash_time_left = DASH_TIME
-			_dash_cd        = DASH_CD
-	_space_was_down = space_down
-
-	if _dash_time_left > 0.0:
-		_dash_time_left -= delta
-		_spaceship_origin += _dash_dir * DASH_SPEED * delta
-	elif mv != Vector2.ZERO:
-		_spaceship_origin += mv.normalized() * SHIP_MOVE_SPD * delta
-	else:
+	if mv == Vector2.ZERO:
 		return
+	# Speed +25% when manual boost or boss fight active
+	var speed_mult := 1.25 if (GameManager.manual_boost or GameManager.boss_max_hp > 0) else 1.0
+	_spaceship_origin += mv.normalized() * SHIP_MOVE_SPD * speed_mult * delta
 	_spaceship_origin.x = clampf(_spaceship_origin.x,
 		SCREEN_BOUNDS.position.x,
 		SCREEN_BOUNDS.end.x - _spaceship_origin_sz.x)
 	_spaceship_origin.y = clampf(_spaceship_origin.y,
 		SCREEN_BOUNDS.position.y,
 		SCREEN_BOUNDS.end.y - _spaceship_origin_sz.y)
+
+# Smoothly tween the ship between its normal (0.70) and boost/boss (0.35) scale.
+# Pivot is centred each frame in _process, so it scales around the ship's middle.
+func _animate_scale_transition(target_mult: float) -> void:
+	if _spaceship_eo == null or not is_instance_valid(_spaceship_eo):
+		return
+	if _scale_tween != null and _scale_tween.is_valid():
+		_scale_tween.kill()
+	_scale_tween = create_tween()
+	_scale_tween.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+	_scale_tween.tween_property(_spaceship_eo, "scale", Vector2(target_mult, target_mult), 0.25)
 
 # ── Static frame (frame 0 GIF thay cho PNG khi không bắn) ────────────────────
 
@@ -735,6 +749,7 @@ func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 		return   # thrust-trail flame overlays disabled — no auto/manual TextureRects created
 	if _auto_thrust_frames.is_empty():
 		return
+	var resized := _resize_frame(_auto_thrust_frames[0] as Texture2D, eo.size)
 	var tr := TextureRect.new()
 	tr.texture = _auto_thrust_frames[0] as Texture2D
 	tr.stretch_mode = TextureRect.STRETCH_SCALE   # scale the frame to the control size (can't blow up to native)
@@ -769,6 +784,7 @@ func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 
 		if manual_eo != null:
 			var manual_size := manual_eo.size
+			var manual_resized := _resize_frame(_manual_thrust_frames[0] as Texture2D, manual_size)
 			var mtr := TextureRect.new()
 			mtr.texture = _manual_thrust_frames[0] as Texture2D
 			mtr.stretch_mode = TextureRect.STRETCH_SCALE
@@ -1393,9 +1409,11 @@ func _check_ship_asteroid_collision() -> void:
 	var ast_node := get_tree().get_first_node_in_group("asteroid_main")
 	if not is_instance_valid(ast_node) or not ast_node.has_method("check_ship_collision"):
 		return
-	var ship_center_oc := _spaceship_eo.global_position + _spaceship_origin_sz * 0.5
+	# Pivot-correct centre (global_position is the SCALED top-left, which shifts when the
+	# ship is scaled around its centre — using the transform avoids the offset).
+	var ship_center_oc: Vector2 = _spaceship_eo.get_global_transform() * (_spaceship_eo.size * 0.5)
 	var ship_center_ss := ship_center_oc - SS_OFFSET
-	var ship_radius    := _spaceship_origin_sz.x * 0.5
+	var ship_radius    := _spaceship_origin_sz.x * 0.5 * _spaceship_eo.scale.x   # shrinks with the ship
 	ast_node.check_ship_collision(ship_center_ss, ship_radius)
 
 # ── Laser (click ship) ─────────────────────────────────────────────────────────

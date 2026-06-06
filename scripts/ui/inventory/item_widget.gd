@@ -70,8 +70,10 @@ func _build() -> void:
 	icon.offset_left = 3; icon.offset_top = 3
 	icon.offset_right = -3; icon.offset_bottom = -3
 	icon.texture = InventoryManager.get_icon(def_id)
+	# Fill the slot/cell exactly (was KEEP_ASPECT_CENTERED, which letterboxed the
+	# rectangular weapon art so it never matched the slot size).
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.stretch_mode = TextureRect.STRETCH_SCALE
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(icon)
 
