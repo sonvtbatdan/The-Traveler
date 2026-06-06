@@ -7,12 +7,15 @@ extends Node
 signal game_loaded
 signal boost_changed(active: bool)
 signal ship_hp_changed(hp: int)
+signal ship_energy_changed(energy: float)
 signal ship_shield_changed(shield: float)
 signal ship_destroyed
+signal money_changed(amount: int)   # green-$ player currency
 
 signal boss_hp_changed(hp: int)
 signal boss_spawned
 signal boss_killed
+signal boss_defeated   # authoritative "boss HP reached zero" (victory) — NOT emitted on player death
 
 var boss_hp:     int = 0
 var boss_max_hp: int = 0
@@ -24,9 +27,11 @@ func take_boss_damage(dmg: int) -> void:
 	boss_hp_changed.emit(boss_hp)
 	if boss_hp <= 0:
 		boss_max_hp = 0
-		boss_killed.emit()
+		boss_killed.emit()      # cleanup (hides boss, clears projectiles)
+		boss_defeated.emit()    # victory banner
 
 var manual_boost: bool = false
+var money: int = 0   # green-$ currency; new game starts at 0 (Phase 2 will spend/earn it)
 var ship_hp: int = 100
 const SHIP_MAX_HP: int = 100
 
@@ -40,6 +45,16 @@ var _shield_dmg_timer: float = 999.0    # time since last damage; regen once >= 
 # ── Invincibility frames ──────────────────────────────────────────────────────
 const SHIP_IFRAME_TIME: float = 0.3     # invincibility window after a hit
 var _iframe_timer: float = 0.0
+
+# ── Energy (dash resource) ────────────────────────────────────────────────────
+const SHIP_MAX_ENERGY: float = 100.0
+const ENERGY_REGEN:    float = 5.0      # energy per second
+var ship_energy: float = 100.0
+
+func add_money(amount: int) -> void:
+	money += amount
+	money_changed.emit(money)
+	save_game()
 
 func set_boost(active: bool) -> void:
 	if manual_boost == active:
@@ -68,6 +83,14 @@ func ship_take_damage(dmg: int) -> void:
 	if ship_hp <= 0:
 		ship_destroyed.emit()
 
+## Spend energy for a dash; returns false (no spend) if there isn't enough.
+func try_spend_energy(amount: float) -> bool:
+	if ship_energy < amount:
+		return false
+	ship_energy -= amount
+	ship_energy_changed.emit(ship_energy)
+	return true
+
 ## Capacity granted by the Secondary-slot item (0 if it's not a shield item).
 func _equipped_shield_capacity() -> float:
 	var uid: int = InventoryManager.equipped_uid("secondary_weapon")
@@ -95,6 +118,9 @@ func _tick_shield(delta: float) -> void:
 
 func _process(delta: float) -> void:
 	_iframe_timer = maxf(0.0, _iframe_timer - delta)
+	if ship_energy < SHIP_MAX_ENERGY:
+		ship_energy = minf(SHIP_MAX_ENERGY, ship_energy + ENERGY_REGEN * delta)
+		ship_energy_changed.emit(ship_energy)
 	_tick_shield(delta)
 
 # ---------------------------------------------------------------------------
@@ -141,14 +167,17 @@ func save_game() -> void:
 	cfg.load(SAVE_PATH)
 	cfg.set_value("player", "ship_hp", ship_hp)
 	cfg.set_value("player", "ship_shield", ship_shield)
+	cfg.set_value("player", "money", money)
 	cfg.save(SAVE_PATH)
 
 func load_game() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(SAVE_PATH) != OK:
 		return
-	ship_hp = cfg.get_value("player", "ship_hp", SHIP_MAX_HP)
+	var loaded_hp: int = cfg.get_value("player", "ship_hp", SHIP_MAX_HP)
+	ship_hp = loaded_hp if loaded_hp > 0 else SHIP_MAX_HP   # recover from a dead-saved state
 	ship_shield = cfg.get_value("player", "ship_shield", 0.0)
+	money = cfg.get_value("player", "money", 0)
 	ship_hp_changed.emit(ship_hp)
 	ship_shield_changed.emit(ship_shield)
-
+	money_changed.emit(money)

@@ -272,17 +272,39 @@ func get_boss_hit_rect() -> Rect2:
 	var tr: TextureRect = _boss_eo.texture_rect
 	if tr == null:
 		return Rect2(_boss_eo.global_position, _boss_eo.size)   # fallback
-	var sz: Vector2 = tr.size
+	# Rotation-INVARIANT box: stable center + scaled size, ignoring the boss's spin.
+	# (The old AABB-of-rotated-corners pulsed in size as the boss rotated during Move 1.)
 	var xf := tr.get_global_transform()
-	var p0 := xf * Vector2(0.0, 0.0)
-	var p1 := xf * Vector2(sz.x, 0.0)
-	var p2 := xf * Vector2(0.0, sz.y)
-	var p3 := xf * Vector2(sz.x, sz.y)
-	var minp := Vector2(minf(minf(p0.x, p1.x), minf(p2.x, p3.x)),
-						minf(minf(p0.y, p1.y), minf(p2.y, p3.y)))
-	var maxp := Vector2(maxf(maxf(p0.x, p1.x), maxf(p2.x, p3.x)),
-						maxf(maxf(p0.y, p1.y), maxf(p2.y, p3.y)))
-	return Rect2(minp, maxp - minp)
+	var center := xf * (tr.size * 0.5)        # visible center (position + pivot/scale), spin-independent
+	var scaled := tr.size * xf.get_scale()    # size with scale baked in, without rotation
+	return Rect2(center - scaled * 0.5, scaled)
+
+## Let an external defender (Swarm Host bats) destroy the nearest in-flight boss
+## projectile within `radius` of `center`. Projectiles live in _clip_node-local space,
+## which shares the StreamScreen origin (270,8) with weapon_system-local — so the bat's
+## own local position can be passed straight in. Returns {"hit":bool, "pos":Vector2}.
+func consume_projectile_near(center: Vector2, radius: float) -> Dictionary:
+	var best: int = -1
+	var best_d: float = INF
+	var best_pos := Vector2.ZERO
+	for i in range(_projectiles.size()):
+		var p: Dictionary = _projectiles[i]
+		var tr: TextureRect = p.get("tr")
+		if tr == null or not is_instance_valid(tr):
+			continue
+		var pc: Vector2 = tr.position + tr.size * 0.5
+		var pr: float = maxf(tr.size.x, tr.size.y) * 0.5
+		var d: float = pc.distance_to(center)
+		if d <= radius + pr and d < best_d:
+			best_d = d; best = i; best_pos = pc
+	if best < 0:
+		return {"hit": false, "pos": Vector2.ZERO}
+	var bp: Dictionary = _projectiles[best]
+	var btr: TextureRect = bp.get("tr")
+	if btr != null and is_instance_valid(btr):
+		btr.queue_free()
+	_projectiles.remove_at(best)
+	return {"hit": true, "pos": best_pos}
 
 func start_fight() -> void:
 	if _boss_eo == null or not is_instance_valid(_boss_eo):
@@ -357,14 +379,6 @@ func _on_m1_entry_done() -> void:
 # =============================================================================
 
 func _draw() -> void:
-	# TEMP DEBUG: outline the player hitbox so we can confirm it sits on the ship. Remove once verified.
-	if GameManager.boss_max_hp > 0:
-		var hr := _ship_hit_rect_oc()
-		if hr.size != Vector2.ZERO:
-			draw_rect(Rect2(hr.position - global_position, hr.size), Color(0, 1, 0), false, 2.0)
-		var br := get_boss_hit_rect()
-		if br.size != Vector2.ZERO:
-			draw_rect(Rect2(br.position - global_position, br.size), Color(1, 0, 0), false, 2.0)
 	# ⚠ warning sign next to the boss's gun, shown for the whole Move-3 warning.
 	if _phase == Phase.M3_WARN and _boss_eo != null and is_instance_valid(_boss_eo):
 		var fp3_local := _get_fp3_world() - global_position   # this Control has no scale/rotation
@@ -385,7 +399,7 @@ func _draw_warning_sign(c: Vector2) -> void:
 
 func _process(delta: float) -> void:
 	if GameManager.boss_max_hp > 0:
-		queue_redraw()   # TEMP DEBUG: keep the hitbox outline live during the fight
+		queue_redraw()   # redraw for the Move-3 warning sign
 	# Always hide boss when not in an active fight phase
 	if _boss_eo != null and is_instance_valid(_boss_eo):
 		if _phase == Phase.IDLE or _phase == Phase.DONE:
@@ -439,12 +453,11 @@ func _tick_m1(delta: float) -> void:
 	_spike_acc += delta
 	while _spike_acc >= M1_SPIKE_INT:
 		_spike_acc -= M1_SPIKE_INT
-		if not _spike_eos.is_empty():
-			# Spawn 3 spikes per interval in a spiral pattern
-			for i in M1_SPIKES_PER_INT:
-				var arm_angle := _boss_spin + _spiral_angle + float(i) * (TAU / M1_SPIKES_PER_INT)
-				_spawn_spike(arm_angle)
-			_spiral_angle += M1_SPIRAL_STEP
+		# Spiral burst of ball spikes (visual comes from _ball_anims; _spawn_spike guards itself).
+		for i in M1_SPIKES_PER_INT:
+			var arm_angle := _boss_spin + _spiral_angle + float(i) * (TAU / M1_SPIKES_PER_INT)
+			_spawn_spike(arm_angle)
+		_spiral_angle += M1_SPIRAL_STEP
 
 	if _m1_prog >= 1.0:
 		_begin_random_move()

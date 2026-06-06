@@ -168,6 +168,7 @@ func _rebuild() -> void:
 		w.size = Vector2(size) * CELL
 		_grid.add_child(w)
 		w.setup(uid, def_id, CELL, "")
+		w.sell_requested.connect(_on_sell_requested)
 
 	# Equipped items
 	for slot: String in _slot_nodes:
@@ -181,6 +182,7 @@ func _rebuild() -> void:
 		w.size = es.size - Vector2(8, 8)
 		es.add_child(w)
 		w.setup(uid, def_id, CELL, slot)
+		w.sell_requested.connect(_on_sell_requested)
 
 # ── Open / close ────────────────────────────────────────────────────────────
 
@@ -206,6 +208,29 @@ func toggle() -> void:
 func _on_backdrop_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		close()
+
+# ── Sell (right-click an item) ────────────────────────────────────────────────
+
+var _sell_dialog: ConfirmationDialog = null
+var _pending_sell_uid: int = -1
+
+func _on_sell_requested(p_uid: int, def_id: String) -> void:
+	if _sell_dialog == null:
+		_sell_dialog = ConfirmationDialog.new()
+		_sell_dialog.title = "Sell item"
+		_sell_dialog.ok_button_text = "Sell"
+		_sell_dialog.confirmed.connect(_on_sell_confirmed)
+		add_child(_sell_dialog)
+	_pending_sell_uid = p_uid
+	var item_name := String(InventoryManager.get_def(def_id).get("name", def_id))
+	var price := InventoryManager.get_sell_price(p_uid)
+	_sell_dialog.dialog_text = "Sell %s for $%d?" % [item_name, price]
+	_sell_dialog.popup_centered()
+
+func _on_sell_confirmed() -> void:
+	if _pending_sell_uid != -1:
+		InventoryManager.sell_item(_pending_sell_uid)
+		_pending_sell_uid = -1
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:

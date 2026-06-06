@@ -14,6 +14,16 @@ signal item_unequipped(slot: String, uid: int)
 
 const SAVE_PATH := "user://save.cfg"
 
+# DEBUG ("for now"): wipe the inventory and grant exactly ONE of every item on every
+# load, so testing always starts with the full arsenal in the backpack. Set to false
+# to restore normal persistence (saved inventory + one-time starter grant).
+const RESET_INVENTORY_ON_LOAD := true
+
+# Affix-roll tuning. Each dropped/granted weapon also rolls a HIDDEN base-damage
+# multiplier within ±BASE_DAMAGE_VARIANCE (so every copy's base damage varies a bit).
+const BASE_DAMAGE_VARIANCE := 0.20          # ±20% base-damage roll per weapon instance
+const WEAPON_ROLL_TIER := 1                 # tier for load-granted + ROLL WEAPON drops (1=Low 2=Mid 3=High)
+
 # Backpack grid size (columns × rows), Diablo-2 style.
 const BACKPACK_COLS := 10
 const BACKPACK_ROWS := 6
@@ -78,6 +88,7 @@ const ITEM_DEFS: Dictionary = {
 		"size": Vector2i(3, 2),
 		"tags": ["weapon"],
 		"fire_mode": "charge",   # hold to charge (up to cooldown_sec); damage scales with charge
+		"fire_type": "projectile",
 		"rarity": "rare",
 		"desc": "Charge up, then fire a big chunk of metal at a target. Heavy single-target burst — slow cadence, big hit.",
 		"stats": {
@@ -93,6 +104,7 @@ const ITEM_DEFS: Dictionary = {
 		"size": Vector2i(2, 2),
 		"tags": ["weapon", "shield"],
 		"fire_mode": "aura",   # always-on while equipped; damages everything within radius_px each tick
+		"fire_type": "aura",
 		"rarity": "epic",
 		"desc": "An electric area-effect aura around the ship. Always-on while equipped; damages every enemy within a radius each tick.",
 		"stats": {
@@ -109,6 +121,7 @@ const ITEM_DEFS: Dictionary = {
 		"size": Vector2i(3, 1),
 		"tags": ["weapon"],
 		"fire_mode": "repeat",   # hold to keep firing every cooldown_sec
+		"fire_type": "projectile",
 		"rarity": "common",
 		"desc": "Fires fast; hold to keep firing. The baseline rapid-fire weapon — light, cheap, reliable sustained fire.",
 		"stats": {
@@ -116,6 +129,173 @@ const ITEM_DEFS: Dictionary = {
 			"cooldown_sec": 0.12,
 			"weight": 4,
 			"energy_per_sec": 6,
+		},
+	},
+	"homing_missile": {
+		"name": "Homing Missile",
+		"icon": "",
+		"size": Vector2i(2, 1),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",   # auto-fires every cooldown_sec while held
+		"fire_type": "homing",   # picks the nearest target; missile curves toward it
+		"rarity": "rare",
+		"desc": "Launches out the back, loops around the ship, then streaks to the cursor and bursts in an explosion.",
+		"stats": {
+			"damage": 19,
+			"cooldown_sec": 0.53,
+			"weight": 5,
+			"energy": 7,   # energy per shot
+		},
+	},
+	"shotgun": {
+		"name": "Shotgun",
+		"icon": "",
+		"size": Vector2i(2, 1),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",
+		"fire_type": "cone",   # a spread of pellets that vanish after range_px
+		"rarity": "common",
+		"desc": "Short-range burst of pellets in a cone. Devastating up close, harmless at range.",
+		"stats": {
+			"damage": 18,         # per pellet
+			"pellets": 5,
+			"cooldown_sec": 0.7,
+			"range_px": 216,
+			"spread_deg": 34,
+			"weight": 5,
+			"energy": 8,   # energy per shot (whole volley)
+		},
+	},
+	"lasgun": {
+		"name": "Lasgun",
+		"icon": "",
+		"size": Vector2i(3, 1),
+		"tags": ["weapon"],
+		"fire_mode": "beam",          # continuous while held
+		"fire_type": "hitscan_beam",  # instant beam, stops at the first target
+		"uses_energy": true,          # drains the energy bar at stats.energy per second
+		"rarity": "rare",
+		"desc": "A continuous beam fired straight forward that burns the first target in its line. Hold to sustain.",
+		"stats": {
+			"damage": 20,             # per tick (−70% from 66)
+			"tick_interval_sec": 0.15,
+			"range_px": 760,
+			"beam_width": 40,         # 5× wider (drives both the drawn beam and hit width)
+			"weight": 5,
+			"energy": 20,             # 20/s sustained drain while firing
+			"activation_energy": 10,  # one-time cost the moment you start firing
+		},
+	},
+	"arc": {
+		"name": "Arc",
+		"icon": "",
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",
+		"fire_type": "chain",   # hits a target, then jumps to nearby ones
+		"rarity": "rare",
+		"desc": "Lightning that strikes a target then chains to nearby ones.",
+		"stats": {
+			"damage": 30,
+			"cooldown_sec": 0.5,
+			"chain_jumps": 4,
+			"chain_range_px": 200,
+			"weight": 6,
+			"energy": 12,
+		},
+	},
+	"plasma_drill": {
+		"name": "Plasma Drill",
+		"icon": "",
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "beam",
+		"fire_type": "tether",   # short-range tether to the nearest target
+		"rarity": "epic",
+		"desc": "A short-range tether that latches the nearest target and drills it with massive sustained damage.",
+		"stats": {
+			"damage": 70,            # per tick
+			"tick_interval_sec": 0.2,
+			"range_px": 170,
+			"beam_width": 10,
+			"weight": 7,
+			"energy": 22,
+		},
+	},
+	"rift_maker": {
+		"name": "Rift Maker",
+		"icon": "",
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "channel",        # hold to sustain
+		"fire_type": "growing_zone",   # places a void at a spot that grows in size + damage while held
+		"uses_energy": true,           # drains the energy bar (10 to start + 30/s held; can't fire at 0)
+		"rarity": "legendary",
+		"desc": "Hold to tear open a void at a spot. It grows wider and hits harder the longer you hold it, then collapses when released.",
+		"stats": {
+			"damage_min": 39,          # damage/tick at placement (+30%)
+			"damage_max": 390,         # damage/tick at full ramp (+30%)
+			"ramp_sec": 2.5,           # time to grow from min → max
+			"tick_interval_sec": 0.3,
+			"radius_min": 40,
+			"radius_max": 90,    # 40% smaller than the old 150
+			"weight": 9,
+			"energy": 20,              # per-second drain while held
+			"activation_energy": 10,   # one-time cost the moment you start holding
+		},
+	},
+	"parasite_gun": {
+		"name": "Parasite Gun",
+		"icon": "",
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",
+		"fire_type": "dot_stack",      # fires sticky parasites that attach and deal damage-over-time
+		"rarity": "epic",
+		"desc": "Fires a volley of parasites that latch onto whatever they hit and gnaw it for damage-over-time until it dies. Slow reload.",
+		"stats": {
+			"dps": 6,                  # damage/sec per attached parasite
+			"parasites": 5,            # parasites per volley
+			"cooldown_sec": 4.0,       # reload between volleys
+			"dot_tick_sec": 0.5,       # how often an attached parasite deals damage
+			"weight": 5,
+			"energy": 8,               # per volley (energy OFF until uses_energy set)
+		},
+	},
+	"swarm_host": {
+		"name": "Swarm Host",
+		"icon": "",
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "channel",        # hold to sustain the swarm
+		"fire_type": "minion",         # spawns bats that auto-attack + body-block boss projectiles
+		"rarity": "rare",
+		"desc": "Hold to release a swarm of bats that chase down the nearest target and body-block incoming boss fire. Downed bats respawn while held.",
+		"stats": {
+			"damage": 5,               # per bat hit
+			"attack_interval_sec": 0.4,
+			"bats": 4,
+			"respawn_sec": 3.0,
+			"bat_range_px": 260,       # how far a bat will roam to chase a target
+			"weight": 4,
+			"energy": 9,               # per second (energy OFF until uses_energy set)
+		},
+	},
+	"orbitals": {
+		"name": "Orbitals",
+		"icon": "",
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "orbital",     # always-on passive + hold to power up (new behaviour)
+		"fire_type": "orbital",     # 3 metal balls orbit the ship; collide for damage
+		"uses_energy": true,        # powering up costs energy (10 to start + 20/s); the passive is free
+		"rarity": "epic",
+		"desc": "Three crackling metal balls orbit your ship, smashing anything they touch — free, always on. Hold to overcharge: they spin up to 3× speed (more hits) while it drains your energy.",
+		"stats": {
+			"damage": 38,            # per collision (−30% from 54; routed through get_weapon_stat)
+			"weight": 5,
+			"energy": 20,            # per-second drain while overcharged
+			"activation_energy": 10, # one-time cost to start the overcharge
 		},
 	},
 	"shield_generator": {
@@ -138,13 +318,16 @@ const ITEM_DEFS: Dictionary = {
 # Items granted automatically the FIRST time a save is created (new game only).
 # Keeping this separate from ITEM_DEFS means future items (e.g. asteroid drops in
 # Phase 4) can be defined without being auto-placed in the backpack.
-const STARTER_ITEMS: Array[String] = ["gauss_cannon", "shield_generator", "gatling_gun"]
+const STARTER_ITEMS: Array[String] = ["gauss_cannon", "shield_generator", "gatling_gun", "homing_missile", "shotgun", "lasgun", "arc", "plasma_drill", "rift_maker", "parasite_gun", "swarm_host", "orbitals"]
 
 # ── Runtime state ─────────────────────────────────────────────────────────────
 # _items: uid(int) -> {"def": String, "where": String, "cell": Vector2i}
 #   where = "backpack" or one of EQUIP_SLOTS; cell = backpack origin (col, row).
 var _items: Dictionary = {}
 var _next_uid: int = 1
+# Def ids ever granted as starters — so a newly-added starter item is granted to an
+# existing save exactly once, and trashed items aren't restored on the next load.
+var _granted: Array = []
 var _icon_cache: Dictionary = {}
 
 func _ready() -> void:
@@ -299,6 +482,28 @@ func unequip(slot: String) -> bool:
 	inventory_changed.emit()
 	return true
 
+## Sell price for one item instance. FLAT $1 for now.
+## TODO: real per-item / affix-based pricing goes here (read the item's def + rolled
+## affixes by uid and compute a value). Keep this the single source of sell pricing.
+func get_sell_price(uid: int) -> int:
+	return 1
+
+## Sell (delete) an item and pay the player. Works whether the item is in the
+## backpack or equipped — selling an equipped item just removes it from its slot
+## (unequip-then-sell). Returns false if the uid is unknown.
+func sell_item(uid: int) -> bool:
+	if not _items.has(uid):
+		return false
+	var price := get_sell_price(uid)
+	var where := String(_items[uid]["where"])   # "backpack" or an equip slot name
+	_items.erase(uid)
+	GameManager.add_money(price)
+	save_game()
+	if where != "backpack":
+		item_unequipped.emit(where, uid)   # let shield/weapon systems react
+	inventory_changed.emit()
+	return true
+
 func _send_to_backpack(uid: int) -> bool:
 	var cell := _find_free_cell(def_size(String(_items[uid]["def"])), uid)
 	if cell == Vector2i(-1, -1):
@@ -370,6 +575,91 @@ func roll_asteroid_drop() -> String:
 			return id
 	return ""
 
+# ── Affix-rolled weapons (Phase 2) ─────────────────────────────────────────────
+
+## Base weapon ids eligible to be rolled into a unique drop (real weapons only —
+## excludes the passive Shield Generator).
+func _weapon_base_ids() -> Array:
+	var out: Array = []
+	for id: String in ITEM_DEFS:
+		var tags: Array = ITEM_DEFS[id].get("tags", [])
+		if tags.has("weapon") and not tags.has("shield"):
+			out.append(id)
+	return out
+
+## Generate a unique weapon instance: a random base (or `base_def_id` if given) with
+## ONE prefix affix + ONE after-fix affix, both drawn from the weapon-eligible pool
+## (distinct ids) and rolled at `tier` (1=Low, 2=Mid, 3=High). The rolls are stored on
+## the item instance, so every drop is unique. Returns the new uid, or -1 if there's
+## no room. (Phase 3 will vary the affix COUNT by rarity; this always rolls 2.)
+## Roll the unique part of a weapon: ONE prefix + ONE after-fix affix (distinct,
+## from the weapon-eligible pool, at `tier`) plus a hidden ±BASE_DAMAGE_VARIANCE
+## base-damage multiplier. Returns {affixes, base_mult}.
+func _roll_weapon(tier: int) -> Dictionary:
+	var pool: Array = AffixManager.weapon_affix_ids()
+	pool.shuffle()
+	var affixes: Array = []
+	if pool.size() >= 1:
+		var pid := String(pool[0])
+		affixes.append({"id": pid, "role": "prefix", "value": AffixManager.roll_affix(pid, tier)})
+	if pool.size() >= 2:
+		var sid := String(pool[1])
+		affixes.append({"id": sid, "role": "suffix", "value": AffixManager.roll_affix(sid, tier)})
+	var v := BASE_DAMAGE_VARIANCE
+	return {"affixes": affixes, "base_mult": randf_range(1.0 - v, 1.0 + v)}
+
+## Generate a unique weapon instance: a random base (or `base_def_id`) rolled at
+## `tier`. Returns the new uid, or -1 if there's no room.
+func generate_weapon(tier: int, base_def_id: String = "") -> int:
+	var bases := _weapon_base_ids()
+	if bases.is_empty():
+		return -1
+	var base_id := base_def_id if ITEM_DEFS.has(base_def_id) else String(bases[randi() % bases.size()])
+	var uid := add_to_backpack(base_id)
+	if uid == -1:
+		return -1
+	var roll := _roll_weapon(tier)
+	_items[uid]["affixes"] = roll["affixes"]
+	_items[uid]["base_mult"] = roll["base_mult"]
+	save_game()
+	inventory_changed.emit()
+	return uid
+
+## Affixes rolled on an item instance: Array of {id, role:"prefix"/"suffix", value}.
+func item_affixes(uid: int) -> Array:
+	return _items.get(uid, {}).get("affixes", [])
+
+## Hidden base-damage multiplier rolled on this instance (1.0 if none).
+func item_base_mult(uid: int) -> float:
+	return float(_items.get(uid, {}).get("base_mult", 1.0))
+
+## Combined display name: "[Prefix] [Base] [After-fix]" (empty slots omitted).
+func item_display_name(uid: int) -> String:
+	var it: Dictionary = _items.get(uid, {})
+	if it.is_empty():
+		return ""
+	var base := String(get_def(String(it.get("def", ""))).get("name", ""))
+	var affixes: Array = it.get("affixes", [])
+	if affixes.is_empty():
+		return base
+	var prefix := ""
+	var suffix := ""
+	for a: Dictionary in affixes:
+		var ad: Dictionary = AffixManager.get_affix(String(a.get("id", "")))
+		if ad.is_empty():
+			continue
+		if String(a.get("role", "")) == "prefix":
+			prefix = String(ad.get("prefix", ""))
+		elif String(a.get("role", "")) == "suffix":
+			suffix = String(ad.get("after_fix", ""))
+	var parts: Array[String] = []
+	if prefix != "":
+		parts.append(prefix)
+	parts.append(base)
+	if suffix != "":
+		parts.append(suffix)
+	return " ".join(parts)
+
 # ── Persistence (shared user://save.cfg, section [inventory]) ───────────────────
 
 func save_game() -> void:
@@ -378,14 +668,18 @@ func save_game() -> void:
 	if cfg.has_section("inventory"):
 		cfg.erase_section("inventory")
 	cfg.set_value("inventory", "next_uid", _next_uid)
+	cfg.set_value("inventory", "granted", _granted)
 	var arr: Array = []
 	for uid: int in _items:
 		var it: Dictionary = _items[uid]
-		arr.append({"uid": uid, "def": it["def"], "where": it["where"], "cell": it["cell"]})
+		arr.append({"uid": uid, "def": it["def"], "where": it["where"], "cell": it["cell"], "affixes": it.get("affixes", []), "base_mult": it.get("base_mult", 1.0)})
 	cfg.set_value("inventory", "items", arr)
 	cfg.save(SAVE_PATH)
 
 func load_game() -> void:
+	if RESET_INVENTORY_ON_LOAD:
+		_grant_one_of_each()
+		return
 	var cfg := ConfigFile.new()
 	var loaded := cfg.load(SAVE_PATH)
 	if loaded != OK or not cfg.has_section("inventory"):
@@ -393,6 +687,7 @@ func load_game() -> void:
 		return
 	_items.clear()
 	_next_uid = int(cfg.get_value("inventory", "next_uid", 1))
+	_granted = cfg.get_value("inventory", "granted", [])
 	var arr: Array = cfg.get_value("inventory", "items", [])
 	for entry: Dictionary in arr:
 		var def_id := String(entry.get("def", ""))
@@ -403,7 +698,39 @@ func load_game() -> void:
 			"def": def_id,
 			"where": String(entry.get("where", "backpack")),
 			"cell": entry.get("cell", Vector2i.ZERO),
+			"affixes": entry.get("affixes", []),
+			"base_mult": float(entry.get("base_mult", 1.0)),
 		}
+	_backfill_starters()
+	inventory_changed.emit()
+
+## Grant any STARTER_ITEMS this save has never been granted before (e.g. weapons
+## added in a later update), once each. Existing items / trashed items are untouched.
+func _backfill_starters() -> void:
+	var changed := false
+	for def_id: String in STARTER_ITEMS:
+		if not _granted.has(def_id):
+			if add_to_backpack(def_id) != -1:
+				changed = true
+			_granted.append(def_id)
+			changed = true
+	if changed:
+		save_game()
+
+## DEBUG (RESET_INVENTORY_ON_LOAD): clear everything and drop one of EVERY item into
+## the backpack. Runs on every load while the flag is on. Nothing is auto-equipped.
+func _grant_one_of_each() -> void:
+	_items.clear()
+	_next_uid = 1
+	var weapons := _weapon_base_ids()
+	for def_id: String in ITEM_DEFS:
+		var uid := add_to_backpack(def_id)
+		# Weapons roll affixes + a hidden base-damage roll, like real drops.
+		if uid != -1 and weapons.has(def_id):
+			var roll := _roll_weapon(WEAPON_ROLL_TIER)
+			_items[uid]["affixes"] = roll["affixes"]
+			_items[uid]["base_mult"] = roll["base_mult"]
+	_granted = ITEM_DEFS.keys()   # so backfill won't double-add if the flag is later turned off
 	inventory_changed.emit()
 
 ## First run only (no [inventory] in the save): grant the STARTER_ITEMS. Once a
@@ -414,4 +741,5 @@ func _seed_starter_items() -> void:
 	_next_uid = 1
 	for def_id: String in STARTER_ITEMS:
 		add_to_backpack(def_id)
+	_granted = STARTER_ITEMS.duplicate()
 	save_game()

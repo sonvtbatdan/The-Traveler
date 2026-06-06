@@ -6,7 +6,6 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/user/user_panel.tscn" id="7"]
 [ext_resource type="Script" uid="uid://dkt0in5e7eent" path="res://scripts/ui/equipment/equipment_list.gd" id="8"]
 [ext_resource type="Script" path="res://scripts/ui/hud/upgrade_shelf.gd" id="9"]
-[ext_resource type="Script" path="res://scripts/ui/weapon/weapon_panel.gd" id="10"]
 [ext_resource type="Script" uid="uid://ca1exsgsh4kbl" path="res://scripts/ui/hud/stat_panel.gd" id="11"]
 
 [sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_panel"]
@@ -317,16 +316,6 @@ offset_right = 970.0
 offset_bottom = 772.0
 mouse_filter = 2
 script = ExtResource("9")
-
-[node name="WeaponPanel" type="Panel" parent="."]
-visible = false
-layout_mode = 0
-offset_left = 10.0
-offset_top = 8.0
-offset_right = 260.0
-offset_bottom = 398.0
-z_index = 5
-script = ExtResource("10")
 
 [node name="QuickPanel" type="Panel" parent="." unique_id=1835023821]
 layout_mode = 0

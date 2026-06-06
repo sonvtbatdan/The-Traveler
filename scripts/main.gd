@@ -22,6 +22,7 @@ const WeaponSystemScript        := preload("res://scripts/gameplay/weapon_system
 
 var _boss_edit_mode: Node = null
 var _death_layer: CanvasLayer = null
+var _victory_layer: CanvasLayer = null
 
 func _ready() -> void:
 	get_tree().set_auto_accept_quit(false)
@@ -29,6 +30,7 @@ func _ready() -> void:
 	UpgradeManager.upgrade_purchased.connect(_on_upgrade_purchased)
 	UpgradeManager.upgrades_reset.connect(_on_upgrades_reset)
 	GameManager.ship_destroyed.connect(_on_ship_destroyed)
+	GameManager.boss_defeated.connect(_on_boss_defeated)
 	_apply_title_fonts()
 	_add_defense_panel()
 	add_child(DefenseVisualScript.new())
@@ -232,10 +234,70 @@ func _dismiss_death_screen() -> void:
 		_death_layer.queue_free()
 		_death_layer = null
 
+func _on_boss_defeated() -> void:
+	GameManager.set_boost(false)
+	# The boss controller (boss_fight / chromeleon_fight) shows its own themed victory
+	# screen with a "Continue to Universe" button. Do NOT pause the tree or stack a
+	# second screen here — pausing froze that button (it isn't process-mode-always),
+	# which left the game stuck. Victory UI is owned by the boss controller now.
+
+func _show_victory_screen() -> void:
+	if _victory_layer != null:
+		return
+	_victory_layer = CanvasLayer.new()
+	_victory_layer.layer = 200
+	_victory_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(_victory_layer)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0.0, 0.0, 0.0, 0.7)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.process_mode = Node.PROCESS_MODE_ALWAYS
+	dim.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and (e as InputEventMouseButton).pressed:
+			_dismiss_victory_screen())
+	_victory_layer.add_child(dim)
+
+	var font := load("res://assets/fonts/Gameplay.ttf") as FontFile
+
+	var title := Label.new()
+	title.text = "DISASTER AVOIDED"
+	title.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if font:
+		title.add_theme_font_override("font", font)
+	title.add_theme_font_size_override("font_size", 54)
+	title.add_theme_color_override("font_color", Color(0.3, 0.9, 0.4))
+	title.add_theme_color_override("font_outline_color", Color.BLACK)
+	title.add_theme_constant_override("outline_size", 6)
+	_victory_layer.add_child(title)
+
+	var hint := Label.new()
+	hint.text = "Click to continue"
+	hint.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hint.offset_top = 60.0
+	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if font:
+		hint.add_theme_font_override("font", font)
+	hint.add_theme_font_size_override("font_size", 16)
+	hint.add_theme_color_override("font_color", Color(0.8, 0.85, 0.95))
+	_victory_layer.add_child(hint)
+
+func _dismiss_victory_screen() -> void:
+	get_tree().paused = false
+	if _victory_layer != null:
+		_victory_layer.queue_free()
+		_victory_layer = null
+
 func _add_material_panel() -> void:
 	var panel := MaterialPanelScript.new()
 	panel.position = Vector2(1240.0, 8.0)
-	panel.size     = Vector2(192.0, 160.0)
+	panel.size     = Vector2(192.0, 196.0)   # +height for the $ balance row
 	add_child(panel)
 
 func _add_defense_panel() -> void:

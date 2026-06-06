@@ -7,6 +7,9 @@ var _fill:         ColorRect = null
 var _label:        Label     = null
 var _shield_fill:  ColorRect = null   # yellow overlay on top of the green fill
 var _shield_label: Label     = null   # yellow shield number
+var _energy_track: ColorRect = null   # cyan dash-energy bar, below the HP bar
+var _energy_fill:  ColorRect = null
+var _energy_label: Label     = null
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -52,10 +55,36 @@ func _ready() -> void:
 	_shield_label.size = Vector2(60.0, 14.0)
 	add_child(_shield_label)
 
+	# Energy (dash) bar — sits just below the HP bar.
+	_energy_track = ColorRect.new()
+	_energy_track.color = Color(0.15, 0.15, 0.15, 0.8)
+	_energy_track.size  = Vector2(BAR_W, 8)
+	add_child(_energy_track)
+
+	_energy_fill = ColorRect.new()
+	_energy_fill.color = Color(0.25, 0.65, 1.0)
+	_energy_fill.size  = Vector2(BAR_W, 8)
+	_energy_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_energy_track.add_child(_energy_fill)
+
+	_energy_label = Label.new()
+	_energy_label.text = "EN  100 / 100"
+	if font:
+		_energy_label.add_theme_font_override("font", font)
+	_energy_label.add_theme_font_size_override("font_size", 9)
+	_energy_label.add_theme_color_override("font_color", Color(0.4, 0.75, 1.0))
+	_energy_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	_energy_label.add_theme_constant_override("outline_size", 2)
+	_energy_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_energy_label.size = Vector2(120.0, 12.0)
+	add_child(_energy_label)
+
 	GameManager.ship_hp_changed.connect(_on_hp_changed)
 	GameManager.ship_shield_changed.connect(_on_shield_changed)
+	GameManager.ship_energy_changed.connect(_on_energy_changed)
 	GameManager.ship_destroyed.connect(_on_destroyed)
 	_on_shield_changed(GameManager.ship_shield)
+	_on_energy_changed(GameManager.ship_energy)
 	call_deferred("_reposition")
 
 func _reposition() -> void:
@@ -68,6 +97,10 @@ func _reposition() -> void:
 		if child is ColorRect:
 			child.position = Vector2(vp.x - 145, vp.y - 82)
 			break
+	if _energy_track != null:
+		_energy_track.position = Vector2(vp.x - 145, vp.y - 66)
+	if _energy_label != null:
+		_energy_label.position = Vector2(vp.x - 145 + BAR_W - 120.0, vp.y - 68)
 
 func _on_hp_changed(hp: int) -> void:
 	var ratio := clampf(float(hp) / GameManager.SHIP_MAX_HP, 0.0, 1.0)
@@ -84,6 +117,13 @@ func _on_shield_changed(shield: float) -> void:
 		_shield_fill.size.x = BAR_W * ratio
 	if _shield_label != null:
 		_shield_label.text = str(int(round(shield)))
+
+func _on_energy_changed(energy: float) -> void:
+	var ratio := clampf(energy / GameManager.SHIP_MAX_ENERGY, 0.0, 1.0)
+	if _energy_fill != null:
+		_energy_fill.size.x = BAR_W * ratio
+	if _energy_label != null:
+		_energy_label.text = "EN  %d / %d" % [int(round(energy)), int(GameManager.SHIP_MAX_ENERGY)]
 
 func _on_destroyed() -> void:
 	_fill.size.x = 0.0
