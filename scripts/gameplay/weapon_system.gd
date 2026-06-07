@@ -411,7 +411,8 @@ func _process(delta: float) -> void:
 func _handle_input(ctx: Dictionary, delta: float) -> void:
 	ctx["cd"] = maxf(0.0, float(ctx["cd"]) - delta)
 	var auto: bool = bool(ctx["allow_auto"]) and _auto_fire
-	var down: bool = Input.is_mouse_button_pressed(int(ctx["button"])) or auto
+	# No firing during the boss fly-in (player input disabled).
+	var down: bool = (Input.is_mouse_button_pressed(int(ctx["button"])) or auto) and not GameManager.boss_intro_active
 	if _inventory_open():
 		ctx["trigger_down"] = false
 		ctx["charge"] = 0.0

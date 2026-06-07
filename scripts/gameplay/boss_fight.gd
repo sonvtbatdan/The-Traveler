@@ -20,6 +20,11 @@ const BossElephantScript   := preload("res://scripts/gameplay/boss_elephant.gd")
 const BossChromeleonScript := preload("res://scripts/gameplay/boss_chromeleon.gd")
 const BossMetalflyScript   := preload("res://scripts/gameplay/boss_metalfly.gd")
 
+const OC_TOP        := 8.0    # play-area top edge (objects-container-local y)
+const OC_CENTER_X   := 620.0  # play-area horizontal centre (270 + 700/2)
+const BOSS_INTRO_T  := 1.0    # boss/ship fly-in duration (seconds)
+const INTRO_EDGE_CM := 2.0    # boss stops this far from the top edge (player likewise from the bottom)
+
 var _objects_container: Control = null
 var _modules: Dictionary = {}     # id: String -> boss module (Control)
 var _active: Node = null          # currently-spawned boss (persists across stage transitions)
@@ -67,8 +72,35 @@ func spawn_boss(id: String = "elephant") -> void:
 		return
 	_active = m
 	m.spawn_boss()
+	_start_intro()
+
+# 1-second entrance: boss floats down from the top, ship floats up from the bottom
+# (gun_system, via the flag), all player input disabled. The flag is set the same frame
+# as spawn, so each module's _process freezes before it can tick a move.
+func _start_intro() -> void:
+	GameManager.boss_intro_active = true
+	var eo: EditableObjectNode = null
+	if _active.has_method("get_intro_eo"):
+		eo = _active.get_intro_eo()
+	var tw := create_tween()
+	if eo != null and is_instance_valid(eo):
+		# Land centred, top of the boss ~INTRO_EDGE_CM below the top edge.
+		var target := Vector2(OC_CENTER_X - eo.size.x * 0.5, OC_TOP + _cm_px(INTRO_EDGE_CM))
+		eo.position = Vector2(target.x, OC_TOP - eo.size.y - 40.0)   # start just above the top edge
+		tw.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+		tw.tween_property(eo, "position", target, BOSS_INTRO_T)
+	else:
+		tw.tween_interval(BOSS_INTRO_T)
+	tw.tween_callback(func() -> void: GameManager.boss_intro_active = false)
+
+func _cm_px(cm: float) -> float:
+	var dpi: int = DisplayServer.screen_get_dpi()
+	if dpi <= 0:
+		dpi = 96
+	return cm / 2.54 * float(dpi)
 
 func kill_boss() -> void:
+	GameManager.boss_intro_active = false   # safety: never leave input disabled
 	if _active != null and is_instance_valid(_active) and _active.has_method("kill_boss"):
 		_active.kill_boss()
 

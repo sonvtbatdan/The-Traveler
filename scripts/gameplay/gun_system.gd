@@ -105,6 +105,11 @@ var _lightning_chains:    Array = []   # [{lines: Array, age: float}]
 var _spaceship_eo:        EditableObjectNode = null
 var _spaceship_origin:    Vector2 = Vector2.ZERO
 var _spaceship_origin_sz: Vector2 = Vector2.ZERO
+# Boss-intro fly-in: float the ship up from below the screen while input is disabled.
+var _intro_was_active:    bool    = false
+var _intro_t:             float   = 0.0
+var _intro_from:          Vector2 = Vector2.ZERO
+var _intro_to:            Vector2 = Vector2.ZERO
 
 # ── Dash state ────────────────────────────────────────────────────────────────
 var _dash_cd        := 0.0
@@ -476,8 +481,24 @@ func _process(delta: float) -> void:
 		else:
 			_burst_queue[bi] = entry
 		bi -= 1
+	# Boss intro: float the ship up from below the screen; WASD disabled during it.
+	var intro: bool = GameManager.boss_intro_active
+	if intro and not _intro_was_active:
+		# Land centred, ship centre ~2cm above the bottom edge (origin offset by half size).
+		var dpi: int = DisplayServer.screen_get_dpi()
+		if dpi <= 0:
+			dpi = 96
+		var cm2: float = 2.0 / 2.54 * float(dpi)
+		var cx: float = SCREEN_BOUNDS.position.x + SCREEN_BOUNDS.size.x * 0.5
+		_intro_to   = Vector2(cx, SCREEN_BOUNDS.end.y - cm2) - _spaceship_origin_sz * 0.5
+		_intro_from = Vector2(_intro_to.x, SCREEN_BOUNDS.end.y + 60.0)   # just below the screen
+		_intro_t    = 0.0
+	_intro_was_active = intro
+	if intro:
+		_intro_t = minf(_intro_t + delta, 1.0)
+		_spaceship_origin = _intro_from.lerp(_intro_to, _intro_t)
 	# WASD flies the ship in the asteroid screen too (not just manual boost).
-	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
+	elif _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		_handle_ship_movement(delta)
 
 	# Spaceship: position + scale force-apply each frame. Ship sits at 0.70 normally and

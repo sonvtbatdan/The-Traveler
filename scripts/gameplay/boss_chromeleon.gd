@@ -23,37 +23,47 @@ const BOSS_MAX_HP := 1500
 const ORB_MAX_HP  := 1000
 
 const M1_SPEED     := 120.0
-const M1_SHOOT_INT := 0.5
+const M1_SHOOT_INT := 0.7   # seconds between spreads (30% faster than 1.0)
 const M1_FP2_DELAY := 0.25
 const M1_MIN_DUR   := 6.0
 const M1_MAX_DUR   := 10.0
+const M1_PANIC_RANGE := 100.0   # if the player gets this close in Move 1, bail into the Ball Charge (Move 4)
 
 const M2_MOVE_SPD  := 150.0
 const M2_MOVE_RPM  := 40.0
 const M2_SPIN_RPM  := 80.0
 const M2_SPINUP_T  := 3.0     # time to ramp up to full spin speed (controls spin FEEL — unchanged)
-const M2_SPIN_DUR  := 15.0    # how long the spin phase lasts (5x longer → 5x as many shots)
+const M2_SPIN_DUR  := 5.0     # how long the spin phase lasts
 const M2_SHOOT_INT := 0.111   # 3x faster fire than before (0.334) → 3x more projectiles in the spin phase
 
-const M3_BODY_SPD  := 25.0
-const M3_BODY_RPM  := 20.0
-const M3_ORB_SPD   := 90.0
-const M3_ORB_SHOOT := 0.25
-const M3_SNAP_DUR  := 0.1875
-const M3_SNAP_MIN  := 0.5
-const M3_SNAP_MAX  := 1.5
-const M3_DURATION  := 10.0
-const M3_RECALL_T  := 1.2
-const M3_BODY_SPAWN_INT := 1.5  # spawn chromeleonbody every 1.5s
-const M3_BODY_MOVE_SPD  := 40.0 # px/s
+const M3_BODY_RPM  := 20.0     # ball's slow idle spin
+const M3_ORB_SHOOT := 0.25     # orb fire interval during the spiral
+# Move 3: curl → eject to the sides → spiral back, firing
+const M3_CURL_T       := 1.0     # stage 1: curl + fast spin + orbs glow in
+const M3_CURL_RPM     := 240.0   # fast spin during curl
+const M3_EJECT_T      := 0.45    # fly-out-to-the-sides duration
+const M3_ORB_GLOW_MAX := 2.0     # orb brightness peak for the shine-in
+const M3_SIDE_CM      := 5.0     # orbs eject this far to each side of the body
+const M3_SPIRAL_T     := 4.0     # spiral-back duration
+const M3_SPIRAL_TURNS := 3.0     # full rotations during the spiral
 # Bullet hit radius as a fraction of its half-size — keeps the hitbox tight to the
 # diamond/hex VISUAL instead of the full square texture (transparent corners don't hit).
 const BULLET_HIT_FACTOR := 0.7
+# Bullet render sizes (px) — kept in code so they don't depend on decorative layout
+# objects. Tune here. Index i of _bullet_frames maps to "chromebullet(i+1)".
+const BULLET_SIZES := {
+	"chromebullet1": Vector2(10, 41), "chromebullet2": Vector2(8, 42),
+	"chromebullet3": Vector2(9, 40),  "chromebullet4": Vector2(14, 42),
+	"chromebullet5": Vector2(12, 43), "chromebullet6": Vector2(12, 43),
+	"chromebullet7": Vector2(12, 42), "chromebullet8": Vector2(11, 42),
+	"chromebullet9": Vector2(11, 43), "chromebullet10": Vector2(16, 38),
+	"chromebullet11": Vector2(12, 40), "chromebullet12": Vector2(28, 41),
+	"bluebullet": Vector2(30, 30), "tealbullet": Vector2(30, 30),
+}
 # Safety net: if any single main-phase move runs longer than this (well above the
 # longest legit move, the ~15s spin), force-recover so the boss can never get stuck
 # "spinning in place doing nothing" again, whatever sub-phase breaks.
 const MOVE_HARD_CAP := 30.0
-const M3_BODY_MOVE_RPM  := 10.0 # rotation per minute
 
 const M4_SPIN_DUR         := 1.0     # spin-in-place telegraph before the first charge
 const M4_CHARGE_MAX       := 600.0   # max charge speed (px/s)
@@ -64,9 +74,8 @@ const M4_CHARGE_RPM       := 80.0    # spin speed while telegraphing / charging
 const M4_OVERSHOOT_MARGIN := 90.0    # how far past the edge counts as "fully out"
 const M4_FINAL_T          := 1.0     # 5th charge: decelerating glide that stops at the ending spot
 const M4_HIT_DMG    := 40
-# TEST TOGGLE: when true the boss only ever performs Move 4. Set false to restore the
-# full random moveset (M1-M4).
-const DEBUG_M4_ONLY := true
+# TEST TOGGLE: 0 = full random moveset (M1-M4); 1-4 = force only that move.
+const DEBUG_FORCE_MOVE := 0
 
 const FINAL_HEAD_SPD  := 25.0
 const FINAL_HEAD_RPM  := 20.0
@@ -92,7 +101,7 @@ enum Phase {
 	IDLE,
 	M1_CRAWL,
 	M2_TRANSFORM, M2_MOVE, M2_SPIN, M2_RETURN,
-	M3_ACTIVE, M3_RECALL,
+	M3_CURL, M3_EJECT, M3_SPIRAL,
 	M4_TRANSFORM, M4_MOVE, M4_SPIN, M4_CHARGE, M4_OFFSCREEN, M4_FINAL, M4_RETURN_CURVE, M4_RETURN,
 	FINAL_ENTRY, FINAL_SUB1, FINAL_SUB2, FINAL_SUB3,
 	DONE
@@ -166,6 +175,7 @@ var _m1_wp:           Vector2 = Vector2.ZERO
 var _m1_shoot_acc:    float   = 0.0
 var _m1_fp2_acc:      float   = 0.0
 var _m1_fp2_pending:  bool    = false
+var _m1_next_fp:      int     = 0    # which hand fires next (alternates 0/1 each interval)
 var _m1_duration:     float   = 8.0
 
 # Ball (M2/M4) state
@@ -174,20 +184,15 @@ var _spin_acc:     float = 0.0
 var _m2_shoot_acc: float = 0.0
 
 # M3 state
-var _body_wp:   Vector2 = Vector2.ZERO
-var _body_rot:  float   = 0.0
-var _m3_body_instances: Array = []  # {tr, pos, wp, rot, frame_idx, anim_acc}
-var _blue_wp:   Vector2 = Vector2.ZERO
-var _teal_wp:   Vector2 = Vector2.ZERO
-var _blue_rot:  float   = 0.0
-var _teal_rot:  float   = 0.0
-var _blue_snap_timer:  float = 0.0
-var _teal_snap_timer:  float = 0.0
-var _blue_snapping:    bool  = false
-var _teal_snapping:    bool  = false
 var _blue_shoot_acc:   float = 0.0
 var _teal_shoot_acc:   float = 0.0
-var _m3_body_spawn_acc: float = 0.0
+var _blue_eject_from:  Vector2 = Vector2.ZERO
+var _blue_eject_to:    Vector2 = Vector2.ZERO
+var _teal_eject_from:  Vector2 = Vector2.ZERO
+var _teal_eject_to:    Vector2 = Vector2.ZERO
+var _m3_spiral_center: Vector2 = Vector2.ZERO
+var _m3_spiral_R:      float   = 0.0
+var _m3_unfurling:     bool  = false
 
 # M4 state
 var _m4_charge_dir: Vector2 = Vector2.ZERO
@@ -307,6 +312,9 @@ func kill_boss() -> void:
 	GameManager.boss_max_hp = 0
 	GameManager.boss_killed.emit()
 
+func get_intro_eo() -> EditableObjectNode:
+	return _chromeleon_eo
+
 func get_boss_hit_rect() -> Rect2:
 	# Main phase: body takes damage. Final phase: chromehead takes damage (via direct hits).
 	var eo: EditableObjectNode
@@ -372,7 +380,6 @@ func _start_fight() -> void:
 	_show_only(_chromeleon_eo)
 	_blueorb_hp   = ORB_MAX_HP
 	_tealorb_hp   = ORB_MAX_HP
-	_body_rot     = 0.0
 	_head_rot     = 0.0
 	_setup_pivots()
 	_begin_random_move()
@@ -388,18 +395,17 @@ func _setup_pivots() -> void:
 
 func _begin_random_move() -> void:
 	_move_watchdog = 0.0   # fresh move → reset the stall safety net
-	if DEBUG_M4_ONLY:
-		_begin_m4()
-		return
-	var r := randi() % 4
-	if r == 0:
-		_begin_m1()
-	elif r == 1:
-		_begin_m2()
-	elif r == 2:
-		_begin_m3()
-	else:
-		_begin_m4()
+	match DEBUG_FORCE_MOVE:
+		1: _begin_m1()
+		2: _begin_m2()
+		3: _begin_m3()
+		4: _begin_m4()
+		_:
+			match randi() % 4:
+				0: _begin_m1()
+				1: _begin_m2()
+				2: _begin_m3()
+				_: _begin_m4()
 
 func _check_hp_or_next() -> void:
 	if GameManager.boss_hp <= 0:
@@ -411,7 +417,6 @@ func _check_hp_or_next() -> void:
 # form/orb/clone state back to the idle cluster and start a fresh move so the boss can
 # never stay stuck "spinning in place doing nothing".
 func _recover_stuck_move() -> void:
-	_cleanup_m3_body_instances()
 	_reattach_orbs()
 	_reattach_ball()
 	_show_only(_chromeleon_eo)
@@ -426,35 +431,43 @@ func _begin_m1() -> void:
 	_phase = Phase.M1_CRAWL
 	_phase_timer  = 0.0
 	_m1_shoot_acc = 0.0
-	_m1_fp2_acc   = 0.0
-	_m1_fp2_pending = false
+	_m1_next_fp   = 0   # start with the left hand
 	_m1_duration  = randf_range(M1_MIN_DUR, M1_MAX_DUR)
-	_m1_wp        = _pick_crawl_wp()
 	_show_only(_chromeleon_eo)
 
 func _tick_m1(delta: float) -> void:
 	_phase_timer  += delta
 	_m1_shoot_acc += delta
 
+	# Player too close to the boss BODY → bail out of Move 1 and charge them (Move 4).
+	# Measure distance to the body rect's nearest edge (not its centre — the boss is tall,
+	# so a centre-based check never fired when the ship was right under it).
 	if is_instance_valid(_chromeleon_eo):
-		var diff := _m1_wp - _chromeleon_eo.position
-		if diff.length() < M1_SPEED * delta + 5.0:
-			_m1_wp = _pick_crawl_wp()
+		var br := get_boss_hit_rect()
+		var sc := _ship_center()
+		if br.has_area():
+			var near := Vector2(clampf(sc.x, br.position.x, br.end.x), clampf(sc.y, br.position.y, br.end.y))
+			if sc.distance_to(near) <= M1_PANIC_RANGE:
+				_move_watchdog = 0.0
+				_begin_m4()
+				return
+
+	# Position directly in front of (above) the player — track their X, keep current Y.
+	if is_instance_valid(_chromeleon_eo):
+		var target_x := _ship_center().x - _chromeleon_eo.size.x * 0.5
+		var diff_x := target_x - _chromeleon_eo.position.x
+		var step := M1_SPEED * delta
+		if absf(diff_x) <= step:
+			_chromeleon_eo.position.x = target_x
 		else:
-			_chromeleon_eo.position += diff.normalized() * M1_SPEED * delta
+			_chromeleon_eo.position.x += signf(diff_x) * step
 		_clamp_eo(_chromeleon_eo, Y_LIMIT)
 
-	if _m1_fp2_pending:
-		_m1_fp2_acc += delta
-		if _m1_fp2_acc >= M1_FP2_DELAY:
-			_m1_fp2_pending = false
-			_fire_m1_spread(1)
-
+	# Alternate hands: left fire, interval, right fire, interval, ...
 	if _m1_shoot_acc >= M1_SHOOT_INT:
 		_m1_shoot_acc = 0.0
-		_fire_m1_spread(0)
-		_m1_fp2_acc = 0.0
-		_m1_fp2_pending = true
+		_fire_m1_spread(_m1_next_fp)
+		_m1_next_fp = 1 - _m1_next_fp
 
 	if _phase_timer >= _m1_duration:
 		_check_hp_or_next()
@@ -468,7 +481,7 @@ func _fire_m1_spread(fp_idx: int) -> void:
 	var origin := fp.global_position
 	var tex := _random_bullet()
 	var bsz  := _random_bullet_sz()
-	for a: float in [-30.0, 0.0, 30.0]:
+	for a: float in [-30.0, -15.0, 0.0, 15.0, 30.0]:   # 5-shot fan (was 3)
 		var dir := Vector2.DOWN.rotated(deg_to_rad(a))
 		_spawn_bullet(tex, origin, dir * BULLET_SPD, bsz)
 
@@ -558,179 +571,151 @@ func _on_m2_return_done() -> void:
 # Move 3 — Orb detach
 # =============================================================================
 
+# Physical cm → px via monitor DPI (best-effort; 96 fallback). Mirrors weapon_system._cm_to_px.
+func _cm_px(cm: float) -> float:
+	var dpi: int = DisplayServer.screen_get_dpi()
+	if dpi <= 0:
+		dpi = 96
+	return cm / 2.54 * float(dpi)
+
+# Helper: world centre of the curled ball (objects-container-local space).
+func _ball_center_local() -> Vector2:
+	if not is_instance_valid(_chromeball_eo):
+		return Vector2.ZERO
+	return _chromeball_eo.position + _chromeball_eo.size * 0.5
+
+func _pin_orb_to_ball(orb: EditableObjectNode) -> void:
+	if is_instance_valid(orb):
+		orb.position = _ball_center_local() - orb.size * 0.5
+
+# ── Stage 1: curl into the ball in place + orbs shine in ──────────────────────
 func _begin_m3() -> void:
-	_phase = Phase.M3_ACTIVE
+	_phase = Phase.M3_CURL
 	_phase_timer = 0.0
-	_detach_orbs()
-	_cleanup_m3_body_instances()
-	_spawn_m3_body_instance()  # spawn first chromeleonbody instance
-	_show_only(_chromeleonbody_eo)
-	_blueorb_eo.visible = true
-	_tealorb_eo.visible = true
-	_body_wp = _pick_wander_wp(Y_LIMIT)
-	_blue_wp = _pick_wander_wp(Y_LIMIT)
-	_teal_wp = _pick_wander_wp(Y_LIMIT)
-	_body_rot = 0.0
-	_blue_snap_timer = randf_range(M3_SNAP_MIN, M3_SNAP_MAX)
-	_teal_snap_timer = randf_range(M3_SNAP_MIN, M3_SNAP_MAX)
-	_blue_snapping = false
-	_teal_snapping = false
+	_ball_angle = 0.0
+	_m3_unfurling = false
+	_detach_ball()      # ball becomes the (in-place) body
+	_detach_orbs()      # orbs become independent nodes
+	_show_only(null)
+	if is_instance_valid(_chromeball_eo):
+		_chromeball_eo.gif_paused = true
+		_chromeball_eo.reset_gif()
+		_chromeball_eo.texture_rect.pivot_offset = _chromeball_eo.texture_rect.size / 2.0
+		_chromeball_eo.visible = true
+		if not _ball_frames.is_empty():
+			_play_anim(_chromeball_eo.texture_rect, _ball_frames, _ball_delays, false, true)  # curl
+	for orb: EditableObjectNode in [_blueorb_eo, _tealorb_eo]:
+		if is_instance_valid(orb):
+			orb.visible  = true
+			orb.modulate = Color.WHITE
+			_pin_orb_to_ball(orb)
+
+func _tick_m3_curl(delta: float) -> void:
+	_phase_timer += delta
+	_ball_angle += M3_CURL_RPM * TAU / 60.0 * delta
+	if is_instance_valid(_chromeball_eo):
+		_chromeball_eo.texture_rect.rotation = _ball_angle
+	var t: float = minf(_phase_timer / M3_CURL_T, 1.0)
+	var g: float = lerpf(1.0, M3_ORB_GLOW_MAX, t)
+	for orb: EditableObjectNode in [_blueorb_eo, _tealorb_eo]:
+		if is_instance_valid(orb):
+			orb.modulate = Color(g, g, g, 1.0)
+			_pin_orb_to_ball(orb)
+	if _phase_timer >= M3_CURL_T:
+		_begin_m3_eject()
+
+# ── Stage 2: orbs fly out along the spin tangent, decelerating ────────────────
+# ── Stage 2: orbs fly out to the two sides of the body (±M3_SIDE_CM) ──────────
+func _begin_m3_eject() -> void:
+	_phase = Phase.M3_EJECT
+	_phase_timer = 0.0
+	var c := _ball_center_local()
+	var r := _cm_px(M3_SIDE_CM)
+	if is_instance_valid(_blueorb_eo):
+		_blue_eject_from = _blueorb_eo.position
+		_blue_eject_to   = c + Vector2(r, 0.0) - _blueorb_eo.size * 0.5    # right
+	if is_instance_valid(_tealorb_eo):
+		_teal_eject_from = _tealorb_eo.position
+		_teal_eject_to   = c + Vector2(-r, 0.0) - _tealorb_eo.size * 0.5   # left
 	_blue_shoot_acc = 0.0
 	_teal_shoot_acc = 0.0
-	_m3_body_spawn_acc = 0.0
 
-func _tick_m3(delta: float) -> void:
+func _tick_m3_eject(delta: float) -> void:
 	_phase_timer += delta
+	_ball_angle += M3_BODY_RPM * TAU / 60.0 * delta   # settle to slow idle spin
+	if is_instance_valid(_chromeball_eo):
+		_chromeball_eo.texture_rect.rotation = _ball_angle
+	var t: float = minf(_phase_timer / M3_EJECT_T, 1.0)
+	var e: float = 1.0 - (1.0 - t) * (1.0 - t)   # ease-out
+	var g: float = lerpf(M3_ORB_GLOW_MAX, 1.0, t)
+	if is_instance_valid(_blueorb_eo):
+		_blueorb_eo.position = _blue_eject_from.lerp(_blue_eject_to, e)
+		_blueorb_eo.modulate = Color(g, g, g, 1.0)
+	if is_instance_valid(_tealorb_eo):
+		_tealorb_eo.position = _teal_eject_from.lerp(_teal_eject_to, e)
+		_tealorb_eo.modulate = Color(g, g, g, 1.0)
+	if _phase_timer >= M3_EJECT_T:
+		for orb: EditableObjectNode in [_blueorb_eo, _tealorb_eo]:
+			if is_instance_valid(orb):
+				orb.modulate = Color.WHITE
+		_begin_m3_spiral()
 
-	# Chromeleonbody drift
-	if is_instance_valid(_chromeleonbody_eo):
-		_body_wp = _tick_wander(_chromeleonbody_eo, _body_wp, delta, M3_BODY_SPD, Y_LIMIT)
-		_body_rot += M3_BODY_RPM * TAU / 60.0 * delta
-		_chromeleonbody_eo.texture_rect.rotation = _body_rot
-
-	# Tick chromeleonbody instances (wandering + respawn at bounds)
-	_tick_m3_body_instances(delta)
-
-	# Spawn chromeleonbody instances periodically
-	_m3_body_spawn_acc += delta
-	if _m3_body_spawn_acc >= M3_BODY_SPAWN_INT:
-		_m3_body_spawn_acc = 0.0
-		_spawn_m3_body_instance()
-
-	# Orb snap rotation + movement + shooting
-	_tick_orb_m3(_blueorb_eo, delta, true)
-	_tick_orb_m3(_tealorb_eo, delta, false)
-
-	if _phase_timer >= M3_DURATION:
-		_begin_m3_recall()
-
-func _tick_orb_m3(eo: EditableObjectNode, delta: float, is_blue: bool) -> void:
-	if eo == null or not is_instance_valid(eo):
-		return
-
-	# Wander
-	if is_blue:
-		_blue_wp = _tick_wander(eo, _blue_wp, delta, M3_ORB_SPD, Y_LIMIT)
-	else:
-		_teal_wp = _tick_wander(eo, _teal_wp, delta, M3_ORB_SPD, Y_LIMIT)
-
-	# Snap rotation
-	if is_blue:
-		if not _blue_snapping:
-			_blue_snap_timer -= delta
-			if _blue_snap_timer <= 0.0:
-				_blue_snap_timer = randf_range(M3_SNAP_MIN, M3_SNAP_MAX)
-				var sign := 1.0 if randi() % 2 == 0 else -1.0
-				var target := _blue_rot + sign * PI / 2.0
-				_blue_snapping = true
-				var tw := create_tween()
-				tw.tween_method(func(v: float) -> void: _blue_rot = v, _blue_rot, target, M3_SNAP_DUR)
-				tw.tween_callback(func() -> void: _blue_snapping = false)
-		eo.texture_rect.rotation = _blue_rot
-	else:
-		if not _teal_snapping:
-			_teal_snap_timer -= delta
-			if _teal_snap_timer <= 0.0:
-				_teal_snap_timer = randf_range(M3_SNAP_MIN, M3_SNAP_MAX)
-				var sign := 1.0 if randi() % 2 == 0 else -1.0
-				var target := _teal_rot + sign * PI / 2.0
-				_teal_snapping = true
-				var tw := create_tween()
-				tw.tween_method(func(v: float) -> void: _teal_rot = v, _teal_rot, target, M3_SNAP_DUR)
-				tw.tween_callback(func() -> void: _teal_snapping = false)
-		eo.texture_rect.rotation = _teal_rot
-
-	# Shoot (absolute directions, FP rotates for spawn origin)
-	if is_blue:
-		_blue_shoot_acc += delta
-		if _blue_shoot_acc >= M3_ORB_SHOOT:
-			_blue_shoot_acc = 0.0
-			_fire_orb_nsew(eo, _blue_fp_offset, _blue_rot, _blue_bullet_resized if _blue_bullet_resized != null else _blue_bullet_tex,
-				[Vector2.UP, Vector2.DOWN, Vector2.LEFT, Vector2.RIGHT], _blue_bullet_size)
-	else:
-		_teal_shoot_acc += delta
-		if _teal_shoot_acc >= M3_ORB_SHOOT:
-			_teal_shoot_acc = 0.0
-			_fire_orb_nsew(eo, _teal_fp_offset, _teal_rot, _teal_bullet_resized if _teal_bullet_resized != null else _teal_bullet_tex,
-				[Vector2(-1,-1).normalized(), Vector2(1,-1).normalized(),
-				 Vector2(-1,1).normalized(), Vector2(1,1).normalized()], _teal_bullet_size)
-
-func _tick_m3_body_instances(delta: float) -> void:
-	var i := _m3_body_instances.size() - 1
-	while i >= 0:
-		var inst: Dictionary = _m3_body_instances[i]
-		var tr: TextureRect = inst["tr"]
-		if not is_instance_valid(tr):
-			_m3_body_instances.remove_at(i); i -= 1; continue
-
-		# Wander to waypoint
-		var pos: Vector2 = inst["pos"]
-		var wp: Vector2 = inst["wp"]
-		var diff := wp - pos
-		if diff.length() < M3_BODY_MOVE_SPD * delta + 5.0:
-			inst["pos"] = wp
-			inst["wp"] = _pick_wander_wp(Y_LIMIT)
-		else:
-			inst["pos"] += diff.normalized() * M3_BODY_MOVE_SPD * delta
-			_clamp_eo_pos(inst, Y_LIMIT)
-
-		# Update TextureRect position
-		tr.position = inst["pos"] - OC_BOUNDS.position - Vector2(32.0, 32.0)
-
-		# Rotate
-		inst["rot"] = (inst.get("rot", 0.0) as float) + M3_BODY_MOVE_RPM * TAU / 60.0 * delta
-		tr.rotation = inst["rot"] as float
-
-		# Animate frames
-		inst["anim_acc"] = (inst.get("anim_acc", 0.0) as float) + delta
-		var delay: float = _body_delays[int(inst.get("frame_idx", 0))] if int(inst.get("frame_idx", 0)) < _body_delays.size() else 0.1
-		if inst["anim_acc"] as float >= delay:
-			inst["anim_acc"] = 0.0
-			var next_idx := (int(inst.get("frame_idx", 0)) + 1) % _body_frames.size()
-			inst["frame_idx"] = next_idx
-			tr.texture = _body_frames[next_idx] as Texture2D
-
-		i -= 1
-
-func _clamp_eo_pos(inst: Dictionary, y_max: float) -> void:
-	var pos: Vector2 = inst.get("pos", Vector2.ZERO) as Vector2
-	pos.x = clampf(pos.x, OC_BOUNDS.position.x, OC_BOUNDS.end.x - 64.0)
-	pos.y = clampf(pos.y, OC_BOUNDS.position.y, y_max - 64.0)
-	inst["pos"] = pos
-
-func _cleanup_m3_body_instances() -> void:
-	for inst: Dictionary in _m3_body_instances:
-		var tr = inst.get("tr")
-		if tr != null and is_instance_valid(tr):
-			tr.queue_free()
-	_m3_body_instances.clear()
-
-func _begin_m3_recall() -> void:
-	_phase = Phase.M3_RECALL
+# ── Stage 3: orbs spiral back into the body (3 turns / M3_SPIRAL_T), firing ───
+func _begin_m3_spiral() -> void:
+	_phase = Phase.M3_SPIRAL
 	_phase_timer = 0.0
-	if not (is_instance_valid(_chromeleonbody_eo) and is_instance_valid(_blueorb_eo) and is_instance_valid(_tealorb_eo)):
-		_finish_m3_recall()
-		return
-	var tgt := _chromeleonbody_eo.global_position + _chromeleonbody_eo.size / 2.0
-	var oc_gp := _objects_container.global_position
-	if _blueorb_eo.get_parent() == _objects_container:
-		var tw := create_tween()
-		tw.tween_property(_blueorb_eo, "position",
-			tgt - oc_gp - _blueorb_eo.size / 2.0, M3_RECALL_T).set_ease(Tween.EASE_IN)
-	if _tealorb_eo.get_parent() == _objects_container:
-		var tw2 := create_tween()
-		tw2.tween_property(_tealorb_eo, "position",
-			tgt - oc_gp - _tealorb_eo.size / 2.0, M3_RECALL_T).set_ease(Tween.EASE_IN)
+	_m3_spiral_center = _ball_center_local()
+	_m3_spiral_R = _cm_px(M3_SIDE_CM)
+	_blue_shoot_acc = 0.0
+	_teal_shoot_acc = 0.0
 
-func _tick_m3_recall(delta: float) -> void:
+func _tick_m3_spiral(delta: float) -> void:
+	if _m3_unfurling:
+		return
 	_phase_timer += delta
-	if _phase_timer >= M3_RECALL_T + 0.15:
+	_ball_angle += M3_BODY_RPM * TAU / 60.0 * delta
+	if is_instance_valid(_chromeball_eo):
+		_chromeball_eo.texture_rect.rotation = _ball_angle
+	var t: float = minf(_phase_timer / M3_SPIRAL_T, 1.0)
+	var theta: float = t * M3_SPIRAL_TURNS * TAU
+	var radius: float = _m3_spiral_R * (1.0 - t)
+	var off := Vector2(cos(theta), sin(theta)) * radius
+	if is_instance_valid(_blueorb_eo):
+		_blueorb_eo.position = _m3_spiral_center + off - _blueorb_eo.size * 0.5
+	if is_instance_valid(_tealorb_eo):
+		_tealorb_eo.position = _m3_spiral_center - off - _tealorb_eo.size * 0.5
+	# Fire while spiralling: blue = cardinal, teal = diagonal.
+	_blue_shoot_acc += delta
+	if _blue_shoot_acc >= M3_ORB_SHOOT:
+		_blue_shoot_acc = 0.0
+		_fire_orb_nsew(_blueorb_eo, _blue_fp_offset, 0.0,
+			_blue_bullet_resized if _blue_bullet_resized != null else _blue_bullet_tex,
+			[Vector2.UP, Vector2.DOWN, Vector2.LEFT, Vector2.RIGHT], _blue_bullet_size)
+	_teal_shoot_acc += delta
+	if _teal_shoot_acc >= M3_ORB_SHOOT:
+		_teal_shoot_acc = 0.0
+		_fire_orb_nsew(_tealorb_eo, _teal_fp_offset, 0.0,
+			_teal_bullet_resized if _teal_bullet_resized != null else _teal_bullet_tex,
+			[Vector2(-1, -1).normalized(), Vector2(1, -1).normalized(),
+			 Vector2(-1, 1).normalized(), Vector2(1, 1).normalized()], _teal_bullet_size)
+	if _phase_timer >= M3_SPIRAL_T:
 		_finish_m3_recall()
 
 func _finish_m3_recall() -> void:
-	_cleanup_m3_body_instances()
 	_reattach_orbs()
+	_m3_unfurling = true
+	if is_instance_valid(_chromeball_eo) and not _ball_frames.is_empty():
+		_play_anim(_chromeball_eo.texture_rect, _ball_frames, _ball_delays, true, true)  # unfurl
+		anim_finished.connect(_on_m3_unfurl_done, CONNECT_ONE_SHOT)
+	else:
+		_on_m3_unfurl_done()
+
+func _on_m3_unfurl_done() -> void:
+	_reattach_ball()
 	_show_only(_chromeleon_eo)
+	for orb: EditableObjectNode in [_blueorb_eo, _tealorb_eo]:
+		if is_instance_valid(orb):
+			orb.modulate = Color.WHITE
 	_check_hp_or_next()
 
 # =============================================================================
@@ -1169,7 +1154,7 @@ func get_move_name() -> String:
 			return "Move 1: Crawl"
 		Phase.M2_TRANSFORM, Phase.M2_MOVE, Phase.M2_SPIN, Phase.M2_RETURN:
 			return "Move 2: Ball Spin"
-		Phase.M3_ACTIVE, Phase.M3_RECALL:
+		Phase.M3_CURL, Phase.M3_EJECT, Phase.M3_SPIRAL:
 			return "Move 3: Orb Detach"
 		Phase.M4_TRANSFORM, Phase.M4_SPIN, Phase.M4_CHARGE, Phase.M4_OFFSCREEN, Phase.M4_FINAL, Phase.M4_RETURN:
 			return "Move 4: Ball Charge"
@@ -1332,6 +1317,8 @@ func _show_victory_screen() -> void:
 # =============================================================================
 
 func _process(delta: float) -> void:
+	if GameManager.boss_intro_active:
+		return   # frozen during the fly-in; the manager tweens the boss into place
 	if _phase == Phase.IDLE or _phase == Phase.DONE:
 		# Safety net: never leave a boss part visible while idle, or the cluster just
 		# sits there spinning its idle GIF and looks "stuck". (Tree is paused in edit
@@ -1363,8 +1350,9 @@ func _process(delta: float) -> void:
 			_anim_phase_timer += delta
 			if _anim_phase_timer >= 15.0:
 				_on_m2_return_done()
-		Phase.M3_ACTIVE:       _tick_m3(delta)
-		Phase.M3_RECALL:       _tick_m3_recall(delta)
+		Phase.M3_CURL:         _tick_m3_curl(delta)
+		Phase.M3_EJECT:        _tick_m3_eject(delta)
+		Phase.M3_SPIRAL:       _tick_m3_spiral(delta)
 		Phase.M4_TRANSFORM:
 			_anim_phase_timer += delta
 			if _anim_phase_timer >= 15.0:
@@ -1483,34 +1471,6 @@ func _random_bullet_sz() -> Vector2:
 		return Vector2.ZERO
 	var sz := _bullet_sizes[_last_cb_idx] as Vector2
 	return sz if sz != Vector2.ZERO else Vector2(1.0, 1.0)
-
-func _spawn_m3_body_instance() -> void:
-	if _body_frames.is_empty():
-		return
-	var frame: Texture2D = _body_frames[0]
-	if frame == null:
-		return
-	var sz := Vector2(64.0, 64.0)
-	var lpos := _pick_wander_wp(Y_LIMIT) - OC_BOUNDS.position - sz / 2.0
-	var tr := TextureRect.new()
-	tr.texture = frame
-	tr.size = sz
-	tr.stretch_mode = TextureRect.STRETCH_KEEP
-	tr.pivot_offset = sz / 2.0
-	tr.position = lpos
-	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	tr.z_as_relative = false
-	tr.z_index = 150
-	_clip_node.add_child(tr)
-	_m3_body_instances.append({
-		"tr": tr,
-		"pos": lpos + OC_BOUNDS.position,  # viewport pos
-		"wp": _pick_wander_wp(Y_LIMIT),   # next waypoint
-		"rot": 0.0,
-		"frame_idx": 0,
-		"anim_acc": 0.0
-	})
 
 # =============================================================================
 # Projectile system
@@ -1704,7 +1664,10 @@ func _pick_crawl_wp() -> Vector2:
 func _ship_center() -> Vector2:
 	if _ship_eo == null or not is_instance_valid(_ship_eo):
 		return OC_BOUNDS.get_center()
-	return _ship_eo.global_position + _ship_eo.size / 2.0
+	# Use the transform (not global_position + size/2): the ship is scaled ~0.35 during
+	# the fight and scaling around the centre pivot shifts global_position, which would
+	# put this point well below the visible ship.
+	return _ship_eo.get_global_transform() * (_ship_eo.size * 0.5)
 
 func _head_center() -> Vector2:
 	if not is_instance_valid(_chromehead_eo):
@@ -1872,27 +1835,16 @@ func _load_assets() -> void:
 		_teal_bullet_size = _teal_bullet_native_size
 
 func _reload_bullet_sizes() -> void:
-	# Always re-read bullet sizes from boss_layout.cfg so F5 edits take effect
-	var sz_map: Dictionary = {}
-	var cfg2 := ConfigFile.new()
-	if cfg2.load("res://boss_layout.cfg") == OK:
-		var entries: Array = cfg2.get_value("bosses", "chromeleon", [])
-		for entry: Dictionary in entries:
-			var bn: String = (entry.get("path", "") as String).get_file().get_basename().to_lower()
-			var sz: Vector2 = entry.get("size", Vector2.ZERO) as Vector2
-			if sz != Vector2.ZERO:
-				sz_map[bn] = sz
-
-	# Update chromebullet sizes (fallback to native size if not in F5)
+	# Sizes come from the BULLET_SIZES const (native texture size only as a last resort),
+	# so bullet rendering no longer depends on decorative layout objects in boss_layout.cfg.
 	for i in _bullet_frames.size():
 		var bn := "chromebullet%d" % (i + 1)
 		var native_fallback: Vector2 = _bullet_native_sizes[i] if i < _bullet_native_sizes.size() else Vector2.ZERO
 		if i < _bullet_sizes.size():
-			_bullet_sizes[i] = sz_map.get(bn, native_fallback) as Vector2
+			_bullet_sizes[i] = BULLET_SIZES.get(bn, native_fallback) as Vector2
 
-	# Update orb bullet sizes (fallback to native size if not in F5)
-	_blue_bullet_size = sz_map.get("bluebullet", _blue_bullet_native_size) as Vector2
-	_teal_bullet_size = sz_map.get("tealbullet", _teal_bullet_native_size) as Vector2
+	_blue_bullet_size = BULLET_SIZES.get("bluebullet", _blue_bullet_native_size) as Vector2
+	_teal_bullet_size = BULLET_SIZES.get("tealbullet", _teal_bullet_native_size) as Vector2
 
 	# Pre-cache resized bullet frames
 	_resize_all_bullets()

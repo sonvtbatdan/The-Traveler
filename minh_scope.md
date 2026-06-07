@@ -63,3 +63,74 @@ Pause so I can kill a boss and confirm 3 affixed weapons drop into my inventory.
 
 Throughout: numbers come from the spreadsheets, keep everything in clearly-named data tables/arrays so I can tweak, and at the end give me a plain-language summary of what each phase added and how the roll → name → stat pipeline flows.
 
+Prompt for Claude Code:
+Task
+Completely rework Move 3 of the Chromeleon boss in boss_chromeleon.gd. The new Move 3 is a 5-stage sequence (curl → eject → orbs fire → freeze burst → recall → unfurl). This replaces the current orb-detach implementation AND removes the undocumented "chromeleonbody instance spawning" mechanic entirely. Don't touch other moves, projectile internals, or phase logic outside Move 3.
+Read the current Move 3 region first (roughly lines 511–660: _begin_m3, _tick_m3, _tick_orb_m3, _tick_m3_body_instances, _clamp_eo_pos, _cleanup_m3_body_instances, _begin_m3_recall, and the M3 constants at lines 37–48). Also read the Move 2 ball functions (_begin_m2, _tick_m2_* around lines 442–509) and the helpers _play_anim, _detach_orbs, _reattach_orbs, _show_only, _tick_wander, _fire_orb_nsew, _fire_orb_rotated — you will reuse these.
+Remove first
+Delete the undocumented body-spawn mechanic that is NOT part of the new design:
+
+Functions: _spawn_m3_body_instance, _tick_m3_body_instances, _clamp_eo_pos, _cleanup_m3_body_instances (remove if not used elsewhere — grep to confirm), and the _m3_body_instances array, _m3_body_spawn_acc var.
+Constants no longer needed: M3_BODY_SPAWN_INT, M3_BODY_MOVE_SPD, M3_BODY_MOVE_RPM (grep to confirm no other references before deleting).
+The new Move 3 does NOT use chromeleonbody.gif at all — the body is the chromeball (curled) form, reusing the Move 2 ball animation. Leave the _body_frames/chromeleonbody asset loading alone only if it's referenced elsewhere; otherwise note it's now unused.
+
+New Move 3 — 5 stages
+Add a new phase enum set for the sub-stages (extend the Phase enum): M3_CURL, M3_EJECT, M3_ORBS, M3_FREEZE, M3_RECALL (M3_RECALL already exists — reuse or rename consistently). Drive them from _tick dispatch like the other phases.
+New constants (replace the old M3 block; keep existing ones still used like M3_ORB_SPD, M3_ORB_SHOOT, M3_SNAP_DUR, M3_SNAP_MIN, M3_SNAP_MAX, M3_RECALL_T):
+gdscriptconst M3_CURL_T      := 1.0    # stage 1: spin in place + orbs glow in
+const M3_CURL_RPM    := 240.0  # fast spin during curl (tune)
+const M3_EJECT_SPD   := 300.0  # px/s orbs fly out, carrying spin momentum
+const M3_EJECT_T     := 0.45   # how long the outward ejection lasts before settling into wander
+const M3_ORBS_T      := 4.0    # stage 3: orbs wander + fire
+const M3_FREEZE_T    := 1.0    # stage 4: frozen, blinking, 8-dir fire
+const M3_FREEZE_SHOOT := 0.25  # fire interval during freeze (8 dirs each volley)
+const M3_ORB_GLOW_MAX := 2.0   # modulate brightness peak for the shine-in
+Stage 1 — M3_CURL (1.0s): curl + spin + orbs glow in
+
+Reuse the chromeball curl animation: like _begin_m2, hide chromeleon and show _chromeball_eo, play _ball_frames forward once to curl up. Keep the ball at the chromeleon's current position (curl in place, no travel to (350,150) — this is different from M2).
+Spin the ball fast in place: _ball_angle += M3_CURL_RPM * TAU/60 * delta, apply to _chromeball_eo.texture_rect.rotation.
+Orbs "shine from the body": make _blueorb_eo and _tealorb_eo visible but positioned AT the ball center (overlapping the body, not yet ejected), and gradually ramp their modulate brightness from normal up to M3_ORB_GLOW_MAX over the 1.0s (lerp on _phase_timer / M3_CURL_T). They do not fire or move yet.
+After 1.0s → stage 2.
+
+Stage 2 — M3_EJECT: orbs fly out carrying spin momentum
+
+Compute each orb's ejection direction from the spin tangent at the moment of release: tangential direction = Vector2.RIGHT.rotated(_ball_angle + PI/2) for one orb and the opposite (+ -PI/2, i.e. 180° apart) for the other, so they shoot out on opposite sides consistent with the spin. (Tune which orb goes which way.)
+Move each orb outward at M3_EJECT_SPD along its ejection dir for M3_EJECT_T seconds, decelerating into its first wander waypoint. Reset orb modulate back to normal as they leave the body (lerp brightness back down during eject).
+Clamp orbs to bounds (_clamp_eo / Y_LIMIT) so they don't fly off-screen.
+The ball body stops the fast spin and settles to a slow idle spin for the next stage.
+After M3_EJECT_T → stage 3. Initialize orb wander/snap/shoot state here (the same init currently in _begin_m3: _blue_wp, _teal_wp, snap timers, shoot accumulators, _blue_snapping=false, etc.).
+
+Stage 3 — M3_ORBS (4.0s): body drifts-in-place spinning, orbs fire as now
+
+Body: the curled ball stays roughly in place (no wander) and keeps a slow continuous spin (reuse a modest RPM, e.g. M3_BODY_RPM = 20). Do not call _tick_wander on the body. Keep it visible as the chromeball.
+Orbs: reuse the EXISTING behavior verbatim — _tick_orb_m3(_blueorb_eo, delta, true) and _tick_orb_m3(_tealorb_eo, delta, false): wander at M3_ORB_SPD, ±90° snap rotation at random M3_SNAP_MIN..MAX intervals over M3_SNAP_DUR, fire every M3_ORB_SHOOT (blue = N/S/E/W via _fire_orb_nsew, teal = diagonals). Keep this exactly as currently implemented.
+Orbs still have NO HP in this move (unchanged from current Move 3).
+The body (chromeball) remains the damage target — bullets hitting it deal boss damage, same as the current chromeleonbody did. Make sure get_boss_hit_rect() / the active-body logic points at _chromeball_eo during Move 3 (check _active_body() — it already returns _chromeball_eo if visible, so this should work; verify).
+After 4.0s → stage 4.
+
+Stage 4 — M3_FREEZE (1.0s): freeze, blink, 8-direction fire
+
+Both orbs stop moving and stop snap-rotating — freeze at their current positions for the whole 1.0s.
+Blink: oscillate each orb's modulate alpha (or brightness) with a fast sine over the second so they visibly blink.
+Fire all 8 cardinal/intercardinal directions every M3_FREEZE_SHOOT (0.25s), each volley = 8 bullets: N, NE, E, SE, S, SW, W, NW. Both orbs do this (blue uses bluebullet, teal uses tealbullet, or keep each orb's own bullet — your call, but 8 dirs per volley each). Reuse _fire_orb_nsew with an 8-direction array, or add a small _fire_orb_8dir helper. Directions are absolute (not rotated), matching the current move's absolute-direction convention.
+The body keeps its slow idle spin, stays in place.
+After 1.0s → stage 5 (recall).
+
+Stage 5 — M3_RECALL: orbs rush back, body unfurls
+
+Tween both orbs back to the ball/body center over M3_RECALL_T (reuse existing recall logic; "rush back" so keep it snappy — current 1.2s is fine, or slightly faster). Stop their firing.
+When recall completes: play the chromeball animation backward to unfurl (reuse the M2 return: _play_anim(_chromeball_eo.texture_rect, _ball_frames, _ball_delays, true, true)), then _reattach_orbs(), _show_only(_chromeleon_eo), and _check_hp_or_next() to end the move (mirror _end_m2 / current _begin_m3_recall→reattach flow).
+
+Wiring
+
+Update _begin_m3() to start stage 1 (M3_CURL) instead of the old M3_ACTIVE.
+Update the _tick dispatch (the match on _phase) to route each new sub-phase to its tick function.
+Remove M3_ACTIVE/M3_DURATION usage if fully replaced (grep first).
+Reuse _detach_orbs() at the right point (orbs need to be independent nodes during stages 2–4) and _reattach_orbs() at recall, exactly as the current move does.
+
+Validation
+
+grep -n "M3_BODY\|_m3_body\|_spawn_m3_body\|chromeleonbody" boss_chromeleon.gd — confirm the spawn mechanic is gone and chromeleonbody isn't referenced by the new Move 3.
+Re-read the new Move 3 functions and confirm: stage timings (1.0 / eject / 4.0 / 1.0 / recall) chain correctly via _phase_timer, orbs reuse the existing fire helpers, the body is the chromeball throughout, and the move ends by unfurling back to chromeleon and calling _check_hp_or_next().
+Confirm no orb is left detached/visible after the move (reattach + show_only chromeleon at the end).
+Don't run the game; verify code consistency and report the final constants and phase flow.

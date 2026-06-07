@@ -263,6 +263,9 @@ func _show_victory_screen() -> void:
 ## True axis-aligned bounding box of the (rotated/scaled, center-pivot) boss sprite,
 ## via its TextureRect's real global transform — same pattern as _ship_hit_rect_oc().
 ## Using _boss_eo.global_position directly is wrong once rotated (origin ≠ visible top-left).
+func get_intro_eo() -> EditableObjectNode:
+	return _boss_eo
+
 func get_boss_hit_rect() -> Rect2:
 	if _boss_eo == null or not is_instance_valid(_boss_eo) or not _boss_eo.visible:
 		return Rect2()
@@ -395,6 +398,8 @@ func _draw_warning_sign(c: Vector2) -> void:
 	draw_circle(c + Vector2(0.0, s * 0.42), 2.0, dark)
 
 func _process(delta: float) -> void:
+	if GameManager.boss_intro_active:
+		return   # frozen during the fly-in; the manager tweens the boss into place
 	if GameManager.boss_max_hp > 0:
 		queue_redraw()   # redraw for the Move-3 warning sign
 	# Safety net: hide the boss whenever it's not in an active fight (phase ended OR

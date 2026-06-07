@@ -169,6 +169,8 @@ func setup(oc: Control) -> void:
 	# the single listener; it calls notify_boss_killed() / notify_hp_changed() on the active boss.
 
 func _process(delta: float) -> void:
+	if GameManager.boss_intro_active:
+		return   # frozen during the fly-in; the manager tweens the boss into place
 	# Cocoon Phase 1 movement (must be BEFORE early return!)
 	if _boss_phase == 1 and _phase == Phase.IDLE:
 		_tick_cocoon_movement(delta)
@@ -298,6 +300,10 @@ func start_fight() -> void:
 							wtr.visible = true
 
 	_begin_random_move()
+
+func get_intro_eo() -> EditableObjectNode:
+	# Metalfly spawns as the cocoon (phase 1); fall back to the fly if it's missing.
+	return _cocoon_eo if is_instance_valid(_cocoon_eo) else _boss_eo
 
 func get_boss_hit_rect() -> Rect2:
 	var target_eo: EditableObjectNode = null
