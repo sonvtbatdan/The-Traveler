@@ -498,7 +498,8 @@ func _process(delta: float) -> void:
 		_intro_t = minf(_intro_t + delta, 1.0)
 		_spaceship_origin = _intro_from.lerp(_intro_to, _intro_t)
 	# WASD flies the ship in the asteroid screen too (not just manual boost).
-	elif _spaceship_eo != null and is_instance_valid(_spaceship_eo):
+	# Disabled during the death cutscene (input_locked).
+	elif not GameManager.input_locked and _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		_handle_ship_movement(delta)
 
 	# Spaceship: position + scale force-apply each frame. Ship sits at 0.70 normally and

@@ -20,6 +20,7 @@ signal boss_defeated   # authoritative "boss HP reached zero" (victory) — NOT 
 var boss_hp:     int = 0
 var boss_max_hp: int = 0
 var boss_intro_active: bool = false   # true during the 1s boss/ship fly-in; freezes the boss + disables player input
+var input_locked:      bool = false   # true during the boss death cutscene; freezes the boss + disables player input
 
 func take_boss_damage(dmg: int) -> void:
 	if boss_hp <= 0 or boss_max_hp <= 0:

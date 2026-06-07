@@ -19,7 +19,9 @@ extends Control
 const BossElephantScript   := preload("res://scripts/gameplay/boss_elephant.gd")
 const BossChromeleonScript := preload("res://scripts/gameplay/boss_chromeleon.gd")
 const BossMetalflyScript   := preload("res://scripts/gameplay/boss_metalfly.gd")
+const BossDeathFXScript    := preload("res://scripts/gameplay/boss_death_fx.gd")
 
+const OC_BOUNDS     := Rect2(270.0, 8.0, 700.0, 764.0)  # play-area rect (viewport)
 const OC_TOP        := 8.0    # play-area top edge (objects-container-local y)
 const OC_CENTER_X   := 620.0  # play-area horizontal centre (270 + 700/2)
 const BOSS_INTRO_T  := 1.0    # boss/ship fly-in duration (seconds)
@@ -122,3 +124,13 @@ func get_move_name() -> String:
 	if _active != null and is_instance_valid(_active) and _active.has_method("get_move_name"):
 		return _active.get_move_name()
 	return ""
+
+# Shared death cutscene: each boss calls this with its visible body node(s) right
+# before its victory screen, and awaits the returned signal. FX defined once in
+# boss_death_fx.gd; the manager owns the arena rect + the shake target.
+func play_death_cutscene(body_nodes: Array) -> Signal:
+	var fx := BossDeathFXScript.new()
+	_objects_container.add_child(fx)
+	fx.finished.connect(fx.queue_free)
+	fx.play(body_nodes, OC_BOUNDS, _objects_container)
+	return fx.finished

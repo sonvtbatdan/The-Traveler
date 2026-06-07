@@ -169,8 +169,8 @@ func setup(oc: Control) -> void:
 	# the single listener; it calls notify_boss_killed() / notify_hp_changed() on the active boss.
 
 func _process(delta: float) -> void:
-	if GameManager.boss_intro_active:
-		return   # frozen during the fly-in; the manager tweens the boss into place
+	if GameManager.boss_intro_active or GameManager.input_locked:
+		return   # frozen during the fly-in / death cutscene (boss stays visible)
 	# Cocoon Phase 1 movement (must be BEFORE early return!)
 	if _boss_phase == 1 and _phase == Phase.IDLE:
 		_tick_cocoon_movement(delta)
@@ -950,9 +950,17 @@ func notify_boss_killed() -> void:
 			# Phase 2 death or forced kill
 			var won := not _forced_kill
 			print("[METALFLY] Phase 2 DEFEATED - forced=%s, showing victory=%s" % [_forced_kill, won])
-			_force_reset()
 			if won:
+				# Death cutscene (boss frozen via input_locked) before reset + victory.
+				GameManager.input_locked = true
+				var mgr := get_tree().get_first_node_in_group("boss_fight")
+				if mgr != null and mgr.has_method("play_death_cutscene"):
+					await mgr.play_death_cutscene([_boss_eo])
+				_force_reset()
 				_show_victory_screen()
+				GameManager.input_locked = false
+			else:
+				_force_reset()
 	_forced_kill = false
 
 func notify_hp_changed(new_hp: int) -> void:

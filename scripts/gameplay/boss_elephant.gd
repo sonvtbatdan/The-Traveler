@@ -170,9 +170,17 @@ func setup(oc: Control) -> void:
 func notify_boss_killed() -> void:
 	if _phase != Phase.IDLE and _phase != Phase.DONE:
 		var won := not _forced_kill   # HP-zero defeat vs forced removal (player death / debug)
-		_force_reset()
 		if won:
+			# Death cutscene (boss frozen via input_locked) before reset + victory.
+			GameManager.input_locked = true
+			var mgr := get_tree().get_first_node_in_group("boss_fight")
+			if mgr != null and mgr.has_method("play_death_cutscene"):
+				await mgr.play_death_cutscene([_boss_eo])
+			_force_reset()
 			_show_victory_screen()
+			GameManager.input_locked = false
+		else:
+			_force_reset()
 	_forced_kill = false
 
 func _force_reset() -> void:
@@ -398,8 +406,8 @@ func _draw_warning_sign(c: Vector2) -> void:
 	draw_circle(c + Vector2(0.0, s * 0.42), 2.0, dark)
 
 func _process(delta: float) -> void:
-	if GameManager.boss_intro_active:
-		return   # frozen during the fly-in; the manager tweens the boss into place
+	if GameManager.boss_intro_active or GameManager.input_locked:
+		return   # frozen during the fly-in / death cutscene (boss stays visible)
 	if GameManager.boss_max_hp > 0:
 		queue_redraw()   # redraw for the Move-3 warning sign
 	# Safety net: hide the boss whenever it's not in an active fight (phase ended OR

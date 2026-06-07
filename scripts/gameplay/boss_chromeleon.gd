@@ -262,6 +262,7 @@ func _force_reset() -> void:
 	_cleanup_projectiles()
 	_cleanup_shielded_bullets()
 	_reattach_orbs()
+	_reattach_head()
 	_reattach_ball()
 	_show_only(_chromeleon_eo)
 	_phase = Phase.IDLE
@@ -300,6 +301,7 @@ func kill_boss() -> void:
 	_cleanup_projectiles()
 	_cleanup_shielded_bullets()
 	_reattach_orbs()
+	_reattach_head()
 	_reattach_ball()
 	_show_only(null)
 	_phase = Phase.IDLE
@@ -918,8 +920,10 @@ func _begin_final() -> void:
 	GameManager.boss_hp     = ORB_MAX_HP * 2
 	GameManager.boss_hp_changed.emit(GameManager.boss_hp)
 
-	# Hide current body, show chromehead
+	# Hide current body; detach + show the chromehead (it's a child of the cluster, so it
+	# must be detached or it stays cascade-hidden behind the now-invisible cluster).
 	_show_only(null)
+	_detach_head()
 	if is_instance_valid(_chromehead_eo):
 		_chromehead_eo.visible = true
 
@@ -937,6 +941,13 @@ func _begin_final() -> void:
 	_blue_patrol_tgt = 0
 	_teal_fin_shoot = 0.0
 	_blue_fin_shoot = 0.0
+
+	# The transition was triggered by the GLOBAL boss_killed/boss_defeated signals (HP hit 0),
+	# whose other listeners think the boss died — re-assert "boss active" so asteroids stay
+	# stopped, the HP bar (now the orb pool) stays up, and boost stays on.
+	GameManager.boss_spawned.emit()
+	if not GameManager.manual_boost:
+		GameManager.set_boost(true)
 
 func _tick_final_sub1(delta: float) -> void:
 	_phase_timer += delta
@@ -1167,6 +1178,13 @@ func get_move_name() -> String:
 	return ""
 
 func _end_fight_win() -> void:
+	if _phase == Phase.DONE:
+		return
+	# Play the shared death cutscene (boss frozen via input_locked) before victory.
+	GameManager.input_locked = true
+	var mgr := get_tree().get_first_node_in_group("boss_fight")
+	if mgr != null and mgr.has_method("play_death_cutscene"):
+		await mgr.play_death_cutscene([_chromehead_eo])
 	_cleanup_projectiles()
 	_cleanup_shielded_bullets()
 	var ws := _get_ws()
@@ -1183,6 +1201,7 @@ func _end_fight_win() -> void:
 	await get_tree().create_timer(0.1).timeout
 	GameManager.boss_killed.emit()
 	_show_victory_screen()
+	GameManager.input_locked = false
 
 # =============================================================================
 # Shielded bullets (Final Sub 2)
@@ -1317,8 +1336,8 @@ func _show_victory_screen() -> void:
 # =============================================================================
 
 func _process(delta: float) -> void:
-	if GameManager.boss_intro_active:
-		return   # frozen during the fly-in; the manager tweens the boss into place
+	if GameManager.boss_intro_active or GameManager.input_locked:
+		return   # frozen during the fly-in / death cutscene (boss stays visible)
 	if _phase == Phase.IDLE or _phase == Phase.DONE:
 		# Safety net: never leave a boss part visible while idle, or the cluster just
 		# sits there spinning its idle GIF and looks "stuck". (Tree is paused in edit
@@ -1585,6 +1604,28 @@ func _reattach_orbs() -> void:
 		base.add_child(_tealorb_eo)
 		_tealorb_eo.position = Vector2(20.0, 0.0)
 		_tealorb_eo.visible  = true
+
+# The chromehead is a child of the cluster, so it must be detached (like the orbs) to be
+# visible while the cluster is hidden AND so _tick_head's wander runs in objects-container space.
+func _detach_head() -> void:
+	if not is_instance_valid(_chromehead_eo) or _chromehead_eo.get_parent() == _objects_container:
+		return
+	var oc_gp := _objects_container.global_position
+	var gp := _chromehead_eo.global_position
+	_chromehead_eo.get_parent().remove_child(_chromehead_eo)
+	_objects_container.add_child(_chromehead_eo)
+	_chromehead_eo.position = gp - oc_gp
+
+func _reattach_head() -> void:
+	if not is_instance_valid(_chromehead_eo) or _chromehead_eo.get_parent() != _objects_container:
+		return
+	var base := _chromeleon_eo if is_instance_valid(_chromeleon_eo) else _chromeleonbody_eo
+	if base == null:
+		return
+	_objects_container.remove_child(_chromehead_eo)
+	base.add_child(_chromehead_eo)
+	_chromehead_eo.position = Vector2.ZERO
+	_chromehead_eo.visible  = false
 
 func _detach_ball() -> void:
 	if _ball_detached or not is_instance_valid(_chromeball_eo):
