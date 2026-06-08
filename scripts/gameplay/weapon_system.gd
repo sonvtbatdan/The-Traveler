@@ -200,7 +200,7 @@ func _make_ctx(slot: String, button: int, allow_auto: bool) -> Dictionary:
 		"flare_chunks": [], "flare_chunk_acc": 0.0,
 		# channel (Rift Maker void / Swarm Host bats)
 		"zone": {"active": false, "pos": Vector2.ZERO, "age": 0.0, "tick_acc": 0.0},
-		"rift": null, "bats": [],
+		"rift": null, "rift_distort": null, "bats": [],
 		# orbital (Orbitals — always-on passive + held overcharge)
 		"orbital": {"active": false, "angle": 0.0, "spin": ORBITAL_NORMAL_SPIN, "powered": false, "hit_cd": []},
 	}
@@ -286,6 +286,8 @@ func setup() -> void:
 	rtex.noise = rnoise
 	var rshader := Shader.new()
 	rshader.code = RIFT_VORTEX_SHADER
+	var dshader := Shader.new()
+	dshader.code = RIFT_DISTORTION_SHADER   # spiral lensing of the real scene (drawn under the vortex)
 	# Vortex nodes for the Rift Maker void — ONE PER SLOT (each its own material so the
 	# two voids grow independently), on a high CanvasLayer ABOVE gameplay (asteroids=0,
 	# ship/boss=10, light=11) so they draw on top. The host Control sits at the
@@ -300,8 +302,13 @@ func setup() -> void:
 	rhost.clip_contents = true
 	rhost.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_rift_layer.add_child(rhost)
+	_wp["rift_distort"] = _make_rift_distort_node(dshader)
+	_ws["rift_distort"] = _make_rift_distort_node(dshader)
 	_wp["rift"] = _make_rift_node(rshader, rtex)
 	_ws["rift"] = _make_rift_node(rshader, rtex)
+	# Distortion FIRST → warps the rendered scene; the bright additive vortices draw on top.
+	rhost.add_child(_wp["rift_distort"])
+	rhost.add_child(_ws["rift_distort"])
 	rhost.add_child(_wp["rift"])
 	rhost.add_child(_ws["rift"])
 
@@ -336,6 +343,24 @@ func _make_rift_node(shader: Shader, tex: Texture2D) -> ColorRect:
 	var cr := ColorRect.new()
 	cr.material = mat
 	cr.color = Color(1, 1, 1, 1)   # ignored — the shader writes COLOR directly
+	cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cr.visible = false
+	return cr
+
+## The DISTORTION node: a ColorRect with the spiral-lensing shader (its OWN ShaderMaterial),
+## NORMAL (mix) blend — it samples + warps the scene already rendered behind the rift. Sits
+## under the bright vortex art. Tuned via the RIFT_DISTORT_* constants.
+func _make_rift_distort_node(shader: Shader) -> ColorRect:
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	mat.set_shader_parameter("twist_strength", RIFT_DISTORT_TWIST)
+	mat.set_shader_parameter("twist_falloff",  RIFT_DISTORT_FALLOFF)
+	mat.set_shader_parameter("suck_in",        RIFT_DISTORT_SUCK)
+	mat.set_shader_parameter("rotation_speed", RIFT_DISTORT_ROT_SPEED)
+	mat.set_shader_parameter("edge_softness",  RIFT_DISTORT_EDGE)
+	var cr := ColorRect.new()
+	cr.material = mat
+	cr.color = Color(1, 1, 1, 1)
 	cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cr.visible = false
 	return cr
@@ -1181,6 +1206,53 @@ void fragment() {
 }
 "
 
+# ── Rift Maker — gravitational-lensing distortion (warps the REAL scene behind the rift) ──
+# A screen-reading ColorRect drawn UNDER the bright vortex art. It samples the already-rendered
+# starfield/asteroids (the rift's layer 12 is above the scene) and spirals them inward toward
+# the rift centre, falling off smoothly at the edge. Reuses the rift's centre + growth. Visual only.
+const RIFT_FRONT_SCALE       := 0.28   # bright vortex size = (2×radius) × this  (−30% more)
+const RIFT_DISTORT_SCALE     := 0.672  # distortion-disc size = (2×radius) × this (−30% more)
+const RIFT_DISTORT_TWIST     := 8.0    # radians of swirl at the eye (~1.3 turns) — the spiral strength
+const RIFT_DISTORT_FALLOFF   := 2.0    # how fast the twist fades centre→edge (higher = tighter at the eye)
+const RIFT_DISTORT_SUCK      := 0.18   # inward radial pull (the "suck-in"/zoom) — balance against the twist
+const RIFT_DISTORT_ROT_SPEED := 0.8    # continuous rotation speed over TIME
+const RIFT_DISTORT_EDGE      := 0.22   # edge-falloff width (bigger = softer blend into the undistorted scene)
+
+# Spiral lensing shader: samples the scene already rendered behind the rift and warps it inward.
+# Drawn with NORMAL (mix) blend UNDER the additive vortex art, so the bright arms/core stay on top.
+const RIFT_DISTORTION_SHADER := "shader_type canvas_item;
+uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
+uniform float twist_strength : hint_range(0.0, 20.0, 0.1) = 8.0;   // radians of swirl AT THE EYE
+uniform float twist_falloff  : hint_range(0.3, 6.0, 0.05) = 2.0;   // how fast the twist fades centre→edge
+uniform float suck_in        : hint_range(0.0, 0.6, 0.01) = 0.18;  // inward radial pull (zoom/suck)
+uniform float rotation_speed : hint_range(-3.0, 3.0, 0.01) = 0.8;  // continuous rotation over time
+uniform float edge_softness  : hint_range(0.01, 0.6, 0.01) = 0.22; // falloff width at the disc edge
+uniform float growth         : hint_range(0.0, 1.0, 0.01) = 1.0;   // scales with the rift
+uniform vec2  rect_size = vec2(120.0, 120.0);                      // distortion rect pixel size
+
+void fragment() {
+	vec2 p = UV - 0.5;                              // local, centred on the rect
+	float r = length(p);
+	float dist = clamp(r * 2.0, 0.0, 1.0);          // 0 at centre → 1 at the disc edge
+	// Seamless rim: all offsets fade to 0 at the edge (no hard seam).
+	float edge = 1.0 - smoothstep(1.0 - edge_softness, 1.0, dist);
+	float gscale = 0.4 + 0.6 * growth;              // grows with the rift
+	// KEY: a centre-weighted weight (strong at the eye, ~0 at the rim). Because it VARIES with
+	// radius, the inner scene rotates more than the outer → differential rotation = spiral arms
+	// (a constant angle offset would only rigidly rotate/zoom — that was the old magnify look).
+	float w = pow(1.0 - dist, twist_falloff);
+	float ang = atan(p.y, p.x);
+	// Spiral twist (radius-dependent) + a uniform TIME spin so the whole swirl keeps rotating.
+	float new_ang = ang + (twist_strength * w + TIME * rotation_speed) * edge * gscale;
+	// Keep the inward pull (also centre-weighted) → things spiral AND get drawn inward.
+	float new_r   = r * (1.0 - suck_in * w * edge * gscale);
+	vec2 sample_p = vec2(cos(new_ang), sin(new_ang)) * new_r;
+	vec2 uv_off   = sample_p - p;                   // displacement in local UV
+	vec2 suv      = SCREEN_UV + uv_off * rect_size * SCREEN_PIXEL_SIZE;
+	COLOR = texture(screen_tex, suv);               // warped scene; identical at the rim → seamless
+}
+"
+
 const PARASITE_SPEED      := 520.0
 const PARASITE_HIT_RADIUS := 10.0
 const BAT_SPEED           := 240.0
@@ -1227,19 +1299,34 @@ func _update_rift_visual(ctx: Dictionary) -> void:
 	var rift := ctx["rift"] as ColorRect
 	if rift == null:
 		return
+	var distort := ctx.get("rift_distort") as ColorRect
 	var z: Dictionary = ctx["zone"]
 	if bool(z["active"]):
 		var rad: float = float(z.get("radius", 40.0))
 		var f: float = float(z.get("intensity", 0.0))
 		var zp: Vector2 = z["pos"]
-		rift.position = zp - Vector2(rad, rad)
-		rift.size = Vector2(rad * 2.0, rad * 2.0)   # diameter ≈ 2× damage-radius
+		# Front bright vortex — 50% smaller (was 2× the damage radius).
+		var fdiam: float = rad * 2.0 * RIFT_FRONT_SCALE
+		rift.position = zp - Vector2(fdiam * 0.5, fdiam * 0.5)
+		rift.size = Vector2(fdiam, fdiam)
 		var mat := rift.material as ShaderMaterial
 		if mat != null:
 			mat.set_shader_parameter("growth", f)
 		rift.visible = true
+		# Distortion disc: same centre, scales with the rift, same growth → spirals the scene in.
+		if distort != null:
+			var ddiam: float = rad * 2.0 * RIFT_DISTORT_SCALE
+			distort.position = zp - Vector2(ddiam * 0.5, ddiam * 0.5)
+			distort.size = Vector2(ddiam, ddiam)
+			var dmat := distort.material as ShaderMaterial
+			if dmat != null:
+				dmat.set_shader_parameter("growth", f)
+				dmat.set_shader_parameter("rect_size", Vector2(ddiam, ddiam))
+			distort.visible = true
 	else:
 		rift.visible = false
+		if distort != null:
+			distort.visible = false
 
 # ── Rift Maker (growing_zone) ──────────────────────────────────────────────────
 func _tick_zone(ctx: Dictionary, def: Dictionary, delta: float) -> void:

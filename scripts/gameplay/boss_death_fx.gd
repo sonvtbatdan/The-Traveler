@@ -55,12 +55,14 @@ var _beams: Array = []           # [{poly, age, life}] active light shafts (free
 var _shared_beam_mat: CanvasItemMaterial = null   # additive blend, shared by all beams
 var _white: ColorRect = null
 var _body_hidden: bool = false
+var _is_final: bool = true   # FINAL: hide body at the end. TRANSITION: restore it (boss lives on).
 var _visual_offsets: Dictionary = {}   # body node -> texture_rect-local centre of its opaque pixels
 
-func play(body_nodes: Array, arena_rect: Rect2, shake_node: Node) -> void:
+func play(body_nodes: Array, arena_rect: Rect2, shake_node: Node, is_final: bool = true) -> void:
 	_body_nodes = body_nodes.duplicate()
 	_arena = arena_rect
 	_shake_node = shake_node
+	_is_final = is_final
 	_measure_visual_offsets()   # find each body's true (opaque) centre, once
 	if _shake_node != null and "position" in _shake_node:
 		_shake_origin = _shake_node.position
@@ -120,8 +122,8 @@ func _process(delta: float) -> void:
 		if _shake_node != null and "position" in _shake_node:
 			var amp: float = SHAKE_MAX * wp
 			_shake_node.position = _shake_origin + Vector2(randf_range(-amp, amp), randf_range(-amp, amp))
-		if wp >= 0.5 and not _body_hidden:
-			_hide_body()
+		if wp >= 0.5 and not _body_hidden and _is_final:
+			_hide_body()   # FINAL only — TRANSITION keeps the boss alive for Phase 2
 
 	# Phase 4: hold full white, stop the shake, finish.
 	if _t >= p3:
@@ -276,8 +278,17 @@ func _hide_body() -> void:
 			n.modulate = Color.WHITE
 			n.visible = false
 
+# TRANSITION end: undo the blink tint and leave the body visible (it lives on into Phase 2).
+func _restore_body() -> void:
+	for n in _body_nodes:
+		if is_instance_valid(n):
+			n.modulate = Color.WHITE
+			n.visible = true
+
 func _finish() -> void:
 	_active = false
+	if not _is_final:
+		_restore_body()   # TRANSITION: clear the blink tint + keep the boss visible
 	_clear_beams()
 	for b in _bursts:
 		if is_instance_valid(b):

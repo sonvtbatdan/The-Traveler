@@ -1,66 +1,89 @@
+Prompt for Claude Code:
 Goal
-Add a shared Mega Man X-style boss death cutscene that plays for ALL bosses (elephant, chromeleon, metalfly) right before their victory screen. ~3.5 seconds total. Sequence: boss freezes in place → blinks white/red → white beams radiate out from the body → fire+smoke bursts erupt continuously → builds to a full-screen white flash → screen shakes → boss disappears → existing victory screen shows. Player input is disabled for the whole cutscene. Use procedural drawing for the FX (no art assets needed yet, but structure it so sprite assets can be swapped in later).
-Architecture — write it ONCE, shared
-The three bosses share boss_fight.gd (the manager that owns all modules and exposes a common API). Implement the cutscene as a reusable routine so it isn't duplicated three times. Recommended approach:
+Restructure the Chromeleon fight (boss_chromeleon.gd) into two phases, and rework Phase 2 into a new 5-attack fight. For now, only Attack 1 of Phase 2 is implemented, and the fight should START directly in Phase 2 for testing.
+Read boss_chromeleon.gd fully first, especially: the Phase enum (~line 80), _begin_final/FINAL_ENTRY/FINAL_SUB1/2/3 functions (~lines 810–1000), _check_orb_win/_end_fight_win (~1046–1084), the death cutscene hook added recently, and the orb fire/drift helpers (_tick_orb_*, _fire_orb_*, _detach_orbs, _reattach_orbs, _chromehead_eo, _blueorb_eo, _tealorb_eo, _ship_center, the M4 charge logic _tick_m4_charge).
+Phase model
 
-Create a new reusable node/script, e.g. scripts/gameplay/boss_death_fx.gd (extends Control or Node2D), that plays the full cutscene given: the boss's visible body node(s) and the play-area rect. Expose one method like func play(body_nodes: Array, arena_rect: Rect2, clip_node: Node) -> void that runs the sequence and emits a finished signal when done.
-Have boss_fight.gd own/instantiate this (it already owns the modules and has the objects_container/arena reference via setup(oc)), and expose a manager method like func play_death_cutscene(body_nodes: Array) -> Signal that each boss calls.
-Each boss module calls the manager's cutscene before showing its victory screen, passing its own visible body node(s) (each boss knows which sprites are its body).
+Phase 1 = existing Moves 1–4 random cycle, gated by boss HP (1500). Leave Moves 1–4 logic intact.
+Phase-1 end: when boss HP ≤ 0, do NOT go to the old FINAL_SUB1/2/3 orb phase. Instead play the death cutscene in TRANSITION mode (see below), then enter Phase 2. The boss does NOT die here.
+Phase 2 = NEW fight that replaces the old FINAL orb phase. Head (_chromehead_eo) is invincible and blocks bullets (same as old final). Two orbs have 1000 HP each and ARE the damage target. Win = both orbs dead → play death cutscene in FINAL mode → existing victory screen.
+Remove/retire the old FINAL_SUB1, FINAL_SUB2, FINAL_SUB3 attack content (the patrol/bullet-wave/hide-behind-head). Keep FINAL_ENTRY-style setup (positioning head + orbs, assigning orb HP) and reuse it as Phase-2 entry. Grep for all references to the removed sub-phases and clean them up (including get_move_name()).
 
-Read boss_fight.gd fully first (it's ~92 lines) and boss_chromeleon.gd's _end_fight_win() (around line 1068) to see the current death path. Also check boss_elephant.gd and boss_metalfly.gd for their equivalent win/death functions and their body node references.
-Input disable
-Find how player input is handled (search: grep -rn "set_process_input\|_input(\|_unhandled_input\|InputMap\|is_action_pressed\|player_input\|input_enabled\|ship_control\|move_ship" --include=*.gd scripts/). Add a global/manager flag the player controller checks (e.g. GameManager.input_locked or a method on the ship), set it true at cutscene start and false when the victory screen appears (or when the player dismisses it — match whatever the existing flow expects). Report how input currently works before wiring this, and prefer the least invasive hook (a single bool the existing input path already could check). Don't break menu/UI input — only lock gameplay/ship controls.
-Cutscene phases (~3.5s total, all tunable consts)
-Implement as a timeline driven by a phase timer (mirror the boss files' _phase_timer += delta style, or use tweens). Suggested constants:
-gdscriptconst DEATH_FREEZE_BLINK_T := 1.2   # blink white/red + first bursts
-const DEATH_BEAMS_T        := 1.3   # white beams grow + bursts intensify
-const DEATH_WHITEOUT_T      := 0.7   # screen fills white + shake
-const DEATH_HOLD_T          := 0.3   # full white hold, boss gone
-# total ≈ 3.5s
-Phase 1 — Freeze + blink (0 → 1.2s):
+Death cutscene: two modes
+The shared death cutscene (boss_death_fx) currently ends by hiding the boss + going to victory. Make it reusable with a mode parameter:
 
-Freeze the boss: it must stop moving, rotating, and firing. The calling boss module should already be done with its attack loop (orbs dead), but ensure no further movement/shots happen during the cutscene — the boss module should stop ticking its move logic once the cutscene starts (set its phase to a DONE/DYING state). Have each module set its phase so its _tick does nothing during the cutscene.
-Blink the body node(s): oscillate modulate between white (Color(3,3,3) over-bright) and red (Color(3,0.3,0.3)) with a fast sine (~10–14 Hz).
-Start spawning small fire/smoke burst FX at random points on the body (see FX below), a few per second.
+TRANSITION mode: play the full FX (freeze, blink, orange triangle beams, fire/smoke, white-out, shake) BUT at the end do NOT hide the boss permanently, do NOT emit boss_killed, do NOT show victory. Instead clear FX, restore the body visible, and return control so the caller can proceed (to Phase 2). Input stays locked during the FX and unlocks when Phase 2 begins.
+FINAL mode: current behavior — FX then hide boss, emit boss_killed, show victory screen, unlock input at victory.
+Add a mode arg (enum or bool is_final) to the cutscene play() / manager method. Chromeleon calls TRANSITION at phase-1 end and FINAL at orb-death.
 
-Phase 2 — Beams + intensify (1.2 → 2.5s):
+Phase 2 — Attack structure
+Phase 2 will eventually have 5 attacks chosen in a cycle. For NOW implement only Attack 1 and make the Phase-2 attack picker always select Attack 1 (leave clear TODO stubs/placeholders for Attacks 2–5 so they're easy to add later). Add a Phase-2 sub-phase enum, e.g. P2_ENTRY, P2_ATTACK1 (and reserve P2_ATTACK2..5).
+Attack 1 — "Bull charge + drifting orbs"
+Two concurrent behaviors:
+Orbs (same as they fire/drift now): reuse the existing orb behavior — both orbs drift/wander (M3_ORB_SPD-style), snap-rotate, and fire on interval (blue N/S/E/W, teal diagonals), exactly like the current orb behavior. Orbs have 1000 HP each in Phase 2 and take damage. Reuse _tick_orb_* / _fire_orb_* and the orb-HP/hit handling from the old final phase.
+Head — bull charge (NOT a slingshot): the invincible head repeatedly charges the player like a bull:
 
-Spawn white light beams/lines radiating outward from the body center: thin white lines (procedural — Line2D or _draw lines, or tall thin white rects) at various angles, growing in length and number over this phase. Model the X4 look: bright white streaks shooting outward, lengthening.
-Increase fire/smoke burst frequency over this phase (ramp up spawn rate).
-Keep the blink going.
+Aim: compute direction from head center → ship center (_ship_center()), like the M4 charge aim.
+Charge: accelerate/move toward the ship at a charge speed (reuse/adapt M4 charge constants; tune a new P2_BULL_SPD).
+KEY DIFFERENCE from M4 slingshot: after the head passes the player (i.e. it has gone beyond the ship, or traveled past its target point / hit bounds), it does NOT curve all the way back to a home point. Instead it decelerates (a short slow-down/“stomp” beat), re-aims at the player's current position, and charges again. So it's a repeating bull rush: charge → overshoot → slow → re-aim → charge, looping for the duration of Attack 1.
+Implement as a small head-charge state machine inside Attack 1: CHARGING → (passed player / out of bounds) → SLOWING (decelerate over ~0.3–0.5s, maybe a brief telegraph) → REAIM → CHARGING. Add tunable consts: P2_BULL_SPD, P2_BULL_DECEL_T, P2_BULL_REAIM_PAUSE, and a "passed player" test (e.g. dot product of (head→ship) before vs after, or head moved beyond ship along charge axis, or hit arena bounds).
+The head stays invincible and keeps blocking player bullets throughout (reuse get_boss_hit_rect() → head, and the existing bullet-block behavior).
+If the head contacts the ship during a charge, deal contact damage + flash (reuse M4's _flash_ship_red() and damage amount, or a new P2_BULL_DMG).
 
-Phase 3 — White-out + shake (2.5 → 3.2s):
+Attack 1 runs for a set duration or until interrupted; since only Attack 1 exists for now, just loop the bull-charge cycle and keep orbs firing until both orbs die (which triggers the FINAL death + victory).
+START IN PHASE 2 (temporary test setup)
+For now, when the Chromeleon fight spawns, skip Phase 1 and start directly in Phase 2 (P2_ENTRY → P2_ATTACK1). Make this an obvious, clearly-commented toggle (e.g. const DEBUG_START_IN_PHASE2 := true) so it's trivial to flip back to normal (start in Phase 1) later. When starting in Phase 2 directly, set up head + orbs (orb HP = 1000 each), make head invincible, and don't run the phase-1 death-transition (since we're skipping phase 1). Boss HP / HUD should reflect the Phase-2 state sensibly (orbs as the target).
+Win + cleanup
 
-A full-screen white overlay (a ColorRect covering the arena, high z-index) fades alpha 0 → 1 over this phase.
-Screen shake: offset the arena/objects container (or a camera if one exists) by a random jitter that grows in amplitude. Find how/if the game shakes screen already (grep -rn "shake\|offset\|Camera2D" --include=*.gd scripts/); reuse an existing shake if present, else jitter the objects container's position and restore it after.
-During this phase, hide the boss body node(s) (visible = false) under cover of the white flash so it "disappears."
-
-Phase 4 — Hold (3.2 → 3.5s):
-
-Hold full white briefly, stop the shake (restore container offset to exact original), then proceed: clear all FX nodes, remove the white overlay (or hand off — see below), and trigger the existing victory screen.
-
-FX details (procedural, asset-swappable)
-
-Make a small helper to spawn a "burst": a procedural fire/smoke puff. Options: Godot CPUParticles2D/GPUParticles2D for smoke (gray, rising, fading) and a bright orange/yellow circle that scales up and fades for the fire flash. Or simple _draw/tween circles if particles are overkill. Structure each burst behind a function like _spawn_burst(pos) so the visual can later be replaced with an animated sprite — leave a clear TODO and a parameter for a future texture.
-Parent all FX and the white overlay to the boss's clip/objects node (the boss files use a _clip_node / OC_BOUNDS arena rect — reuse the same arena rect for positioning and for sizing the white overlay). Use high z_index so FX/white render above the boss.
-All FX nodes must be tracked and freed at the end (no leaks — mirror the boss files' _cleanup_* pattern).
-
-Hand-off to victory screen
-After the white-out + hold, go straight to the existing victory screen (per design). Concretely: the cutscene finishes → boss module proceeds with its current end-of-fight steps (cleanup projectiles, emit GameManager.boss_killed, show victory screen). Refactor each boss's win function so the heavy end steps that currently run immediately (e.g. chromeleon's _end_fight_win: cleanup, hide head, boss_killed.emit(), _show_victory_screen()) run AFTER the cutscene's finished signal, not before it. Keep boss_killed emission timing sane (the chromeleon already delays it 0.1s; keep HUD behavior consistent). Re-enable input when the victory screen is up. Remove the white overlay either just before or as the victory screen fades in (avoid a flash gap — your call, keep it smooth).
-Per-boss wiring
-
-Chromeleon: in _end_fight_win(), instead of immediately cleaning up + victory, first call the manager's death cutscene passing the chromeleon's visible body (the chromehead _chromehead_eo, plus optionally the dead orbs), await its finished, THEN run the existing cleanup/victory steps. Set the chromeleon phase so _tick is inert during the cutscene.
-Elephant & Metalfly: find their win/death functions and do the same — freeze their tick, call the shared cutscene with their body node(s), then proceed to their victory screens. Report what their body nodes and win functions are before editing.
+Phase 2 win = both orbs HP ≤ 0 → _check_orb_win() → play death cutscene in FINAL mode → existing _end_fight_win() steps (cleanup, emit boss_killed, victory screen). Keep that path working.
+Ensure orbs reattach / boss state resets cleanly; no leaked nodes; input locked during both cutscenes and restored appropriately.
 
 Validation
 
-Confirm the cutscene is defined ONCE and all three bosses call the shared routine (no copy-paste of the FX logic into three files).
-Confirm input is locked at start and restored at the victory screen, and that UI/menu input still works.
-Confirm no FX/overlay nodes leak (all freed), the screen-shake offset is restored exactly, and the boss body ends up hidden.
-Confirm each boss still emits boss_killed and shows its existing victory screen after the cutscene.
-Don't run the game; verify code consistency. Report: the new file, the manager method, the per-boss hook points, the input-lock mechanism, and the final phase timings.
+grep -n "FINAL_SUB\|_begin_final\|P2_\|DEBUG_START_IN_PHASE2" boss_chromeleon.gd — confirm old sub-phases are retired, Phase-2 phases exist, and the debug toggle is present.
+Confirm: phase-1 HP-zero → TRANSITION cutscene → Phase 2; Phase-2 Attack-1 runs bull-charge head + drifting/firing orbs; both orbs die → FINAL cutscene → victory.
+Confirm the death cutscene's two modes both work and that TRANSITION mode neither emits boss_killed nor shows victory nor permanently hides the boss.
+Confirm get_move_name() returns sensible strings for Phase 2 / Attack 1.
+Confirm Attacks 2–5 are stubbed with TODOs and the picker currently always returns Attack 1.
+Don't run the game. Report: the new phase enum, the bull-charge state machine + consts, the debug toggle location, and the cutscene mode parameter.
 
 Constraints
+Don't alter Moves 1–4 internals, projectile internals, or the shared death-FX visuals (only add the mode param). Reuse existing helpers (orb fire/drift, M4 charge math, ship center, flash, cleanup). Surgical edits.
 
-Don't change move/attack logic, projectile internals, or the win condition (orbs/HP reaching zero). Only insert the cutscene between "boss defeated" and "victory screen," and add the input lock. Make surgical edits and reuse existing patterns (phase timer, _clip_node, OC_BOUNDS, cleanup helpers, any existing screen shake).
 
+
+
+
+
+
+
+Add a "twisting depth" back-layer behind the Rift maker's vortex in my Godot 4 game. I'm not a programmer — plain language, additive changes, pause for testing. This is purely a new visual layer; do NOT change the rift's damage, growth, energy, or behavior. First read the existing rift setup so you mirror it exactly, then build.
+What already exists (in weapon_system.gd — read these before starting):
+
+A swirling-vortex shader stored in the RIFT_VORTEX_SHADER constant (around line 1134). It's a TIME-driven canvas_item shader with render_mode blend_add, a dark eye → bright core → purple arms look, and uniforms including: arm_color, core_color, eye_color, twist_strength, arm_count, overall_rotation_speed, texture_scroll_speed, pulsation_speed, breath_magnitude, contrast, glow, edge_softness, vortex_effect_radius, eye_size, and growth. It samples a seamless noise texture (portal_texture).
+The rift visual is a ColorRect per slot (_wp["rift"] and _ws["rift"]), created via _make_rift_node() (around line 332), parented to a host node under _rift_layer (a CanvasLayer at layer 12, set up around line 294–306).
+_update_rift_visual(ctx) (around line 1226) runs each frame: when the rift's zone is active it positions/sizes the ColorRect to ~2× the damage radius, feeds the zone's intensity into the shader's growth uniform, and sets it visible; when inactive it hides the ColorRect.
+
+What I want you to add — a back-layer vortex behind the existing one (the "faked depth" approach):
+
+A second vortex node per slot, drawn BEHIND the existing rift node. For each slot (primary and secondary), create another ColorRect using the SAME RIFT_VORTEX_SHADER, but give it its OWN ShaderMaterial instance (do not share the material with the front node — each node needs independent uniforms). Add this back node to the same host as a sibling, ordered so it renders behind the front rift node (add it to the host BEFORE the front node, or set it as a lower sibling, so the bright front vortex sits on top of it).
+Make the back layer read as deeper, slower, darker, and wider so it looks like space twisting behind the bright rift. Set its shader uniforms to differ from the front layer roughly like this (expose these as tunable constants at the top so I can adjust):
+
+Larger: size it bigger than the front node — about 1.5× the front rift's width/height (a BACK_RIFT_SCALE constant ≈ 1.5), centered on the same point, so it extends past the front vortex's edge.
+Slower rotation: lower overall_rotation_speed (e.g. ~40–50% of the front's), and slower texture_scroll_speed, so the back churns lazily behind the faster front.
+More twist: equal or slightly higher twist_strength so the back clearly spirals.
+Darker / dimmer: lower glow and modulate the node darker (e.g. set the ColorRect's modulate to a dim purple-grey, or lower the color values) so it sits in shadow behind the bright arms.
+Softer arms: lower contrast and maybe lower arm_count so the back is a smoother, hazier swirl rather than sharp arms — this reads as distant background motion.
+Give it the same noise texture as the front.
+
+
+Drive it from the same growth value. In _update_rift_visual(), when you update the front node, ALSO position/size/show the back node: center it on the same zone position, size it to front_size * BACK_RIFT_SCALE, feed it the same growth value, and show/hide it in lockstep with the front node (so it appears and vanishes exactly when the front rift does). It must never be visible when the rift isn't active.
+Keep front and back independently tunable. Put the back layer's differences (scale multiplier, rotation-speed multiplier, scroll-speed multiplier, glow multiplier, contrast, arm_count, and its dim modulate color) in clearly-named constants near the existing orbital/rift tunables, so I can dial the contrast between the bright front and the shadowy back by eye.
+
+Important details:
+
+Each node needs its OWN ShaderMaterial — if they share one material, changing the back layer's uniforms will corrupt the front layer. Duplicate the shader material per node.
+Both stay on the same _rift_layer CanvasLayer; this is NOT screen distortion (don't use hint_screen_texture), just a second decorative swirl layer behind the first.
+Don't touch _tick_zone, the damage logic, the growth value itself, or anything in gun_system.gd.
+
+Pause after so I can see the back layer swirling behind the front, confirm it appears/disappears with the rift, and tune the front-vs-back contrast. Tell me which constants control the back layer so I know what to adjust.

@@ -128,9 +128,9 @@ func get_move_name() -> String:
 # Shared death cutscene: each boss calls this with its visible body node(s) right
 # before its victory screen, and awaits the returned signal. FX defined once in
 # boss_death_fx.gd; the manager owns the arena rect + the shake target.
-func play_death_cutscene(body_nodes: Array) -> Signal:
+func play_death_cutscene(body_nodes: Array, is_final: bool = true) -> Signal:
 	var fx := BossDeathFXScript.new()
 	_objects_container.add_child(fx)
 	fx.finished.connect(fx.queue_free)
-	fx.play(body_nodes, OC_BOUNDS, _objects_container)
+	fx.play(body_nodes, OC_BOUNDS, _objects_container, is_final)
 	return fx.finished
