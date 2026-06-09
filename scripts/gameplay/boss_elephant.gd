@@ -42,7 +42,7 @@ const LASER_DMG        := 30
 
 # ── Move 4 constants ──────────────────────────────────────────────────────────
 const M4_ROT_T          := 0.5
-const M4_TRAVEL_SPD     := 600.0            # 5× traversal speed
+const M4_TRAVEL_SPD     := 700.0            # 5× traversal speed
 const M4_DROP_INT       := 0.2             # drop a bomb every 0.2s
 const DROP_SPEED        := 720.0           # bombs hang then drop fast (+20%)
 const DROP_DMG          := 20
@@ -107,6 +107,7 @@ var _ship_alpha_uv:   Rect2 = Rect2(0.0, 0.0, 1.0, 1.0)  # opaque (alpha) bounds
 
 # ── Move 1 state ──────────────────────────────────────────────────────────────
 var _boss_spin  := 0.0
+var _last_move  := -1   # last move index (no same move twice in a row)
 var _spike_acc     := 0.0
 var _m1_prog       := 0.0
 var _spiral_angle  := 0.0   # base angle for spiral spike pattern
@@ -167,6 +168,10 @@ func setup(oc: Control) -> void:
 	# single GameManager.boss_killed listener and calls notify_boss_killed() on the active boss.
 
 # Called by the Boss Manager when GameManager.boss_killed fires (was a direct signal connection).
+## Single-phase boss: every death is the real end of the fight (never a phase transition).
+func is_phase_transition() -> bool:
+	return false
+
 func notify_boss_killed() -> void:
 	if _phase != Phase.IDLE and _phase != Phase.DONE:
 		var won := not _forced_kill   # HP-zero defeat vs forced removal (player death / debug)
@@ -327,7 +332,11 @@ func start_fight() -> void:
 func _begin_random_move() -> void:
 	_boss_eo.rotation = 0.0
 	_boss_spin = 0.0
-	match randi() % 5:
+	var pick := randi() % 5
+	while pick == _last_move:   # never the same move twice in a row
+		pick = randi() % 5
+	_last_move = pick
+	match pick:
 		0: _begin_m1()
 		1: _begin_m2_tweened()
 		2: _begin_m3_tweened()

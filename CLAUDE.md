@@ -6,7 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Godot 4 GDScript — "The Traveler", a spaceship idle/clicker game. You captain a ship traveling through deep space. Entry scene: `scenes/main.tscn`. Toggle edit mode with the `toggle_edit_mode` input action (mapped in `project.godot`).
 
-The game features a **real-time combat / crafting and idle harvesting layer**: asteroids drift down the SpaceScreen, clicking or shooting them yields four raw **materials** (metal / nonmetal / organic / liquid via `MaterialManager`). Upgrades (`UpgradeManager`) passively generate these materials, and equipment/weapons cost these materials. Weapons mounted on the canvas auto-fire at asteroids (`gun_system.gd`).
+The game features a **real-time combat / crafting and idle harvesting layer**: asteroids drift down the SpaceScreen, clicking or shooting them yields four raw **materials** (metal / nonmetal / organic / liquid via `MaterialManager`). Upgrades (`UpgradeManager`) passively generate these materials. The **current** combat path is the Diablo-2 **inventory + affix** system (`InventoryManager`) with equipped weapons driven by `weapon_system.gd`; the older canvas-mounted `WeaponManager` / `gun_system.gd` auto-fire path is now legacy (kept for ship movement + asteroid-vs-ship collision).
+
+### Reference docs (repo root, not code)
+
+`README.md` (setup), `design.md` (idle-economy design + tuning), `summary.md` (fuller architecture map — active vs legacy code), `inventory_redesign.md` + `minh_scope.md` (inventory/hull/affix task specs), `GRAPHICS_SPEC.md` (planned visual-polish tiers). `weapon_current.csv` + the `weapon_current.*.translation` files are **documentation only, not loaded by code** — hand-maintained from `ITEM_DEFS` in `inventory_manager.gd`.
 
 ## Theme Mapping (internal → display)
 
@@ -42,7 +46,9 @@ Registered in this exact order (matters: `MaterialManager` must exist before `We
 | `EquipmentManager` | `scripts/autoload/equipment_manager.gd` | Auto-scans `assets/upgrades/equipment/*.png`, cost = 20 × 1.6^index |
 | `UpgradeManager` | `scripts/autoload/upgrade_manager.gd` | UPGRADES catalog, owned counts, factory accumulator, save/load |
 | `GameManager` | `scripts/autoload/game_manager.gd` | Core game state (Ship HP, Shield, Boost, Boss fight) |
-| `WeaponManager` | `scripts/autoload/weapon_manager.gd` | Canvas-driven tiered weapon catalog, priced in materials. Built at runtime by `sync_from_canvas()` (not a const list). Saves to `user://save.cfg` section `[weapons]` |
+| `WeaponManager` | `scripts/autoload/weapon_manager.gd` | Canvas-driven tiered weapon catalog, priced in materials. Built at runtime by `sync_from_canvas()` (not a const list). Saves to `user://save.cfg` section `[weapons]`. **Legacy** — the live weapon path is now `InventoryManager` + `weapon_system.gd` |
+| `AffixManager` | `scripts/autoload/affix_manager.gd` | Affix catalog (`AFFIX_DEFS`, ~40 affixes) + tier-band roller `roll_affix(id, tier)`. Separate `WEAPON_AFFIX_POOL` / `HULL_AFFIX_POOL`. No persistence; loaded at startup. See **Inventory, Items & Affixes** |
+| `InventoryManager` | `scripts/autoload/inventory_manager.gd` | Diablo-2 grid inventory + 10 equip slots + `ITEM_DEFS` item catalog. `weapon_system.gd` reads equipped items from it each frame. Saves to `user://save.cfg` section `[inventory]` |
 
 **Load vs. registration order:** `main.gd._ready()` calls `UpgradeManager.load_game()` then `GameManager.load_game()`. `MaterialManager` / `WeaponManager` / `DefenseManager` load lazily from their own panels' `_ready()` (and `WeaponManager.load_game()` runs inside `sync_from_canvas()`).
 
@@ -66,7 +72,10 @@ Root `Control` with these direct children:
 |-------|----------|
 | 5 | UserPanel |
 | 10 | EditMode overlay |
+| 11 | `auto_clicker_overlay.gd` (autoclicker hand cursors) |
 | 100 | Settings panel (always on top, even above screen group) |
+
+`auto_clicker_overlay.gd` (`scripts/gameplay/auto_clicker_overlay.gd`) draws one hand cursor per owned autoclicker upgrade, placed flush against the ship sprite's silhouette via alpha-edge detection (`_alpha_edge`); rebuilds on `UpgradeManager.upgrade_purchased` / `upgrades_reset`. Self-contained, no signals out.
 
 ---
 
@@ -166,7 +175,22 @@ Four integer currencies — `metal`, `nonmetal`, `organic`, `liquid` — separat
 - **Collection** = click the asteroid OR a bullet hits it → `_collect_loot(type)` rolls a per-type random drop table into `MaterialManager.add(...)`. Hitbox min size `MIN_HITBOX = 36`.
 - Query API used by the gun: `get_asteroid_centers()`, `get_asteroid_sizes()`, `collect_near(pos, radius)`. **Centers are in SpaceScreen-local space** — the gun adds `SS_OFFSET = (270, 8)` to convert to ObjectsContainer/viewport space.
 
-### Gun system (`scripts/gameplay/gun_system.gd`)
+### `weapon_system.gd` vs `gun_system.gd` — QUAN TRỌNG
+
+The active firing engine is **`weapon_system.gd`** (`scripts/gameplay/weapon_system.gd`), not `gun_system.gd`. They run in parallel:
+
+| | `weapon_system.gd` (live) | `gun_system.gd` (legacy) |
+|--|---------------------------|--------------------------|
+| Role | Equipped-weapon engine + all combat FX | Ship float/movement + asteroid-vs-ship collision |
+| Source of weapons | `InventoryManager` equipped slots, read each frame | (mount auto-fire **retired**) |
+| Where added | `main.gd` → child of `SpaceScreen`, group `"weapon_system"` | `main.gd` → `ObjectsContainer`, z_index just above spaceship |
+| Looked up by | bosses via `get_tree().get_first_node_in_group("weapon_system")` | not group-queried |
+
+`weapon_system.gd` handles fire modes **repeat / charge / beam / channel / aura**; projectiles/missiles/homing/cone-spread/chain/parasites-with-DoT, orbitals, bat swarm, Lasgun (hitscan) + Plasma-Drill (tether) beams, Rift-Maker vortex, environment light overlay, and floating crit damage numbers. Primary weapon = left-click, secondary = right-click. It applies each item's hidden `base_mult` (±20%) and affixes when computing stats. **`gun_system.refresh_layout()` and the F4 save/load cycle remain locked** (see LOCKED MODULES).
+
+### Gun system (`scripts/gameplay/gun_system.gd`) — legacy mount auto-fire
+
+> Historical: the description below documents the retired `WeaponManager`-driven mount auto-fire. `gun_system.gd` still runs for ship movement + asteroid collision, but no longer fires.
 
 - A full-rect `Control` (added to `ObjectsContainer`, z_index 7) that fires every `FIRE_INTERVAL = 0.5s` from each **active `"gun"` weapon object** (`WeaponManager.get_active_objects("gun")`).
 - Targets the nearest asteroid that is ≥100px above the gun muzzle; spawns a bullet (`atan2(dir.x, -dir.y)` rotation), an ejecting shell, an impact GIF on hit, and plays the gun-fire GIF (hides the static sprite during the animation). GIFs loaded via `GifLoader` (`Gun.gif`, `Gun-Impact50.gif`) from `assets/sprites/weapons/`.
@@ -214,6 +238,37 @@ The single most important non-obvious pattern: **weapons are discovered from edi
 ### Defense (`scripts/autoload/defense_manager.gd` + `defense_panel.gd`)
 
 Simple linear track: `current_level` 0→8, each level purchasable only as `current_level+1`. `defense_panel.gd` lists 8 named items (`assets/defense/lv1..lv8.png`); `defense_visual.gd` renders the on-ship visual. (Distinct from the old "DEFENSE" upgrade tab, which is hidden.)
+
+---
+
+## Inventory, Items & Affixes (current item layer)
+
+A Diablo-2-style grid inventory with equip slots and rolled affixes. This is the **live** weapon/gear path; `weapon_system.gd` reads equipped items from here. Two autoloads + four UI files.
+
+### `InventoryManager` (`scripts/autoload/inventory_manager.gd`) — data layer
+
+- **`ITEM_DEFS`** (const): master catalog (weapons + hulls + shield). Each def: `name`, `icon`, `size` (grid cells), `tags`, `rarity`, optional `fire_mode`/`fire_type`, `stats` dict.
+- **Item instances** (`_items[uid]`): `{def, where, cell, affixes, base_mult, hull_mult}`. `uid` is an int counter (`_next_uid`); `where` = `"backpack"` or a slot name; `cell` = grid origin. `STARTER_ITEMS` are granted once per save (tracked in `_granted`); `RESET_INVENTORY_ON_LOAD` flag re-grants on load.
+- **Backpack**: grid (cols × rows from `BACKPACK_COLS/ROWS`), 46px cells. **10 equip slots**: `primary_weapon`, `secondary_weapon`, `thruster`, `command_bridge`, `hull`, `energy_core`, `radar`, `drone_1`, `drone_2`, `wings`. Slot gating via `SLOT_RULES` (per-slot `any` tags required + `exclude` tags blocked) → `fits_slot(def_id, slot)`.
+- Key methods: `add_to_backpack`, `move_item(uid, cell)`, `equip(uid, slot)`, `unequip(slot)`, `can_place(size, cell, ignore_uid)`, `generate_weapon(tier, base_def_id)` / `generate_hull(...)`, `roll_asteroid_drop()` (weighted by def `rarity`). Stat accessors apply rolls: `item_base_mult`, `item_affixes`, `item_display_name`, `item_display_color`, `hull_bonus_hp`, `hull_damage_reduction`.
+- **Signals:** `inventory_changed`, `item_added(uid)`, `item_equipped(slot, uid)`, `item_unequipped(slot, uid)`. **Save:** `user://save.cfg` section `[inventory]`.
+
+### `AffixManager` (`scripts/autoload/affix_manager.gd`) — affix roller
+
+- **`AFFIX_DEFS`**: ~40 affixes, each with prefix/suffix names, `unit`, `min`/`max`. Pools: `WEAPON_AFFIX_POOL` (~19) vs `HULL_AFFIX_POOL` (~22). No persistence.
+- **`roll_affix(id, tier)`**: rolls inside a tier band of `[min, max]` — tier 1 Low (0–33%), tier 2 Mid (33–66%), tier 3 High (66–100%). Negative affixes use the same math (higher tier = more negative = better).
+
+### Rolling model
+
+- Per weapon/hull instance: **30% prefix + 30% suffix** chance independently → **0, 1, or 2** affixes (distinct ids). Plus a **hidden ±20% `base_mult`** (weapons: on damage) / per-stat `hull_mult` (hulls: HP & damage-reduction each roll their own ±20%).
+- **Display color = affix count, not def rarity**: white (0 affixes) vs blue (1–2). `rarity` only drives loot-drop weights. Display name = `[Prefix] Base [Suffix]`.
+
+### UI (`scripts/ui/inventory/`)
+
+- `inventory_ui.gd` — toggle panel (key **I** / ESC), rebuilds children on `inventory_changed`; cross-shaped equip-slot grid (each slot sized to its largest item footprint) + backpack grid; right-click item → `sell_requested` → confirm → `sell_item`.
+- `backpack_grid.gd` — drag/drop re-arrange; delegates to `can_place` / `move_item`; green/red hover overlay.
+- `equip_slot.gd` — drop target; `_can_drop_data` → `fits_slot`, `_drop_data` → `equip`.
+- `item_widget.gd` — one placed item; drag source (`_get_drag_data` carries `{uid, def_id, grab, slot}`) + D2 hover tooltip (name colored by affix count → base stats → affix lines). **LOCKED** (tooltip is critical).
 
 ---
 
@@ -413,16 +468,16 @@ For each animated asset:
 
 | File | Contents |
 |------|----------|
-| `user://game_save.cfg` | ship HP/shield save state |
-| `user://upgrades_save.cfg` | owned counts per upgrade id |
-| `user://settings.cfg` | resolution (w, h), music_vol, sfx_vol, bg_scale, ov_scale |
-| `user://equipment.cfg` | owned ship module items |
+| `user://save.cfg` | **shared central save** — written by GameManager (ship HP/shield), UpgradeManager (owned counts), EquipmentManager (modules), WeaponManager `[weapons]`, DefenseManager `[defense]`, InventoryManager `[inventory]` |
+| `user://materials.cfg` | material counts (metal, nonmetal, organic, liquid) — MaterialManager |
+| `user://settings.cfg` | resolution (w, h), music_vol, sfx_vol, bg_scale, ov_scale — stat_panel |
+| `user://music_player.cfg` | MusicPlayer widget state |
+| `user://todo.cfg` | TodoList widget state |
 | `user://user_panel.cfg` | UserPanel widget states |
-| `user://session.cfg` | Chatbot conversation history |
-| `user://audio_config.cfg` | AudioManager internal state |
-| `user://materials.cfg` | material counts (metal, nonmetal, organic, liquid) |
-| `user://save.cfg` | shared file: `[weapons]` owned tiers per id/side + `[defense]` level |
+| `user://session.cfg` | Chatbot / weather-clock conversation history |
 | `res://default_layout.cfg` | positions/sizes của tất cả edit mode objects (tất cả groups kể cả "screen") |
+
+> Verified by grep over `scripts/`. The previously-listed `game_save.cfg`, `upgrades_save.cfg`, `equipment.cfg`, `audio_config.cfg` **do not exist** — GameManager/UpgradeManager/EquipmentManager all write to the shared `user://save.cfg`.
 
 ---
 
@@ -485,7 +540,21 @@ CanvasLayer with high `layer` value beats any Control node's `z_index` — use l
 
 ## Boss Fight System (`scripts/gameplay/boss_fight.gd`)
 
-### Architecture
+### Structure: coordinator + standalone per-boss controllers
+
+`boss_fight.gd` is a **coordinator**, not a base class. It is the only member of group `"boss_fight"`, the sole listener of `GameManager.boss_killed` / `boss_hp_changed`, and routes those signals **only to the active boss**. It owns three **standalone** boss controllers (each a self-contained `Control`):
+
+| Controller | Boss | Notes |
+|------------|------|-------|
+| `scripts/gameplay/boss_elephant.gd` | Elephant | The 5-move spike/vortex engine detailed below; 75% projectile damage mult; rotation-invariant hitbox |
+| `scripts/gameplay/boss_chromeleon.gd` | Chromeleon | 2-phase crystal; Phase-2 orb lasers via `lasgun_beam.gd`; emits `anim_finished` |
+| `scripts/gameplay/boss_metalfly.gd` | Metalfly | 2-phase cocoon→fly, separate HP pools (P1 idle, P2 attacks) |
+
+Per-boss API contract: `setup(oc)`, `spawn_boss()`, `kill_boss()`, `get_boss_hit_rect() -> Rect2`, `notify_boss_killed()` (+ optional `notify_hp_changed`, `flash_boss_hit`, `consume_projectile_near`). Shared `scripts/gameplay/boss_death_fx.gd` drives the death cutscene — `play(body_nodes, arena_rect, shake_node, is_final)` → emits `finished`; a one-time-use utility, not per-boss. `lasgun_beam.gd` is a standalone beam-FX helper (a copy of `weapon_system`'s Lasgun beam) used by Chromeleon's orbs.
+
+### Elephant move engine — Architecture
+
+The move/projectile docs below describe the **elephant** boss (the original generic engine). Other bosses have their own move sets in their controllers.
 
 - **Root node:** `Control` (layer z=200, PROCESS_MODE_PAUSABLE)
 - **Clip container:** `_clip_node` (Control, clipped to SpaceScreen bounds) — all projectiles rendered inside
@@ -722,8 +791,8 @@ tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 - `.uid` files sit next to every `.gd` and `.tscn` — Godot regenerates them on first editor open; scripts created headlessly may be missing UIDs
 - `UpgradeManager.load_game()` must run before `GameManager.load_game()` (UpgradeManager resets GameManager rate fields to 0 then re-applies owned upgrades) — **but `main.gd._ready()` currently calls them in the opposite order (`GameManager` first). Verify intent before trusting either.**
 - `WeaponManager.WEAPONS`/`owned` are empty until `edit_mode.gd` calls `sync_from_canvas()` after layout load — don't query weapons in `_ready()`; wait for the `catalog_updated` signal. Weapon ids come from **filenames** in `assets/weaponry/`, so renaming a sprite silently drops it from the catalog (mitigated by 7-char fuzzy match + `KEY_ALIASES`)
-- `WeaponManager` and `DefenseManager` share `user://save.cfg`; `WeaponManager.save_game()` does `erase_section("weapons")` then rewrites — safe, but both managers must use distinct sections (`[weapons]` / `[defense]`)
-- `project.godot` `[autoload]` has merge-conflicted twice on the autoload list; conflict markers there make Godot fail to open the project. Required set (no dups): AudioManager, MaterialManager, DefenseManager, EquipmentManager, UpgradeManager, GameManager, WeaponManager
+- **Six managers share `user://save.cfg`** (GameManager, UpgradeManager, EquipmentManager, WeaponManager `[weapons]`, DefenseManager `[defense]`, InventoryManager `[inventory]`); each rewrites only its own section (e.g. `erase_section("weapons")` then rewrite) — safe as long as sections stay distinct
+- `project.godot` `[autoload]` has merge-conflicted twice on the autoload list; conflict markers there make Godot fail to open the project. Required set (no dups, in order): AudioManager, MaterialManager, DefenseManager, EquipmentManager, UpgradeManager, GameManager, WeaponManager, AffixManager, InventoryManager
 
 ## Layout Config Files Workflow
 

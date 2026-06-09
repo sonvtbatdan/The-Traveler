@@ -55,8 +55,7 @@ func _build() -> void:
 	var bg := Panel.new()
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var rarity := String(def.get("rarity", "common"))
-	var col: Color = InventoryManager.RARITY_COLORS.get(rarity, Color(0.6, 0.6, 0.6))
+	var col: Color = InventoryManager.item_display_color(uid)   # white = no affixes, blue = affixed
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.10, 0.13, 0.18, 0.95)
 	sb.border_color = col
@@ -119,12 +118,12 @@ func _make_name_label(def: Dictionary) -> Label:
 func _make_custom_tooltip(_for_text: String) -> Object:
 	var def: Dictionary = InventoryManager.get_def(def_id)
 	var font := load("res://assets/fonts/Gameplay.ttf") as FontFile
-	var rarity := String(def.get("rarity", "common"))
+	var disp_col: Color = InventoryManager.item_display_color(uid)   # white = no affixes, blue = affixed
 
 	var panel := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = TT_BG
-	sb.border_color = InventoryManager.RARITY_COLORS.get(rarity, TT_BORDER)
+	sb.border_color = disp_col
 	sb.set_border_width_all(2)
 	sb.set_corner_radius_all(6)
 	sb.set_content_margin_all(10)
@@ -135,9 +134,8 @@ func _make_custom_tooltip(_for_text: String) -> Object:
 	vb.custom_minimum_size = Vector2(TT_MIN_WIDTH, 0)
 	panel.add_child(vb)
 
-	# Name (rarity colour)
-	var name_col: Color = InventoryManager.RARITY_COLORS.get(rarity, TT_NAME_COLOR)
-	vb.add_child(_tt_label(_display_name(), name_col, TT_NAME_SIZE, font))
+	# Name (white = no affixes, blue = affixed)
+	vb.add_child(_tt_label(_display_name(), disp_col, TT_NAME_SIZE, font))
 
 	# Base stats — this item's real numbers (damage already includes the hidden ±20%).
 	var bm := InventoryManager.item_base_mult(uid)
@@ -147,6 +145,9 @@ func _make_custom_tooltip(_for_text: String) -> Object:
 	var cad_line := _tt_cadence_line(def)
 	if cad_line != "":
 		vb.add_child(_tt_label(cad_line, TT_BASE_COLOR, TT_TEXT_SIZE, font))
+	var hull_line := _tt_hull_line(def)
+	if hull_line != "":
+		vb.add_child(_tt_label(hull_line, TT_BASE_COLOR, TT_TEXT_SIZE, font))
 
 	# Affixes (one per line, blue), with a separator above them.
 	var affixes: Array = InventoryManager.item_affixes(uid)
@@ -182,6 +183,19 @@ func _tt_damage_line(def: Dictionary, bm: float) -> String:
 	if s.has("dps"):
 		return "DPS: %d" % roundi(float(s["dps"]) * bm)
 	return ""
+
+## Hull bonus-HP / armor line (this instance's rolled ±20% values). "" for non-hulls.
+func _tt_hull_line(def: Dictionary) -> String:
+	if not Array(def.get("tags", [])).has("hull"):
+		return ""
+	var parts: Array[String] = []
+	var hp := InventoryManager.hull_bonus_hp(uid)
+	if hp != 0:
+		parts.append("Bonus HP: +%d" % hp)
+	var armor := InventoryManager.hull_armor(uid)
+	if armor != 0:
+		parts.append("Armor: %d" % armor)
+	return "  ·  ".join(parts)
 
 ## Fire-rate / cadence line (omitted for always-on weapons with no cadence stat).
 func _tt_cadence_line(def: Dictionary) -> String:

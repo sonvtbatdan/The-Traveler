@@ -80,12 +80,15 @@ func _build_action_bar() -> void:
 	var reset_hp_btn := _make_btn("RESET HP")
 	var kill_boss_btn := _make_btn("KILL BOSS")
 	var roll_btn := _make_btn("ROLL WEAPON")
+	var roll_hull_btn := _make_btn("ROLL HULL")
 	hbox2.add_child(reset_hp_btn)
 	hbox2.add_child(kill_boss_btn)
 	hbox2.add_child(roll_btn)
+	hbox2.add_child(roll_hull_btn)
 	reset_hp_btn.pressed.connect(_on_reset_hp)
 	kill_boss_btn.pressed.connect(_on_kill_boss)
 	roll_btn.pressed.connect(_on_roll_weapon)
+	roll_hull_btn.pressed.connect(_on_roll_hull)
 
 ## DEBUG (Phase 2 test): roll a random Mid-tier affixed weapon into the backpack.
 func _on_roll_weapon() -> void:
@@ -95,9 +98,18 @@ func _on_roll_weapon() -> void:
 	else:
 		print("[ROLL WEAPON] dropped: ", InventoryManager.item_display_name(uid))
 
+## DEBUG (armor test): roll a random Mid-tier hull into the backpack so armor/HP can be verified.
+func _on_roll_hull() -> void:
+	var uid := InventoryManager.generate_hull(InventoryManager.WEAPON_ROLL_TIER)
+	if uid == -1:
+		print("[ROLL HULL] backpack full — no room")
+	else:
+		print("[ROLL HULL] dropped: ", InventoryManager.item_display_name(uid),
+			"  armor=", InventoryManager.hull_armor(uid), " bonus_hp=", InventoryManager.hull_bonus_hp(uid))
+
 func _on_reset_hp() -> void:
-	GameManager.ship_hp = GameManager.SHIP_MAX_HP
-	GameManager.ship_hp_changed.emit(GameManager.SHIP_MAX_HP)
+	GameManager.ship_hp = GameManager.ship_max_hp
+	GameManager.ship_hp_changed.emit(GameManager.ship_max_hp)
 
 func _on_kill_boss() -> void:
 	# Set boss HP to 1 for testing phase transitions

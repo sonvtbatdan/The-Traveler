@@ -65,6 +65,14 @@ func _on_hp_changed(hp: int) -> void:
 	if _active != null and is_instance_valid(_active) and _active.has_method("notify_hp_changed"):
 		_active.notify_hp_changed(hp)
 
+## True only when the active boss's CURRENT boss_killed is a phase transition (e.g. a 2-phase boss's
+## first phase dying), not a real end of the fight. Listeners that reset between fights (asteroids,
+## boss music) check this so they DON'T reset between phases. Defaults to false → real end.
+func is_phase_transition() -> bool:
+	if _active != null and is_instance_valid(_active) and _active.has_method("is_phase_transition"):
+		return _active.is_phase_transition()
+	return false
+
 # ── Public API (boss_panel, main, weapon_system, boss_hp_bar) ────────────────
 func spawn_boss(id: String = "elephant") -> void:
 	if GameManager.boss_max_hp > 0:

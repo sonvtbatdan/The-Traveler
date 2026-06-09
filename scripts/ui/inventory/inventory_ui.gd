@@ -24,9 +24,10 @@ const SLOT_MAX_CELLS := {
 
 # Preloaded (not referenced by class_name) so this works on a fresh headless run
 # before the editor has registered the global class names.
-const BackpackGrid := preload("res://scripts/ui/inventory/backpack_grid.gd")
-const EquipSlot    := preload("res://scripts/ui/inventory/equip_slot.gd")
-const ItemWidget   := preload("res://scripts/ui/inventory/item_widget.gd")
+const BackpackGrid    := preload("res://scripts/ui/inventory/backpack_grid.gd")
+const EquipSlot       := preload("res://scripts/ui/inventory/equip_slot.gd")
+const ItemWidget      := preload("res://scripts/ui/inventory/item_widget.gd")
+const CharacterSheet  := preload("res://scripts/ui/inventory/character_sheet.gd")
 
 const SLOT_LABELS := {
 	"primary_weapon":   "Primary Weapon",
@@ -70,6 +71,7 @@ var _backdrop: ColorRect
 var _panel: Panel
 var _toggle_btn: Button
 var _grid: BackpackGrid
+var _sheet: CharacterSheet          # live player-stats panel, docked right of the loadout
 var _slot_nodes: Dictionary = {}   # slot -> EquipSlot
 
 func _ready() -> void:
@@ -111,6 +113,10 @@ func _build_panel() -> void:
 	_style_panel(_panel)
 	add_child(_panel)
 	_build_panel_contents()
+
+	# Character Sheet — live stats panel, docks itself to the right screen edge.
+	_sheet = CharacterSheet.new()
+	add_child(_sheet)
 
 # Pixel size of a slot = its largest item footprint (cells × CELL) + padding on all sides.
 func _slot_size(slot: String) -> Vector2:
@@ -223,11 +229,15 @@ func _rebuild() -> void:
 func open() -> void:
 	_backdrop.show()
 	_panel.show()
+	if _sheet != null:
+		_sheet.show()
 	_toggle_btn.hide()
 
 func close() -> void:
 	_backdrop.hide()
 	_panel.hide()
+	if _sheet != null:
+		_sheet.hide()
 	_toggle_btn.show()
 
 func is_open() -> bool:

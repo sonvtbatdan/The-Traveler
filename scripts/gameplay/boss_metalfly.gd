@@ -79,6 +79,7 @@ var _forced_kill := false
 
 # Phase tracking
 var _boss_phase := 1  # 1 = cocoon phase, 2 = metalfly phase
+var _last_move  := -1  # last Phase-2 move index (no same move twice in a row)
 var _cocoon_eo: EditableObjectNode = null
 var _transform_anim_acc := 0.0
 var _transform_anim_tween: Tween = null
@@ -363,6 +364,9 @@ func _begin_random_move() -> void:
 	if is_instance_valid(_boss_eo):
 		_boss_eo.rotation = 0.0
 	var move_id := randi() % 5
+	while move_id == _last_move:   # never the same move twice in a row
+		move_id = randi() % 5
+	_last_move = move_id
 	match move_id:
 		0:
 			print("[METALFLY] Starting M1: Shard Burst")
@@ -938,6 +942,11 @@ func _clamp_boss() -> void:
 		return
 	_boss_eo.position.x = clampf(_boss_eo.position.x, OC_BOUNDS.position.x, OC_BOUNDS.end.x - _boss_eo.size.x)
 	_boss_eo.position.y = clampf(_boss_eo.position.y, OC_BOUNDS.position.y, OC_BOUNDS.end.y - _boss_eo.size.y)
+
+## Phase-1 (cocoon) death is a transition to phase 2, not the end of the fight. A forced kill
+## (player death / debug) sets _forced_kill, and phase 2 sets _boss_phase = 2 → both are real ends.
+func is_phase_transition() -> bool:
+	return _boss_phase == 1 and not _forced_kill
 
 func notify_boss_killed() -> void:
 	if _phase != Phase.IDLE and _phase != Phase.DONE:

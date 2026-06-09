@@ -15,6 +15,7 @@ const BossPanelScript           := preload("res://scripts/ui/hud/boss_panel.gd")
 const BossHpBarScript           := preload("res://scripts/ui/hud/boss_hp_bar.gd")
 const InventoryUIScript         := preload("res://scripts/ui/inventory/inventory_ui.gd")
 const WeaponSystemScript        := preload("res://scripts/gameplay/weapon_system.gd")
+const BossMusicScript           := preload("res://scripts/gameplay/boss_music.gd")  # boss-fight battle track
 
 @onready var edit_mode = $EditMode
 @onready var visual_container: HBoxContainer = %VisualContainer
@@ -42,6 +43,7 @@ func _ready() -> void:
 	_add_ship_hp_bar()
 	_add_boss_hp_bar()
 	_add_boss_panel()
+	add_child(BossMusicScript.new())   # loops the boss track during boss fights
 	GameManager.load_game()
 	UpgradeManager.load_game()
 	GameManager.game_loaded.emit()
@@ -227,8 +229,8 @@ func _show_death_screen() -> void:
 func _dismiss_death_screen() -> void:
 	get_tree().paused = false
 	# Auto-respawn at full HP.
-	GameManager.ship_hp = GameManager.SHIP_MAX_HP
-	GameManager.ship_hp_changed.emit(GameManager.SHIP_MAX_HP)
+	GameManager.ship_hp = GameManager.ship_max_hp
+	GameManager.ship_hp_changed.emit(GameManager.ship_max_hp)
 	if _death_layer != null:
 		_death_layer.queue_free()
 		_death_layer = null

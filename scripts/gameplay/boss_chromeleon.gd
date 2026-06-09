@@ -20,8 +20,8 @@ const WAVE_Y     := 58.0
 const WAVE_X_MIN := 280.0
 const WAVE_X_MAX := 920.0
 
-const BOSS_MAX_HP := 1500
-const ORB_MAX_HP  := 1000
+const BOSS_MAX_HP := 3000          # Phase 1 total HP
+const ORB_MAX_HP  := 1500          # per orb → Phase 2 total = ORB_MAX_HP * 2 = 3000
 
 const M1_SPEED     := 120.0
 const M1_SHOOT_INT := 0.7   # seconds between spreads (30% faster than 1.0)
@@ -29,6 +29,8 @@ const M1_FP2_DELAY := 0.25
 const M1_MIN_DUR   := 6.0
 const M1_MAX_DUR   := 10.0
 const M1_PANIC_RANGE := 100.0   # if the player gets this close in Move 1, bail into the Ball Charge (Move 4)
+const M1_HEIGHT_UP := 0.70      # Move 1: boss centre sits this fraction UP from the map's bottom
+const M1_ZOOM_SPD  := 280.0     # Move 1: vertical zoom speed to reach that height (px/s)
 
 const M2_MOVE_SPD  := 150.0
 const M2_MOVE_RPM  := 40.0
@@ -38,13 +40,14 @@ const M2_SPIN_DUR  := 5.0     # how long the spin phase lasts
 const M2_SHOOT_INT := 0.111   # 3x faster fire than before (0.334) → 3x more projectiles in the spin phase
 
 const M3_BODY_RPM  := 20.0     # ball's slow idle spin
-const M3_ORB_SHOOT := 0.25     # orb fire interval during the spiral
+const M3_ORB_SHOOT := 0.27     # orb fire interval during the spiral (−30% fire rate from 0.19)
 # Move 3: curl → eject to the sides → spiral back, firing
 const M3_CURL_T       := 1.0     # stage 1: curl + fast spin + orbs glow in
 const M3_CURL_RPM     := 240.0   # fast spin during curl
 const M3_EJECT_T      := 0.45    # fly-out-to-the-sides duration
 const M3_ORB_GLOW_MAX := 2.0     # orb brightness peak for the shine-in
 const M3_SIDE_CM      := 5.0     # orbs eject this far to each side of the body
+const M3_EJECT_PX     := 200.0   # M3 rework: orbs eject this far along a random axis (H or V)
 const M3_SPIRAL_T     := 4.0     # spiral-back duration
 const M3_SPIRAL_TURNS := 3.0     # full rotations during the spiral
 # Bullet hit radius as a fraction of its half-size — keeps the hitbox tight to the
@@ -67,24 +70,27 @@ const BULLET_SIZES := {
 const MOVE_HARD_CAP := 30.0
 
 const M4_SPIN_DUR         := 1.0     # spin-in-place telegraph before the first charge
-const M4_CHARGE_MAX       := 600.0   # max charge speed (px/s)
+const M4_CHARGE_MAX       := 800.0   # max charge speed (px/s)
 const M4_CHARGE_ACCEL     := 3000.0  # pass-1 ramp 0 → max (px/s^2)
 const M4_OFFSCREEN_T      := 1.0     # time spent out of the map between passes
 const M4_PASSES           := 5       # total charge passes
+const M4_WARN_BLINK_HZ    := 4.0     # entry-warning blink rate (on/off cycles per second)
+const M4_WARN_INSET       := 28.0    # pull the entry warning this far inside the edge (visible)
 const M4_CHARGE_RPM       := 80.0    # spin speed while telegraphing / charging
 const M4_OVERSHOOT_MARGIN := 90.0    # how far past the edge counts as "fully out"
 const M4_FINAL_T          := 1.0     # 5th charge: decelerating glide that stops at the ending spot
-const M4_HIT_DMG    := 40
+const M4_HIT_DMG    := 15
 # TEST TOGGLE: 0 = full random moveset (M1-M4); 1-4 = force only that move.
 const DEBUG_FORCE_MOVE := 0
 
 # ── Phase 2 (orb fight) ───────────────────────────────────────────────────────
 # TEST TOGGLE: true = skip Phase 1 and start the fight directly in Phase 2 (orbs as target).
 # Flip to false for the normal flow (Phase 1 moves → HP 0 → transition cutscene → Phase 2).
-const DEBUG_START_IN_PHASE2 := true
-# TEST TOGGLE: which Phase-2 attack the picker forces. 1 = Move 1 (bull charge + slide lasers),
-# 2 = Move 2 (docked rotating laser cross). Switch this value to test each in isolation.
-const DEBUG_FORCE_ATTACK := 3
+const DEBUG_START_IN_PHASE2 := false
+# TEST TOGGLE: which Phase-2 attack the picker forces. 0 = full random (Moves 1-3).
+# 1 = Move 1 (bull charge + slide lasers), 2 = Move 2 (docked rotating laser cross),
+# 3 = Move 3 (rope-tethered orb bombs). Set to 1/2/3 to test one in isolation.
+const DEBUG_FORCE_ATTACK := 0
 # Attack-1 orbs: deterministic SLIDE (2s) → CHANNEL (1s) → FIRE (3s) cycle, run independently
 # per orb. Channel locks the aim + shows the Elephant warning sign + an inward light-gather FX;
 # FIRE shoots a recolored copy of the Elephant lasgun (300px wide) in the locked direction.
@@ -95,8 +101,16 @@ const P2_ORB_SLIDE_SPD   := 160.0   # edge-slide speed (px/s)
 const P2_ORB_EDGE_MARGIN := 26.0    # orb centre sits this far from its edge (perpendicular lock)
 const P2_ORB_RANGE_LO    := 0.33    # orbs slide only within 33%–66% of their edge length
 const P2_ORB_RANGE_HI    := 0.66    # (bounce at these limits, normal reverse)
+# Attack 1 length + intro: the head zooms to the arena centre and spins fast for A1_SPIN_T (orbs
+# held on it); then it ejects the orbs to their edges while the spin slows over A1_EJECT_T; then the
+# normal bull-charge + slide→channel→fire fight runs until the duration is up.
+const P2_ATTACK1_DUR     := 10.0    # total Attack-1 length, then back to the move picker
+const A1_SPIN_T          := 1.0     # head zooms to centre + spins fast (orbs bunched on it)
+const A1_EJECT_T         := 0.5     # spin slows down; orbs are ejected out to their edges
+const A1_INTRO_T         := A1_SPIN_T + A1_EJECT_T   # total intro before the normal fight begins
+const A1_INTRO_HEAD_RPM  := 220.0   # head spin speed during the spin stage (fast)
 const P2_LASER_WIDTH     := 50.0    # fired beam width (px) — procedural beam scales off this
-const P2_LASER_DMG       := 20      # damage per tick while the beam overlaps the ship
+const P2_LASER_DMG       := 5       # damage per tick while the beam overlaps the ship (Move 1 + Move 2 cross)
 const P2_LASER_DMG_INT   := 0.5     # seconds between damage ticks (fair, not per-frame)
 const P2_BLUE_LASER_COL  := Color(0.4, 0.7, 1.0, 1.0)    # blue glow (white core stays automatic)
 const P2_TEAL_LASER_COL  := Color(0.4, 1.0, 0.85, 1.0)   # teal glow
@@ -131,11 +145,11 @@ const M3_ROPE_MID_W     := 6.0    # brighter mid pass width
 const M3_ROPE_CORE_W    := 2.5    # near-white hot core width
 const M3_ROPE_HUE_SCROLL := 0.6   # how fast the rainbow hues flow along the rope (cycles/sec)
 const M3_ROPE_SAT       := 0.9    # rope colour saturation (0 = white, 1 = full rainbow)
-const M3_ROPE_DMG       := 5      # tether contact damage per tick
+const M3_ROPE_DMG       := 2.5    # tether contact damage per tick (fractional → carried, avg 2.5)
 const M3_ROPE_DMG_INT   := 0.5    # seconds between tether damage ticks while the ship touches it
 const M3_ROPE_DMG_W     := 22.0   # tether hit corridor half-width (px), added to the ship radius
-const M3_BLAST_RADIUS      := 117.0   # AoE radius (dodge outside this) — 60% of the old 195
-const M3_BLAST_DMG         := 45      # one-shot AoE damage if inside at detonation
+const M3_BLAST_RADIUS      := 180.0   # AoE radius (dodge outside this) — 60% of the old 195
+const M3_BLAST_DMG         := 20      # one-shot AoE damage if inside at detonation
 const M3_CHANNEL_SCALE     := 3.0     # channel light-gather FX scaled up vs Move 1
 const M3_CHANNEL_MOTE_MULT := 2.0     # twice as many motes
 const M3_CHARGE_SPIN       := 18.0    # orb spin while charging (rad/s ≈ 2.9 rev/s — quite fast)
@@ -152,6 +166,11 @@ const ABERRATION_LAYER := 149     # CanvasLayer for the RGB split (above the sce
 const M3_RAINBOW_SAT   := 0.9
 # Rainbow recolour for every procedural attack FX (beams, channel motes, orb shine).
 const RAINBOW_SPEED    := 0.5     # hue cycles per second
+# Orb bullets: solid rainbow shapes that shine (pulse brighter toward white), never dark.
+const RB_BLINK_SPEED   := 9.0     # shine/pulse rate, rad/s
+const RB_SAT           := 0.65    # lower saturation = lighter/brighter hues, high contrast on black
+const RB_SHINE         := 0.5     # how far the pulse lerps toward white at its peak (the shine)
+const RB_SHAPE_SZ      := Vector2(30.0, 30.0)   # render size of the procedural rainbow shape bullets
 const M3_GLOW_RADIUS   := 26.0    # orb rainbow-shine glow radius (px)
 const M3_GLOW_ALPHA    := 0.6     # orb rainbow-shine peak alpha
 const ABERRATION_SHADER := "shader_type canvas_item;
@@ -173,7 +192,13 @@ const P2_BULL_SPD         := 520.0   # top charge speed (px/s)
 const P2_BULL_ACCEL       := 2600.0  # ramp 0 → top speed (px/s^2)
 const P2_BULL_DECEL_T     := 0.4     # slow-down "stomp" beat after a pass overshoots/exits
 const P2_BULL_REAIM_PAUSE := 0.35    # telegraph pause before the next charge
-const P2_BULL_DMG         := 30      # contact damage if the head reaches the ship mid-charge
+const P2_BULL_DMG         := 15      # contact damage if the head reaches the ship mid-charge
+# Move-3 head: keeps spinning, drifts to random points, and deals contact damage on an interval.
+const M3_HEAD_RPM        := 14.0     # slow lazy tumble (untethered object drifting in space)
+const M3_HEAD_DRIFT_SPD  := 95.0     # random wander speed (px/s)
+const M3_HEAD_DMG        := 10       # contact damage per hit
+const M3_HEAD_DMG_INT    := 0.6      # min seconds between contact hits
+const M3_HEAD_REACH      := 24.0     # pick a new wander target when this close to the current one
 
 const FINAL_HEAD_SPD  := 25.0
 const FINAL_HEAD_RPM  := 20.0
@@ -213,6 +238,7 @@ enum Bull { CHARGING, SLOWING, REAIM }
 var _phase        := Phase.IDLE
 var _phase_timer  := 0.0
 var _move_watchdog := 0.0   # time spent in the current main-phase move (stall safety net)
+var _last_p1_move  := -1     # last Phase-1 move index (no same move twice in a row)
 
 var _objects_container: Control          = null
 var _ship_eo:           EditableObjectNode = null
@@ -257,6 +283,7 @@ var _blue_bullet_native_size: Vector2 = Vector2.ZERO
 var _teal_bullet_native_size: Vector2 = Vector2.ZERO
 var _blue_bullet_size: Vector2   = Vector2.ZERO
 var _teal_bullet_size: Vector2   = Vector2.ZERO
+var _rb_shapes:        Array = []            # white filled polygons (triangle/diamond/pentagon/hexagon)
 
 var _projectiles:      Array = []
 var _shielded_bullets: Array = []
@@ -279,6 +306,7 @@ var _m1_shoot_acc:    float   = 0.0
 var _m1_fp2_acc:      float   = 0.0
 var _m1_fp2_pending:  bool    = false
 var _m1_next_fp:      int     = 0    # which hand fires next (alternates 0/1 each interval)
+var _m1_target_y:     float   = 0.0  # Move 1: vertical position the boss zooms to (70% up)
 var _m1_duration:     float   = 8.0
 
 # Ball (M2/M4) state
@@ -295,6 +323,9 @@ var _teal_eject_from:  Vector2 = Vector2.ZERO
 var _teal_eject_to:    Vector2 = Vector2.ZERO
 var _m3_spiral_center: Vector2 = Vector2.ZERO
 var _m3_spiral_R:      float   = 0.0
+var _m3_body_from:     Vector2 = Vector2.ZERO   # M3 zoom-to-centre start (ball position)
+var _m3_body_to:       Vector2 = Vector2.ZERO   # M3 zoom-to-centre target (arena centre)
+var _m3_axis_angle:    float   = 0.0            # M3 eject/spiral axis: 0 = horizontal, PI/2 = vertical
 var _m3_unfurling:     bool  = false
 
 # M4 state
@@ -304,6 +335,10 @@ var _m4_charge_spd:   float = 0.0
 var _m4_offscreen_timer: float = 0.0
 var _m4_exit_pos:    Vector2 = Vector2.ZERO
 var _m4_exit_dir:    Vector2 = Vector2.ZERO
+var _m4_next_entry:  Vector2 = Vector2.ZERO   # pre-decided re-entry pos (ball top-left)
+var _m4_next_dir:    Vector2 = Vector2.DOWN   # centre→edge direction of the re-entry
+var _m4_warn_pos:    Vector2 = Vector2.ZERO   # blinking-warning location (viewport, on the edge)
+var _m4_warn_active: bool    = false          # show the entry warning during the offscreen wait
 var _m4_was_inside:     bool = false
 var _m4_hit_done:       bool = false
 
@@ -342,6 +377,14 @@ var _blue_fire_dir:  Vector2 = Vector2.DOWN  # aim locked at channel start (not 
 var _teal_fire_dir:  Vector2 = Vector2.DOWN
 var _blue_laser_dmg_acc: float = 0.0       # damage-tick accumulator during FIRE
 var _teal_laser_dmg_acc: float = 0.0
+# Attack-1 intro state (head zoom-to-centre + spin → eject orbs)
+var _a1_intro_done: bool = false
+var _a1_head_from: Vector2 = Vector2.ZERO
+var _a1_head_to:   Vector2 = Vector2.ZERO
+var _a1_blue_from: Vector2 = Vector2.ZERO   # eject origin (arena centre)
+var _a1_blue_to:   Vector2 = Vector2.ZERO   # blue edge target
+var _a1_teal_from: Vector2 = Vector2.ZERO
+var _a1_teal_to:   Vector2 = Vector2.ZERO
 var _blue_channel_fx: Node = null          # inward light-gather FX node (freed at fire start)
 var _teal_channel_fx: Node = null
 var _bull_state:   Bull    = Bull.CHARGING
@@ -382,6 +425,10 @@ var _m3_in_setup: bool  = false                        # Stage 1: orbs flying to
 var _m3_setup_t:  float = 0.0                          # rope-grow timer (after both orbs in place)
 var _m3_rope:     Node  = null                          # rainbow-lightning rope FX node
 var _m3_rope_dmg_acc: float = 0.0                       # tether contact-damage tick accumulator
+var _m3_rope_owed:    float = 0.0                       # fractional rope damage carry (2.5/tick)
+var _m3_head_target:  Vector2 = Vector2.ZERO            # current random wander target (head centre)
+var _m3_head_dmg_acc: float = 0.0                       # head contact-damage cooldown
+var _m3_aoe: Array = [null, null]                       # per-orb charge AoE telegraph rings
 var _m3_launched: int = 0                       # bombs that have begun zooming (cap = M3_TOTAL_BOMBS)
 var _m3_exploded: int = 0                       # detonations done (attack ends at M3_TOTAL_BOMBS)
 var _m3_fx_t:     float = 0.0                   # explosion-FX countdown after the last detonation
@@ -420,6 +467,15 @@ func setup(oc: Control) -> void:
 	# Boss-killed routing is handled by the Boss Manager (boss_fight.gd), the single listener.
 
 # Called by the Boss Manager when GameManager.boss_killed fires (was a direct signal connection).
+## Depleting the phase-1 body HP (M1-M4) transitions to the phase-2 orb fight — NOT a real end.
+## Only a phase-2 (P2_*) death, or a forced kill (which resets _phase to IDLE), ends the fight.
+func is_phase_transition() -> bool:
+	match _phase:
+		Phase.IDLE, Phase.DONE, Phase.P2_ENTRY, Phase.P2_ATTACK1, Phase.P2_ATTACK2, Phase.P2_ATTACK3, Phase.P2_ATTACK4, Phase.P2_ATTACK5:
+			return false
+		_:
+			return true
+
 func notify_boss_killed() -> void:
 	if _phase == Phase.IDLE or _phase == Phase.DONE:
 		return
@@ -435,6 +491,7 @@ func _force_reset() -> void:
 	_cleanup_projectiles()
 	_cleanup_shielded_bullets()
 	_cleanup_orb_beams()
+	_cleanup_m3_fx()
 	_reattach_orbs()
 	_reattach_head()
 	_reattach_ball()
@@ -475,6 +532,7 @@ func kill_boss() -> void:
 	_cleanup_projectiles()
 	_cleanup_shielded_bullets()
 	_cleanup_orb_beams()
+	_cleanup_m3_fx()
 	_reattach_orbs()
 	_reattach_head()
 	_reattach_ball()
@@ -581,7 +639,11 @@ func _begin_random_move() -> void:
 		3: _begin_m3()
 		4: _begin_m4()
 		_:
-			match randi() % 4:
+			var pick := randi() % 4
+			while pick == _last_p1_move:   # never the same move twice in a row
+				pick = randi() % 4
+			_last_p1_move = pick
+			match pick:
 				0: _begin_m1()
 				1: _begin_m2()
 				2: _begin_m3()
@@ -614,6 +676,14 @@ func _begin_m1() -> void:
 	_m1_next_fp   = 0   # start with the left hand
 	_m1_duration  = randf_range(M1_MIN_DUR, M1_MAX_DUR)
 	_show_only(_chromeleon_eo)
+	# Boss centre target = 70% up from the bottom; clamped so the tall sprite stays on-screen.
+	if is_instance_valid(_chromeleon_eo):
+		var center_y := OC_BOUNDS.end.y - M1_HEIGHT_UP * OC_BOUNDS.size.y - 100.0   # 100px higher
+		_m1_target_y = clampf(center_y - _chromeleon_eo.size.y * 0.5,
+			OC_BOUNDS.position.y, OC_BOUNDS.end.y - _chromeleon_eo.size.y)
+	# Show the orbs so they can ride the hands (looks like the boss shoots from them).
+	if is_instance_valid(_blueorb_eo): _blueorb_eo.visible = true
+	if is_instance_valid(_tealorb_eo): _tealorb_eo.visible = true
 
 func _tick_m1(delta: float) -> void:
 	_phase_timer  += delta
@@ -629,10 +699,11 @@ func _tick_m1(delta: float) -> void:
 			var near := Vector2(clampf(sc.x, br.position.x, br.end.x), clampf(sc.y, br.position.y, br.end.y))
 			if sc.distance_to(near) <= M1_PANIC_RANGE:
 				_move_watchdog = 0.0
+				_m1_hide_orbs()
 				_begin_m4()
 				return
 
-	# Position directly in front of (above) the player — track their X, keep current Y.
+	# Track the player's X; zoom to the 70%-up height once, then it's horizontal-only.
 	if is_instance_valid(_chromeleon_eo):
 		var target_x := _ship_center().x - _chromeleon_eo.size.x * 0.5
 		var diff_x := target_x - _chromeleon_eo.position.x
@@ -641,7 +712,10 @@ func _tick_m1(delta: float) -> void:
 			_chromeleon_eo.position.x = target_x
 		else:
 			_chromeleon_eo.position.x += signf(diff_x) * step
-		_clamp_eo(_chromeleon_eo, Y_LIMIT)
+		_chromeleon_eo.position.x = clampf(_chromeleon_eo.position.x,
+			OC_BOUNDS.position.x, OC_BOUNDS.end.x - _chromeleon_eo.size.x)
+		_chromeleon_eo.position.y = move_toward(_chromeleon_eo.position.y, _m1_target_y, M1_ZOOM_SPD * delta)
+		_m1_stick_orbs_to_hands()
 
 	# Alternate hands: left fire, interval, right fire, interval, ...
 	if _m1_shoot_acc >= M1_SHOOT_INT:
@@ -650,7 +724,24 @@ func _tick_m1(delta: float) -> void:
 		_m1_next_fp = 1 - _m1_next_fp
 
 	if _phase_timer >= _m1_duration:
+		_m1_hide_orbs()
 		_check_hp_or_next()
+
+# Keep the two orbs glued to the boss's two hands (fire points) so the shots read as coming
+# from them. The fire points are children of the body, so their global pos moves with it.
+func _m1_stick_orbs_to_hands() -> void:
+	if _main_fp_nodes.size() < 2:
+		return
+	if is_instance_valid(_blueorb_eo) and is_instance_valid(_main_fp_nodes[0]):
+		_blueorb_eo.visible = true
+		_blueorb_eo.global_position = _main_fp_nodes[0].global_position - _blueorb_eo.size * 0.5
+	if is_instance_valid(_tealorb_eo) and is_instance_valid(_main_fp_nodes[1]):
+		_tealorb_eo.visible = true
+		_tealorb_eo.global_position = _main_fp_nodes[1].global_position - _tealorb_eo.size * 0.5
+
+func _m1_hide_orbs() -> void:
+	if is_instance_valid(_blueorb_eo): _blueorb_eo.visible = false
+	if is_instance_valid(_tealorb_eo): _tealorb_eo.visible = false
 
 func _fire_m1_spread(fp_idx: int) -> void:
 	if _main_fp_nodes.size() <= fp_idx:
@@ -659,11 +750,10 @@ func _fire_m1_spread(fp_idx: int) -> void:
 	if not is_instance_valid(fp):
 		return
 	var origin := fp.global_position
-	var tex := _random_bullet()
-	var bsz  := _random_bullet_sz()
+	var tex := _random_bullet()   # non-null only to pass _spawn_bullet's guard; ignored by rainbow path
 	for a: float in [-30.0, -15.0, 0.0, 15.0, 30.0]:   # 5-shot fan (was 3)
 		var dir := Vector2.DOWN.rotated(deg_to_rad(a))
-		_spawn_bullet(tex, origin, dir * BULLET_SPD, bsz)
+		_spawn_bullet(tex, origin, dir * BULLET_SPD, RB_SHAPE_SZ, true)   # procedural rainbow shapes
 
 # =============================================================================
 # Move 2 — Ball spin + shoot 4 dirs
@@ -774,9 +864,12 @@ func _begin_m3() -> void:
 	_phase_timer = 0.0
 	_ball_angle = 0.0
 	_m3_unfurling = false
-	_detach_ball()      # ball becomes the (in-place) body
+	_detach_ball()      # ball becomes the body (now zooms to centre during the curl)
 	_detach_orbs()      # orbs become independent nodes
 	_show_only(null)
+	# Zoom the body to the arena centre over the curl stage.
+	_m3_body_from = _chromeball_eo.position if is_instance_valid(_chromeball_eo) else OC_BOUNDS.get_center()
+	_m3_body_to   = OC_BOUNDS.get_center() - (_chromeball_eo.size * 0.5 if is_instance_valid(_chromeball_eo) else Vector2.ZERO)
 	if is_instance_valid(_chromeball_eo):
 		_chromeball_eo.gif_paused = true
 		_chromeball_eo.reset_gif()
@@ -793,9 +886,11 @@ func _begin_m3() -> void:
 func _tick_m3_curl(delta: float) -> void:
 	_phase_timer += delta
 	_ball_angle += M3_CURL_RPM * TAU / 60.0 * delta
+	var t: float = minf(_phase_timer / M3_CURL_T, 1.0)
 	if is_instance_valid(_chromeball_eo):
 		_chromeball_eo.texture_rect.rotation = _ball_angle
-	var t: float = minf(_phase_timer / M3_CURL_T, 1.0)
+		var z: float = 1.0 - (1.0 - t) * (1.0 - t)   # ease-out zoom to the arena centre
+		_chromeball_eo.position = _m3_body_from.lerp(_m3_body_to, z)
 	var g: float = lerpf(1.0, M3_ORB_GLOW_MAX, t)
 	for orb: EditableObjectNode in [_blueorb_eo, _tealorb_eo]:
 		if is_instance_valid(orb):
@@ -810,13 +905,16 @@ func _begin_m3_eject() -> void:
 	_phase = Phase.M3_EJECT
 	_phase_timer = 0.0
 	var c := _ball_center_local()
-	var r := _cm_px(M3_SIDE_CM)
+	var r := M3_EJECT_PX
+	# Random axis each time: 0 = horizontal (left/right), PI/2 = vertical (up/down).
+	_m3_axis_angle = 0.0 if randi() % 2 == 0 else PI / 2.0
+	var dir := Vector2(cos(_m3_axis_angle), sin(_m3_axis_angle))
 	if is_instance_valid(_blueorb_eo):
 		_blue_eject_from = _blueorb_eo.position
-		_blue_eject_to   = c + Vector2(r, 0.0) - _blueorb_eo.size * 0.5    # right
+		_blue_eject_to   = c + dir * r - _blueorb_eo.size * 0.5     # one side of the axis
 	if is_instance_valid(_tealorb_eo):
 		_teal_eject_from = _tealorb_eo.position
-		_teal_eject_to   = c + Vector2(-r, 0.0) - _tealorb_eo.size * 0.5   # left
+		_teal_eject_to   = c - dir * r - _tealorb_eo.size * 0.5     # the opposite side
 	_blue_shoot_acc = 0.0
 	_teal_shoot_acc = 0.0
 
@@ -845,7 +943,7 @@ func _begin_m3_spiral() -> void:
 	_phase = Phase.M3_SPIRAL
 	_phase_timer = 0.0
 	_m3_spiral_center = _ball_center_local()
-	_m3_spiral_R = _cm_px(M3_SIDE_CM)
+	_m3_spiral_R = M3_EJECT_PX
 	_blue_shoot_acc = 0.0
 	_teal_shoot_acc = 0.0
 
@@ -857,7 +955,7 @@ func _tick_m3_spiral(delta: float) -> void:
 	if is_instance_valid(_chromeball_eo):
 		_chromeball_eo.texture_rect.rotation = _ball_angle
 	var t: float = minf(_phase_timer / M3_SPIRAL_T, 1.0)
-	var theta: float = t * M3_SPIRAL_TURNS * TAU
+	var theta: float = _m3_axis_angle + t * M3_SPIRAL_TURNS * TAU   # start aligned with the eject axis
 	var radius: float = _m3_spiral_R * (1.0 - t)
 	var off := Vector2(cos(theta), sin(theta)) * radius
 	if is_instance_valid(_blueorb_eo):
@@ -948,13 +1046,12 @@ func _start_m4_dash() -> void:
 		# First charge: accelerate from where it transformed.
 		_m4_charge_spd = 0.0
 	else:
-		# Re-enter from a point on the edge within ±90° of the exit direction. This
-		# random angle ONLY varies WHERE it comes in — the charge itself still aims at
-		# the player (set below).
-		var entry_dir := _m4_exit_dir.rotated(randf_range(-PI / 2.0, PI / 2.0))
-		_chromeball_eo.position = _offscreen_entry_point(entry_dir, M4_OVERSHOOT_MARGIN) - _chromeball_eo.size / 2.0
+		# Re-enter at the spot decided when it went offscreen (and telegraphed there). The charge
+		# itself still aims at the player (set below).
+		_chromeball_eo.position = _m4_next_entry
 		_m4_charge_spd = M4_CHARGE_MAX
 		_chromeball_eo.visible = true
+	_m4_warn_active = false   # the boss is entering now → clear the telegraph
 	# The charge ALWAYS aims at the player.
 	var ship_c := _ship_center()
 	var ball_c := _chromeball_eo.global_position + _chromeball_eo.size / 2.0
@@ -1015,11 +1112,32 @@ func _tick_m4_charge(delta: float) -> void:
 		else:
 			_m4_offscreen_timer = 0.0
 			_phase = Phase.M4_OFFSCREEN
+			_compute_m4_entry()   # decide + telegraph where it charges back in
 
 # Wait off-screen, then re-enter from the exit point and charge back across.
+# Decide WHERE the ball will re-enter so it can be telegraphed during the offscreen wait, and the
+# on-edge spot to blink the warning at. The charge still aims at the player when it actually enters.
+func _compute_m4_entry() -> void:
+	if not is_instance_valid(_chromeball_eo):
+		_m4_warn_active = false
+		return
+	var entry_dir: Vector2
+	if _m4_pass >= M4_PASSES - 1:
+		# Next is the finisher — it enters from the player's side (toward the ending spot).
+		var ed := _ship_center() - BALL_SPIN_POS
+		entry_dir = ed.normalized() if ed.length() > 0.01 else Vector2.DOWN
+	else:
+		# Random spot on the edge within ±90° of the exit direction.
+		entry_dir = _m4_exit_dir.rotated(randf_range(-PI / 2.0, PI / 2.0))
+	_m4_next_dir   = entry_dir
+	_m4_next_entry = _offscreen_entry_point(entry_dir, M4_OVERSHOOT_MARGIN) - _chromeball_eo.size / 2.0
+	_m4_warn_pos   = _offscreen_entry_point(entry_dir, -M4_WARN_INSET)   # on the edge, pulled inside
+	_m4_warn_active = true
+
 func _tick_m4_offscreen(delta: float) -> void:
 	_phase_timer += delta
 	_m4_offscreen_timer += delta
+	queue_redraw()   # animate the blinking entry warning
 	if _m4_offscreen_timer >= M4_OFFSCREEN_T:
 		# After 4 normal overshooting charges, the 5th is the finisher.
 		if _m4_pass >= M4_PASSES - 1:
@@ -1037,12 +1155,9 @@ func _begin_m4_final() -> void:
 	if not is_instance_valid(_chromeball_eo):
 		_begin_m4_return_anim()
 		return
-	var ship_c := _ship_center()
-	var entry_dir := ship_c - BALL_SPIN_POS   # from the ending spot toward the player
-	if entry_dir.length() < 0.01:
-		entry_dir = Vector2.DOWN
-	_chromeball_eo.position = _offscreen_entry_point(entry_dir, M4_OVERSHOOT_MARGIN) - _chromeball_eo.size / 2.0
+	_chromeball_eo.position = _m4_next_entry   # pre-decided entry (telegraphed during offscreen)
 	_chromeball_eo.visible = true
+	_m4_warn_active = false
 	var target := BALL_SPIN_POS - _chromeball_eo.size / 2.0
 	var tw := create_tween()
 	tw.set_ease(Tween.EASE_OUT)
@@ -1139,14 +1254,21 @@ func _enter_phase2() -> void:
 
 	_begin_p2_attack()
 
-# Phase-2 attack picker. Only Attack 1 exists for now; it always returns Attack 1.
-# TODO(phase2): when Attacks 2-5 are implemented, choose randomly / in a cycle here.
+# Phase-2 attack picker. Moves 1-3 all exist; DEBUG_FORCE_ATTACK forces one for testing,
+# 0 = pick one of the three at random each time.
 func _begin_p2_attack() -> void:
-	# Moves 1-3 exist; DEBUG_FORCE_ATTACK forces one for testing.
 	match DEBUG_FORCE_ATTACK:
-		3: _p2_attack = 3; _begin_p2_attack3()
+		1: _p2_attack = 1; _begin_p2_attack1()
 		2: _p2_attack = 2; _begin_p2_attack2()
-		_: _p2_attack = 1; _begin_p2_attack1()
+		3: _p2_attack = 3; _begin_p2_attack3()
+		_:
+			var pick := randi() % 3
+			while (pick + 1) == _p2_attack:   # never the same attack twice in a row
+				pick = randi() % 3
+			match pick:
+				0: _p2_attack = 1; _begin_p2_attack1()
+				1: _p2_attack = 2; _begin_p2_attack2()
+				_: _p2_attack = 3; _begin_p2_attack3()
 
 # ── Attack 1 — "Bull charge + edge-sliding alignment lasers" ─────────────────
 func _begin_p2_attack1() -> void:
@@ -1157,29 +1279,95 @@ func _begin_p2_attack1() -> void:
 	_blue_orb_state = OrbState.SLIDE;  _teal_orb_state = OrbState.SLIDE
 	_blue_orb_timer = 0.0;             _teal_orb_timer = 0.0
 	_blue_laser_dmg_acc = 0.0;         _teal_laser_dmg_acc = 0.0
-	# Snap the orbs onto their edges (perpendicular lock) and into the middle of their slide
-	# band (avoids a first-frame jump); clear any spin so the laser reads as a fixed emitter.
+	_a1_intro_done = false
+	# Edge targets = middle of each orb's slide band (where the normal cycle starts).
 	var mid := (P2_ORB_RANGE_LO + P2_ORB_RANGE_HI) * 0.5
+	_a1_blue_to = Vector2(
+		(OC_BOUNDS.end.x - P2_ORB_EDGE_MARGIN) - _eo_half(_blueorb_eo).x,
+		(OC_BOUNDS.position.y + OC_BOUNDS.size.y * mid) - _eo_half(_blueorb_eo).y)
+	_a1_teal_to = Vector2(
+		(OC_BOUNDS.position.x + OC_BOUNDS.size.x * mid) - _eo_half(_tealorb_eo).x,
+		(OC_BOUNDS.position.y + P2_ORB_EDGE_MARGIN) - _eo_half(_tealorb_eo).y)
+	# Head zooms from where it is to the arena centre during the spin stage.
+	var ac := OC_BOUNDS.get_center()
+	_a1_head_from = _chromehead_eo.position if is_instance_valid(_chromehead_eo) else ac
+	_a1_head_to   = ac - _eo_half(_chromehead_eo)
+	# Eject origin = arena centre (the head is there by the time the orbs launch).
+	_a1_blue_from = ac - _eo_half(_blueorb_eo)
+	_a1_teal_from = ac - _eo_half(_tealorb_eo)
+	# Bunch the orbs on the head's current centre for frame 0; clear spin (fixed-emitter laser).
+	var hc := _head_center()
 	if is_instance_valid(_blueorb_eo):
 		_blueorb_eo.texture_rect.rotation = 0.0
-		_blueorb_eo.position.x = (OC_BOUNDS.end.x - P2_ORB_EDGE_MARGIN) - _blueorb_eo.size.x * 0.5
-		_blueorb_eo.position.y = (OC_BOUNDS.position.y + OC_BOUNDS.size.y * mid) - _blueorb_eo.size.y * 0.5
+		_blueorb_eo.position = hc - _eo_half(_blueorb_eo)
 	if is_instance_valid(_tealorb_eo):
 		_tealorb_eo.texture_rect.rotation = 0.0
-		_tealorb_eo.position.y = (OC_BOUNDS.position.y + P2_ORB_EDGE_MARGIN) - _tealorb_eo.size.y * 0.5
-		_tealorb_eo.position.x = (OC_BOUNDS.position.x + OC_BOUNDS.size.x * mid) - _tealorb_eo.size.x * 0.5
+		_tealorb_eo.position = hc - _eo_half(_tealorb_eo)
 	_ensure_orb_beams()
-	_begin_bull_charge()
+	# The bull charge starts AFTER the intro (see _tick_p2_attack1 / _tick_a1_intro).
 
 func _tick_p2_attack1(delta: float) -> void:
 	_phase_timer += delta
+	# Intro: head spins fast while the orbs are flung from the head out to their edges.
+	if _phase_timer < A1_INTRO_T:
+		_tick_a1_intro(delta)
+		queue_redraw()
+		return
+	# First frame after the fling: snap orbs onto their edges and start the bull charge.
+	if not _a1_intro_done:
+		_a1_intro_done = true
+		if is_instance_valid(_blueorb_eo): _blueorb_eo.position = _a1_blue_to
+		if is_instance_valid(_tealorb_eo): _tealorb_eo.position = _a1_teal_to
+		_begin_bull_charge()
 	if not _blue_beam.is_empty(): _blue_beam["beam_color"] = _rainbow(0.0)   # rainbow lasers
 	if not _teal_beam.is_empty(): _teal_beam["beam_color"] = _rainbow(0.5)
 	_tick_orb_blue(delta)   # right edge, vertical slide → channel → fire straight LEFT (perpendicular)
 	_tick_orb_teal(delta)   # top edge, horizontal slide → channel → fire straight DOWN (perpendicular)
 	_tick_bull(delta)       # invincible head bull-rushes the player (unchanged)
 	_check_orb_win()        # both orbs dead → FINAL death cutscene + victory
+	if _phase_timer >= P2_ATTACK1_DUR:
+		_end_p2_attack1()
+		return
 	queue_redraw()          # keep the channel warning sign(s) drawn/cleared each frame
+
+# Intro stages:
+#  Stage 1 (0 .. A1_SPIN_T): head zooms to the arena centre and spins fast; orbs bunched on it.
+#  Stage 2 (A1_SPIN_T .. A1_INTRO_T): head spin slows; orbs are ejected out to their edges.
+func _tick_a1_intro(delta: float) -> void:
+	var rpm: float
+	if _phase_timer < A1_SPIN_T:
+		# Zoom the head to centre (ease-out → arrives fast, settles) and spin fast; orbs ride along.
+		var z: float = clampf(_phase_timer / A1_SPIN_T, 0.0, 1.0)
+		var zk: float = 1.0 - pow(1.0 - z, 3.0)
+		if is_instance_valid(_chromehead_eo):
+			_chromehead_eo.position = _a1_head_from.lerp(_a1_head_to, zk)
+		rpm = A1_INTRO_HEAD_RPM
+		var hc := _head_center()
+		if is_instance_valid(_blueorb_eo): _blueorb_eo.position = hc - _eo_half(_blueorb_eo)
+		if is_instance_valid(_tealorb_eo): _tealorb_eo.position = hc - _eo_half(_tealorb_eo)
+	else:
+		# Eject: orbs fly centre → edge (ease-out), head holds centre while the spin decelerates.
+		if is_instance_valid(_chromehead_eo):
+			_chromehead_eo.position = _a1_head_to
+		var e: float = clampf((_phase_timer - A1_SPIN_T) / A1_EJECT_T, 0.0, 1.0)
+		var k: float = 1.0 - pow(1.0 - e, 3.0)
+		rpm = lerpf(A1_INTRO_HEAD_RPM, FINAL_HEAD_RPM, e)   # slow down toward the normal spin
+		if is_instance_valid(_blueorb_eo): _blueorb_eo.position = _a1_blue_from.lerp(_a1_blue_to, k)
+		if is_instance_valid(_tealorb_eo): _tealorb_eo.position = _a1_teal_from.lerp(_a1_teal_to, k)
+	if is_instance_valid(_chromehead_eo):
+		_head_rot += rpm * TAU / 60.0 * delta
+		_chromehead_eo.texture_rect.rotation = _head_rot
+
+# Attack 1 timed out → stop beams, reset the head spin, hand back to the move picker.
+func _end_p2_attack1() -> void:
+	_deactivate_beam(_blue_beam)
+	_deactivate_beam(_teal_beam)
+	_free_node(_blue_channel_fx);  _blue_channel_fx = null
+	_free_node(_teal_channel_fx);  _teal_channel_fx = null
+	_head_rot = 0.0
+	if is_instance_valid(_chromehead_eo):
+		_chromehead_eo.texture_rect.rotation = 0.0
+	_begin_p2_attack()   # back to the picker
 
 # ── Blue orb (right edge) — SLIDE 2s → CHANNEL 1s → FIRE 3s → repeat ──────────
 func _tick_orb_blue(delta: float) -> void:
@@ -1317,6 +1505,37 @@ func _spawn_orb_channel_fx(center_vp: Vector2, color: Color, dur: float = P2_ORB
 	_clip_node.add_child(fx)
 	return fx
 
+# Charge telegraph: a thin rainbow "sheen" over the whole blast area so the player sees where the
+# bomb will land. Additive; self-animates its rainbow. Radius == M3_BLAST_RADIUS (the real AoE).
+func _spawn_aoe_ring(center_vp: Vector2) -> Node:
+	var ring := _AoERing.new()
+	ring.position      = center_vp - OC_BOUNDS.position   # clip-local
+	ring.z_index       = 159                              # under the motes/orbs, above the arena
+	ring.z_as_relative = false
+	var m := CanvasItemMaterial.new()
+	m.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	ring.material = m
+	ring.setup(M3_BLAST_RADIUS, RB_SAT, RAINBOW_SPEED)
+	_clip_node.add_child(ring)
+	return ring
+
+# Faint rainbow fill coating the whole AoE + a thin bright ring at its edge, hue cycling over time.
+class _AoERing extends Node2D:
+	var _radius := 100.0
+	var _sat := 0.65
+	var _hue_speed := 0.5
+	var _t := 0.0
+	func setup(radius: float, sat: float, hue_speed: float) -> void:
+		_radius = radius;  _sat = sat;  _hue_speed = hue_speed
+	func _process(delta: float) -> void:
+		_t += delta
+		queue_redraw()
+	func _draw() -> void:
+		var hue: float = fposmod(_t * _hue_speed, 1.0)
+		var col := Color.from_hsv(hue, _sat, 1.0)
+		draw_circle(Vector2.ZERO, _radius, Color(col.r, col.g, col.b, 0.12))                  # coat
+		draw_arc(Vector2.ZERO, _radius, 0.0, TAU, 72, Color(col.r, col.g, col.b, 0.9), 2.5, true)  # edge
+
 # Lazily create the shared LasgunBeam node (additive glow, viewport space) + the two orb beams.
 func _ensure_orb_beams() -> void:
 	if _beam_fx == null or not is_instance_valid(_beam_fx):
@@ -1387,6 +1606,10 @@ class _OrbGlow extends Node2D:
 
 # Elephant-style ⚠ warning sign during each orb's CHANNEL, placed along its locked fire dir.
 func _draw() -> void:
+	# Move 4: blink a warning where the boss will charge back into the map.
+	if _phase == Phase.M4_OFFSCREEN and _m4_warn_active:
+		if fmod(_m4_offscreen_timer * M4_WARN_BLINK_HZ, 1.0) < 0.5:
+			_draw_warn_sign(_m4_warn_pos - global_position, 28.0)
 	if _phase == Phase.P2_ATTACK1:
 		if is_instance_valid(_blueorb_eo) and _blueorb_hp > 0 and _blue_orb_state == OrbState.CHANNEL:
 			_draw_warn_sign(_orb_center_vp(_blueorb_eo) + _blue_fire_dir * 46.0 - global_position)
@@ -1729,6 +1952,9 @@ func _begin_p2_attack3() -> void:
 	_m3_in_setup = true
 	_m3_setup_t = 0.0
 	_m3_rope_dmg_acc = 0.0
+	_m3_head_dmg_acc = 0.0
+	_m3_head_target = _rand_head_point()
+	_m3_aoe = [null, null]
 	for orb: EditableObjectNode in [_blueorb_eo, _tealorb_eo]:
 		if is_instance_valid(orb):
 			orb.texture_rect.rotation = 0.0
@@ -1736,6 +1962,7 @@ func _begin_p2_attack3() -> void:
 
 func _tick_p2_attack3(delta: float) -> void:
 	_phase_timer += delta
+	_tick_m3_head(delta)   # head keeps spinning, drifts randomly, deals contact damage
 	if _m3_in_setup:
 		_tick_m3_setup(delta)
 	else:
@@ -1854,10 +2081,12 @@ func _enter_m3_charge(i: int) -> void:
 	_m3_timer[i] = 0.0
 	_m3_fx[i] = _spawn_orb_channel_fx(_m3_lock[i], _m3_col[i], M3_CHARGE_T,
 		M3_CHANNEL_SCALE, M3_CHANNEL_MOTE_MULT)
+	_m3_aoe[i] = _spawn_aoe_ring(_m3_lock[i])   # thin rainbow coat showing the blast area
 	_m3_try_launch(1 - i)   # the OTHER orb starts zooming the instant this one stops
 
 func _detonate(i: int) -> void:
 	_free_node(_m3_fx[i]);  _m3_fx[i] = null
+	_free_node(_m3_aoe[i]);  _m3_aoe[i] = null
 	var pos: Vector2 = _m3_lock[i]
 	_spawn_explosion(pos, M3_BLAST_RADIUS, _m3_col[i])
 	_impact_fx(pos)   # hit-stop + white-out + trauma shake/kick + chromatic aberration
@@ -1875,16 +2104,68 @@ func _detonate(i: int) -> void:
 		_m3_try_launch(i)
 
 func _end_m3() -> void:
-	for i in 2:
-		_free_node(_m3_fx[i]);  _m3_fx[i] = null
-	_free_node(_m3_rope);  _m3_rope = null
-	if _shaking and is_instance_valid(_objects_container):
-		_objects_container.position = _shake_origin
-	_shaking = false;  _trauma = 0.0;  _kick = Vector2.ZERO
+	_cleanup_m3_fx()
+	_head_rot = 0.0
+	if is_instance_valid(_chromehead_eo):
+		_chromehead_eo.texture_rect.rotation = 0.0
 	for orb: EditableObjectNode in [_blueorb_eo, _tealorb_eo]:
 		if is_instance_valid(orb):
 			orb.texture_rect.rotation = 0.0
 	_begin_p2_attack()   # back to the picker
+
+# Free all Move-3 FX (rope, AoE telegraph rings, charge channels) and clear the screen shake.
+# Safe to call from any teardown: move end, player death (kill_boss), or reset.
+func _cleanup_m3_fx() -> void:
+	for i in 2:
+		_free_node(_m3_fx[i]);   _m3_fx[i] = null
+		_free_node(_m3_aoe[i]);  _m3_aoe[i] = null
+	_free_node(_m3_rope);  _m3_rope = null
+	if _shaking and is_instance_valid(_objects_container):
+		_objects_container.position = _shake_origin
+	_shaking = false;  _trauma = 0.0;  _kick = Vector2.ZERO
+
+# Move-3 head: keep spinning, wander toward a random point (re-roll on arrival), and deal
+# contact damage on a cooldown while overlapping the ship.
+func _tick_m3_head(delta: float) -> void:
+	if not is_instance_valid(_chromehead_eo):
+		return
+	_head_rot += M3_HEAD_RPM * TAU / 60.0 * delta
+	_chromehead_eo.texture_rect.rotation = _head_rot
+	var hc := _head_center()
+	if hc.distance_to(_m3_head_target) <= M3_HEAD_REACH:
+		_m3_head_target = _rand_head_point()
+	var dir := _m3_head_target - hc
+	if dir.length() > 1.0:
+		_chromehead_eo.position += dir.normalized() * M3_HEAD_DRIFT_SPD * delta
+	# Keep the head fully inside the arena.
+	_chromehead_eo.position.x = clampf(_chromehead_eo.position.x,
+		OC_BOUNDS.position.x, OC_BOUNDS.end.x - _chromehead_eo.size.x)
+	_chromehead_eo.position.y = clampf(_chromehead_eo.position.y,
+		OC_BOUNDS.position.y, OC_BOUNDS.end.y - _chromehead_eo.size.y)
+	# Contact damage on an interval (not one-shot — it drifts continuously).
+	_m3_head_dmg_acc = maxf(0.0, _m3_head_dmg_acc - delta)
+	if _m3_head_dmg_acc <= 0.0 and _head_hits_ship():
+		GameManager.ship_take_damage(M3_HEAD_DMG)
+		_flash_ship_red()
+		_m3_head_dmg_acc = M3_HEAD_DMG_INT
+
+# A random head-centre point inside the arena (inset by the head's half-size).
+func _rand_head_point() -> Vector2:
+	var hw: float = _chromehead_eo.size.x * 0.5 if is_instance_valid(_chromehead_eo) else 0.0
+	var hh: float = _chromehead_eo.size.y * 0.5 if is_instance_valid(_chromehead_eo) else 0.0
+	return Vector2(
+		randf_range(OC_BOUNDS.position.x + hw, OC_BOUNDS.end.x - hw),
+		randf_range(OC_BOUNDS.position.y + hh, OC_BOUNDS.end.y - hh))
+
+# True when the drifting head overlaps the visible (scaled) ship.
+func _head_hits_ship() -> bool:
+	if _ship_eo == null or not is_instance_valid(_ship_eo) or not is_instance_valid(_chromehead_eo):
+		return false
+	var sc := _ship_eo.get_global_transform() * (_ship_eo.size * 0.5)
+	var sr := _ship_eo.size.x * 0.5 * _ship_eo.scale.x
+	var hc := _head_center()
+	var hr := minf(_chromehead_eo.size.x, _chromehead_eo.size.y) * 0.5
+	return hc.distance_to(sc) <= sr + hr
 
 # ── Rainbow-lightning rope (rigid 400px link between the two orbs) ────────────
 func _ensure_rope() -> void:
@@ -1931,8 +2212,12 @@ func _tick_rope_damage(delta: float) -> void:
 		_m3_rope_dmg_acc += delta
 		if _m3_rope_dmg_acc >= M3_ROPE_DMG_INT:
 			_m3_rope_dmg_acc -= M3_ROPE_DMG_INT
-			GameManager.ship_take_damage(M3_ROPE_DMG)
-			_flash_ship_red()
+			_m3_rope_owed += M3_ROPE_DMG          # carry the .5 so it averages 2.5/tick
+			var whole := int(_m3_rope_owed)
+			if whole > 0:
+				_m3_rope_owed -= float(whole)
+				GameManager.ship_take_damage(whole)
+				_flash_ship_red()
 	else:
 		_m3_rope_dmg_acc = 0.0
 
@@ -2300,6 +2585,7 @@ func _end_fight_win() -> void:
 	# Play the shared death cutscene (boss frozen via input_locked) before victory.
 	GameManager.input_locked = true
 	_cleanup_orb_beams()   # kill the alignment lasers before the cutscene freezes everything
+	_cleanup_m3_fx()       # also free Attack-3 rope/AoE/charge FX + clear screen shake (was only in kill_boss)
 	var mgr := get_tree().get_first_node_in_group("boss_fight")
 	if mgr != null and mgr.has_method("play_death_cutscene"):
 		await mgr.play_death_cutscene([_chromehead_eo])
@@ -2562,11 +2848,10 @@ func _fire_ball_4dirs() -> void:
 	else:
 		origin   = center
 		base_dir = Vector2.UP.rotated(_ball_angle)
-	var tex := _random_bullet()
-	var bsz := _random_bullet_sz()
+	var tex := _random_bullet()   # non-null only to pass _spawn_bullet's guard; ignored by rainbow path
 	for i in 4:
 		var dir := base_dir.rotated(float(i) * PI / 2.0)
-		_spawn_bullet(tex, origin, dir * BULLET_SPD, bsz)
+		_spawn_bullet(tex, origin, dir * BULLET_SPD, RB_SHAPE_SZ, true)   # procedural rainbow shapes
 
 func _fire_orb_nsew(eo: EditableObjectNode, fp_off: Vector2, rot: float, tex: Texture2D, dirs: Array, sz: Vector2) -> void:
 	if tex == null or eo == null or not is_instance_valid(eo):
@@ -2578,7 +2863,7 @@ func _fire_orb_nsew(eo: EditableObjectNode, fp_off: Vector2, rot: float, tex: Te
 	else:
 		origin = center
 	for d in dirs:
-		_spawn_bullet(tex, origin, (d as Vector2) * ORB_BULLET_SPD, sz)
+		_spawn_bullet(tex, origin, (d as Vector2) * ORB_BULLET_SPD, sz, true)
 
 func _fire_orb_rotated(eo: EditableObjectNode, fp_off: Vector2, angle: float, tex: Texture2D, sz: Vector2) -> void:
 	if tex == null or eo == null or not is_instance_valid(eo):
@@ -2594,7 +2879,7 @@ func _fire_orb_rotated(eo: EditableObjectNode, fp_off: Vector2, angle: float, te
 		base_dir = Vector2.UP.rotated(angle)
 	for i in 4:
 		var dir := base_dir.rotated(float(i) * PI / 2.0)
-		_spawn_bullet(tex, origin, dir * ORB_BULLET_SPD, sz)
+		_spawn_bullet(tex, origin, dir * ORB_BULLET_SPD, sz, true)
 
 func _random_bullet() -> Texture2D:
 	if _bullet_frames.is_empty():
@@ -2615,22 +2900,57 @@ func _random_bullet_sz() -> Vector2:
 # Projectile system
 # =============================================================================
 
-func _spawn_bullet(tex: Texture2D, origin_vp: Vector2, vel: Vector2, sz: Vector2) -> void:
+func _spawn_bullet(tex: Texture2D, origin_vp: Vector2, vel: Vector2, sz: Vector2, rainbow := false) -> void:
 	if tex == null:
 		return
 	var lpos := origin_vp - OC_BOUNDS.position - sz / 2.0
 	var tr      := TextureRect.new()
-	tr.texture        = tex
 	tr.size           = sz
-	tr.stretch_mode   = TextureRect.STRETCH_KEEP  # texture is pre-resized CPU-side
 	tr.pivot_offset   = sz / 2.0
 	tr.position       = lpos
 	tr.mouse_filter   = Control.MOUSE_FILTER_IGNORE
 	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	tr.z_as_relative  = false
 	tr.z_index        = 150
+	# Rainbow orb bullets: a randomly chosen solid white polygon (triangle/diamond/pentagon/
+	# hexagon), tinted to a blinking rainbow each frame in _tick_projectiles. Non-rainbow bullets
+	# render the original sprite as-is.
+	if rainbow:
+		_build_rb_shapes()
+		tr.texture = _rb_shapes[randi() % _rb_shapes.size()] if not _rb_shapes.is_empty() else tex
+	else:
+		tr.texture = tex
+	tr.stretch_mode = TextureRect.STRETCH_KEEP  # texture is pre-resized CPU-side
 	_clip_node.add_child(tr)
-	_projectiles.append({"tr": tr, "vel": vel, "dmg": 12})
+	_projectiles.append({"tr": tr, "vel": vel, "dmg": 10, "rainbow": rainbow, "rb_off": randf()})
+
+# Build the four white filled polygon textures once (30×30, matching the orb bullet size).
+func _build_rb_shapes() -> void:
+	if not _rb_shapes.is_empty():
+		return
+	var n := 30   # bluebullet/tealbullet render at 30×30
+	for sides in [3, 4, 5, 6]:   # triangle, diamond, pentagon, hexagon (all point-up)
+		_rb_shapes.append(_make_polygon_tex(sides, n))
+
+# A solid white regular polygon, point-up, filled (alpha 1 inside), 2×2 supersampled edges.
+func _make_polygon_tex(sides: int, n: int) -> ImageTexture:
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	var c := Vector2(n, n) * 0.5
+	var r := n * 0.5 - 1.0   # 1px margin
+	var poly := PackedVector2Array()
+	for i in sides:
+		var ang := -PI / 2.0 + TAU * float(i) / float(sides)
+		poly.append(c + Vector2(cos(ang), sin(ang)) * r)
+	for y in n:
+		for x in n:
+			var hits := 0
+			for sy in 2:
+				for sx in 2:
+					var p := Vector2(x + 0.25 + 0.5 * float(sx), y + 0.25 + 0.5 * float(sy))
+					if Geometry2D.is_point_in_polygon(p, poly):
+						hits += 1
+			img.set_pixel(x, y, Color(1.0, 1.0, 1.0, float(hits) / 4.0))
+	return ImageTexture.create_from_image(img)
 
 func _tick_projectiles(delta: float) -> void:
 	# Ship hitbox = the VISIBLE (scaled) ship as a circle, matching the green debug circle
@@ -2649,6 +2969,16 @@ func _tick_projectiles(delta: float) -> void:
 		if not is_instance_valid(tr):
 			_projectiles.remove_at(i); i -= 1; continue
 		tr.position += (p["vel"] as Vector2) * delta
+		if p.get("rainbow", false):
+			# Shiny rainbow: cycle the hue at full brightness (never dark) and pulse TOWARD white
+			# for a shine, each bullet offset so they don't pulse in lockstep. Lower saturation
+			# keeps every hue bright/high-contrast on the black background.
+			var off: float = p.get("rb_off", 0.0)
+			var hue := fposmod(_phase_timer * RAINBOW_SPEED + off, 1.0)
+			var base := Color.from_hsv(hue, RB_SAT, 1.0)
+			var s := 0.5 + 0.5 * sin(_phase_timer * RB_BLINK_SPEED + off * TAU)
+			var col := base.lerp(Color(1.0, 1.0, 1.0), s * RB_SHINE)
+			tr.modulate = Color(col.r, col.g, col.b, 1.0)   # solid/opaque, only ever brighter
 		# Bullet hitbox = a circle tight to the diamond/hex visual (BULLET_HIT_FACTOR),
 		# so the transparent corners of the square texture no longer register hits.
 		if ship_r > 0.0:

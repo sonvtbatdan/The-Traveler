@@ -13,6 +13,9 @@ const MAX_RPM: float = 30.0
 const CONE_HALF_DEG: float = 15.0
 const MIN_HITBOX: float = 36.0
 const HP_PER_WIDTH: float = 1.5   # asteroid HP = width × this (tune to taste)
+const SPAWN_ENABLED := false      # masked off for now — set true to bring asteroids back
+const ASTEROID_BASE_ARMOR: float = 0.0    # default enemy armor (0 = none). Per-type override easy in _spawn.
+const ASTEROID_ARMOR_FLOOR: float = -400.0 # armor can't be shredded below this (sanity clamp)
 
 var _is_under: bool = false
 var _screen_w: float = 0.0
@@ -27,6 +30,7 @@ var _velocities: Array[Vector2] = []
 var _rot_speeds: Array[float] = []
 var _hp: Array[float] = []        # current HP
 var _hp_max: Array[float] = []    # full HP (for HP bars)
+var _armor: Array[float] = []     # enemy armor (reduces/amplifies damage via the shared DR formula)
 
 var _target_count:    int   = 0
 var _drift_acc:       float = 0.0
@@ -98,6 +102,8 @@ func _extract_type(fname: String) -> String:
 	return result
 
 func _spawn(initial: bool) -> void:
+	if not SPAWN_ENABLED:
+		return   # asteroids masked off (SPAWN_ENABLED=false); flip to true to re-enable
 	if _source_imgs.is_empty():
 		return
 	var pick: int = randi() % _source_imgs.size()
@@ -155,6 +161,7 @@ func _spawn(initial: bool) -> void:
 	_rot_speeds.append(rot_speed)
 	_hp.append(hp)
 	_hp_max.append(hp)
+	_armor.append(ASTEROID_BASE_ARMOR)
 
 func _on_asteroid_gui_input(event: InputEvent, tr: TextureRect) -> void:
 	if not (event is InputEventMouseButton):
@@ -214,6 +221,11 @@ func _on_boss_spawned() -> void:
 	_target_count = 0   # stop spawning; existing asteroids drift off naturally
 
 func _on_boss_killed_restore() -> void:
+	# A 2-phase boss fires boss_killed when its first phase dies — that's a phase transition,
+	# not the end of the fight, so keep asteroids cleared until the boss is really gone.
+	var bf := get_tree().get_first_node_in_group("boss_fight")
+	if bf != null and bf.has_method("is_phase_transition") and bf.is_phase_transition():
+		return
 	_target_count = randi_range(BASE_MIN_COUNT, BASE_MAX_COUNT) * (4 if _boost_active else 1)
 
 func _hull_damage_for_size(w: float) -> int:
@@ -361,14 +373,27 @@ func get_damaged_asteroids() -> Array:
 			})
 	return out
 
+## Single damage chokepoint for ALL weapons → enemy armor (reduce/amplify) is applied here once.
 func _apply_damage(i: int, amount: float) -> void:
 	if i < 0 or i >= _hp.size():
 		return
+	amount *= (1.0 - GameManager.armor_damage_reduction(_armor[i]))   # shared player/enemy DR curve
 	_hp[i] -= amount
 	if _hp[i] <= 0.0:
 		_destroy_index(i, true)
 	else:
 		_flash(_nodes[i])
+
+## Acid cloud: drain armor from every asteroid within `radius` of `center` (can go negative).
+func shred_armor_area(center: Vector2, radius: float, amount: float) -> void:
+	for i in range(_nodes.size()):
+		var tr: TextureRect = _nodes[i]
+		if not is_instance_valid(tr):
+			continue
+		var c: Vector2 = tr.position + tr.size * 0.5
+		var ar: float = maxf(tr.size.x, tr.size.y) * 0.5
+		if c.distance_to(center) <= radius + ar:
+			_armor[i] = maxf(ASTEROID_ARMOR_FLOOR, _armor[i] - amount)
 
 func _flash(tr: TextureRect) -> void:
 	if not is_instance_valid(tr):
@@ -386,6 +411,7 @@ func _remove_index(i: int) -> void:
 	_rot_speeds.remove_at(i)
 	_hp.remove_at(i)
 	_hp_max.remove_at(i)
+	_armor.remove_at(i)
 
 ## Destroy an asteroid: optional loot, fade out, remove from arrays, respawn.
 func _destroy_index(i: int, give_loot: bool) -> void:

@@ -10,6 +10,8 @@ func setup(p_slot: String) -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 
 func _can_drop_data(_at: Vector2, data: Variant) -> bool:
+	if GameManager.is_in_battle():
+		return false   # no equipping during a boss fight
 	if typeof(data) != TYPE_DICTIONARY or not (data as Dictionary).has("def_id"):
 		return false
 	return InventoryManager.fits_slot(String((data as Dictionary)["def_id"]), slot_name)

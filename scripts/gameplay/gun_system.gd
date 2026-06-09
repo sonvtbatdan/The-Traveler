@@ -611,8 +611,9 @@ func _process(delta: float) -> void:
 	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		_spaceship_eo.position     = _spaceship_origin
 		_spaceship_eo.pivot_offset = _spaceship_eo.size * 0.5  # scale from centre
-		var target_scale_mult := 0.35 if (GameManager.manual_boost or GameManager.boss_max_hp > 0) else 0.70
-		if target_scale_mult != _prev_scale_mult:
+		# Base 0.35 (boost/boss) or 0.70, then the model_size affixes scale sprite AND hitbox.
+		var target_scale_mult := (0.35 if (GameManager.manual_boost or GameManager.boss_max_hp > 0) else 0.70) * GameManager.model_scale_mult()
+		if not is_equal_approx(target_scale_mult, _prev_scale_mult):
 			_animate_scale_transition(target_scale_mult)
 			_prev_scale_mult = target_scale_mult
 
@@ -711,32 +712,37 @@ func _handle_ship_movement(delta: float) -> void:
 		if GameManager.try_spend_energy(DASH_COST):
 			_dash_dir = dir
 			_dash_time_left = DASH_TIME
-			_dash_cd = DASH_CD
+			_dash_cd = GameManager.effective_dash_cd()   # dash_cooldown_reduction affix
 	_space_was_down = space_down
 
 	# Active dash: a fast lunge that overrides normal WASD for its short duration.
 	if _dash_time_left > 0.0:
 		_dash_time_left = maxf(0.0, _dash_time_left - delta)
-		_spaceship_origin += _dash_dir * DASH_SPEED * delta
-		_spaceship_origin.x = clampf(_spaceship_origin.x,
-			SCREEN_BOUNDS.position.x,
-			SCREEN_BOUNDS.end.x - _spaceship_origin_sz.x)
-		_spaceship_origin.y = clampf(_spaceship_origin.y,
-			SCREEN_BOUNDS.position.y,
-			SCREEN_BOUNDS.end.y - _spaceship_origin_sz.y)
+		_spaceship_origin += _dash_dir * GameManager.effective_dash_speed() * delta   # dash_distance affix
+		_clamp_ship_origin()
 		return
 
 	if mv == Vector2.ZERO:
 		return
-	# Speed +25% when manual boost or boss fight active
+	# Speed +25% when manual boost or boss fight active; base+affixes via effective_move_speed().
 	var speed_mult := 1.25 if (GameManager.manual_boost or GameManager.boss_max_hp > 0) else 1.0
-	_spaceship_origin += mv.normalized() * SHIP_MOVE_SPD * speed_mult * delta
+	_spaceship_origin += mv.normalized() * GameManager.effective_move_speed() * speed_mult * delta
+	_clamp_ship_origin()
+
+# Clamp the ship so its VISIBLE (scaled) body stays inside the screen — not its full unscaled rect.
+# The ship renders at _spaceship_eo.scale (0.70 normal / 0.35 boost) around its centre, so clamping
+# by the unscaled size left a (1-scale)*half-size invisible margin on every edge.
+func _clamp_ship_origin() -> void:
+	var sc: float = _spaceship_eo.scale.x if (_spaceship_eo != null and is_instance_valid(_spaceship_eo)) else 1.0
+	var half := _spaceship_origin_sz * 0.5
+	var vis := half * sc   # visible half-extent
+	# Origin is the unscaled top-left; the visible body spans [origin+half-vis, origin+half+vis].
 	_spaceship_origin.x = clampf(_spaceship_origin.x,
-		SCREEN_BOUNDS.position.x,
-		SCREEN_BOUNDS.end.x - _spaceship_origin_sz.x)
+		SCREEN_BOUNDS.position.x - half.x + vis.x,
+		SCREEN_BOUNDS.end.x - half.x - vis.x)
 	_spaceship_origin.y = clampf(_spaceship_origin.y,
-		SCREEN_BOUNDS.position.y,
-		SCREEN_BOUNDS.end.y - _spaceship_origin_sz.y)
+		SCREEN_BOUNDS.position.y - half.y + vis.y,
+		SCREEN_BOUNDS.end.y - half.y - vis.y)
 
 # Smoothly tween the ship between its normal (0.70) and boost/boss (0.35) scale.
 # Pivot is centred each frame in _process, so it scales around the ship's middle.
