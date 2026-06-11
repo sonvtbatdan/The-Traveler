@@ -108,7 +108,6 @@ func _ready() -> void:
 	unsaved_dialog.get_node("VBox/BtnRow/CancelBtn").pressed.connect(_on_dialog_cancel)
 	file_dialog.files_selected.connect(_on_file_dialog_files_selected)
 	transform_panel.connect("transform_changed", _on_transform_live)
-	EquipmentManager.item_purchased.connect(_on_equipment_item_purchased)
 	_set_edit_ui_visible(false)
 	_load_layout()
 	_auto_load_all_groups()
@@ -684,9 +683,6 @@ func _on_canvas_object_clicked(obj: EditableObjectNode) -> void:
 			_pre_drag_states[obj] = {"pos": obj.position, "size": obj.size, "undo_group": true}
 		else:
 			_pre_drag_states[obj] = {"pos": obj.position, "size": obj.size}
-
-func _on_equipment_item_purchased(_id: String) -> void:
-	_update_object_interactivity()
 
 func _handle_gameplay_click(obj: EditableObjectNode) -> void:
 	match obj.group_id:

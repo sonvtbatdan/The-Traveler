@@ -195,8 +195,7 @@ func set_gameplay_mode(v: bool) -> void:
 	elif v and group_id == "stat":
 		visible = false
 	elif v and group_id == "equipment":
-		var item_id := source_path.get_file().get_basename().to_lower()
-		visible = layer_visible and EquipmentManager.get_owned(item_id) >= 1
+		visible = false   # equipment feature removed; hide any leftover equipment edit sprites in gameplay
 	elif v and group_id == "screen":
 		visible = false
 	elif v and group_id == "weaponry":

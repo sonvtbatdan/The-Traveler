@@ -604,15 +604,15 @@ func _process(delta: float) -> void:
 	elif not GameManager.input_locked and _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		_handle_ship_movement(delta)
 
-	# Spaceship: position + scale force-apply each frame. Ship sits at 0.70 normally and
-	# 0.35 during boost/boss (both 30% smaller than the old 1.0/0.5). Scaled around the
-	# ship's centre so its child hitbox shrinks with it; the asteroid collision radius
-	# is multiplied by this scale too (see _check_ship_asteroid_collision).
+	# Spaceship: position + scale force-apply each frame. The ship is ALWAYS the boss-fight size
+	# (0.35) — never the larger 0.70 — per design. Scaled around the ship's centre so its child
+	# hitbox shrinks with it; the asteroid collision radius is multiplied by this scale too
+	# (see _check_ship_asteroid_collision).
 	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		_spaceship_eo.position     = _spaceship_origin
 		_spaceship_eo.pivot_offset = _spaceship_eo.size * 0.5  # scale from centre
-		# Base 0.35 (boost/boss) or 0.70, then the model_size affixes scale sprite AND hitbox.
-		var target_scale_mult := (0.35 if (GameManager.manual_boost or GameManager.boss_max_hp > 0) else 0.70) * GameManager.model_scale_mult()
+		# Fixed 0.35 base (boss-fight size), then the model_size affixes scale sprite AND hitbox.
+		var target_scale_mult := 0.35 * GameManager.model_scale_mult()
 		if not is_equal_approx(target_scale_mult, _prev_scale_mult):
 			_animate_scale_transition(target_scale_mult)
 			_prev_scale_mult = target_scale_mult

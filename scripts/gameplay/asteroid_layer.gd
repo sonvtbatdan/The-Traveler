@@ -143,6 +143,7 @@ func _spawn(initial: bool) -> void:
 	tr.pivot_offset = Vector2(hit_w * 0.5, hit_h * 0.5)
 	tr.position = Vector2(x - hit_w * 0.5, y - (hit_h - h) * 0.5)
 	tr.set_meta("type", type_name)
+	tr.set_meta("xp_w", w)   # visible width (5–50px) → XP scales by true size, not the clamped hitbox
 
 	if _is_under:
 		tr.modulate = Color(0.35, 0.35, 0.45, 0.85)
@@ -419,6 +420,8 @@ func _destroy_index(i: int, give_loot: bool) -> void:
 	if give_loot and is_instance_valid(tr):
 		var loot_pos := tr.position + tr.size * 0.5
 		_collect_loot(String(tr.get_meta("type", "")), loot_pos)
+		if not _is_under:   # only the interactive main layer grants XP (not the dimmed under-layer)
+			GameManager.add_xp(GameManager.xp_for_asteroid(float(tr.get_meta("xp_w", tr.size.x))))
 	_remove_index(i)
 	if is_instance_valid(tr):
 		_fade_and_free(tr)

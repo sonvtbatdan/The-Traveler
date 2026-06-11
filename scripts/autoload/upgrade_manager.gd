@@ -104,8 +104,7 @@ func _process(delta: float) -> void:
 		var n: int = owned.get(id, 0)
 		if n <= 0:
 			continue
-		var mult: float = EquipmentManager.get_multiplier_for_upgrade(id) * EquipmentManager.get_global_vps_multiplier()
-		var rate: float = float(n) * float(data.get("mps", 0.0)) * mult
+		var rate: float = float(n) * float(data.get("mps", 0.0))
 		
 		_views_produced[id] = _views_produced.get(id, 0.0) + rate * delta
 		

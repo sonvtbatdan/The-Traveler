@@ -152,18 +152,20 @@ func _on_shield_changed(shield: float) -> void:
 		_shield_label.text = str(int(round(shield)))
 
 func _on_energy_changed(energy: float) -> void:
-	var ratio := clampf(energy / GameManager.SHIP_MAX_ENERGY, 0.0, 1.0)
+	var cap := GameManager.max_energy()   # attribute-driven (Maneuverability)
+	var ratio := clampf(energy / maxf(1.0, cap), 0.0, 1.0)
 	if _energy_fill != null:
 		_energy_fill.size.x = BAR_W * ratio
 	if _energy_label != null:
-		_energy_label.text = "EN  %d / %d" % [int(round(energy)), int(GameManager.SHIP_MAX_ENERGY)]
+		_energy_label.text = "EN  %d / %d" % [int(round(energy)), int(round(cap))]
 
 func _on_ammo_changed(ammo: float) -> void:
-	var ratio := clampf(ammo / GameManager.SHIP_MAX_AMMO, 0.0, 1.0)
+	var cap := GameManager.max_ammo()   # attribute-driven (Engineering)
+	var ratio := clampf(ammo / maxf(1.0, cap), 0.0, 1.0)
 	if _ammo_fill != null:
 		_ammo_fill.size.x = BAR_W * ratio
 	if _ammo_label != null:
-		_ammo_label.text = "AM  %d / %d" % [int(round(ammo)), int(GameManager.SHIP_MAX_AMMO)]
+		_ammo_label.text = "AM  %d / %d" % [int(round(ammo)), int(round(cap))]
 
 func _on_destroyed() -> void:
 	_fill.size.x = 0.0

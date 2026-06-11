@@ -16,6 +16,10 @@ const BossHpBarScript           := preload("res://scripts/ui/hud/boss_hp_bar.gd"
 const InventoryUIScript         := preload("res://scripts/ui/inventory/inventory_ui.gd")
 const WeaponSystemScript        := preload("res://scripts/gameplay/weapon_system.gd")
 const BossMusicScript           := preload("res://scripts/gameplay/boss_music.gd")  # boss-fight battle track
+const EnemyManagerScript        := preload("res://scripts/gameplay/enemy_manager.gd")  # normal-enemy spawner/owner
+const EnemyPanelScript          := preload("res://scripts/ui/hud/enemy_panel.gd")      # ENEMIES debug spawn panel
+const LevelDesignPanelScript    := preload("res://scripts/ui/level_design/level_design_panel.gd")  # F7 level-design dev tool
+const WaveDirectorScript        := preload("res://scripts/gameplay/wave_director.gd")              # runtime wave director (plays recipes)
 
 @onready var edit_mode = $EditMode
 @onready var visual_container: HBoxContainer = %VisualContainer
@@ -38,6 +42,9 @@ func _ready() -> void:
 	_add_scrolling_overlay()
 	_add_asteroid_layers()
 	_add_material_panel()
+	_add_enemy_panel()
+	add_child(WaveDirectorScript.new())       # runtime wave director (group "wave_director")
+	add_child(LevelDesignPanelScript.new())   # F7 dev tool
 	add_child(InventoryUIScript.new())
 	_add_boost_button()
 	_add_ship_hp_bar()
@@ -136,6 +143,12 @@ func _add_asteroid_layers() -> void:
 		objects_container.add_child(gun_sys)
 	else:
 		screen.add_child(gun_sys)
+
+	# Normal-enemy manager — child of SpaceScreen (enemy coords = SpaceScreen-local, like bullets).
+	# Needs ObjectsContainer to locate the spaceship for contact/aim.
+	var enemy_mgr := EnemyManagerScript.new()
+	screen.add_child(enemy_mgr)
+	enemy_mgr.setup(objects_container, screen.size)
 	# gun_system keeps running for ship float/movement + asteroid-vs-ship collision,
 	# but its mount auto-fire is retired via MOUNT_AUTOFIRE in gun_system.gd
 	# (inventory weapons are the player's guns now).
@@ -301,6 +314,12 @@ func _add_material_panel() -> void:
 	panel.size     = Vector2(192.0, 196.0)   # +height for the $ balance row
 	add_child(panel)
 
+func _add_enemy_panel() -> void:
+	# ENEMIES debug spawn panel — occupies the exact rect the old POWER CORE panel used.
+	var p := EnemyPanelScript.new()
+	add_child(p)
+	p.setup(Rect2(980.0, 410.0, 250.0, 362.0))
+
 func _add_defense_panel() -> void:
 	var dp := DefensePanelScript.new()
 	dp.z_index = 5
@@ -313,7 +332,6 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
 		GameManager.save_game()
 		UpgradeManager.save_game()
-		EquipmentManager.save_game()
 		WeaponManager.save_game()
 		DefenseManager.save_game()
 		MaterialManager.save_game()
@@ -325,13 +343,6 @@ func _apply_title_fonts() -> void:
 	if not font:
 		return
 	$CommentColumn.visible = false
-	var titles: Array[Label] = [
-		$EquipmentColumn/EquipTitle,
-	]
-	for lbl: Label in titles:
-		lbl.add_theme_font_override("font", font)
-		lbl.add_theme_font_size_override("font_size", 14)
-		lbl.offset_top = 5.0
 
 func _setup_boss_edit() -> void:
 	var objects_container := edit_mode.get_node_or_null("ObjectsContainer") as Control

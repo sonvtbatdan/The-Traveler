@@ -60,6 +60,10 @@ func _make_module(script: Script) -> Node:
 func _on_boss_killed() -> void:
 	if _active != null and is_instance_valid(_active) and _active.has_method("notify_boss_killed"):
 		_active.notify_boss_killed()
+	# XP (Phase 2): award once on the REAL end of a fight, never on a 2-phase boss's phase change.
+	# is_phase_transition() is true only mid-fight, so this fires exactly once per boss defeated.
+	if not is_phase_transition():
+		GameManager.add_xp(GameManager.XP_PER_BOSS)
 
 func _on_hp_changed(hp: int) -> void:
 	if _active != null and is_instance_valid(_active) and _active.has_method("notify_hp_changed"):

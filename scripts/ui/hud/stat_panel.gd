@@ -81,14 +81,23 @@ func _build_action_bar() -> void:
 	var kill_boss_btn := _make_btn("KILL BOSS")
 	var roll_btn := _make_btn("ROLL WEAPON")
 	var roll_hull_btn := _make_btn("ROLL HULL")
+	var add_xp_btn := _make_btn("ADD XP")
 	hbox2.add_child(reset_hp_btn)
 	hbox2.add_child(kill_boss_btn)
 	hbox2.add_child(roll_btn)
 	hbox2.add_child(roll_hull_btn)
+	hbox2.add_child(add_xp_btn)
 	reset_hp_btn.pressed.connect(_on_reset_hp)
 	kill_boss_btn.pressed.connect(_on_kill_boss)
 	roll_btn.pressed.connect(_on_roll_weapon)
 	roll_hull_btn.pressed.connect(_on_roll_hull)
+	add_xp_btn.pressed.connect(_on_add_xp)
+
+## DEBUG (Phase 1 test): grant 100 XP and print the resulting level/xp so the widening curve is visible.
+func _on_add_xp() -> void:
+	GameManager.add_xp(100)
+	print("[ADD XP] +100 → level ", GameManager.player_level, "  xp ", GameManager.player_xp,
+		" / ", GameManager.xp_to_next(GameManager.player_level))
 
 ## DEBUG (Phase 2 test): roll a random Mid-tier affixed weapon into the backpack.
 func _on_roll_weapon() -> void:
@@ -422,13 +431,11 @@ func _execute_confirm() -> void:
 	match _pending_action:
 		"purchases":
 			UpgradeManager.reset_all()
-			EquipmentManager.reset_all()
 			WeaponManager.reset_all()
 			DefenseManager.reset_all()
 		"game":
 			GameManager.reset_stats()
 			UpgradeManager.reset_all()
-			EquipmentManager.reset_all()
 	_pending_action = ""
 	_confirm_panel.visible = false
 	_close_settings()

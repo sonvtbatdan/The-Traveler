@@ -88,11 +88,9 @@ func _build_desc_content() -> String:
 	lines.append(_hl(str(spent)) + " " + cost_type.capitalize() + " spent total")
 	lines.append("[i]\"" + desc_txt + "\"[/i]")
 
-	var eq_mult        := EquipmentManager.get_multiplier_for_upgrade(upgrade_id)
-	var mps_each       := float(data.get("mps", 0.0)) * eq_mult
+	var mps_each       := float(data.get("mps", 0.0))
 	var item_total_mps := float(owned) * mps_each
-	var eq_tag         := (" [color=#aaddff](×%.4g eq)[/color]" % eq_mult) if eq_mult != 1.0 else ""
-	lines.append("Each " + item_name + " produces " + _hl(str(int(mps_each))) + " " + produces_type.capitalize() + "/s" + eq_tag)
+	lines.append("Each " + item_name + " produces " + _hl(str(int(mps_each))) + " " + produces_type.capitalize() + "/s")
 	lines.append(_hl(str(owned)) + " " + item_name + " producing " +
 		_hl(str(int(item_total_mps))) + " " + produces_type.capitalize() + "/s")
 	

@@ -13,6 +13,11 @@ signal ship_shield_changed(shield: float)
 signal ship_destroyed
 signal money_changed(amount: int)   # green-$ player currency
 
+# ── Character level / XP (Phases 1 & 2) ──────────────────────────────────────
+signal xp_changed(xp: int, xp_to_next: int)   # current XP toward the next level + the threshold
+signal level_changed(level: int)              # fired whenever the level number changes (load + level-ups)
+signal leveled_up(new_level: int)             # fired once per individual level gained (for UI/effects)
+
 signal boss_hp_changed(hp: int)
 signal boss_spawned
 signal boss_killed
@@ -46,6 +51,139 @@ func is_in_battle() -> bool:
 
 var manual_boost: bool = false
 var money: int = 0   # green-$ currency; new game starts at 0 (Phase 2 will spend/earn it)
+
+# ── Character level / XP — ALL pacing knobs live here (Phases 1 & 2) ──────────
+# Diablo-2/Borderlands feel: quick early levels, a progressively longer late grind.
+# Tune these freely by feel; everything else derives from them.
+const BASE_XP: float = 100.0      # XP for level 1→2; the whole curve scales off this
+const GROWTH:  float = 1.12       # each level costs GROWTH× the previous (early fast, late grind)
+const MAX_LEVEL: int = 50         # level cap; XP stops accruing once reached
+const XP_PER_ASTEROID: int = 1            # flat XP per asteroid destroyed
+const XP_ASTEROID_SIZE_DIV: float = 12.0  # + round(width / this) → bigger rocks worth more
+const XP_PER_BOSS: int = 500              # one lump on a boss's FINAL defeat (the "event" reward)
+
+var player_level: int = 1   # starts at 1
+var player_xp:    int = 0    # current XP toward the NEXT level (resets to 0 on each level-up)
+
+## XP required to advance FROM `level` to the next: round(BASE_XP * GROWTH^(level-1)).
+## Accelerating, so each level is a bigger step than the last.
+func xp_to_next(level: int) -> int:
+	return int(round(BASE_XP * pow(GROWTH, float(level - 1))))
+
+## XP a destroyed asteroid is worth, scaled by its visible width (px). Small rocks ~1, big ~5.
+func xp_for_asteroid(width: float) -> int:
+	return XP_PER_ASTEROID + int(round(width / XP_ASTEROID_SIZE_DIV))
+
+## THE single entry point for gaining XP. Handles multiple level-ups from one big gain (e.g. a
+## boss), caps at MAX_LEVEL, emits signals for UI/effects, and saves.
+func add_xp(amount: int) -> void:
+	if amount <= 0 or player_level >= MAX_LEVEL:
+		return
+	player_xp += amount
+	var leveled := false
+	while player_level < MAX_LEVEL and player_xp >= xp_to_next(player_level):
+		player_xp -= xp_to_next(player_level)
+		player_level += 1
+		unspent_points += POINTS_PER_LEVEL   # each level grants points to spend on attributes
+		leveled = true
+		leveled_up.emit(player_level)
+	if player_level >= MAX_LEVEL:
+		player_xp = 0   # at cap there is no "next" bar to fill
+	if leveled:
+		level_changed.emit(player_level)
+	xp_changed.emit(player_xp, xp_to_next(player_level))
+	save_game()
+
+# ── Character attributes (Phase 3) — ALL pacing knobs live here ───────────────
+# Four attributes the player levels into. Each level grants POINTS_PER_LEVEL points (see add_xp).
+# Tune every coefficient by feel; gameplay reads them only through the getters further down.
+signal attributes_changed
+
+const POINTS_PER_LEVEL: int = 5   # attribute points granted per level-up
+
+# Marksmanship — weapon damage. +1% to ALL weapons per point; kinetic weapons get +1% MORE.
+const MARKS_DMG_PER_PT: float = 0.01
+const MARKS_KINETIC_BONUS_PER_PT: float = 0.01
+# Engineering — ammo economy + energy-weapon damage.
+const ENG_AMMO_PER_PT: float = 1.0
+const ENG_AMMO_REGEN_PER_PT: float = 0.2
+const ENG_ENERGY_DMG_PER_PT: float = 0.01
+# Biotech — survivability + bio-weapon damage.
+const BIO_HP_PER_PT: float = 1.0
+const BIO_HP_REGEN_PER_PT: float = 0.2
+const BIO_BIODMG_PER_PT: float = 0.01
+# Maneuverability — energy pool + mobility + drone damage.
+const MAN_ENERGY_PER_PT: float = 1.0
+const MAN_ENERGY_REGEN_PER_PT: float = 0.2
+const MAN_FLYSPEED_PER_PT: float = 0.01
+const MAN_DRONE_DMG_PER_PT: float = 0.02   # NOTE: no drone-firing system yet — hook for the future
+
+# Default minimum-attribute requirement to EQUIP an item, keyed by the item's rarity (tunable).
+# common gear is freely equippable; rarer gear demands you spec into its attribute.
+const REQ_BY_RARITY: Dictionary = {
+	"common": 0, "rare": 8, "epic": 16, "legendary": 24,
+}
+
+const ATTRIBUTE_NAMES: Array[String] = ["marksmanship", "engineering", "biotech", "maneuverability"]
+
+var attributes: Dictionary = {
+	"marksmanship": 0, "engineering": 0, "biotech": 0, "maneuverability": 0,
+}
+var unspent_points: int = 0
+
+## Current value of one attribute (0 for an unknown name).
+func attr(attr_name: String) -> int:
+	return int(attributes.get(attr_name, 0))
+
+## Spend one unspent point into `attr_name`. Returns false if none left / bad name.
+func spend_point(attr_name: String) -> bool:
+	if unspent_points <= 0 or not attributes.has(attr_name):
+		return false
+	attributes[attr_name] = int(attributes[attr_name]) + 1
+	unspent_points -= 1
+	recompute_max_hp()   # Biotech changes max HP
+	attributes_changed.emit()
+	save_game()
+	return true
+
+## Refund every spent point back into the unspent pool (full respec — handy for balancing).
+func reset_points() -> void:
+	for n: String in ATTRIBUTE_NAMES:
+		unspent_points += int(attributes[n])
+		attributes[n] = 0
+	recompute_max_hp()
+	attributes_changed.emit()
+	save_game()
+
+## Total points the player has earned across all levels so far.
+func total_points_earned() -> int:
+	return (player_level - 1) * POINTS_PER_LEVEL
+
+# ── Attribute-derived multipliers used by the weapon system ───────────────────
+
+## Damage multiplier for a weapon def: universal Marksmanship bonus + a class-specific bonus.
+## Weapon class is read from InventoryManager.weapon_class(def) and is unset for now, so only the
+## universal Marksmanship term is active until weapons are classified.
+func weapon_damage_mult(def: Dictionary) -> float:
+	var m := 1.0 + MARKS_DMG_PER_PT * float(attr("marksmanship"))
+	match InventoryManager.weapon_class(def):
+		"kinetic":    m += MARKS_KINETIC_BONUS_PER_PT * float(attr("marksmanship"))
+		"energy":     m += ENG_ENERGY_DMG_PER_PT * float(attr("engineering"))
+		"biological": m += BIO_BIODMG_PER_PT * float(attr("biotech"))
+	return m
+
+## Drone-damage multiplier (Maneuverability). Hook only — no drone weapon fires yet.
+func drone_damage_mult() -> float:
+	return 1.0 + MAN_DRONE_DMG_PER_PT * float(attr("maneuverability"))
+
+# ── Attribute-derived resource pools (Engineering / Maneuverability) ──────────
+func max_ammo() -> float:
+	return SHIP_MAX_AMMO + ENG_AMMO_PER_PT * float(attr("engineering"))
+func ammo_regen_rate() -> float:
+	return AMMO_REGEN + ENG_AMMO_REGEN_PER_PT * float(attr("engineering"))
+func max_energy() -> float:
+	return SHIP_MAX_ENERGY + MAN_ENERGY_PER_PT * float(attr("maneuverability"))
+
 var ship_hp: int = 100
 # Max HP is now gear-driven: BASE_SHIP_HP + equipped hull's (post-roll) bonus_hp + HP affixes.
 # `ship_max_hp` is recomputed by recompute_max_hp() whenever equipment changes.
@@ -166,7 +304,9 @@ func sum_affix(id: String) -> float:
 
 # Movement / dash / model scale (base consts live in gun_system.gd).
 func effective_move_speed() -> float:
-	return (GunSys.SHIP_MOVE_SPD + sum_affix("faster_run_flat")) * (1.0 + sum_affix("faster_run_percentage") / 100.0)
+	# Maneuverability adds a flat %/pt fly-speed bonus on top of the gear affixes.
+	var maneuver := 1.0 + MAN_FLYSPEED_PER_PT * float(attr("maneuverability"))
+	return (GunSys.SHIP_MOVE_SPD + sum_affix("faster_run_flat")) * (1.0 + sum_affix("faster_run_percentage") / 100.0) * maneuver
 func effective_dash_cd() -> float:
 	return GunSys.DASH_CD * clampf(1.0 - sum_affix("dash_cooldown_reduction") / 100.0, 0.1, 1.0)
 func effective_dash_speed() -> float:
@@ -178,9 +318,11 @@ func model_scale_mult() -> float:
 
 # Resource regen / shields / defenses.
 func energy_regen_rate() -> float:
-	return (ENERGY_REGEN + sum_affix("energy_regen_flat")) * (1.0 + sum_affix("energy_regen_percentage") / 100.0)
+	# Maneuverability adds a flat energy/s on top of the gear affixes.
+	return (ENERGY_REGEN + sum_affix("energy_regen_flat") + MAN_ENERGY_REGEN_PER_PT * float(attr("maneuverability"))) * (1.0 + sum_affix("energy_regen_percentage") / 100.0)
 func hp_regen_rate() -> float:
 	var r := sum_affix("hp_regen")
+	r += BIO_HP_REGEN_PER_PT * float(attr("biotech"))   # Biotech flat HP regen
 	var uid: int = InventoryManager.equipped_uid("hull")   # + Nanobot-style hull innate hp_regen
 	if uid != -1:
 		var def: Dictionary = InventoryManager.get_def(String(InventoryManager.get_item(uid).get("def", "")))
@@ -212,6 +354,7 @@ func recompute_max_hp() -> void:
 			match String(a.get("id", "")):
 				"hp_flat": flat += float(a.get("value", 0.0))
 				"hp_percentage": pct += float(a.get("value", 0.0))
+	flat += BIO_HP_PER_PT * float(attr("biotech"))   # Biotech flat max-HP bonus
 	ship_max_hp = maxi(1, int(round((float(BASE_SHIP_HP) + float(hull_bonus) + flat) * (1.0 + pct / 100.0))))
 	ship_hp = mini(ship_hp, ship_max_hp)
 	ship_hp_changed.emit(ship_hp)
@@ -290,8 +433,9 @@ func _process(delta: float) -> void:
 		_hitstop_until_ms = 0
 		Engine.time_scale = 1.0
 	_iframe_timer = maxf(0.0, _iframe_timer - delta)
-	if ship_energy < SHIP_MAX_ENERGY:
-		ship_energy = minf(SHIP_MAX_ENERGY, ship_energy + energy_regen_rate() * delta)
+	var energy_cap := max_energy()
+	if ship_energy < energy_cap:
+		ship_energy = minf(energy_cap, ship_energy + energy_regen_rate() * delta)
 		ship_energy_changed.emit(ship_energy)
 	# HP regen (hp_regen affix + hull innate) — accumulate fractional HP, heal whole points.
 	if ship_hp > 0 and ship_hp < ship_max_hp:
@@ -303,8 +447,9 @@ func _process(delta: float) -> void:
 			ship_hp_changed.emit(ship_hp)
 	# Ammo regen — paused for a moment after any weapon fires/spends (see note_weapon_firing/try_spend_ammo).
 	_ammo_regen_block = maxf(0.0, _ammo_regen_block - delta)
-	if _ammo_regen_block <= 0.0 and ship_ammo < SHIP_MAX_AMMO:
-		ship_ammo = minf(SHIP_MAX_AMMO, ship_ammo + AMMO_REGEN * delta)
+	var ammo_cap := max_ammo()
+	if _ammo_regen_block <= 0.0 and ship_ammo < ammo_cap:
+		ship_ammo = minf(ammo_cap, ship_ammo + ammo_regen_rate() * delta)
 		ship_ammo_changed.emit(ship_ammo)
 	_tick_shield(delta)
 
@@ -354,6 +499,11 @@ func save_game() -> void:
 	cfg.set_value("player", "ship_hp", ship_hp)
 	cfg.set_value("player", "ship_shield", ship_shield)
 	cfg.set_value("player", "money", money)
+	cfg.set_value("player", "level", player_level)
+	cfg.set_value("player", "xp", player_xp)
+	for n: String in ATTRIBUTE_NAMES:
+		cfg.set_value("player", "attr_" + n, int(attributes[n]))
+	cfg.set_value("player", "unspent_points", unspent_points)
 	cfg.save(SAVE_PATH)
 
 func load_game() -> void:
@@ -364,6 +514,23 @@ func load_game() -> void:
 	ship_hp = loaded_hp if loaded_hp > 0 else ship_max_hp   # recover from a dead-saved state
 	ship_shield = cfg.get_value("player", "ship_shield", 0.0)
 	money = cfg.get_value("player", "money", 0)
+	player_level = clampi(int(cfg.get_value("player", "level", 1)), 1, MAX_LEVEL)
+	player_xp = maxi(0, int(cfg.get_value("player", "xp", 0)))
+	# Attributes + unspent points.
+	var spent := 0
+	for n: String in ATTRIBUTE_NAMES:
+		attributes[n] = maxi(0, int(cfg.get_value("player", "attr_" + n, 0)))
+		spent += int(attributes[n])
+	unspent_points = maxi(0, int(cfg.get_value("player", "unspent_points", 0)))
+	# Migration: an already-leveled save from before this system has no points stored — grant the
+	# difference so leveling is never silently lost. (No effect once everything is saved properly.)
+	var earned := total_points_earned()
+	if spent + unspent_points < earned:
+		unspent_points += earned - (spent + unspent_points)
 	ship_hp_changed.emit(ship_hp)
 	ship_shield_changed.emit(ship_shield)
 	money_changed.emit(money)
+	level_changed.emit(player_level)
+	xp_changed.emit(player_xp, xp_to_next(player_level))
+	attributes_changed.emit()
+	recompute_max_hp()

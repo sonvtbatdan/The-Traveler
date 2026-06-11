@@ -33,10 +33,10 @@ const AFTERFIX_CHANCE := 0.3                # chance an item gets an after-fix a
 const BACKPACK_COLS := 10
 const BACKPACK_ROWS := 13   # was 6 — enlarged so the debug "one of every item" grant (weapons + 10 hulls, ~108 cells) fits
 
-# The 10 physical equip slots.
+# The physical equip slots.
 const EQUIP_SLOTS: Array[String] = [
 	"primary_weapon", "secondary_weapon", "thruster", "command_bridge", "hull",
-	"energy_core", "radar", "drone_1", "drone_2", "wings",
+	"energy_core", "radar", "drone_1", "drone_2", "wings", "relic",
 ]
 
 # What each physical slot accepts, by item tag (see ITEM_DEFS "tags").
@@ -56,6 +56,7 @@ const SLOT_RULES: Dictionary = {
 	"drone_1":          {"any": ["drone"],            "exclude": []},
 	"drone_2":          {"any": ["drone"],            "exclude": []},
 	"wings":            {"any": ["wings"],            "exclude": []},
+	"relic":            {"any": ["relic"],            "exclude": []},
 }
 
 # Placeholder icon colour per rarity (used until real art is added).
@@ -422,6 +423,53 @@ const ITEM_DEFS: Dictionary = {
 		# TODO(innate): reflect_damage — deal reflect_pct% of damage taken back + red-laser VFX.
 		"stats": { "bonus_hp": 50, "armor": 0, "innate": "reflect_damage", "reflect_pct": 100, "weight": 8 },
 	},
+
+	# ── New gear types (Phase 3) — one placeholder each so the slots + attribute equip-gating are
+	# usable. Their stats are NOT wired to gameplay yet (descs say "coming soon"); the point for now
+	# is the equip requirement (set by rarity via REQ_BY_RARITY, gated on the attribute in _gating_attr).
+	# Drop a PNG path into "icon" and flesh out "stats" later — no other code change needed.
+	"targeting_radar": {
+		"name": "Targeting Radar", "icon": "", "size": Vector2i(2, 1), "tags": ["radar"],
+		"rarity": "rare",
+		"desc": "Sensor array. Requires Marksmanship to equip. (Bonus effect coming soon.)",
+		"stats": { "weight": 3 },
+	},
+	"fusion_core": {
+		"name": "Fusion Core", "icon": "", "size": Vector2i(2, 1), "tags": ["energy_core"],
+		"rarity": "rare",
+		"desc": "Reactor core. Requires Engineering to equip. (Bonus effect coming soon.)",
+		"stats": { "weight": 5 },
+	},
+	"glider_wings": {
+		"name": "Glider Wings", "icon": "", "size": Vector2i(2, 1), "tags": ["wings"],
+		"rarity": "rare",
+		"desc": "Aero foils. Requires Maneuverability to equip. (Bonus effect coming soon.)",
+		"stats": { "weight": 4 },
+	},
+	"ion_thruster": {
+		"name": "Ion Thruster", "icon": "", "size": Vector2i(2, 1), "tags": ["thruster"],
+		"rarity": "rare",
+		"desc": "Drive unit. Requires Maneuverability to equip. (Bonus effect coming soon.)",
+		"stats": { "weight": 5 },
+	},
+	"combat_drone": {
+		"name": "Combat Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
+		"rarity": "rare",
+		"desc": "Autonomous drone. Requires Maneuverability to equip. (Drones don't fire yet — Maneuverability's drone-damage bonus is reserved for when they do.)",
+		"stats": { "weight": 3 },
+	},
+	"ancient_relic": {
+		"name": "Ancient Relic", "icon": "", "size": Vector2i(1, 2), "tags": ["relic"],
+		"rarity": "epic",
+		"desc": "A humming artifact. Requires Biotech to equip. (Bonus effect coming soon.)",
+		"stats": { "weight": 2 },
+	},
+	"command_core": {
+		"name": "Command Core", "icon": "", "size": Vector2i(2, 1), "tags": ["command_bridge"],
+		"rarity": "common",
+		"desc": "Bridge computer. No attribute requirement. (Bonus effect coming soon.)",
+		"stats": { "weight": 4 },
+	},
 }
 
 # Items granted automatically the FIRST time a save is created (new game only).
@@ -487,6 +535,54 @@ func fits_slot(def_id: String, slot: String) -> bool:
 		if tags.has(t):
 			return true
 	return false
+
+# ── Weapon classes + attribute equip requirements (Phase 3) ──────────────────────
+
+## A weapon's damage class drives which attribute boosts it (and which attribute gates it).
+## TODO (user): set "weapon_class" on each weapon in ITEM_DEFS to one of
+## "kinetic" / "energy" / "biological". Left unset for now, so only Marksmanship's universal
+## damage bonus is active and weapons gate on Marksmanship by default.
+func weapon_class(def: Dictionary) -> String:
+	return String(def.get("weapon_class", ""))
+
+## Which attribute gates equipping an item, from its tags / weapon class.
+## hull & relic → biotech, radar → marksmanship, energy_core → engineering,
+## wings/thruster/drone → maneuverability, weapons → by class (else marksmanship). "" = ungated.
+func _gating_attr(def: Dictionary) -> String:
+	var tags: Array = def.get("tags", [])
+	if tags.has("hull") or tags.has("relic"):
+		return "biotech"
+	if tags.has("radar"):
+		return "marksmanship"
+	if tags.has("energy_core"):
+		return "engineering"
+	if tags.has("wings") or tags.has("thruster") or tags.has("drone"):
+		return "maneuverability"
+	if tags.has("weapon"):
+		match weapon_class(def):
+			"energy":     return "engineering"
+			"biological": return "biotech"
+			_:            return "marksmanship"
+	return ""   # command_bridge, shield, etc. — ungated
+
+## The attribute + minimum value needed to equip a def. `value` comes from an optional per-def
+## "req" override, else the rarity default (GameManager.REQ_BY_RARITY). attr "" = no requirement.
+func item_requirement(def_id: String) -> Dictionary:
+	var d: Dictionary = ITEM_DEFS.get(def_id, {})
+	if d.is_empty():
+		return {"attr": "", "value": 0}
+	var a := _gating_attr(d)
+	if a == "":
+		return {"attr": "", "value": 0}
+	var val: int = int(d.get("req", GameManager.REQ_BY_RARITY.get(String(d.get("rarity", "common")), 0)))
+	return {"attr": a, "value": val}
+
+## True if the player's attributes meet the def's equip requirement.
+func meets_requirement(def_id: String) -> bool:
+	var r := item_requirement(def_id)
+	if String(r["attr"]) == "":
+		return true
+	return GameManager.attr(String(r["attr"])) >= int(r["value"])
 
 # ── Backpack geometry ──────────────────────────────────────────────────────────
 
@@ -566,6 +662,8 @@ func equip(uid: int, slot: String) -> bool:
 	var def_id := String(_items[uid]["def"])
 	if not fits_slot(def_id, slot):
 		return false
+	if not meets_requirement(def_id):
+		return false   # attribute requirement not met (caller surfaces the reason — see equip_slot.gd)
 	var occupant := equipped_uid(slot)
 	if occupant == uid:
 		return true

@@ -209,8 +209,9 @@ func _make_ctx(slot: String, button: int, allow_auto: bool) -> Dictionary:
 		"orbital": {"active": false, "angle": 0.0, "spin": ORBITAL_NORMAL_SPIN, "powered": false, "hit_cd": []},
 	}
 
-# Extra damageable targets registered by fight controllers (e.g. orb sub-bosses).
-# Each entry: {get_rect: Callable → Rect2 (stream-local), on_hit: Callable(dmg:float)}
+# Extra damageable targets registered by fight controllers (e.g. orb sub-bosses) AND normal enemies.
+# Each entry: {get_rect: Callable → Rect2 (stream-local), on_hit: Callable(dmg:float),
+#              on_shred: Callable(amount:float) (optional, for acid armor-shred), owner: Node (optional)}
 var _extra_targets: Array = []
 
 # Provider for dynamic multi-targets (e.g. shielded bullets). fn() → Array[{rect,on_hit}]
@@ -219,11 +220,19 @@ var _multi_hit_provider: Callable = Callable()
 var _out_of_energy_t := 0.0   # shows an "OUT OF ENERGY" message for a moment
 var _out_of_ammo_t := 0.0     # shows an "OUT OF AMMO" message for a moment
 
-func add_hit_target(get_rect: Callable, on_hit: Callable) -> void:
-	_extra_targets.append({"get_rect": get_rect, "on_hit": on_hit})
+func add_hit_target(get_rect: Callable, on_hit: Callable, on_shred: Callable = Callable(), owner: Node = null) -> void:
+	_extra_targets.append({"get_rect": get_rect, "on_hit": on_hit, "on_shred": on_shred, "owner": owner})
 
 func clear_extra_targets() -> void:
 	_extra_targets.clear()
+
+## Remove every extra target registered by `owner` (normal enemies unregister themselves on death).
+func remove_hit_target(owner: Node) -> void:
+	var i := _extra_targets.size() - 1
+	while i >= 0:
+		if (_extra_targets[i] as Dictionary).get("owner", null) == owner:
+			_extra_targets.remove_at(i)
+		i -= 1
 
 func set_multi_hit_provider(fn: Callable) -> void:
 	_multi_hit_provider = fn
@@ -539,7 +548,8 @@ func _update_secondary(delta: float) -> void:
 	_aura_time += delta
 	var interval: float = maxf(0.05, float(_stat(def, "tick_interval_sec", 0.25)))
 	var radius: float = float(_stat(def, "radius_px", 140.0))
-	var dmg: float = float(_stat(def, "damage_per_tick", 1.0))
+	# Aura damage bypasses get_weapon_stat, so apply the attribute category multiplier here directly.
+	var dmg: float = float(_stat(def, "damage_per_tick", 1.0)) * GameManager.weapon_damage_mult(def)
 	_aura_acc += delta
 	while _aura_acc >= interval:
 		_aura_acc -= interval
@@ -1662,6 +1672,14 @@ func _update_acid(delta: float) -> void:
 	var brc := _boss_rect_local()
 	if brc.has_area() and _circle_hits_rect(center, radius, brc):
 		GameManager.boss_armor -= shred * delta
+	# Continuous armor shred — registered extra targets (normal enemies) that expose on_shred.
+	for et: Dictionary in _extra_targets:
+		var shred_cb: Callable = et.get("on_shred", Callable())
+		if not shred_cb.is_valid():
+			continue
+		var er: Rect2 = (et["get_rect"] as Callable).call()
+		if er.has_area() and _circle_hits_rect(center, radius, er):
+			shred_cb.call(shred * delta)
 	# Damage ticks (every tick_int) — armor auto-applies via _apply_damage / take_boss_damage.
 	_acid["tick_acc"] = float(_acid["tick_acc"]) + delta
 	var tick: float = maxf(0.05, float(_acid["tick_int"]))
@@ -1675,6 +1693,15 @@ func _update_acid(delta: float) -> void:
 		if br2.has_area() and _circle_hits_rect(center, radius, br2):
 			GameManager.take_boss_damage(int(maxf(1.0, dmg)))
 			_on_damage_dealt(br2.position + br2.size * 0.5, dmg, false)
+		# Damage tick — registered extra targets (normal enemies); they apply their own armor DR.
+		for et: Dictionary in _extra_targets:
+			var hit_cb: Callable = et.get("on_hit", Callable())
+			if not hit_cb.is_valid():
+				continue
+			var er2: Rect2 = (et["get_rect"] as Callable).call()
+			if er2.has_area() and _circle_hits_rect(center, radius, er2):
+				hit_cb.call(dmg)
+				_on_damage_dealt(er2.position + er2.size * 0.5, dmg, false)
 
 # ── Swarm Host (minion) ────────────────────────────────────────────────────────
 func _tick_swarm(ctx: Dictionary, def: Dictionary, delta: float) -> void:
@@ -2389,9 +2416,12 @@ func get_weapon_stat(def: Dictionary, key: String, fallback: float) -> float:
 	var is_dmg: bool = key in _AFFIX_DAMAGE_KEYS
 	if is_dmg:
 		v *= float(def.get("base_mult", 1.0))
+	# Attribute category damage multiplier (Marksmanship / weapon-class bonuses). Applies to every
+	# damage-like key, including shot_damage/tick_damage which sit outside the affix damage keys.
+	var cat := GameManager.weapon_damage_mult(def) if (is_dmg or key == "shot_damage" or key == "tick_damage") else 1.0
 	var affixes: Array = def.get("affixes", [])
 	if affixes.is_empty():
-		return v
+		return v * cat
 	var dmg_pct := 0.0
 	for a: Dictionary in affixes:
 		var id := String(a.get("id", ""))
@@ -2415,7 +2445,7 @@ func get_weapon_stat(def: Dictionary, key: String, fallback: float) -> float:
 			"crit_damage":
 				if key == "crit_damage":
 					v += val                           # affix adds to base crit damage
-	return v * (1.0 + dmg_pct / 100.0)                 # dmg_pct is 0 for non-damage keys
+	return v * (1.0 + dmg_pct / 100.0) * cat           # dmg_pct is 0 for non-damage keys; cat = attribute mult
 
 func _primary_def() -> Dictionary:
 	return _equipped_def("primary_weapon")
