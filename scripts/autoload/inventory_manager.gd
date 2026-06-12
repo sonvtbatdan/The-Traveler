@@ -17,7 +17,7 @@ const SAVE_PATH := "user://save.cfg"
 # DEBUG ("for now"): wipe the inventory and grant exactly ONE of every item on every
 # load, so testing always starts with the full arsenal in the backpack. Set to false
 # to restore normal persistence (saved inventory + one-time starter grant).
-const RESET_INVENTORY_ON_LOAD := true
+const RESET_INVENTORY_ON_LOAD := false
 
 # Affix-roll tuning. Each dropped/granted weapon also rolls a HIDDEN base-damage
 # multiplier within ±BASE_DAMAGE_VARIANCE (so every copy's base damage varies a bit).
@@ -355,69 +355,69 @@ const ITEM_DEFS: Dictionary = {
 	# as TODO(innate) for a later pass: shield_on_cd, dodge_chance, energy_convert, resurrect_once,
 	# reflect_damage. bonus_hp + armor are the simple shared stats (armor → DR curve in GameManager).
 	"titanium_hull": {
-		"name": "Titanium Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"name": "Titanium Hull", "icon": "res://assets/inventory/Hull/titanium.png", "size": Vector2i(2, 3), "tags": ["hull"],
 		"rarity": "common",
 		"desc": "Sturdy plating — flat bonus HP and flat damage reduction. No special effect.",
 		"stats": { "bonus_hp": 50, "armor": 50, "innate": "none", "weight": 8 },
 	},
 	"adamantine_hull": {
-		"name": "Adamantine Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"name": "Adamantine Hull", "icon": "res://assets/inventory/Hull/adamantine.png", "size": Vector2i(2, 3), "tags": ["hull"],
 		"rarity": "epic",
 		"desc": "Every 10s gains a shield that blocks the first instance of damage, then breaks.",
 		# TODO(innate): shield_on_cd — recharging 1-hit shield on a 10s cooldown.
 		"stats": { "bonus_hp": 30, "armor": 20, "innate": "shield_on_cd", "innate_cd_sec": 10.0, "weight": 9 },
 	},
 	"aerographene_hull": {
-		"name": "Aerographene Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"name": "Aerographene Hull", "icon": "res://assets/inventory/Hull/aerographene.png", "size": Vector2i(2, 3), "tags": ["hull"],
 		"rarity": "common",
 		"desc": "Ultralight — small bonus HP/DR and +10% flying speed.",
 		# SIMPLE: move_speed_up — apply +move_speed_pct% to ship speed.
 		"stats": { "bonus_hp": 30, "armor": 20, "innate": "move_speed_up", "move_speed_pct": 10, "weight": 4 },
 	},
 	"glass_hull": {
-		"name": "Glass Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"name": "Glass Hull", "icon": "res://assets/inventory/Hull/glass.png", "size": Vector2i(2, 3), "tags": ["hull"],
 		"rarity": "rare",
 		"desc": "High risk, high reward — +10% damage taken AND +10% damage dealt.",
 		# SIMPLE: glass — scale damage taken/dealt by the pcts below.
 		"stats": { "bonus_hp": 30, "armor": 0, "innate": "glass", "extra_damage_taken_pct": 10, "extra_damage_dealt_pct": 10, "weight": 5 },
 	},
 	"neutronium_hull": {
-		"name": "Neutronium Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"name": "Neutronium Hull", "icon": "res://assets/inventory/Hull/neutronium.png", "size": Vector2i(2, 3), "tags": ["hull"],
 		"rarity": "epic",
 		"desc": "Immensely dense — big bonus HP and damage reduction, but -10% flying speed.",
 		# SIMPLE: move_speed_down — apply move_speed_pct% (negative) to ship speed.
 		"stats": { "bonus_hp": 80, "armor": 80, "innate": "move_speed_down", "move_speed_pct": -10, "weight": 12 },
 	},
 	"nanobot_hull": {
-		"name": "Nanobot Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"name": "Nanobot Hull", "icon": "res://assets/inventory/Hull/nano.png", "size": Vector2i(2, 3), "tags": ["hull"],
 		"rarity": "rare",
 		"desc": "Low max HP but self-repairing — decent armor and heals over time.",
 		# SIMPLE: hp_regen — +hp_regen HP per second.
 		"stats": { "bonus_hp": 10, "armor": 50, "innate": "hp_regen", "hp_regen": 1, "weight": 6 },
 	},
 	"voidmetal_hull": {
-		"name": "Voidmetal Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"name": "Voidmetal Hull", "icon": "res://assets/inventory/Hull/voidmetal.png", "size": Vector2i(2, 3), "tags": ["hull"],
 		"rarity": "rare",
 		"desc": "Phases out of harm's way — a chance to completely dodge an instance of damage.",
 		# TODO(innate): dodge_chance — dodge_pct% chance to ignore a hit entirely.
 		"stats": { "bonus_hp": 30, "armor": 30, "innate": "dodge_chance", "dodge_pct": 10, "weight": 6 },
 	},
 	"pzt_hull": {
-		"name": "PZT Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"name": "PZT Hull", "icon": "res://assets/inventory/Hull/pzt.png", "size": Vector2i(2, 3), "tags": ["hull"],
 		"rarity": "epic",
 		"desc": "Piezoelectric — converts a portion of incoming damage into energy.",
 		# TODO(innate): energy_convert — convert energy_convert_pct% of damage taken into energy.
 		"stats": { "bonus_hp": 25, "armor": 50, "innate": "energy_convert", "energy_convert_pct": 20, "weight": 7 },
 	},
 	"memory_foam_hull": {
-		"name": "Memory Foam Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"name": "Memory Foam Hull", "icon": "res://assets/inventory/Hull/thorned.png", "size": Vector2i(2, 3), "tags": ["hull"],
 		"rarity": "legendary",
 		"desc": "Bounces back from death — once per combat, revive at 50% HP and energy.",
 		# TODO(innate): resurrect_once — on death, revive once per combat at 50% HP/energy.
 		"stats": { "bonus_hp": 0, "armor": 0, "innate": "resurrect_once", "weight": 5 },
 	},
 	"cursed_hull": {
-		"name": "Cursed Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"name": "Cursed Hull", "icon": "res://assets/inventory/Hull/cursed.png", "size": Vector2i(2, 3), "tags": ["hull"],
 		"rarity": "legendary",
 		"desc": "Vengeful — reflects 100% of damage taken back at the attacker (red zap).",
 		# TODO(innate): reflect_damage — deal reflect_pct% of damage taken back + red-laser VFX.

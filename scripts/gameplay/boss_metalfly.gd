@@ -3,12 +3,33 @@ extends Control
 const SS_OFFSET  := Vector2(270.0, 8.0)
 const OC_BOUNDS  := Rect2(270.0, 8.0, 700.0, 764.0)
 
-const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
+const GifLoader       := preload("res://scripts/ui/edit_mode/gif_loader.gd")
+const PngSpriteLoader := preload("res://scripts/ui/edit_mode/png_sprite_loader.gd")
 
 const BOSS_DAMAGE_MULT := 0.75
 
 # ── Phase 1 & 2 ────────────────────────────────────────────────────────────────
 const PHASE1_MAX_HP    := 1000
+
+# ── Phase 1 — Arrow on-hit (every 50 dmg, cocoon fires an arrow) ────────────
+const ARROW_DMG_THRESHOLD := 50
+const ARROW_WIDTH         := 30.0
+const ARROW_DMG           := 12
+# Arrow cinematic launch — mirrors weapon_system Homing Missile 4-phase logic.
+# Cocoon fires downward (boss at top → player below), so arc curves toward the player.
+const ARROW_EJECT_T      := 0.20   # pop sideways off the cocoon
+const ARROW_CURVE_T      := 0.45   # bezier swoop (ease-out), curving downward
+const ARROW_HANG_T       := 0.55   # hover & rotate nose onto the ship
+const ARROW_EJECT_DIST   := 70.0   # distance of lateral pop
+const ARROW_ARC_SIDE     := 85.0   # hang point: lateral offset from launch
+const ARROW_ARC_DOWN     := 110.0  # hang point: downward offset from launch (toward player)
+const ARROW_FACE_TURN    := 14.0   # rotation speed (rad/s) for smooth nose-tracking
+const ARROW_SEEK_START   := 50.0   # initial seek speed (px/s) — slow creep
+const ARROW_SEEK_ACCEL   := 700.0  # base acceleration (px/s²)
+const ARROW_SEEK_RAMP    := 9.0    # accel grows ×this per second → hard whip
+const ARROW_SEEK_MAX     := 700.0  # max strike speed (px/s)
+const ARROW_HIT_DIST     := 14.0   # snap-to-target radius
+const ARROW_MAX_LIFE     := 6.0    # auto-expire (s)
 const PHASE2_MAX_HP    := 5000
 const TRANSFORM_ANIM_T := 1.5
 
@@ -93,6 +114,7 @@ var _cocoon_velocity := Vector2.ZERO
 var _cocoon_direction_timer := 0.0
 const COCOON_SPEED := 30.0
 const COCOON_DIRECTION_CHANGE_INTERVAL := 2.0  # Change direction every 2 seconds
+const COCOON_MAX_Y := 550.0  # OC-space Y limit — cocoon stays in upper half of screen
 
 # Scene refs
 var _objects_container: Control         = null
@@ -123,6 +145,13 @@ var _blade_delays:  Array = []
 var _needle_frames: Array = []
 var _needle_delays: Array = []
 var _laser_frames:  Array = []
+var _arrow_frames:  Array = []   # pre-resized to ARROW_WIDTH
+var _arrow_delays:  Array = []
+var _arrow_sz:      Vector2 = Vector2(ARROW_WIDTH, ARROW_WIDTH)
+
+# Phase 1 arrow state
+var _arrow_dmg_acc: int   = 0
+var _arrows:        Array = []
 
 # M1 state
 var _m1_acc:        float   = 0.0
@@ -172,9 +201,10 @@ func setup(oc: Control) -> void:
 func _process(delta: float) -> void:
 	if GameManager.boss_intro_active or GameManager.input_locked:
 		return   # frozen during the fly-in / death cutscene (boss stays visible)
-	# Cocoon Phase 1 movement (must be BEFORE early return!)
+	# Cocoon Phase 1: movement + arrow ticks must run BEFORE the IDLE early-return.
 	if _boss_phase == 1 and _phase == Phase.IDLE:
 		_tick_cocoon_movement(delta)
+		_tick_arrows(delta)
 
 	# Draw hitbox for all phases (must be BEFORE early return!)
 	queue_redraw()
@@ -216,6 +246,7 @@ func spawn_boss() -> void:
 	_boss_phase = 1
 	_cocoon_direction_timer = 0.0
 	_cocoon_velocity = Vector2.ZERO
+	_arrow_dmg_acc = 0
 	GameManager.boss_max_hp = PHASE1_MAX_HP
 	GameManager.boss_hp = PHASE1_MAX_HP
 	_last_hp = PHASE1_MAX_HP
@@ -230,10 +261,21 @@ func spawn_boss() -> void:
 	if ws != null and ws.has_method("set_auto_fire"):
 		ws.set_auto_fire(true)
 
+	var _bg := get_tree().get_first_node_in_group("scrolling_bg")
+	if is_instance_valid(_bg) and _bg.has_method("swap_texture"):
+		_bg.swap_texture("res://assets/bosses/metalfly/background.png")
+	var _ov := get_tree().get_first_node_in_group("scrolling_overlay")
+	if is_instance_valid(_ov) and _ov.has_method("swap_texture"):
+		_ov.swap_texture("res://assets/bosses/metalfly/overlay.png")
+		_ov.set_speed_mult(2.0)
+
 	start_fight()
 
 func kill_boss() -> void:
-	if _phase == Phase.IDLE or _phase == Phase.DONE:
+	if _phase == Phase.DONE:
+		return
+	# Phase 1 uses _phase == IDLE (cocoon drifting) — allow forced kill for it too.
+	if _phase == Phase.IDLE and _boss_phase != 1:
 		return
 
 	_forced_kill = true
@@ -736,6 +778,12 @@ func _make_projectile_rect(tex: Texture2D, sz: Vector2, pos: Vector2) -> Texture
 
 func _tick_projectiles(delta: float) -> void:
 	var clip_local := Rect2(Vector2.ZERO, _clip_node.size).grow(60.0)
+	# Ship hit box in CLIP-local space (projectiles live in _clip_node, which is offset by
+	# OC_BOUNDS.position). _ship_hit_rect_oc() returns OC/viewport coords, so convert it once.
+	var ship_hit_local := Rect2()
+	if is_instance_valid(_ship_eo):
+		var hit_oc := _ship_hit_rect_oc()
+		ship_hit_local = Rect2(hit_oc.position - OC_BOUNDS.position, hit_oc.size)
 	var i := 0
 	while i < _projectiles.size():
 		var p = _projectiles[i]
@@ -765,10 +813,12 @@ func _tick_projectiles(delta: float) -> void:
 				tr.texture = frames[p["frame"]]
 				frame_time = delays[p["frame"]] if p["frame"] < delays.size() else 0.05
 
-		if clip_local.has_point(tr.position):
-			if is_instance_valid(_ship_eo):
-				var ship_hit := _ship_hit_rect_oc()
-				if ship_hit.has_point(tr.position):
+		# Cull when fully outside the clip area (center-based, like elephant).
+		var center := tr.position + tr.size / 2.0
+		if clip_local.has_point(center):
+			if ship_hit_local != Rect2():
+				var proj_rect := Rect2(tr.position, tr.size)
+				if proj_rect.intersects(ship_hit_local):
 					print("[METALFLY] %s HIT SHIP for %d dmg" % [ptype, dmg])
 					GameManager.ship_take_damage(int(round(dmg * BOSS_DAMAGE_MULT)))
 					_flash_ship_red()
@@ -854,6 +904,24 @@ func _load_assets() -> void:
 	if lt != null:
 		_laser_frames = lt.get_meta("gif_frames") if lt.has_meta("gif_frames") else [lt]
 
+	# Arrow frames: PNG sprite sheet with JSON metadata.
+	var at := PngSpriteLoader.load_png_sprite("res://assets/bosses/metalfly/arrow.png")
+	if at != null and at.has_meta("gif_frames"):
+		var raw: Array = at.get_meta("gif_frames")
+		_arrow_delays  = at.get_meta("gif_delays") if at.has_meta("gif_delays") else []
+		if not raw.is_empty():
+			var f0 := raw[0] as Texture2D
+			var aspect := float(f0.get_height()) / float(f0.get_width()) if f0.get_width() > 0 else 1.0
+			_arrow_sz = Vector2(ARROW_WIDTH, ARROW_WIDTH * aspect)
+			for frame: Texture2D in raw:
+				var img := frame.get_image()
+				if img != null:
+					var copy := img.duplicate() as Image
+					copy.resize(int(_arrow_sz.x), int(_arrow_sz.y), Image.INTERPOLATE_BILINEAR)
+					_arrow_frames.append(ImageTexture.create_from_image(copy))
+				else:
+					_arrow_frames.append(frame)
+
 func _cache_ship_image() -> void:
 	if _ship_eo == null or not is_instance_valid(_ship_eo):
 		return
@@ -890,17 +958,25 @@ func _compute_tight_uv() -> void:
 		_ship_alpha_uv = Rect2(0.0, 0.0, 1.0, 1.0)
 
 func _ship_hit_rect_oc() -> Rect2:
-	if _ship_eo == null or not is_instance_valid(_ship_eo):
+	# Opaque region mapped through the TextureRect's REAL global transform, so the hitbox
+	# tracks the visible ship at any scale/pivot (e.g. while boosted). Same as elephant.
+	if _ship_eo == null or not is_instance_valid(_ship_eo) or _ship_eo.texture_rect == null:
 		return Rect2()
-	var pos := _ship_eo.position
-	var sz := _ship_eo.size * _ship_alpha_uv.size
-	var off := _ship_eo.size * _ship_alpha_uv.position
-	return Rect2(pos + off, sz)
+	var tr: TextureRect = _ship_eo.texture_rect
+	var full: Vector2 = tr.size
+	var xf := tr.get_global_transform()
+	var a := xf * (_ship_alpha_uv.position * full)
+	var b := xf * ((_ship_alpha_uv.position + _ship_alpha_uv.size) * full)
+	var top_left := Vector2(minf(a.x, b.x), minf(a.y, b.y))
+	return Rect2(top_left, (a - b).abs())
 
 func _ship_aim_point_oc() -> Vector2:
-	if _ship_eo == null:
-		return OC_BOUNDS.get_center()
-	return _ship_eo.position + _ship_eo.size / 2.0
+	var hr := _ship_hit_rect_oc()
+	if hr.size != Vector2.ZERO:
+		return hr.position + hr.size / 2.0
+	if _ship_eo != null and is_instance_valid(_ship_eo):
+		return _ship_eo.global_position + _ship_eo.size / 2.0
+	return OC_BOUNDS.get_center()
 
 func _cleanup_projectiles() -> void:
 	for p in _projectiles:
@@ -908,6 +984,12 @@ func _cleanup_projectiles() -> void:
 		if is_instance_valid(tr):
 			tr.queue_free()
 	_projectiles.clear()
+	for a in _arrows:
+		var tr: TextureRect = a["tr"]
+		if is_instance_valid(tr):
+			tr.queue_free()
+	_arrows.clear()
+	_arrow_dmg_acc = 0
 
 func _flash_ship_red() -> void:
 	if _ship_eo == null or not is_instance_valid(_ship_eo):
@@ -932,10 +1014,145 @@ func _tick_cocoon_movement(delta: float) -> void:
 	# Move cocoon
 	_cocoon_eo.position += _cocoon_velocity * delta
 
-	# Clamp to screen bounds
+	# Clamp to screen bounds, with Y capped at COCOON_MAX_Y so cocoon stays in upper half.
 	var bounds := OC_BOUNDS
 	_cocoon_eo.position.x = clampf(_cocoon_eo.position.x, bounds.position.x, bounds.end.x - _cocoon_eo.size.x)
-	_cocoon_eo.position.y = clampf(_cocoon_eo.position.y, bounds.position.y, bounds.end.y - _cocoon_eo.size.y)
+	_cocoon_eo.position.y = clampf(_cocoon_eo.position.y, bounds.position.y, COCOON_MAX_Y - _cocoon_eo.size.y)
+	if _cocoon_eo.position.y >= COCOON_MAX_Y - _cocoon_eo.size.y and _cocoon_velocity.y > 0.0:
+		_cocoon_velocity.y = -_cocoon_velocity.y   # bounce upward immediately
+
+func _qbezier_arrow(a: Vector2, b: Vector2, c: Vector2, t: float) -> Vector2:
+	var u := 1.0 - t
+	return a * (u * u) + b * (2.0 * u * t) + c * (t * t)
+
+func _spawn_cocoon_arrow() -> void:
+	if _arrow_frames.is_empty() or not is_instance_valid(_cocoon_eo):
+		return
+	var sz        := _arrow_sz
+	var origin_oc := _cocoon_eo.position + _cocoon_eo.size / 2.0
+	var local_pos := origin_oc - OC_BOUNDS.position - sz / 2.0
+	var tr        := _make_projectile_rect(_arrow_frames[0], sz, local_pos)
+	tr.pivot_offset = sz / 2.0
+
+	# Cinematic 4-phase launch: eject sideways → curve downward → hang & aim → rocket to ship.
+	var side      := 1.0 if randf() < 0.5 else -1.0
+	var eject_dir := Vector2(side, 0.5).normalized()   # slightly downward peel-off
+	# All positions tracked as clip-local centres.
+	var p0   := origin_oc - OC_BOUNDS.position
+	var p1   := p0 + eject_dir * ARROW_EJECT_DIST
+	var p2   := p0 + Vector2(side * ARROW_ARC_SIDE, ARROW_ARC_DOWN)   # below + aside
+	var ctrl := Vector2(p2.x, p1.y)                                    # bezier control
+	_arrows.append({
+		"tr": tr, "phase": "eject", "pt": 0.0, "speed": 0.0, "seek_t": 0.0, "life": 0.0,
+		"facing": eject_dir.angle(), "vel": Vector2.ZERO,
+		"p0": p0, "p1": p1, "p2": p2, "ctrl": ctrl,
+		"target": _ship_aim_point_oc() - OC_BOUNDS.position,
+		"frame": 0, "acc": 0.0,
+	})
+
+func _tick_arrows(delta: float) -> void:
+	var ship_hit_local := Rect2()
+	if is_instance_valid(_ship_eo):
+		var hit_oc := _ship_hit_rect_oc()
+		ship_hit_local = Rect2(hit_oc.position - OC_BOUNDS.position, hit_oc.size)
+	var clip_local := Rect2(Vector2.ZERO, _clip_node.size).grow(60.0)
+
+	var i := 0
+	while i < _arrows.size():
+		var a: Dictionary = _arrows[i]
+		var tr: TextureRect = a["tr"]
+		if not is_instance_valid(tr):
+			_arrows.remove_at(i)
+			continue
+
+		a["life"] = float(a["life"]) + delta
+		var pos := tr.position + tr.size * 0.5   # clip-local centre
+		var remove := false
+
+		match String(a["phase"]):
+			"eject":   # phase 1 — pop sideways off the cocoon
+				a["pt"] = float(a["pt"]) + delta
+				var t := clampf(float(a["pt"]) / ARROW_EJECT_T, 0.0, 1.0)
+				var np: Vector2 = (a["p0"] as Vector2).lerp(a["p1"] as Vector2, t)
+				a["vel"] = np - pos
+				tr.position = np - tr.size * 0.5
+				if float(a["pt"]) >= ARROW_EJECT_T:
+					a["phase"] = "curve"; a["pt"] = 0.0
+			"curve":   # phase 2 — bezier swoop downward, ease-out
+				a["pt"] = float(a["pt"]) + delta
+				var t := clampf(float(a["pt"]) / ARROW_CURVE_T, 0.0, 1.0)
+				var te := 1.0 - pow(1.0 - t, 2.0)
+				var np := _qbezier_arrow(a["p1"] as Vector2, a["ctrl"] as Vector2, a["p2"] as Vector2, te)
+				a["vel"] = np - pos
+				tr.position = np - tr.size * 0.5
+				if float(a["pt"]) >= ARROW_CURVE_T:
+					a["phase"] = "hang"; a["pt"] = 0.0
+			"hang":    # phase 3 — hover, drift slightly, rotate nose onto ship
+				a["pt"] = float(a["pt"]) + delta
+				var drift := 8.0 * clampf(float(a["pt"]) / ARROW_HANG_T, 0.0, 1.0)
+				tr.position = (a["p2"] as Vector2) - tr.size * 0.5 + Vector2(0.0, drift)
+				a["vel"] = Vector2.ZERO
+				if float(a["pt"]) >= ARROW_HANG_T:
+					a["phase"]  = "seek"
+					a["speed"]  = ARROW_SEEK_START
+					a["seek_t"] = 0.0
+					a["target"] = _ship_aim_point_oc() - OC_BOUNDS.position   # re-lock on current ship pos
+			_:         # seek — accelerate toward target, hard whip
+				a["seek_t"] = float(a["seek_t"]) + delta
+				var accel := ARROW_SEEK_ACCEL * (1.0 + ARROW_SEEK_RAMP * float(a["seek_t"]))
+				a["speed"]  = minf(ARROW_SEEK_MAX, float(a["speed"]) + accel * delta)
+				var to_t    := (a["target"] as Vector2) - pos
+				var step    := float(a["speed"]) * delta
+				if to_t.length() <= maxf(step, ARROW_HIT_DIST):
+					tr.position = (a["target"] as Vector2) - tr.size * 0.5
+					remove = true   # reached target — rect check below handles damage if ship is there
+				else:
+					var dir := to_t.normalized()
+					a["vel"]    = dir * float(a["speed"])
+					tr.position = pos + dir * step - tr.size * 0.5
+
+		# Smooth nose rotation — lock onto target during hang, track velocity otherwise.
+		var desired: float
+		if String(a["phase"]) == "hang":
+			desired = ((a["target"] as Vector2) - pos).angle()
+		else:
+			var v: Vector2 = a["vel"]
+			desired = v.angle() if v.length() > 0.5 else float(a["facing"])
+		a["facing"] = lerp_angle(float(a["facing"]), desired, clampf(ARROW_FACE_TURN * delta, 0.0, 1.0))
+		tr.rotation = float(a["facing"]) + PI / 2.0   # sprite points up (-Y)
+
+		# Animate: advance through frames, hold at last frame once fully unfolded.
+		if not _arrow_frames.is_empty():
+			a["acc"] = float(a["acc"]) + delta
+			var fi: int = a["frame"]
+			if fi < _arrow_frames.size() - 1:
+				var ft: float = _arrow_delays[fi] if fi < _arrow_delays.size() else 0.15
+				while float(a["acc"]) >= ft and fi < _arrow_frames.size() - 1:
+					a["acc"] = float(a["acc"]) - ft
+					fi += 1
+					tr.texture = _arrow_frames[fi]
+					ft = _arrow_delays[fi] if fi < _arrow_delays.size() else 0.15
+				a["frame"] = fi
+
+		# Collision — seek phase only (matches original "flying" behaviour).
+		if not remove and String(a["phase"]) == "seek" and ship_hit_local != Rect2():
+			if Rect2(tr.position, tr.size).intersects(ship_hit_local):
+				GameManager.ship_take_damage(int(round(ARROW_DMG * BOSS_DAMAGE_MULT)))
+				_flash_ship_red()
+				remove = true
+
+		# Cull: out-of-bounds or expired.
+		if not remove:
+			if float(a["life"]) > ARROW_MAX_LIFE:
+				remove = true
+			elif not clip_local.has_point(tr.position + tr.size * 0.5):
+				remove = true
+
+		if remove:
+			tr.queue_free()
+			_arrows.remove_at(i)
+		else:
+			i += 1
 
 func _clamp_boss() -> void:
 	if _boss_eo == null:
@@ -949,32 +1166,43 @@ func is_phase_transition() -> bool:
 	return _boss_phase == 1 and not _forced_kill
 
 func notify_boss_killed() -> void:
-	if _phase != Phase.IDLE and _phase != Phase.DONE:
-		if _boss_phase == 1 and not _forced_kill:
-			# Phase 1 → Phase 2 transition
-			print("[METALFLY] Phase 1 DEFEATED - triggering Transform animation")
-			_phase = Phase.IDLE
-			_trigger_phase_transition()
+	if _phase == Phase.DONE:
+		_forced_kill = false
+		return
+	if _boss_phase == 1 and not _forced_kill:
+		# Natural death of Phase 1 (cocoon). _phase is always IDLE during Phase 1 —
+		# bypass the usual IDLE guard and go straight to the Phase 2 transition.
+		print("[METALFLY] Phase 1 DEFEATED - triggering Transform animation")
+		_phase = Phase.IDLE
+		_trigger_phase_transition()
+	elif _boss_phase == 1 and _forced_kill:
+		# Forced kill (debug / player death) while still in Phase 1 — just reset.
+		print("[METALFLY] Phase 1 FORCE-KILLED")
+		_force_reset()
+	elif _phase != Phase.IDLE:
+		# Phase 2 natural death or forced kill mid-fight.
+		var won := not _forced_kill
+		print("[METALFLY] Phase 2 DEFEATED - forced=%s, showing victory=%s" % [_forced_kill, won])
+		if won:
+			GameManager.input_locked = true
+			var mgr := get_tree().get_first_node_in_group("boss_fight")
+			if mgr != null and mgr.has_method("play_death_cutscene"):
+				await mgr.play_death_cutscene([_boss_eo])
+			_force_reset()
+			_show_victory_screen()
+			GameManager.input_locked = false
 		else:
-			# Phase 2 death or forced kill
-			var won := not _forced_kill
-			print("[METALFLY] Phase 2 DEFEATED - forced=%s, showing victory=%s" % [_forced_kill, won])
-			if won:
-				# Death cutscene (boss frozen via input_locked) before reset + victory.
-				GameManager.input_locked = true
-				var mgr := get_tree().get_first_node_in_group("boss_fight")
-				if mgr != null and mgr.has_method("play_death_cutscene"):
-					await mgr.play_death_cutscene([_boss_eo])
-				_force_reset()
-				_show_victory_screen()
-				GameManager.input_locked = false
-			else:
-				_force_reset()
+			_force_reset()
 	_forced_kill = false
 
 func notify_hp_changed(new_hp: int) -> void:
-	if new_hp < _last_hp and _phase != Phase.IDLE and _phase != Phase.DONE:
+	if new_hp < _last_hp and _phase != Phase.DONE:
 		_flash_damage()
+		if _boss_phase == 1:
+			_arrow_dmg_acc += _last_hp - new_hp
+			while _arrow_dmg_acc >= ARROW_DMG_THRESHOLD:
+				_arrow_dmg_acc -= ARROW_DMG_THRESHOLD
+				_spawn_cocoon_arrow()
 	_last_hp = new_hp
 
 func _flash_damage() -> void:
@@ -1019,6 +1247,12 @@ func _trigger_phase_transition() -> void:
 func _begin_phase2() -> void:
 	_boss_phase = 2
 	print("[METALFLY] Phase 2 (METALFLY) starting, HP=%d" % PHASE2_MAX_HP)
+	# Phase-1 HP hitting 0 fired the GLOBAL boss_killed/boss_defeated signals, whose other
+	# listeners (asteroids, boss music, HP bar, boost) think the boss died. Re-assert
+	# "boss active" so they stay in fight state through the phase change (same fix as chromeleon).
+	GameManager.boss_spawned.emit()
+	if not GameManager.manual_boost:
+		GameManager.set_boost(true)
 	GameManager.boss_max_hp = PHASE2_MAX_HP
 	GameManager.boss_hp = PHASE2_MAX_HP
 	_last_hp = PHASE2_MAX_HP
@@ -1032,6 +1266,15 @@ func _force_reset() -> void:
 		_boss_eo.visible = false
 		_boss_eo.rotation = 0.0
 		_boss_eo.scale = Vector2.ONE
+	if is_instance_valid(_cocoon_eo):
+		_cocoon_eo.visible = false
+	var _bg := get_tree().get_first_node_in_group("scrolling_bg")
+	if is_instance_valid(_bg) and _bg.has_method("restore_texture"):
+		_bg.restore_texture()
+	var _ov := get_tree().get_first_node_in_group("scrolling_overlay")
+	if is_instance_valid(_ov) and _ov.has_method("restore_texture"):
+		_ov.set_speed_mult(1.0)
+		_ov.restore_texture()
 	_phase = Phase.IDLE
 	_phase_acc = 0.0
 

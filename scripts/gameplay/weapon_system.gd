@@ -178,6 +178,7 @@ var _block_flashes: Array = []  # bat block-impact pops: {pos, age, max_age}
 # Transient FX (all in StreamScreen-local space)
 var _bullets: Array = []   # {pos, vel, dmg, big, life}
 var _missiles: Array = []  # Homing Missile choreography: {pos, vel, dmg, target, phase, angle, orbit_t, life}
+var _missile_tex: Texture2D = null
 var _impacts: Array = []   # {pos, age, max_age, radius, color}
 var _arcs: Array = []      # {a, b, age, max_age}
 
@@ -348,6 +349,7 @@ func setup() -> void:
 	_dmg_layer.add_child(_dmg_host)
 	_crit_text_shader = Shader.new()
 	_crit_text_shader.code = CRIT_TEXT_SHADER
+	_missile_tex = load("res://assets/weaponry/missile.png") as Texture2D
 
 ## One vortex ColorRect with its own ShaderMaterial (shares the shader + noise texture).
 func _make_rift_node(shader: Shader, tex: Texture2D) -> ColorRect:
@@ -1995,17 +1997,40 @@ func _draw() -> void:
 			draw_line(tail, p, col, 2.5)
 			draw_circle(p, 2.5, col)
 
-	# Homing missiles — big orange rounds, oriented to their facing (nose rotates per phase)
+	# Homing missiles — missile.png sprite, oriented to their facing (nose rotates per phase)
 	for m: Dictionary in _missiles:
 		var mp: Vector2 = m["pos"]
 		var f := float(m["facing"])
 		var fwd := Vector2(cos(f), sin(f))
-		var sd := Vector2(-fwd.y, fwd.x)
-		draw_line(mp - fwd * 12.0, mp - fwd * 32.0, Color(1.0, 0.7, 0.2, 0.7), 6.0)   # exhaust streak
-		draw_colored_polygon(PackedVector2Array([
-			mp + fwd * 16.0, mp - fwd * 11.0 + sd * 6.0, mp - fwd * 11.0 - sd * 6.0,
-		]), Color(1.0, 0.5, 0.1))
-		draw_circle(mp, 4.0, Color(1.0, 0.9, 0.5))
+		# Exhaust plume: replicates ship engine gradient (white-hot → orange → blue tip → fade)
+		# Gradient breakpoints match gun_system _setup_engine_plume: 0.0 / 0.3 / 0.65 / 1.0
+		var nozzle := mp - fwd * 20.0
+		var back   := -fwd
+		for pi_: int in range(7):
+			var t     := float(pi_) / 6.0
+			var ppos  := nozzle + back * (t * 28.0)
+			var psize := lerpf(4.5, 1.0, t)
+			var col: Color
+			if t < 0.30:
+				var r := t / 0.30
+				col = Color(1.0, lerpf(0.95, 0.60, r), lerpf(0.70, 0.20, r), 1.0)
+			elif t < 0.65:
+				var r := (t - 0.30) / 0.35
+				col = Color(lerpf(1.0, 0.45, r), 0.6, lerpf(0.20, 1.0, r), lerpf(1.0, 0.85, r))
+			else:
+				var r := (t - 0.65) / 0.35
+				col = Color(lerpf(0.45, 0.20, r), lerpf(0.60, 0.45, r), 1.0, lerpf(0.85, 0.0, r))
+			draw_circle(ppos, psize, col)
+		if _missile_tex != null:
+			draw_set_transform(mp, f + PI / 2.0)
+			draw_texture_rect(_missile_tex, Rect2(-10.0, -23.0, 20.0, 46.0), false)
+			draw_set_transform(Vector2.ZERO, 0.0)
+		else:
+			var sd := Vector2(-fwd.y, fwd.x)
+			draw_colored_polygon(PackedVector2Array([
+				mp + fwd * 16.0, mp - fwd * 11.0 + sd * 6.0, mp - fwd * 11.0 - sd * 6.0,
+			]), Color(1.0, 0.5, 0.1))
+			draw_circle(mp, 4.0, Color(1.0, 0.9, 0.5))
 
 	# Impacts (expanding fading ring). A crit flash carries a "color" → bigger + a burst.
 	for im: Dictionary in _impacts:
