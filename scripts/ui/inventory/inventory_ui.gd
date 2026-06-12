@@ -76,6 +76,7 @@ var _grid: BackpackGrid
 var _sheet: CharacterSheet          # live player-stats panel, docked right of the loadout
 var _slot_nodes: Dictionary = {}   # slot -> EquipSlot
 var _msg_label: Label = null       # transient on-panel message (failed equip-requirement, etc.)
+var _dragging: bool = false        # true while an item is being dragged (drag highlight beats hover)
 
 func _ready() -> void:
 	layer = 60
@@ -209,6 +210,8 @@ func _rebuild() -> void:
 		_grid.add_child(w)
 		w.setup(uid, def_id, CELL, "")
 		w.sell_requested.connect(_on_sell_requested)
+		w.mouse_entered.connect(_on_item_hover.bind(def_id))
+		w.mouse_exited.connect(_on_item_unhover)
 
 	# Equipped items
 	for slot: String in _slot_nodes:
@@ -226,6 +229,8 @@ func _rebuild() -> void:
 		es.add_child(w)
 		w.setup(uid, def_id, CELL, slot)
 		w.sell_requested.connect(_on_sell_requested)
+		w.mouse_entered.connect(_on_item_hover.bind(def_id))
+		w.mouse_exited.connect(_on_item_unhover)
 
 # ── Open / close ────────────────────────────────────────────────────────────
 
@@ -245,6 +250,46 @@ func close() -> void:
 
 func is_open() -> bool:
 	return _panel.visible
+
+# ── Compatible-slot highlighting (hover + drag) ──────────────────────────────
+
+## Light every equip slot this def can go into; clear the rest.
+func _highlight_for_def(def_id: String) -> void:
+	for slot: String in _slot_nodes:
+		(_slot_nodes[slot] as InvEquipSlot).set_highlight(InventoryManager.fits_slot(def_id, slot))
+
+func _clear_highlights() -> void:
+	for slot: String in _slot_nodes:
+		(_slot_nodes[slot] as InvEquipSlot).set_highlight(false)
+
+func _on_item_hover(def_id: String) -> void:
+	if _dragging:
+		return   # an active drag owns the highlight
+	_highlight_for_def(def_id)
+
+func _on_item_unhover() -> void:
+	if _dragging:
+		return
+	_clear_highlights()
+
+## Poll the viewport drag state so picking up an item lights matching slots for the whole drag.
+func _process(_delta: float) -> void:
+	if not is_open():
+		if _dragging:
+			_dragging = false
+			_clear_highlights()
+		return
+	var vp := get_viewport()
+	var now: bool = vp.gui_is_dragging()
+	if now == _dragging:
+		return
+	_dragging = now
+	if now:
+		var data: Variant = vp.gui_get_drag_data() if vp.has_method("gui_get_drag_data") else null
+		if typeof(data) == TYPE_DICTIONARY and (data as Dictionary).has("def_id"):
+			_highlight_for_def(String((data as Dictionary)["def_id"]))
+	else:
+		_clear_highlights()
 
 func toggle() -> void:
 	if is_open():

@@ -34,6 +34,7 @@ func _ready() -> void:
 	_apply_style()
 	_load_settings()
 	_build_action_bar()
+	_auto_mute_on_load()   # start muted on load (dev convenience) — press UNMUTE to restore
 	call_deferred("_build_settings_panel")
 	call_deferred("_anchor_bottom_right")
 
@@ -441,6 +442,15 @@ func _execute_confirm() -> void:
 	_close_settings()
 
 # ── Open / Close ──────────────────────────────────────────────────────────────
+
+## Start muted on load. Mirrors the MUTE button's muted state (saves the loaded volume in
+## _pre_mute_music + flips the label to UNMUTE) so the button toggles back correctly.
+func _auto_mute_on_load() -> void:
+	if _pre_mute_music < 0.0:
+		_pre_mute_music = AudioManager.music_volume
+		AudioManager.set_music_volume(0.0)
+		if is_instance_valid(_mute_btn):
+			_mute_btn.text = "UNMUTE"
 
 func _toggle_mute() -> void:
 	if _pre_mute_music < 0.0:

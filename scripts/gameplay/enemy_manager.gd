@@ -11,12 +11,13 @@ extends Control
 const SS_OFFSET := Vector2(270.0, 8.0)   # SpaceScreen origin in viewport/ObjectsContainer coords
 
 const EnemyDummy := preload("res://scripts/gameplay/enemy_dummy.gd")
-const EnemyKingfisher := preload("res://scripts/gameplay/enemy_kingfisher.gd")
-const EnemyJetFighter := preload("res://scripts/gameplay/enemy_jet_fighter.gd")
+const EnemyDiver := preload("res://scripts/gameplay/enemy_diver.gd")
+const EnemyShooter := preload("res://scripts/gameplay/enemy_shooter.gd")
 const EnemySentinel := preload("res://scripts/gameplay/enemy_sentinel.gd")
 const EnemyBombingWanderer := preload("res://scripts/gameplay/enemy_bombing_wanderer.gd")
 const EnemyBomb := preload("res://scripts/gameplay/enemy_bomb.gd")
 const EnemySwarmFlock := preload("res://scripts/gameplay/enemy_swarm_flock.gd")
+const EnemySwarmMember := preload("res://scripts/gameplay/enemy_swarm.gd")
 
 # Reusable enemy bullet tuning.
 const BULLET_RADIUS := 5.0
@@ -162,41 +163,31 @@ func take_wanderer_y_offset() -> float:
 	_wrow += 1
 	return o
 
-## One Kingfisher "spawn" = a burst of KF_BURST_COUNT, all from the SAME edge, aimed at the player's
-## position captured NOW; the first sits on the player, the others are offset sideways (adjacent, no
-## overlap); each enters KF_BURST_DELAY after the previous.
-func spawn_kingfisher(edges: Array = []) -> void:
-	var pool: Array = edges if not edges.is_empty() else EnemyKingfisher.KF_EDGES
+## One Diver "spawn" = a burst of DV_BURST_COUNT from the SAME edge. Member 0 is the lead (tracks
+## the player's live position while off-screen); the other two oscillate alongside it. Each enters
+## DV_BURST_DELAY after the previous (deterministic per-member stagger — no coroutine). All tracking +
+## oscillation lives in the enemy itself, so the manager just assigns roles.
+func spawn_diver(edges: Array = []) -> void:
+	var pool: Array = edges if not edges.is_empty() else EnemyDiver.DV_EDGES
 	var edge: String = String(pool[randi() % pool.size()]) if not pool.is_empty() else "top"
-	var aim: Vector2 = ship_center()   # captured once → all 3 target the same spot
-	var n: int = EnemyKingfisher.KF_BURST_COUNT
-	var gap: float = EnemyKingfisher.KF_BURST_GAP
-	# Spawn all members at once; each waits its own start_delay (deterministic stagger — no coroutine).
+	var n: int = EnemyDiver.DV_BURST_COUNT
 	for i in n:
-		var e := EnemyKingfisher.new()
+		var e := EnemyDiver.new()
 		add_child(e)
-		e.spawn_member(self, edge, aim, _kf_lateral(i, gap), float(i) * EnemyKingfisher.KF_BURST_DELAY)
-
-## Sideways offset for burst member i: 0 (on the player), then ±gap, ±2gap … alternating outward.
-func _kf_lateral(i: int, gap: float) -> float:
-	if i == 0:
-		return 0.0
-	var step: int = (i + 1) / 2          # 1,1,2,2,3,3 …
-	var s := -1.0 if (i % 2 == 1) else 1.0   # odd → one side, even → the other
-	return float(step) * gap * s
+		e.spawn_member(self, edge, i == 0, float(i) * EnemyDiver.DV_BURST_DELAY)
 
 ## Generic spawn dispatcher used by the wave director: spawn one "unit" of `type`, passing recipe
-## `edges` where the enemy uses them (only the Kingfisher today). Type names match LevelRecipe.ENEMY_TYPES.
+## `edges` where the enemy uses them (only the Diver today). Type names match LevelRecipe.ENEMY_TYPES.
 func spawn_type(type: String, edges: Array = []) -> void:
 	match type:
-		"kingfisher":        spawn_kingfisher(edges)
-		"jet_fighter":       spawn_jet_fighter()
+		"diver":             spawn_diver(edges)
+		"shooter":           spawn_shooter()
 		"sentinels":         spawn_sentinels()
 		"bombing_wanderer":  spawn_bombing_wanderer()
 		"swarm":             spawn_swarm()
 
-func spawn_jet_fighter() -> void:
-	var e := EnemyJetFighter.new()
+func spawn_shooter() -> void:
+	var e := EnemyShooter.new()
 	add_child(e)
 	e.spawn(self)
 
@@ -206,6 +197,50 @@ func spawn_sentinels() -> void:
 		var e := EnemySentinel.new()
 		add_child(e)
 		e.spawn(self, i, count)
+
+# ── Choreography spawn helpers: create ONE enemy at a chosen spot and RETURN it, so a choreography can
+# script its movement / connect its death. (Used by Enemy_group_1; harmless for anything else.) ──
+
+## One Sentinel descending to the stationary row at column `x` (px). Returns the node.
+func spawn_sentinel_at(x: float) -> Node:
+	var e := EnemySentinel.new()
+	add_child(e)
+	e.spawn_at(self, x)
+	return e
+
+## One externally-controlled Shooter appearing at `center_pos` (px, SpaceScreen-local), firing as normal
+## while the choreography drives its position. Returns the node.
+func spawn_shooter_external(center_pos: Vector2) -> Node:
+	var e := EnemyShooter.new()
+	add_child(e)
+	e.spawn_external(self, center_pos)
+	return e
+
+## One solo Diver (a lead that tracks + aims at the player) from `edge`. Returns the node.
+func spawn_diver_solo(edge: String) -> Node:
+	var e := EnemyDiver.new()
+	add_child(e)
+	e.spawn_member(self, edge, true, 0.0)
+	return e
+
+## One "launch" Diver erupting from `origin` with initial velocity `vel_up` (fountain → dive). Returns it.
+func spawn_diver_launch(origin: Vector2, vel_up: Vector2) -> Node:
+	var e := EnemyDiver.new()
+	add_child(e)
+	e.spawn_launch(self, origin, vel_up)
+	return e
+
+## Visual-only explosion ring at `center` (no damage) — used for the Sentinel-death pop in Enemy_group_1.
+func flash_explosion(center: Vector2, radius: float) -> void:
+	_explosions.append({"center": center, "radius": radius, "t": 0.0, "life": 0.4})
+	queue_redraw()
+
+## One bare swarm bead (no circle flock) — a choreography drives it via set_track_pose / begin_zoom.
+## Used by Enemy_group_2 to trace custom shapes (box + DIE). Returns the node.
+func spawn_swarm_member() -> Node:
+	var m := EnemySwarmMember.new()
+	add_child(m)
+	return m
 
 func spawn_bombing_wanderer() -> void:
 	var e := EnemyBombingWanderer.new()
@@ -260,9 +295,29 @@ func _process(delta: float) -> void:
 		queue_redraw()
 
 func _draw() -> void:
+	# Oblong bullet oriented along travel: dark-red rim → red → light → white core (layered gradient).
 	for b: Dictionary in _bullets:
-		draw_circle(b["pos"], BULLET_RADIUS, BULLET_COLOR)
-		draw_arc(b["pos"], BULLET_RADIUS, 0.0, TAU, 12, Color(0, 0, 0, 0.5), 1.5)
+		var p: Vector2 = b["pos"]
+		var v: Vector2 = b["vel"]
+		var ang := v.angle() if (v as Vector2).length() > 0.01 else 0.0
+		var ca := cos(ang)
+		var sa := sin(ang)
+		draw_colored_polygon(_bullet_oblong(p, 8.0, 4.6, ca, sa, 18), Color(0.40, 0.0, 0.0))      # dark rim
+		draw_colored_polygon(_bullet_oblong(p, 6.3, 3.5, ca, sa, 18), Color(0.85, 0.10, 0.06))    # red
+		draw_colored_polygon(_bullet_oblong(p, 4.3, 2.4, ca, sa, 16), Color(1.0, 0.55, 0.45))     # light red
+		draw_colored_polygon(_bullet_oblong(p, 2.5, 1.5, ca, sa, 14), Color(1.0, 1.0, 1.0))       # white core
 	for ex: Dictionary in _explosions:
 		var a := 1.0 - clampf(float(ex["t"]) / maxf(0.01, float(ex["life"])), 0.0, 1.0)
 		draw_arc(ex["center"], float(ex["radius"]), 0.0, TAU, 32, Color(1.0, 0.6, 0.2, a), 3.0)
+
+## Points of an ellipse (half-extents rx along travel, ry across) centred at `c`, rotated by (ca,sa) =
+## (cos,sin) of the travel angle. Used to draw the oblong bullet's concentric gradient layers.
+func _bullet_oblong(c: Vector2, rx: float, ry: float, ca: float, sa: float, segs: int) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	pts.resize(segs)
+	for i in segs:
+		var t := TAU * float(i) / float(segs)
+		var x := rx * cos(t)
+		var y := ry * sin(t)
+		pts[i] = c + Vector2(x * ca - y * sa, x * sa + y * ca)
+	return pts

@@ -12,8 +12,8 @@ const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
 # [display label, EnemyManager method to call]. One row per enemy, top → bottom.
 const ENEMIES := [
 	["Dummy", "spawn_dummy"],
-	["Kingfisher", "spawn_kingfisher"],
-	["Jet_fighter", "spawn_jet_fighter"],
+	["Diver", "spawn_diver"],
+	["Shooter", "spawn_shooter"],
 	["Sentinels", "spawn_sentinels"],
 	["Bombing_wanderer", "spawn_bombing_wanderer"],
 	["Bomb (test)", "spawn_bomb_test"],

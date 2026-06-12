@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(\"C:\\\\Users\\\\minhv\\\\Godot\\\\Godot.exe\" --headless --check-only --script scripts/gameplay/boss_fight.gd --quit)",
-      "Bash(\"C:\\\\Users\\\\minhv\\\\Godot\\\\Godot.exe\" --headless --check-only --path . --quit)"
+      "Bash(\"C:\\\\Users\\\\minhv\\\\Godot\\\\Godot.exe\" --headless --check-only --path . --quit)",
+      "PowerShell(& \"C:\\\\Users\\\\minhv\\\\Godot\\\\Godot_v4.6.2-stable_win64.exe\" --headless --check-only --path . --quit 2>&1 | Select-String -Pattern \"swarm_pentagram|registry|SCRIPT ERROR|Parse Error\" ; \"EXIT=$LASTEXITCODE\")"
     ],
     "defaultMode": "plan",
     "additionalDirectories": [

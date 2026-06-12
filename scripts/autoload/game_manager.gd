@@ -478,6 +478,13 @@ func format_cash(f: float) -> String:
 func on_view_clicked() -> void:
 	pass
 
+## Refresh max HP from current gear/attributes, then top the ship off to full. Used on load so every
+## session starts at full health.
+func heal_to_full() -> void:
+	recompute_max_hp()
+	ship_hp = ship_max_hp
+	ship_hp_changed.emit(ship_hp)
+
 func reset_stats() -> void:
 	recompute_max_hp()
 	ship_hp = ship_max_hp

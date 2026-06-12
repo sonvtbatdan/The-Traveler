@@ -5,7 +5,7 @@ extends "res://scripts/gameplay/enemy_base.gd"
 ## player direction), each ray a line of SE_PER_RAY bullets. Bullets are non-tracking.
 
 # ── Tunable constants (Sentinel) ──────────────────────────────────────────────
-const SE_HP: float = 70.0
+const SE_HP: float = 560.0   # 8× the original 70 (note: shape size scales with HP but is capped, so unchanged here)
 const SE_XP: int = 14
 const SE_COUNT: int = 2            # how many enter together per spawn
 const SE_STOP_FRAC: float = 0.35   # descends to 35% down the screen…
@@ -23,6 +23,8 @@ enum Phase { DESCEND, ENGAGE }
 var _phase: int = Phase.DESCEND
 var _stop_y: float = 0.0
 var _fire_t: float = 0.0
+# Per-instance fire-rate scaler (>1 = slower). Default 1.0 = unchanged; a choreography may raise it.
+var fire_interval_mult: float = 1.0
 
 func _configure() -> void:
 	hp_max = SE_HP
@@ -41,6 +43,19 @@ func spawn(mgr: Node, index: int, count: int) -> void:
 	position = Vector2(x - size.x * 0.5, -size.y)   # start just above the top edge
 	_phase = Phase.DESCEND
 
+## Choreography spawn: descend to the normal stationary row at an EXPLICIT column x (no fan-out lane).
+## Used by Enemy_group_1, which then drives the U-path once is_engaged() is true.
+func spawn_at(mgr: Node, x: float) -> void:
+	var screen: Vector2 = mgr.screen_size()
+	_stop_y = screen.y * SE_STOP_FRAC - SE_STOP_NORTH_PX
+	position = Vector2(x - size.x * 0.5, -size.y)
+	_phase = Phase.DESCEND
+
+## True once it has finished descending and is holding/firing — i.e. parked at its stationary spot.
+## A choreography may then move it freely (ENGAGE does not self-move; firing continues).
+func is_engaged() -> bool:
+	return _phase == Phase.ENGAGE
+
 func _tick(delta: float) -> void:
 	match _phase:
 		Phase.DESCEND:
@@ -50,9 +65,10 @@ func _tick(delta: float) -> void:
 				_phase = Phase.ENGAGE
 				_fire_t = 0.0
 		Phase.ENGAGE:
+			var interval := SE_FIRE_INTERVAL * fire_interval_mult
 			_fire_t += delta
-			if _fire_t >= SE_FIRE_INTERVAL:
-				_fire_t -= SE_FIRE_INTERVAL
+			if _fire_t >= interval:
+				_fire_t -= interval
 				_fire_volley()
 
 func _fire_volley() -> void:

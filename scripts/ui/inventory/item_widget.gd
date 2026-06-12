@@ -149,6 +149,13 @@ func _make_custom_tooltip(_for_text: String) -> Object:
 	if hull_line != "":
 		vb.add_child(_tt_label(hull_line, TT_BASE_COLOR, TT_TEXT_SIZE, font))
 
+	# Attribute requirement — red when the character doesn't meet it, green when met.
+	var req := InventoryManager.item_requirement(def_id)
+	if String(req["attr"]) != "":
+		var req_ok := InventoryManager.meets_requirement(def_id)
+		var req_col := Color(0.55, 1.0, 0.55) if req_ok else Color(1.0, 0.40, 0.40)
+		vb.add_child(_tt_label("Requires %s %d" % [String(req["attr"]).capitalize(), int(req["value"])], req_col, TT_TEXT_SIZE, font))
+
 	# Affixes (one per line, blue), with a separator above them.
 	var affixes: Array = InventoryManager.item_affixes(uid)
 	if not affixes.is_empty():
