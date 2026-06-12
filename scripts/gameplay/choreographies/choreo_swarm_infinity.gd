@@ -9,7 +9,7 @@ extends "res://scripts/gameplay/choreography_base.gd"
 ## crosses itself in the centre. TUNE everything via the consts below.
 
 const CENTER_X_FRAC := 0.5
-const CENTER_Y_FRAC := 0.42
+const LOWEST_CM := 2.5         # the ∞'s lowest point sits this many cm below the top edge (keeps it high)
 const RX := 180.0              # half-width of the ∞ (px)
 const RY := 140.0              # lobe height factor (the ∞ spans ±RY/2 vertically)
 const BEAD_SPACING := 40.0     # spacing of beads along the curve → enemy count (~24)
@@ -51,18 +51,21 @@ func start(mgr: Node) -> void:
 
 ## Build the ∞: sample the lemniscate finely, arc-length resample at BEAD_SPACING (closed), + entry.
 func _build_path(screen: Vector2) -> void:
-	var center := Vector2(screen.x * CENTER_X_FRAC, screen.y * CENTER_Y_FRAC)
+	# Centre so the ∞'s LOWEST point (centre.y + RY/2) sits LOWEST_CM below the top edge → high on screen.
+	var center := Vector2(screen.x * CENTER_X_FRAC, _cm_to_px(LOWEST_CM) - RY * 0.5)
 	var fine: Array = []
 	var steps := 480
 	for j in steps:
-		var t := float(j) / float(steps) * TAU
+		# Start the trace at t = 5π/4 → the LOWER-LEFT of the ∞ (at the lowest level), so the swarm enters
+		# from the left at ~LOWEST_CM down and flows in.
+		var t := PI * 1.25 + float(j) / float(steps) * TAU
 		fine.append(center + Vector2(RX * cos(t), RY * sin(t) * cos(t)))
 	var shape := _resample_closed(fine, BEAD_SPACING)
-	# Entry lead-in: stream in from above the first curve point.
+	# Entry lead-in: stream in horizontally from off-screen LEFT into the first curve point.
 	var p0: Vector2 = shape[0]
 	_entry_n = NUM_ENTRY
 	for k in NUM_ENTRY:
-		_path.append(Vector2(p0.x, p0.y - float(NUM_ENTRY - k) * ENTRY_STEP))
+		_path.append(Vector2(p0.x - float(NUM_ENTRY - k) * ENTRY_STEP, p0.y))
 	_path.append_array(shape)
 
 ## Evenly-spaced points (by arc length) around a CLOSED fine polyline — no duplicate at the seam.
