@@ -43,6 +43,10 @@ func _can_drop_data(at_position: Vector2, data: Variant) -> bool:
 		_clear_hover()
 		return false
 	var d: Dictionary = data
+	# Block UNEQUIPPING (dragging an equipped item back) during a boss fight; allow plain rearranging.
+	if String(d.get("slot", "")) != "" and GameManager.is_in_battle():
+		_clear_hover()
+		return false
 	var size_cells: Vector2i = InventoryManager.def_size(String(d["def_id"]))
 	var origin := _origin_from(at_position, d)
 	var ok := InventoryManager.can_place(size_cells, origin, int(d["uid"]))

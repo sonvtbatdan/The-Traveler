@@ -20,13 +20,15 @@ const SLOT_MAX_CELLS := {
 	"drone_1":          Vector2i(2, 2),
 	"drone_2":          Vector2i(2, 2),
 	"thruster":         Vector2i(2, 2),
+	"relic":            Vector2i(2, 2),
 }
 
 # Preloaded (not referenced by class_name) so this works on a fresh headless run
 # before the editor has registered the global class names.
-const BackpackGrid := preload("res://scripts/ui/inventory/backpack_grid.gd")
-const EquipSlot    := preload("res://scripts/ui/inventory/equip_slot.gd")
-const ItemWidget   := preload("res://scripts/ui/inventory/item_widget.gd")
+const BackpackGrid    := preload("res://scripts/ui/inventory/backpack_grid.gd")
+const EquipSlot       := preload("res://scripts/ui/inventory/equip_slot.gd")
+const ItemWidget      := preload("res://scripts/ui/inventory/item_widget.gd")
+const CharacterSheet  := preload("res://scripts/ui/inventory/character_sheet.gd")
 
 const SLOT_LABELS := {
 	"primary_weapon":   "Primary Weapon",
@@ -39,6 +41,7 @@ const SLOT_LABELS := {
 	"drone_1":          "Drone I",
 	"drone_2":          "Drone II",
 	"wings":            "Wings",
+	"relic":            "Relic",
 }
 # Background images for each slot
 const SLOT_ICONS := {
@@ -60,7 +63,7 @@ const GRID_PITCH  := Vector2(176, 135)
 const SLOT_LAYOUT := {
 	"command_bridge":   Vector2i(1, 0),
 	"primary_weapon":   Vector2i(0, 1), "hull": Vector2i(1, 1), "secondary_weapon": Vector2i(2, 1),
-	"drone_2":          Vector2i(0, 2),                          "drone_1": Vector2i(2, 2),
+	"drone_2":          Vector2i(0, 2), "relic": Vector2i(1, 2), "drone_1": Vector2i(2, 2),
 	"energy_core":      Vector2i(0, 3), "wings": Vector2i(1, 3), "radar": Vector2i(2, 3),
 	"thruster":         Vector2i(1, 4),
 }
@@ -70,7 +73,9 @@ var _backdrop: ColorRect
 var _panel: Panel
 var _toggle_btn: Button
 var _grid: BackpackGrid
+var _sheet: CharacterSheet          # live player-stats panel, docked right of the loadout
 var _slot_nodes: Dictionary = {}   # slot -> EquipSlot
+var _msg_label: Label = null       # transient on-panel message (failed equip-requirement, etc.)
 
 func _ready() -> void:
 	layer = 60
@@ -111,6 +116,10 @@ func _build_panel() -> void:
 	_style_panel(_panel)
 	add_child(_panel)
 	_build_panel_contents()
+
+	# Character Sheet — live stats panel, docks itself to the right screen edge.
+	_sheet = CharacterSheet.new()
+	add_child(_sheet)
 
 # Pixel size of a slot = its largest item footprint (cells × CELL) + padding on all sides.
 func _slot_size(slot: String) -> Vector2:
@@ -223,11 +232,15 @@ func _rebuild() -> void:
 func open() -> void:
 	_backdrop.show()
 	_panel.show()
+	if _sheet != null:
+		_sheet.show()
 	_toggle_btn.hide()
 
 func close() -> void:
 	_backdrop.hide()
 	_panel.hide()
+	if _sheet != null:
+		_sheet.hide()
 	_toggle_btn.show()
 
 func is_open() -> bool:
@@ -269,12 +282,29 @@ func _on_sell_confirmed() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		var k: int = (event as InputEventKey).keycode
-		if k == KEY_I:
+		if k == KEY_I or k == KEY_C:   # I = inventory, C = character sheet (both open this panel)
 			toggle()
 			get_viewport().set_input_as_handled()
 		elif k == KEY_ESCAPE and is_open():
 			close()
 			get_viewport().set_input_as_handled()
+
+## Transient on-panel message (e.g. a failed equip-requirement). Called by equip_slot.gd.
+func flash_message(msg: String) -> void:
+	if _msg_label == null:
+		_msg_label = Label.new()
+		_msg_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_msg_label.size = Vector2(PANEL_SIZE.x, 28)
+		_msg_label.position = Vector2(0, 44)
+		_msg_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_apply_font(_msg_label, 16)
+		_msg_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.45))
+		_panel.add_child(_msg_label)
+	_msg_label.text = msg
+	_msg_label.modulate.a = 1.0
+	var t := create_tween()
+	t.tween_interval(1.0)
+	t.tween_property(_msg_label, "modulate:a", 0.0, 0.6)
 
 # ── Styling (dark navy / steel-blue, matching the rest of the game) ───────────
 

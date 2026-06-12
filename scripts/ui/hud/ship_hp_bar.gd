@@ -10,6 +10,9 @@ var _shield_label: Label     = null   # yellow shield number
 var _energy_track: ColorRect = null   # cyan dash-energy bar, below the HP bar
 var _energy_fill:  ColorRect = null
 var _energy_label: Label     = null
+var _ammo_track:   ColorRect = null   # orange weapon-ammo bar, below the energy bar
+var _ammo_fill:    ColorRect = null
+var _ammo_label:   Label     = null
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -79,12 +82,38 @@ func _ready() -> void:
 	_energy_label.size = Vector2(120.0, 12.0)
 	add_child(_energy_label)
 
+	# Ammo (weapon) bar — sits just below the energy bar.
+	_ammo_track = ColorRect.new()
+	_ammo_track.color = Color(0.15, 0.15, 0.15, 0.8)
+	_ammo_track.size  = Vector2(BAR_W, 8)
+	add_child(_ammo_track)
+
+	_ammo_fill = ColorRect.new()
+	_ammo_fill.color = Color(1.0, 0.6, 0.2)
+	_ammo_fill.size  = Vector2(BAR_W, 8)
+	_ammo_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ammo_track.add_child(_ammo_fill)
+
+	_ammo_label = Label.new()
+	_ammo_label.text = "AM  100 / 100"
+	if font:
+		_ammo_label.add_theme_font_override("font", font)
+	_ammo_label.add_theme_font_size_override("font_size", 9)
+	_ammo_label.add_theme_color_override("font_color", Color(1.0, 0.75, 0.4))
+	_ammo_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	_ammo_label.add_theme_constant_override("outline_size", 2)
+	_ammo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_ammo_label.size = Vector2(120.0, 12.0)
+	add_child(_ammo_label)
+
 	GameManager.ship_hp_changed.connect(_on_hp_changed)
 	GameManager.ship_shield_changed.connect(_on_shield_changed)
 	GameManager.ship_energy_changed.connect(_on_energy_changed)
+	GameManager.ship_ammo_changed.connect(_on_ammo_changed)
 	GameManager.ship_destroyed.connect(_on_destroyed)
 	_on_shield_changed(GameManager.ship_shield)
 	_on_energy_changed(GameManager.ship_energy)
+	_on_ammo_changed(GameManager.ship_ammo)
 	call_deferred("_reposition")
 
 func _reposition() -> void:
@@ -101,29 +130,42 @@ func _reposition() -> void:
 		_energy_track.position = Vector2(vp.x - 145, vp.y - 66)
 	if _energy_label != null:
 		_energy_label.position = Vector2(vp.x - 145 + BAR_W - 120.0, vp.y - 68)
+	if _ammo_track != null:
+		_ammo_track.position = Vector2(vp.x - 145, vp.y - 52)
+	if _ammo_label != null:
+		_ammo_label.position = Vector2(vp.x - 145 + BAR_W - 120.0, vp.y - 54)
 
 func _on_hp_changed(hp: int) -> void:
-	var ratio := clampf(float(hp) / GameManager.SHIP_MAX_HP, 0.0, 1.0)
+	var ratio := clampf(float(hp) / float(GameManager.ship_max_hp), 0.0, 1.0)
 	_fill.size.x = BAR_W * ratio
 	_fill.color  = _hp_color(ratio)
-	_label.text  = "HP  %d / %d" % [hp, GameManager.SHIP_MAX_HP]
+	_label.text  = "HP  %d / %d" % [hp, GameManager.ship_max_hp]
 	if hp > 0:   # clear the red "DESTROYED" tint after respawn
 		_label.add_theme_color_override("font_color", Color.WHITE)
 
 func _on_shield_changed(shield: float) -> void:
 	# Overlay width is scaled against MAX HP and capped at the bar; the number is the true value.
-	var ratio := clampf(shield / float(GameManager.SHIP_MAX_HP), 0.0, 1.0)
+	var ratio := clampf(shield / float(GameManager.ship_max_hp), 0.0, 1.0)
 	if _shield_fill != null:
 		_shield_fill.size.x = BAR_W * ratio
 	if _shield_label != null:
 		_shield_label.text = str(int(round(shield)))
 
 func _on_energy_changed(energy: float) -> void:
-	var ratio := clampf(energy / GameManager.SHIP_MAX_ENERGY, 0.0, 1.0)
+	var cap := GameManager.max_energy()   # attribute-driven (Maneuverability)
+	var ratio := clampf(energy / maxf(1.0, cap), 0.0, 1.0)
 	if _energy_fill != null:
 		_energy_fill.size.x = BAR_W * ratio
 	if _energy_label != null:
-		_energy_label.text = "EN  %d / %d" % [int(round(energy)), int(GameManager.SHIP_MAX_ENERGY)]
+		_energy_label.text = "EN  %d / %d" % [int(round(energy)), int(round(cap))]
+
+func _on_ammo_changed(ammo: float) -> void:
+	var cap := GameManager.max_ammo()   # attribute-driven (Engineering)
+	var ratio := clampf(ammo / maxf(1.0, cap), 0.0, 1.0)
+	if _ammo_fill != null:
+		_ammo_fill.size.x = BAR_W * ratio
+	if _ammo_label != null:
+		_ammo_label.text = "AM  %d / %d" % [int(round(ammo)), int(round(cap))]
 
 func _on_destroyed() -> void:
 	_fill.size.x = 0.0

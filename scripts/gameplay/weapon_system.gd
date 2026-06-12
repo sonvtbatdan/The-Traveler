@@ -169,8 +169,10 @@ var _crit_text_shader: Shader = null # gold-gradient fill for crit numbers
 # Batch D SHARED pools (source-agnostic — a bullet/parasite is the same whoever fired it)
 var _rift_layer: CanvasLayer = null   # high CanvasLayer hosting both slots' vortex nodes
 var _orbital_node: Control = null     # draws both slots' orbiting balls + lightning (above the ship)
-var _parasites: Array = []  # Parasite Gun darts in flight: {pos, vel, life}
-var _dots: Array = []       # attached parasites dealing DoT: {kind:"rock"/"boss", handle, dps, acc, life}
+var _blobs: Array = []      # Parasite Gun blobs in flight: {pos, vel, life, travel, parasites, shot_dmg, shot_int, lifespan}
+var _parasites: Array = []  # orbiting parasites: {kind, handle, angle, ring, shoot_acc, life, shot_dmg, shot_int, lifespan}
+var _specks: Array = []     # cheap shot-speck visuals: {from, to, age}
+var _acid: Dictionary = {}  # the single Acid Sprayer glob/cloud (one at a time): {phase, pos, vel, …}
 var _block_flashes: Array = []  # bat block-impact pops: {pos, age, max_age}
 
 # Transient FX (all in StreamScreen-local space)
@@ -192,6 +194,8 @@ func _make_ctx(slot: String, button: int, allow_auto: bool) -> Dictionary:
 	return {
 		"slot": slot, "button": button, "allow_auto": allow_auto,
 		"trigger_down": false, "mouse_was_down": false, "cd": 0.0, "charge": 0.0,
+		# burst-fire (Shotgun: 2 shots then 1s internal cd) — generic via burst_count/burst_gap_sec stats
+		"burst_left": 0, "burst_gap_cd": 0.0,
 		# beam (Lasgun hitscan_beam / Plasma Drill tether)
 		"beam_active": false, "beam_from": Vector2.ZERO, "beam_to": Vector2.ZERO,
 		"beam_color": Color(1.0, 0.3, 0.3), "beam_width": 8.0, "beam_hit": false,
@@ -200,25 +204,35 @@ func _make_ctx(slot: String, button: int, allow_auto: bool) -> Dictionary:
 		"flare_chunks": [], "flare_chunk_acc": 0.0,
 		# channel (Rift Maker void / Swarm Host bats)
 		"zone": {"active": false, "pos": Vector2.ZERO, "age": 0.0, "tick_acc": 0.0},
-		"rift": null, "bats": [],
+		"rift": null, "rift_distort": null, "bats": [],
 		# orbital (Orbitals — always-on passive + held overcharge)
 		"orbital": {"active": false, "angle": 0.0, "spin": ORBITAL_NORMAL_SPIN, "powered": false, "hit_cd": []},
 	}
 
-# Extra damageable targets registered by fight controllers (e.g. orb sub-bosses).
-# Each entry: {get_rect: Callable → Rect2 (stream-local), on_hit: Callable(dmg:float)}
+# Extra damageable targets registered by fight controllers (e.g. orb sub-bosses) AND normal enemies.
+# Each entry: {get_rect: Callable → Rect2 (stream-local), on_hit: Callable(dmg:float),
+#              on_shred: Callable(amount:float) (optional, for acid armor-shred), owner: Node (optional)}
 var _extra_targets: Array = []
 
 # Provider for dynamic multi-targets (e.g. shielded bullets). fn() → Array[{rect,on_hit}]
 var _multi_hit_provider: Callable = Callable()
 
 var _out_of_energy_t := 0.0   # shows an "OUT OF ENERGY" message for a moment
+var _out_of_ammo_t := 0.0     # shows an "OUT OF AMMO" message for a moment
 
-func add_hit_target(get_rect: Callable, on_hit: Callable) -> void:
-	_extra_targets.append({"get_rect": get_rect, "on_hit": on_hit})
+func add_hit_target(get_rect: Callable, on_hit: Callable, on_shred: Callable = Callable(), owner: Node = null) -> void:
+	_extra_targets.append({"get_rect": get_rect, "on_hit": on_hit, "on_shred": on_shred, "owner": owner})
 
 func clear_extra_targets() -> void:
 	_extra_targets.clear()
+
+## Remove every extra target registered by `owner` (normal enemies unregister themselves on death).
+func remove_hit_target(owner: Node) -> void:
+	var i := _extra_targets.size() - 1
+	while i >= 0:
+		if (_extra_targets[i] as Dictionary).get("owner", null) == owner:
+			_extra_targets.remove_at(i)
+		i -= 1
 
 func set_multi_hit_provider(fn: Callable) -> void:
 	_multi_hit_provider = fn
@@ -286,6 +300,8 @@ func setup() -> void:
 	rtex.noise = rnoise
 	var rshader := Shader.new()
 	rshader.code = RIFT_VORTEX_SHADER
+	var dshader := Shader.new()
+	dshader.code = RIFT_DISTORTION_SHADER   # spiral lensing of the real scene (drawn under the vortex)
 	# Vortex nodes for the Rift Maker void — ONE PER SLOT (each its own material so the
 	# two voids grow independently), on a high CanvasLayer ABOVE gameplay (asteroids=0,
 	# ship/boss=10, light=11) so they draw on top. The host Control sits at the
@@ -300,8 +316,13 @@ func setup() -> void:
 	rhost.clip_contents = true
 	rhost.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_rift_layer.add_child(rhost)
+	_wp["rift_distort"] = _make_rift_distort_node(dshader)
+	_ws["rift_distort"] = _make_rift_distort_node(dshader)
 	_wp["rift"] = _make_rift_node(rshader, rtex)
 	_ws["rift"] = _make_rift_node(rshader, rtex)
+	# Distortion FIRST → warps the rendered scene; the bright additive vortices draw on top.
+	rhost.add_child(_wp["rift_distort"])
+	rhost.add_child(_ws["rift_distort"])
 	rhost.add_child(_wp["rift"])
 	rhost.add_child(_ws["rift"])
 
@@ -340,19 +361,43 @@ func _make_rift_node(shader: Shader, tex: Texture2D) -> ColorRect:
 	cr.visible = false
 	return cr
 
+## The DISTORTION node: a ColorRect with the spiral-lensing shader (its OWN ShaderMaterial),
+## NORMAL (mix) blend — it samples + warps the scene already rendered behind the rift. Sits
+## under the bright vortex art. Tuned via the RIFT_DISTORT_* constants.
+func _make_rift_distort_node(shader: Shader) -> ColorRect:
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	mat.set_shader_parameter("twist_strength", RIFT_DISTORT_TWIST)
+	mat.set_shader_parameter("twist_falloff",  RIFT_DISTORT_FALLOFF)
+	mat.set_shader_parameter("suck_in",        RIFT_DISTORT_SUCK)
+	mat.set_shader_parameter("rotation_speed", RIFT_DISTORT_ROT_SPEED)
+	mat.set_shader_parameter("edge_softness",  RIFT_DISTORT_EDGE)
+	var cr := ColorRect.new()
+	cr.material = mat
+	cr.color = Color(1, 1, 1, 1)
+	cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cr.visible = false
+	return cr
+
 # ── Input ─────────────────────────────────────────────────────────────────────
 
 func _begin_trigger(ctx: Dictionary) -> void:
 	var def := _equipped_def(String(ctx["slot"]))
 	if def.is_empty():
 		return
-	# One-time activation energy cost (Lasgun/Rift Maker): pay the moment you start
-	# firing. Not enough → don't fire, and flash "OUT OF ENERGY".
-	var act := get_weapon_stat(def, "activation_energy", 0.0)
-	if act > 0.0 and (WEAPONS_USE_ENERGY or bool(def.get("uses_energy", false))):
-		if not GameManager.try_spend_energy(act):
-			_out_of_energy_t = 1.0
+	# One-time activation cost (Lasgun/Rift Maker): pay the moment you start firing.
+	# Not enough → don't fire, and flash "OUT OF AMMO"/"OUT OF ENERGY".
+	if bool(def.get("uses_ammo", false)):
+		var act_a := get_weapon_stat(def, "activation_ammo", 0.0)
+		if act_a > 0.0 and not GameManager.try_spend_ammo(act_a):
+			_out_of_ammo_t = 1.0
 			return
+	else:
+		var act := get_weapon_stat(def, "activation_energy", 0.0)
+		if act > 0.0 and (WEAPONS_USE_ENERGY or bool(def.get("uses_energy", false))):
+			if not GameManager.try_spend_energy(act):
+				_out_of_energy_t = 1.0
+				return
 	ctx["trigger_down"] = true
 	if String(def.get("fire_mode", "")) == "charge":
 		ctx["charge"] = 0.0
@@ -390,12 +435,16 @@ func _process(delta: float) -> void:
 	_update_rift_visual(_ws)
 	_update_bullets(delta)
 	_update_missiles(delta)
-	_update_parasites(delta)   # Parasite Gun darts + attached DoTs (tick regardless of trigger)
+	_update_blobs(delta)       # Parasite Gun blobs in flight
+	_update_parasites(delta)   # orbiting parasites (tick regardless of trigger)
+	_tick_specks(delta)        # parasite shot-speck visuals
+	_update_acid(delta)        # Acid Sprayer glob → cloud (damage + armor shred)
 	_tick_fx(_impacts, delta)
 	_tick_fx(_arcs, delta)
 	_tick_fx(_block_flashes, delta)
 	_beam_time += delta
 	_out_of_energy_t = maxf(0.0, _out_of_energy_t - delta)
+	_out_of_ammo_t = maxf(0.0, _out_of_ammo_t - delta)
 	_tick_beam_fx(_wp, delta)
 	_tick_beam_fx(_ws, delta)
 	if _glow != null:
@@ -411,7 +460,8 @@ func _process(delta: float) -> void:
 func _handle_input(ctx: Dictionary, delta: float) -> void:
 	ctx["cd"] = maxf(0.0, float(ctx["cd"]) - delta)
 	var auto: bool = bool(ctx["allow_auto"]) and _auto_fire
-	var down: bool = Input.is_mouse_button_pressed(int(ctx["button"])) or auto
+	# No firing during the boss fly-in or the death cutscene (player input disabled).
+	var down: bool = (Input.is_mouse_button_pressed(int(ctx["button"])) or auto) and not (GameManager.boss_intro_active or GameManager.input_locked)
 	if _inventory_open():
 		ctx["trigger_down"] = false
 		ctx["charge"] = 0.0
@@ -426,6 +476,7 @@ func _handle_input(ctx: Dictionary, delta: float) -> void:
 func _update_weapon(ctx: Dictionary, delta: float) -> void:
 	if not bool(ctx["trigger_down"]):
 		ctx["beam_active"] = false
+		ctx["burst_left"] = 0   # releasing cancels any in-progress burst
 		_end_channel(ctx)   # released / not firing → collapse void, dismiss swarm
 		return
 	var def := _equipped_def(String(ctx["slot"]))
@@ -440,9 +491,16 @@ func _update_weapon(ctx: Dictionary, delta: float) -> void:
 	if mode != "channel":
 		_end_channel(ctx)            # swapped off a channel weapon → clean up its zone/bats
 	if mode == "repeat":
-		# Fire only when this slot's cooldown has elapsed (covers both click and hold).
-		if float(ctx["cd"]) <= 0.0 and _fire_by_type(def):
-			ctx["cd"] = maxf(0.02, get_weapon_stat(def, "cooldown_sec", 0.2))
+		# Per-second ammo drain while firing; out of ammo → can't fire this frame.
+		if not _drain_ammo_per_sec(def, delta):
+			return
+		var burst_count := int(get_weapon_stat(def, "burst_count", 1.0))
+		if burst_count <= 1:
+			# Fire only when this slot's cooldown has elapsed (covers both click and hold).
+			if float(ctx["cd"]) <= 0.0 and _fire_by_type(def):
+				ctx["cd"] = maxf(0.02, get_weapon_stat(def, "cooldown_sec", 0.2))
+		else:
+			_update_burst(ctx, def, burst_count, delta)
 	elif mode == "charge":
 		var maxc: float = maxf(0.1, float(_stat(def, "cooldown_sec", 3.0)))
 		ctx["charge"] = minf(float(ctx["charge"]) + delta, maxc)
@@ -451,6 +509,38 @@ func _update_weapon(ctx: Dictionary, delta: float) -> void:
 	elif mode == "channel":
 		_update_channel(ctx, def, delta)
 
+## Per-second ammo drain for a weapon that's actively firing. Returns false (caller must NOT fire
+## this frame) when the weapon uses ammo and there isn't enough left.
+func _drain_ammo_per_sec(def: Dictionary, delta: float) -> bool:
+	if not bool(def.get("uses_ammo", false)):
+		return true
+	var rate := get_weapon_stat(def, "ammo", 0.0)
+	if rate <= 0.0:
+		return true
+	if GameManager.try_spend_ammo(rate * delta):
+		return true
+	_out_of_ammo_t = 1.0
+	return false
+
+## Burst-fire for repeat weapons with burst_count > 1 (Shotgun): fire burst_count shots
+## burst_gap_sec apart, then a cooldown_sec internal reload before the next burst can start.
+func _update_burst(ctx: Dictionary, def: Dictionary, burst_count: int, delta: float) -> void:
+	if int(ctx["burst_left"]) > 0:
+		# Mid-burst: fire the remaining shots burst_gap_sec apart.
+		ctx["burst_gap_cd"] = maxf(0.0, float(ctx["burst_gap_cd"]) - delta)
+		if float(ctx["burst_gap_cd"]) <= 0.0 and _fire_by_type(def):
+			ctx["burst_left"] = int(ctx["burst_left"]) - 1
+			if int(ctx["burst_left"]) <= 0:
+				ctx["cd"] = maxf(0.02, get_weapon_stat(def, "cooldown_sec", 1.0))   # internal reload
+			else:
+				ctx["burst_gap_cd"] = maxf(0.0, get_weapon_stat(def, "burst_gap_sec", 0.12))
+	elif float(ctx["cd"]) <= 0.0 and _fire_by_type(def):
+		# Start a new burst — this was shot #1 of burst_count.
+		ctx["burst_left"] = burst_count - 1
+		ctx["burst_gap_cd"] = maxf(0.0, get_weapon_stat(def, "burst_gap_sec", 0.12))
+		if burst_count - 1 <= 0:
+			ctx["cd"] = maxf(0.02, get_weapon_stat(def, "cooldown_sec", 1.0))
+
 func _update_secondary(delta: float) -> void:
 	var def := _secondary_def()
 	if def.is_empty() or String(def.get("fire_mode", "")) != "aura":
@@ -458,7 +548,8 @@ func _update_secondary(delta: float) -> void:
 	_aura_time += delta
 	var interval: float = maxf(0.05, float(_stat(def, "tick_interval_sec", 0.25)))
 	var radius: float = float(_stat(def, "radius_px", 140.0))
-	var dmg: float = float(_stat(def, "damage_per_tick", 1.0))
+	# Aura damage bypasses get_weapon_stat, so apply the attribute category multiplier here directly.
+	var dmg: float = float(_stat(def, "damage_per_tick", 1.0)) * GameManager.weapon_damage_mult(def)
 	_aura_acc += delta
 	while _aura_acc >= interval:
 		_aura_acc -= interval
@@ -591,6 +682,7 @@ func _fire_primary(def: Dictionary) -> void:
 ## Returns false if the shot couldn't happen (e.g. not enough energy) so the
 ## caller stops spamming the cooldown loop this frame.
 func _fire_by_type(def: Dictionary) -> bool:
+	GameManager.note_weapon_firing()   # any discrete shot pauses ammo regen ("disabled while firing")
 	match String(def.get("fire_type", "projectile")):
 		"homing":
 			if not _spend_weapon_energy(def):
@@ -604,10 +696,17 @@ func _fire_by_type(def: Dictionary) -> bool:
 			if not _spend_weapon_energy(def):
 				return false
 			_fire_chain(def)
-		"dot_stack":
-			if not _spend_weapon_energy(def):
+		"parasite_blob":
+			# Per-shot ammo cost (not the per-second drain). Out of ammo → don't fire, flash.
+			if not GameManager.try_spend_ammo(get_weapon_stat(def, "ammo_cost", 20.0)):
+				_out_of_ammo_t = 1.0
 				return false
-			_fire_parasites(def)
+			_fire_parasite_blob(def)
+		"acid_cloud":
+			if not GameManager.try_spend_ammo(get_weapon_stat(def, "ammo_cost", 12.0)):
+				_out_of_ammo_t = 1.0
+				return false
+			_fire_acid(def)
 		_:  # "projectile" and anything not yet implemented → a plain bullet
 			_fire_primary(def)
 	return true
@@ -872,13 +971,22 @@ func _update_beam(ctx: Dictionary, def: Dictionary, delta: float) -> void:
 	# (GameManager.ENERGY_REGEN = 5/s) keeps running in the background, so net −15/s.
 	# Check-then-pay every frame: if we can't afford this frame's slice, the beam
 	# cuts out and the trigger releases (must let go + re-press, paying activation).
-	if WEAPONS_USE_ENERGY or bool(def.get("uses_energy", false)):
+	if bool(def.get("uses_ammo", false)):
+		var drain := get_weapon_stat(def, "ammo", 0.0) * delta   # per-second ammo cost × delta
+		if drain > 0.0 and not GameManager.try_spend_ammo(drain):
+			_out_of_ammo_t = 1.0
+			ctx["beam_active"] = false
+			ctx["beam_hit"] = false
+			ctx["trigger_down"] = false
+			return
+	elif WEAPONS_USE_ENERGY or bool(def.get("uses_energy", false)):
 		var drain := get_weapon_stat(def, "energy", 0.0) * delta   # per-second cost × delta
 		if drain > 0.0 and not GameManager.try_spend_energy(drain):
 			ctx["beam_active"] = false
 			ctx["beam_hit"] = false
 			ctx["trigger_down"] = false
 			return
+	GameManager.note_weapon_firing()   # beam held = firing → pause ammo regen (covers non-ammo beams too)
 	if ft == "tether":
 		var rng := get_weapon_stat(def, "range_px", 170.0)
 		var anchor := _nearest_target_dict(muzzle, _collect_targets(), rng)
@@ -1180,8 +1288,81 @@ void fragment() {
 }
 "
 
-const PARASITE_SPEED      := 520.0
+# ── Rift Maker — gravitational-lensing distortion (warps the REAL scene behind the rift) ──
+# A screen-reading ColorRect drawn UNDER the bright vortex art. It samples the already-rendered
+# starfield/asteroids (the rift's layer 12 is above the scene) and spirals them inward toward
+# the rift centre, falling off smoothly at the edge. Reuses the rift's centre + growth. Visual only.
+const RIFT_FRONT_SCALE       := 0.28   # bright vortex size = (2×radius) × this  (−30% more)
+const RIFT_DISTORT_SCALE     := 0.672  # distortion-disc size = (2×radius) × this (−30% more)
+const RIFT_DISTORT_TWIST     := 8.0    # radians of swirl at the eye (~1.3 turns) — the spiral strength
+const RIFT_DISTORT_FALLOFF   := 2.0    # how fast the twist fades centre→edge (higher = tighter at the eye)
+const RIFT_DISTORT_SUCK      := 0.18   # inward radial pull (the "suck-in"/zoom) — balance against the twist
+const RIFT_DISTORT_ROT_SPEED := 0.8    # continuous rotation speed over TIME
+const RIFT_DISTORT_EDGE      := 0.22   # edge-falloff width (bigger = softer blend into the undistorted scene)
+
+# Spiral lensing shader: samples the scene already rendered behind the rift and warps it inward.
+# Drawn with NORMAL (mix) blend UNDER the additive vortex art, so the bright arms/core stay on top.
+const RIFT_DISTORTION_SHADER := "shader_type canvas_item;
+uniform sampler2D screen_tex : hint_screen_texture, filter_linear;
+uniform float twist_strength : hint_range(0.0, 20.0, 0.1) = 8.0;   // radians of swirl AT THE EYE
+uniform float twist_falloff  : hint_range(0.3, 6.0, 0.05) = 2.0;   // how fast the twist fades centre→edge
+uniform float suck_in        : hint_range(0.0, 0.6, 0.01) = 0.18;  // inward radial pull (zoom/suck)
+uniform float rotation_speed : hint_range(-3.0, 3.0, 0.01) = 0.8;  // continuous rotation over time
+uniform float edge_softness  : hint_range(0.01, 0.6, 0.01) = 0.22; // falloff width at the disc edge
+uniform float growth         : hint_range(0.0, 1.0, 0.01) = 1.0;   // scales with the rift
+uniform vec2  rect_size = vec2(120.0, 120.0);                      // distortion rect pixel size
+
+void fragment() {
+	vec2 p = UV - 0.5;                              // local, centred on the rect
+	float r = length(p);
+	float dist = clamp(r * 2.0, 0.0, 1.0);          // 0 at centre → 1 at the disc edge
+	// Seamless rim: all offsets fade to 0 at the edge (no hard seam).
+	float edge = 1.0 - smoothstep(1.0 - edge_softness, 1.0, dist);
+	float gscale = 0.4 + 0.6 * growth;              // grows with the rift
+	// KEY: a centre-weighted weight (strong at the eye, ~0 at the rim). Because it VARIES with
+	// radius, the inner scene rotates more than the outer → differential rotation = spiral arms
+	// (a constant angle offset would only rigidly rotate/zoom — that was the old magnify look).
+	float w = pow(1.0 - dist, twist_falloff);
+	float ang = atan(p.y, p.x);
+	// Spiral twist (radius-dependent) + a uniform TIME spin so the whole swirl keeps rotating.
+	float new_ang = ang + (twist_strength * w + TIME * rotation_speed) * edge * gscale;
+	// Keep the inward pull (also centre-weighted) → things spiral AND get drawn inward.
+	float new_r   = r * (1.0 - suck_in * w * edge * gscale);
+	vec2 sample_p = vec2(cos(new_ang), sin(new_ang)) * new_r;
+	vec2 uv_off   = sample_p - p;                   // displacement in local UV
+	vec2 suv      = SCREEN_UV + uv_off * rect_size * SCREEN_PIXEL_SIZE;
+	COLOR = texture(screen_tex, suv);               // warped scene; identical at the rim → seamless
+}
+"
+
 const PARASITE_HIT_RADIUS := 10.0
+# Parasite Gun (blob → orbiting parasites) — all tunable.
+const PARASITE_BLOB_SPEED   := 560.0   # blob travel speed
+const PARASITE_BLOB_LEN     := 36.0    # blob long-axis px (~1cm); short axis = LEN × 0.55
+const PARASITE_BLOB_RANGE   := 760.0   # blob fizzles after travelling this far with no hit
+const PARASITE_ORBIT_SCALE  := 1.15    # orbit radius = nucleus bounding-radius × this …
+const PARASITE_ORBIT_MARGIN := 12.0    # … + this flat margin, so the ring sits just OUTSIDE the model
+const PARASITE_ORBIT_MIN    := 22.0    # floor so tiny asteroids still get a visible orbit
+const PARASITE_ORBIT_SPEED  := 3.0     # rad/s orbital speed
+# Faint red motion trail behind each parasite (traced along the orbit arc — cheap, no per-parasite history)
+const PARASITE_TRAIL_LEN   := 5        # samples behind the parasite
+const PARASITE_TRAIL_STEP  := 0.17     # radians between trail samples (arc length of the tail)
+const PARASITE_TRAIL_ALPHA := 0.22     # starting (faint) trail opacity
+const PARASITE_TRAIL_COL   := Color(1.0, 0.18, 0.14)
+const PARASITE_RING_COUNT   := 5       # distinct ring orientations (the atom look)
+const PARASITE_RING_SQUASH  := 0.42    # vertical squash that fakes a tilted 3D ring
+const PARASITE_DOT_SIZE     := 3.6     # parasite dot radius px
+const PARASITE_SPECK_LIFE   := 0.14    # shot-speck visual lifetime
+# Acid Sprayer (glob → mist cloud) — all tunable.
+const ACID_PROJ_SPEED     := 900.0   # initial glob speed (fast)
+const ACID_PROJ_DRAG      := 0.05    # fraction of velocity kept per second (lower = decelerates harder)
+const ACID_PROJ_MIN_SPEED := 60.0    # glob settles into a cloud below this speed...
+const ACID_PROJ_MAX_T     := 0.6     # ...or after this long, whichever comes first
+const ACID_CLOUD_PUFFS    := 9       # mist blobs per cloud (density)
+const ACID_CLOUD_ALPHA    := 0.10    # per-layer mist opacity
+const ACID_SWIRL_SPEED    := 0.8     # internal churn speed
+const ACID_COL_GREEN      := Color(0.40, 0.95, 0.35)
+const ACID_COL_PURPLE     := Color(0.62, 0.30, 0.88)
 const BAT_SPEED           := 240.0
 const BAT_HIT_RANGE       := 40.0    # how close a bat must be to land an auto-attack
 const BAT_BLOCK_RADIUS    := 22.0    # how close a bat must be to pop a boss projectile
@@ -1202,13 +1383,21 @@ const ORBITAL_LIGHTNING_POWERED := 1.0     # arc intensity at full overcharge
 ## "channel" fire_mode: hold-to-sustain. Optional continuous energy drain (same as
 ## beams; OFF unless the weapon sets uses_energy), then dispatch on fire_type.
 func _update_channel(ctx: Dictionary, def: Dictionary, delta: float) -> void:
-	if WEAPONS_USE_ENERGY or bool(def.get("uses_energy", false)):
+	if bool(def.get("uses_ammo", false)):
+		var drain := get_weapon_stat(def, "ammo", 0.0) * delta   # per-second ammo cost × delta
+		if drain > 0.0 and not GameManager.try_spend_ammo(drain):
+			_out_of_ammo_t = 1.0
+			_end_channel(ctx)
+			ctx["trigger_down"] = false
+			return
+	elif WEAPONS_USE_ENERGY or bool(def.get("uses_energy", false)):
 		var drain := get_weapon_stat(def, "energy", 0.0) * delta   # per-second cost × delta
 		if drain > 0.0 and not GameManager.try_spend_energy(drain):
 			_out_of_energy_t = 1.0
 			_end_channel(ctx)
 			ctx["trigger_down"] = false
 			return
+	GameManager.note_weapon_firing()   # channel held = firing → pause ammo regen
 	match String(def.get("fire_type", "")):
 		"growing_zone":
 			_tick_zone(ctx, def, delta)
@@ -1226,19 +1415,34 @@ func _update_rift_visual(ctx: Dictionary) -> void:
 	var rift := ctx["rift"] as ColorRect
 	if rift == null:
 		return
+	var distort := ctx.get("rift_distort") as ColorRect
 	var z: Dictionary = ctx["zone"]
 	if bool(z["active"]):
 		var rad: float = float(z.get("radius", 40.0))
 		var f: float = float(z.get("intensity", 0.0))
 		var zp: Vector2 = z["pos"]
-		rift.position = zp - Vector2(rad, rad)
-		rift.size = Vector2(rad * 2.0, rad * 2.0)   # diameter ≈ 2× damage-radius
+		# Front bright vortex — 50% smaller (was 2× the damage radius).
+		var fdiam: float = rad * 2.0 * RIFT_FRONT_SCALE
+		rift.position = zp - Vector2(fdiam * 0.5, fdiam * 0.5)
+		rift.size = Vector2(fdiam, fdiam)
 		var mat := rift.material as ShaderMaterial
 		if mat != null:
 			mat.set_shader_parameter("growth", f)
 		rift.visible = true
+		# Distortion disc: same centre, scales with the rift, same growth → spirals the scene in.
+		if distort != null:
+			var ddiam: float = rad * 2.0 * RIFT_DISTORT_SCALE
+			distort.position = zp - Vector2(ddiam * 0.5, ddiam * 0.5)
+			distort.size = Vector2(ddiam, ddiam)
+			var dmat := distort.material as ShaderMaterial
+			if dmat != null:
+				dmat.set_shader_parameter("growth", f)
+				dmat.set_shader_parameter("rect_size", Vector2(ddiam, ddiam))
+			distort.visible = true
 	else:
 		rift.visible = false
+		if distort != null:
+			distort.visible = false
 
 # ── Rift Maker (growing_zone) ──────────────────────────────────────────────────
 func _tick_zone(ctx: Dictionary, def: Dictionary, delta: float) -> void:
@@ -1274,75 +1478,230 @@ func _tick_zone(ctx: Dictionary, def: Dictionary, delta: float) -> void:
 				bf.flash_boss_hit()
 			_on_damage_dealt(br.position + br.size * 0.5, hit_dmg, false)
 
-# ── Parasite Gun (dot_stack) ───────────────────────────────────────────────────
-func _fire_parasites(def: Dictionary) -> void:
-	var n := maxi(1, int(get_weapon_stat(def, "parasites", 5.0)))
-	var dps := get_weapon_stat(def, "dps", 6.0)
-	var tick := maxf(0.05, get_weapon_stat(def, "dot_tick_sec", 0.5))
+# ── Parasite Gun (parasite_blob → orbiting parasites) ──────────────────────────
+## Fire one blob toward the cursor. The blob carries the (affix-resolved) cluster params so the
+## parasites it later spawns use the weapon's stats captured at fire time.
+func _fire_parasite_blob(def: Dictionary) -> void:
 	var muzzle := _muzzle()
-	var aim := get_local_mouse_position() - muzzle
-	if aim.length() < 0.01:
-		aim = Vector2.UP
-	var base := aim.angle()
-	for i in n:
-		var t := 0.0 if n <= 1 else (float(i) / float(n - 1) - 0.5)
-		var ang := base + t * deg_to_rad(26.0)
-		var dir := Vector2(cos(ang), sin(ang))
-		_parasites.append({"pos": muzzle, "vel": dir * PARASITE_SPEED, "life": 0.0, "dps": dps, "tick": tick})
+	var dir := get_local_mouse_position() - muzzle
+	if dir.length() < 0.01:
+		dir = Vector2.UP
+	dir = dir.normalized()
+	_blobs.append({
+		"pos": muzzle, "vel": dir * PARASITE_BLOB_SPEED, "life": 0.0, "travel": 0.0,
+		"parasites": maxi(1, int(get_weapon_stat(def, "parasites", 5.0))),
+		# TODO(enemy-armor): route this through the enemy DR formula once an enemy-armor system exists.
+		"shot_dmg": get_weapon_stat(def, "shot_damage", 15.0),
+		"shot_int": maxf(0.05, get_weapon_stat(def, "shot_interval_sec", 0.5)),
+		"lifespan": maxf(0.2, get_weapon_stat(def, "parasite_lifespan_sec", 3.0)),
+	})
 	_spawn_impact(muzzle, false)
 
-## Darts in flight attach on first hit; attached parasites then tick DoT forever
-## (until the target dies). Runs every frame, independent of the trigger.
-func _update_parasites(delta: float) -> void:
+## Move blobs; on an enemy hit, burst into a parasite cluster bound to that nucleus. A blob that
+## reaches max range / leaves the screen just fizzles (no parasites). Runs every frame.
+func _update_blobs(delta: float) -> void:
 	var ast := _ast()
 	var br := _boss_rect_local()
-	var i := _parasites.size() - 1
+	var i := _blobs.size() - 1
 	while i >= 0:
-		var p: Dictionary = _parasites[i]
-		p["pos"] = (p["pos"] as Vector2) + (p["vel"] as Vector2) * delta
-		p["life"] = float(p["life"]) + delta
-		var pos: Vector2 = p["pos"]
-		var attached := false
+		var b: Dictionary = _blobs[i]
+		var step := (b["vel"] as Vector2) * delta
+		b["pos"] = (b["pos"] as Vector2) + step
+		b["travel"] = float(b["travel"]) + step.length()
+		b["life"] = float(b["life"]) + delta
+		var pos: Vector2 = b["pos"]
+		var burst := false
 		if ast != null and ast.has_method("get_asteroid_handle_at"):
 			var h: TextureRect = ast.get_asteroid_handle_at(pos, PARASITE_HIT_RADIUS)
 			if h != null:
-				_dots.append({"kind": "rock", "handle": h, "dps": float(p["dps"]), "tick": float(p["tick"]), "acc": 0.0})
-				attached = true
-		if not attached and br.has_area() and br.has_point(pos):
-			_dots.append({"kind": "boss", "handle": null, "dps": float(p["dps"]), "tick": float(p["tick"]), "acc": 0.0})
-			attached = true
+				_spawn_parasite_cluster("rock", h, b)
+				burst = true
+		if not burst and br.has_area() and br.has_point(pos):
+			_spawn_parasite_cluster("boss", null, b)
+			burst = true
+		if burst:
+			_spawn_impact(pos, false)
 		var off: bool = pos.x < -48.0 or pos.x > size.x + 48.0 or pos.y < -48.0 or pos.y > size.y + 48.0
-		if attached or off or float(p["life"]) > 4.0:
-			if attached:
-				_spawn_impact(pos, false)
+		if burst or off or float(b["travel"]) >= PARASITE_BLOB_RANGE:
+			_blobs.remove_at(i)
+		i -= 1
+
+## Spawn a batch of orbiting parasites bound to a nucleus (rock handle, or the boss). Stacking just
+## appends another batch on the same nucleus → more parasites, more DPS.
+func _spawn_parasite_cluster(kind: String, handle: TextureRect, blob: Dictionary) -> void:
+	var n := int(blob["parasites"])
+	for i in n:
+		_parasites.append({
+			"kind": kind, "handle": handle,
+			"angle": randf() * TAU,
+			"ring": i % PARASITE_RING_COUNT,
+			"shoot_acc": randf() * float(blob["shot_int"]),   # stagger so shots don't all land at once
+			"life": 0.0,
+			"shot_dmg": float(blob["shot_dmg"]),
+			"shot_int": float(blob["shot_int"]),
+			"lifespan": float(blob["lifespan"]),
+		})
+
+## Current center of a parasite's nucleus + whether it's still alive.
+func _nucleus_center(p: Dictionary) -> Dictionary:
+	if String(p["kind"]) == "rock":
+		var h = p["handle"]   # untyped: assigning a FREED node to a typed var throws in Godot 4
+		if not is_instance_valid(h):
+			return {"valid": false, "center": Vector2.ZERO, "radius": 0.0}
+		return {"valid": true, "center": h.position + h.size * 0.5, "radius": maxf(h.size.x, h.size.y) * 0.5}
+	var br := _boss_rect_local()
+	if not br.has_area():
+		return {"valid": false, "center": Vector2.ZERO, "radius": 0.0}
+	return {"valid": true, "center": br.position + br.size * 0.5, "radius": maxf(br.size.x, br.size.y) * 0.5}
+
+## Orbit radius for a nucleus of the given on-screen radius — sized a little bigger than the model.
+func _parasite_orbit_r(nucleus_radius: float) -> float:
+	return maxf(PARASITE_ORBIT_MIN, nucleus_radius * PARASITE_ORBIT_SCALE + PARASITE_ORBIT_MARGIN)
+
+## A parasite's orbit position around `center` at angle `a` — each ring tilted differently (atom).
+func _parasite_pos(p: Dictionary, center: Vector2, orbit_r: float, a: float) -> Vector2:
+	var phi := float(int(p["ring"])) * (PI / float(PARASITE_RING_COUNT))
+	var local := Vector2(cos(a) * orbit_r, sin(a) * orbit_r * PARASITE_RING_SQUASH).rotated(phi)
+	return center + local
+
+## Orbiting parasites: follow their nucleus, vanish after `lifespan` or when the host dies (no
+## jumping), and shoot the nucleus every `shot_int` for `shot_dmg`. Runs every frame.
+func _update_parasites(delta: float) -> void:
+	var ast := _ast()
+	var i := _parasites.size() - 1
+	while i >= 0:
+		var p: Dictionary = _parasites[i]
+		p["life"] = float(p["life"]) + delta
+		var nuc := _nucleus_center(p)
+		var kill: bool = (not bool(nuc["valid"])) or float(p["life"]) > float(p["lifespan"])
+		if not kill:
+			var center: Vector2 = nuc["center"]
+			var orbit_r := _parasite_orbit_r(float(nuc["radius"]))
+			p["angle"] = float(p["angle"]) + PARASITE_ORBIT_SPEED * delta
+			p["shoot_acc"] = float(p["shoot_acc"]) + delta
+			var interval: float = maxf(0.05, float(p["shot_int"]))
+			while float(p["shoot_acc"]) >= interval and not kill:
+				p["shoot_acc"] = float(p["shoot_acc"]) - interval
+				var dmg := float(p["shot_dmg"])
+				var ppos := _parasite_pos(p, center, orbit_r, float(p["angle"]))
+				if String(p["kind"]) == "rock":
+					var h = p["handle"]   # untyped: a freed node assigned to a typed var throws
+					if not is_instance_valid(h) or ast == null or not ast.has_method("damage_asteroid") or not ast.damage_asteroid(h, dmg):
+						kill = true   # host destroyed → parasite vanishes
+					else:
+						_on_damage_dealt(center, dmg, false)   # parasite shot → no crit
+						_specks.append({"from": ppos, "to": center, "age": 0.0})
+				else:
+					var br2 := _boss_rect_local()
+					if not br2.has_area():
+						kill = true
+					else:
+						GameManager.take_boss_damage(int(maxf(1.0, dmg)))
+						var bc := br2.position + br2.size * 0.5
+						_on_damage_dealt(bc, dmg, false)
+						_specks.append({"from": ppos, "to": bc, "age": 0.0})
+		if kill:
 			_parasites.remove_at(i)
 		i -= 1
-	# Attached DoTs.
-	var di := _dots.size() - 1
-	while di >= 0:
-		var d: Dictionary = _dots[di]
-		var tick: float = maxf(0.05, float(d["tick"]))
-		d["acc"] = float(d["acc"]) + delta
-		var dead := false
-		while float(d["acc"]) >= tick:
-			d["acc"] = float(d["acc"]) - tick
-			var hit_dmg := float(d["dps"]) * tick
-			if String(d["kind"]) == "rock":
-				var h: TextureRect = d["handle"]
-				if h == null or not is_instance_valid(h):
-					dead = true; break
-				if ast == null or not ast.has_method("damage_asteroid") or not ast.damage_asteroid(h, hit_dmg):
-					dead = true; break   # asteroid destroyed → parasite dies with it
-				_on_damage_dealt(h.position + h.size * 0.5, hit_dmg, false)   # DoT → no crit
-			else:  # boss
-				var br2 := _boss_rect_local()
-				if not br2.has_area():
-					dead = true; break
-				GameManager.take_boss_damage(int(maxf(1.0, hit_dmg)))
-				_on_damage_dealt(br2.position + br2.size * 0.5, hit_dmg, false)
-		if dead:
-			_dots.remove_at(di)
-		di -= 1
+
+## Tick the cheap shot-speck visuals.
+func _tick_specks(delta: float) -> void:
+	var i := _specks.size() - 1
+	while i >= 0:
+		_specks[i]["age"] = float(_specks[i]["age"]) + delta
+		if float(_specks[i]["age"]) >= PARASITE_SPECK_LIFE:
+			_specks.remove_at(i)
+		i -= 1
+
+# ── Acid Sprayer (acid_cloud) ──────────────────────────────────────────────────
+
+## Fire one acid glob toward the cursor. There is only ever ONE cloud — a new shot replaces the old.
+func _fire_acid(def: Dictionary) -> void:
+	var muzzle := _muzzle()
+	var target := get_local_mouse_position()
+	var dir := target - muzzle
+	if dir.length() < 0.01:
+		dir = Vector2.UP
+		target = muzzle + dir * 80.0
+	dir = dir.normalized()
+	var puffs: Array = []
+	for _k in ACID_CLOUD_PUFFS:
+		puffs.append({"ang": randf() * TAU, "dist": randf(), "r": randf_range(0.45, 1.0), "phase": randf() * TAU})
+	_acid = {
+		"phase": "proj",
+		"pos": muzzle, "vel": dir * ACID_PROJ_SPEED, "target": target, "t": 0.0,
+		"age": 0.0, "tick_acc": 0.0,
+		# TODO(affix): tick_damage read through get_weapon_stat so damage affixes apply.
+		"dmg": get_weapon_stat(def, "tick_damage", 5.0),
+		"tick_int": maxf(0.05, get_weapon_stat(def, "tick_interval_sec", 0.5)),
+		"shred": get_weapon_stat(def, "shred_per_sec", 1.0),
+		"lifetime": maxf(0.5, get_weapon_stat(def, "cloud_lifetime_sec", 5.0)),
+		"radius": get_weapon_stat(def, "cloud_radius", 90.0),
+		"puffs": puffs,
+	}
+	_spawn_impact(muzzle, false)
+
+## Glob flies fast and decelerates, then settles into a stationary cloud that damages + shreds the
+## armor of every enemy inside for `lifetime` seconds. Damage/shred go through the enemy armor system.
+func _update_acid(delta: float) -> void:
+	if _acid.is_empty():
+		return
+	if String(_acid["phase"]) == "proj":
+		_acid["t"] = float(_acid["t"]) + delta
+		_acid["vel"] = (_acid["vel"] as Vector2) * pow(ACID_PROJ_DRAG, delta)   # fast → slow
+		_acid["pos"] = (_acid["pos"] as Vector2) + (_acid["vel"] as Vector2) * delta
+		var spd := (_acid["vel"] as Vector2).length()
+		var near: bool = (_acid["pos"] as Vector2).distance_to(_acid["target"]) < 12.0
+		if near or spd < ACID_PROJ_MIN_SPEED or float(_acid["t"]) >= ACID_PROJ_MAX_T:
+			_acid["phase"] = "cloud"
+			_acid["age"] = 0.0
+			_acid["tick_acc"] = 0.0
+		return
+	# Cloud phase.
+	_acid["age"] = float(_acid["age"]) + delta
+	if float(_acid["age"]) >= float(_acid["lifetime"]):
+		_acid = {}
+		return
+	var center: Vector2 = _acid["pos"]
+	var radius: float = float(_acid["radius"])
+	var shred: float = float(_acid["shred"])
+	var ast := _ast()
+	# Continuous armor shred — asteroids + boss.
+	if ast != null and ast.has_method("shred_armor_area"):
+		ast.shred_armor_area(center, radius, shred * delta)
+	var brc := _boss_rect_local()
+	if brc.has_area() and _circle_hits_rect(center, radius, brc):
+		GameManager.boss_armor -= shred * delta
+	# Continuous armor shred — registered extra targets (normal enemies) that expose on_shred.
+	for et: Dictionary in _extra_targets:
+		var shred_cb: Callable = et.get("on_shred", Callable())
+		if not shred_cb.is_valid():
+			continue
+		var er: Rect2 = (et["get_rect"] as Callable).call()
+		if er.has_area() and _circle_hits_rect(center, radius, er):
+			shred_cb.call(shred * delta)
+	# Damage ticks (every tick_int) — armor auto-applies via _apply_damage / take_boss_damage.
+	_acid["tick_acc"] = float(_acid["tick_acc"]) + delta
+	var tick: float = maxf(0.05, float(_acid["tick_int"]))
+	while float(_acid["tick_acc"]) >= tick:
+		_acid["tick_acc"] = float(_acid["tick_acc"]) - tick
+		var dmg: float = float(_acid["dmg"])
+		if ast != null and ast.has_method("damage_area"):
+			for c: Vector2 in ast.damage_area(center, radius, dmg):
+				_on_damage_dealt(c, dmg, false)
+		var br2 := _boss_rect_local()
+		if br2.has_area() and _circle_hits_rect(center, radius, br2):
+			GameManager.take_boss_damage(int(maxf(1.0, dmg)))
+			_on_damage_dealt(br2.position + br2.size * 0.5, dmg, false)
+		# Damage tick — registered extra targets (normal enemies); they apply their own armor DR.
+		for et: Dictionary in _extra_targets:
+			var hit_cb: Callable = et.get("on_hit", Callable())
+			if not hit_cb.is_valid():
+				continue
+			var er2: Rect2 = (et["get_rect"] as Callable).call()
+			if er2.has_area() and _circle_hits_rect(center, radius, er2):
+				hit_cb.call(dmg)
+				_on_damage_dealt(er2.position + er2.size * 0.5, dmg, false)
 
 # ── Swarm Host (minion) ────────────────────────────────────────────────────────
 func _tick_swarm(ctx: Dictionary, def: Dictionary, delta: float) -> void:
@@ -1395,15 +1754,6 @@ func _tick_swarm(ctx: Dictionary, def: Dictionary, delta: float) -> void:
 				break
 		bats[bi] = bat
 
-## Live position of a parasite DoT's target (follows a drifting rock / the boss).
-func _dot_pos(d: Dictionary) -> Vector2:
-	if String(d["kind"]) == "rock":
-		var h: TextureRect = d["handle"]
-		if h != null and is_instance_valid(h):
-			return h.position + h.size * 0.5
-		return Vector2.ZERO
-	var br := _boss_rect_local()
-	return (br.position + br.size * 0.5) if br.has_area() else Vector2.ZERO
 
 # ── Orbitals (orbital) ─────────────────────────────────────────────────────────
 ## Always-on while equipped: ORBITAL_BALLS metal balls orbit the ship and damage on
@@ -1502,22 +1852,80 @@ func _draw_orbital_ball(c: Vector2, intensity: float) -> void:
 	_orbital_node.draw_circle(c, r, Color(0.55, 0.58, 0.66))
 	_orbital_node.draw_circle(c - Vector2(r * 0.3, r * 0.3), r * 0.36, Color(0.86, 0.9, 0.96))
 
+## Draw a filled ellipse (Godot has no draw_ellipse). Respects the current draw transform.
+func _draw_oval(c: Vector2, rx: float, ry: float, col: Color) -> void:
+	var pts := PackedVector2Array()
+	var seg := 16
+	for k in seg:
+		var a := TAU * float(k) / float(seg)
+		pts.append(c + Vector2(cos(a) * rx, sin(a) * ry))
+	draw_colored_polygon(pts, col)
+
 ## All Batch-D visuals (called from _draw()). The Rift Maker void is drawn by its
 ## own shader node (_rift, updated in _update_rift_visual) — not here.
 func _draw_batch_d() -> void:
-	# Parasite darts in flight.
+	# Acid Sprayer — glob in flight, then a churning green-purple MIST cloud (soft layered blobs).
+	if not _acid.is_empty():
+		var acen: Vector2 = _acid["pos"]
+		if String(_acid["phase"]) == "proj":
+			draw_circle(acen, 6.0, Color(0.5, 0.85, 0.4, 0.8))
+			draw_circle(acen, 3.0, Color(0.7, 0.5, 0.9, 0.9))
+		else:
+			var arad: float = float(_acid["radius"])
+			var fade := 1.0
+			var rem := float(_acid["lifetime"]) - float(_acid["age"])
+			if rem < 1.0:
+				fade = clampf(rem, 0.0, 1.0)   # dissipate over the last second
+			for puff: Dictionary in _acid["puffs"]:
+				var swirl := _beam_time * ACID_SWIRL_SPEED + float(puff["phase"])
+				var off := Vector2(cos(float(puff["ang"]) + swirl * 0.6), sin(float(puff["ang"]) + swirl * 0.6)) * (float(puff["dist"]) * arad * 0.7)
+				off += Vector2(cos(swirl), sin(swirl * 1.3)) * (arad * 0.10)   # internal churn
+				var pr := float(puff["r"]) * arad * 0.55 * (0.85 + 0.15 * sin(swirl))
+				var mix := 0.5 + 0.5 * sin(float(puff["phase"]) + _beam_time * 0.5)
+				var col := ACID_COL_GREEN.lerp(ACID_COL_PURPLE, mix)
+				for layer in 3:   # concentric translucent rings → soft, gaseous edge
+					var lr := pr * (1.0 - 0.28 * float(layer))
+					var la := ACID_CLOUD_ALPHA * fade * (1.0 + 0.4 * float(layer))
+					draw_circle(acen + off, lr, Color(col.r, col.g, col.b, la))
+	# Parasite Gun blobs in flight — oblong meaty oval oriented along travel.
+	for b: Dictionary in _blobs:
+		var bp: Vector2 = b["pos"]
+		draw_set_transform(bp, (b["vel"] as Vector2).angle(), Vector2.ONE)
+		var rl := PARASITE_BLOB_LEN * 0.5
+		_draw_oval(Vector2.ZERO, rl, rl * 0.55, Color(0.42, 0.03, 0.05))                      # dark body
+		_draw_oval(Vector2.ZERO, rl * 0.80, rl * 0.44, Color(0.66, 0.08, 0.09))               # inner meat
+		_draw_oval(Vector2(-rl * 0.18, -rl * 0.12), rl * 0.30, rl * 0.16, Color(1.0, 0.55, 0.55, 0.55))  # glossy highlight
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# Shot specks — short fading red streak from a parasite toward its nucleus.
+	for s: Dictionary in _specks:
+		var st := clampf(float(s["age"]) / PARASITE_SPECK_LIFE, 0.0, 1.0)
+		var sa := 1.0 - st
+		var frm: Vector2 = s["from"]
+		var to: Vector2 = s["to"]
+		var head := frm.lerp(to, st)
+		draw_line(frm.lerp(to, maxf(0.0, st - 0.35)), head, Color(0.9, 0.12, 0.12, sa), 2.0)
+		draw_circle(head, 2.0 * sa + 0.5, Color(1.0, 0.3, 0.3, sa))
+	# Orbiting parasites — tiny meaty dots circling their nucleus on tilted rings, with a faint red trail.
 	for p: Dictionary in _parasites:
-		var pp: Vector2 = p["pos"]
-		var tail: Vector2 = pp - (p["vel"] as Vector2).normalized() * 8.0
-		draw_line(tail, pp, Color(0.5, 1.0, 0.4, 0.9), 2.0)
-		draw_circle(pp, 2.5, Color(0.7, 1.0, 0.5))
-	# Attached parasites — pulsing blobs that follow their target.
-	var pulse: float = 0.6 + 0.4 * sin(_beam_time * 10.0)
-	for d: Dictionary in _dots:
-		var dp := _dot_pos(d)
-		if dp != Vector2.ZERO:
-			draw_circle(dp, 4.0 * pulse, Color(0.4, 0.9, 0.3, 0.85))
-			draw_circle(dp, 2.0, Color(0.75, 1.0, 0.5))
+		var nuc := _nucleus_center(p)
+		if not bool(nuc["valid"]):
+			continue
+		var center: Vector2 = nuc["center"]
+		var orbit_r := _parasite_orbit_r(float(nuc["radius"]))
+		var ang := float(p["angle"])
+		# Faint red trail behind the parasite — sample the orbit arc at earlier angles, fading out.
+		for ti in PARASITE_TRAIL_LEN:
+			var f := float(ti) / float(PARASITE_TRAIL_LEN)
+			var tp := _parasite_pos(p, center, orbit_r, ang - float(ti + 1) * PARASITE_TRAIL_STEP)
+			draw_circle(tp, PARASITE_DOT_SIZE * (0.7 - 0.45 * f), Color(PARASITE_TRAIL_COL.r, PARASITE_TRAIL_COL.g, PARASITE_TRAIL_COL.b, PARASITE_TRAIL_ALPHA * (1.0 - f)))
+		var ppos := _parasite_pos(p, center, orbit_r, ang)
+		var depth := 0.78 + 0.22 * sin(ang)   # subtle front/back size variation
+		var r := PARASITE_DOT_SIZE * depth
+		# Bright glowing parasite: layered red glow → hot red body → white-hot core.
+		draw_circle(ppos, r * 2.6, Color(1.0, 0.10, 0.08, 0.16))   # soft outer glow
+		draw_circle(ppos, r * 1.7, Color(1.0, 0.16, 0.12, 0.34))   # inner glow
+		draw_circle(ppos, r * 1.05, Color(1.0, 0.32, 0.24, 0.95))  # hot red body
+		draw_circle(ppos, r * 0.5, Color(1.0, 0.98, 0.96, 1.0))    # white-hot core
 	# Swarm bats (both slots).
 	_draw_bats(_wp["bats"])
 	_draw_bats(_ws["bats"])
@@ -1642,6 +2050,18 @@ func _draw() -> void:
 		var al := clampf(_out_of_energy_t, 0.0, 1.0)
 		draw_string(fnt, at + Vector2(1, 1), msg, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(0, 0, 0, 0.7 * al))
 		draw_string(fnt, at, msg, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1.0, 0.4, 0.3, al))
+
+	# "OUT OF AMMO" flash (tried to fire/sustain with too little ammo)
+	if _out_of_ammo_t > 0.0:
+		var afnt := ThemeDB.fallback_font
+		var afs := 18
+		var amsg := "OUT OF AMMO"
+		var atw := afnt.get_string_size(amsg, HORIZONTAL_ALIGNMENT_LEFT, -1, afs).x
+		var amc := _ship_center()
+		var aat := Vector2(amc.x - atw * 0.5, amc.y - 92.0)
+		var aal := clampf(_out_of_ammo_t, 0.0, 1.0)
+		draw_string(afnt, aat + Vector2(1, 1), amsg, HORIZONTAL_ALIGNMENT_LEFT, -1, afs, Color(0, 0, 0, 0.7 * aal))
+		draw_string(afnt, aat, amsg, HORIZONTAL_ALIGNMENT_LEFT, -1, afs, Color(1.0, 0.7, 0.2, aal))
 
 ## Deterministic pseudo-random in -1..1 from two seeds (for the electric jag flicker).
 func _pseudo(a: float, b: float) -> float:
@@ -1996,9 +2416,12 @@ func get_weapon_stat(def: Dictionary, key: String, fallback: float) -> float:
 	var is_dmg: bool = key in _AFFIX_DAMAGE_KEYS
 	if is_dmg:
 		v *= float(def.get("base_mult", 1.0))
+	# Attribute category damage multiplier (Marksmanship / weapon-class bonuses). Applies to every
+	# damage-like key, including shot_damage/tick_damage which sit outside the affix damage keys.
+	var cat := GameManager.weapon_damage_mult(def) if (is_dmg or key == "shot_damage" or key == "tick_damage") else 1.0
 	var affixes: Array = def.get("affixes", [])
 	if affixes.is_empty():
-		return v
+		return v * cat
 	var dmg_pct := 0.0
 	for a: Dictionary in affixes:
 		var id := String(a.get("id", ""))
@@ -2022,13 +2445,106 @@ func get_weapon_stat(def: Dictionary, key: String, fallback: float) -> float:
 			"crit_damage":
 				if key == "crit_damage":
 					v += val                           # affix adds to base crit damage
-	return v * (1.0 + dmg_pct / 100.0)                 # dmg_pct is 0 for non-damage keys
+	return v * (1.0 + dmg_pct / 100.0) * cat           # dmg_pct is 0 for non-damage keys; cat = attribute mult
 
 func _primary_def() -> Dictionary:
 	return _equipped_def("primary_weapon")
 
 func _secondary_def() -> Dictionary:
 	return _equipped_def("secondary_weapon")
+
+## Best-effort sustained DPS for the weapon in `slot`, read through get_weapon_stat so it includes
+## the ±20% damage roll + damage/fire-rate/crit affixes. Returns {dps, approx, note}:
+##   dps  = number, or -1.0 if the slot is empty / not a weapon
+##   approx = true when the figure relies on an assumption (ramp, charge, all-targets-hit, …)
+##   note = the assumption, shown to the player for approx weapons
+## Crit avg = 1 + crit_chance% × crit_damage%, applied ONLY to per-shot types that actually crit
+## in the firing code (projectile/homing/cone/chain). Beams, auras, DoT, minions, orbitals don't crit.
+func estimate_dps(slot: String) -> Dictionary:
+	var def := _equipped_def(slot)
+	if def.is_empty() or not Array(def.get("tags", [])).has("weapon"):
+		return {"dps": -1.0, "approx": false, "note": ""}
+	var ftype := String(def.get("fire_type", ""))
+	var fmode := String(def.get("fire_mode", ""))
+	var crit := 1.0 + (get_weapon_stat(def, "crit_chance", BASE_CRIT_CHANCE) / 100.0) \
+		* (get_weapon_stat(def, "crit_damage", BASE_CRIT_DAMAGE) / 100.0)
+	var dps := 0.0
+	var approx := false
+	var note := ""
+	match ftype:
+		"projectile":
+			dps = get_weapon_stat(def, "damage", 0.0) / maxf(0.001, get_weapon_stat(def, "cooldown_sec", 1.0)) * crit
+			if fmode == "charge":
+				approx = true
+				note = "at full charge"
+		"homing":
+			dps = get_weapon_stat(def, "damage", 0.0) / maxf(0.001, get_weapon_stat(def, "cooldown_sec", 1.0)) * crit
+		"cone":
+			dps = get_weapon_stat(def, "damage", 0.0) * _stat(def, "pellets", 1.0) / maxf(0.001, get_weapon_stat(def, "cooldown_sec", 1.0)) * crit
+		"chain":
+			dps = get_weapon_stat(def, "damage", 0.0) / maxf(0.001, get_weapon_stat(def, "cooldown_sec", 1.0)) * crit
+			note = "single target; chains to nearby"
+		"hitscan_beam", "tether":
+			dps = get_weapon_stat(def, "damage", 0.0) / maxf(0.001, get_weapon_stat(def, "tick_interval_sec", 1.0))
+		"aura":
+			dps = get_weapon_stat(def, "damage_per_tick", 0.0) / maxf(0.001, get_weapon_stat(def, "tick_interval_sec", 1.0))
+		"growing_zone":
+			dps = get_weapon_stat(def, "damage_max", 0.0) / maxf(0.001, get_weapon_stat(def, "tick_interval_sec", 1.0))
+			approx = true
+			note = "at full ramp"
+		"parasite_blob":
+			dps = get_weapon_stat(def, "shot_damage", 0.0) * _stat(def, "parasites", 1.0) / maxf(0.05, get_weapon_stat(def, "shot_interval_sec", 0.5))
+			approx = true
+			note = "one full atom on a target"
+		"acid_cloud":
+			dps = get_weapon_stat(def, "tick_damage", 0.0) / maxf(0.05, get_weapon_stat(def, "tick_interval_sec", 0.5))
+			approx = true
+			note = "cloud DoT + armor shred"
+		"minion":
+			dps = get_weapon_stat(def, "damage", 0.0) * _stat(def, "bats", 1.0) / maxf(0.001, get_weapon_stat(def, "attack_interval_sec", 1.0))
+			approx = true
+			note = "all bats hitting"
+		"orbital":
+			dps = get_weapon_stat(def, "damage", 0.0) * 2.0
+			approx = true
+			note = "~2 collisions/s assumed"
+		_:
+			approx = true
+			note = "no clean DPS"
+	return {"dps": dps, "approx": approx, "note": note}
+
+## Damage PER HIT for the weapon in `slot`, read through get_weapon_stat (so it includes the ±20%
+## roll + damage affixes; NOT crit). Returns {valid, min, max}:
+##   - a weapon with a damage range (damage_min/damage_max, e.g. Rift Maker) → its smallest & biggest
+##   - a single-damage weapon → the same number for both min and max
+##   - DoT weapons (parasite, "dps" stat) → per-tick damage = dps × dot_tick_sec
+func damage_per_hit(slot: String) -> Dictionary:
+	var def := _equipped_def(slot)
+	if def.is_empty() or not Array(def.get("tags", [])).has("weapon"):
+		return {"valid": false, "min": 0.0, "max": 0.0}
+	var stats: Dictionary = def.get("stats", {})
+	var lo := 0.0
+	var hi := 0.0
+	if stats.has("damage_min") or stats.has("damage_max"):
+		lo = get_weapon_stat(def, "damage_min", 0.0)
+		hi = get_weapon_stat(def, "damage_max", 0.0)
+	elif stats.has("damage"):
+		lo = get_weapon_stat(def, "damage", 0.0)
+		hi = lo
+	elif stats.has("damage_per_tick"):
+		lo = get_weapon_stat(def, "damage_per_tick", 0.0)
+		hi = lo
+	elif stats.has("shot_damage"):
+		lo = get_weapon_stat(def, "shot_damage", 0.0)   # Parasite Gun: damage per parasite shot
+		hi = lo
+	elif stats.has("tick_damage"):
+		lo = get_weapon_stat(def, "tick_damage", 0.0)   # Acid Sprayer: damage per cloud tick
+		hi = lo
+	else:
+		return {"valid": false, "min": 0.0, "max": 0.0}
+	if hi < lo:
+		var t := lo; lo = hi; hi = t   # guarantee min..max ordering
+	return {"valid": true, "min": lo, "max": hi}
 
 func _equipped_def(slot: String) -> Dictionary:
 	var uid: int = InventoryManager.equipped_uid(slot)

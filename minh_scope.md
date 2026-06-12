@@ -1,65 +1,59 @@
-Continuing the inventory/weapon work on my Godot 4 idle game. I'm not a programmer — explain in plain language, work in small testable batches, and pause after each batch so I can run the game and confirm before continuing. Keep changes additive; don't touch the old hidden weapon system.
-Goal: add the 10 remaining weapons as real, equippable inventory items that actually fire and deal damage. The Gatling Gun and Gauss Cannon already exist — match how those two are defined and how they fire, and extend that same pattern. Don't rewrite what's already working.
-First, read inventory_manager (or wherever the Gatling and Gauss items + their stats live), gun_system.gd, asteroid_layer.gd, and game_manager.gd, and tell me in plain language how the two existing weapons currently fire and apply damage before you write anything.
-Design rule — make it data-driven, not ten hard-coded weapons. Each weapon should be a data entry with: damage, cooldown/rate, weight, energy cost, equip slot, grid size, and a "fire_type" tag. The firing code should branch on fire_type so weapons that behave alike share one code path. Use these fire_types:
+Things to add
+1) The rest of the item
+2) Skill system
+3) Constellations
+4) Stats
+Markmanship: increase damage of all weapon, needed to equip kinetic_weapon and radar. This increases damage of all weapon by 1% and for kinetic weapon 1% more (2% in total) per point.
+Engineering: increase ammo_pool, ammo_regen and energy_weapon damage. Needed to equip energy_weapon and energy_cores. Increase ammo_pool by 1 point and ammo_regen by 0.2 per point. Also increase energy_weapon damage by 1% per point
+Biotech: increase HP and HP_regen, and bioweapon damage. Needed to equip bioweapon and hull and relics.
+Increase HP by 1 point and HP_regen by 0.2 per point. Also increase biological_weapon damage by 1% per point
+Maneuverability: increase fly speed, needed to equip wings and thrusters. Increase energy_pool by 1 point and energy_regen by 0.2 per point. Also increase flyspeed by 1% per point and drone damage by 2% per poit.
 
-projectile — fires a bullet that travels and hits the first thing it touches
-hitscan_beam — instant beam that stops at the first target hit
-cone — fires a spread of pellets at short range that vanish after a set distance
-homing — pick the nearest target, projectile curves toward it
-aura — always-on area damage around the ship every tick while equipped
-chain — hits first target, then jumps to nearest targets within a search range
-growing_zone — places a zone at a location that grows in size and damage up to a max while held
-dot_stack — attaches stacks that deal damage-over-time and can't be removed
-screen_nuke — long cooldown, damages all targets on screen
-minion — spawns auto-attacking units that can die and block hits, respawn on a timer
-tether — close-range beam locked to a nearby anchor that does massive sustained damage
+# Skills for first character: Uziel - Carnage
+3 branches of skills
+Branch 1: Bullet hell
+1) Convergent amplification
+    When dual wielding weapon of the same type, increase damage by 5, 10, 15, 20, 25% (5 per level)
+2) Destructive exuberance: 5% per level Chances to refill 10% of your ammo when critically strike
+3) 
 
-Here are the 10 weapons with balanced stats (units match the existing two):
+Branch 3: Carnage incarnate
+1) Deadeye: 5% per level increases of critical changes
+2) Deadshot: 10% per level increase of critical damage
+3) Deadly excitement: 5% total damage increase per level after hitting a critical strike (last for 3s, stackable)
+4) 
+# affixes need fixes
 
-Homing missile — homing — damage 95, cooldown 1.6, weight 5, energy 7. Pick nearest target, missile homes to it.
-Ionizing field — aura — 14 damage/tick, 0.25s tick, weight 6, energy 14/s. Electric aura, hits everything in radius each tick. (This one already exists as an item if you added it earlier — if so, just wire up its firing, don't duplicate it.)
-Lasgun — hitscan_beam — 22 damage/tick, 0.15s tick, weight 5, energy 11/s. Continuous beam, stops at first target.
-Rift maker — growing_zone — ramps 30→300 damage/tick over 2.5s, 0.3s tick, weight 9, energy 18/s. Hold to grow a void at a spot.
-Arc — chain — 30 damage, 0.5s cooldown, weight 6, energy 12/s. Chains to nearest targets within a max search range after the first hit.
-Parasite gun — dot_stack — 6 DPS per parasite, 5 parasites per volley, 4s reload, weight 5, energy 8. Left-click fires all stored parasites at the target; they stick permanently and deal DPS.
-Nuke — screen_nuke — 1200 damage, 8.0s cooldown, weight 10, energy 20. Hits all targets on screen.
-Swarm host — minion — 5 damage/bat hit, ~0.4s attack, 4 bats, 3s respawn, weight 4, energy 9/s. Bats auto-attack the closest target and body-block hits.
-Plasma drill — tether — 70 damage/tick, 0.2s tick, weight 7, energy 22/s. Close-range tether to a nearby anchor, massive sustained damage.
-Shotgun — cone — 18 damage per pellet, 5 pellets, 0.7s cooldown, weight 5, energy 8. Short-range cone, pellets vanish after a set distance.
+These affixes roll onto items but do NOTHING yet — each needs a new gameplay system built before it can be wired. (Category C from the affix-wiring audit. Category A is already live; Category B — move speed, dash, energy/HP regen, shields, damage_reduction, model size, i-frame duration — was wired via GameManager.sum_affix() + effective getters.)
 
-Affixes — set up hooks only, don't build the system. When the firing code reads a weapon's damage, cooldown, energy, etc., have it read those values through a small helper (like get_weapon_stat(weapon, "damage")) that, for now, just returns the base value. Leave a clear comment saying this is where rolled affix bonuses will be applied later. Don't implement affix rolling in this prompt.
-Energy: these weapons consume energy as listed. Make sure firing checks available energy and stops/can't fire when energy is empty, consistent with how the game already handles energy (if it doesn't yet, add a simple version and tell me).
-Suggested batch order (pause after each):
+- weight_requirement_reduction — needs a WEIGHT/CAPACITY system: weight is currently just a stat on items with no limit that gates equipping. Build a weight budget first, then this raises it.
+- evasion_chance — needs a DODGE system: a roll in ship_take_damage to ignore a hit entirely. (The Voidmetal hull's dodge_chance innate is the same TODO.)
+- damage_immunity affixes aside — armor_penetration — enemy armor now EXISTS (asteroid _armor + boss_armor), but pen must be threaded from the firing weapon through every damage call (asteroid_layer._apply_damage / GameManager.take_boss_damage). Needs a per-hit "ignore N% of target armor" parameter.
+- projectile_speed — bullet speed is a shared const (BULLET_SPEED), not a per-weapon stat; needs per-bullet speed driven by the stat.
+- poison, burn — damage-over-time STATUS system applied to enemies (per-enemy DoT timers).
+- slow, freeze — enemy MOVEMENT-DEBUFF status system (enemies have no speed field to scale yet).
+- multishot — fire extra projectiles per shot. pierce — bullets pass through enemies. ricochet — bullets bounce to new targets. splash_radius — AoE on impact. knockback — push enemies. All need projectile-behaviour changes in weapon_system's bullet loop.
+- energy_leech, hp_leech, shield_leech — on-hit hooks that return a fraction of damage dealt as energy/HP/shield.
+- drone_damage — needs a DRONE COMBAT system: drone slots exist but drones don't fire.
+- damage_on_contact — "thorns": ship deals damage to enemies it touches (needs a ship↔enemy contact-damage pass).
+- damage_when_damaged — retaliation: deal damage to a nearby/attacking enemy when the ship is hit.
+- rebirth — revive-on-death: restore the ship once when HP hits 0. (The Memory-Foam hull's resurrect_once innate is the same TODO.)
 
-Batch A: projectile + cone + homing (Homing missile, Shotgun) — these reuse bullet logic
-Batch B: hitscan_beam + chain + tether (Lasgun, Arc, Plasma drill)
-Batch C: aura + screen_nuke (Ionizing field, Nuke)
-Batch D: growing_zone + dot_stack + minion (Rift maker, Parasite gun, Swarm host) — the most complex
+# Level designs tool
+Build an F6 level-design tool for my Godot 4 space shooter — a DEV/DEBUG tool just for me (the designer), not a player feature. I'm not a programmer — plain language, phases, pause between them. It edits "level recipes" (the data my procedural wave system uses) and saves/loads a library of them to disk. First investigate and report.
+Phase 0 — Investigate and report (no code). Tell me: does the level-recipe data format + procedural wave director already exist (the system where a level = a recipe with allowed enemy pool, difficulty, length, boss, and waves are rolled from it)? If yes, show me the recipe's current fields. If no, we need to define the recipe format first — tell me and propose one. Also tell me how levels are currently launched, since the tool needs a "test play this level" action. Pause and report.
+The difficulty model (important — confirm you'll implement it this way): the level's single difficulty number is the CEILING — the peak intensity the level ramps UP TO right before the boss. The level starts easier (at a difficulty floor) and climbs toward the ceiling over its length, following the hybrid wave model (waves advance when ≤2 enemies remain OR a max timer expires). So one number = "how hard does this level get at its peak," and the easy→peak ramp is automatic. The difficulty drives: max enemies per wave, minimum spawn interval (down to a floor), and how many enemy types are active. Confirm this is how you'll wire the number.
+Phase 1 — Recipe data + minimal F6 panel.
+Make sure level recipes are clean editable data with these fields: a name, the allowed enemy pool (which of my enemy types can spawn — multi-select), the difficulty ceiling (single number), a difficulty floor / start (where the ramp begins), level length (duration or wave count before boss), allowed entry edges (which screen edges enemies use here), and which boss ends the level.
+Build an F6 toggle that opens a dev panel with controls for all those fields, bound to the current level recipe. Keep it functional and plain — it's a dev tool, ugly is fine. Pause so I can open F6, change fields, and confirm they affect the recipe.
+Phase 2 — Save / load a library of recipes to disk.
+Add save and load: I can name a recipe and save it to a file (e.g. user:// or a project levels folder — tell me where), and load any saved recipe back into the editor. List the saved recipes so I can pick one. This builds my level library — the whole point is authoring many levels by editing recipes, not code. Pause so I can save two different levels and reload them.
+Phase 3 — Quality-of-life for authoring.
+Add the things that make this actually usable to design with:
 
-At the end: give me a plain-language summary of every file you added or changed, confirm all 12 weapons can be equipped and fired, and tell me how to undo it all if I want to.
+A "Test Play" button that immediately launches the currently-edited level so I can feel my change without restarting.
+A live difficulty-curve preview: when I set the ceiling/floor/length, show a readout of what it'll produce — e.g. "peak ~12 enemies/wave, min interval 0.6s, ~14 waves, est. ~4 min, types active at peak: 4." So I can judge the numbers before playing.
+Enemy-type weighting (optional but valuable): within the allowed pool, let me bias the odds (e.g. mostly Kingfishers, rare Sentinels) so each level has a theme, rather than equal spawn chance.
+Pause so I can test-play a level I authored and tune it from the panel.
 
-Phase 1 — The affix data + roller.
-
-Put all the affixes from Item_fixes_completed.xlsx into the game as data (id, prefix name, after-fix name, unit, min, max).
-Build the tier-band roller exactly as described in that file's "Tier rules" sheet: an affix rolls inside a band based on item tier — Low rolls between Min and the 33% cap, Mid between 33% and 66%, High between 66% and Max. Handle the negative affixes (energy_consumption, etc.) the same way (more-negative is the better roll). Make one function that takes an affix id + tier and returns a rolled value.
-Filter which affixes can roll on WEAPONS. Not all affixes belong on a weapon (e.g. +max HP, +shield, dash, drone damage are ship/equipment stats). For now, the weapon-eligible affix pool is ONLY these ids: damage_flat, damage_percentage, fire_rate, crit_chance, crit_damage, armor_penetration, poison, slow, freeze, burn, multishot, pierce, ricochet, splash_radius, knockback, projectile_speed, projectile/energy: energy_consumption_percentage, energy_leech, hp_leech, shield_leech, energy_regen_flat, energy_regen_percentage. Put this list in one clearly-named array so I can add/remove later. Every other affix is excluded from weapons.
-Pause and tell me it compiles.
-
-Phase 2 — Roll a weapon with affixes (1 prefix + 1 after-fix).
-
-Make a function that generates a weapon instance: pick a base weapon (from the 11), then roll one prefix affix and one after-fix affix, both drawn ONLY from the weapon-eligible pool, both rolled at the appropriate tier. (Prefix = a "prefix"-type affix, after-fix = an "of …"-type affix; in your sheet every affix has both a prefix and an after-fix name, so a rolled affix can supply either slot. Don't roll the same affix id twice on one weapon.)
-The weapon's display name should combine them: "[Prefix] [Base name] [After-fix]" — e.g. "Brutal Gatling gun of Barrage". If a slot rolls empty, just omit it.
-Store the rolled affixes and their rolled values ON the weapon instance, so each dropped weapon is unique.
-Now wire the affixes into the existing get_weapon_stat helper so the rolled values actually modify the weapon: e.g. damage_percentage raises its damage, fire_rate lowers its cooldown, energy_consumption reduces its energy cost, etc. Start by wiring the straightforward stat ones (damage, fire_rate, crit, energy cost, projectile_speed); for the more complex ones (poison, freeze, multishot, pierce, etc.) leave a clear TODO comment listing which aren't wired to effects yet — don't fake them.
-Pause so I can spawn a test weapon and confirm the name and stats reflect the rolls.
-
-Phase 3 — Boss fight drops 3 weapons.
-
-When a boss fight is won, generate 3 random weapons using the Phase 2 function and place them in the player's inventory (respect the existing inventory/backpack rules — if it's full, handle gracefully and tell me how).
-Pick the drop tier based on which boss / progress, if that info exists; if there's no progression yet, default all boss drops to Mid tier for now and leave a comment showing where to set tier per boss later.
-Show me what dropped (some simple feedback / list is fine).
-Pause so I can kill a boss and confirm 3 affixed weapons drop into my inventory.
-
-Throughout: numbers come from the spreadsheets, keep everything in clearly-named data tables/arrays so I can tweak, and at the end give me a plain-language summary of what each phase added and how the roll → name → stat pipeline flows.
-
+Throughout: this is a dev tool — prioritize function over polish. The recipes it produces must be the SAME data my runtime wave director consumes, so a level I author in F6 plays identically when the game runs it normally. Don't change combat, enemies, or generation — this tool authors recipes and the existing system plays them. At the end, tell me the recipe file format/location and how to add a brand-new level to my game using the tool.

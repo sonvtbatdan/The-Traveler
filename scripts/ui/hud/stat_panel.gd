@@ -80,12 +80,24 @@ func _build_action_bar() -> void:
 	var reset_hp_btn := _make_btn("RESET HP")
 	var kill_boss_btn := _make_btn("KILL BOSS")
 	var roll_btn := _make_btn("ROLL WEAPON")
+	var roll_hull_btn := _make_btn("ROLL HULL")
+	var add_xp_btn := _make_btn("ADD XP")
 	hbox2.add_child(reset_hp_btn)
 	hbox2.add_child(kill_boss_btn)
 	hbox2.add_child(roll_btn)
+	hbox2.add_child(roll_hull_btn)
+	hbox2.add_child(add_xp_btn)
 	reset_hp_btn.pressed.connect(_on_reset_hp)
 	kill_boss_btn.pressed.connect(_on_kill_boss)
 	roll_btn.pressed.connect(_on_roll_weapon)
+	roll_hull_btn.pressed.connect(_on_roll_hull)
+	add_xp_btn.pressed.connect(_on_add_xp)
+
+## DEBUG (Phase 1 test): grant 100 XP and print the resulting level/xp so the widening curve is visible.
+func _on_add_xp() -> void:
+	GameManager.add_xp(100)
+	print("[ADD XP] +100 → level ", GameManager.player_level, "  xp ", GameManager.player_xp,
+		" / ", GameManager.xp_to_next(GameManager.player_level))
 
 ## DEBUG (Phase 2 test): roll a random Mid-tier affixed weapon into the backpack.
 func _on_roll_weapon() -> void:
@@ -95,9 +107,18 @@ func _on_roll_weapon() -> void:
 	else:
 		print("[ROLL WEAPON] dropped: ", InventoryManager.item_display_name(uid))
 
+## DEBUG (armor test): roll a random Mid-tier hull into the backpack so armor/HP can be verified.
+func _on_roll_hull() -> void:
+	var uid := InventoryManager.generate_hull(InventoryManager.WEAPON_ROLL_TIER)
+	if uid == -1:
+		print("[ROLL HULL] backpack full — no room")
+	else:
+		print("[ROLL HULL] dropped: ", InventoryManager.item_display_name(uid),
+			"  armor=", InventoryManager.hull_armor(uid), " bonus_hp=", InventoryManager.hull_bonus_hp(uid))
+
 func _on_reset_hp() -> void:
-	GameManager.ship_hp = GameManager.SHIP_MAX_HP
-	GameManager.ship_hp_changed.emit(GameManager.SHIP_MAX_HP)
+	GameManager.ship_hp = GameManager.ship_max_hp
+	GameManager.ship_hp_changed.emit(GameManager.ship_max_hp)
 
 func _on_kill_boss() -> void:
 	# Set boss HP to 1 for testing phase transitions
@@ -410,13 +431,11 @@ func _execute_confirm() -> void:
 	match _pending_action:
 		"purchases":
 			UpgradeManager.reset_all()
-			EquipmentManager.reset_all()
 			WeaponManager.reset_all()
 			DefenseManager.reset_all()
 		"game":
 			GameManager.reset_stats()
 			UpgradeManager.reset_all()
-			EquipmentManager.reset_all()
 	_pending_action = ""
 	_confirm_panel.visible = false
 	_close_settings()

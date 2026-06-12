@@ -33,12 +33,26 @@ const IMPACT_SIZE       := Vector2(20.0, 23.0)                # W=20, H proporti
 const CANON_MK2_FIRE_INTERVAL  := 0.6   # 6 frames × 0.1s = 1 shot per 0.6s
 const CANON_MK2_IMPACT_RADIUS  := 30.0  # half of 60px explosion
 const SHIP_MOVE_SPD            := 200.0  # px/s, arrow key movement in manual boost
-const DASH_ENABLED            := false   # dash unplugged from gameplay for now (flip true to restore)
+const DASH_ENABLED            := true    # Space-bar dash (costs energy)
 const DASH_CD                 := 1.0     # dash cooldown (s)
-const DASH_COST               := 20.0    # energy per dash
+const DASH_COST               := 10.0    # energy per dash
 const DASH_SPEED              := 840.0   # px/s during the dash lunge
 const DASH_TIME               := 0.15    # dash duration (s) → ~126px
 const SHOW_THRUST_TRAILS      := true    # engine auto.gif/manual.gif flame overlays (sized via the control, not native)
+
+# ── Engine exhaust plume (GRAPHICS_SPEC #5) ────────────────────────────────────
+# A continuous CPUParticles2D flame behind the engine nozzle: warm white-hot core → blue tips,
+# additive so it reads as hot light. Streams faster/longer while boosting or in a boss fight.
+const PLUME_ENABLED       := true
+const PLUME_AMOUNT        := 40
+const PLUME_INSET         := 6.0     # px (ship-local) the plume root sits up inside the nozzle
+const PLUME_VEL_MIN       := 110.0   # idle exhaust speed
+const PLUME_VEL_MAX       := 150.0
+const PLUME_VEL_MIN_BOOST := 200.0   # boost exhaust speed
+const PLUME_VEL_MAX_BOOST := 270.0
+const PLUME_LIFE          := 0.40
+const PLUME_LIFE_BOOST    := 0.55
+const PLUME_SPREAD        := 11.0    # degrees half-cone
 
 var _bullet_tex:           Texture2D = null
 var _shell_tex:            Texture2D = null
@@ -105,12 +119,18 @@ var _lightning_chains:    Array = []   # [{lines: Array, age: float}]
 var _spaceship_eo:        EditableObjectNode = null
 var _spaceship_origin:    Vector2 = Vector2.ZERO
 var _spaceship_origin_sz: Vector2 = Vector2.ZERO
+# Boss-intro fly-in: float the ship up from below the screen while input is disabled.
+var _intro_was_active:    bool    = false
+var _intro_t:             float   = 0.0
+var _intro_from:          Vector2 = Vector2.ZERO
+var _intro_to:            Vector2 = Vector2.ZERO
 
 # ── Dash state ────────────────────────────────────────────────────────────────
 var _dash_cd        := 0.0
 var _dash_time_left := 0.0
 var _dash_dir       := Vector2.ZERO
 var _space_was_down := false
+var _last_move_dir  := Vector2.ZERO   # most recent WASD direction → dash dir when no key held
 var _current_scale:       float   = 1.0  # animated by tween (1.0 <-> 0.5)
 var _scale_tween:         Tween   = null
 var _ship_pop_tween:      Tween   = null
@@ -132,6 +152,7 @@ var _manual_thrust_eos:   Array = []       # manual.gif reference EOs — hidden
 var _manual_thrust_frames: Array = []
 var _manual_thrust_delays: Array = []
 var _manual_thrust_rects:  Dictionary = {} # auto EO -> manual TR (derived from auto EO position/size)
+var _engine_plume:         CPUParticles2D = null   # continuous exhaust flame (GRAPHICS_SPEC #5)
 
 var _lasers:     Array = []   # [{lines: Array[Line2D], age: float}]
 const LASER_DURATION := 0.18
@@ -219,6 +240,7 @@ func _ready() -> void:
 	WeaponManager.weapon_purchased.connect(func(_id: String, _side: String): _refresh_static_frames())
 	GameManager.boost_changed.connect(_on_boost_changed)
 	_refresh_static_frames()
+	_setup_engine_plume()
 
 func _on_boost_changed(active: bool) -> void:
 	var mult: float = 2.0 if active else 1.0
@@ -239,6 +261,91 @@ func _on_boost_changed(active: bool) -> void:
 		var mtr := _manual_thrust_rects[key_eo] as TextureRect
 		if is_instance_valid(mtr):
 			mtr.visible = active
+
+# ── Engine exhaust plume ───────────────────────────────────────────────────────
+# Build the CPUParticles2D once and park it on this canvas; _update_engine_plume() positions
+# and tunes it every frame to follow the ship's nozzle and react to boost.
+func _setup_engine_plume() -> void:
+	if not PLUME_ENABLED or _engine_plume != null:
+		return
+	var p := CPUParticles2D.new()
+	p.texture = _make_soft_dot()
+	p.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	p.amount = PLUME_AMOUNT
+	p.lifetime = PLUME_LIFE
+	p.local_coords = true
+	p.emitting = false
+	p.z_as_relative = false
+	p.z_index = 6                          # just under the ship sprite so the flame sits behind it
+	p.direction = Vector2(0.0, 1.0)        # exhaust streams downward (behind the upward-facing ship)
+	p.spread = PLUME_SPREAD
+	p.gravity = Vector2.ZERO               # space: no fall
+	p.initial_velocity_min = PLUME_VEL_MIN
+	p.initial_velocity_max = PLUME_VEL_MAX
+	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
+	p.emission_sphere_radius = 3.0
+	p.scale_amount_min = 0.7
+	p.scale_amount_max = 1.1
+	# Taper: fat at the nozzle, shrinking to a point at the tip.
+	var taper := Curve.new()
+	taper.add_point(Vector2(0.0, 1.0))
+	taper.add_point(Vector2(1.0, 0.15))
+	p.scale_amount_curve = taper
+	# Warm white-hot core → orange → blue tip → fade out.
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.3, 0.65, 1.0])
+	grad.colors = PackedColorArray([
+		Color(1.0, 0.95, 0.7, 1.0),
+		Color(1.0, 0.6, 0.2, 1.0),
+		Color(0.45, 0.6, 1.0, 0.85),
+		Color(0.2, 0.45, 1.0, 0.0),
+	])
+	p.color_ramp = grad
+	# Additive so it reads as hot light (and blooms if glow is ever switched on).
+	var cm := CanvasItemMaterial.new()
+	cm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	p.material = cm
+	add_child(p)
+	_engine_plume = p
+
+# Soft round dot used as the particle texture — a radial alpha falloff, additive-friendly.
+func _make_soft_dot() -> ImageTexture:
+	var n := 16
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	var c := Vector2(n, n) * 0.5
+	for y in n:
+		for x in n:
+			var d: float = Vector2(x + 0.5, y + 0.5).distance_to(c) / (n * 0.5)
+			var a: float = clampf(1.0 - d, 0.0, 1.0)
+			a = a * a
+			img.set_pixel(x, y, Color(1.0, 1.0, 1.0, a))
+	return ImageTexture.create_from_image(img)
+
+# Follow the ship's nozzle, scale with the ship, and intensify while boosting.
+func _update_engine_plume() -> void:
+	if _engine_plume == null or not is_instance_valid(_engine_plume):
+		return
+	var ship_ok: bool = _spaceship_eo != null and is_instance_valid(_spaceship_eo) and _spaceship_eo.visible
+	_engine_plume.emitting = ship_ok
+	if not ship_ok:
+		return
+	# Anchor at the ship's bottom-centre (the engine nozzle), a few px up inside it.
+	var xform := _spaceship_eo.get_global_transform()
+	var sz := _spaceship_eo.size
+	var nozzle_global: Vector2 = xform * Vector2(sz.x * 0.5, sz.y - PLUME_INSET)
+	_engine_plume.position = nozzle_global - global_position
+	_engine_plume.scale = _spaceship_eo.scale          # shrink/grow with the ship
+	var boosting: bool = GameManager.manual_boost or GameManager.boss_max_hp > 0
+	if boosting:
+		_engine_plume.initial_velocity_min = PLUME_VEL_MIN_BOOST
+		_engine_plume.initial_velocity_max = PLUME_VEL_MAX_BOOST
+		_engine_plume.lifetime = PLUME_LIFE_BOOST
+		_engine_plume.speed_scale = 1.4
+	else:
+		_engine_plume.initial_velocity_min = PLUME_VEL_MIN
+		_engine_plume.initial_velocity_max = PLUME_VEL_MAX
+		_engine_plume.lifetime = PLUME_LIFE
+		_engine_plume.speed_scale = 1.0
 
 func _load_assets() -> void:
 	var rb := load("res://assets/sprites/weapons/Gun Bullet Sprite.png") as Texture2D
@@ -476,21 +583,41 @@ func _process(delta: float) -> void:
 		else:
 			_burst_queue[bi] = entry
 		bi -= 1
+	# Boss intro: float the ship up from below the screen; WASD disabled during it.
+	var intro: bool = GameManager.boss_intro_active
+	if intro and not _intro_was_active:
+		# Land centred, ship centre ~2cm above the bottom edge (origin offset by half size).
+		var dpi: int = DisplayServer.screen_get_dpi()
+		if dpi <= 0:
+			dpi = 96
+		var cm2: float = 2.0 / 2.54 * float(dpi)
+		var cx: float = SCREEN_BOUNDS.position.x + SCREEN_BOUNDS.size.x * 0.5
+		_intro_to   = Vector2(cx, SCREEN_BOUNDS.end.y - cm2) - _spaceship_origin_sz * 0.5
+		_intro_from = Vector2(_intro_to.x, SCREEN_BOUNDS.end.y + 60.0)   # just below the screen
+		_intro_t    = 0.0
+	_intro_was_active = intro
+	if intro:
+		_intro_t = minf(_intro_t + delta, 1.0)
+		_spaceship_origin = _intro_from.lerp(_intro_to, _intro_t)
 	# WASD flies the ship in the asteroid screen too (not just manual boost).
-	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
+	# Disabled during the death cutscene (input_locked).
+	elif not GameManager.input_locked and _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		_handle_ship_movement(delta)
 
-	# Spaceship: position + scale force-apply each frame. Ship sits at 0.70 normally and
-	# 0.35 during boost/boss (both 30% smaller than the old 1.0/0.5). Scaled around the
-	# ship's centre so its child hitbox shrinks with it; the asteroid collision radius
-	# is multiplied by this scale too (see _check_ship_asteroid_collision).
+	# Spaceship: position + scale force-apply each frame. The ship is ALWAYS the boss-fight size
+	# (0.35) — never the larger 0.70 — per design. Scaled around the ship's centre so its child
+	# hitbox shrinks with it; the asteroid collision radius is multiplied by this scale too
+	# (see _check_ship_asteroid_collision).
 	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		_spaceship_eo.position     = _spaceship_origin
 		_spaceship_eo.pivot_offset = _spaceship_eo.size * 0.5  # scale from centre
-		var target_scale_mult := 0.35 if (GameManager.manual_boost or GameManager.boss_max_hp > 0) else 0.70
-		if target_scale_mult != _prev_scale_mult:
+		# Fixed 0.35 base (boss-fight size), then the model_size affixes scale sprite AND hitbox.
+		var target_scale_mult := 0.35 * GameManager.model_scale_mult()
+		if not is_equal_approx(target_scale_mult, _prev_scale_mult):
 			_animate_scale_transition(target_scale_mult)
 			_prev_scale_mult = target_scale_mult
+
+	_update_engine_plume()
 
 	# Children: apply F4 size force mỗi frame
 	for eo in _child_f4_sizes.keys():
@@ -572,17 +699,50 @@ func _handle_ship_movement(delta: float) -> void:
 		(float(Input.is_physical_key_pressed(KEY_S)) + float(Input.is_physical_key_pressed(KEY_DOWN)))
 		- (float(Input.is_physical_key_pressed(KEY_W)) + float(Input.is_physical_key_pressed(KEY_UP)))
 	)
+	if mv != Vector2.ZERO:
+		_last_move_dir = mv.normalized()
+
+	# Dash trigger: fresh Space press, off cooldown, not mid-dash, enough energy.
+	var space_down := Input.is_physical_key_pressed(KEY_SPACE)
+	if DASH_ENABLED and space_down and not _space_was_down \
+			and _dash_time_left <= 0.0 and _dash_cd <= 0.0:
+		var dir := mv.normalized() if mv != Vector2.ZERO else _last_move_dir
+		if dir == Vector2.ZERO:
+			dir = Vector2(0.0, -1.0)   # never moved yet → dash forward (up)
+		if GameManager.try_spend_energy(DASH_COST):
+			_dash_dir = dir
+			_dash_time_left = DASH_TIME
+			_dash_cd = GameManager.effective_dash_cd()   # dash_cooldown_reduction affix
+	_space_was_down = space_down
+
+	# Active dash: a fast lunge that overrides normal WASD for its short duration.
+	if _dash_time_left > 0.0:
+		_dash_time_left = maxf(0.0, _dash_time_left - delta)
+		_spaceship_origin += _dash_dir * GameManager.effective_dash_speed() * delta   # dash_distance affix
+		_clamp_ship_origin()
+		return
+
 	if mv == Vector2.ZERO:
 		return
-	# Speed +25% when manual boost or boss fight active
+	# Speed +25% when manual boost or boss fight active; base+affixes via effective_move_speed().
 	var speed_mult := 1.25 if (GameManager.manual_boost or GameManager.boss_max_hp > 0) else 1.0
-	_spaceship_origin += mv.normalized() * SHIP_MOVE_SPD * speed_mult * delta
+	_spaceship_origin += mv.normalized() * GameManager.effective_move_speed() * speed_mult * delta
+	_clamp_ship_origin()
+
+# Clamp the ship so its VISIBLE (scaled) body stays inside the screen — not its full unscaled rect.
+# The ship renders at _spaceship_eo.scale (0.70 normal / 0.35 boost) around its centre, so clamping
+# by the unscaled size left a (1-scale)*half-size invisible margin on every edge.
+func _clamp_ship_origin() -> void:
+	var sc: float = _spaceship_eo.scale.x if (_spaceship_eo != null and is_instance_valid(_spaceship_eo)) else 1.0
+	var half := _spaceship_origin_sz * 0.5
+	var vis := half * sc   # visible half-extent
+	# Origin is the unscaled top-left; the visible body spans [origin+half-vis, origin+half+vis].
 	_spaceship_origin.x = clampf(_spaceship_origin.x,
-		SCREEN_BOUNDS.position.x,
-		SCREEN_BOUNDS.end.x - _spaceship_origin_sz.x)
+		SCREEN_BOUNDS.position.x - half.x + vis.x,
+		SCREEN_BOUNDS.end.x - half.x - vis.x)
 	_spaceship_origin.y = clampf(_spaceship_origin.y,
-		SCREEN_BOUNDS.position.y,
-		SCREEN_BOUNDS.end.y - _spaceship_origin_sz.y)
+		SCREEN_BOUNDS.position.y - half.y + vis.y,
+		SCREEN_BOUNDS.end.y - half.y - vis.y)
 
 # Smoothly tween the ship between its normal (0.70) and boost/boss (0.35) scale.
 # Pivot is centred each frame in _process, so it scales around the ship's middle.

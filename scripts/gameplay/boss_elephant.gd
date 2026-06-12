@@ -42,7 +42,7 @@ const LASER_DMG        := 30
 
 # ── Move 4 constants ──────────────────────────────────────────────────────────
 const M4_ROT_T          := 0.5
-const M4_TRAVEL_SPD     := 600.0            # 5× traversal speed
+const M4_TRAVEL_SPD     := 700.0            # 5× traversal speed
 const M4_DROP_INT       := 0.2             # drop a bomb every 0.2s
 const DROP_SPEED        := 720.0           # bombs hang then drop fast (+20%)
 const DROP_DMG          := 20
@@ -107,6 +107,7 @@ var _ship_alpha_uv:   Rect2 = Rect2(0.0, 0.0, 1.0, 1.0)  # opaque (alpha) bounds
 
 # ── Move 1 state ──────────────────────────────────────────────────────────────
 var _boss_spin  := 0.0
+var _last_move  := -1   # last move index (no same move twice in a row)
 var _spike_acc     := 0.0
 var _m1_prog       := 0.0
 var _spiral_angle  := 0.0   # base angle for spiral spike pattern
@@ -167,12 +168,24 @@ func setup(oc: Control) -> void:
 	# single GameManager.boss_killed listener and calls notify_boss_killed() on the active boss.
 
 # Called by the Boss Manager when GameManager.boss_killed fires (was a direct signal connection).
+## Single-phase boss: every death is the real end of the fight (never a phase transition).
+func is_phase_transition() -> bool:
+	return false
+
 func notify_boss_killed() -> void:
 	if _phase != Phase.IDLE and _phase != Phase.DONE:
 		var won := not _forced_kill   # HP-zero defeat vs forced removal (player death / debug)
-		_force_reset()
 		if won:
+			# Death cutscene (boss frozen via input_locked) before reset + victory.
+			GameManager.input_locked = true
+			var mgr := get_tree().get_first_node_in_group("boss_fight")
+			if mgr != null and mgr.has_method("play_death_cutscene"):
+				await mgr.play_death_cutscene([_boss_eo])
+			_force_reset()
 			_show_victory_screen()
+			GameManager.input_locked = false
+		else:
+			_force_reset()
 	_forced_kill = false
 
 func _force_reset() -> void:
@@ -263,6 +276,9 @@ func _show_victory_screen() -> void:
 ## True axis-aligned bounding box of the (rotated/scaled, center-pivot) boss sprite,
 ## via its TextureRect's real global transform — same pattern as _ship_hit_rect_oc().
 ## Using _boss_eo.global_position directly is wrong once rotated (origin ≠ visible top-left).
+func get_intro_eo() -> EditableObjectNode:
+	return _boss_eo
+
 func get_boss_hit_rect() -> Rect2:
 	if _boss_eo == null or not is_instance_valid(_boss_eo) or not _boss_eo.visible:
 		return Rect2()
@@ -316,7 +332,11 @@ func start_fight() -> void:
 func _begin_random_move() -> void:
 	_boss_eo.rotation = 0.0
 	_boss_spin = 0.0
-	match randi() % 5:
+	var pick := randi() % 5
+	while pick == _last_move:   # never the same move twice in a row
+		pick = randi() % 5
+	_last_move = pick
+	match pick:
 		0: _begin_m1()
 		1: _begin_m2_tweened()
 		2: _begin_m3_tweened()
@@ -395,6 +415,8 @@ func _draw_warning_sign(c: Vector2) -> void:
 	draw_circle(c + Vector2(0.0, s * 0.42), 2.0, dark)
 
 func _process(delta: float) -> void:
+	if GameManager.boss_intro_active or GameManager.input_locked:
+		return   # frozen during the fly-in / death cutscene (boss stays visible)
 	if GameManager.boss_max_hp > 0:
 		queue_redraw()   # redraw for the Move-3 warning sign
 	# Safety net: hide the boss whenever it's not in an active fight (phase ended OR

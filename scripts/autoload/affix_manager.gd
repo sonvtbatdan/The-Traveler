@@ -78,6 +78,20 @@ const WEAPON_AFFIX_POOL: Array[String] = [
 	"energy_regen_flat", "energy_regen_percentage",
 ]
 
+## Affixes allowed to roll on HULLS (defensive / ship affixes). These are the ones EXCLUDED from
+## weapons, PLUS the energy affixes (shared with weapons), MINUS "rebirth" (excluded by design).
+## Its own list so affixes can be moved between the weapon and hull pools later.
+const HULL_AFFIX_POOL: Array[String] = [
+	"hp_flat", "hp_percentage", "hp_regen",
+	"shield_flat", "shield_regen", "shield_delay_reduction",
+	"armor", "damage_reduction", "evasion_chance", "damage_immunity_duration",
+	"faster_run_flat", "faster_run_percentage",
+	"dash_cooldown_reduction", "dash_distance",
+	"model_size_increase", "model_size_reduce", "weight_requirement_reduction",
+	"drone_damage", "damage_on_contact", "damage_when_damaged",
+	"energy_regen_flat", "energy_regen_percentage", "energy_consumption_percentage",
+]
+
 # ── Queries ───────────────────────────────────────────────────────────────────
 
 func get_affix(affix_id: String) -> Dictionary:
@@ -86,9 +100,16 @@ func get_affix(affix_id: String) -> Dictionary:
 func is_weapon_eligible(affix_id: String) -> bool:
 	return WEAPON_AFFIX_POOL.has(affix_id)
 
+func is_hull_eligible(affix_id: String) -> bool:
+	return HULL_AFFIX_POOL.has(affix_id)
+
 ## The weapon-eligible affix ids (a copy, so callers can shuffle/edit freely).
 func weapon_affix_ids() -> Array:
 	return WEAPON_AFFIX_POOL.duplicate()
+
+## The hull-eligible (defensive) affix ids (a copy, so callers can shuffle/edit freely).
+func hull_affix_ids() -> Array:
+	return HULL_AFFIX_POOL.duplicate()
 
 # ── Roller ────────────────────────────────────────────────────────────────────
 

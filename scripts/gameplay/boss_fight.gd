@@ -19,6 +19,13 @@ extends Control
 const BossElephantScript   := preload("res://scripts/gameplay/boss_elephant.gd")
 const BossChromeleonScript := preload("res://scripts/gameplay/boss_chromeleon.gd")
 const BossMetalflyScript   := preload("res://scripts/gameplay/boss_metalfly.gd")
+const BossDeathFXScript    := preload("res://scripts/gameplay/boss_death_fx.gd")
+
+const OC_BOUNDS     := Rect2(270.0, 8.0, 700.0, 764.0)  # play-area rect (viewport)
+const OC_TOP        := 8.0    # play-area top edge (objects-container-local y)
+const OC_CENTER_X   := 620.0  # play-area horizontal centre (270 + 700/2)
+const BOSS_INTRO_T  := 1.0    # boss/ship fly-in duration (seconds)
+const INTRO_EDGE_CM := 2.0    # boss stops this far from the top edge (player likewise from the bottom)
 
 var _objects_container: Control = null
 var _modules: Dictionary = {}     # id: String -> boss module (Control)
@@ -53,10 +60,22 @@ func _make_module(script: Script) -> Node:
 func _on_boss_killed() -> void:
 	if _active != null and is_instance_valid(_active) and _active.has_method("notify_boss_killed"):
 		_active.notify_boss_killed()
+	# XP (Phase 2): award once on the REAL end of a fight, never on a 2-phase boss's phase change.
+	# is_phase_transition() is true only mid-fight, so this fires exactly once per boss defeated.
+	if not is_phase_transition():
+		GameManager.add_xp(GameManager.XP_PER_BOSS)
 
 func _on_hp_changed(hp: int) -> void:
 	if _active != null and is_instance_valid(_active) and _active.has_method("notify_hp_changed"):
 		_active.notify_hp_changed(hp)
+
+## True only when the active boss's CURRENT boss_killed is a phase transition (e.g. a 2-phase boss's
+## first phase dying), not a real end of the fight. Listeners that reset between fights (asteroids,
+## boss music) check this so they DON'T reset between phases. Defaults to false → real end.
+func is_phase_transition() -> bool:
+	if _active != null and is_instance_valid(_active) and _active.has_method("is_phase_transition"):
+		return _active.is_phase_transition()
+	return false
 
 # ── Public API (boss_panel, main, weapon_system, boss_hp_bar) ────────────────
 func spawn_boss(id: String = "elephant") -> void:
@@ -67,8 +86,35 @@ func spawn_boss(id: String = "elephant") -> void:
 		return
 	_active = m
 	m.spawn_boss()
+	_start_intro()
+
+# 1-second entrance: boss floats down from the top, ship floats up from the bottom
+# (gun_system, via the flag), all player input disabled. The flag is set the same frame
+# as spawn, so each module's _process freezes before it can tick a move.
+func _start_intro() -> void:
+	GameManager.boss_intro_active = true
+	var eo: EditableObjectNode = null
+	if _active.has_method("get_intro_eo"):
+		eo = _active.get_intro_eo()
+	var tw := create_tween()
+	if eo != null and is_instance_valid(eo):
+		# Land centred, top of the boss ~INTRO_EDGE_CM below the top edge.
+		var target := Vector2(OC_CENTER_X - eo.size.x * 0.5, OC_TOP + _cm_px(INTRO_EDGE_CM))
+		eo.position = Vector2(target.x, OC_TOP - eo.size.y - 40.0)   # start just above the top edge
+		tw.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+		tw.tween_property(eo, "position", target, BOSS_INTRO_T)
+	else:
+		tw.tween_interval(BOSS_INTRO_T)
+	tw.tween_callback(func() -> void: GameManager.boss_intro_active = false)
+
+func _cm_px(cm: float) -> float:
+	var dpi: int = DisplayServer.screen_get_dpi()
+	if dpi <= 0:
+		dpi = 96
+	return cm / 2.54 * float(dpi)
 
 func kill_boss() -> void:
+	GameManager.boss_intro_active = false   # safety: never leave input disabled
 	if _active != null and is_instance_valid(_active) and _active.has_method("kill_boss"):
 		_active.kill_boss()
 
@@ -90,3 +136,13 @@ func get_move_name() -> String:
 	if _active != null and is_instance_valid(_active) and _active.has_method("get_move_name"):
 		return _active.get_move_name()
 	return ""
+
+# Shared death cutscene: each boss calls this with its visible body node(s) right
+# before its victory screen, and awaits the returned signal. FX defined once in
+# boss_death_fx.gd; the manager owns the arena rect + the shake target.
+func play_death_cutscene(body_nodes: Array, is_final: bool = true) -> Signal:
+	var fx := BossDeathFXScript.new()
+	_objects_container.add_child(fx)
+	fx.finished.connect(fx.queue_free)
+	fx.play(body_nodes, OC_BOUNDS, _objects_container, is_final)
+	return fx.finished

@@ -24,14 +24,19 @@ const RESET_INVENTORY_ON_LOAD := true
 const BASE_DAMAGE_VARIANCE := 0.20          # ±20% base-damage roll per weapon instance
 const WEAPON_ROLL_TIER := 1                 # tier for load-granted + ROLL WEAPON drops (1=Low 2=Mid 3=High)
 
+# Affix-count rolling: each item independently rolls 0-or-1 prefix and 0-or-1 after-fix, so it can
+# end up with 0, 1, or 2 affixes. Tune these chances (applies to both weapons and hulls).
+const PREFIX_CHANCE   := 0.3                # chance an item gets a prefix affix
+const AFTERFIX_CHANCE := 0.3                # chance an item gets an after-fix affix
+
 # Backpack grid size (columns × rows), Diablo-2 style.
 const BACKPACK_COLS := 10
-const BACKPACK_ROWS := 6
+const BACKPACK_ROWS := 13   # was 6 — enlarged so the debug "one of every item" grant (weapons + 10 hulls, ~108 cells) fits
 
-# The 10 physical equip slots.
+# The physical equip slots.
 const EQUIP_SLOTS: Array[String] = [
 	"primary_weapon", "secondary_weapon", "thruster", "command_bridge", "hull",
-	"energy_core", "radar", "drone_1", "drone_2", "wings",
+	"energy_core", "radar", "drone_1", "drone_2", "wings", "relic",
 ]
 
 # What each physical slot accepts, by item tag (see ITEM_DEFS "tags").
@@ -51,6 +56,7 @@ const SLOT_RULES: Dictionary = {
 	"drone_1":          {"any": ["drone"],            "exclude": []},
 	"drone_2":          {"any": ["drone"],            "exclude": []},
 	"wings":            {"any": ["wings"],            "exclude": []},
+	"relic":            {"any": ["relic"],            "exclude": []},
 }
 
 # Placeholder icon colour per rarity (used until real art is added).
@@ -60,6 +66,10 @@ const RARITY_COLORS: Dictionary = {
 	"epic":      Color(0.65, 0.35, 0.90),
 	"legendary": Color(0.95, 0.60, 0.20),
 }
+
+# Display colour by AFFIX COUNT (not loot rarity): 0 affixes = white (common), 1-2 = blue (uncommon).
+const COLOR_NO_AFFIX := Color(0.95, 0.95, 0.95)   # white  — no affixes (common)
+const COLOR_AFFIXED  := Color(0.35, 0.60, 1.0)    # blue   — 1-2 affixes (uncommon)
 
 # Asteroid loot drop weights per rarity. Pool total / LOOT_DENOM ≈ base drop chance.
 # With the 4 current items the base chance is roughly 5.7 % per destroyed asteroid.
@@ -98,6 +108,26 @@ const ITEM_DEFS: Dictionary = {
 			"energy_per_shot": 10,
 		},
 	},
+	"acid_sprayer": {
+		"name": "Acid Sprayer",
+		"icon": "",   # "" → runtime placeholder; drop a PNG path here later for art
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",
+		"fire_type": "acid_cloud",   # lob a glob that settles into a damaging armor-shredding mist
+		"rarity": "rare",
+		"desc": "Lob a glob of acid mist that settles into a cloud. Enemies inside take steady damage and lose armor — softening them up for your other guns.",
+		"stats": {
+			"cooldown_sec": 1.0,
+			"ammo_cost": 12,               # per shot
+			"tick_damage": 5,              # damage per tick (through enemy armor)
+			"tick_interval_sec": 0.5,      # → 10 DPS while inside
+			"shred_per_sec": 1,            # armor an enemy loses per second inside the cloud
+			"cloud_lifetime_sec": 5.0,
+			"cloud_radius": 90,
+			"weight": 4,
+		},
+	},
 	"ionizing_field": {
 		"name": "Ionizing Field",
 		"icon": "res://assets/inventory/Ionizing-Field.png",
@@ -124,11 +154,12 @@ const ITEM_DEFS: Dictionary = {
 		"fire_type": "projectile",
 		"rarity": "common",
 		"desc": "Fires fast; hold to keep firing. The baseline rapid-fire weapon — light, cheap, reliable sustained fire.",
+		"uses_ammo": true,
 		"stats": {
 			"damage": 8,
 			"cooldown_sec": 0.12,
 			"weight": 4,
-			"energy_per_sec": 6,
+			"ammo": 1,          # 1 ammo/s drain while firing
 		},
 	},
 	"homing_missile": {
@@ -155,15 +186,18 @@ const ITEM_DEFS: Dictionary = {
 		"fire_mode": "repeat",
 		"fire_type": "cone",   # a spread of pellets that vanish after range_px
 		"rarity": "common",
-		"desc": "Short-range burst of pellets in a cone. Devastating up close, harmless at range.",
+		"uses_ammo": true,
+		"desc": "Short-range burst of pellets in a cone. Fires a quick double-tap, then a brief reload. Devastating up close, harmless at range.",
 		"stats": {
 			"damage": 18,         # per pellet
 			"pellets": 5,
-			"cooldown_sec": 0.7,
+			"burst_count": 2,     # fires 2 cone volleys in quick succession...
+			"burst_gap_sec": 0.12,# ...this fast apart...
+			"cooldown_sec": 1.0,  # ...then a 1s internal reload before the next burst
 			"range_px": 216,
 			"spread_deg": 34,
 			"weight": 5,
-			"energy": 8,   # energy per shot (whole volley)
+			"ammo": 2,            # 2 ammo/s drain while firing
 		},
 	},
 	"lasgun": {
@@ -173,7 +207,7 @@ const ITEM_DEFS: Dictionary = {
 		"tags": ["weapon"],
 		"fire_mode": "beam",          # continuous while held
 		"fire_type": "hitscan_beam",  # instant beam, stops at the first target
-		"uses_energy": true,          # drains the energy bar at stats.energy per second
+		"uses_ammo": true,            # drains the ammo bar at stats.ammo per second
 		"rarity": "rare",
 		"desc": "A continuous beam fired straight forward that burns the first target in its line. Hold to sustain.",
 		"stats": {
@@ -182,8 +216,8 @@ const ITEM_DEFS: Dictionary = {
 			"range_px": 760,
 			"beam_width": 40,         # 5× wider (drives both the drawn beam and hit width)
 			"weight": 5,
-			"energy": 20,             # 20/s sustained drain while firing
-			"activation_energy": 10,  # one-time cost the moment you start firing
+			"ammo": 20,               # 20/s sustained ammo drain while firing
+			"activation_ammo": 10,    # one-time ammo cost the moment you start firing
 		},
 	},
 	"arc": {
@@ -229,19 +263,19 @@ const ITEM_DEFS: Dictionary = {
 		"tags": ["weapon"],
 		"fire_mode": "channel",        # hold to sustain
 		"fire_type": "growing_zone",   # places a void at a spot that grows in size + damage while held
-		"uses_energy": true,           # drains the energy bar (10 to start + 30/s held; can't fire at 0)
+		"uses_ammo": true,             # drains the ammo bar (10 to start + 20/s held; can't fire at 0)
 		"rarity": "legendary",
 		"desc": "Hold to tear open a void at a spot. It grows wider and hits harder the longer you hold it, then collapses when released.",
 		"stats": {
-			"damage_min": 39,          # damage/tick at placement (+30%)
-			"damage_max": 390,         # damage/tick at full ramp (+30%)
+			"damage_min": 20,          # damage/tick at placement (-50%)
+			"damage_max": 195,         # damage/tick at full ramp (-50%)
 			"ramp_sec": 2.5,           # time to grow from min → max
 			"tick_interval_sec": 0.3,
 			"radius_min": 40,
 			"radius_max": 90,    # 40% smaller than the old 150
 			"weight": 9,
-			"energy": 20,              # per-second drain while held
-			"activation_energy": 10,   # one-time cost the moment you start holding
+			"ammo": 20,                # per-second ammo drain while held
+			"activation_ammo": 10,     # one-time ammo cost the moment you start holding
 		},
 	},
 	"parasite_gun": {
@@ -250,16 +284,17 @@ const ITEM_DEFS: Dictionary = {
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
 		"fire_mode": "repeat",
-		"fire_type": "dot_stack",      # fires sticky parasites that attach and deal damage-over-time
+		"fire_type": "parasite_blob",  # fire a blob that bursts on an enemy into orbiting parasites
 		"rarity": "epic",
-		"desc": "Fires a volley of parasites that latch onto whatever they hit and gnaw it for damage-over-time until it dies. Slow reload.",
+		"desc": "Fire a meaty blob that bursts on an enemy into parasites orbiting it like an atom, each gnawing it. Parasites stack and live briefly.",
 		"stats": {
-			"dps": 6,                  # damage/sec per attached parasite
-			"parasites": 5,            # parasites per volley
-			"cooldown_sec": 4.0,       # reload between volleys
-			"dot_tick_sec": 0.5,       # how often an attached parasite deals damage
+			"cooldown_sec": 1.0,           # blob fire rate
+			"ammo_cost": 20,               # ammo spent per blob (per-shot, handled in fire dispatch)
+			"parasites": 5,                # parasites spawned per blob hit
+			"shot_damage": 15,             # damage per parasite shot (through get_weapon_stat)
+			"shot_interval_sec": 0.5,      # each parasite shoots this often
+			"parasite_lifespan_sec": 3.0,  # parasites vanish after this long (or when the host dies)
 			"weight": 5,
-			"energy": 8,               # per volley (energy OFF until uses_energy set)
 		},
 	},
 	"swarm_host": {
@@ -313,12 +348,134 @@ const ITEM_DEFS: Dictionary = {
 			"weight": 6,
 		},
 	},
+
+	# ── Hulls (Hull_balance sheet). All 2×3, tag "hull" → routed to the hull slot by SLOT_RULES.
+	# stats.innate names the special effect. SIMPLE innates (already meaningful data, trivial to
+	# apply later): none / move_speed_up / move_speed_down / hp_regen / glass. COMPLEX innates left
+	# as TODO(innate) for a later pass: shield_on_cd, dodge_chance, energy_convert, resurrect_once,
+	# reflect_damage. bonus_hp + armor are the simple shared stats (armor → DR curve in GameManager).
+	"titanium_hull": {
+		"name": "Titanium Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"rarity": "common",
+		"desc": "Sturdy plating — flat bonus HP and flat damage reduction. No special effect.",
+		"stats": { "bonus_hp": 50, "armor": 50, "innate": "none", "weight": 8 },
+	},
+	"adamantine_hull": {
+		"name": "Adamantine Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"rarity": "epic",
+		"desc": "Every 10s gains a shield that blocks the first instance of damage, then breaks.",
+		# TODO(innate): shield_on_cd — recharging 1-hit shield on a 10s cooldown.
+		"stats": { "bonus_hp": 30, "armor": 20, "innate": "shield_on_cd", "innate_cd_sec": 10.0, "weight": 9 },
+	},
+	"aerographene_hull": {
+		"name": "Aerographene Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"rarity": "common",
+		"desc": "Ultralight — small bonus HP/DR and +10% flying speed.",
+		# SIMPLE: move_speed_up — apply +move_speed_pct% to ship speed.
+		"stats": { "bonus_hp": 30, "armor": 20, "innate": "move_speed_up", "move_speed_pct": 10, "weight": 4 },
+	},
+	"glass_hull": {
+		"name": "Glass Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"rarity": "rare",
+		"desc": "High risk, high reward — +10% damage taken AND +10% damage dealt.",
+		# SIMPLE: glass — scale damage taken/dealt by the pcts below.
+		"stats": { "bonus_hp": 30, "armor": 0, "innate": "glass", "extra_damage_taken_pct": 10, "extra_damage_dealt_pct": 10, "weight": 5 },
+	},
+	"neutronium_hull": {
+		"name": "Neutronium Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"rarity": "epic",
+		"desc": "Immensely dense — big bonus HP and damage reduction, but -10% flying speed.",
+		# SIMPLE: move_speed_down — apply move_speed_pct% (negative) to ship speed.
+		"stats": { "bonus_hp": 80, "armor": 80, "innate": "move_speed_down", "move_speed_pct": -10, "weight": 12 },
+	},
+	"nanobot_hull": {
+		"name": "Nanobot Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"rarity": "rare",
+		"desc": "Low max HP but self-repairing — decent armor and heals over time.",
+		# SIMPLE: hp_regen — +hp_regen HP per second.
+		"stats": { "bonus_hp": 10, "armor": 50, "innate": "hp_regen", "hp_regen": 1, "weight": 6 },
+	},
+	"voidmetal_hull": {
+		"name": "Voidmetal Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"rarity": "rare",
+		"desc": "Phases out of harm's way — a chance to completely dodge an instance of damage.",
+		# TODO(innate): dodge_chance — dodge_pct% chance to ignore a hit entirely.
+		"stats": { "bonus_hp": 30, "armor": 30, "innate": "dodge_chance", "dodge_pct": 10, "weight": 6 },
+	},
+	"pzt_hull": {
+		"name": "PZT Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"rarity": "epic",
+		"desc": "Piezoelectric — converts a portion of incoming damage into energy.",
+		# TODO(innate): energy_convert — convert energy_convert_pct% of damage taken into energy.
+		"stats": { "bonus_hp": 25, "armor": 50, "innate": "energy_convert", "energy_convert_pct": 20, "weight": 7 },
+	},
+	"memory_foam_hull": {
+		"name": "Memory Foam Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"rarity": "legendary",
+		"desc": "Bounces back from death — once per combat, revive at 50% HP and energy.",
+		# TODO(innate): resurrect_once — on death, revive once per combat at 50% HP/energy.
+		"stats": { "bonus_hp": 0, "armor": 0, "innate": "resurrect_once", "weight": 5 },
+	},
+	"cursed_hull": {
+		"name": "Cursed Hull", "icon": "", "size": Vector2i(2, 3), "tags": ["hull"],
+		"rarity": "legendary",
+		"desc": "Vengeful — reflects 100% of damage taken back at the attacker (red zap).",
+		# TODO(innate): reflect_damage — deal reflect_pct% of damage taken back + red-laser VFX.
+		"stats": { "bonus_hp": 50, "armor": 0, "innate": "reflect_damage", "reflect_pct": 100, "weight": 8 },
+	},
+
+	# ── New gear types (Phase 3) — one placeholder each so the slots + attribute equip-gating are
+	# usable. Their stats are NOT wired to gameplay yet (descs say "coming soon"); the point for now
+	# is the equip requirement (set by rarity via REQ_BY_RARITY, gated on the attribute in _gating_attr).
+	# Drop a PNG path into "icon" and flesh out "stats" later — no other code change needed.
+	"targeting_radar": {
+		"name": "Targeting Radar", "icon": "", "size": Vector2i(2, 1), "tags": ["radar"],
+		"rarity": "rare",
+		"desc": "Sensor array. Requires Marksmanship to equip. (Bonus effect coming soon.)",
+		"stats": { "weight": 3 },
+	},
+	"fusion_core": {
+		"name": "Fusion Core", "icon": "", "size": Vector2i(2, 1), "tags": ["energy_core"],
+		"rarity": "rare",
+		"desc": "Reactor core. Requires Engineering to equip. (Bonus effect coming soon.)",
+		"stats": { "weight": 5 },
+	},
+	"glider_wings": {
+		"name": "Glider Wings", "icon": "", "size": Vector2i(2, 1), "tags": ["wings"],
+		"rarity": "rare",
+		"desc": "Aero foils. Requires Maneuverability to equip. (Bonus effect coming soon.)",
+		"stats": { "weight": 4 },
+	},
+	"ion_thruster": {
+		"name": "Ion Thruster", "icon": "", "size": Vector2i(2, 1), "tags": ["thruster"],
+		"rarity": "rare",
+		"desc": "Drive unit. Requires Maneuverability to equip. (Bonus effect coming soon.)",
+		"stats": { "weight": 5 },
+	},
+	"combat_drone": {
+		"name": "Combat Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
+		"rarity": "rare",
+		"desc": "Autonomous drone. Requires Maneuverability to equip. (Drones don't fire yet — Maneuverability's drone-damage bonus is reserved for when they do.)",
+		"stats": { "weight": 3 },
+	},
+	"ancient_relic": {
+		"name": "Ancient Relic", "icon": "", "size": Vector2i(1, 2), "tags": ["relic"],
+		"rarity": "epic",
+		"desc": "A humming artifact. Requires Biotech to equip. (Bonus effect coming soon.)",
+		"stats": { "weight": 2 },
+	},
+	"command_core": {
+		"name": "Command Core", "icon": "", "size": Vector2i(2, 1), "tags": ["command_bridge"],
+		"rarity": "common",
+		"desc": "Bridge computer. No attribute requirement. (Bonus effect coming soon.)",
+		"stats": { "weight": 4 },
+	},
 }
 
 # Items granted automatically the FIRST time a save is created (new game only).
 # Keeping this separate from ITEM_DEFS means future items (e.g. asteroid drops in
 # Phase 4) can be defined without being auto-placed in the backpack.
-const STARTER_ITEMS: Array[String] = ["gauss_cannon", "shield_generator", "gatling_gun", "homing_missile", "shotgun", "lasgun", "arc", "plasma_drill", "rift_maker", "parasite_gun", "swarm_host", "orbitals"]
+const STARTER_ITEMS: Array[String] = ["gauss_cannon", "shield_generator", "gatling_gun", "homing_missile", "shotgun", "lasgun", "arc", "plasma_drill", "rift_maker", "parasite_gun", "swarm_host", "orbitals", "acid_sprayer"]
 
 # ── Runtime state ─────────────────────────────────────────────────────────────
 # _items: uid(int) -> {"def": String, "where": String, "cell": Vector2i}
@@ -378,6 +535,54 @@ func fits_slot(def_id: String, slot: String) -> bool:
 		if tags.has(t):
 			return true
 	return false
+
+# ── Weapon classes + attribute equip requirements (Phase 3) ──────────────────────
+
+## A weapon's damage class drives which attribute boosts it (and which attribute gates it).
+## TODO (user): set "weapon_class" on each weapon in ITEM_DEFS to one of
+## "kinetic" / "energy" / "biological". Left unset for now, so only Marksmanship's universal
+## damage bonus is active and weapons gate on Marksmanship by default.
+func weapon_class(def: Dictionary) -> String:
+	return String(def.get("weapon_class", ""))
+
+## Which attribute gates equipping an item, from its tags / weapon class.
+## hull & relic → biotech, radar → marksmanship, energy_core → engineering,
+## wings/thruster/drone → maneuverability, weapons → by class (else marksmanship). "" = ungated.
+func _gating_attr(def: Dictionary) -> String:
+	var tags: Array = def.get("tags", [])
+	if tags.has("hull") or tags.has("relic"):
+		return "biotech"
+	if tags.has("radar"):
+		return "marksmanship"
+	if tags.has("energy_core"):
+		return "engineering"
+	if tags.has("wings") or tags.has("thruster") or tags.has("drone"):
+		return "maneuverability"
+	if tags.has("weapon"):
+		match weapon_class(def):
+			"energy":     return "engineering"
+			"biological": return "biotech"
+			_:            return "marksmanship"
+	return ""   # command_bridge, shield, etc. — ungated
+
+## The attribute + minimum value needed to equip a def. `value` comes from an optional per-def
+## "req" override, else the rarity default (GameManager.REQ_BY_RARITY). attr "" = no requirement.
+func item_requirement(def_id: String) -> Dictionary:
+	var d: Dictionary = ITEM_DEFS.get(def_id, {})
+	if d.is_empty():
+		return {"attr": "", "value": 0}
+	var a := _gating_attr(d)
+	if a == "":
+		return {"attr": "", "value": 0}
+	var val: int = int(d.get("req", GameManager.REQ_BY_RARITY.get(String(d.get("rarity", "common")), 0)))
+	return {"attr": a, "value": val}
+
+## True if the player's attributes meet the def's equip requirement.
+func meets_requirement(def_id: String) -> bool:
+	var r := item_requirement(def_id)
+	if String(r["attr"]) == "":
+		return true
+	return GameManager.attr(String(r["attr"])) >= int(r["value"])
 
 # ── Backpack geometry ──────────────────────────────────────────────────────────
 
@@ -457,6 +662,8 @@ func equip(uid: int, slot: String) -> bool:
 	var def_id := String(_items[uid]["def"])
 	if not fits_slot(def_id, slot):
 		return false
+	if not meets_requirement(def_id):
+		return false   # attribute requirement not met (caller surfaces the reason — see equip_slot.gd)
 	var occupant := equipped_uid(slot)
 	if occupant == uid:
 		return true
@@ -592,18 +799,25 @@ func _weapon_base_ids() -> Array:
 ## (distinct ids) and rolled at `tier` (1=Low, 2=Mid, 3=High). The rolls are stored on
 ## the item instance, so every drop is unique. Returns the new uid, or -1 if there's
 ## no room. (Phase 3 will vary the affix COUNT by rarity; this always rolls 2.)
-## Roll the unique part of a weapon: ONE prefix + ONE after-fix affix (distinct,
-## from the weapon-eligible pool, at `tier`) plus a hidden ±BASE_DAMAGE_VARIANCE
-## base-damage multiplier. Returns {affixes, base_mult}.
+## Roll the unique part of a weapon: 0-or-1 prefix + 0-or-1 after-fix affix (each rolled
+## independently at PREFIX_CHANCE / AFTERFIX_CHANCE), drawn from the weapon-eligible pool at
+## `tier` — distinct ids when both roll, and any affix can fill either slot. Plus a hidden
+## ±BASE_DAMAGE_VARIANCE base-damage multiplier. Returns {affixes, base_mult} (0, 1, or 2 affixes).
 func _roll_weapon(tier: int) -> Dictionary:
-	var pool: Array = AffixManager.weapon_affix_ids()
+	return _roll_affixes(AffixManager.weapon_affix_ids(), tier)
+
+## Shared affix roller for weapons AND hulls: shuffle `pool`, then independently add a prefix
+## (PREFIX_CHANCE) and an after-fix (AFTERFIX_CHANCE). Consuming the shuffled pool by index keeps
+## the two ids distinct when both roll; either id can be either role. base_mult is the hidden roll.
+func _roll_affixes(pool: Array, tier: int) -> Dictionary:
 	pool.shuffle()
 	var affixes: Array = []
-	if pool.size() >= 1:
-		var pid := String(pool[0])
+	var idx := 0
+	if pool.size() > idx and randf() < PREFIX_CHANCE:
+		var pid := String(pool[idx]); idx += 1
 		affixes.append({"id": pid, "role": "prefix", "value": AffixManager.roll_affix(pid, tier)})
-	if pool.size() >= 2:
-		var sid := String(pool[1])
+	if pool.size() > idx and randf() < AFTERFIX_CHANCE:
+		var sid := String(pool[idx]); idx += 1
 		affixes.append({"id": sid, "role": "suffix", "value": AffixManager.roll_affix(sid, tier)})
 	var v := BASE_DAMAGE_VARIANCE
 	return {"affixes": affixes, "base_mult": randf_range(1.0 - v, 1.0 + v)}
@@ -625,6 +839,48 @@ func generate_weapon(tier: int, base_def_id: String = "") -> int:
 	inventory_changed.emit()
 	return uid
 
+# ── Affix-rolled hulls (mirror the weapon path; defensive affix pool) ───────────
+
+## Base hull ids eligible to be rolled (anything tagged "hull").
+func _hull_base_ids() -> Array:
+	var out: Array = []
+	for id: String in ITEM_DEFS:
+		if Array(ITEM_DEFS[id].get("tags", [])).has("hull"):
+			out.append(id)
+	return out
+
+## Roll the unique part of a hull: 0-or-1 prefix + 0-or-1 after-fix from the HULL (defensive) affix
+## pool, plus the hidden ±BASE_DAMAGE_VARIANCE roll — stored as base_mult exactly like weapons, but
+## applied to the hull's bonus_hp (not damage) wherever it's read. Returns {affixes, base_mult}.
+func _roll_hull(tier: int) -> Dictionary:
+	var roll := _roll_affixes(AffixManager.hull_affix_ids(), tier)
+	# bonus_hp and armor each get their OWN independent ±BASE_DAMAGE_VARIANCE roll.
+	var v := BASE_DAMAGE_VARIANCE
+	roll["hull_mult"] = {
+		"bonus_hp": randf_range(1.0 - v, 1.0 + v),
+		"armor": randf_range(1.0 - v, 1.0 + v),
+	}
+	return roll
+
+## Generate a unique hull instance: a random hull base (or `base_def_id` if it's a hull) rolled at
+## `tier`. Returns the new uid, or -1 if there's no room.
+func generate_hull(tier: int, base_def_id: String = "") -> int:
+	var bases := _hull_base_ids()
+	if bases.is_empty():
+		return -1
+	var valid_base: bool = ITEM_DEFS.has(base_def_id) and Array(ITEM_DEFS[base_def_id].get("tags", [])).has("hull")
+	var base_id := base_def_id if valid_base else String(bases[randi() % bases.size()])
+	var uid := add_to_backpack(base_id)
+	if uid == -1:
+		return -1
+	var roll := _roll_hull(tier)
+	_items[uid]["affixes"] = roll["affixes"]
+	_items[uid]["base_mult"] = roll["base_mult"]
+	_items[uid]["hull_mult"] = roll["hull_mult"]
+	save_game()
+	inventory_changed.emit()
+	return uid
+
 ## Affixes rolled on an item instance: Array of {id, role:"prefix"/"suffix", value}.
 func item_affixes(uid: int) -> Array:
 	return _items.get(uid, {}).get("affixes", [])
@@ -632,6 +888,26 @@ func item_affixes(uid: int) -> Array:
 ## Hidden base-damage multiplier rolled on this instance (1.0 if none).
 func item_base_mult(uid: int) -> float:
 	return float(_items.get(uid, {}).get("base_mult", 1.0))
+
+## Name/border colour by affix count: white if no affixes (common), blue if it has 1-2 affixes
+## (uncommon). Independent of the def's loot rarity.
+func item_display_color(uid: int) -> Color:
+	return COLOR_AFFIXED if not item_affixes(uid).is_empty() else COLOR_NO_AFFIX
+
+## A hull instance's rolled bonus HP / armor = the def's base × that stat's OWN independent ±20% roll
+## (stored in the item's `hull_mult`), rounded. 0 if absent. Each stat varies separately, so a hull
+## can roll high HP but low armor (and vice-versa). Armor feeds the damage-reduction curve in GameManager.
+func hull_bonus_hp(uid: int) -> int:
+	return _hull_rolled_stat(uid, "bonus_hp")
+func hull_armor(uid: int) -> int:
+	return _hull_rolled_stat(uid, "armor")
+func _hull_rolled_stat(uid: int, key: String) -> int:
+	var it: Dictionary = _items.get(uid, {})
+	var s: Dictionary = get_def(String(it.get("def", ""))).get("stats", {})
+	if not s.has(key):
+		return 0
+	var mult: float = float(Dictionary(it.get("hull_mult", {})).get(key, 1.0))
+	return roundi(float(s[key]) * mult)
 
 ## Combined display name: "[Prefix] [Base] [After-fix]" (empty slots omitted).
 func item_display_name(uid: int) -> String:
@@ -672,7 +948,7 @@ func save_game() -> void:
 	var arr: Array = []
 	for uid: int in _items:
 		var it: Dictionary = _items[uid]
-		arr.append({"uid": uid, "def": it["def"], "where": it["where"], "cell": it["cell"], "affixes": it.get("affixes", []), "base_mult": it.get("base_mult", 1.0)})
+		arr.append({"uid": uid, "def": it["def"], "where": it["where"], "cell": it["cell"], "affixes": it.get("affixes", []), "base_mult": it.get("base_mult", 1.0), "hull_mult": it.get("hull_mult", {})})
 	cfg.set_value("inventory", "items", arr)
 	cfg.save(SAVE_PATH)
 
@@ -700,6 +976,7 @@ func load_game() -> void:
 			"cell": entry.get("cell", Vector2i.ZERO),
 			"affixes": entry.get("affixes", []),
 			"base_mult": float(entry.get("base_mult", 1.0)),
+			"hull_mult": entry.get("hull_mult", {}),
 		}
 	_backfill_starters()
 	inventory_changed.emit()
@@ -723,13 +1000,21 @@ func _grant_one_of_each() -> void:
 	_items.clear()
 	_next_uid = 1
 	var weapons := _weapon_base_ids()
+	var hulls := _hull_base_ids()
 	for def_id: String in ITEM_DEFS:
 		var uid := add_to_backpack(def_id)
-		# Weapons roll affixes + a hidden base-damage roll, like real drops.
-		if uid != -1 and weapons.has(def_id):
+		if uid == -1:
+			continue
+		# Weapons + hulls roll affixes + a hidden base roll, like real drops (each from its own pool).
+		if weapons.has(def_id):
 			var roll := _roll_weapon(WEAPON_ROLL_TIER)
 			_items[uid]["affixes"] = roll["affixes"]
 			_items[uid]["base_mult"] = roll["base_mult"]
+		elif hulls.has(def_id):
+			var hroll := _roll_hull(WEAPON_ROLL_TIER)
+			_items[uid]["affixes"] = hroll["affixes"]
+			_items[uid]["base_mult"] = hroll["base_mult"]
+			_items[uid]["hull_mult"] = hroll["hull_mult"]
 	_granted = ITEM_DEFS.keys()   # so backfill won't double-add if the flag is later turned off
 	inventory_changed.emit()
 

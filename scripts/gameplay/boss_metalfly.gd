@@ -79,6 +79,7 @@ var _forced_kill := false
 
 # Phase tracking
 var _boss_phase := 1  # 1 = cocoon phase, 2 = metalfly phase
+var _last_move  := -1  # last Phase-2 move index (no same move twice in a row)
 var _cocoon_eo: EditableObjectNode = null
 var _transform_anim_acc := 0.0
 var _transform_anim_tween: Tween = null
@@ -169,6 +170,8 @@ func setup(oc: Control) -> void:
 	# the single listener; it calls notify_boss_killed() / notify_hp_changed() on the active boss.
 
 func _process(delta: float) -> void:
+	if GameManager.boss_intro_active or GameManager.input_locked:
+		return   # frozen during the fly-in / death cutscene (boss stays visible)
 	# Cocoon Phase 1 movement (must be BEFORE early return!)
 	if _boss_phase == 1 and _phase == Phase.IDLE:
 		_tick_cocoon_movement(delta)
@@ -299,6 +302,10 @@ func start_fight() -> void:
 
 	_begin_random_move()
 
+func get_intro_eo() -> EditableObjectNode:
+	# Metalfly spawns as the cocoon (phase 1); fall back to the fly if it's missing.
+	return _cocoon_eo if is_instance_valid(_cocoon_eo) else _boss_eo
+
 func get_boss_hit_rect() -> Rect2:
 	var target_eo: EditableObjectNode = null
 	if _boss_phase == 1:
@@ -357,6 +364,9 @@ func _begin_random_move() -> void:
 	if is_instance_valid(_boss_eo):
 		_boss_eo.rotation = 0.0
 	var move_id := randi() % 5
+	while move_id == _last_move:   # never the same move twice in a row
+		move_id = randi() % 5
+	_last_move = move_id
 	match move_id:
 		0:
 			print("[METALFLY] Starting M1: Shard Burst")
@@ -933,6 +943,11 @@ func _clamp_boss() -> void:
 	_boss_eo.position.x = clampf(_boss_eo.position.x, OC_BOUNDS.position.x, OC_BOUNDS.end.x - _boss_eo.size.x)
 	_boss_eo.position.y = clampf(_boss_eo.position.y, OC_BOUNDS.position.y, OC_BOUNDS.end.y - _boss_eo.size.y)
 
+## Phase-1 (cocoon) death is a transition to phase 2, not the end of the fight. A forced kill
+## (player death / debug) sets _forced_kill, and phase 2 sets _boss_phase = 2 → both are real ends.
+func is_phase_transition() -> bool:
+	return _boss_phase == 1 and not _forced_kill
+
 func notify_boss_killed() -> void:
 	if _phase != Phase.IDLE and _phase != Phase.DONE:
 		if _boss_phase == 1 and not _forced_kill:
@@ -944,9 +959,17 @@ func notify_boss_killed() -> void:
 			# Phase 2 death or forced kill
 			var won := not _forced_kill
 			print("[METALFLY] Phase 2 DEFEATED - forced=%s, showing victory=%s" % [_forced_kill, won])
-			_force_reset()
 			if won:
+				# Death cutscene (boss frozen via input_locked) before reset + victory.
+				GameManager.input_locked = true
+				var mgr := get_tree().get_first_node_in_group("boss_fight")
+				if mgr != null and mgr.has_method("play_death_cutscene"):
+					await mgr.play_death_cutscene([_boss_eo])
+				_force_reset()
 				_show_victory_screen()
+				GameManager.input_locked = false
+			else:
+				_force_reset()
 	_forced_kill = false
 
 func notify_hp_changed(new_hp: int) -> void:
