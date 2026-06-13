@@ -527,10 +527,14 @@ func spawn_boss() -> void:
 	GameManager.boss_spawned.emit()
 	if not GameManager.manual_boost:
 		GameManager.set_boost(true)
+	# Show chromeleon so it's visible during the intro fly-in and wander phases.
+	_show_only(_chromeleon_eo)
+	_setup_pivots()
+
+func setup_arena() -> void:
 	var _bg := get_tree().get_first_node_in_group("scrolling_bg")
 	if is_instance_valid(_bg) and _bg.has_method("swap_texture"):
 		_bg.swap_texture("res://assets/bosses/chromeleon/background.png")
-	_start_fight()
 
 func kill_boss() -> void:
 	if _phase == Phase.IDLE or _phase == Phase.DONE:
@@ -618,7 +622,7 @@ func flash_boss_hit() -> void:
 	tw.tween_property(eo, "modulate", Color(2.0, 0.5, 0.5, 1.0), 0.04)
 	tw.tween_property(eo, "modulate", Color.WHITE, 0.15)
 
-func _start_fight() -> void:
+func start_fight() -> void:
 	_reattach_orbs()
 	_reattach_ball()
 	_show_only(_chromeleon_eo)

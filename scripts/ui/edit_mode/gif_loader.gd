@@ -129,6 +129,8 @@ static func _load_via_gdscript(path: String) -> Texture2D:
 	if frames.is_empty():
 		return null
 
+	_auto_convert(path, frames)
+
 	if frames.size() == 1:
 		return ImageTexture.create_from_image(frames[0]["image"] as Image)
 
@@ -142,6 +144,37 @@ static func _load_via_gdscript(path: String) -> Texture2D:
 	first_tex.set_meta("gif_frames", frame_textures)
 	first_tex.set_meta("gif_delays", frame_delays)
 	return first_tex
+
+# Auto-convert GIF to sprite sheet on first load so future sessions use Path 1.
+# Writes <name>.sheet.png + <name>.sheet.json next to the .gif.
+# No-ops in exported PCKs (res:// is read-only); safe to call always.
+static func _auto_convert(gif_path: String, frames: Array) -> void:
+	if frames.is_empty():
+		return
+	var base      := gif_path.get_basename()
+	var abs_png   := ProjectSettings.globalize_path(base + ".sheet.png")
+	var abs_json  := ProjectSettings.globalize_path(base + ".sheet.json")
+	if FileAccess.file_exists(abs_png):
+		return
+
+	var n:  int = frames.size()
+	var fw: int = (frames[0]["image"] as Image).get_width()
+	var fh: int = (frames[0]["image"] as Image).get_height()
+
+	var sheet := Image.create(fw * n, fh, false, Image.FORMAT_RGBA8)
+	var delays: Array = []
+	for i: int in n:
+		sheet.blit_rect(frames[i]["image"] as Image, Rect2i(0, 0, fw, fh), Vector2i(i * fw, 0))
+		delays.append(frames[i]["delay"])
+
+	if sheet.save_png(abs_png) != OK:
+		return
+	var jf := FileAccess.open(abs_json, FileAccess.WRITE)
+	if jf == null:
+		return
+	jf.store_string(JSON.stringify({"cols": n, "w": fw, "h": fh, "delays": delays}, "\t"))
+	jf.close()
+	print("GifLoader: auto-converted %s → %d-frame sheet" % [gif_path.get_file(), n])
 
 # ---------------------------------------------------------------------------
 # GDScript LZW decoder (called by both _load_via_gdscript and convert_gifs.gd)
@@ -202,13 +235,15 @@ static func _decode_frames(bytes: PackedByteArray) -> Array:
 					color_table = bytes.slice(pos, pos + n * 3)
 					pos += n * 3
 
-			match gce_disposal:
-				2: canvas.fill(Color.TRANSPARENT)
-				3:
-					if restore_canvas:
-						canvas = restore_canvas.duplicate()
+			# Save canvas state before drawing — needed for disposal=3 restore.
+			var pre_frame_canvas: Image = null
 			if gce_disposal == 3:
-				restore_canvas = canvas.duplicate()
+				pre_frame_canvas = canvas.duplicate()
+
+			# disposal 0 = unspecified (de-facto keep), 1 = keep, 2 = clear, 3 = restore-previous.
+			# Game sprites always have each frame as a complete image, so treat 0 same as 2.
+			if gce_disposal != 1:
+				canvas.fill(Color.TRANSPARENT)
 
 			if pos >= bytes.size():
 				break
@@ -249,6 +284,9 @@ static func _decode_frames(bytes: PackedByteArray) -> Array:
 						))
 
 			frames.append({"image": canvas.duplicate(), "delay": maxf(gce_delay, 0.02)})
+			# Restore canvas for the next frame if disposal=3.
+			if pre_frame_canvas != null:
+				canvas = pre_frame_canvas
 			gce_delay       = 0.1
 			gce_transparent = -1
 			gce_disposal    = 0

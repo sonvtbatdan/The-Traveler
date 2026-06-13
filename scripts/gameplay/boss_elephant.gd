@@ -232,6 +232,15 @@ func spawn_boss() -> void:
 	# Auto-activate manual boost so player has control
 	if not GameManager.manual_boost:
 		GameManager.set_boost(true)
+	# Show boss EO so it's visible during the intro fly-in and wander phases.
+	# Attacks only start when start_fight() is called after wander completes.
+	_boss_eo.visible      = true
+	_boss_eo.pivot_offset = _boss_eo.size / 2.0
+	_boss_eo.rotation     = 0.0
+	_boss_eo.scale        = Vector2(BOSS_VISUAL_SCALE, BOSS_VISUAL_SCALE)
+	_boss_spin            = 0.0
+
+func setup_arena() -> void:
 	var _bg := get_tree().get_first_node_in_group("scrolling_bg")
 	if is_instance_valid(_bg) and _bg.has_method("swap_texture"):
 		_bg.swap_texture("res://assets/bosses/elephant/map/background.png")
@@ -257,7 +266,6 @@ func spawn_boss() -> void:
 			# Mirrored blob on right side: symmetric position around screen center (screen_w=700).
 			var bx_r: float = OC_BOUNDS.size.x - bx - bw
 			_ov.attach_blob(resized, _map_blob1_delays, bx_r, by, bw, bh, true)
-	start_fight()
 
 func kill_boss() -> void:
 	if _phase == Phase.IDLE or _phase == Phase.DONE:
@@ -356,11 +364,6 @@ func consume_projectile_near(center: Vector2, radius: float) -> Dictionary:
 func start_fight() -> void:
 	if _boss_eo == null or not is_instance_valid(_boss_eo):
 		return
-	_boss_eo.visible      = true
-	_boss_eo.pivot_offset = _boss_eo.size / 2.0
-	_boss_eo.rotation     = 0.0
-	_boss_eo.scale        = Vector2(BOSS_VISUAL_SCALE, BOSS_VISUAL_SCALE)
-	_boss_spin = 0.0
 	_begin_random_move()
 
 func _begin_random_move() -> void:

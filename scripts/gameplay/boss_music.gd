@@ -23,21 +23,23 @@ func _ready() -> void:
 		(stream as AudioStreamMP3).loop = true   # seamless repeat for the whole fight
 	_player.stream = stream
 	_player.volume_db = SILENT_DB
+	GameManager.boss_incoming.connect(_on_boss_incoming)
 	GameManager.boss_spawned.connect(_on_boss_start)
 	GameManager.boss_killed.connect(_on_boss_end)
 	GameManager.ship_destroyed.connect(_on_boss_end)
 
-func _on_boss_start() -> void:
-	if _active:
-		return   # already in a fight (e.g. Chromeleon re-emits boss_spawned at phase 2)
-	_active = true
-	# Stop the normal background music: fade the shared player down, then stop it.
+func _on_boss_incoming() -> void:
 	if AudioManager != null and AudioManager.music_player != null:
 		var amp: AudioStreamPlayer = AudioManager.music_player
 		var tw := create_tween()
 		tw.tween_property(amp, "volume_db", SILENT_DB, FADE_SEC)
 		tw.tween_callback(amp.stop)
-	# Fade the boss track in from silence.
+
+func _on_boss_start() -> void:
+	if _active:
+		return   # already in a fight (e.g. Chromeleon re-emits boss_spawned at phase 2)
+	_active = true
+	# Normal music already faded by boss_incoming — start boss track.
 	_player.volume_db = SILENT_DB
 	if not _player.playing:
 		_player.play()

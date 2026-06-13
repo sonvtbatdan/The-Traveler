@@ -19,6 +19,7 @@ signal level_changed(level: int)              # fired whenever the level number 
 signal leveled_up(new_level: int)             # fired once per individual level gained (for UI/effects)
 
 signal boss_hp_changed(hp: int)
+signal boss_incoming   # fires immediately when spawn is requested, before the warning delay
 signal boss_spawned
 signal boss_killed
 signal boss_defeated   # authoritative "boss HP reached zero" (victory) — NOT emitted on player death

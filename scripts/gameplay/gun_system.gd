@@ -622,7 +622,7 @@ func _process(delta: float) -> void:
 		var cm2: float = 2.0 / 2.54 * float(dpi)
 		var cx: float = SCREEN_BOUNDS.position.x + SCREEN_BOUNDS.size.x * 0.5
 		_intro_to   = Vector2(cx, SCREEN_BOUNDS.end.y - cm2) - _spaceship_origin_sz * 0.5
-		_intro_from = Vector2(_intro_to.x, SCREEN_BOUNDS.end.y + 60.0)   # just below the screen
+		_intro_from = _spaceship_origin   # start from wherever the ship currently is
 		_intro_t    = 0.0
 	_intro_was_active = intro
 	if intro:

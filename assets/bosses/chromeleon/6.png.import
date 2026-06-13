@@ -1,9 +1,9 @@
-﻿[remap]
+[remap]
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://chromeleon_shape_6"
-path="res://.godot/imported/6.png-chromeleon_shape_6.ctex"
+uid="uid://el6fx7hsqebu"
+path="res://.godot/imported/6.png-bacd48e86f3eaa81f3e7adf8a249809d.ctex"
 metadata={
 "vram_texture": false
 }
@@ -11,7 +11,7 @@ metadata={
 [deps]
 
 source_file="res://assets/bosses/chromeleon/6.png"
-dest_files=["res://.godot/imported/6.png-chromeleon_shape_6.ctex"]
+dest_files=["res://.godot/imported/6.png-bacd48e86f3eaa81f3e7adf8a249809d.ctex"]
 
 [params]
 

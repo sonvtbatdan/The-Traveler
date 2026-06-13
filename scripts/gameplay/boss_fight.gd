@@ -27,9 +27,16 @@ const OC_CENTER_X   := 620.0  # play-area horizontal centre (270 + 700/2)
 const BOSS_INTRO_T  := 1.0    # boss/ship fly-in duration (seconds)
 const INTRO_EDGE_CM := 2.0    # boss stops this far from the top edge (player likewise from the bottom)
 
+const WARNING_DELAY   := 5.0    # seconds of warning flash before boss spawns
+const WANDER_DURATION := 5.0    # seconds boss wanders before attacking
+const WANDER_CENTER   := Vector2(620.0, 158.0)  # OC coords — screen (350,150) + SS_OFFSET (270,8)
+const WANDER_RADIUS   := 50.0   # max px from center per step
+const WANDER_STEP_T   := 1.2    # seconds per wander step
+
 var _objects_container: Control = null
 var _modules: Dictionary = {}     # id: String -> boss module (Control)
 var _active: Node = null          # currently-spawned boss (persists across stage transitions)
+var _spawning: bool = false       # true during warning delay — blocks duplicate spawn calls
 
 func setup(oc: Control) -> void:
 	_objects_container = oc
@@ -79,33 +86,69 @@ func is_phase_transition() -> bool:
 
 # ── Public API (boss_panel, main, weapon_system, boss_hp_bar) ────────────────
 func spawn_boss(id: String = "elephant") -> void:
-	if GameManager.boss_max_hp > 0:
-		return   # a boss is already alive — ignore
+	if GameManager.boss_max_hp > 0 or _spawning:
+		return   # a boss is already alive or warning is playing — ignore
 	var m: Node = _modules.get(id)
 	if m == null or not is_instance_valid(m) or not m.has_method("spawn_boss"):
 		return
+	_spawning = true
+	if m.has_method("setup_arena"):
+		m.setup_arena()                    # swap bg/overlay immediately when warning starts
+	GameManager.boss_incoming.emit()   # triggers warning overlay immediately
+
+	await get_tree().create_timer(WARNING_DELAY).timeout
+
+	if not _spawning:
+		return   # kill_boss() was called during the warning delay — abort
+
 	_active = m
-	m.spawn_boss()
+	m.spawn_boss()   # boss appears, sets HP, changes BG — does NOT start attacking
 	_start_intro()
 
-# 1-second entrance: boss floats down from the top, ship floats up from the bottom
-# (gun_system, via the flag), all player input disabled. The flag is set the same frame
-# as spawn, so each module's _process freezes before it can tick a move.
+# 1-second entrance: boss floats down from the top, ship floats up from the bottom.
+# After intro completes, transitions directly into the wander phase.
 func _start_intro() -> void:
 	GameManager.boss_intro_active = true
 	var eo: EditableObjectNode = null
-	if _active.has_method("get_intro_eo"):
+	if _active != null and _active.has_method("get_intro_eo"):
 		eo = _active.get_intro_eo()
 	var tw := create_tween()
 	if eo != null and is_instance_valid(eo):
-		# Land centred, top of the boss ~INTRO_EDGE_CM below the top edge.
 		var target := Vector2(OC_CENTER_X - eo.size.x * 0.5, OC_TOP + _cm_px(INTRO_EDGE_CM))
-		eo.position = Vector2(target.x, OC_TOP - eo.size.y - 40.0)   # start just above the top edge
+		eo.position = Vector2(target.x, OC_TOP - eo.size.y - 40.0)
 		tw.set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
 		tw.tween_property(eo, "position", target, BOSS_INTRO_T)
 	else:
 		tw.tween_interval(BOSS_INTRO_T)
-	tw.tween_callback(func() -> void: GameManager.boss_intro_active = false)
+	tw.tween_callback(_start_wander)
+
+# Boss drifts slowly around WANDER_CENTER for WANDER_DURATION seconds before attacking.
+func _start_wander() -> void:
+	var eo: EditableObjectNode = null
+	if _active != null and _active.has_method("get_intro_eo"):
+		eo = _active.get_intro_eo()
+
+	var tw := create_tween()
+	var steps := int(WANDER_DURATION / WANDER_STEP_T)
+	for i: int in steps:
+		var angle := randf() * TAU
+		var dist  := randf_range(10.0, WANDER_RADIUS)
+		var wp    := WANDER_CENTER + Vector2(cos(angle), sin(angle)) * dist
+		if eo != null and is_instance_valid(eo):
+			# Offset so boss center lands on wp, not its top-left corner
+			var dest := wp - eo.size * 0.5
+			tw.tween_property(eo, "position", dest, WANDER_STEP_T) \
+				.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		else:
+			tw.tween_interval(WANDER_STEP_T)
+
+	tw.tween_callback(_end_wander)
+
+func _end_wander() -> void:
+	GameManager.boss_intro_active = false
+	_spawning = false
+	if _active != null and is_instance_valid(_active) and _active.has_method("start_fight"):
+		_active.start_fight()
 
 func _cm_px(cm: float) -> float:
 	var dpi: int = DisplayServer.screen_get_dpi()
@@ -115,6 +158,7 @@ func _cm_px(cm: float) -> float:
 
 func kill_boss() -> void:
 	GameManager.boss_intro_active = false   # safety: never leave input disabled
+	_spawning = false                       # cancel any in-progress warning/wander
 	if _active != null and is_instance_valid(_active) and _active.has_method("kill_boss"):
 		_active.kill_boss()
 
