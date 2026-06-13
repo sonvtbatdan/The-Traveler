@@ -1,17 +1,17 @@
-[remap]
+﻿[remap]
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://ddik130j0eab2"
-path="res://.godot/imported/background.png-5daef044b5baa19a735edf2f41b4a3b8.ctex"
+uid="uid://chromeleon_shape_3"
+path="res://.godot/imported/3.png-chromeleon_shape_3.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/bosses/chromeleon/background.png"
-dest_files=["res://.godot/imported/background.png-5daef044b5baa19a735edf2f41b4a3b8.ctex"]
+source_file="res://assets/bosses/chromeleon/3.png"
+dest_files=["res://.godot/imported/3.png-chromeleon_shape_3.ctex"]
 
 [params]
 

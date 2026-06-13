@@ -2936,12 +2936,21 @@ func _spawn_bullet(tex: Texture2D, origin_vp: Vector2, vel: Vector2, sz: Vector2
 	_clip_node.add_child(tr)
 	_projectiles.append({"tr": tr, "vel": vel, "dmg": 10, "rainbow": rainbow, "rb_off": randf()})
 
-# Build the four white filled polygon textures once (30×30, matching the orb bullet size).
+# Load shape sprites (3.png/4.png/5.png/6.png) resized to RB_SHAPE_SZ; fallback to procedural polygon.
 func _build_rb_shapes() -> void:
 	if not _rb_shapes.is_empty():
 		return
-	var n := 30   # bluebullet/tealbullet render at 30×30
-	for sides in [3, 4, 5, 6]:   # triangle, diamond, pentagon, hexagon (all point-up)
+	var n := int(RB_SHAPE_SZ.x)
+	for sides in [3, 4, 5, 6]:
+		var path := "res://assets/bosses/chromeleon/%d.png" % sides
+		var tex := load(path) as Texture2D
+		if tex != null:
+			var img := tex.get_image()
+			if img != null:
+				var copy := img.duplicate() as Image
+				copy.resize(n, n, Image.INTERPOLATE_BILINEAR)
+				_rb_shapes.append(ImageTexture.create_from_image(copy))
+				continue
 		_rb_shapes.append(_make_polygon_tex(sides, n))
 
 # A solid white regular polygon, point-up, filled (alpha 1 inside), 2×2 supersampled edges.
