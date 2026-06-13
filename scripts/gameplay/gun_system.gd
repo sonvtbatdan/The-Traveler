@@ -50,7 +50,7 @@ const SHIP_DEFAULT_DASH := "res://assets/screen/dash.png"
 const HULL_SKIN_MAP := {
 	"titanium_hull":     {"idle": "res://assets/screen/ship/titanium/titanium.png"},
 	"adamantine_hull":   {"idle": "res://assets/screen/ship/adamantium/adamantium.png",
-	                      "lean": "res://assets/screen/ship/adamantium/lean.png"},
+						  "lean": "res://assets/screen/ship/adamantium/lean.png"},
 	"aerographene_hull": {"idle": "res://assets/screen/ship/aerographene/aerographene.png"},
 	"glass_hull":        {"idle": "res://assets/screen/ship/glass/glass.png"},
 	"neutronium_hull":   {"idle": "res://assets/screen/ship/neutronium/neutronium.png"},
