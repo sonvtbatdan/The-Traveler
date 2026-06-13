@@ -6,9 +6,10 @@ const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 var _elephant_btn:   Button = null
 var _chromeleon_btn: Button = null
 var _metalfly_btn:   Button = null
+var _nautilus_btn:   Button = null
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(192.0, 210.0)
+	custom_minimum_size = Vector2(192.0, 270.0)
 	_apply_style()
 	_build_ui()
 	GameManager.boss_spawned.connect(_on_boss_spawned)
@@ -148,6 +149,36 @@ func _build_ui() -> void:
 	_metalfly_btn.pressed.connect(_on_metalfly_pressed)
 	vbox.add_child(_metalfly_btn)
 
+	# ── Nautilus button ──────────────────────────────────────────────────────
+	_nautilus_btn = Button.new()
+	_nautilus_btn.text = "Nautilus"
+	_nautilus_btn.custom_minimum_size = Vector2(50.0, 50.0)
+	_nautilus_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_nautilus_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	if font:
+		_nautilus_btn.add_theme_font_override("font", font)
+	_nautilus_btn.add_theme_font_size_override("font_size", 11)
+	_nautilus_btn.add_theme_color_override("font_color", Color.WHITE)
+	_nautilus_btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_nautilus_btn.expand_icon    = true
+	_nautilus_btn.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+
+	var ntex := GifLoader.load_gif("res://assets/bosses/nautilus/broken.gif")
+	if ntex != null:
+		var nframes: Array = ntex.get_meta("gif_frames") if ntex.has_meta("gif_frames") else []
+		if not nframes.is_empty():
+			_nautilus_btn.icon = nframes[0] as Texture2D
+		elif ntex is Texture2D:
+			_nautilus_btn.icon = ntex as Texture2D
+
+	_nautilus_btn.add_theme_stylebox_override("normal",   mk.call(Color(0.06, 0.10, 0.14, 0.9), Color(0.25, 0.55, 0.75, 0.8)))
+	_nautilus_btn.add_theme_stylebox_override("hover",    mk.call(Color(0.10, 0.17, 0.24, 0.9), Color(0.40, 0.75, 0.95, 0.9)))
+	_nautilus_btn.add_theme_stylebox_override("pressed",  mk.call(Color(0.04, 0.07, 0.11, 0.9), Color(0.22, 0.48, 0.68, 0.8)))
+	_nautilus_btn.add_theme_stylebox_override("disabled", mk.call(Color(0.05, 0.07, 0.09, 0.6), Color(0.15, 0.28, 0.38, 0.5)))
+
+	_nautilus_btn.pressed.connect(_on_nautilus_pressed)
+	vbox.add_child(_nautilus_btn)
+
 func _on_elephant_pressed() -> void:
 	_spawn("elephant")
 
@@ -163,6 +194,9 @@ func _spawn(id: String) -> void:
 func _on_metalfly_pressed() -> void:
 	_spawn("metalfly")
 
+func _on_nautilus_pressed() -> void:
+	_spawn("nautilus")
+
 func _on_boss_spawned() -> void:
 	if _elephant_btn != null:
 		_elephant_btn.disabled = true
@@ -170,6 +204,8 @@ func _on_boss_spawned() -> void:
 		_chromeleon_btn.disabled = true
 	if _metalfly_btn != null:
 		_metalfly_btn.disabled = true
+	if _nautilus_btn != null:
+		_nautilus_btn.disabled = true
 
 func _on_boss_killed() -> void:
 	if _elephant_btn != null:
@@ -178,3 +214,5 @@ func _on_boss_killed() -> void:
 		_chromeleon_btn.disabled = false
 	if _metalfly_btn != null:
 		_metalfly_btn.disabled = false
+	if _nautilus_btn != null:
+		_nautilus_btn.disabled = false

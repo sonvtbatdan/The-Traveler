@@ -19,6 +19,7 @@ extends Control
 const BossElephantScript   := preload("res://scripts/gameplay/boss_elephant.gd")
 const BossChromeleonScript := preload("res://scripts/gameplay/boss_chromeleon.gd")
 const BossMetalflyScript   := preload("res://scripts/gameplay/boss_metalfly.gd")
+const BossNautilusScript   := preload("res://scripts/gameplay/boss_nautilus.gd")
 const BossDeathFXScript    := preload("res://scripts/gameplay/boss_death_fx.gd")
 
 const OC_BOUNDS     := Rect2(270.0, 8.0, 700.0, 764.0)  # play-area rect (viewport)
@@ -52,6 +53,7 @@ func setup(oc: Control) -> void:
 	_modules["elephant"]   = _make_module(BossElephantScript)
 	_modules["chromeleon"] = _make_module(BossChromeleonScript)
 	_modules["metalfly"]   = _make_module(BossMetalflyScript)
+	_modules["nautilus"]   = _make_module(BossNautilusScript)
 
 	# Single listener for both boss signals; routed only to the active boss below.
 	GameManager.boss_killed.connect(_on_boss_killed)

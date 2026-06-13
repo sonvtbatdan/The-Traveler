@@ -235,15 +235,11 @@ static func _decode_frames(bytes: PackedByteArray) -> Array:
 					color_table = bytes.slice(pos, pos + n * 3)
 					pos += n * 3
 
-			# Save canvas state before drawing — needed for disposal=3 restore.
+			# All game sprites are complete images per frame — always clear before drawing.
+			# disposal=1 (keep canvas) caused frame stacking; we unconditionally clear instead.
+			# disposal=3 (restore previous) restore is a no-op when we always clear.
 			var pre_frame_canvas: Image = null
-			if gce_disposal == 3:
-				pre_frame_canvas = canvas.duplicate()
-
-			# disposal 0 = unspecified (de-facto keep), 1 = keep, 2 = clear, 3 = restore-previous.
-			# Game sprites always have each frame as a complete image, so treat 0 same as 2.
-			if gce_disposal != 1:
-				canvas.fill(Color.TRANSPARENT)
+			canvas.fill(Color.TRANSPARENT)
 
 			if pos >= bytes.size():
 				break
@@ -284,9 +280,6 @@ static func _decode_frames(bytes: PackedByteArray) -> Array:
 						))
 
 			frames.append({"image": canvas.duplicate(), "delay": maxf(gce_delay, 0.02)})
-			# Restore canvas for the next frame if disposal=3.
-			if pre_frame_canvas != null:
-				canvas = pre_frame_canvas
 			gce_delay       = 0.1
 			gce_transparent = -1
 			gce_disposal    = 0
