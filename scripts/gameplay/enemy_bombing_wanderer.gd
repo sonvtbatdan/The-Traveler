@@ -22,7 +22,7 @@ func _configure() -> void:
 	contact_explodes = false
 	body_color = Color(0.6, 0.15, 0.2)   # maroon
 	shape_kind = "square"
-	icon_path  = "res://assets/enemies/bombing.png"
+	icon_path  = "res://assets/enemies/bombing.gif"
 
 func spawn(mgr: Node) -> void:
 	var screen: Vector2 = mgr.screen_size()

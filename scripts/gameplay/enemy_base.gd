@@ -1,6 +1,8 @@
 class_name NormalEnemy
 extends Control
 
+const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
+
 ## Shared base for all normal (non-boss) enemies. Lives as a child of EnemyManager (itself a child of
 ## SpaceScreen), so position/size are in SpaceScreen-local coords — the same space as weapon_system
 ## bullets, the boss, and asteroids.
@@ -33,6 +35,10 @@ var hp: float = 30.0
 var _mgr: Node = null            # EnemyManager (ship position + bullets + explosions)
 var _ws: Node = null             # weapon_system (target registration)
 var _tex: Texture2D = null       # loaded from icon_path in _ready(); null = use placeholder shapes
+var _frames: Array = []          # GIF animation frames (empty = static texture)
+var _delays: Array = []          # GIF frame delays (seconds)
+var _anim_acc: float = 0.0
+var _anim_frame: int = 0
 var _flash: float = 0.0
 var _dead: bool = false
 var _registered: bool = false
@@ -52,7 +58,17 @@ func _ready() -> void:
 	hp_max *= ENEMY_HP_MULT   # +200% HP
 	hp = hp_max
 	if icon_path != "":
-		_tex = load(icon_path) as Texture2D
+		if icon_path.ends_with(".gif"):
+			var gtex := GifLoader.load_gif(icon_path)
+			if gtex != null:
+				if gtex.has_meta("gif_frames"):
+					_frames = gtex.get_meta("gif_frames")
+					_delays = gtex.get_meta("gif_delays") if gtex.has_meta("gif_delays") else []
+					_tex = _frames[0] as Texture2D
+				else:
+					_tex = gtex
+		else:
+			_tex = load(icon_path) as Texture2D
 		if _tex != null:
 			var ts := _tex.get_size()
 			if ts.x > 0.0:
@@ -159,6 +175,14 @@ func _process(delta: float) -> void:
 	if _dead:
 		return
 	_tick(delta)
+	if not _frames.is_empty():
+		_anim_acc += delta
+		var fd: float = _delays[_anim_frame] if _anim_frame < _delays.size() else 0.1
+		if _anim_acc >= fd:
+			_anim_acc -= fd
+			_anim_frame = (_anim_frame + 1) % _frames.size()
+			_tex = _frames[_anim_frame] as Texture2D
+			queue_redraw()
 	if _flash > 0.0:
 		_flash = maxf(0.0, _flash - delta)
 		queue_redraw()
