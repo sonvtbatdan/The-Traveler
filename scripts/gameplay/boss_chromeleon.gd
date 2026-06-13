@@ -500,6 +500,9 @@ func _force_reset() -> void:
 	_phase_timer = 0.0
 	_orbs_detached = false
 	_ball_detached = false
+	var _bg := get_tree().get_first_node_in_group("scrolling_bg")
+	if is_instance_valid(_bg) and _bg.has_method("restore_texture"):
+		_bg.restore_texture()
 	var ws := _get_ws()
 	if ws != null:
 		ws.clear_extra_targets()
@@ -524,6 +527,9 @@ func spawn_boss() -> void:
 	GameManager.boss_spawned.emit()
 	if not GameManager.manual_boost:
 		GameManager.set_boost(true)
+	var _bg := get_tree().get_first_node_in_group("scrolling_bg")
+	if is_instance_valid(_bg) and _bg.has_method("swap_texture"):
+		_bg.swap_texture("res://assets/bosses/chromeleon/background.png")
 	_start_fight()
 
 func kill_boss() -> void:
@@ -543,6 +549,9 @@ func kill_boss() -> void:
 	if ws != null:
 		ws.clear_extra_targets()
 		ws.clear_multi_hit_provider()
+	var _bg_k := get_tree().get_first_node_in_group("scrolling_bg")
+	if is_instance_valid(_bg_k) and _bg_k.has_method("restore_texture"):
+		_bg_k.restore_texture()
 	GameManager.boss_hp     = 0
 	GameManager.boss_max_hp = 0
 	GameManager.boss_killed.emit()
@@ -2597,6 +2606,9 @@ func _end_fight_win() -> void:
 		ws.clear_multi_hit_provider()
 	if is_instance_valid(_chromehead_eo):
 		_chromehead_eo.visible = false
+	var _bg_w := get_tree().get_first_node_in_group("scrolling_bg")
+	if is_instance_valid(_bg_w) and _bg_w.has_method("restore_texture"):
+		_bg_w.restore_texture()
 	_phase = Phase.DONE
 	_phase_timer = 0.0
 	GameManager.boss_hp     = 0
