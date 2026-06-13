@@ -48,6 +48,7 @@ const LASER_COL        := Color(0.6, 0.7, 1.0, 1.0)   # beamer-style beam base c
 const M4_ROT_T          := 0.5
 const M4_TRAVEL_SPD     := 700.0            # 5× traversal speed
 const M4_DROP_INT       := 0.2             # drop a bomb every 0.2s
+const M4_DROP_PAUSE     := 0.5             # boss holds still this long after each bomb-row drop
 const DROP_SPEED        := 720.0           # bombs hang then drop fast (+20%)
 const DROP_DMG          := 20
 const M4_START_LEFT_SS  := Vector2(10.0, 175.0)
@@ -62,7 +63,7 @@ const BLOB_SPEED    := 500.0               # faster homing blobs
 const BLOB_DMG      := 20
 
 # ── Boss HP ───────────────────────────────────────────────────────────────────
-const BOSS_MAX_HP      := 2000
+const BOSS_MAX_HP      := 4000
 
 # All boss attack damage is scaled by this (75% of the per-attack values above).
 const BOSS_DAMAGE_MULT := 0.75
@@ -137,6 +138,7 @@ var _m4_drop_acc       := 0.0
 var _m4_dropped_first  := false   # row dropped when entering the first third
 var _m4_dropped_mid    := false   # row dropped when entering the middle third
 var _m4_dropped_last   := false   # row dropped when entering the last third
+var _m4_pause_t        := 0.0     # >0 = boss holds still (pausing after a drop)
 
 # ── Move 5 state ──────────────────────────────────────────────────────────────
 var _m5_acc      := 0.0
@@ -628,27 +630,35 @@ func _tick_m4_rot(delta: float) -> void:
 		_phase     = Phase.M4_TRAVEL
 		_phase_acc = 0.0
 		_m4_drop_acc = 0.0
+		_m4_pause_t  = 0.0
 		_m4_dropped_first = false
 		_m4_dropped_mid   = false
 		_m4_dropped_last  = false
 
 func _tick_m4_travel(delta: float) -> void:
+	# Hold still for M4_DROP_PAUSE after each drop (the 0.5s pause between bomb waves).
+	if _m4_pause_t > 0.0:
+		_m4_pause_t -= delta
+		return
 	_boss_eo.position.x += _m4_dir * M4_TRAVEL_SPD * delta
 
 	# Drop a full row of bombs when the boss center crosses into each third of the map:
-	# first third, then the middle third, then the last third (3 waves total).
+	# first third, then the middle third, then the last third (3 waves total), pausing between each.
 	var left := OC_BOUNDS.position.x
 	var third_w := OC_BOUNDS.size.x / 3.0
 	var center_x := _boss_eo.position.x + _boss_eo.size.x / 2.0
 	if not _m4_dropped_first and center_x >= left and center_x <= left + third_w:
 		_spawn_bomb_row(left, left + third_w)
 		_m4_dropped_first = true
-	if not _m4_dropped_mid and center_x >= left + third_w and center_x <= left + 2.0 * third_w:
+		_m4_pause_t = M4_DROP_PAUSE
+	elif not _m4_dropped_mid and center_x >= left + third_w and center_x <= left + 2.0 * third_w:
 		_spawn_bomb_row(left + third_w, left + 2.0 * third_w)
 		_m4_dropped_mid = true
-	if not _m4_dropped_last and center_x >= left + 2.0 * third_w:
+		_m4_pause_t = M4_DROP_PAUSE
+	elif not _m4_dropped_last and center_x >= left + 2.0 * third_w:
 		_spawn_bomb_row(left + 2.0 * third_w, OC_BOUNDS.end.x)
 		_m4_dropped_last = true
+		_m4_pause_t = M4_DROP_PAUSE
 
 	var hit_right := _m4_dir > 0 and _boss_eo.position.x >= OC_BOUNDS.end.x - _boss_eo.size.x
 	var hit_left  := _m4_dir < 0 and _boss_eo.position.x <= OC_BOUNDS.position.x
