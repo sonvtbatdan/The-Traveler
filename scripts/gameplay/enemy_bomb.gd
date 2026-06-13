@@ -1,4 +1,4 @@
-extends "res://scripts/gameplay/enemy_base.gd"
+﻿extends "res://scripts/gameplay/enemy_base.gd"
 
 ## Bomb — dropped by the Bombing_wanderer (a separate enemy). It slowly falls. It explodes when it
 ## touches the player OR when its HP reaches 0 (shot down). The explosion damages ALL factions — other
@@ -22,6 +22,8 @@ func _configure() -> void:
 	contact_explodes = true
 	body_color = Color(1.0, 0.55, 0.15)   # orange
 	shape_kind = "circle"
+	icon_path  = "res://assets/enemies/bomb.png"
+	size_mult  = 0.5
 
 func _tick(delta: float) -> void:
 	position += Vector2(0.0, BOMB_FALL_SPEED * delta)

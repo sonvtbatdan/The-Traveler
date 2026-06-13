@@ -1,4 +1,4 @@
-extends "res://scripts/gameplay/enemy_base.gd"
+﻿extends "res://scripts/gameplay/enemy_base.gd"
 
 ## Bombing_wanderer — enters from a side edge into the TOP THIRD of the map, then WANDERS in any
 ## direction at BW_SPEED, BOUNCING off the top / left / right edges and the 1/3 line (the "2-3 line": the
@@ -23,6 +23,7 @@ func _configure() -> void:
 	contact_explodes = false
 	body_color = Color(0.6, 0.15, 0.2)   # maroon
 	shape_kind = "square"
+	icon_path  = "res://assets/enemies/bombing.gif"
 
 ## `side` = "left" / "right" to force the entry edge (else random). Enters into the top third with a
 ## random inward 2D heading, then bounces around.

@@ -16,6 +16,7 @@ const BossHpBarScript           := preload("res://scripts/ui/hud/boss_hp_bar.gd"
 const InventoryUIScript         := preload("res://scripts/ui/inventory/inventory_ui.gd")
 const WeaponSystemScript        := preload("res://scripts/gameplay/weapon_system.gd")
 const BossMusicScript           := preload("res://scripts/gameplay/boss_music.gd")  # boss-fight battle track
+const BossWarningScript         := preload("res://scripts/gameplay/boss_warning.gd") # boss-entry warning flash + SFX
 const EnemyManagerScript        := preload("res://scripts/gameplay/enemy_manager.gd")  # normal-enemy spawner/owner
 const EnemyPanelScript          := preload("res://scripts/ui/hud/enemy_panel.gd")      # ENEMIES debug spawn panel
 const LevelDesignPanelScript    := preload("res://scripts/ui/level_design/level_design_panel.gd")  # F7 level-design dev tool
@@ -53,6 +54,7 @@ func _ready() -> void:
 	_add_boss_hp_bar()
 	_add_boss_panel()
 	add_child(BossMusicScript.new())   # loops the boss track during boss fights
+	add_child(BossWarningScript.new()) # warning flash + SFX on boss entry
 	GameManager.load_game()
 	UpgradeManager.load_game()
 	GameManager.game_loaded.emit()

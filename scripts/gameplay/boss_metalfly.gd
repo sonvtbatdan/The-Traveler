@@ -261,6 +261,24 @@ func spawn_boss() -> void:
 	if ws != null and ws.has_method("set_auto_fire"):
 		ws.set_auto_fire(true)
 
+	# Show cocoon so it's visible during the intro fly-in and wander phases.
+	for child in _objects_container.get_children():
+		var eo := child as EditableObjectNode
+		if eo == null:
+			continue
+		var base := eo.source_path.get_file().get_basename().to_lower()
+		if base in ["metalfly", "cocoon", "transform", "arrow", "fly"]:
+			eo.visible = false
+	if is_instance_valid(_cocoon_eo):
+		_cocoon_eo.visible = true
+		var _tr := _cocoon_eo.texture_rect
+		if _tr != null:
+			_tr.visible = true
+		_cocoon_eo.pivot_offset = _cocoon_eo.size / 2.0
+		_cocoon_eo.rotation = 0.0
+		_cocoon_eo.scale = Vector2.ONE
+
+func setup_arena() -> void:
 	var _bg := get_tree().get_first_node_in_group("scrolling_bg")
 	if is_instance_valid(_bg) and _bg.has_method("swap_texture"):
 		_bg.swap_texture("res://assets/bosses/metalfly/background.png")
@@ -268,8 +286,6 @@ func spawn_boss() -> void:
 	if is_instance_valid(_ov) and _ov.has_method("swap_texture"):
 		_ov.swap_texture("res://assets/bosses/metalfly/overlay.png")
 		_ov.set_speed_mult(2.0)
-
-	start_fight()
 
 func kill_boss() -> void:
 	if _phase == Phase.DONE:

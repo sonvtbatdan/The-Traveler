@@ -503,6 +503,9 @@ func _force_reset() -> void:
 	_phase2_started = false
 	_orbs_detached = false
 	_ball_detached = false
+	var _bg := get_tree().get_first_node_in_group("scrolling_bg")
+	if is_instance_valid(_bg) and _bg.has_method("restore_texture"):
+		_bg.restore_texture()
 	var ws := _get_ws()
 	if ws != null:
 		ws.clear_extra_targets()
@@ -527,7 +530,14 @@ func spawn_boss() -> void:
 	GameManager.boss_spawned.emit()
 	if not GameManager.manual_boost:
 		GameManager.set_boost(true)
-	_start_fight()
+	# Show chromeleon so it's visible during the intro fly-in and wander phases.
+	_show_only(_chromeleon_eo)
+	_setup_pivots()
+
+func setup_arena() -> void:
+	var _bg := get_tree().get_first_node_in_group("scrolling_bg")
+	if is_instance_valid(_bg) and _bg.has_method("swap_texture"):
+		_bg.swap_texture("res://assets/bosses/chromeleon/background.png")
 
 func kill_boss() -> void:
 	if _phase == Phase.IDLE or _phase == Phase.DONE:
@@ -547,6 +557,9 @@ func kill_boss() -> void:
 	if ws != null:
 		ws.clear_extra_targets()
 		ws.clear_multi_hit_provider()
+	var _bg_k := get_tree().get_first_node_in_group("scrolling_bg")
+	if is_instance_valid(_bg_k) and _bg_k.has_method("restore_texture"):
+		_bg_k.restore_texture()
 	GameManager.boss_hp     = 0
 	GameManager.boss_max_hp = 0
 	GameManager.boss_killed.emit()
@@ -1511,7 +1524,7 @@ func _beam_hits_ship(origin_vp: Vector2, dir: Vector2, length: float, width: flo
 	var to := ship_c - origin_vp
 	var t := clampf(to.dot(dir), 0.0, length)        # dir is unit-length
 	var closest := origin_vp + dir * t
-	var ship_r := maxf(sr.size.x, sr.size.y) * 0.5
+	var ship_r := maxf(sr.size.x, sr.size.y) * 0.5 - 5.0
 	return ship_c.distance_to(closest) <= width * 0.5 + ship_r
 
 func _free_node(n: Node) -> void:
@@ -2232,7 +2245,7 @@ func _tick_rope_damage(delta: float) -> void:
 	var ship := _ship_center()
 	var closest := Geometry2D.get_closest_point_to_segment(ship, a, b)
 	var sr := _ship_rect_vp()
-	var ship_r: float = maxf(sr.size.x, sr.size.y) * 0.5 if sr != Rect2() else 16.0
+	var ship_r: float = maxf(sr.size.x, sr.size.y) * 0.5 - 5.0 if sr != Rect2() else 11.0
 	if ship.distance_to(closest) <= M3_ROPE_DMG_W + ship_r:
 		_m3_rope_dmg_acc += delta
 		if _m3_rope_dmg_acc >= M3_ROPE_DMG_INT:
@@ -2622,6 +2635,9 @@ func _end_fight_win() -> void:
 		ws.clear_multi_hit_provider()
 	if is_instance_valid(_chromehead_eo):
 		_chromehead_eo.visible = false
+	var _bg_w := get_tree().get_first_node_in_group("scrolling_bg")
+	if is_instance_valid(_bg_w) and _bg_w.has_method("restore_texture"):
+		_bg_w.restore_texture()
 	_phase = Phase.DONE
 	_phase_timer = 0.0
 	GameManager.boss_hp     = 0
@@ -2959,12 +2975,44 @@ func _spawn_bullet(tex: Texture2D, origin_vp: Vector2, vel: Vector2, sz: Vector2
 	_clip_node.add_child(tr)
 	_projectiles.append({"tr": tr, "vel": vel, "dmg": 10, "rainbow": rainbow, "rb_off": randf()})
 
-# Build the four white filled polygon textures once (30×30, matching the orb bullet size).
+# Load shape sprites (3.png/4.png/5.png/6.png): scale to 70%, add 2px white outside border.
 func _build_rb_shapes() -> void:
 	if not _rb_shapes.is_empty():
 		return
-	var n := 30   # bluebullet/tealbullet render at 30×30
-	for sides in [3, 4, 5, 6]:   # triangle, diamond, pentagon, hexagon (all point-up)
+	var n      := int(RB_SHAPE_SZ.x)     # 30 — final canvas size
+	var inner  := int(n * 0.7)           # 21 — inner sprite size
+	var border := 1                       # px white outline thickness
+	var off    := (n - inner) / 2        # center offset inside the canvas
+
+	for sides in [3, 4, 5, 6]:
+		var path := "res://assets/bosses/chromeleon/%d.png" % sides
+		var tex  := load(path) as Texture2D
+		if tex != null:
+			var src := tex.get_image()
+			if src != null:
+				var sml := src.duplicate() as Image
+				sml.resize(inner, inner, Image.INTERPOLATE_BILINEAR)
+				var out := Image.create(n, n, false, Image.FORMAT_RGBA8)
+				# Pass 1: circular dilation → white pixels outside the shape's alpha edge
+				for sy in inner:
+					for sx in inner:
+						if sml.get_pixel(sx, sy).a > 0.1:
+							for dy in range(-border, border + 1):
+								for dx in range(-border, border + 1):
+									if dx * dx + dy * dy > border * border:
+										continue
+									var ox := sx + off + dx
+									var oy := sy + off + dy
+									if ox >= 0 and ox < n and oy >= 0 and oy < n:
+										out.set_pixel(ox, oy, Color.WHITE)
+				# Pass 2: blit inner sprite on top (border only visible outside the shape)
+				for sy in inner:
+					for sx in inner:
+						var px := sml.get_pixel(sx, sy)
+						if px.a > 0.01:
+							out.set_pixel(sx + off, sy + off, px)
+				_rb_shapes.append(ImageTexture.create_from_image(out))
+				continue
 		_rb_shapes.append(_make_polygon_tex(sides, n))
 
 # A solid white regular polygon, point-up, filled (alpha 1 inside), 2×2 supersampled edges.
@@ -2995,7 +3043,7 @@ func _tick_projectiles(delta: float) -> void:
 	var ship_r := 0.0
 	if _ship_eo != null and is_instance_valid(_ship_eo):
 		ship_c = _ship_eo.get_global_transform() * (_ship_eo.size * 0.5) - OC_BOUNDS.position
-		ship_r = _ship_eo.size.x * 0.5 * _ship_eo.scale.x
+		ship_r = _ship_eo.size.x * 0.5 * _ship_eo.scale.x - 5.0
 	var clip_rect := Rect2(Vector2.ZERO, OC_BOUNDS.size)
 	var i := _projectiles.size() - 1
 	while i >= 0:

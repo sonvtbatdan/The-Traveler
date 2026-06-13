@@ -373,7 +373,7 @@ func _build_settings_panel() -> void:
 
 func _anchor_bottom_right() -> void:
 	size = Vector2(size.x, get_combined_minimum_size().y + 8.0)
-	position = Vector2(1240.0, 178.0)
+	position = Vector2(1240.0, 228.0)
 
 func _make_lbl(txt: String, sz: int, col: Color) -> Label:
 	var l := Label.new()

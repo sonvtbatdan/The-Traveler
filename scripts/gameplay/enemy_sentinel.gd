@@ -1,4 +1,4 @@
-extends "res://scripts/gameplay/enemy_base.gd"
+﻿extends "res://scripts/gameplay/enemy_base.gd"
 
 ## Sentinel — spawns in a pair, descends from the top to 35% down the screen, then holds position and
 ## fires a wide spread fan once per second: SE_RAYS rays (each SE_RAY_SPREAD_DEG apart, centred on the
@@ -37,6 +37,7 @@ func _configure() -> void:
 	contact_explodes = false
 	body_color = Color(0.75, 0.45, 0.95)   # purple
 	shape_kind = "diamond"
+	icon_path  = "res://assets/enemies/sentinel.png"
 
 ## Called by EnemyManager after add_child(): `index`/`count` spread the pair across the width.
 func spawn(mgr: Node, index: int, count: int) -> void:

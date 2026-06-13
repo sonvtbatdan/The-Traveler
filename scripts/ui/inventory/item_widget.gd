@@ -57,7 +57,8 @@ func _build() -> void:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var col: Color = InventoryManager.item_display_color(uid)   # white = no affixes, blue = affixed
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.10, 0.13, 0.18, 0.95)
+	var tags: Array = def.get("tags", [])
+	sb.bg_color = Color("#e4712a") if "weapon" in tags else Color("#4e5568")
 	sb.border_color = col
 	sb.set_border_width_all(2)
 	sb.set_corner_radius_all(4)
@@ -69,10 +70,8 @@ func _build() -> void:
 	icon.offset_left = 3; icon.offset_top = 3
 	icon.offset_right = -3; icon.offset_bottom = -3
 	icon.texture = InventoryManager.get_icon(def_id)
-	# Fill the slot/cell exactly (was KEEP_ASPECT_CENTERED, which letterboxed the
-	# rectangular weapon art so it never matched the slot size).
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	icon.stretch_mode = TextureRect.STRETCH_SCALE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(icon)
 
@@ -233,18 +232,39 @@ func _get_drag_data(at_position: Vector2) -> Variant:
 		grab.x = clampi(grab.x, 0, size.x - 1)
 		grab.y = clampi(grab.y, 0, size.y - 1)
 
-	var preview := TextureRect.new()
-	preview.texture = InventoryManager.get_icon(def_id)
-	preview.size = Vector2(size.x * cell_size, size.y * cell_size)
-	preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	preview.modulate = Color(1, 1, 1, 0.7)
+	var padding := 3
+	var box := Vector2(size.x * cell_size - padding * 2, size.y * cell_size - padding * 2)
 	var def: Dictionary = InventoryManager.get_def(def_id)
+	var tex: Texture2D = InventoryManager.get_icon(def_id)
+
+	# Reproduce exactly how the placeholder shows the art: the icon TextureRect uses
+	# KEEP_ASPECT_CENTERED inside the padded cell box, so the visible image is the
+	# texture aspect-fitted (NOT the full box). Compute that displayed size + offset
+	# and bake it into the preview so the drag ghost matches the placeholder 1:1.
+	var disp := box
+	if tex != null and String(def.get("icon", "")) != "":
+		var ts := tex.get_size()
+		if ts.x > 0 and ts.y > 0:
+			var s := minf(box.x / ts.x, box.y / ts.y)
+			disp = ts * s
+	var img_pos := Vector2(padding, padding) + (box - disp) * 0.5  # image top-left within widget
+
+	var preview := TextureRect.new()
+	preview.texture = tex
+	# expand_mode MUST be set before size: with the default EXPAND_KEEP_SIZE the
+	# control's minimum size = the texture's native size, and the size setter
+	# clamps to that minimum — large icons would lock the preview at full size.
+	preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	preview.stretch_mode = TextureRect.STRETCH_SCALE
+	preview.size = disp
+	preview.modulate = Color(1, 1, 1, 0.7)
 	if String(def.get("icon", "")) == "":
 		preview.add_child(_make_name_label(def))
+
 	var wrap := Control.new()
 	wrap.add_child(preview)
-	preview.position = -Vector2(grab.x * cell_size + cell_size * 0.5, grab.y * cell_size + cell_size * 0.5)
+	# Offset so the cursor stays exactly where it grabbed the item (at_position in widget space).
+	preview.position = img_pos - at_position
 	set_drag_preview(wrap)
 
 	modulate = Color(1, 1, 1, 0.35)
@@ -264,4 +284,13 @@ func _can_drop_data(_at: Vector2, data: Variant) -> bool:
 	return InventoryManager.fits_slot(String((data as Dictionary)["def_id"]), slot_name)
 
 func _drop_data(_at: Vector2, data: Variant) -> void:
+	var def_id := String((data as Dictionary)["def_id"])
+	if not InventoryManager.meets_requirement(def_id):
+		var r := InventoryManager.item_requirement(def_id)
+		var ui := get_tree().get_first_node_in_group("inventory_ui")
+		if ui != null and ui.has_method("flash_message"):
+			var attr := String(r["attr"])
+			var label := attr.capitalize() if attr != "" else "an attribute"
+			ui.flash_message("Requires %s %d" % [label, int(r["value"])])
+		return
 	InventoryManager.equip(int((data as Dictionary)["uid"]), slot_name)

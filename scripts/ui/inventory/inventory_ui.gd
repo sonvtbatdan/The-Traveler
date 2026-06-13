@@ -157,6 +157,7 @@ func _build_panel_contents() -> void:
 		var slot_pos := cell_origin + (GRID_PITCH - ssize) * 0.5   # centre slot in its cell
 		var es := EquipSlot.new()
 		es.setup(slot)
+		es.tooltip_text = SLOT_LABELS.get(slot, slot)
 		es.position = slot_pos
 		es.size = ssize
 		_style_slot(es, slot)

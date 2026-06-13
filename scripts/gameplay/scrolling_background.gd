@@ -1,7 +1,7 @@
 extends Control
 
 const BG_PATH := "res://assets/screen/background.png"
-const SPEED   := 40.0
+const SPEED   := 20.0
 
 var _rects:      Array[TextureRect] = []
 var _source_img: Image      = null
@@ -103,6 +103,20 @@ func _apply_positions() -> void:
 		return
 	for row in _rects.size():
 		_rects[row].position = Vector2(_tile_x, _offset + (row - 1) * _tile_h)
+
+func swap_texture(img_path: String) -> void:
+	var raw := load(img_path) as Texture2D
+	if raw == null:
+		return
+	_source_img = raw.get_image()
+	_rebuild()
+
+func restore_texture() -> void:
+	var raw := load(BG_PATH) as Texture2D
+	if raw == null:
+		return
+	_source_img = raw.get_image()
+	_rebuild()
 
 func _process(delta: float) -> void:
 	if _tile_h <= 0.0:

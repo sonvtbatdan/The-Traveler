@@ -9,6 +9,7 @@ const COLLAPSED_H   := 200.0
 const BTN_SIZE      := 50
 const COLLAPSE_DELAY := 1.5
 const SAVE_PATH     := "user://music_player.cfg"
+const DEFAULT_PLAYLIST_URL := "https://www.youtube.com/watch?v=42Yw2Llnwzw&list=PLJ23c2czIAHmoVNRGL1vCmGD1mnAIZJkh"
 const BTN_PATH    := "res://assets/sprites/ui/buttons/"
 const YT_OEMBED   := "https://www.youtube.com/oembed?url=%s&format=json"
 const YT_THUMB    := "https://img.youtube.com/vi/%s/mqdefault.jpg"
@@ -36,6 +37,7 @@ var _upd_seek      := false
 var _restore_pos:          float = 0.0   # saved playback position (seconds)
 var _restore_playlist_pos: int   = -1    # saved playlist index (-1 = single video)
 var _pending_restore:      bool  = false # seek when next duration arrives
+var _auto_shuffle_next:    bool  = false # shuffle + random-start when next playlist loads
 
 var _url_input:       LineEdit
 var _title_lbl:       _MarqueeLabel
@@ -189,6 +191,7 @@ func _set_expanded(val: bool) -> void:
 func _auto_play_saved(url: String) -> void:
 	if url.is_empty():
 		return
+	_auto_shuffle_next = _is_playlist_url(url)   # shuffle any playlist that auto-loads at startup
 	# For single video or playlist-at-pos-0: seek as soon as duration arrives.
 	# For playlist at pos > 0: wait until after skip_to() fires playlist_pos_changed.
 	if _restore_playlist_pos <= 0:
@@ -787,7 +790,13 @@ func _on_playlist_loaded(ids: Array) -> void:
 	else:
 		_status_lbl.text = "%d songs queued" % ids.size()
 		_playlist_pos = 0
-		if _restore_playlist_pos > 0 and _restore_playlist_pos < ids.size():
+		if _auto_shuffle_next and ids.size() > 1:
+			_auto_shuffle_next = false
+			_restore_playlist_pos = -1
+			_shuffle_btn.set_pressed_no_signal(true)
+			_server.send({"cmd": "shuffle_on"})
+			_server.skip_to(randi() % ids.size())
+		elif _restore_playlist_pos > 0 and _restore_playlist_pos < ids.size():
 			_server.skip_to(_restore_playlist_pos)
 		var titles := _server.playlist_titles
 		if not titles.is_empty():
@@ -809,9 +818,9 @@ func _save_session() -> void:
 func _load_session() -> Dictionary:
 	var cfg := ConfigFile.new()
 	if cfg.load(SAVE_PATH) != OK:
-		return {"url": "", "position": 0.0, "playlist_pos": -1, "volume": 1.0}
+		return {"url": DEFAULT_PLAYLIST_URL, "position": 0.0, "playlist_pos": -1, "volume": 1.0}
 	return {
-		"url":          cfg.get_value("music", "last_url",          ""),
+		"url":          cfg.get_value("music", "last_url",          DEFAULT_PLAYLIST_URL),
 		"position":     cfg.get_value("music", "last_position",     0.0),
 		"playlist_pos": cfg.get_value("music", "last_playlist_pos", -1),
 		"volume":       cfg.get_value("music", "volume",            1.0),
@@ -834,11 +843,12 @@ class _MarqueeLabel extends Control:
 
 	var hover_only := false
 
-	var _lbl:    Label
-	var _ox      := 0.0
-	var _dir     := -1.0
-	var _wait    := PAUSE
-	var _hovered := false
+	var _lbl:        Label
+	var _base_color  := Color.WHITE
+	var _ox          := 0.0
+	var _dir         := -1.0
+	var _wait        := PAUSE
+	var _hovered     := false
 
 	func _init() -> void:
 		_lbl = Label.new()
@@ -853,6 +863,7 @@ class _MarqueeLabel extends Control:
 
 	func set_hovered(h: bool) -> void:
 		_hovered = h
+		_lbl.add_theme_color_override("font_color", Color.WHITE if h else _base_color)
 		if not h:
 			_reset_scroll()
 
@@ -868,6 +879,7 @@ class _MarqueeLabel extends Control:
 		_reset_scroll()
 
 	func set_style(color: Color, font_size: int) -> void:
+		_base_color = color
 		_lbl.add_theme_color_override("font_color", color)
 		_lbl.add_theme_font_size_override("font_size", font_size)
 

@@ -841,13 +841,14 @@ func _on_boost_changed(_active: bool) -> void:
 	pass
 
 func _update_gameplay_visibility() -> void:
-	# Keep ALL boss bases hidden during gameplay (children cascade-hide). The active
-	# boss is revealed by its own fight controller when spawned. Only called at setup()
-	# and _close(), where no fight is active, so always-hiding is safe.
+	# Keep ALL boss EOs that are direct children of objects_container hidden during
+	# gameplay (weapon EOs cascade-hide with their parent). Bosses with multiple
+	# base entries (e.g. metalfly = cocoon + fly body) need all direct children hidden,
+	# not just index-0. The active boss is revealed by its fight controller on spawn.
 	for boss_name: String in _all_boss_names:
-		var base_eo := _get_base_eo(boss_name)
-		if is_instance_valid(base_eo) and base_eo.get_parent() == _objects_container:
-			base_eo.visible = false
+		for eo: EditableObjectNode in _placed.get(boss_name, []):
+			if is_instance_valid(eo) and eo.get_parent() == _objects_container:
+				eo.visible = false
 
 # ── Input ──────────────────────────────────────────────────────────────────────
 

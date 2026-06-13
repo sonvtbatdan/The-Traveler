@@ -281,12 +281,20 @@ var ship_hp: int
 var ship_max_hp: int
 var shield: float
 var shield_max: float
-var is_boss_active: bool
+var boss_intro_active: bool   # true during boss fly-in + wander; blocks boss _process attacks
 ```
 
 ### Signals
 
 `ship_hp_changed(int)`, `shield_changed(float)`, `boss_state_changed(bool)`
+
+**Boss fight signal sequence:**
+```
+boss_incoming  → warning overlay shows, bg/overlay swapped, normal music fades out
+boss_spawned   → boss HP set, boss music starts
+boss_killed    → boss music fades, normal music restarts
+boss_defeated  → XP awarded (real end, not phase transition)
+```
 
 ---
 
@@ -635,6 +643,40 @@ GifLoader extracts frames and delays metadata. Non-GIF textures fallback to sing
 | `_tick_projectiles(delta)` | Move, animate, collide, cull all in-flight projectiles |
 | `kill_boss()` | Set HP=0, hide sprite, cleanup projectiles, emit signal |
 
+### Boss Intro & Warning Flow
+
+**Timeline (triggered by `boss_fight.gd → spawn_boss()`):**
+
+```
+t=0s   m.setup_arena()         ← bg/overlay swap per boss (called before boss_incoming)
+t=0s   boss_incoming.emit()    ← warning.png flashes 5s, bossalert.wav plays, normal music fades
+t=0s   normal music fades out  ← boss_music.gd connects to boss_incoming
+t=5s   m.spawn_boss()          ← HP set, boss_spawned emitted, boss music starts
+t=5s   _start_intro()          ← boss_intro_active=true, boss EO flies in from above (1s)
+t=6s   _start_wander()         ← boss drifts around WANDER_CENTER=(620,158) OC for 5s
+t=11s  _end_wander()           ← boss_intro_active=false, m.start_fight() → attacks begin
+```
+
+**`boss_warning.gd`** (`scripts/gameplay/boss_warning.gd`): listens to `boss_incoming`, flashes `warning.png` as CanvasLayer(layer=20) over screen with 5s duration / 0.75s interval / 0.2s fade. Positioned at SS_POS shifted 300px up.
+
+**Per-boss contract additions (beyond basic API):**
+- `setup_arena()` — swap scrolling bg + overlay to boss-specific assets. Called at `boss_incoming` time (before spawn delay).
+- `spawn_boss()` — must make boss EO **visible** (so it's seen during fly-in + wander). Must NOT call `start_fight()`.
+- `start_fight()` — called by coordinator after wander. Must call `_begin_random_move()` only (no visual setup; boss is already visible).
+
+**`boss_intro_active` flag:** set `true` in `_start_intro()`, cleared in `_end_wander()`. Each boss `_process()` returns early when true — blocks all attack logic. Tween position updates still run (wander works).
+
+**Ship movement during intro** (`gun_system.gd`): when `boss_intro_active` first becomes true, ship lerps from its **current position** to the designated center-bottom position over 1s. `_intro_from = _spaceship_origin` (not teleported from below screen).
+
+**Wander constants** (`boss_fight.gd`):
+```gdscript
+const WANDER_CENTER   := Vector2(620.0, 158.0)  # OC coords = screen (350,150) + SS_OFFSET
+const WANDER_RADIUS   := 50.0
+const WANDER_STEP_T   := 1.2   # seconds per step
+const WANDER_DURATION := 5.0
+const WARNING_DELAY   := 5.0   # seconds of warning before boss spawns
+```
+
 ### Gotchas
 
 1. **M1_ENTRY early-return:** `_process()` checks `_phase == Phase.M1_ENTRY` and returns early (line ~283). **This must come AFTER `_tick_projectiles(delta)`** or projectiles freeze during tween.
@@ -686,25 +728,23 @@ Nếu một tác vụ yêu cầu đọc những file này để **hiểu context
 
 ### GIF → PNG Sprite Sheet Conversion
 
-All GIFs must be **pre-converted to PNG sprite sheets** for fast loading and correct frame rendering:
+All GIFs are **automatically converted to PNG sprite sheets** on first load. No manual step required.
 
-**Command:**
+**Automatic (runtime, `gif_loader.gd`):**
+- `GifLoader.load_gif()` tries Path 1 first (fast sheet). If missing, falls back to GDScript LZW decode **and immediately writes** `.sheet.png` + `.sheet.json` next to the `.gif` via `_auto_convert()`.
+- Next session the same GIF loads via Path 1 (fast native PNG).
+- Works in editor/dev builds. No-ops in exported PCKs (res:// is read-only there — pre-generate sheets before export).
+
+**Batch pre-generate (before export or for all GIFs at once):**
 ```bash
 godot --headless --script tools/convert_gifs.gd
-# Generates: <name>.sheet.png + <name>.sheet.json next to .gif
+# Generates: <name>.sheet.png + <name>.sheet.json next to each .gif
+# Open Godot editor once after to re-import the new .sheet.png files
 ```
-
-**Process (tools/convert_gifs.gd):**
-1. Find all .gif under res://assets/
-2. Decode using GDScript LZW (`GifLoader._decode_frames()`)
-3. Create horizontal sprite sheet: `Image.create(frame_width × frame_count, frame_height)`
-4. Blit each frame: `sheet.blit_rect(frame_img, src_rect, Vector2i(i × frame_width, 0))`
-5. Save `.sheet.png` + `.sheet.json` metadata (cols, w, h, delays[])
-6. **Open Godot editor once** to re-import `.sheet.png` (native GPU upload)
 
 **Loading (scripts/ui/edit_mode/gif_loader.gd):**
 - **Path 1 (fast):** if `.sheet.png` + `.sheet.json` exist → slice into AtlasTextures from PNG
-- **Path 2 (slow fallback):** if sheets missing → GDScript LZW decode at runtime (per load)
+- **Path 2 (slow + auto-convert):** if sheets missing → GDScript LZW decode + write sheet files → next load uses Path 1
 
 ### Frame Stacking / Disposal Mode Issue
 
@@ -818,6 +858,155 @@ tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 - `_auto_load_group()` in `edit_mode.gd` completely disabled (line 514: early return)
 - Objects come ONLY from config files or manual drag/drop
 - Folder scanning eliminated to prevent phantom objects
+
+---
+
+## Ship Visual System (`gun_system.gd`)
+
+### Hull Skin Swap
+
+Khi equip/unequip hull, `InventoryManager.inventory_changed` → `_apply_hull_skin()` → swap texture của spaceship EO.
+
+- **`HULL_SKIN_MAP`** — dict-of-dicts: `def_id → {"idle": path, "lean": path, "dash": path}`. Thiếu key `lean`/`dash` → fallback về `SHIP_DEFAULT_LEAN` / `SHIP_DEFAULT_DASH`.
+- **Default skins:** `SHIP_DEFAULT_SKIN = "res://assets/screen/Spaceship.png"`, `SHIP_DEFAULT_LEAN = "res://assets/screen/lean.png"`, `SHIP_DEFAULT_DASH = "res://assets/screen/dash.png"`.
+- `_hull_skin_path(state: String)` — helper tra cứu path cho state `"idle"/"lean"/"dash"` của hull đang equip.
+- **Khi thêm lean/dash cho hull mới:** thêm key `"lean"`/`"dash"` vào entry tương ứng trong `HULL_SKIN_MAP`.
+
+### Ship Asset Folder Structure
+
+```
+assets/screen/ship/
+  <hull_name>/          ← tên folder = tên ship (vd: adamantium, titanium…)
+    <hull_name>.png     ← idle skin
+    lean.png            ← lean skin (nếu có, nếu không → dùng default)
+    dash.png            ← dash skin (nếu có, nếu không → dùng default)
+```
+
+Mapping `def_id` → folder (lưu ý `adamantine_hull` → folder `adamantium`):
+
+| def_id | folder |
+|--------|--------|
+| `titanium_hull` | `titanium/` |
+| `adamantine_hull` | `adamantium/` |
+| `aerographene_hull` | `aerographene/` |
+| `glass_hull` | `glass/` |
+| `neutronium_hull` | `neutronium/` |
+| `nanobot_hull` | `nano/` |
+| `voidmetal_hull` | `voidmetal/` |
+| `pzt_hull` | `pzt/` |
+| `memory_foam_hull` | `thorned/` |
+| `cursed_hull` | `cursed/` |
+
+### Ship Pose System
+
+Pose được set mỗi frame trong `_handle_ship_movement()`. Texture chỉ load khi pose thực sự thay đổi.
+
+```gdscript
+const POSE_IDLE       := 0
+const POSE_LEAN_LEFT  := 1   # di chuyển sang trái → lean.png
+const POSE_LEAN_RIGHT := 2   # di chuyển sang phải → lean.png + flip_h
+const POSE_DASH_LEFT  := 3   # dash sang trái → dash.png
+const POSE_DASH_RIGHT := 4   # dash sang phải → dash.png + flip_h
+```
+
+- `_set_ship_pose(pose)` — áp texture + `flip_h`, skip nếu pose không đổi.
+- Khi `inventory_changed`: `_apply_hull_skin()` reset `_ship_pose = -1` → force reload pose hiện tại với skin mới.
+- Intro / `input_locked` → force `POSE_IDLE`.
+
+---
+
+## Overlay — Right Strip Mirror (`scripts/gameplay/overlay.gd`)
+
+### `attach_right_strip(x_pos: float)`
+
+Tạo bản mirror (flip_h) của strip hiện tại tại vị trí x_pos. Phải gọi **sau** `swap_texture()`.
+
+- `_rects_r` — tiles của right strip, cùng `_tile_h` và cùng `_offset` với left strip → scroll đồng bộ.
+- `restore_texture()` tự clear right strip.
+- `_apply_positions()` cập nhật cả right strip.
+
+### Elephant boss map geometry
+
+```
+Left strip:  tile_x = -150, width = 300 → visible x=[0, 150]   (150px overflow left)
+Right strip: tile_x =  550, width = 300 → visible x=[550, 700] (150px overflow right)
+screen_w = 700
+```
+
+### `attach_blob(..., flip_h: bool = false)`
+
+Optional `flip_h` param cho right-side blobs. Blob mirror formula:
+```gdscript
+bx_r = OC_BOUNDS.size.x - bx - bw   # = 700 - bx - bw
+```
+
+---
+
+## Normal Enemy System
+
+### `enemy_base.gd` — base class
+
+- **Size**: `_diameter_for_hp(hp_max) * size_mult` → square, sau đó nếu có texture thì height được kéo khớp ratio: `size.y = size.x * tex_h / tex_w`.
+- **`size_mult: float = 1.0`** — set trong `_configure()` để scale size riêng per-enemy (vd: `bomb` = 0.5).
+- **`icon_path: String = ""`** — set trong `_configure()`. Nếu != "" → load texture, override height theo ratio.
+- **`_draw()`**: nếu có texture → `draw_texture_rect` + white flash overlay khi hit. Nếu không → placeholder shape (circle/triangle/diamond/square) + flash.
+- HP bar vẫn hiển thị ở cả 2 trường hợp.
+
+### Enemy assets (`assets/enemies/`)
+
+| Enemy | File | shape_kind | size_mult |
+|-------|------|-----------|-----------|
+| Kingfisher | `kingfisher.png` | triangle | 1.0 |
+| Jet Fighter | `jetfighter.png` | triangle | 1.0 |
+| Sentinel | `sentinel.png` | diamond | 1.0 |
+| Bombing Wanderer | `bombing.png` | square | 1.0 |
+| Bomb | `bomb.png` | circle | **0.5** |
+| Swarm | `swarm.png` | triangle | 1.0 |
+
+---
+
+## Inventory — Equip Slot Tooltips & Gate Fix
+
+### Slot tooltips
+
+`inventory_ui.gd` set `es.tooltip_text = SLOT_LABELS.get(slot, slot)` ngay sau `es.setup(slot)` → Godot tự hiện tên slot khi hover chuột lên ô trống hoặc ô có item.
+
+### Equip-gate on swap (item_widget.gd)
+
+`_drop_data()` trong `item_widget.gd` (khi drop lên equipped item để swap) giờ kiểm tra `InventoryManager.meets_requirement(def_id)` trước khi gọi `equip()` — giống logic trong `equip_slot.gd`. Không đủ stat → `flash_message` + return (item không bị swap).
+
+---
+
+## Music Player (`scripts/ui/user/music_player.gd`)
+
+### Default Playlist
+
+```gdscript
+const DEFAULT_PLAYLIST_URL := "https://www.youtube.com/watch?v=42Yw2Llnwzw&list=PLJ23c2czIAHmoVNRGL1vCmGD1mnAIZJkh"
+```
+
+- First launch (no save file): auto-loads and plays `DEFAULT_PLAYLIST_URL`.
+- After user pastes + plays any URL: `_save_session()` overwrites `user://music_player.cfg` with that URL. Next launch resumes that URL instead.
+- Fallback only applies when `last_url` is missing from the cfg.
+
+### Auto-Shuffle on Startup
+
+`_auto_play_saved(url)` sets `_auto_shuffle_next = true` when the URL is a playlist. In `_on_playlist_loaded()`:
+1. `_shuffle_btn` visually toggled on
+2. `{"cmd": "shuffle_on"}` sent to server (mpv shuffles internal queue)
+3. `skip_to(randi() % ids.size())` starts from a random track
+
+Only applies to auto-loaded playlists at startup — manual URL submissions are not auto-shuffled.
+
+### Playlist Hover Highlight (`_MarqueeLabel`)
+
+`set_hovered(true/false)` changes `font_color`:
+- Hovered → `Color.WHITE`
+- Unhovered → `_base_color` (set via `set_style()`)
+
+Button's `hover` stylebox already provides a blue background highlight. Combined effect: blue bg + white text.
+
+---
 
 ## Thrust Objects Policy
 

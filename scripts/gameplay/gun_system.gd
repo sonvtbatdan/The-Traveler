@@ -40,6 +40,33 @@ const DASH_SPEED              := 840.0   # px/s during the dash lunge
 const DASH_TIME               := 0.15    # dash duration (s) → ~126px
 const SHOW_THRUST_TRAILS      := true    # engine auto.gif/manual.gif flame overlays (sized via the control, not native)
 
+const SHIP_DEFAULT_SKIN := "res://assets/screen/Spaceship.png"
+const SHIP_DEFAULT_LEAN := "res://assets/screen/lean.png"
+const SHIP_DEFAULT_DASH := "res://assets/screen/dash.png"
+
+# Per-hull skin overrides. Each entry may have "idle", "lean", "dash" keys.
+# Missing keys fall back to SHIP_DEFAULT_SKIN / SHIP_DEFAULT_LEAN / SHIP_DEFAULT_DASH.
+# To add hull-specific lean/dash later, add "lean"/"dash" keys to the relevant entry.
+const HULL_SKIN_MAP := {
+	"titanium_hull":     {"idle": "res://assets/screen/ship/titanium/titanium.png"},
+	"adamantine_hull":   {"idle": "res://assets/screen/ship/adamantium/adamantium.png",
+						  "lean": "res://assets/screen/ship/adamantium/lean.png"},
+	"aerographene_hull": {"idle": "res://assets/screen/ship/aerographene/aerographene.png"},
+	"glass_hull":        {"idle": "res://assets/screen/ship/glass/glass.png"},
+	"neutronium_hull":   {"idle": "res://assets/screen/ship/neutronium/neutronium.png"},
+	"nanobot_hull":      {"idle": "res://assets/screen/ship/nano/nano.png"},
+	"voidmetal_hull":    {"idle": "res://assets/screen/ship/voidmetal/voidmetal.png"},
+	"pzt_hull":          {"idle": "res://assets/screen/ship/pzt/pzt.png"},
+	"memory_foam_hull":  {"idle": "res://assets/screen/ship/thorned/thorned.png"},
+	"cursed_hull":       {"idle": "res://assets/screen/ship/cursed/cursed.png"},
+}
+
+const POSE_IDLE       := 0
+const POSE_LEAN_LEFT  := 1
+const POSE_LEAN_RIGHT := 2
+const POSE_DASH_LEFT  := 3
+const POSE_DASH_RIGHT := 4
+
 # ── Engine exhaust plume (GRAPHICS_SPEC #5) ────────────────────────────────────
 # A continuous CPUParticles2D flame behind the engine nozzle: warm white-hot core → blue tips,
 # additive so it reads as hot light. Streams faster/longer while boosting or in a boss fight.
@@ -131,6 +158,7 @@ var _dash_time_left := 0.0
 var _dash_dir       := Vector2.ZERO
 var _space_was_down := false
 var _last_move_dir  := Vector2.ZERO   # most recent WASD direction → dash dir when no key held
+var _ship_pose      := -1             # -1 = uninitialized; forces first _set_ship_pose to always apply
 var _current_scale:       float   = 1.0  # animated by tween (1.0 <-> 0.5)
 var _scale_tween:         Tween   = null
 var _ship_pop_tween:      Tween   = null
@@ -239,6 +267,7 @@ func _ready() -> void:
 	WeaponManager.weapons_reset.connect(_refresh_static_frames)
 	WeaponManager.weapon_purchased.connect(func(_id: String, _side: String): _refresh_static_frames())
 	GameManager.boost_changed.connect(_on_boost_changed)
+	InventoryManager.inventory_changed.connect(_apply_hull_skin)
 	_refresh_static_frames()
 	_setup_engine_plume()
 
@@ -593,16 +622,19 @@ func _process(delta: float) -> void:
 		var cm2: float = 2.0 / 2.54 * float(dpi)
 		var cx: float = SCREEN_BOUNDS.position.x + SCREEN_BOUNDS.size.x * 0.5
 		_intro_to   = Vector2(cx, SCREEN_BOUNDS.end.y - cm2) - _spaceship_origin_sz * 0.5
-		_intro_from = Vector2(_intro_to.x, SCREEN_BOUNDS.end.y + 60.0)   # just below the screen
+		_intro_from = _spaceship_origin   # start from wherever the ship currently is
 		_intro_t    = 0.0
 	_intro_was_active = intro
 	if intro:
 		_intro_t = minf(_intro_t + delta, 1.0)
 		_spaceship_origin = _intro_from.lerp(_intro_to, _intro_t)
+		_set_ship_pose(POSE_IDLE)
 	# WASD flies the ship in the asteroid screen too (not just manual boost).
 	# Disabled during the death cutscene (input_locked).
 	elif not GameManager.input_locked and _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		_handle_ship_movement(delta)
+	elif GameManager.input_locked:
+		_set_ship_pose(POSE_IDLE)
 
 	# Spaceship: position + scale force-apply each frame. The ship is ALWAYS the boss-fight size
 	# (0.35) — never the larger 0.70 — per design. Scaled around the ship's centre so its child
@@ -720,14 +752,27 @@ func _handle_ship_movement(delta: float) -> void:
 		_dash_time_left = maxf(0.0, _dash_time_left - delta)
 		_spaceship_origin += _dash_dir * GameManager.effective_dash_speed() * delta   # dash_distance affix
 		_clamp_ship_origin()
+		if _dash_dir.x < -0.1:
+			_set_ship_pose(POSE_DASH_LEFT)
+		elif _dash_dir.x > 0.1:
+			_set_ship_pose(POSE_DASH_RIGHT)
+		else:
+			_set_ship_pose(POSE_IDLE)
 		return
 
 	if mv == Vector2.ZERO:
+		_set_ship_pose(POSE_IDLE)
 		return
 	# Speed +25% when manual boost or boss fight active; base+affixes via effective_move_speed().
 	var speed_mult := 1.25 if (GameManager.manual_boost or GameManager.boss_max_hp > 0) else 1.0
 	_spaceship_origin += mv.normalized() * GameManager.effective_move_speed() * speed_mult * delta
 	_clamp_ship_origin()
+	if mv.x < -0.1:
+		_set_ship_pose(POSE_LEAN_LEFT)
+	elif mv.x > 0.1:
+		_set_ship_pose(POSE_LEAN_RIGHT)
+	else:
+		_set_ship_pose(POSE_IDLE)
 
 # Clamp the ship so its VISIBLE (scaled) body stays inside the screen — not its full unscaled rect.
 # The ship renders at _spaceship_eo.scale (0.70 normal / 0.35 boost) around its centre, so clamping
@@ -850,6 +895,7 @@ func _refresh_static_frames() -> void:
 		if wing_img == null:
 			continue
 		_setup_static_frame(eo, [ImageTexture.create_from_image(wing_img)])
+	_apply_hull_skin()
 
 
 func _setup_static_frame(eo: EditableObjectNode, frames: Array) -> void:
@@ -1573,7 +1619,7 @@ func _check_ship_asteroid_collision() -> void:
 	# ship is scaled around its centre — using the transform avoids the offset).
 	var ship_center_oc: Vector2 = _spaceship_eo.get_global_transform() * (_spaceship_eo.size * 0.5)
 	var ship_center_ss := ship_center_oc - SS_OFFSET
-	var ship_radius    := _spaceship_origin_sz.x * 0.5 * _spaceship_eo.scale.x   # shrinks with the ship
+	var ship_radius    := _spaceship_origin_sz.x * 0.5 * _spaceship_eo.scale.x - 5.0   # shrinks with the ship
 	ast_node.check_ship_collision(ship_center_ss, ship_radius)
 
 # ── Laser (click ship) ─────────────────────────────────────────────────────────
@@ -1797,3 +1843,44 @@ func _find_spaceship_eo() -> EditableObjectNode:
 		if eo != null and eo.source_path.get_file().get_basename().to_lower() == "spaceship":
 			return eo
 	return null
+
+## Returns the skin path for the currently equipped hull at the given state ("idle"/"lean"/"dash").
+## Falls back to the SHIP_DEFAULT_* constant when the hull has no override for that state.
+func _hull_skin_path(state: String) -> String:
+	var uid := InventoryManager.equipped_uid("hull")
+	var entry: Dictionary = {}
+	if uid != -1:
+		var def_id := String(InventoryManager.get_item(uid)["def"])
+		entry = Dictionary(HULL_SKIN_MAP.get(def_id, {}))
+	match state:
+		"lean": return String(entry.get("lean", SHIP_DEFAULT_LEAN))
+		"dash": return String(entry.get("dash", SHIP_DEFAULT_DASH))
+		_:      return String(entry.get("idle", SHIP_DEFAULT_SKIN))
+
+## Apply a pose to the ship sprite. Skips the load if pose is already current.
+## flip_h handles mirroring for right-side variants (lean-right / dash-right).
+func _set_ship_pose(pose: int) -> void:
+	if _ship_pose == pose:
+		return
+	_ship_pose = pose
+	var eo := _spaceship_eo
+	if eo == null or not is_instance_valid(eo) or eo.texture_rect == null:
+		return
+	var state: String
+	var flip := false
+	match pose:
+		POSE_LEAN_LEFT:  state = "lean"
+		POSE_LEAN_RIGHT: state = "lean"; flip = true
+		POSE_DASH_LEFT:  state = "dash"
+		POSE_DASH_RIGHT: state = "dash"; flip = true
+		_:               state = "idle"
+	var tex := load(_hull_skin_path(state)) as Texture2D
+	if tex != null:
+		eo.texture_rect.texture = tex
+		eo.texture_rect.flip_h  = flip
+
+## Called on inventory_changed: force-reload the current pose with the new hull's skin set.
+func _apply_hull_skin() -> void:
+	var prev := _ship_pose
+	_ship_pose = -1   # invalidate so _set_ship_pose always applies
+	_set_ship_pose(prev if prev >= 0 else POSE_IDLE)
