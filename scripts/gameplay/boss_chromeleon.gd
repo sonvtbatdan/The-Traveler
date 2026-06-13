@@ -2936,20 +2936,43 @@ func _spawn_bullet(tex: Texture2D, origin_vp: Vector2, vel: Vector2, sz: Vector2
 	_clip_node.add_child(tr)
 	_projectiles.append({"tr": tr, "vel": vel, "dmg": 10, "rainbow": rainbow, "rb_off": randf()})
 
-# Load shape sprites (3.png/4.png/5.png/6.png) resized to RB_SHAPE_SZ; fallback to procedural polygon.
+# Load shape sprites (3.png/4.png/5.png/6.png): scale to 70%, add 2px white outside border.
 func _build_rb_shapes() -> void:
 	if not _rb_shapes.is_empty():
 		return
-	var n := int(RB_SHAPE_SZ.x)
+	var n      := int(RB_SHAPE_SZ.x)     # 30 — final canvas size
+	var inner  := int(n * 0.7)           # 21 — inner sprite size
+	var border := 2                       # px white outline thickness
+	var off    := (n - inner) / 2        # center offset inside the canvas
+
 	for sides in [3, 4, 5, 6]:
 		var path := "res://assets/bosses/chromeleon/%d.png" % sides
-		var tex := load(path) as Texture2D
+		var tex  := load(path) as Texture2D
 		if tex != null:
-			var img := tex.get_image()
-			if img != null:
-				var copy := img.duplicate() as Image
-				copy.resize(n, n, Image.INTERPOLATE_BILINEAR)
-				_rb_shapes.append(ImageTexture.create_from_image(copy))
+			var src := tex.get_image()
+			if src != null:
+				var sml := src.duplicate() as Image
+				sml.resize(inner, inner, Image.INTERPOLATE_BILINEAR)
+				var out := Image.create(n, n, false, Image.FORMAT_RGBA8)
+				# Pass 1: circular dilation → white pixels outside the shape's alpha edge
+				for sy in inner:
+					for sx in inner:
+						if sml.get_pixel(sx, sy).a > 0.1:
+							for dy in range(-border, border + 1):
+								for dx in range(-border, border + 1):
+									if dx * dx + dy * dy > border * border:
+										continue
+									var ox := sx + off + dx
+									var oy := sy + off + dy
+									if ox >= 0 and ox < n and oy >= 0 and oy < n:
+										out.set_pixel(ox, oy, Color.WHITE)
+				# Pass 2: blit inner sprite on top (border only visible outside the shape)
+				for sy in inner:
+					for sx in inner:
+						var px := sml.get_pixel(sx, sy)
+						if px.a > 0.01:
+							out.set_pixel(sx + off, sy + off, px)
+				_rb_shapes.append(ImageTexture.create_from_image(out))
 				continue
 		_rb_shapes.append(_make_polygon_tex(sides, n))
 
