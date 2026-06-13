@@ -2942,7 +2942,7 @@ func _build_rb_shapes() -> void:
 		return
 	var n      := int(RB_SHAPE_SZ.x)     # 30 — final canvas size
 	var inner  := int(n * 0.7)           # 21 — inner sprite size
-	var border := 2                       # px white outline thickness
+	var border := 1                       # px white outline thickness
 	var off    := (n - inner) / 2        # center offset inside the canvas
 
 	for sides in [3, 4, 5, 6]:
