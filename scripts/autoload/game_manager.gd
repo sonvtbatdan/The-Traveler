@@ -371,13 +371,14 @@ func try_spend_energy(amount: float) -> bool:
 	return true
 
 ## Spend ammo; returns false (no spend) if there isn't enough. A successful spend pauses ammo regen.
-func try_spend_ammo(amount: float) -> bool:
-	if ship_ammo < amount:
-		return false
-	ship_ammo -= amount
-	_ammo_regen_block = AMMO_REGEN_FIRE_BLOCK
-	ship_ammo_changed.emit(ship_ammo)
-	return true
+func try_spend_ammo(_amount: float) -> bool:
+	return true   # AMMO SYSTEM TEMPORARILY DISABLED — weapons fire freely. Re-enable by restoring the body below.
+	# if ship_ammo < amount:
+	# 	return false
+	# ship_ammo -= amount
+	# _ammo_regen_block = AMMO_REGEN_FIRE_BLOCK
+	# ship_ammo_changed.emit(ship_ammo)
+	# return true
 
 ## Called by weapon_system whenever any weapon actually fires/sustains, to pause ammo regen.
 func note_weapon_firing() -> void:

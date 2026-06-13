@@ -81,13 +81,19 @@ func start(recipe: Dictionary) -> void:
 	if _mode == "choreography":
 		var choreo_mode := String(recipe.get("choreo_mode", "fixed"))
 		if choreo_mode == "pool":
-			# Roll each wave independently from the allowed pool of choreographies.
+			# Roll each wave independently from the allowed pool of choreographies. No two CONSECUTIVE
+			# waves may be the same (re-roll on a repeat, unless the pool has only one entry).
 			var pool := (recipe.get("choreo_pool", []) as Array)
 			var count := int(recipe.get("choreo_wave_count", 6))
 			_waves = []
+			var last := ""
 			for i in count:
 				if not pool.is_empty():
-					_waves.append(String(pool[randi() % pool.size()]))
+					var pick := String(pool[randi() % pool.size()])
+					while pick == last and pool.size() > 1:
+						pick = String(pool[randi() % pool.size()])
+					_waves.append(pick)
+					last = pick
 		else:
 			_waves = (recipe.get("waves", []) as Array).duplicate()
 		if _waves.is_empty():

@@ -18,6 +18,8 @@ const ENEMIES := [
 	["Bombing_wanderer", "spawn_bombing_wanderer"],
 	["Bomb (test)", "spawn_bomb_test"],
 	["Swarm", "spawn_swarm"],
+	["Beamer", "spawn_beamer"],
+	["Missile_launcher", "spawn_missile_launcher"],
 ]
 
 var _font: FontFile
@@ -49,11 +51,18 @@ func _build() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	add_child(title)
 
+	# Rows live inside a ScrollContainer so the list scrolls when it's taller than the panel (the enemy
+	# count has outgrown the fixed height). Horizontal scrolling is off → rows stay full-width.
+	var scroll := ScrollContainer.new()
+	scroll.position = Vector2(6, 30)
+	scroll.size = Vector2(size.x - 12.0, size.y - 36.0)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	add_child(scroll)
+
 	var vbox := VBoxContainer.new()
-	vbox.position = Vector2(8, 32)
-	vbox.size = Vector2(size.x - 16.0, size.y - 40.0)
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.add_theme_constant_override("separation", 2)
-	add_child(vbox)
+	scroll.add_child(vbox)
 
 	for e: Array in ENEMIES:
 		var btn := _mk_row_button(String(e[0]))
@@ -90,7 +99,7 @@ func _mk_label(txt: String, sz: int) -> Label:
 func _mk_row_button(txt: String) -> Button:
 	var b := Button.new()
 	b.text = txt
-	b.custom_minimum_size = Vector2(size.x - 16.0, 34.0)
+	b.custom_minimum_size = Vector2(0.0, 34.0)   # height only; width fills the scroll container
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	if _font != null:

@@ -1,16 +1,17 @@
 extends "res://scripts/gameplay/enemy_base.gd"
 
-## Bombing_wanderer — enters from the left or right edge at 80% height (measured from the bottom),
-## then drifts horizontally at BW_SPEED, BOUNCING back and forth between the side edges (it doesn't
-## leave). It drops its first Bomb BW_BOMB_INTERVAL seconds after entering, then one more every
-## BW_BOMB_INTERVAL. Bombs are a separate enemy (enemy_bomb.gd). The wanderer does no contact damage.
+## Bombing_wanderer — enters from a side edge into the TOP THIRD of the map, then WANDERS in any
+## direction at BW_SPEED, BOUNCING off the top / left / right edges and the 1/3 line (the "2-3 line": the
+## top of the lower two-thirds). It drops a Bomb every BW_BOMB_INTERVAL. Bombs are a separate enemy
+## (enemy_bomb.gd). The wanderer does no contact damage.
 
 # ── Tunable constants (Bombing_wanderer) ──────────────────────────────────────
-const BW_HP: float = 120.0
+const BW_HP: float = 240.0                  # doubled (was 120)
 const BW_XP: int = 24
-const BW_HEIGHT_FROM_BOTTOM: float = 0.80   # 80% up from the bottom → y = H * (1 - 0.80)
-const BW_SPEED: float = 100.0               # drift speed (was 300; /3)
+const BW_BAND_FRAC: float = 1.0 / 3.0       # confined to the top third → bounces off y = H/3 (the "2-3 line")
+const BW_SPEED: float = 100.0               # wander speed
 const BW_BOMB_INTERVAL: float = 3.0         # first drop 3s after entering, then every 3s
+const BW_ENTRY_SPREAD_DEG: float = 60.0     # initial inward heading varies ±this (so it wanders any direction)
 
 var _vel: Vector2 = Vector2.ZERO
 var _drop_t: float = 0.0
@@ -23,25 +24,37 @@ func _configure() -> void:
 	body_color = Color(0.6, 0.15, 0.2)   # maroon
 	shape_kind = "square"
 
-func spawn(mgr: Node) -> void:
+## `side` = "left" / "right" to force the entry edge (else random). Enters into the top third with a
+## random inward 2D heading, then bounces around.
+func spawn(mgr: Node, side: String = "") -> void:
 	var screen: Vector2 = mgr.screen_size()
-	# Base height (80% up from bottom) + a small per-spawn vertical stagger so wanderers don't overlap.
-	var y: float = screen.y * (1.0 - BW_HEIGHT_FROM_BOTTOM) + mgr.take_wanderer_y_offset()
-	if randf() < 0.5:
-		position = Vector2(0.0 - size.x * 0.5, y - size.y * 0.5)   # enter from the left, go right
-		_vel = Vector2(BW_SPEED, 0.0)
+	var band: float = screen.y * BW_BAND_FRAC
+	var y: float = randf_range(size.y, maxf(size.y, band - size.y))   # a y inside the top third
+	var from_left: bool
+	if side == "left":
+		from_left = true
+	elif side == "right":
+		from_left = false
 	else:
-		position = Vector2(screen.x - size.x * 0.5, y - size.y * 0.5)   # enter from the right, go left
-		_vel = Vector2(-BW_SPEED, 0.0)
+		from_left = randf() < 0.5
+	var spread := deg_to_rad(BW_ENTRY_SPREAD_DEG)
+	if from_left:
+		position = Vector2(-size.x * 0.5, y - size.y * 0.5)
+		_vel = Vector2.RIGHT.rotated(randf_range(-spread, spread)) * BW_SPEED
+	else:
+		position = Vector2(screen.x - size.x * 0.5, y - size.y * 0.5)
+		_vel = Vector2.LEFT.rotated(randf_range(-spread, spread)) * BW_SPEED
 	_drop_t = 0.0   # first bomb drops BW_BOMB_INTERVAL after entering (no bomb on entry)
 
 func _tick(delta: float) -> void:
 	position += _vel * delta
-	# Bounce between the side edges (stay fully on-screen).
+	# Bounce off the top third's walls: top / left / right edges + the y = H/3 "2-3 line".
 	if _mgr != null:
 		var screen: Vector2 = _mgr.screen_size()
 		var left := size.x * 0.5
 		var right := screen.x - size.x * 0.5
+		var top := size.y * 0.5
+		var bottom := screen.y * BW_BAND_FRAC   # the "2-3 line"
 		var c := center()
 		if c.x <= left and _vel.x < 0.0:
 			_vel.x = absf(_vel.x)
@@ -49,6 +62,12 @@ func _tick(delta: float) -> void:
 		elif c.x >= right and _vel.x > 0.0:
 			_vel.x = -absf(_vel.x)
 			position = Vector2(right - size.x * 0.5, position.y)
+		if c.y <= top and _vel.y < 0.0:
+			_vel.y = absf(_vel.y)
+			position = Vector2(position.x, top - size.y * 0.5)
+		elif c.y >= bottom and _vel.y > 0.0:
+			_vel.y = -absf(_vel.y)
+			position = Vector2(position.x, bottom - size.y * 0.5)
 	_drop_t += delta
 	if _drop_t >= BW_BOMB_INTERVAL:
 		_drop_t -= BW_BOMB_INTERVAL

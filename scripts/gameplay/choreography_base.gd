@@ -48,3 +48,21 @@ func _cm_to_px(cm: float) -> float:
 	if dpi <= 0:
 		dpi = 96
 	return cm / 2.54 * float(dpi)
+
+## Shared, reusable "home-in" mover: ease the enemy's CENTRE toward `target` — FAST when far, slowing as
+## it nears (ease-out) — and snap + return true the frame it arrives. Reference-able by any choreography
+## that wants enemies to fly in and settle (vs the constant-speed _move_center_to in Beginner_1).
+##   max_speed: speed cap (px/s)        approach: how hard it brakes near the target (higher = snappier)
+##   arrive:    snap distance (px)      Works on any node with center()/size/position (enemy_base API).
+func home_to(node, target: Vector2, delta: float, max_speed: float = 700.0, approach: float = 6.0, arrive: float = 1.5) -> bool:
+	if node == null or not is_instance_valid(node):
+		return true
+	var c: Vector2 = node.center()
+	var to := target - c
+	var d := to.length()
+	if d <= arrive:
+		node.position = target - node.size * 0.5
+		return true
+	var speed := minf(max_speed, d * approach)   # ease-out: fast far away, slows as it closes in
+	node.position += to.normalized() * speed * delta
+	return false

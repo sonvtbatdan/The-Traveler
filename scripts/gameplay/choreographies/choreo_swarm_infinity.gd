@@ -9,7 +9,7 @@ extends "res://scripts/gameplay/choreography_base.gd"
 ## crosses itself in the centre. TUNE everything via the consts below.
 
 const CENTER_X_FRAC := 0.5
-const LOWEST_CM := 2.5         # the ∞'s lowest point sits this many cm below the top edge (keeps it high)
+const LOWEST_CM := 4.5         # the ∞'s lowest point sits this many cm below the top edge
 const RX := 180.0              # half-width of the ∞ (px)
 const RY := 140.0              # lobe height factor (the ∞ spans ±RY/2 vertically)
 const BEAD_SPACING := 40.0     # spacing of beads along the curve → enemy count (~24)
