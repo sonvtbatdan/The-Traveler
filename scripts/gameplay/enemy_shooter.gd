@@ -13,6 +13,7 @@ const SH_ENTRY_SPEED: float = 300.0 # px/s during the entry swoop
 const SH_FIRE_INTERVAL: float = 1.0 # seconds between shots (fire rate 1/s)
 const SH_BULLET_DMG: int = 5
 const SH_BULLET_SPEED: float = 160.0   # matched to the Sentinel's SE_BULLET_SPEED
+const SH_TURN_RATE: float = 6.0     # how fast it rotates to face the player (lower = smoother/slower turn)
 
 enum Phase { ENTER, ENGAGE }
 var _phase: int = Phase.ENTER
@@ -25,6 +26,9 @@ var _fire_t: float = 0.0
 var external_control: bool = false
 # Per-instance fire-rate scaler (>1 = slower). Default 1.0 = unchanged; a choreography may raise it.
 var fire_interval_mult: float = 1.0
+# Gate firing on/off (default on). A choreography sets this false to hold fire while it flies the shooter
+# into position, then true once parked (so it forms up THEN shoots). Combat is otherwise unchanged.
+var fire_enabled: bool = true
 
 func _configure() -> void:
 	hp_max = SH_HP
@@ -72,10 +76,15 @@ func _tick(delta: float) -> void:
 			_tick_fire(delta)
 
 func _tick_fire(delta: float) -> void:
+	if not fire_enabled:
+		return   # held by a choreography until it reaches its position
 	if _mgr == null or not is_instance_valid(_mgr):
 		return
 	var ship: Vector2 = _mgr.ship_center()
-	rotation = (ship - center()).angle() + PI * 0.5   # aim at the player (cosmetic)
+	# Ease the facing toward the player instead of snapping (avoids a jerk when it starts aiming after a
+	# scripted fly-in). Bullets aim independently in _fire(), so this is purely the visual turn.
+	var target_rot := (ship - center()).angle() + PI * 0.5
+	rotation = lerp_angle(rotation, target_rot, clampf(SH_TURN_RATE * delta, 0.0, 1.0))
 	var interval := SH_FIRE_INTERVAL * fire_interval_mult
 	_fire_t += delta
 	if _fire_t >= interval:

@@ -38,6 +38,7 @@ var _entry: Vector2 = Vector2.ZERO
 var _osc_off: float = 0.0
 var _osc_dir: float = 1.0
 var _osc_speed: float = 0.0
+var _speed_delta: float = 0.0   # per-instance dash-speed adjustment (a choreography may slow some divers)
 
 func _configure() -> void:
 	hp_max = DV_HP
@@ -51,9 +52,10 @@ func _configure() -> void:
 
 ## Called by EnemyManager for each burst member. `edge` is shared by the whole burst, `is_lead` marks
 ## the player-tracking lead (i == 0), and `start_delay` staggers when this member's warning begins.
-func spawn_member(mgr: Node, edge: String, is_lead: bool, start_delay: float = 0.0) -> void:
+func spawn_member(mgr: Node, edge: String, is_lead: bool, start_delay: float = 0.0, speed_delta: float = 0.0) -> void:
 	_edge = edge
 	_is_lead = is_lead
+	_speed_delta = speed_delta
 	match edge:
 		"bottom": _inward = Vector2.UP
 		"left":   _inward = Vector2.RIGHT
@@ -143,11 +145,12 @@ func _enter() -> void:
 	var aim: Vector2 = _mgr.ship_center() if (_mgr != null and is_instance_valid(_mgr)) else center()
 	_entry = _tracked_entry(aim)
 	position = _entry - size * 0.5            # enter at the exact telegraphed point
+	var spd := maxf(50.0, DV_SPEED + _speed_delta)   # per-instance speed (e.g. horizontal divers slowed)
 	if _is_lead:
 		var dir := aim - _entry                # lead homes on the player's position at this instant
-		_vel = (dir.normalized() if dir.length() > 0.01 else _inward) * DV_SPEED
+		_vel = (dir.normalized() if dir.length() > 0.01 else _inward) * spd
 	else:
-		_vel = _inward * DV_SPEED              # followers dash straight inward
+		_vel = _inward * spd                   # followers dash straight inward
 	rotation = _vel.angle() + PI * 0.5         # face the travel direction
 	contact_active = true
 	_register()                                # now it can be shot

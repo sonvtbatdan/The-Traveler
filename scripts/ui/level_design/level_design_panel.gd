@@ -21,11 +21,16 @@ var _status: Label
 var _preview: Label
 var _choreo_opt: OptionButton      # Phase 2: pick a registered choreography to test-play
 var _choreo_waves_sb: SpinBox      # Phase 2: how many waves of it to play
+var _help_panel: Panel             # right-side box: every choreography + what it does
+var _help_scroll: ScrollContainer  # scroll viewport holding the description rows (for auto-scroll)
+var _help_box: VBoxContainer       # holds the per-choreography description rows
+var _selected_choreo: String = ""  # the Quick-test pick, highlighted in the help box
 
 func _ready() -> void:
 	layer = 90
 	_font = load(FONT_PATH) as FontFile
 	_recipe = LevelRecipeScript.new()
+	_recipe.mode = "choreography"   # F7 opens in choreography mode by default
 	_panel = Panel.new()
 	_panel.position = Vector2(16, 20)
 	_panel.size = Vector2(440, 748)
@@ -37,12 +42,43 @@ func _ready() -> void:
 	_form.add_theme_constant_override("separation", 5)
 	_panel.add_child(_form)
 	_build_form()
+
+	# Help box to the RIGHT of the main panel: lists every choreography and what it does.
+	_help_panel = Panel.new()
+	_help_panel.position = Vector2(_panel.position.x + _panel.size.x + 12.0, 20)
+	_help_panel.size = Vector2(440, 748)
+	_style(_help_panel)
+	add_child(_help_panel)
+	var help_title := _title("CHOREOGRAPHIES  —  what each does")
+	help_title.position = Vector2(10, 8)
+	help_title.size = Vector2(420, 22)
+	_help_panel.add_child(help_title)
+	_help_scroll = ScrollContainer.new()
+	_help_scroll.position = Vector2(10, 36)
+	_help_scroll.size = Vector2(420, 702)
+	_help_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_help_panel.add_child(_help_scroll)
+	_help_box = VBoxContainer.new()
+	_help_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_help_box.add_theme_constant_override("separation", 6)
+	_help_scroll.add_child(_help_box)
+	_build_help()
+
 	_panel.visible = false   # start hidden; F7 toggles
+	_help_panel.visible = false
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and (event as InputEventKey).keycode == KEY_F7:
 		_panel.visible = not _panel.visible
+		if _help_panel != null:
+			_help_panel.visible = _panel.visible   # the help box shows/hides with the tool
 		get_viewport().set_input_as_handled()
+
+## Hide the whole tool (main panel + help box) — used by Test Play / Play so nothing lingers in-game.
+func _hide_tool() -> void:
+	_panel.visible = false
+	if _help_panel != null:
+		_help_panel.visible = false
 
 # ── Build / rebuild the form from the current recipe ──────────────────────────
 func _build_form() -> void:
@@ -198,6 +234,15 @@ func _build_choreography_section() -> void:
 	_apply_font(_choreo_opt, 11)
 	for nm: String in ChoreographyRegistry.names():
 		_choreo_opt.add_item(nm)
+	# Reflect (or seed) the current Quick-test pick so the help box highlights the matching entry.
+	if _choreo_opt.item_count > 0:
+		if _selected_choreo == "":
+			_selected_choreo = _choreo_opt.get_item_text(0)
+		for i in _choreo_opt.item_count:
+			if _choreo_opt.get_item_text(i) == _selected_choreo:
+				_choreo_opt.selected = i
+				break
+	_choreo_opt.item_selected.connect(_on_quicktest_choreo_selected)
 	choreo_row.add_child(_choreo_opt)
 	_choreo_waves_sb = _spin(1.0, 10.0, 1.0, 2.0)
 	_choreo_waves_sb.custom_minimum_size = Vector2(70, 0)
@@ -332,7 +377,7 @@ func _on_testplay_pressed() -> void:
 	var dir := get_tree().get_first_node_in_group("wave_director")
 	if dir != null and dir.has_method("start"):
 		dir.start(_recipe.to_dict())
-		_panel.visible = false   # hide so you can play; press F7 to reopen
+		_hide_tool()   # hide panel + help box so you can play; press F7 to reopen
 	else:
 		_set_status("No wave director found")
 
@@ -344,6 +389,72 @@ func _on_stop_pressed() -> void:
 
 ## Phase 2: play a choreography-mode level made of `count` copies of the picked choreography, so the
 ## pipeline + wave-advance is testable now (the full per-wave editor is Phase 4). Uses the current boss.
+## Quick-test dropdown changed → remember the pick, re-highlight it, and scroll the help box to it.
+func _on_quicktest_choreo_selected(idx: int) -> void:
+	if _choreo_opt != null and idx >= 0 and idx < _choreo_opt.item_count:
+		_selected_choreo = _choreo_opt.get_item_text(idx)
+		_build_help()
+		call_deferred("_scroll_to_selected")   # deferred so the rebuilt rows have a resolved layout
+
+## Scroll the help box so the highlighted (selected) choreography entry is in view.
+func _scroll_to_selected() -> void:
+	if _help_scroll == null or _help_box == null:
+		return
+	var idx: int = ChoreographyRegistry.names().find(_selected_choreo)
+	if idx < 0 or idx >= _help_box.get_child_count():
+		return
+	var entry := _help_box.get_child(idx) as Control
+	if entry != null:
+		_help_scroll.scroll_vertical = int(entry.position.y)
+
+# ── Help box: every choreography + what it does (highlights the current Quick-test pick) ──────────
+func _build_help() -> void:
+	if _help_box == null:
+		return
+	for c in _help_box.get_children():
+		c.queue_free()
+	for nm: String in ChoreographyRegistry.names():
+		_help_box.add_child(_help_entry(nm, nm == _selected_choreo))
+
+func _help_entry(nm: String, highlighted: bool) -> PanelContainer:
+	var pc := PanelContainer.new()
+	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sb := StyleBoxFlat.new()
+	sb.set_corner_radius_all(6)
+	if highlighted:
+		sb.bg_color = Color(0.16, 0.30, 0.20, 0.96)
+		sb.set_border_width_all(2)
+		sb.border_color = Color(0.5, 0.95, 0.6, 0.95)   # bright green = the selected one
+	else:
+		sb.bg_color = Color(0.08, 0.11, 0.15, 0.9)
+		sb.set_border_width_all(1)
+		sb.border_color = Color(0.25, 0.35, 0.5, 0.6)
+	pc.add_theme_stylebox_override("panel", sb)
+
+	var margin := MarginContainer.new()
+	for side: String in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 8)
+	pc.add_child(margin)
+
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 2)
+	margin.add_child(vb)
+
+	var name_l := Label.new()
+	name_l.text = nm
+	_apply_font(name_l, 13)
+	name_l.add_theme_color_override("font_color", Color(0.7, 1.0, 0.75) if highlighted else Color(0.7, 0.85, 1.0))
+	vb.add_child(name_l)
+
+	var desc_l := Label.new()
+	desc_l.text = ChoreographyRegistry.describe(nm)
+	_apply_font(desc_l, 11)
+	desc_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc_l.custom_minimum_size = Vector2(376, 0)   # bound the width so the text wraps inside the scroll box
+	desc_l.add_theme_color_override("font_color", Color(0.80, 0.86, 0.95))
+	vb.add_child(desc_l)
+	return pc
+
 func _on_play_choreo_pressed() -> void:
 	var dir := get_tree().get_first_node_in_group("wave_director")
 	if dir == null or not dir.has_method("start"):
@@ -363,7 +474,7 @@ func _on_play_choreo_pressed() -> void:
 		"waves": wave_list,
 		"boss": String(_recipe.boss),
 	})
-	_panel.visible = false   # hide so you can play; press F7 to reopen
+	_hide_tool()   # hide panel + help box so you can play; press F7 to reopen
 	_set_status("Playing %d× %s" % [count, nm])
 
 ## Project the recipe's numbers using the director's exact (static) difficulty math.

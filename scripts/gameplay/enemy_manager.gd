@@ -18,6 +18,8 @@ const EnemyBombingWanderer := preload("res://scripts/gameplay/enemy_bombing_wand
 const EnemyBomb := preload("res://scripts/gameplay/enemy_bomb.gd")
 const EnemySwarmFlock := preload("res://scripts/gameplay/enemy_swarm_flock.gd")
 const EnemySwarmMember := preload("res://scripts/gameplay/enemy_swarm.gd")
+const EnemyBeamer := preload("res://scripts/gameplay/enemy_beamer.gd")
+const EnemyMissileLauncher := preload("res://scripts/gameplay/enemy_missile_launcher.gd")
 
 # Reusable enemy bullet tuning.
 const BULLET_RADIUS := 5.0
@@ -167,14 +169,17 @@ func take_wanderer_y_offset() -> float:
 ## the player's live position while off-screen); the other two oscillate alongside it. Each enters
 ## DV_BURST_DELAY after the previous (deterministic per-member stagger — no coroutine). All tracking +
 ## oscillation lives in the enemy itself, so the manager just assigns roles.
-func spawn_diver(edges: Array = []) -> void:
+## `h_speed_delta` is added to the dash speed of divers entering from a HORIZONTAL edge (left/right) — a
+## choreography can pass a negative value to make side divers slower. 0 = unchanged (the default).
+func spawn_diver(edges: Array = [], h_speed_delta: float = 0.0) -> void:
 	var pool: Array = edges if not edges.is_empty() else EnemyDiver.DV_EDGES
 	var edge: String = String(pool[randi() % pool.size()]) if not pool.is_empty() else "top"
+	var delta: float = h_speed_delta if (edge == "left" or edge == "right") else 0.0
 	var n: int = EnemyDiver.DV_BURST_COUNT
 	for i in n:
 		var e := EnemyDiver.new()
 		add_child(e)
-		e.spawn_member(self, edge, i == 0, float(i) * EnemyDiver.DV_BURST_DELAY)
+		e.spawn_member(self, edge, i == 0, float(i) * EnemyDiver.DV_BURST_DELAY, delta)
 
 ## Generic spawn dispatcher used by the wave director: spawn one "unit" of `type`, passing recipe
 ## `edges` where the enemy uses them (only the Diver today). Type names match LevelRecipe.ENEMY_TYPES.
@@ -185,10 +190,26 @@ func spawn_type(type: String, edges: Array = []) -> void:
 		"sentinels":         spawn_sentinels()
 		"bombing_wanderer":  spawn_bombing_wanderer()
 		"swarm":             spawn_swarm()
+		"beamer":            spawn_beamer()
+		"missile_launcher":  spawn_missile_launcher()
 
 func spawn_shooter() -> void:
 	var e := EnemyShooter.new()
 	add_child(e)
+	e.spawn(self)
+
+## One Beamer — a stationary orb that charges + fires a laser at the player. Spawns in the upper band.
+func spawn_beamer() -> void:
+	var e := EnemyBeamer.new()
+	add_child(e)   # _ready() computes its size
+	var px := randf_range(_screen_size.x * 0.3, _screen_size.x * 0.7)
+	e.position = Vector2(px, _screen_size.y * 0.22) - e.size * 0.5
+
+## One Missile_launcher — a tanky stationary enemy that descends to the upper band and fires a one-shot
+## fan of boomerang plasma darts. Positions itself in spawn() (centred, top entry).
+func spawn_missile_launcher() -> void:
+	var e := EnemyMissileLauncher.new()
+	add_child(e)   # _ready() computes its size from HP
 	e.spawn(self)
 
 func spawn_sentinels() -> void:
@@ -201,11 +222,34 @@ func spawn_sentinels() -> void:
 # ── Choreography spawn helpers: create ONE enemy at a chosen spot and RETURN it, so a choreography can
 # script its movement / connect its death. (Used by Enemy_group_1; harmless for anything else.) ──
 
+## One Beamer returned to the caller so a choreography can set external_control, position, and aim().
+## (Created unpositioned; the choreography places it.) Returns the node.
+func spawn_beamer_node() -> Node:
+	var e := EnemyBeamer.new()
+	add_child(e)   # _ready() computes its size
+	return e
+
 ## One Sentinel descending to the stationary row at column `x` (px). Returns the node.
 func spawn_sentinel_at(x: float) -> Node:
 	var e := EnemySentinel.new()
 	add_child(e)
 	e.spawn_at(self, x)
+	return e
+
+## Vertical mirror of spawn_sentinel_at: the Sentinel enters from the BOTTOM, rises to a bottom-mirrored
+## stop, and fires UP. Used by Enemy_group_1_inverse. Returns the node.
+func spawn_sentinel_at_inverted(x: float) -> Node:
+	var e := EnemySentinel.new()
+	add_child(e)
+	e.flip_v = true          # set before spawn_at so it picks the mirrored entry/stop
+	e.spawn_at(self, x)
+	return e
+
+## One Sentinel descending to an EXPLICIT parking point `center_pos` (px). Returns the node.
+func spawn_sentinel_at_pos(center_pos: Vector2) -> Node:
+	var e := EnemySentinel.new()
+	add_child(e)
+	e.spawn_at_pos(center_pos.x, center_pos.y)
 	return e
 
 ## One externally-controlled Shooter appearing at `center_pos` (px, SpaceScreen-local), firing as normal
@@ -247,6 +291,14 @@ func spawn_bombing_wanderer() -> void:
 	add_child(e)
 	e.spawn(self)
 
+## One Bombing_wanderer returned to the caller so a choreography can track its death. `side` ("left"/
+## "right"/"") forces the entry edge. Returns the node.
+func spawn_bombing_wanderer_node(side: String = "") -> Node:
+	var e := EnemyBombingWanderer.new()
+	add_child(e)
+	e.spawn(self, side)
+	return e
+
 ## Drop a bomb at `pos` (SpaceScreen-local). Called by the Bombing_wanderer.
 func spawn_bomb(pos: Vector2) -> void:
 	var b := EnemyBomb.new()
@@ -278,6 +330,15 @@ func spawn_swarm() -> void:
 
 func _on_swarm_freed(slot: int) -> void:
 	_swarm_slots.erase(slot)
+
+## One swarm circle (flock) whose ring forms centered at `ring_center` (px), entering from a side.
+## Returns the flock node (it frees itself once all members are gone). For choreographies.
+func spawn_swarm_at(ring_center: Vector2, from_left: bool = true) -> Node:
+	var flock := EnemySwarmFlock.new()
+	add_child(flock)
+	flock.setup(self, 0)
+	flock.spawn_flock_at(ring_center, from_left)
+	return flock
 
 func clear_enemies() -> void:
 	for n in get_tree().get_nodes_in_group("normal_enemy"):

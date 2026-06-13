@@ -26,6 +26,7 @@ var icon_path: String = ""       # set later to swap in a PNG (placeholder shape
 # (e.g. the Diver is only a warning sign for 1s before it actually enters).
 var auto_register: bool = true
 var contact_active: bool = true  # gate player-contact checks (off during a warning/telegraph phase)
+var invulnerable: bool = false   # still a hit target (blocks/consumes shots) but takes NO damage
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 var hp: float = 30.0
@@ -114,6 +115,10 @@ func radius() -> float:
 func on_weapon_hit(raw: float) -> void:
 	if _dead:
 		return
+	if invulnerable:
+		_flash = 0.12   # show the block, but take no damage and never die
+		queue_redraw()
+		return
 	var dmg := raw * (1.0 - GameManager.armor_damage_reduction(armor))
 	hp -= dmg
 	_flash = 0.12
@@ -180,10 +185,11 @@ func _draw() -> void:
 	if _flash > 0.0:
 		col = col.lerp(Color.WHITE, 0.7)
 	_draw_shape(c, r, col)
-	# HP bar above the body so damage is visible while testing.
-	var ratio := clampf(hp / maxf(1.0, hp_max), 0.0, 1.0)
-	draw_rect(Rect2(0.0, -6.0, size.x, 3.0), Color(0, 0, 0, 0.6))
-	draw_rect(Rect2(0.0, -6.0, size.x * ratio, 3.0), Color(0.4, 0.95, 0.4))
+	# HP bar above the body so damage is visible while testing (hidden when invulnerable — never moves).
+	if not invulnerable:
+		var ratio := clampf(hp / maxf(1.0, hp_max), 0.0, 1.0)
+		draw_rect(Rect2(0.0, -6.0, size.x, 3.0), Color(0, 0, 0, 0.6))
+		draw_rect(Rect2(0.0, -6.0, size.x * ratio, 3.0), Color(0.4, 0.95, 0.4))
 
 func _draw_shape(c: Vector2, r: float, col: Color) -> void:
 	match shape_kind:

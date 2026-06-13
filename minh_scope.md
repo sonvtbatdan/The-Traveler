@@ -1,3 +1,7 @@
+# Corporations
+Miyamoto Orbitals Industry
+Frontier
+
 Things to add
 1) The rest of the item
 2) Skill system
@@ -64,17 +68,4 @@ Save/load these in the existing recipe files. Pause so I can author a 6-wave lev
 Throughout: choreographies are code-defined but arranged/selected in F6. A new choreography = one new small script following the Phase 2 pattern, auto-appearing in the dropdown. Keep all set-piece timings tunable. Don't change enemy combat behavior except the scripted movement the choreography imposes. After Phase 4, tell me exactly how to author a brand-new choreography (which file to copy, what to fill in) so I can ask for more set-pieces later.
 
 # Choreographs
-Enemy_group_2
-Build "Enemy_group_2" — a complex swarm choreography that spells "DIE" inside a protective box, then dives — for my Godot 4 space shooter. I'm not a programmer — plain language, and build this in SMALL visible sub-steps with a pause after each, because it's intricate. Use the choreography system pattern from Enemy_group_1. First read the swarm code (enemy_swarm.gd, enemy_swarm_flock.gd) and the Enemy_group_1 choreography, and confirm back to me how the swarm's follow-the-leader path-tracing works, before building.Core principle — reuse the existing swarm behavior: the swarm enemies keep their current identity — single-file, follow-the-leader along a shared traced path (NOT teleporting to slots). Spelling letters and drawing the box = defining path/point layouts for the lead to trace and the others to follow/fill. Don't reinvent the swarm; give it more interesting shapes to trace than a circle.The set-piece, in order:
-
-The swarm flies in (single-file, from the top/side as the swarm normally enters).
-They first form a rectangular BOX outline — enemies strung around the perimeter of a rectangle (the "frame"), traced follow-the-leader.
-Then they form the letters D, I, E inside the box — three letterforms made of enemies, readable as the word "DIE".
-The whole thing holds as a readable framed banner (box around DIE) for a tunable duration.
-Then they dive one-by-one, lead-first (reuse the existing turn-rate-limited homing dive, dive speed as the swarm uses now): the BOX enemies dive first (one by one), then the letter enemies dive (one by one). Tunable stagger between each dive.
-Enemy count & legibility: spelling 3 letters plus a box needs many more than the usual 8 — estimate roughly 50-56 total (e.g. ~28 for the box, ~28 for the letters), but make the total count and the box/letter split tunable, and tell me what you chose. Letters should be laid out on a small dot-grid so they're legible — design D, I, E as point layouts and tell me the grid you used. Make the box size, letter size, and overall banner position on screen tunable.Confirm this structure before building (my assumption): the swarm splits into two roles — a box group and a letters group. The box group enters and forms the frame first; the letters group forms D-I-E inside it; on dive, the box group goes first, then letters, each one-by-one lead-first. If a different split is cleaner, propose it.Build order — PAUSE after each sub-step so I can watch:
-
-Step A: Just the box — swarm flies in and forms the rectangular outline, holds. Pause so I confirm the box reads as a frame and the follow-the-leader tracing looks right at this scale.
-Step B: Add the letters forming inside the box (D, then I, then E, or however reads best — tell me). Pause so I confirm "DIE" is legible inside the frame.
-Step C: Add the hold, then the dive sequence — box enemies dive one-by-one lead-first, then letters one-by-one. Pause so I confirm the dive order and that homing still works.
-Performance note: ~50 enemies each running follow-logic and their normal per-enemy behavior may be heavy — keep per-enemy work cheap, and tell me if you did anything to keep it smooth. Register it as "Enemy_group_2" so it appears in the F7 dropdown. Keep ALL numbers tunable (count, split, box/letter sizes, position, hold time, dive stagger). Don't change the base swarm enemy's combat behavior — only the choreographed pathing.Tell me at the end every tunable constant and the letter-grid layout so I can adjust legibility.
+Then add in new choreo beginner_3: Phase 1: 8 shooters enter from the top (kinda fast then home in their position. make this home-in behavior modular and reference-able) forming an arc in the top third of the map then start shooting. Phase 8:  shooters enter from the bottom forming an arc in the bottom third of the map then start shooting. Phase 3: 2 shooters home in the 4 corners of the map (8 in total, 2 each corner) then start shooting
