@@ -21,7 +21,8 @@ var contact_damage: int = 0      # damage dealt to the SHIP on contact (0 = neve
 var contact_explodes: bool = false   # die on player contact (kingfisher / swarm / bomb)
 var body_color: Color = Color(0.8, 0.4, 0.4)
 var shape_kind: String = "circle"    # "circle" | "triangle" | "diamond" | "square"
-var icon_path: String = ""       # set later to swap in a PNG (placeholder shapes used until then)
+var icon_path: String = ""       # res:// path to PNG; leave "" to keep the placeholder shapes
+var size_mult: float  = 1.0     # set in _configure() to scale the HP-derived diameter
 # Set false in _configure() to delay becoming damageable until the enemy calls _register() itself
 # (e.g. the Kingfisher is only a warning sign for 1s before it actually enters).
 var auto_register: bool = true
@@ -31,6 +32,7 @@ var contact_active: bool = true  # gate player-contact checks (off during a warn
 var hp: float = 30.0
 var _mgr: Node = null            # EnemyManager (ship position + bullets + explosions)
 var _ws: Node = null             # weapon_system (target registration)
+var _tex: Texture2D = null       # loaded from icon_path in _ready(); null = use placeholder shapes
 var _flash: float = 0.0
 var _dead: bool = false
 var _registered: bool = false
@@ -44,11 +46,18 @@ func _ready() -> void:
 	add_to_group("normal_enemy")
 	# Size scales with the CONFIGURED max HP (bigger HP = bigger shape) — computed BEFORE the global
 	# HP multiplier so tripling HP doesn't change the shape size.
-	var d := _diameter_for_hp(hp_max)
+	var d := _diameter_for_hp(hp_max) * size_mult
 	size = Vector2(d, d)
 	pivot_offset = size * 0.5
 	hp_max *= ENEMY_HP_MULT   # +200% HP
 	hp = hp_max
+	if icon_path != "":
+		_tex = load(icon_path) as Texture2D
+		if _tex != null:
+			var ts := _tex.get_size()
+			if ts.x > 0.0:
+				size.y = size.x * ts.y / ts.x   # keep width from HP, scale height to texture ratio
+				pivot_offset = size * 0.5
 	_mgr = get_tree().get_first_node_in_group("enemy_manager")
 	_ws = get_tree().get_first_node_in_group("weapon_system")
 	if auto_register:
@@ -167,15 +176,20 @@ func _check_player_contact() -> void:
 	if center().distance_to(sc) <= sr + radius():
 		on_player_contact()
 
-# ── Draw (placeholder shapes until PNGs are added) ────────────────────────────
+# ── Draw ──────────────────────────────────────────────────────────────────────
 func _draw() -> void:
-	var c := size * 0.5
-	var r := size.x * 0.5
-	var col := body_color
-	if _flash > 0.0:
-		col = col.lerp(Color.WHITE, 0.7)
-	_draw_shape(c, r, col)
-	# HP bar above the body so damage is visible while testing.
+	if _tex != null:
+		draw_texture_rect(_tex, Rect2(Vector2.ZERO, size), false)
+		if _flash > 0.0:
+			draw_rect(Rect2(Vector2.ZERO, size), Color(1, 1, 1, 0.7))
+	else:
+		var c := size * 0.5
+		var r := size.x * 0.5
+		var col := body_color
+		if _flash > 0.0:
+			col = col.lerp(Color.WHITE, 0.7)
+		_draw_shape(c, r, col)
+	# HP bar above the body.
 	var ratio := clampf(hp / maxf(1.0, hp_max), 0.0, 1.0)
 	draw_rect(Rect2(0.0, -6.0, size.x, 3.0), Color(0, 0, 0, 0.6))
 	draw_rect(Rect2(0.0, -6.0, size.x * ratio, 3.0), Color(0.4, 0.95, 0.4))

@@ -100,6 +100,8 @@ var _drop_delays:   Array = []
 var _drop_size:     Vector2 = Vector2.ZERO
 var _blob_frames:   Array = []
 var _blob_delays:   Array = []
+var _map_blob1_frames: Array = []
+var _map_blob1_delays: Array = []
 var _ship_img:        Image = null   # cached ship texture (fallback collision)
 var _ship_hitbox_img: Image = null   # Spaceshiphitbox.png — black pixels define hitbox
 var _ship_tight_uv:   Rect2 = Rect2(0.0, 0.0, 1.0, 1.0)  # UV rect of hitbox area
@@ -197,6 +199,13 @@ func _force_reset() -> void:
 		_boss_eo.visible  = false
 		_boss_eo.rotation = 0.0
 		_boss_eo.scale    = Vector2.ONE
+	var _bg := get_tree().get_first_node_in_group("scrolling_bg")
+	if is_instance_valid(_bg) and _bg.has_method("restore_texture"):
+		_bg.restore_texture()
+	var _ov := get_tree().get_first_node_in_group("scrolling_overlay")
+	if is_instance_valid(_ov) and _ov.has_method("restore_texture"):
+		_ov.set_speed_mult(1.0)
+		_ov.restore_texture()
 	_phase     = Phase.IDLE
 	_phase_acc = 0.0
 	# Clear all boss state so nothing lingers (the HP bar / "boss present" flag that
@@ -223,6 +232,31 @@ func spawn_boss() -> void:
 	# Auto-activate manual boost so player has control
 	if not GameManager.manual_boost:
 		GameManager.set_boost(true)
+	var _bg := get_tree().get_first_node_in_group("scrolling_bg")
+	if is_instance_valid(_bg) and _bg.has_method("swap_texture"):
+		_bg.swap_texture("res://assets/bosses/elephant/map/background.png")
+	var _ov := get_tree().get_first_node_in_group("scrolling_overlay")
+	if is_instance_valid(_ov) and _ov.has_method("swap_texture"):
+		_ov.swap_texture("res://assets/bosses/elephant/map/left.png", 300.0, -150.0)
+		_ov.set_speed_mult(2.0)
+		# Mirror the left strip to the right edge:
+		# left tile at x=-150 width=300 → right tile at x=700-300+150=550 (same 150px overflow), flip_h.
+		_ov.attach_right_strip(550.0)
+	if is_instance_valid(_ov) and _ov.has_method("attach_blob") and not _map_blob1_frames.is_empty():
+		var orig_sz := (_map_blob1_frames[0] as Texture2D).get_size()
+		var ratio: float = orig_sz.y / orig_sz.x if orig_sz.x > 0.0 else 1.0
+		for _i in 2:
+			var bw: float = randf_range(30.0, 70.0)
+			var bh: float = bw * ratio
+			var resized: Array = []
+			for frame: Texture2D in _map_blob1_frames:
+				resized.append(_resize_tex(frame, Vector2(bw, bh)))
+			var bx: float = randf_range(-30.0, maxf(-30.0, 120.0 - bw))
+			var by: float = randf_range(-bh, OC_BOUNDS.size.y)
+			_ov.attach_blob(resized, _map_blob1_delays, bx, by, bw, bh)
+			# Mirrored blob on right side: symmetric position around screen center (screen_w=700).
+			var bx_r: float = OC_BOUNDS.size.x - bx - bw
+			_ov.attach_blob(resized, _map_blob1_delays, bx_r, by, bw, bh, true)
 	start_fight()
 
 func kill_boss() -> void:
@@ -1204,3 +1238,7 @@ func _load_assets() -> void:
 	if blt != null:
 		_blob_frames = blt.get_meta("gif_frames") if blt.has_meta("gif_frames") else [blt]
 		_blob_delays = blt.get_meta("gif_delays") if blt.has_meta("gif_delays") else [0.05]
+	var mb1t := GifLoader.load_gif("res://assets/bosses/elephant/map/blob1.gif")
+	if mb1t != null:
+		_map_blob1_frames = mb1t.get_meta("gif_frames") if mb1t.has_meta("gif_frames") else [mb1t]
+		_map_blob1_delays = mb1t.get_meta("gif_delays") if mb1t.has_meta("gif_delays") else [0.1]

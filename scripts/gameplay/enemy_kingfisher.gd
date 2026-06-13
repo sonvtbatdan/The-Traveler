@@ -1,4 +1,4 @@
-extends "res://scripts/gameplay/enemy_base.gd"
+﻿extends "res://scripts/gameplay/enemy_base.gd"
 
 ## Kingfisher — the simplest attacker. Picks a screen edge (from KF_EDGES), lines its entry point up
 ## with the player's position at spawn, shows a warning sign there for KF_WARN_TIME, then enters at
@@ -38,6 +38,7 @@ func _configure() -> void:
 	contact_active = false    # no contact during the warning
 	body_color = Color(0.95, 0.45, 0.35)
 	shape_kind = "triangle"
+	icon_path  = "res://assets/enemies/kingfisher.png"
 
 ## Called by EnemyManager for each burst member. `edge` is fixed (shared by the whole burst), `aim` is
 ## the player position captured at the START of the burst (so all 3 target the same spot), and

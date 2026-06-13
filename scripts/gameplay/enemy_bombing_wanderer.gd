@@ -1,4 +1,4 @@
-extends "res://scripts/gameplay/enemy_base.gd"
+﻿extends "res://scripts/gameplay/enemy_base.gd"
 
 ## Bombing_wanderer — enters from the left or right edge at 80% height (measured from the bottom),
 ## then drifts horizontally at BW_SPEED, BOUNCING back and forth between the side edges (it doesn't
@@ -22,6 +22,7 @@ func _configure() -> void:
 	contact_explodes = false
 	body_color = Color(0.6, 0.15, 0.2)   # maroon
 	shape_kind = "square"
+	icon_path  = "res://assets/enemies/bombing.png"
 
 func spawn(mgr: Node) -> void:
 	var screen: Vector2 = mgr.screen_size()

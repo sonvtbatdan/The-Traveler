@@ -1486,7 +1486,7 @@ func _beam_hits_ship(origin_vp: Vector2, dir: Vector2, length: float, width: flo
 	var to := ship_c - origin_vp
 	var t := clampf(to.dot(dir), 0.0, length)        # dir is unit-length
 	var closest := origin_vp + dir * t
-	var ship_r := maxf(sr.size.x, sr.size.y) * 0.5
+	var ship_r := maxf(sr.size.x, sr.size.y) * 0.5 - 5.0
 	return ship_c.distance_to(closest) <= width * 0.5 + ship_r
 
 func _free_node(n: Node) -> void:
@@ -2207,7 +2207,7 @@ func _tick_rope_damage(delta: float) -> void:
 	var ship := _ship_center()
 	var closest := Geometry2D.get_closest_point_to_segment(ship, a, b)
 	var sr := _ship_rect_vp()
-	var ship_r: float = maxf(sr.size.x, sr.size.y) * 0.5 if sr != Rect2() else 16.0
+	var ship_r: float = maxf(sr.size.x, sr.size.y) * 0.5 - 5.0 if sr != Rect2() else 11.0
 	if ship.distance_to(closest) <= M3_ROPE_DMG_W + ship_r:
 		_m3_rope_dmg_acc += delta
 		if _m3_rope_dmg_acc >= M3_ROPE_DMG_INT:
@@ -2960,7 +2960,7 @@ func _tick_projectiles(delta: float) -> void:
 	var ship_r := 0.0
 	if _ship_eo != null and is_instance_valid(_ship_eo):
 		ship_c = _ship_eo.get_global_transform() * (_ship_eo.size * 0.5) - OC_BOUNDS.position
-		ship_r = _ship_eo.size.x * 0.5 * _ship_eo.scale.x
+		ship_r = _ship_eo.size.x * 0.5 * _ship_eo.scale.x - 5.0
 	var clip_rect := Rect2(Vector2.ZERO, OC_BOUNDS.size)
 	var i := _projectiles.size() - 1
 	while i >= 0:

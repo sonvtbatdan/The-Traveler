@@ -1,4 +1,4 @@
-extends "res://scripts/gameplay/enemy_base.gd"
+﻿extends "res://scripts/gameplay/enemy_base.gd"
 
 ## Jet_fighter — enters at a 45° angle into the top quarter of the screen, swoops ~1cm inward, then
 ## stops and holds position, firing non-tracking bullets at the player's position-at-the-moment once
@@ -28,6 +28,7 @@ func _configure() -> void:
 	contact_explodes = false
 	body_color = Color(0.4, 0.7, 1.0)   # blue jet
 	shape_kind = "triangle"
+	icon_path  = "res://assets/enemies/jetfighter.png"
 
 ## Called by EnemyManager after add_child(): pick a stop point in the top band + a 45° entry line.
 func spawn(mgr: Node) -> void:

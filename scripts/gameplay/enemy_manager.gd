@@ -68,8 +68,8 @@ func ship_center() -> Vector2:
 func ship_radius() -> float:
 	var eo := _find_ship()
 	if eo == null:
-		return 24.0
-	return eo.size.x * 0.5 * eo.scale.x
+		return 19.0
+	return eo.size.x * 0.5 * eo.scale.x - 5.0
 
 # ── Reusable enemy bullet ─────────────────────────────────────────────────────
 ## Spawn one enemy bullet at `pos` (SpaceScreen-local) moving at `vel` px/s, dealing `dmg` to the ship.

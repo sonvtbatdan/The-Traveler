@@ -1,4 +1,4 @@
-extends "res://scripts/gameplay/enemy_base.gd"
+﻿extends "res://scripts/gameplay/enemy_base.gd"
 
 ## Swarm member — one bead in a follow-the-leader flock (orchestrated by enemy_swarm_flock.gd).
 ##
@@ -30,6 +30,7 @@ func _configure() -> void:
 	contact_active = false   # no contact while forming/holding — only once it dives
 	body_color = Color(0.3, 0.95, 0.95)   # cyan
 	shape_kind = "triangle"
+	icon_path  = "res://assets/enemies/swarm.png"
 
 ## Flock calls this every frame during formation to place the member along the shared track.
 func set_track_pose(pos: Vector2, facing: float) -> void:

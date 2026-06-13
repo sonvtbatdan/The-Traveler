@@ -819,6 +819,124 @@ tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 - Objects come ONLY from config files or manual drag/drop
 - Folder scanning eliminated to prevent phantom objects
 
+---
+
+## Ship Visual System (`gun_system.gd`)
+
+### Hull Skin Swap
+
+Khi equip/unequip hull, `InventoryManager.inventory_changed` → `_apply_hull_skin()` → swap texture của spaceship EO.
+
+- **`HULL_SKIN_MAP`** — dict-of-dicts: `def_id → {"idle": path, "lean": path, "dash": path}`. Thiếu key `lean`/`dash` → fallback về `SHIP_DEFAULT_LEAN` / `SHIP_DEFAULT_DASH`.
+- **Default skins:** `SHIP_DEFAULT_SKIN = "res://assets/screen/Spaceship.png"`, `SHIP_DEFAULT_LEAN = "res://assets/screen/lean.png"`, `SHIP_DEFAULT_DASH = "res://assets/screen/dash.png"`.
+- `_hull_skin_path(state: String)` — helper tra cứu path cho state `"idle"/"lean"/"dash"` của hull đang equip.
+- **Khi thêm lean/dash cho hull mới:** thêm key `"lean"`/`"dash"` vào entry tương ứng trong `HULL_SKIN_MAP`.
+
+### Ship Asset Folder Structure
+
+```
+assets/screen/ship/
+  <hull_name>/          ← tên folder = tên ship (vd: adamantium, titanium…)
+    <hull_name>.png     ← idle skin
+    lean.png            ← lean skin (nếu có, nếu không → dùng default)
+    dash.png            ← dash skin (nếu có, nếu không → dùng default)
+```
+
+Mapping `def_id` → folder (lưu ý `adamantine_hull` → folder `adamantium`):
+
+| def_id | folder |
+|--------|--------|
+| `titanium_hull` | `titanium/` |
+| `adamantine_hull` | `adamantium/` |
+| `aerographene_hull` | `aerographene/` |
+| `glass_hull` | `glass/` |
+| `neutronium_hull` | `neutronium/` |
+| `nanobot_hull` | `nano/` |
+| `voidmetal_hull` | `voidmetal/` |
+| `pzt_hull` | `pzt/` |
+| `memory_foam_hull` | `thorned/` |
+| `cursed_hull` | `cursed/` |
+
+### Ship Pose System
+
+Pose được set mỗi frame trong `_handle_ship_movement()`. Texture chỉ load khi pose thực sự thay đổi.
+
+```gdscript
+const POSE_IDLE       := 0
+const POSE_LEAN_LEFT  := 1   # di chuyển sang trái → lean.png
+const POSE_LEAN_RIGHT := 2   # di chuyển sang phải → lean.png + flip_h
+const POSE_DASH_LEFT  := 3   # dash sang trái → dash.png
+const POSE_DASH_RIGHT := 4   # dash sang phải → dash.png + flip_h
+```
+
+- `_set_ship_pose(pose)` — áp texture + `flip_h`, skip nếu pose không đổi.
+- Khi `inventory_changed`: `_apply_hull_skin()` reset `_ship_pose = -1` → force reload pose hiện tại với skin mới.
+- Intro / `input_locked` → force `POSE_IDLE`.
+
+---
+
+## Overlay — Right Strip Mirror (`scripts/gameplay/overlay.gd`)
+
+### `attach_right_strip(x_pos: float)`
+
+Tạo bản mirror (flip_h) của strip hiện tại tại vị trí x_pos. Phải gọi **sau** `swap_texture()`.
+
+- `_rects_r` — tiles của right strip, cùng `_tile_h` và cùng `_offset` với left strip → scroll đồng bộ.
+- `restore_texture()` tự clear right strip.
+- `_apply_positions()` cập nhật cả right strip.
+
+### Elephant boss map geometry
+
+```
+Left strip:  tile_x = -150, width = 300 → visible x=[0, 150]   (150px overflow left)
+Right strip: tile_x =  550, width = 300 → visible x=[550, 700] (150px overflow right)
+screen_w = 700
+```
+
+### `attach_blob(..., flip_h: bool = false)`
+
+Optional `flip_h` param cho right-side blobs. Blob mirror formula:
+```gdscript
+bx_r = OC_BOUNDS.size.x - bx - bw   # = 700 - bx - bw
+```
+
+---
+
+## Normal Enemy System
+
+### `enemy_base.gd` — base class
+
+- **Size**: `_diameter_for_hp(hp_max) * size_mult` → square, sau đó nếu có texture thì height được kéo khớp ratio: `size.y = size.x * tex_h / tex_w`.
+- **`size_mult: float = 1.0`** — set trong `_configure()` để scale size riêng per-enemy (vd: `bomb` = 0.5).
+- **`icon_path: String = ""`** — set trong `_configure()`. Nếu != "" → load texture, override height theo ratio.
+- **`_draw()`**: nếu có texture → `draw_texture_rect` + white flash overlay khi hit. Nếu không → placeholder shape (circle/triangle/diamond/square) + flash.
+- HP bar vẫn hiển thị ở cả 2 trường hợp.
+
+### Enemy assets (`assets/enemies/`)
+
+| Enemy | File | shape_kind | size_mult |
+|-------|------|-----------|-----------|
+| Kingfisher | `kingfisher.png` | triangle | 1.0 |
+| Jet Fighter | `jetfighter.png` | triangle | 1.0 |
+| Sentinel | `sentinel.png` | diamond | 1.0 |
+| Bombing Wanderer | `bombing.png` | square | 1.0 |
+| Bomb | `bomb.png` | circle | **0.5** |
+| Swarm | `swarm.png` | triangle | 1.0 |
+
+---
+
+## Inventory — Equip Slot Tooltips & Gate Fix
+
+### Slot tooltips
+
+`inventory_ui.gd` set `es.tooltip_text = SLOT_LABELS.get(slot, slot)` ngay sau `es.setup(slot)` → Godot tự hiện tên slot khi hover chuột lên ô trống hoặc ô có item.
+
+### Equip-gate on swap (item_widget.gd)
+
+`_drop_data()` trong `item_widget.gd` (khi drop lên equipped item để swap) giờ kiểm tra `InventoryManager.meets_requirement(def_id)` trước khi gọi `equip()` — giống logic trong `equip_slot.gd`. Không đủ stat → `flash_message` + return (item không bị swap).
+
+---
+
 ## Thrust Objects Policy
 
 **CRITICAL: Thrust objects (auto.gif, manual.gif, thrust.png) behavior locked by design.**
