@@ -106,6 +106,10 @@ func _ready() -> void:
 	_ammo_label.size = Vector2(120.0, 12.0)
 	add_child(_ammo_label)
 
+	# AMMO SYSTEM TEMPORARILY DISABLED — hide its HUD (re-show when ammo is re-enabled).
+	_ammo_track.visible = false
+	_ammo_label.visible = false
+
 	GameManager.ship_hp_changed.connect(_on_hp_changed)
 	GameManager.ship_shield_changed.connect(_on_shield_changed)
 	GameManager.ship_energy_changed.connect(_on_energy_changed)

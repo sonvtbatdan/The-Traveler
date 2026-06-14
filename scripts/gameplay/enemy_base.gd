@@ -20,15 +20,16 @@ var hp_max: float = 30.0
 var armor: float = 0.0           # 0 = no damage reduction; negative (acid-shredded) = amplified
 var xp_reward: int = 5           # XP granted to the player on death (0 = none, e.g. bombs)
 var contact_damage: int = 0      # damage dealt to the SHIP on contact (0 = never touches the player)
-var contact_explodes: bool = false   # die on player contact (kingfisher / swarm / bomb)
+var contact_explodes: bool = false   # die on player contact (diver / swarm / bomb)
 var body_color: Color = Color(0.8, 0.4, 0.4)
 var shape_kind: String = "circle"    # "circle" | "triangle" | "diamond" | "square"
 var icon_path: String = ""       # res:// path to PNG; leave "" to keep the placeholder shapes
 var size_mult: float  = 1.0     # set in _configure() to scale the HP-derived diameter
 # Set false in _configure() to delay becoming damageable until the enemy calls _register() itself
-# (e.g. the Kingfisher is only a warning sign for 1s before it actually enters).
+# (e.g. the Diver is only a warning sign for 1s before it actually enters).
 var auto_register: bool = true
 var contact_active: bool = true  # gate player-contact checks (off during a warning/telegraph phase)
+var invulnerable: bool = false   # still a hit target (blocks/consumes shots) but takes NO damage
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 var hp: float = 30.0
@@ -43,8 +44,12 @@ var _flash: float = 0.0
 var _dead: bool = false
 var _registered: bool = false
 
-## Global HP multiplier for ALL normal enemies (bosses are separate). 3.0 = +200% HP.
-const ENEMY_HP_MULT := 3.0
+## Emitted when this enemy is KILLED by the player (via die()), NOT when culled via despawn(). Used by
+## choreographies for death triggers (e.g. Enemy_group_1 spawns Divers when a Sentinel dies).
+signal died
+
+## Global HP multiplier for ALL normal enemies (bosses are separate). 1.5 = +50% HP (halved from 3.0).
+const ENEMY_HP_MULT := 1.5
 
 func _ready() -> void:
 	_configure()
@@ -135,6 +140,10 @@ func radius() -> float:
 func on_weapon_hit(raw: float) -> void:
 	if _dead:
 		return
+	if invulnerable:
+		_flash = 0.12   # show the block, but take no damage and never die
+		queue_redraw()
+		return
 	var dmg := raw * (1.0 - GameManager.armor_damage_reduction(armor))
 	hp -= dmg
 	_flash = 0.12
@@ -152,6 +161,7 @@ func die() -> void:
 	_dead = true
 	if xp_reward > 0:
 		GameManager.add_xp(xp_reward)
+	died.emit()
 	_unregister()
 	queue_free()
 

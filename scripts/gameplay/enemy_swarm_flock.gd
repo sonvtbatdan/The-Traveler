@@ -69,6 +69,25 @@ func spawn_flock() -> void:
 		_members.append(m)
 	_update_followers()
 
+## Position override (for choreographies): form the ring centered at `ring_center` (px, SpaceScreen-local),
+## entering as a horizontal conga from the given side. Same circle-spin-dive behavior, just placed.
+func spawn_flock_at(ring_center: Vector2, from_left: bool = true) -> void:
+	var screen: Vector2 = _mgr.screen_size()
+	_dir = Vector2(1.0, 0.0) if from_left else Vector2(-1.0, 0.0)
+	_spin = -1.0 if from_left else 1.0
+	var edge_x := 0.0 if from_left else screen.x
+	_center = ring_center
+	var entry_y := ring_center.y + SW_CIRCLE_RADIUS   # 6 o'clock point: the conga slides in to reach it
+	_edge = Vector2(edge_x, entry_y)
+	_l_entry = absf(ring_center.x - edge_x)
+	_circ = TAU * SW_CIRCLE_RADIUS
+	_s_lead = 0.0
+	for i in SW_COUNT:
+		var m := SwarmMember.new()
+		_mgr.add_child(m)
+		_members.append(m)
+	_update_followers()
+
 func _cm_to_px(cm: float) -> float:
 	var dpi := DisplayServer.screen_get_dpi()
 	if dpi <= 0:

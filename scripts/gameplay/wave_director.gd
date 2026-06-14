@@ -41,9 +41,16 @@ static func spawn_interval(d: float) -> float:
 static func active_types(d: float, pool_size: int) -> int:
 	return clampi(1 + int(d / DIFFICULTY_PER_TYPE), 1, maxi(1, pool_size))
 
-enum State { IDLE, WAVES, DANGER, BOSS, DONE }
+const ChoreographyRegistry := preload("res://scripts/gameplay/choreography_registry.gd")
+
+enum State { IDLE, WAVES, DANGER, BOSS, DONE, CHOREO }
 var _running: bool = false
 var _state: int = State.IDLE
+# ── Phase 2 choreography mode (additive — the legacy random-roll state below is untouched) ──
+var _mode: String = "random"     # "random" (legacy) | "choreography"
+var _waves: Array = []           # ordered choreography names
+var _choreo: Node = null         # the active choreography instance (child of this director)
+# ── Legacy random-roll state ──
 var _pool: Array = []
 var _edges: Array = []
 var _weights: Dictionary = {}
@@ -56,7 +63,7 @@ var _wave_timer: float = 0.0
 var _spawn_acc: float = 0.0
 var _spent: int = 0          # budget points spent this wave (sentinels cost 2, others 1)
 var _budget: int = 0
-var _kf_done: bool = false   # only ONE kingfisher set (burst of 3) is allowed per wave
+var _diver_done: bool = false   # only ONE diver set (burst of 3) is allowed per wave
 var _danger_t: float = 0.0
 var _danger_layer: CanvasLayer = null
 var _danger_label: Label = null
@@ -65,8 +72,39 @@ func _ready() -> void:
 	add_to_group("wave_director")
 
 ## Start playing a recipe (Dictionary, from LevelRecipe.to_dict()). Clears any current enemies first.
+## A recipe with mode=="choreography" plays its `waves` list of choreographies; otherwise (the default)
+## it falls back to the legacy difficulty random-roll below — that path is intentionally left intact.
 func start(recipe: Dictionary) -> void:
 	stop()
+	_mode = String(recipe.get("mode", "random"))
+	_boss = String(recipe.get("boss", "none"))
+	if _mode == "choreography":
+		var choreo_mode := String(recipe.get("choreo_mode", "fixed"))
+		if choreo_mode == "pool":
+			# Roll each wave independently from the allowed pool of choreographies. No two CONSECUTIVE
+			# waves may be the same (re-roll on a repeat, unless the pool has only one entry).
+			var pool := (recipe.get("choreo_pool", []) as Array)
+			var count := int(recipe.get("choreo_wave_count", 6))
+			_waves = []
+			var last := ""
+			for i in count:
+				if not pool.is_empty():
+					var pick := String(pool[randi() % pool.size()])
+					while pick == last and pool.size() > 1:
+						pick = String(pool[randi() % pool.size()])
+					_waves.append(pick)
+					last = pick
+		else:
+			_waves = (recipe.get("waves", []) as Array).duplicate()
+		if _waves.is_empty():
+			push_warning("[wave_director] choreography recipe has no waves — nothing to play")
+			return
+		_wave = 0
+		_begin_choreo_wave()
+		_state = State.CHOREO
+		_running = true
+		return
+	# ── Legacy random-roll (unchanged) ──
 	_pool = (recipe.get("enemy_pool", []) as Array).duplicate()
 	_edges = (recipe.get("entry_edges", []) as Array).duplicate()
 	_weights = (recipe.get("weights", {}) as Dictionary).duplicate()
@@ -86,6 +124,7 @@ func stop() -> void:
 	_running = false
 	_state = State.IDLE
 	_hide_danger()
+	_end_choreo()
 	var mgr := get_tree().get_first_node_in_group("enemy_manager")
 	if mgr != null and mgr.has_method("clear_enemies"):
 		mgr.clear_enemies()
@@ -104,7 +143,7 @@ func _begin_wave() -> void:
 	_wave_timer = 0.0
 	_spawn_acc = spawn_interval(d)   # so the first enemy spawns immediately
 	_spent = 0
-	_kf_done = false
+	_diver_done = false
 
 func _process(delta: float) -> void:
 	if not _running:
@@ -112,6 +151,8 @@ func _process(delta: float) -> void:
 	match _state:
 		State.WAVES:
 			_tick_waves(delta)
+		State.CHOREO:
+			_tick_choreo_waves(delta)
 		State.DANGER:
 			_tick_danger(delta)
 
@@ -137,14 +178,14 @@ func _tick_waves(delta: float) -> void:
 			_begin_wave()
 
 ## Spawn one weighted type; returns its budget cost (sentinels=2, others=1), or 0 if nothing eligible
-## remains (e.g. the only active type is kingfisher and it already fired its one set this wave).
+## remains (e.g. the only active type is diver and it already fired its one set this wave).
 func _spawn_one(d: float) -> int:
 	var n_types := active_types(d, _pool.size())
 	var active: Array = _pool.slice(0, n_types)
-	# Drop types that have hit their per-wave cap (kingfisher = 1 set/wave).
+	# Drop types that have hit their per-wave cap (diver = 1 set/wave).
 	var avail: Array = []
 	for t in active:
-		if String(t) == "kingfisher" and _kf_done:
+		if String(t) == "diver" and _diver_done:
 			continue
 		avail.append(t)
 	if avail.is_empty():
@@ -153,8 +194,8 @@ func _spawn_one(d: float) -> int:
 	var mgr := get_tree().get_first_node_in_group("enemy_manager")
 	if mgr != null and mgr.has_method("spawn_type"):
 		mgr.spawn_type(type, _edges)
-	if type == "kingfisher":
-		_kf_done = true
+	if type == "diver":
+		_diver_done = true
 	return SENTINEL_COST if type == "sentinels" else 1
 
 func _weighted_pick(types: Array) -> String:
@@ -170,6 +211,49 @@ func _weighted_pick(types: Array) -> String:
 		if r < cum:
 			return String(t)
 	return String(types[types.size() - 1])
+
+# ── Phase 2: choreography waves ───────────────────────────────────────────────
+# A level is an ordered list of choreographies. Each plays until it reports done OR its own max_time()
+# backstop fires (the same hybrid advance idea as the legacy waves). After the last one → DANGER → boss.
+
+func _enemy_manager() -> Node:
+	return get_tree().get_first_node_in_group("enemy_manager")
+
+func _begin_choreo_wave() -> void:
+	_end_choreo()
+	_wave_timer = 0.0
+	var nm := String(_waves[_wave])
+	_choreo = ChoreographyRegistry.make(nm)
+	if _choreo == null:
+		push_warning("[wave_director] unknown choreography '%s' — skipping" % nm)
+		return
+	add_child(_choreo)
+	if _choreo.has_method("start"):
+		_choreo.start(_enemy_manager())
+
+func _tick_choreo_waves(delta: float) -> void:
+	_wave_timer += delta
+	if _choreo != null and is_instance_valid(_choreo) and _choreo.has_method("tick"):
+		_choreo.tick(delta)
+	var backstop: float = 0.0
+	if _choreo != null and is_instance_valid(_choreo) and _choreo.has_method("max_time"):
+		backstop = float(_choreo.max_time())
+	var done: bool = _choreo == null or not is_instance_valid(_choreo) \
+		or (_choreo.has_method("is_done") and _choreo.is_done())
+	if done or (backstop > 0.0 and _wave_timer >= backstop):
+		_end_choreo()
+		_wave += 1
+		if _wave >= _waves.size():
+			_enter_danger()      # reuse the existing DANGER → boss flow
+		else:
+			_begin_choreo_wave()
+
+func _end_choreo() -> void:
+	if _choreo != null and is_instance_valid(_choreo):
+		if _choreo.has_method("cleanup"):
+			_choreo.cleanup()
+		_choreo.queue_free()
+	_choreo = null
 
 # ── DANGER intermission (10s, no spawns, blinking banner) → then the boss ─────
 func _enter_danger() -> void:

@@ -1,0 +1,35 @@
+{
+  "boss": "elephant",
+  "choreo_mode": "fixed",
+  "choreo_pool": [
+    "Beginner_1",
+    "Beginner_2",
+    "Beginner_3"
+  ],
+  "choreo_wave_count": 6,
+  "difficulty_ceiling": 10.0,
+  "difficulty_floor": 1.0,
+  "enemy_pool": [
+    "diver",
+    "shooter"
+  ],
+  "entry_edges": [
+    "top"
+  ],
+  "length_waves": 20,
+  "mode": "choreography",
+  "name": "Level 1",
+  "waves": [
+    "Beginner_1",
+    "Beginner_2",
+    "Beginner_3",
+    "Swarm_triple",
+    "Beginner_2",
+    "Beginner_3",
+    "Beginner_1",
+    "Beamers_swarm"
+  ],
+  "weights": {
+
+  }
+}

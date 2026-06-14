@@ -1,3 +1,7 @@
+# Corporations
+Miyamoto Orbitals Industry
+Frontier
+
 Things to add
 1) The rest of the item
 2) Skill system
@@ -40,20 +44,28 @@ These affixes roll onto items but do NOTHING yet — each needs a new gameplay s
 - rebirth — revive-on-death: restore the ship once when HP hits 0. (The Memory-Foam hull's resurrect_once innate is the same TODO.)
 
 # Level designs tool
-Build an F6 level-design tool for my Godot 4 space shooter — a DEV/DEBUG tool just for me (the designer), not a player feature. I'm not a programmer — plain language, phases, pause between them. It edits "level recipes" (the data my procedural wave system uses) and saves/loads a library of them to disk. First investigate and report.
-Phase 0 — Investigate and report (no code). Tell me: does the level-recipe data format + procedural wave director already exist (the system where a level = a recipe with allowed enemy pool, difficulty, length, boss, and waves are rolled from it)? If yes, show me the recipe's current fields. If no, we need to define the recipe format first — tell me and propose one. Also tell me how levels are currently launched, since the tool needs a "test play this level" action. Pause and report.
-The difficulty model (important — confirm you'll implement it this way): the level's single difficulty number is the CEILING — the peak intensity the level ramps UP TO right before the boss. The level starts easier (at a difficulty floor) and climbs toward the ceiling over its length, following the hybrid wave model (waves advance when ≤2 enemies remain OR a max timer expires). So one number = "how hard does this level get at its peak," and the easy→peak ramp is automatic. The difficulty drives: max enemies per wave, minimum spawn interval (down to a floor), and how many enemy types are active. Confirm this is how you'll wire the number.
-Phase 1 — Recipe data + minimal F6 panel.
-Make sure level recipes are clean editable data with these fields: a name, the allowed enemy pool (which of my enemy types can spawn — multi-select), the difficulty ceiling (single number), a difficulty floor / start (where the ramp begins), level length (duration or wave count before boss), allowed entry edges (which screen edges enemies use here), and which boss ends the level.
-Build an F6 toggle that opens a dev panel with controls for all those fields, bound to the current level recipe. Keep it functional and plain — it's a dev tool, ugly is fine. Pause so I can open F6, change fields, and confirm they affect the recipe.
-Phase 2 — Save / load a library of recipes to disk.
-Add save and load: I can name a recipe and save it to a file (e.g. user:// or a project levels folder — tell me where), and load any saved recipe back into the editor. List the saved recipes so I can pick one. This builds my level library — the whole point is authoring many levels by editing recipes, not code. Pause so I can save two different levels and reload them.
-Phase 3 — Quality-of-life for authoring.
-Add the things that make this actually usable to design with:
+Two linked jobs for my Godot 4 space shooter: (1) rename two enemies, then (2) build a "choreography" wave system. I'm not a programmer — plain language, phases, pause between each, and do the rename completely before building anything new. First investigate and report.Phase 0 — Investigate and report (no code). Tell me: how enemies are defined/registered (the enemy_manager and the per-enemy scripts), how the F6 level tool currently stores a level (the recipe/wave format), and how waves currently spawn. I need to know every place the names "Kingfisher" and "Jetfighter" appear, and how a "wave" is currently represented. Pause and report.Phase 1 — Rename (do this fully and alone first).
+Rename Kingfisher → Diver and Jetfighter → Shooter everywhere: filenames, class names, enum/ID values, references in enemy_manager, the F6 tool dropdowns, save data, and comments. Behavior stays identical — this is purely a rename. Watch for save-data compatibility (if old saves/recipes reference the old names, handle gracefully and tell me how). Pause so I can run the game and confirm both enemies still spawn and behave exactly as before under their new names, and the F6 tool shows the new names.Phase 2 — Choreography system foundation.
+Establish the core concept: a choreography is a code-defined, named, reusable scripted set-piece (a "wave"). It controls spawning specific enemies and scripting their movement/behavior and inter-enemy events over time, then reports when it's "done." Build:
 
-A "Test Play" button that immediately launches the currently-edited level so I can feel my change without restarting.
-A live difficulty-curve preview: when I set the ceiling/floor/length, show a readout of what it'll produce — e.g. "peak ~12 enemies/wave, min interval 0.6s, ~14 waves, est. ~4 min, types active at peak: 4." So I can judge the numbers before playing.
-Enemy-type weighting (optional but valuable): within the allowed pool, let me bias the odds (e.g. mostly Kingfishers, rare Sentinels) so each level has a theme, rather than equal spawn chance.
-Pause so I can test-play a level I authored and tune it from the panel.
+A shared base/pattern for choreographies (a common interface: start, tick/update, report completion, clean up) so each new one is a small script following the same pattern.
+A registry of available choreographies by name, so the F6 tool can list them in a dropdown.
+Integration with the wave runner: a level plays its waves in order; each wave runs its chosen choreography until done (use the existing hybrid advance rule — choreography reports done, OR a max-timer backstop).
+Build it with ONE trivial test choreography first (e.g. "spawn 3 Divers from the top, 1s apart") to prove the pipeline. Pause so I can confirm a test choreography runs as a wave and advances.
+Phase 3 — Build "Enemy_group_1" as the first real choreography. Author this exact set-piece (all timings/speeds tunable constants at the top):
 
-Throughout: this is a dev tool — prioritize function over polish. The recipes it produces must be the SAME data my runtime wave director consumes, so a level I author in F6 plays identically when the game runs it normally. Don't change combat, enemies, or generation — this tool authors recipes and the existing system plays them. At the end, tell me the recipe file format/location and how to add a brand-new level to my game using the tool.
+2 Sentinels spawn as they normally do (top, descend to their normal stationary position). Then they perform a slow U-shaped path at ~50px/s: from their stationary spots they move backward/up to the top edge, travel horizontally along the top edge until they swap horizontal positions with each other, then move down to finish the U. (The top edge is the bottom of the "U"; their original stationary positions are the U's tips.) Throughout this whole movement they keep firing their normal volley (unchanged shooting).
+Shooters (formerly Jetfighter): starting when the Sentinels enter, and every 5s after (or immediately if no Shooter is currently alive), spawn 3 Shooters from EACH side (left and right) that enter and form the 45° line and slowly drift down toward the player at 30px/s, shooting as normal. This Shooter-spawn repeats up to 6 times total (the initial spawn + 5 repeats), then stops.
+Death trigger: whenever a Sentinel dies, spawn 3 Divers (formerly Kingfisher) from the top, aimed at the player (their normal behavior), each 1s apart. If both sentinels die, the choreograph stops early is considered "done" then move to a new wave.
+The choreography is "done" when its scripted spawns are complete and/or its enemies are cleared (you decide a sensible completion condition and tell me — e.g. all scripted Shooter waves spawned AND both Sentinels dead).
+Register it as "Enemy_group_1" so it appears in the F6 dropdown. Pause so I can play it and watch the whole set-piece.
+Phase 4 — F6 wave composition: pick choreographies per wave.
+In the F6 level tool, make a level an ordered list of waves with +/- buttons to add/remove waves. For each wave, a dropdown lets me select from all registered choreographies (Enemy_group_1, etc.). Two modes per level (tell me how you exposed it):
+
+Fixed order: the level plays the chosen choreographies in the order I listed.
+Procedural-from-pool: I set the number of waves (e.g. 6) and select a POOL of allowed choreographies; the level rolls each wave from that pool (this is the "procedural" meaning now — variety comes from picking among choreographies, not individual enemies).
+Save/load these in the existing recipe files. Pause so I can author a 6-wave level by picking choreographies and test-play it.
+Throughout: choreographies are code-defined but arranged/selected in F6. A new choreography = one new small script following the Phase 2 pattern, auto-appearing in the dropdown. Keep all set-piece timings tunable. Don't change enemy combat behavior except the scripted movement the choreography imposes. After Phase 4, tell me exactly how to author a brand-new choreography (which file to copy, what to fill in) so I can ask for more set-pieces later.
+
+# Choreographs
+Then add in new choreo beginner_3: Phase 1: 8 shooters enter from the top (kinda fast then home in their position. make this home-in behavior modular and reference-able) forming an arc in the top third of the map then start shooting. Phase 8:  shooters enter from the bottom forming an arc in the bottom third of the map then start shooting. Phase 3: 2 shooters home in the 4 corners of the map (8 in total, 2 each corner) then start shooting

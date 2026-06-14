@@ -21,6 +21,7 @@ const EnemyManagerScript        := preload("res://scripts/gameplay/enemy_manager
 const EnemyPanelScript          := preload("res://scripts/ui/hud/enemy_panel.gd")      # ENEMIES debug spawn panel
 const LevelDesignPanelScript    := preload("res://scripts/ui/level_design/level_design_panel.gd")  # F7 level-design dev tool
 const WaveDirectorScript        := preload("res://scripts/gameplay/wave_director.gd")              # runtime wave director (plays recipes)
+const PerfOverlayScript         := preload("res://scripts/ui/hud/perf_overlay.gd")                 # F8 dev FPS/frame-time readout
 
 @onready var edit_mode = $EditMode
 @onready var visual_container: HBoxContainer = %VisualContainer
@@ -45,6 +46,7 @@ func _ready() -> void:
 	_add_material_panel()
 	_add_enemy_panel()
 	add_child(WaveDirectorScript.new())       # runtime wave director (group "wave_director")
+	add_child(PerfOverlayScript.new())        # F8 dev perf readout
 	add_child(LevelDesignPanelScript.new())   # F7 dev tool
 	add_child(InventoryUIScript.new())
 	_add_boost_button()
@@ -56,8 +58,21 @@ func _ready() -> void:
 	GameManager.load_game()
 	UpgradeManager.load_game()
 	GameManager.game_loaded.emit()
+	_autoequip_primary_gatling()
+	GameManager.heal_to_full()   # always start a session at full HP
 	call_deferred("_apply_screen_layouts")
 	call_deferred("_setup_boss_edit")
+
+## On load, make sure a Gatling Gun is ready in the primary-weapon slot (only if it's empty, so a
+## deliberately-equipped weapon is respected). InventoryManager has already loaded by now (autoload
+## _ready runs before the main scene), so the item is sitting in the backpack. Public API only.
+func _autoequip_primary_gatling() -> void:
+	if InventoryManager.equipped_uid("primary_weapon") != -1:
+		return
+	for uid: int in InventoryManager.backpack_uids():
+		if String(InventoryManager.get_item(uid)["def"]) == "gatling_gun":
+			InventoryManager.equip(uid, "primary_weapon")
+			return
 
 func _add_scrolling_background() -> void:
 	var screen := get_node_or_null("SpaceScreen") as Panel
@@ -350,6 +365,8 @@ func _setup_boss_edit() -> void:
 	var objects_container := edit_mode.get_node_or_null("ObjectsContainer") as Control
 	if objects_container == null:
 		return
+	# The boss-edit node MUST exist: its setup() → _load_layout() loads the boss sprite nodes that the
+	# fights depend on. The EDIT TOOL itself is disabled by neutering its F4 toggle in _unhandled_input().
 	var bem := BossEditScript.new()
 	add_child(bem)
 	_boss_edit_mode = bem
@@ -369,12 +386,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			edit_mode.toggle()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("toggle_boss_edit_mode"):
-		if edit_mode.is_open():
-			if _boss_edit_mode != null:
-				_boss_edit_mode.show_toast("Bạn cần thoát mode F4 trước")
-		else:
-			if _boss_edit_mode != null:
-				_boss_edit_mode.toggle()
+		# Boss-edit TOOL disabled for now — F4 no longer opens the editor (the node still loads sprites).
 		get_viewport().set_input_as_handled()
 
 func _on_upgrades_reset() -> void:

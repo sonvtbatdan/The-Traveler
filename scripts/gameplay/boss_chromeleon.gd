@@ -156,8 +156,8 @@ const M3_CHARGE_SPIN       := 18.0    # orb spin while charging (rad/s ≈ 2.9 r
 const M3_EXPLOSION_DUR     := 1.0     # move ends this long after the last blast (light portion)
 const M3_AFTERMATH_DUR     := 2.0     # explosion NODE lifetime (light fades fast; smoke/debris linger)
 # ── Detonation impact feel (visual/feel only — no damage/radius change) ──
-const SHAKE_MAX_OFFSET := 16.0    # peak random shake offset (px) — scales with trauma²
-const SHAKE_KICK       := 14.0    # one-time directional kick away from the blast (px)
+const SHAKE_MAX_OFFSET := 4.0     # peak random shake offset (px) — scales with trauma² (set 0 to disable)
+const SHAKE_KICK       := 4.0     # one-time directional kick away from the blast (px) (set 0 to disable)
 const TRAUMA_DECAY     := 0.4     # seconds for trauma to fall 1 → 0
 const ABERRATION_MAX   := 0.012   # peak RGB-split (screen-UV units)
 const ABERRATION_T     := 0.2     # aberration fade time
@@ -239,6 +239,8 @@ var _phase        := Phase.IDLE
 var _phase_timer  := 0.0
 var _move_watchdog := 0.0   # time spent in the current main-phase move (stall safety net)
 var _last_p1_move  := -1     # last Phase-1 move index (no same move twice in a row)
+var _phase2_started := false # latched true the instant the Phase-2 transition begins; one-way gate so an
+							 # in-flight Phase-1 move callback (e.g. an M4 tween) can never restart a move
 
 var _objects_container: Control          = null
 var _ship_eo:           EditableObjectNode = null
@@ -498,6 +500,7 @@ func _force_reset() -> void:
 	_show_only(_chromeleon_eo)
 	_phase = Phase.IDLE
 	_phase_timer = 0.0
+	_phase2_started = false
 	_orbs_detached = false
 	_ball_detached = false
 	var _bg := get_tree().get_first_node_in_group("scrolling_bg")
@@ -549,6 +552,7 @@ func kill_boss() -> void:
 	_show_only(null)
 	_phase = Phase.IDLE
 	_phase_timer = 0.0
+	_phase2_started = false
 	var ws := _get_ws()
 	if ws != null:
 		ws.clear_extra_targets()
@@ -622,7 +626,8 @@ func flash_boss_hit() -> void:
 	tw.tween_property(eo, "modulate", Color(2.0, 0.5, 0.5, 1.0), 0.04)
 	tw.tween_property(eo, "modulate", Color.WHITE, 0.15)
 
-func start_fight() -> void:
+func _start_fight() -> void:
+	_phase2_started = false   # fresh fight → re-arm the Phase-1→2 transition
 	_reattach_orbs()
 	_reattach_ball()
 	_show_only(_chromeleon_eo)
@@ -645,6 +650,8 @@ func _setup_pivots() -> void:
 # =============================================================================
 
 func _begin_random_move() -> void:
+	if _phase2_started:
+		return   # transition to Phase 2 has begun — never start another Phase-1 move
 	_move_watchdog = 0.0   # fresh move → reset the stall safety net
 	match DEBUG_FORCE_MOVE:
 		1: _begin_m1()
@@ -663,6 +670,8 @@ func _begin_random_move() -> void:
 				_: _begin_m4()
 
 func _check_hp_or_next() -> void:
+	if _phase2_started:
+		return   # Phase 2 already underway — a stale Phase-1 callback must not restart a move
 	if GameManager.boss_hp <= 0:
 		_begin_phase2_transition()
 	else:
@@ -740,31 +749,41 @@ func _tick_m1(delta: float) -> void:
 		_m1_hide_orbs()
 		_check_hp_or_next()
 
-# Keep the two orbs glued to the boss's two hands (fire points) so the shots read as coming
-# from them. The fire points are children of the body, so their global pos moves with it.
+# Where the two orbs (hands) sit on the body, as a fraction of the body sprite — left/right of centre
+# and a bit below the middle. Data-independent (no firepoints), and scale-correct via the body's
+# global transform. Tune if the orbs aren't centred on the visible hands.
+const M1_HAND_DX := 0.12
+const M1_HAND_Y  := 0.45
+
+## Keep the two orbs glued to the boss's hands so the shots read as coming from them. Positions are
+## derived from the body sprite proportionally (through its global transform, so scale is handled).
 func _m1_stick_orbs_to_hands() -> void:
-	if _main_fp_nodes.size() < 2:
+	if not is_instance_valid(_chromeleon_eo):
 		return
-	if is_instance_valid(_blueorb_eo) and is_instance_valid(_main_fp_nodes[0]):
+	var xf := _chromeleon_eo.get_global_transform()
+	var sz := _chromeleon_eo.size
+	if is_instance_valid(_blueorb_eo):
 		_blueorb_eo.visible = true
-		_blueorb_eo.global_position = _main_fp_nodes[0].global_position - _blueorb_eo.size * 0.5
-	if is_instance_valid(_tealorb_eo) and is_instance_valid(_main_fp_nodes[1]):
+		var left := xf * (sz * Vector2(0.5 - M1_HAND_DX, M1_HAND_Y))    # left hand
+		_blueorb_eo.global_position = left - _blueorb_eo.size * 0.5
+	if is_instance_valid(_tealorb_eo):
 		_tealorb_eo.visible = true
-		_tealorb_eo.global_position = _main_fp_nodes[1].global_position - _tealorb_eo.size * 0.5
+		var right := xf * (sz * Vector2(0.5 + M1_HAND_DX, M1_HAND_Y))   # right hand
+		_tealorb_eo.global_position = right - _tealorb_eo.size * 0.5
 
 func _m1_hide_orbs() -> void:
 	if is_instance_valid(_blueorb_eo): _blueorb_eo.visible = false
 	if is_instance_valid(_tealorb_eo): _tealorb_eo.visible = false
 
 func _fire_m1_spread(fp_idx: int) -> void:
-	if _main_fp_nodes.size() <= fp_idx:
+	# Fire from the orb that sits on that hand (idx 0 = blue/left, 1 = teal/right), so the shots
+	# visibly come from the orbs rather than a (stale) firepoint.
+	var orb: EditableObjectNode = _blueorb_eo if fp_idx == 0 else _tealorb_eo
+	if not is_instance_valid(orb):
 		return
-	var fp := _main_fp_nodes[fp_idx]
-	if not is_instance_valid(fp):
-		return
-	var origin := fp.global_position
+	var origin := orb.global_position + orb.size * 0.5
 	var tex := _random_bullet()   # non-null only to pass _spawn_bullet's guard; ignored by rainbow path
-	for a: float in [-30.0, -15.0, 0.0, 15.0, 30.0]:   # 5-shot fan (was 3)
+	for a: float in [-30.0, -15.0, 0.0, 15.0, 30.0]:   # 5-shot fan
 		var dir := Vector2.DOWN.rotated(deg_to_rad(a))
 		_spawn_bullet(tex, origin, dir * BULLET_SPD, RB_SHAPE_SZ, true)   # procedural rainbow shapes
 
@@ -1196,6 +1215,8 @@ func _tick_m4_final(delta: float) -> void:
 			_m4_hit_done = true
 
 func _begin_m4_return_anim() -> void:
+	if _phase2_started:
+		return   # a queued M4 tween callback fired after the Phase-2 transition began — don't override the phase
 	_phase = Phase.M4_RETURN
 	_anim_phase_timer = 0.0
 	if is_instance_valid(_chromeball_eo) and not _ball_frames.is_empty():
@@ -1218,6 +1239,9 @@ func _on_m4_return_done() -> void:
 # Phase-1 end (body HP hit 0): play the death cutscene in TRANSITION mode (boss does NOT die),
 # then enter Phase 2. Input stays locked through the FX and unlocks when Phase 2 begins.
 func _begin_phase2_transition() -> void:
+	if _phase2_started:
+		return   # transition already running — ignore duplicate triggers (double boss_killed, stale callback)
+	_phase2_started = true
 	_phase = Phase.P2_ENTRY   # block move ticks / re-entry while the cutscene plays
 	_cleanup_projectiles()
 	_cleanup_shielded_bullets()
@@ -1232,6 +1256,7 @@ func _begin_phase2_transition() -> void:
 # Phase-2 setup. Head = invincible blocker (reuses get_boss_hit_rect → head). Orbs = the
 # 1000-HP damage targets. HP bar = combined orb pool. Reused by the debug start + transition.
 func _enter_phase2() -> void:
+	_phase2_started = true   # latch (covers the debug DEBUG_START_IN_PHASE2 direct entry too)
 	_phase = Phase.P2_ENTRY
 	_cleanup_projectiles()
 	_cleanup_shielded_bullets()
@@ -2916,9 +2941,19 @@ func _random_bullet_sz() -> Vector2:
 # Projectile system
 # =============================================================================
 
+# Hard cap on live bullets — keeps the per-frame _tick_projectiles loop + TextureRect count bounded
+# (the real cost behind the M4-charge frame hitch when the screen is full of bullets).
+const MAX_BULLETS := 160
+
 func _spawn_bullet(tex: Texture2D, origin_vp: Vector2, vel: Vector2, sz: Vector2, rainbow := false) -> void:
 	if tex == null:
 		return
+	# Over the cap → retire the oldest bullet to make room.
+	if _projectiles.size() >= MAX_BULLETS:
+		var oldest: Dictionary = _projectiles.pop_front()
+		var otr: TextureRect = oldest.get("tr")
+		if is_instance_valid(otr):
+			otr.queue_free()
 	var lpos := origin_vp - OC_BOUNDS.position - sz / 2.0
 	var tr      := TextureRect.new()
 	tr.size           = sz
@@ -3302,19 +3337,27 @@ func _build_fp_nodes(parent_eo: EditableObjectNode, fp_data: Array) -> Array[Nod
 		nodes.append(n)
 	return nodes
 
+# A firepoint offset further than this from the sprite centre is treated as bad (stale boss_layout.cfg
+# data on a scaled sprite) and ignored → the shot fires from the sprite centre instead.
+const MAX_FP_OFFSET := 60.0
+
 func _cache_fp_offsets() -> void:
 	if is_instance_valid(_chromeball_eo) and not _ball_fp_nodes.is_empty():
 		var fp := _ball_fp_nodes[0]
 		if is_instance_valid(fp):
-			_ball_fp_offset = fp.position - _chromeball_eo.size / 2.0
+			_ball_fp_offset = _sane_fp_offset(fp.position - _chromeball_eo.size / 2.0)
 	if is_instance_valid(_blueorb_eo) and not _blue_fp_nodes.is_empty():
 		var fp := _blue_fp_nodes[0]
 		if is_instance_valid(fp):
-			_blue_fp_offset = fp.position - _blueorb_eo.size / 2.0
+			_blue_fp_offset = _sane_fp_offset(fp.position - _blueorb_eo.size / 2.0)
 	if is_instance_valid(_tealorb_eo) and not _teal_fp_nodes.is_empty():
 		var fp := _teal_fp_nodes[0]
 		if is_instance_valid(fp):
-			_teal_fp_offset = fp.position - _tealorb_eo.size / 2.0
+			_teal_fp_offset = _sane_fp_offset(fp.position - _tealorb_eo.size / 2.0)
+
+## Drop firepoint offsets that point way off the sprite (bad data) → zero = fire from the centre.
+func _sane_fp_offset(off: Vector2) -> Vector2:
+	return Vector2.ZERO if off.length() > MAX_FP_OFFSET else off
 
 # =============================================================================
 # Asset loading

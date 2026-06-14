@@ -4,8 +4,11 @@ const SS_OFFSET  := Vector2(270.0, 8.0)
 const OC_BOUNDS  := Rect2(270.0, 8.0, 700.0, 764.0)
 
 const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
+const LasgunBeamScript := preload("res://scripts/gameplay/lasgun_beam.gd")   # beamer-style beam for the M3 laser
 
 const BOSS_VISUAL_SCALE := 2.0   # elephant drawn at 2× (scaled around its center pivot)
+const PROJ_BIG_SCALE := 3.0      # spikes/balls and vortexes are drawn (and collide) this much bigger
+								 #   (the M4 drop "bomb" is excluded — it is already large)
 
 # ── Move 1 constants ──────────────────────────────────────────────────────────
 const M1_START_SS      := Vector2(10.0, 175.0)
@@ -14,7 +17,7 @@ const M1_ENTRY_T       := 1.5
 const M1_TRAVEL_T      := 8.0
 const M1_ROT_SPEED     := 40.0 * TAU / 60.0
 const M1_SPIKE_INT     := 0.2
-const M1_SPIKES_PER_INT := 6               # 6 spikes per burst (tripled; spiral 6-arm)
+const M1_SPIKES_PER_INT := 4               # spikes per burst (was 6 → −30%; spiral arms)
 const M1_SPIRAL_STEP   := 0.35            # radians to advance base angle each burst
 const SPIKE_SPEED      := 108.0           # radial launch speed (+20%)
 const SPIKE_SPIN_RADIUS := 40.0          # effective radius for spin-induced tangential kick (tunable)
@@ -22,7 +25,7 @@ const SPIKE_DMG        := 10
 
 # ── Move 2 constants ──────────────────────────────────────────────────────────
 const M2_DURATION      := 8.0
-const M2_VORTEX_INT    := 0.3                 # 5× faster volleys (5× the vortexes)
+const M2_VORTEX_INT    := 0.3 / 0.7           # ~30% fewer vortexes (longer gap between volleys)
 const M2_MOVE_SPD      := 80.0
 const M2_MAX_Y_SS      := 450.0
 const VORTEX_SPEED     := 108.0              # +20%
@@ -35,15 +38,17 @@ const M3_MOVE_SPD      := 600.0             # 5× — snaps to aim at the ship's
 const M3_WARN_T        := 1.0               # dull warning flash for 1s
 const M3_FIRE_T        := 1.0               # fire 1s
 const LASER_W          := 5.0
-const LASER_FIRE_MULT  := 5.0               # actual beam = 5× the warning width (visual + hitbox)
+const LASER_FIRE_MULT  := 25.0              # actual beam = 25× the warning width (5px warn → 125px shot, visual + hitbox)
 const LASER_WARN_MODULATE := Color(0.55, 0.6, 0.7, 0.7)  # dull mask during the warning
 const LASER_FLASH_CYC  := 0.08
 const LASER_DMG        := 30
+const LASER_COL        := Color(0.6, 0.7, 1.0, 1.0)   # beamer-style beam base colour (recoloured rainbow per frame)
 
 # ── Move 4 constants ──────────────────────────────────────────────────────────
 const M4_ROT_T          := 0.5
 const M4_TRAVEL_SPD     := 700.0            # 5× traversal speed
 const M4_DROP_INT       := 0.2             # drop a bomb every 0.2s
+const M4_DROP_PAUSE     := 0.5             # boss holds still this long after each bomb-row drop
 const DROP_SPEED        := 720.0           # bombs hang then drop fast (+20%)
 const DROP_DMG          := 20
 const M4_START_LEFT_SS  := Vector2(10.0, 175.0)
@@ -52,13 +57,13 @@ const M4_START_RIGHT_SS := Vector2(690.0, 175.0)
 # ── Move 5 constants ──────────────────────────────────────────────────────────
 const M5_DURATION   := 5.0
 const M5_ROT_T      := 0.5
-const M5_BLOB_INT   := 2.0 / 3.0           # half as many blobs (half the fire rate)
+const M5_BLOB_INT   := (2.0 / 3.0) / 0.7   # ~30% fewer blobs (longer gap between shots)
 const M5_MOVE_SPD   := 80.0
-const BLOB_SPEED    := 360.0               # +20%
+const BLOB_SPEED    := 500.0               # faster homing blobs
 const BLOB_DMG      := 20
 
 # ── Boss HP ───────────────────────────────────────────────────────────────────
-const BOSS_MAX_HP      := 2000
+const BOSS_MAX_HP      := 4000
 
 # All boss attack damage is scaled by this (75% of the per-attack values above).
 const BOSS_DAMAGE_MULT := 0.75
@@ -121,7 +126,9 @@ var _m2_dir     := 1.0   # horizontal sweep direction (+1 = right, -1 = left)
 
 # ── Move 3 state ──────────────────────────────────────────────────────────────
 var _m3_target_cx_oc := 0.0   # player hitbox center X (OC/global space) for the laser
-var _laser_tr:         TextureRect = null
+var _laser_beam_fx:    Node = null         # LasgunBeam FX node (beamer-style beam)
+var _laser_beam_ctx:   Dictionary = {}     # its beam context
+var _laser_rainbow_t  := 0.0               # drives the beam's rainbow recolour (like the Beamer)
 var _laser_flash_acc  := 0.0
 var _laser_hit_done   := false
 var _m3_shots         := 0    # how many laser shots fired this Move-3 cycle (fires 3×)
@@ -131,7 +138,9 @@ var _laser_w          := LASER_W   # current beam width: thin warning, 3× wide 
 var _m4_dir            := 1.0
 var _m4_drop_acc       := 0.0
 var _m4_dropped_first  := false   # row dropped when entering the first third
+var _m4_dropped_mid    := false   # row dropped when entering the middle third
 var _m4_dropped_last   := false   # row dropped when entering the last third
+var _m4_pause_t        := 0.0     # >0 = boss holds still (pausing after a drop)
 
 # ── Move 5 state ──────────────────────────────────────────────────────────────
 var _m5_acc      := 0.0
@@ -192,9 +201,7 @@ func notify_boss_killed() -> void:
 
 func _force_reset() -> void:
 	_cleanup_projectiles()
-	if _laser_tr != null and is_instance_valid(_laser_tr):
-		_laser_tr.queue_free()
-		_laser_tr = null
+	_free_laser_beam()
 	if _boss_eo != null and is_instance_valid(_boss_eo):
 		_boss_eo.visible  = false
 		_boss_eo.rotation = 0.0
@@ -600,23 +607,18 @@ func _tick_m3_move(delta: float) -> void:
 
 func _tick_m3_warn(delta: float) -> void:
 	_phase_acc       += delta
-	_laser_flash_acc += delta
-	_update_laser_pos()
+	_laser_rainbow_t += delta
 	queue_redraw()   # keep the ⚠ warning sign drawn during the warning
-	if _laser_tr != null and is_instance_valid(_laser_tr):
-		_laser_tr.visible = fmod(_laser_flash_acc, LASER_FLASH_CYC * 2.0) < LASER_FLASH_CYC
+	_update_laser_beam(true, false)   # thin beamer-style beam telegraphs where it will fire
 	if _phase_acc >= M3_WARN_T:
 		_phase     = Phase.M3_FIRE
 		_phase_acc = 0.0
 		_laser_w   = LASER_W * LASER_FIRE_MULT   # actual fire expands to 5× the warning width
-		if _laser_tr != null and is_instance_valid(_laser_tr):
-			_laser_tr.visible  = true
-			_laser_tr.modulate = Color.WHITE     # bright on the real shot (was dull during warning)
 		queue_redraw()   # clear the warning sign now that it's firing
 
 func _tick_m3_fire(delta: float) -> void:
 	_phase_acc += delta
-	_update_laser_pos()
+	_laser_rainbow_t += delta
 	if not _laser_hit_done and _ship_eo != null and is_instance_valid(_ship_eo):
 		var fp3 := _get_fp3_world()
 		var laser_rect := Rect2(fp3.x - _laser_w / 2.0, fp3.y, _laser_w, OC_BOUNDS.end.y - fp3.y)
@@ -624,10 +626,9 @@ func _tick_m3_fire(delta: float) -> void:
 		if laser_rect.intersects(ship_rect):
 			GameManager.ship_take_damage(int(round(LASER_DMG * BOSS_DAMAGE_MULT)))
 			_laser_hit_done = true
+	_update_laser_beam(true, _laser_hit_done)   # full-width beamer beam
 	if _phase_acc >= M3_FIRE_T:
-		if _laser_tr != null and is_instance_valid(_laser_tr):
-			_laser_tr.queue_free()
-			_laser_tr = null
+		_update_laser_beam(false, false)   # beam off; its FX finish on their own
 		_m3_shots += 1
 		if _m3_shots < 3:
 			# Re-aim at the ship's CURRENT hitbox center, then slide there → warn → fire again.
@@ -635,6 +636,7 @@ func _tick_m3_fire(delta: float) -> void:
 			_phase     = Phase.M3_MOVE
 			_phase_acc = 0.0
 		else:
+			_free_laser_beam()
 			_begin_random_move()
 
 # =============================================================================
@@ -665,23 +667,35 @@ func _tick_m4_rot(delta: float) -> void:
 		_phase     = Phase.M4_TRAVEL
 		_phase_acc = 0.0
 		_m4_drop_acc = 0.0
+		_m4_pause_t  = 0.0
 		_m4_dropped_first = false
+		_m4_dropped_mid   = false
 		_m4_dropped_last  = false
 
 func _tick_m4_travel(delta: float) -> void:
+	# Hold still for M4_DROP_PAUSE after each drop (the 0.5s pause between bomb waves).
+	if _m4_pause_t > 0.0:
+		_m4_pause_t -= delta
+		return
 	_boss_eo.position.x += _m4_dir * M4_TRAVEL_SPD * delta
 
-	# Drop a full row of 8 bombs when the boss center crosses into the first / last
-	# third of the map. Nothing in the middle third.
+	# Drop a full row of bombs when the boss center crosses into each third of the map:
+	# first third, then the middle third, then the last third (3 waves total), pausing between each.
 	var left := OC_BOUNDS.position.x
 	var third_w := OC_BOUNDS.size.x / 3.0
 	var center_x := _boss_eo.position.x + _boss_eo.size.x / 2.0
 	if not _m4_dropped_first and center_x >= left and center_x <= left + third_w:
 		_spawn_bomb_row(left, left + third_w)
 		_m4_dropped_first = true
-	if not _m4_dropped_last and center_x >= left + 2.0 * third_w:
+		_m4_pause_t = M4_DROP_PAUSE
+	elif not _m4_dropped_mid and center_x >= left + third_w and center_x <= left + 2.0 * third_w:
+		_spawn_bomb_row(left + third_w, left + 2.0 * third_w)
+		_m4_dropped_mid = true
+		_m4_pause_t = M4_DROP_PAUSE
+	elif not _m4_dropped_last and center_x >= left + 2.0 * third_w:
 		_spawn_bomb_row(left + 2.0 * third_w, OC_BOUNDS.end.x)
 		_m4_dropped_last = true
+		_m4_pause_t = M4_DROP_PAUSE
 
 	var hit_right := _m4_dir > 0 and _boss_eo.position.x >= OC_BOUNDS.end.x - _boss_eo.size.x
 	var hit_left  := _m4_dir < 0 and _boss_eo.position.x <= OC_BOUNDS.position.x
@@ -766,7 +780,7 @@ func _fire_blob() -> void:
 	else:
 		dir = dir.normalized()
 	var tex := _blob_frames[0] as Texture2D
-	var sz  := tex.get_size()
+	var sz  := tex.get_size()   # original size
 	var local_pos := origin - OC_BOUNDS.position - sz / 2.0
 	var tr := _make_projectile_rect(tex, sz, local_pos)
 	_projectiles.append({
@@ -786,36 +800,32 @@ func _get_fp3_world() -> Vector2:
 	return _boss_eo.global_position + _boss_eo.size / 2.0 + _fp3_off.rotated(_boss_eo.rotation)
 
 func _spawn_laser() -> void:
-	var fp3 := _get_fp3_world()
-	# fp3 is in OC space; clip node is positioned at OC_BOUNDS.position, so we need local coords
-	var local_fp3 := fp3 - OC_BOUNDS.position
-	var h := OC_BOUNDS.size.y - local_fp3.y
-	_laser_w = LASER_W   # warning starts thin; widens to 5× when it actually fires
-	_laser_tr = TextureRect.new()
-	_laser_tr.modulate     = LASER_WARN_MODULATE   # dull mask during the warning
-	_laser_tr.size         = Vector2(_laser_w, maxf(h, 1.0))
-	_laser_tr.position     = Vector2(local_fp3.x - _laser_w / 2.0, local_fp3.y)
-	_laser_tr.stretch_mode = TextureRect.STRETCH_SCALE
-	_laser_tr.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
-	_laser_tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_laser_tr.z_as_relative = false
-	_laser_tr.z_index      = 160
-	if not _laser_frames.is_empty():
-		_laser_tr.texture = _laser_frames[0] as Texture2D
-	else:
-		var img := Image.create(1, 4, false, Image.FORMAT_RGBA8)
-		img.fill(Color(1.0, 0.15, 0.15, 1.0))
-		_laser_tr.texture = ImageTexture.create_from_image(img)
-	_clip_node.add_child(_laser_tr)
+	# Reuse one LasgunBeam FX node (the beamer's beam) across the 3 M3 shots.
+	if _laser_beam_fx == null or not is_instance_valid(_laser_beam_fx):
+		_laser_beam_fx = LasgunBeamScript.new()
+		_clip_node.add_child(_laser_beam_fx)
+		_laser_beam_ctx = _laser_beam_fx.make_beam(LASER_COL, LASER_W)
+	_laser_w = LASER_W   # warning starts thin; widens to 5× when it actually fires (kept from the original)
 
-func _update_laser_pos() -> void:
-	if _laser_tr == null or not is_instance_valid(_laser_tr):
+## Drive the beamer-style beam from fp3 straight DOWN to the bottom edge (clip-local space). Keeps the
+## elephant's own width (_laser_w: 5 warn → 25 fire) and recolours rainbow each frame like the Beamer.
+func _update_laser_beam(active: bool, hit: bool) -> void:
+	if _laser_beam_fx == null or not is_instance_valid(_laser_beam_fx) or _laser_beam_ctx.is_empty():
 		return
-	var fp3 := _get_fp3_world()
-	var local_fp3 := fp3 - OC_BOUNDS.position
-	var h := OC_BOUNDS.size.y - local_fp3.y
-	_laser_tr.position = Vector2(local_fp3.x - _laser_w / 2.0, local_fp3.y)
-	_laser_tr.size     = Vector2(_laser_w, maxf(h, 1.0))
+	var local_fp3 := _get_fp3_world() - OC_BOUNDS.position
+	var to := local_fp3 + Vector2(0.0, maxf(OC_BOUNDS.size.y - local_fp3.y, 1.0))
+	_laser_beam_ctx["beam_width"] = _laser_w
+	_laser_beam_ctx["beam_color"] = _laser_rainbow()
+	_laser_beam_fx.set_beam(_laser_beam_ctx, local_fp3, to, active, hit)
+
+func _laser_rainbow() -> Color:
+	return Color.from_hsv(fposmod(_laser_rainbow_t * 0.5, 1.0), 0.9, 1.0)
+
+func _free_laser_beam() -> void:
+	if _laser_beam_fx != null and is_instance_valid(_laser_beam_fx):
+		_laser_beam_fx.queue_free()
+	_laser_beam_fx = null
+	_laser_beam_ctx = {}
 
 # =============================================================================
 # Projectile spawning
@@ -833,7 +843,7 @@ func _spawn_spike(angle: float = -1.0) -> void:
 		return
 	var ball_tex := frames[0] as Texture2D
 	var orig_sz := ball_tex.get_size()
-	var sz := orig_sz * 0.1
+	var sz := orig_sz * 0.1 * PROJ_BIG_SCALE   # 3× bigger
 	var resized_frames: Array = []
 	for frame in frames:
 		resized_frames.append(_resize_tex(frame, sz))
@@ -862,7 +872,7 @@ func _fire_vortex(origin_oc: Vector2) -> void:
 	else:
 		dir = dir.normalized()
 	var tex := _vortex_frames[0] as Texture2D
-	var sz  := tex.get_size()
+	var sz  := tex.get_size() * PROJ_BIG_SCALE   # 3× bigger
 	var local_pos := origin_oc - OC_BOUNDS.position - sz / 2.0
 	var tr := _make_projectile_rect(tex, sz, local_pos)
 	_projectiles.append({
