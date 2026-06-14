@@ -643,8 +643,7 @@ func _process(delta: float) -> void:
 	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
 		_spaceship_eo.position     = _spaceship_origin
 		_spaceship_eo.pivot_offset = _spaceship_eo.size * 0.5  # scale from centre
-		# Fixed 0.35 base (boss-fight size), then the model_size affixes scale sprite AND hitbox.
-		var target_scale_mult := 0.35 * GameManager.model_scale_mult()
+		var target_scale_mult := GameManager.model_scale_mult()
 		if not is_equal_approx(target_scale_mult, _prev_scale_mult):
 			_animate_scale_transition(target_scale_mult)
 			_prev_scale_mult = target_scale_mult
