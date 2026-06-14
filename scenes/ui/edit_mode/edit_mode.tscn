@@ -68,6 +68,11 @@ layout_mode = 2
 text = "GROUP"
 horizontal_alignment = 1
 
+[node name="ShipBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
+layout_mode = 2
+toggle_mode = true
+text = "Ship"
+
 [node name="HudBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 toggle_mode = true

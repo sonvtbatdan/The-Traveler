@@ -4,11 +4,12 @@ const EditableObject := preload("res://scenes/ui/edit_mode/editable_object.tscn"
 const GifLoader      := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const LAYOUT_PATH        := "res://default_layout.cfg"
 const PRESET_LAYOUT_PATH := "res://preset_layout.cfg"
-const GROUPS          := ["screen", "hud"]
-const ASSEMBLY_GROUPS := []  # kept for locked _save_layout / _load_layout — no assembly groups remain
+const GROUPS          := ["screen", "hud", "ship"]
+const ASSEMBLY_GROUPS := ["ship"]  # ship z_indices must not be normalized (spaceship=100, thrust=97-94)
 const GROUP_FOLDERS := {
 	"screen": "screen",
 	"hud":    "hud",
+	"ship":   "screen",
 }
 # SpaceScreen position and default tile size (2048×2048 image at scale 1.0 → 700×700px tile)
 const SCREEN_ORIGIN  := Vector2(15.0, 8.0)
@@ -35,6 +36,7 @@ const SHELF_END_PREFIX   := "res://__shelf_end_"
 
 @onready var btn_screen: Button = $SidePanel/VBox/TopHBox/ButtonsColumn/ScreenGroupBtn
 @onready var btn_hud: Button    = $SidePanel/VBox/TopHBox/ButtonsColumn/HudBtn
+@onready var btn_ship: Button   = $SidePanel/VBox/TopHBox/ButtonsColumn/ShipBtn
 @onready var btn_save: Button   = $SidePanel/VBox/TopHBox/ButtonsColumn/SaveBtn
 @onready var transform_panel    = $SidePanel/VBox/TransformPanel
 
@@ -83,6 +85,7 @@ func _ready() -> void:
 	btn_save.pressed.connect(_on_save_pressed)
 	btn_screen.pressed.connect(func() -> void: _set_group("screen"))
 	btn_hud.pressed.connect(func() -> void: _set_group("hud"))
+	btn_ship.pressed.connect(func() -> void: _set_group("ship"))
 	unsaved_dialog.get_node("VBox/BtnRow/SaveBtn").pressed.connect(_on_dialog_save)
 	unsaved_dialog.get_node("VBox/BtnRow/DiscardBtn").pressed.connect(_on_dialog_discard)
 	unsaved_dialog.get_node("VBox/BtnRow/CancelBtn").pressed.connect(_on_dialog_cancel)
@@ -373,6 +376,7 @@ func _on_group_layer_visibility_toggled(group_id: String, vis: bool) -> void:
 func _update_group_buttons() -> void:
 	btn_screen.button_pressed = (_active_group == "screen")
 	btn_hud.button_pressed    = (_active_group == "hud")
+	btn_ship.button_pressed   = (_active_group == "ship")
 
 func _update_object_interactivity() -> void:
 	var is_gp := not _is_open
@@ -445,7 +449,7 @@ func _on_transform_live(pos: Vector2, sz: Vector2) -> void:
 # Sync ObjectsContainer's tree order to match every object's z_index.
 func _sort_canvas_z_order() -> void:
 	var top_objs: Array = []
-	for group in ["screen", "hud"]:
+	for group in GROUPS:
 		for obj in _placed.get(group, []):
 			if is_instance_valid(obj) and obj.get_parent() == objects_container:
 				top_objs.append(obj)
@@ -757,11 +761,12 @@ func _load_layout() -> void:
 				obj.display_name = entry.get("display_name", "")
 				if entry.get("blend_mode", 0) == 1:
 					obj.set_screen_blend(true)
-		_placed[group].sort_custom(func(a, b): return a.z_index > b.z_index)
-		var n: int = _placed[group].size()
-		for i in n:
-			if is_instance_valid(_placed[group][i]):
-				_placed[group][i].z_index = n - 1 - i
+		if group not in ASSEMBLY_GROUPS:
+			_placed[group].sort_custom(func(a, b): return a.z_index > b.z_index)
+			var n: int = _placed[group].size()
+			for i in n:
+				if is_instance_valid(_placed[group][i]):
+					_placed[group][i].z_index = n - 1 - i
 	_active_group = prev_group
 	_update_object_interactivity()
 	_reparent_assembly_objects()

@@ -207,15 +207,15 @@ func reset_to_origin() -> void:
 		# Reset all children to F4 state (size + scale)
 		for eo in _child_f4_sizes.keys():
 			if is_instance_valid(eo):
-				# Weapon: update animation TextureRect
+				# Weapon or auto-thrust: update animation TextureRect
 				if _static_rects.has(eo) and is_instance_valid(_static_rects[eo]):
 					var tr := _static_rects[eo] as TextureRect
-					tr.position = eo.position
+					tr.position = eo.position - _spaceship_origin
 					tr.size = _child_f4_sizes[eo]
 				# Thrust manual mode: update manual thrust TextureRect
 				elif _manual_thrust_rects.has(eo) and is_instance_valid(_manual_thrust_rects[eo]):
 					var tr := _manual_thrust_rects[eo] as TextureRect
-					tr.position = eo.position
+					tr.position = eo.position - _spaceship_origin
 					tr.size = _child_f4_sizes[eo]
 				# Power core, defense: update EditableObjectNode
 				else:
@@ -963,8 +963,10 @@ func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 	tr.size = eo.size                             # F4-correct size
 	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# Position relative to spaceship (child positioning, like weapons)
-	tr.position = eo.position
+	# Thrust EOs are ObjectsContainer children; their position is in viewport space.
+	# TRects become spaceship children, so position must be relative to ship origin.
+	var ship_pos := _spaceship_eo.position if _spaceship_eo != null and is_instance_valid(_spaceship_eo) else Vector2.ZERO
+	tr.position = eo.position - ship_pos
 	tr.flip_h = eo.texture_rect.flip_h
 	tr.visible = not GameManager.manual_boost
 	tr.z_as_relative = false
@@ -998,7 +1000,7 @@ func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 			mtr.size = manual_size
 			mtr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 			mtr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			mtr.position = manual_eo.position
+			mtr.position = manual_eo.position - ship_pos
 			mtr.flip_h = manual_eo.texture_rect.flip_h
 			mtr.visible = GameManager.manual_boost
 			mtr.z_as_relative = false
