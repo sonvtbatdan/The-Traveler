@@ -16,11 +16,11 @@ extends Node2D
 
 # ── Beam look (copied from weapon_system.gd; core stays white, colour lives in the glow) ──
 const BEAM_CORE_COLOR   := Color(1.0, 1.0, 1.0)   # pure white core (always)
-const BEAM_CORE_FRAC    := 0.10
-const BEAM_INNER_FRAC   := 0.20
-const BEAM_HAZE_FRAC    := 0.75
-const BEAM_INNER_ALPHA  := 0.50
-const BEAM_HAZE_ALPHA   := 0.16
+const BEAM_CORE_FRAC    := 0.28   # fat white core
+const BEAM_INNER_FRAC   := 0.46
+const BEAM_HAZE_FRAC    := 0.95
+const BEAM_INNER_ALPHA  := 0.55
+const BEAM_HAZE_ALPHA   := 0.18
 const BEAM_FLICKER      := 0.12
 const BEAM_FLICKER_SPEED:= 28.0
 const BEAM_WOBBLE_AMP    := 4.0
@@ -29,7 +29,15 @@ const BEAM_WOBBLE_SPEED  := 7.0
 const BEAM_PULSE_COUNT   := 5
 const BEAM_PULSE_SPEED   := 620.0
 const BEAM_PULSE_LEN     := 46.0
-const BEAM_ELEC_INTENSITY:= 0.5
+# Smooth helix ribbons — sine strands braiding around the beam, scrolling gun→impact (replaces crackle)
+const BEAM_RIBBON_COUNT  := 2
+const BEAM_RIBBON_AMP    := 7.0
+const BEAM_RIBBON_WAVES  := 5.0
+const BEAM_RIBBON_SCROLL := 6.0
+const BEAM_RIBBON_WIDTH  := 2.5
+const BEAM_RIBBON_SEGS   := 48
+const BEAM_RIBBON_ALPHA  := 0.6
+const BEAM_ELEC_INTENSITY:= 0.0   # jagged crackle replaced by smooth ribbons
 const BEAM_ELEC_SEGMENTS := 9
 const BEAM_ELEC_AMP      := 6.0
 const BEAM_ELEC_SPEED    := 22.0
@@ -245,19 +253,18 @@ func _draw_beam_fx(ctx: Dictionary) -> void:
 			var pt := pc - dir * minf(BEAM_PULSE_LEN, phase)
 			draw_line(pt, pc, Color(1.0, 1.0, 1.0, 0.45 * flick), maxf(2.0, w * 0.22))
 
-	# (3) Electric crackle — jagged polyline, fast flicker (re-jags ELEC_SPEED×/sec)
-	if BEAM_ELEC_INTENSITY > 0.0 and L > 1.0:
-		var eseed := floorf(_beam_time * BEAM_ELEC_SPEED)
-		var ec := Color(0.75, 0.9, 1.0, BEAM_ELEC_INTENSITY * flick)
-		var eprev := a
-		for s in range(1, BEAM_ELEC_SEGMENTS + 1):
-			var alo := L * float(s) / float(BEAM_ELEC_SEGMENTS)
-			var eoff := 0.0
-			if s < BEAM_ELEC_SEGMENTS:
-				eoff = _pseudo(float(s), eseed) * BEAM_ELEC_AMP
-			var ept := a + dir * alo + perp * eoff
-			draw_line(eprev, ept, ec, 1.5)
-			eprev = ept
+	# (3) Smooth helix ribbons — sine strands braiding around the beam, scrolling gun → impact
+	if BEAM_RIBBON_COUNT > 0 and L > 1.0:
+		var rcol := Color((g.r + 1.0) * 0.5, (g.g + 1.0) * 0.5, (g.b + 1.0) * 0.5, BEAM_RIBBON_ALPHA * flick)
+		for rb in BEAM_RIBBON_COUNT:
+			var rphase := float(rb) * TAU / float(maxi(1, BEAM_RIBBON_COUNT))
+			var rpts := PackedVector2Array()
+			rpts.resize(BEAM_RIBBON_SEGS + 1)
+			for s in range(BEAM_RIBBON_SEGS + 1):
+				var f := float(s) / float(BEAM_RIBBON_SEGS)
+				var roff := sin(f * BEAM_RIBBON_WAVES * TAU - _beam_time * BEAM_RIBBON_SCROLL + rphase) * BEAM_RIBBON_AMP
+				rpts[s] = a + dir * (L * f) + perp * roff
+			draw_polyline(rpts, rcol, BEAM_RIBBON_WIDTH)
 
 	# Core — thin pure white, straight, on top
 	draw_line(a, b, Color(BEAM_CORE_COLOR.r, BEAM_CORE_COLOR.g, BEAM_CORE_COLOR.b, flick), maxf(1.5, w * BEAM_CORE_FRAC))

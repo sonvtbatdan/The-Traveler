@@ -81,22 +81,6 @@ const GC_BRIGHT         := 0.9      # overall brightness
 const GC_FLASH_R        := 7.0      # a ring vanishes in a small flash once this close to the focus
 const GC_RELEASE_FLASH  := 60.0     # final convergence flash radius on release/fire (0 = none)
 
-# ── Lasgun helical filaments — twirling lightning-forked strands wrapping the beam, opposite colour ──
-const HELIX_STRANDS      := 2       # spiraling filaments (2 = double helix)
-const HELIX_TIGHTNESS    := 0.085   # wraps along the length (radians per px; higher = tighter coil)
-const HELIX_SCROLL       := 7.0     # spiral scroll speed (gun → impact)
-const HELIX_RADIUS       := 18.0    # how far the filaments orbit from the beam axis (helix width)
-const HELIX_WIDTH        := 3.5     # filament thickness (prominent)
-const HELIX_ALPHA        := 0.95    # filament brightness
-const HELIX_SEGMENTS     := 44      # smoothness along the beam length
-const HELIX_COMPLEMENT_SHIFT := 0.5 # opposite hue on the wheel (0.5 = exact complement)
-const HELIX_PHASE_OFFSET := PI      # brightness pulse offset vs the beam (PI = fully opposite)
-const HELIX_PULSE_AMOUNT := 0.35    # how strongly the filaments pulse
-const HELIX_FORK_CHANCE  := 0.16    # chance per segment to spit a lightning fork
-const HELIX_FORK_LEN     := 26.0    # fork length (px)
-const HELIX_FORK_SEGS    := 4       # jaggedness of each fork
-const HELIX_FORK_WIDTH   := 2.0     # fork thickness
-
 const GAUSS_ORB_SHADER := """
 shader_type canvas_item;
 render_mode blend_add;
@@ -181,13 +165,41 @@ const MISSILE_MAX_LIFE := 4.0
 # ── Lasgun BEAM look (tunable — core stays white, colour lives in the glow) ───
 const BEAM_GLOW_COLOR   := Color(1.0, 0.70, 0.40) # beam glow colour — warm/hot (set blue to cool it)
 const BEAM_CORE_COLOR   := Color(1.0, 1.0, 1.0)   # pure white core (always)
-const BEAM_CORE_FRAC    := 0.10   # core width  = this × beam width (thin & sharp)
-const BEAM_INNER_FRAC   := 0.20   # inner glow width (−50%)
-const BEAM_HAZE_FRAC    := 0.75   # outer haze width (−50%)
-const BEAM_INNER_ALPHA  := 0.50   # inner glow opacity
-const BEAM_HAZE_ALPHA   := 0.16   # outer haze opacity (kept low; additive stacks it)
-const BEAM_FLICKER      := 0.12   # brightness shimmer amount (0 = steady)
-const BEAM_FLICKER_SPEED:= 28.0   # shimmer speed
+const BEAM_CORE_FRAC    := 0.11   # white core width as fraction of total beam width
+const BEAM_FLICKER      := 0.10   # brightness shimmer amount (0 = steady)
+const BEAM_FLICKER_SPEED:= 24.0   # shimmer speed
+# ── Prism-column body (player Lasgun): breathing core + flare swell, two-tone violet slabs, ribbons, flecks ──
+const BEAM_CORE_BREATHE   := 0.22   # how much the core pinches/bulges along its length
+const BEAM_CORE_BREATHE_SP:= 3.0    # breathing speed
+const BEAM_CORE_FLARE_AT  := 0.42   # position (0..1 along beam) of the bright swell
+const BEAM_CORE_FLARE_AMT := 0.6    # extra core brightness/width at the swell
+const BEAM_COL_INNER  := Color(0.50, 0.30, 0.92)  # deep blue-violet, hugs the white
+const BEAM_COL_MID    := Color(0.40, 0.20, 0.88)  # deep saturated violet shoulder (peak colour)
+const BEAM_COL_OUTER  := Color(0.46, 0.22, 0.74)  # deep dusky red-violet outer haze
+# Body slabs: [width_fraction, alpha, colour (0=inner 1=mid 2=outer)] — widest first.
+const BEAM_SLABS := [
+	[2.30, 0.06, 2], [1.70, 0.10, 2], [1.20, 0.16, 1], [0.80, 0.24, 1], [0.45, 0.40, 0],
+]
+# Orbiting ribbons (few, large, loose, asymmetric, front/behind depth)
+const RIB_COUNT      := 4
+const RIB_LOOPS      := 3.5     # more wraps → a tight corkscrew
+const RIB_AMP        := 0.49    # 30% closer to the core (was 0.7)
+const RIB_AMP_VARY   := 0.25
+const RIB_AMP_GROW   := 0.12    # stay hugging the body along the whole length (little ballooning)
+const RIB_ASYM       := 0.35
+const RIB_ORBIT_SPEED:= 1.1     # spin around the column faster
+const RIB_SCROLL     := 0.25
+const RIB_SEGS       := 64
+const RIB_WIDTH      := 0.06    # thinner coil
+const RIB_FRONT_A    := 0.95
+const RIB_BACK_A     := 0.22
+const RIB_GLOW_MULT  := 2.2
+const RIB_END_TAPER  := 70.0
+# Twinkling flecks in the haze
+const FLECK_COUNT    := 14
+const FLECK_LEN      := 14.0
+const FLECK_SPREAD   := 0.85
+const FLECK_TWINKLE  := 5.0
 
 # ── Stylized-laser layers (each animates at its own rate → feels alive) ────────
 # Wobble / distortion (energy turbulence rippling down the beam)
@@ -199,7 +211,7 @@ const BEAM_PULSE_COUNT   := 5
 const BEAM_PULSE_SPEED   := 620.0  # px/s
 const BEAM_PULSE_LEN     := 46.0   # length of each pulse streak (px)
 # Electric / lightning crackle (subtle, fast flicker)
-const BEAM_ELEC_INTENSITY:= 0.5    # 0..1 opacity (0 = off)
+const BEAM_ELEC_INTENSITY:= 0.0    # 0..1 opacity (0 = off; jagged crackle replaced by smooth ribbons)
 const BEAM_ELEC_SEGMENTS := 9
 const BEAM_ELEC_AMP      := 6.0    # jaggedness (px)
 const BEAM_ELEC_SPEED    := 22.0   # re-jag / flicker rate per second
@@ -2360,50 +2372,88 @@ func _draw_beam_fx_all() -> void:
 	_draw_beam_fx(_wp)
 	_draw_beam_fx(_ws)
 
-## Complementary (opposite-hue) colour of `c`, kept bright/saturated for the filaments.
-func _beam_complement(c: Color) -> Color:
-	return Color.from_hsv(fposmod(c.h + HELIX_COMPLEMENT_SHIFT, 1.0), maxf(c.s, 0.7), maxf(c.v, 0.9))
+# Smooth deterministic wiggle from two sines (cheap, no RNG) — for ribbon asymmetry/looseness.
+func _wig(t: float) -> float:
+	return sin(t) * 0.7 + sin(t * 2.3 + 1.7) * 0.3
 
-## Helical filaments corkscrewing around the beam (gun → impact), pulsing OPPOSITE the beam's colour,
-## with occasional lightning forks flicking off them. Drawn additively on `_glow`, on top of the beam.
-func _draw_beam_helix(a: Vector2, dir: Vector2, perp: Vector2, L: float, g: Color) -> void:
-	if _glow == null or L < 2.0:
+## Player Lasgun "prism column + orbiting ribbons" body, drawn on the additive _glow. a,b=endpoints,
+## w=width, t=time. Two-tone violet slabs, breathing white core, few large asymmetric ribbons with
+## front/behind depth, and twinkling haze flecks. (Uses its own violet palette, not the beam tint.)
+func _draw_prism_beam(a: Vector2, b: Vector2, w: float, t: float) -> void:
+	var seg := b - a
+	var L := seg.length()
+	if L < 1.0:
 		return
-	var col := _beam_complement(g)
-	var bright := Color((col.r + 1.0) * 0.5, (col.g + 1.0) * 0.5, (col.b + 1.0) * 0.5)
-	# Brightness pulse, out of phase with the beam.
-	var hp := 1.0 + sin(_beam_time * BEAM_FLICKER_SPEED + HELIX_PHASE_OFFSET) * HELIX_PULSE_AMOUNT
-	var segs := HELIX_SEGMENTS
-	var fork_seed := floorf(_beam_time * 18.0)   # fast re-seed → flickering forks
-	for strand in HELIX_STRANDS:
-		var sphase := float(strand) * TAU / float(maxi(1, HELIX_STRANDS))
-		var pts := PackedVector2Array()
-		pts.resize(segs + 1)
-		for s in range(segs + 1):
-			var along := L * float(s) / float(segs)
-			var off := sin(along * HELIX_TIGHTNESS - _beam_time * HELIX_SCROLL + sphase) * HELIX_RADIUS
-			pts[s] = a + dir * along + perp * off
-		# Wide soft halo → bright body → white-hot centre (prominent, glowing).
-		_glow.draw_polyline(pts, Color(col.r, col.g, col.b, HELIX_ALPHA * 0.28 * hp), HELIX_WIDTH * 2.4)
-		_glow.draw_polyline(pts, Color(col.r, col.g, col.b, HELIX_ALPHA * hp), HELIX_WIDTH)
-		_glow.draw_polyline(pts, Color(bright.r, bright.g, bright.b, HELIX_ALPHA * 0.8 * hp), maxf(1.0, HELIX_WIDTH * 0.4))
-		# Lightning forks flicking off the strand.
-		for s in range(2, segs - 1):
-			if absf(_pseudo(float(s) * 1.7 + float(strand) * 9.0, fork_seed)) > 1.0 - HELIX_FORK_CHANCE:
-				_draw_helix_fork(pts[s], perp, dir, col, hp, fork_seed + float(s) + float(strand) * 3.0)
+	var dir := seg / L
+	var perp := Vector2(-dir.y, dir.x)
+	var flick := 1.0 + sin(t * BEAM_FLICKER_SPEED) * BEAM_FLICKER
+	# (1) Volumetric body: concentric soft slabs, widest first.
+	for slab in BEAM_SLABS:
+		var frac: float = slab[0]
+		var alpha: float = slab[1]
+		var ci: int = slab[2]
+		var col: Color = BEAM_COL_INNER
+		if ci == 1: col = BEAM_COL_MID
+		elif ci == 2: col = BEAM_COL_OUTER
+		_glow.draw_line(a, b, Color(col.r, col.g, col.b, alpha * flick), maxf(2.0, w * frac))
+	# (2) Orbiting ribbons — two passes: behind the core, then in front (3D wrap).
+	for pass_i in range(2):
+		for r in range(RIB_COUNT):
+			var strand_phase := TAU * float(r) / float(RIB_COUNT)
+			var amp_base := w * RIB_AMP * (1.0 - RIB_AMP_VARY * 0.5 + RIB_AMP_VARY * _wig(float(r) * 2.1))
+			var seed := float(r) * 5.13
+			var prev_pt := Vector2.ZERO
+			var prev_ok := false
+			for s in range(RIB_SEGS + 1):
+				var u := float(s) / float(RIB_SEGS)
+				var alo := L * u
+				var loop_ang := u * RIB_LOOPS * TAU + strand_phase + t * RIB_ORBIT_SPEED * TAU + t * RIB_SCROLL
+				var lateral := sin(loop_ang) + RIB_ASYM * sin(loop_ang * 2.0 + seed)
+				var depth := cos(loop_ang)
+				var amp := amp_base * (1.0 + RIB_AMP_GROW * u) * (0.85 + 0.15 * _wig(u * 3.0 + seed))
+				var ends := clampf(alo / RIB_END_TAPER, 0.0, 1.0) * clampf((L - alo) / RIB_END_TAPER, 0.0, 1.0)
+				var off := lateral * amp * ends
+				var pt := a + dir * alo + perp * off
+				var is_front := depth >= 0.0
+				var want_front := pass_i == 1
+				if is_front == want_front and prev_ok:
+					var base_a := RIB_FRONT_A if is_front else RIB_BACK_A
+					var edge_fade := 0.5 + 0.5 * absf(depth)
+					var aa := base_a * edge_fade * ends * flick
+					var rib_w := maxf(1.0, w * RIB_WIDTH)
+					_glow.draw_line(prev_pt, pt, Color(BEAM_COL_INNER.r, BEAM_COL_INNER.g, BEAM_COL_INNER.b, aa * 0.4), rib_w * RIB_GLOW_MULT)
+					_glow.draw_line(prev_pt, pt, Color(0.92, 0.85, 1.0, aa), rib_w)
+				prev_pt = pt
+				prev_ok = true
+		if pass_i == 0:
+			_draw_core(a, b, dir, perp, w, L, t, flick)
+	# (3) Twinkling flecks in the haze.
+	for f in range(FLECK_COUNT):
+		var fu := fmod(float(f) * 0.137 + t * 0.05, 1.0)
+		var falo := L * fu
+		var fside := _wig(float(f) * 3.3) * w * FLECK_SPREAD
+		var fp := a + dir * falo + perp * fside
+		var tw := 0.5 + 0.5 * sin(t * FLECK_TWINKLE + float(f) * 1.7)
+		var fa := tw * flick
+		var ftail := fp - dir * FLECK_LEN * (0.4 + 0.6 * tw)
+		_glow.draw_line(ftail, fp, Color(1.0, 0.97, 1.0, 0.7 * fa), 2.0)
+		_glow.draw_circle(fp, 1.6 * tw, Color(1.0, 1.0, 1.0, fa))
 
-## One jagged lightning fork shooting outward from a point on a filament.
-func _draw_helix_fork(origin: Vector2, perp: Vector2, dir: Vector2, col: Color, pulse: float, seed: float) -> void:
-	var side := 1.0 if _pseudo(seed, 1.0) > 0.0 else -1.0
-	var pts := PackedVector2Array()
-	pts.append(origin)
-	for s in range(1, HELIX_FORK_SEGS + 1):
-		var f := float(s) / float(HELIX_FORK_SEGS)
-		var base := origin + perp * (side * HELIX_FORK_LEN * f)
-		var jit := dir * (_pseudo(seed + float(s), 3.3) * HELIX_FORK_LEN * 0.28) \
-			+ perp * (side * _pseudo(seed + float(s), 7.7) * HELIX_FORK_LEN * 0.18)
-		pts.append(base + jit)
-	_glow.draw_polyline(pts, Color(col.r, col.g, col.b, HELIX_ALPHA * 0.9 * pulse), HELIX_FORK_WIDTH)
+## Fat-ish white core with breathing width + a mid-length flare swell, soft lilac sheath (no hard edge).
+func _draw_core(a: Vector2, _b: Vector2, dir: Vector2, _perp: Vector2, w: float, L: float, t: float, flick: float) -> void:
+	var N := 28
+	var prev := a
+	for s in range(1, N + 1):
+		var u := float(s) / float(N)
+		var alo := L * u
+		var pt := a + dir * alo
+		var breathe := 1.0 + BEAM_CORE_BREATHE * sin(u * 9.0 - t * BEAM_CORE_BREATHE_SP)
+		var d := absf(u - BEAM_CORE_FLARE_AT)
+		var swell := 1.0 + BEAM_CORE_FLARE_AMT * exp(-d * d * 40.0)
+		var cw := maxf(1.5, w * BEAM_CORE_FRAC * breathe * swell)
+		_glow.draw_line(prev, pt, Color(BEAM_COL_INNER.r, BEAM_COL_INNER.g, BEAM_COL_INNER.b, 0.5 * flick), cw * 2.2)
+		_glow.draw_line(prev, pt, Color(1.0, 1.0, 1.0, flick), cw)
+		prev = pt
 
 func _draw_beam_fx(ctx: Dictionary) -> void:
 	if _glow == null:
@@ -2416,57 +2466,14 @@ func _draw_beam_fx(ctx: Dictionary) -> void:
 	var flick := 1.0 + sin(_beam_time * BEAM_FLICKER_SPEED) * BEAM_FLICKER   # subtle shimmer
 	var w: float = float(ctx["beam_width"])
 	var g: Color = ctx["beam_color"]   # glow colour (blue for the Lasgun, teal for the tether)
-	# Outer haze — stacked soft lines → smooth blue falloff, no hard edge
-	_glow.draw_line(a, b, Color(g.r, g.g, g.b, BEAM_HAZE_ALPHA * 0.4 * flick), w * BEAM_HAZE_FRAC * 1.8)
-	_glow.draw_line(a, b, Color(g.r, g.g, g.b, BEAM_HAZE_ALPHA * 0.7 * flick), w * BEAM_HAZE_FRAC * 1.25)
-	_glow.draw_line(a, b, Color(g.r, g.g, g.b, BEAM_HAZE_ALPHA * flick),       w * BEAM_HAZE_FRAC)
-	# Inner glow — glow colour blended halfway to white
-	var iw := Color((g.r + 1.0) * 0.5, (g.g + 1.0) * 0.5, (g.b + 1.0) * 0.5, BEAM_INNER_ALPHA * flick)
-	_glow.draw_line(a, b, iw, maxf(2.0, w * BEAM_INNER_FRAC))
+	# Prism-column body: violet slabs + breathing core + orbiting ribbons + haze flecks (player look).
+	_draw_prism_beam(a, b, w, _beam_time)
 
-	# Beam axis
+	# Beam axis (for the streak particles + impact flare below)
 	var seg := b - a
 	var L := seg.length()
 	var dir := (seg / L) if L > 0.001 else Vector2.UP
 	var perp := Vector2(-dir.y, dir.x)
-
-	# (1) Energy wobble layer — rippling bright polyline (heat-haze / turbulence)
-	if BEAM_WOBBLE_AMP > 0.0 and L > 1.0:
-		var wprev := a
-		for s in range(1, 17):
-			var alo := L * float(s) / 16.0
-			var woff := sin(alo * BEAM_WOBBLE_FREQ - _beam_time * BEAM_WOBBLE_SPEED) * BEAM_WOBBLE_AMP
-			var wpt := a + dir * alo + perp * woff
-			_glow.draw_line(wprev, wpt, Color(g.r, g.g, g.b, 0.30 * flick), maxf(2.0, w * 0.16))
-			wprev = wpt
-
-	# (2) Scrolling energy pulses — bright dashes racing gun → impact
-	if L > 1.0:
-		for k in BEAM_PULSE_COUNT:
-			var phase := fmod(_beam_time * BEAM_PULSE_SPEED + float(k) * (L / float(maxi(1, BEAM_PULSE_COUNT))), L)
-			var pc := a + dir * phase
-			var pt := pc - dir * minf(BEAM_PULSE_LEN, phase)
-			_glow.draw_line(pt, pc, Color(1.0, 1.0, 1.0, 0.45 * flick), maxf(2.0, w * 0.22))
-
-	# (3) Electric crackle — jagged polyline, fast flicker (re-jags ELEC_SPEED×/sec)
-	if BEAM_ELEC_INTENSITY > 0.0 and L > 1.0:
-		var eseed := floorf(_beam_time * BEAM_ELEC_SPEED)
-		var ec := Color(0.75, 0.9, 1.0, BEAM_ELEC_INTENSITY * flick)
-		var eprev := a
-		for s in range(1, BEAM_ELEC_SEGMENTS + 1):
-			var alo := L * float(s) / float(BEAM_ELEC_SEGMENTS)
-			var eoff := 0.0
-			if s < BEAM_ELEC_SEGMENTS:
-				eoff = _pseudo(float(s), eseed) * BEAM_ELEC_AMP
-			var ept := a + dir * alo + perp * eoff
-			_glow.draw_line(eprev, ept, ec, 1.5)
-			eprev = ept
-
-	# Core — thin pure white, straight, on top
-	_glow.draw_line(a, b, Color(BEAM_CORE_COLOR.r, BEAM_CORE_COLOR.g, BEAM_CORE_COLOR.b, flick), maxf(1.5, w * BEAM_CORE_FRAC))
-
-	# Twirling helical filaments wrapping the beam — opposite colour, lightning-forked
-	_draw_beam_helix(a, dir, perp, L, g)
 
 	# (4) Stretched particles streaming down the beam
 	for p: Dictionary in (ctx["beam_particles"] as Array):
