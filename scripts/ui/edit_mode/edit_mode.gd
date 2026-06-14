@@ -4,11 +4,12 @@ const EditableObject := preload("res://scenes/ui/edit_mode/editable_object.tscn"
 const GifLoader      := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const LAYOUT_PATH        := "res://default_layout.cfg"
 const PRESET_LAYOUT_PATH := "res://preset_layout.cfg"
-const GROUPS          := ["screen", "hud"]
+const GROUPS          := ["screen", "weaponry", "hud"]   # "weaponry" holds the spaceship + wings + gun mounts
 const ASSEMBLY_GROUPS := []  # kept for locked _save_layout / _load_layout — no assembly groups remain
 const GROUP_FOLDERS := {
-	"screen": "screen",
-	"hud":    "hud",
+	"screen":   "screen",
+	"weaponry": "weaponry",
+	"hud":      "hud",
 }
 # SpaceScreen position and default tile size (2048×2048 image at scale 1.0 → 700×700px tile)
 const SCREEN_ORIGIN  := Vector2(15.0, 8.0)
