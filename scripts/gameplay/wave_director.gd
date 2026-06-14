@@ -257,9 +257,10 @@ func _end_choreo() -> void:
 
 # ── DANGER intermission (10s, no spawns, blinking banner) → then the boss ─────
 func _enter_danger() -> void:
-	_state = State.DANGER
-	_danger_t = 0.0
-	_show_danger()
+	# The boss's own intro (background swap + WARNING flash + alert sound + music + fly-in, played by
+	# boss_fight.spawn_boss) is now the ONLY intro — skip the separate blinking "DANGER" banner so the
+	# level-end boss looks exactly like pressing the boss button. (_show/_tick/_hide_danger left unused.)
+	_start_boss()
 
 func _tick_danger(delta: float) -> void:
 	_danger_t += delta
