@@ -1,13 +1,13 @@
 extends Control
 
-const SS_OFFSET := Vector2(270.0, 8.0)
-const OC_BOUNDS := Rect2(270.0, 8.0, 700.0, 764.0)
+const SS_OFFSET := Vector2(15.0, 8.0)
+const OC_BOUNDS := Rect2(15.0, 8.0, 955.0, 764.0)
 const GifLoader  := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const LasgunBeamScript := preload("res://scripts/gameplay/lasgun_beam.gd")  # player-Lasgun procedural beam
 
 # Viewport-space limits (screen-local + SS_OFFSET)
 const Y_LIMIT       := 458.0   # 450 screen-local + 8
-const BALL_SPIN_POS := Vector2(620.0, 158.0)   # (350,150) screen-local
+const BALL_SPIN_POS := Vector2(492.0, 158.0)   # (477,150) screen-local
 
 # Final patrol waypoints (viewport space)
 const TEAL_WP_A := Vector2(920.0, 158.0)   # (650,150)

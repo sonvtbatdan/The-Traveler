@@ -7,7 +7,7 @@ const LAYOUT_PATH     := "res://boss_layout.cfg"
 const BOSSES_FOLDER   := "res://assets/bosses/"
 const ASSET_PANEL_W   := 210.0
 const CTRL_PANEL_W    := 224.0
-const SCREEN_ORIGIN   := Vector2(270.0, 8.0)
+const SCREEN_ORIGIN   := Vector2(15.0, 8.0)
 
 # ── State ──────────────────────────────────────────────────────────────────────
 var _is_open:        bool    = false

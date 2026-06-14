@@ -93,8 +93,8 @@ func _ready() -> void:
 func _build_toggle_button() -> void:
 	_toggle_btn = Button.new()
 	_toggle_btn.text = "INVENTORY (I)"
-	_toggle_btn.position = Vector2(20, 12)
-	_toggle_btn.size = Vector2(170, 34)
+	_toggle_btn.position = Vector2(1240, 310)
+	_toggle_btn.size = Vector2(192, 30)
 	_style_button(_toggle_btn)
 	_apply_font(_toggle_btn, 12)
 	_toggle_btn.pressed.connect(toggle)

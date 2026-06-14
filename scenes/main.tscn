@@ -220,7 +220,7 @@ horizontal_alignment = 1
 
 [node name="SpaceScreen" type="Panel" parent="." unique_id=191745830]
 layout_mode = 0
-offset_left = 270.0
+offset_left = 15.0
 offset_top = 8.0
 offset_right = 970.0
 offset_bottom = 772.0

@@ -1,7 +1,7 @@
 extends Control
 
-const SCREEN_ORIGIN  := Vector2(270.0, 8.0)
-const SCREEN_SIZE    := Vector2(700.0, 764.0)
+const SCREEN_ORIGIN  := Vector2(15.0, 8.0)
+const SCREEN_SIZE    := Vector2(955.0, 764.0)
 const GRID_SPACING   := 50.0
 const MAJOR_INTERVAL := 100.0  # thicker line every 100px
 

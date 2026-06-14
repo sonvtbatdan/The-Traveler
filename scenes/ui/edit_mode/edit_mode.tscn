@@ -83,10 +83,10 @@ layout_mode = 2
 toggle_mode = true
 text = "Power Core"
 
-[node name="UserBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
+[node name="HudBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 toggle_mode = true
-text = "User"
+text = "HUD"
 
 [node name="ScreenGroupBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2

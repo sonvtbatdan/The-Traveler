@@ -6,8 +6,8 @@ extends Control
 # Phase 2 (recovery): heals shield every 3 s, Recover.gif, no attacks
 # =============================================================================
 
-const SS_OFFSET := Vector2(270.0, 8.0)
-const OC_BOUNDS := Rect2(270.0, 8.0, 700.0, 764.0)
+const SS_OFFSET := Vector2(15.0, 8.0)
+const OC_BOUNDS := Rect2(15.0, 8.0, 955.0, 764.0)
 
 const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 
@@ -27,9 +27,9 @@ const WANDER_P1_MAX_Y := 508.0     # OC Y cap for Phase 1 wander (SS Y < 500)
 const M1_SPEED      := 360.0
 const M1_DROP       := 100.0
 const M1_END_Y      := 758.0        # OC Y at which crawl ends (SS Y = 750)
-const M1_START_OC   := Vector2(270.0, 158.0)   # SS (0, 150)
-const M1_RIGHT_X    := 970.0        # OC X right edge (SS X = 700)
-const M1_LEFT_X     := 270.0        # OC X left edge  (SS X = 0)
+const M1_START_OC   := Vector2(15.0, 158.0)    # SS (0, 150)
+const M1_RIGHT_X    := 970.0        # OC X right edge (SS X = 955)
+const M1_LEFT_X     := 15.0         # OC X left edge  (SS X = 0)
 const M1_CONTACT_DMG := 30
 
 # ── Move 2 — Shooting Star ─────────────────────────────────────────────────────

@@ -9,6 +9,7 @@ const GunSystemScript           := preload("res://scripts/gameplay/gun_system.gd
 const MaterialPanelScript       := preload("res://scripts/ui/hud/material_panel.gd")
 const BoostButtonScript         := preload("res://scripts/ui/hud/boost_button.gd")
 const ShipHpBarScript           := preload("res://scripts/ui/hud/ship_hp_bar.gd")
+const HudHpDisplayScript        := preload("res://scripts/ui/hud/hud_hp_display.gd")
 const BossEditScript            := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
 const BossFightScript           := preload("res://scripts/gameplay/boss_fight.gd")  # Boss Manager (owns all boss modules)
 const BossPanelScript           := preload("res://scripts/ui/hud/boss_panel.gd")
@@ -40,6 +41,7 @@ func _ready() -> void:
 	_apply_title_fonts()
 	_add_defense_panel()
 	add_child(DefenseVisualScript.new())
+	call_deferred("_hide_left_panels")
 	_add_scrolling_background()
 	_add_scrolling_overlay()
 	_add_asteroid_layers()
@@ -51,6 +53,7 @@ func _ready() -> void:
 	add_child(InventoryUIScript.new())
 	_add_boost_button()
 	_add_ship_hp_bar()
+	_add_hud_hp_display()
 	_add_boss_hp_bar()
 	_add_boss_panel()
 	add_child(BossMusicScript.new())   # loops the boss track during boss fights
@@ -127,7 +130,7 @@ func _apply_screen_layouts() -> void:
 		if sz.x <= 0.0 or sz.y <= 0.0:
 			continue
 		# ObjectsContainer is viewport-space; SpaceScreen sits at (270, 8)
-		var rel := Vector2(pos.x - 270.0, pos.y - 8.0)
+		var rel := Vector2(pos.x - 15.0, pos.y - 8.0)
 		if path.ends_with("background.png"):
 			var bg := get_tree().get_first_node_in_group("scrolling_bg")
 			if is_instance_valid(bg) and bg.has_method("apply_layout_rect"):
@@ -183,6 +186,13 @@ func _add_ship_hp_bar() -> void:
 	layer.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(layer)
 	layer.add_child(ShipHpBarScript.new())
+
+func _add_hud_hp_display() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 51
+	layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(layer)
+	layer.add_child(HudHpDisplayScript.new())
 
 func _add_boss_hp_bar() -> void:
 	var layer := CanvasLayer.new()
@@ -336,6 +346,14 @@ func _add_enemy_panel() -> void:
 	var p := EnemyPanelScript.new()
 	add_child(p)
 	p.setup(Rect2(980.0, 410.0, 250.0, 362.0))
+
+func _hide_left_panels() -> void:
+	var up := get_node_or_null("UserPanel")
+	if up:
+		up.visible = false
+	for n in get_children():
+		if n.get_script() == DefensePanelScript:
+			n.visible = false
 
 func _add_defense_panel() -> void:
 	var dp := DefensePanelScript.new()

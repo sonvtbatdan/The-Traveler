@@ -277,8 +277,8 @@ func setup() -> void:
 	_light_layer.layer = 11
 	add_child(_light_layer)
 	_light = Control.new()
-	_light.position = Vector2(270.0, 8.0)   # StreamScreen / play-area origin (matches beam coords)
-	_light.size = Vector2(700.0, 764.0)
+	_light.position = Vector2(15.0, 8.0)   # StreamScreen / play-area origin (matches beam coords)
+	_light.size = Vector2(955.0, 764.0)
 	_light.clip_contents = true
 	_light.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var lm := CanvasItemMaterial.new()
@@ -312,8 +312,8 @@ func setup() -> void:
 	_rift_layer.layer = 12
 	add_child(_rift_layer)
 	var rhost := Control.new()
-	rhost.position = Vector2(270.0, 8.0)
-	rhost.size = Vector2(700.0, 764.0)
+	rhost.position = Vector2(15.0, 8.0)
+	rhost.size = Vector2(955.0, 764.0)
 	rhost.clip_contents = true
 	rhost.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_rift_layer.add_child(rhost)
@@ -331,8 +331,8 @@ func setup() -> void:
 	# CanvasLayer, so the orbiting balls render ON TOP of the ship/boss. Its local coords
 	# match _ship_center() (both relative to 270,8).
 	_orbital_node = Control.new()
-	_orbital_node.position = Vector2(270.0, 8.0)
-	_orbital_node.size = Vector2(700.0, 764.0)
+	_orbital_node.position = Vector2(15.0, 8.0)
+	_orbital_node.size = Vector2(955.0, 764.0)
 	_orbital_node.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_rift_layer.add_child(_orbital_node)
 	_orbital_node.draw.connect(_draw_orbitals_all)
@@ -343,8 +343,8 @@ func setup() -> void:
 	_dmg_layer.layer = 13
 	add_child(_dmg_layer)
 	_dmg_host = Control.new()
-	_dmg_host.position = Vector2(270.0, 8.0)
-	_dmg_host.size = Vector2(700.0, 764.0)
+	_dmg_host.position = Vector2(15.0, 8.0)
+	_dmg_host.size = Vector2(955.0, 764.0)
 	_dmg_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_dmg_layer.add_child(_dmg_host)
 	_crit_text_shader = Shader.new()

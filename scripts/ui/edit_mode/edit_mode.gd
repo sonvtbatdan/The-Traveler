@@ -4,7 +4,7 @@ const EditableObject := preload("res://scenes/ui/edit_mode/editable_object.tscn"
 const GifLoader      := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const LAYOUT_PATH        := "res://default_layout.cfg"
 const PRESET_LAYOUT_PATH := "res://preset_layout.cfg"
-const GROUPS := ["screen", "weaponry", "defense", "power_core", "user"]
+const GROUPS := ["screen", "weaponry", "defense", "power_core", "hud"]
 const ASSEMBLY_GROUPS := ["weaponry", "defense", "power_core"]
 # Spaceship z_index in ObjectsContainer — high enough so children at negative local z stay above background (z=0,1)
 const SHIP_ASSEMBLY_Z := 100
@@ -15,10 +15,10 @@ const GROUP_FOLDERS := {
 	"weaponry":   "weaponry",
 	"defense":    "defense",
 	"power_core": "sprites/thrust",
-	"user":       "user",
+	"hud":        "hud",
 }
 # SpaceScreen position and default tile size (2048×2048 image at scale 1.0 → 700×700px tile)
-const SCREEN_ORIGIN := Vector2(270.0, 8.0)
+const SCREEN_ORIGIN := Vector2(15.0, 8.0)
 const SCREEN_TILE_SZ := 700.0
 
 # Sentinel source_path for the synthetic Group Layer object.
@@ -44,7 +44,7 @@ const SHELF_END_PREFIX   := "res://__shelf_end_"
 @onready var btn_weaponry: Button    = $SidePanel/VBox/TopHBox/ButtonsColumn/EquipmentBtn
 @onready var btn_defense: Button     = $SidePanel/VBox/TopHBox/ButtonsColumn/ScreenBtn
 @onready var btn_power_core: Button  = $SidePanel/VBox/TopHBox/ButtonsColumn/StatBtn
-@onready var btn_user: Button        = $SidePanel/VBox/TopHBox/ButtonsColumn/UserBtn
+@onready var btn_hud: Button         = $SidePanel/VBox/TopHBox/ButtonsColumn/HudBtn
 @onready var btn_reset_screen: Button     = $SidePanel/VBox/TopHBox/ButtonsColumn/ResetScreenBtn
 @onready var btn_symmetric: Button        = $SidePanel/VBox/TopHBox/ButtonsColumn/SymmetricBtn
 @onready var btn_save: Button             = $SidePanel/VBox/TopHBox/ButtonsColumn/SaveBtn
@@ -102,7 +102,7 @@ func _ready() -> void:
 	btn_weaponry.pressed.connect(func() -> void: _set_group("weaponry"))
 	btn_defense.pressed.connect(func() -> void: _set_group("defense"))
 	btn_power_core.pressed.connect(func() -> void: _set_group("power_core"))
-	btn_user.pressed.connect(func() -> void: _set_group("user"))
+	btn_hud.pressed.connect(func() -> void: _set_group("hud"))
 	unsaved_dialog.get_node("VBox/BtnRow/SaveBtn").pressed.connect(_on_dialog_save)
 	unsaved_dialog.get_node("VBox/BtnRow/DiscardBtn").pressed.connect(_on_dialog_discard)
 	unsaved_dialog.get_node("VBox/BtnRow/CancelBtn").pressed.connect(_on_dialog_cancel)
@@ -628,7 +628,7 @@ func _update_group_buttons() -> void:
 	btn_weaponry.button_pressed   = in_assembly
 	btn_defense.button_pressed    = in_assembly
 	btn_power_core.button_pressed = in_assembly
-	btn_user.button_pressed       = (_active_group == "user")
+	btn_hud.button_pressed        = (_active_group == "hud")
 	btn_reset_screen.visible = in_assembly
 
 func _update_object_interactivity() -> void:
@@ -734,9 +734,9 @@ func _on_transform_live(pos: Vector2, sz: Vector2) -> void:
 # z_index, so without this sync a visually-on-top object can be unclickable
 # because an underneath sibling absorbs the click.
 func _sort_canvas_z_order() -> void:
-	# Sort direct ObjectsContainer children (screen, spaceship, user)
+	# Sort direct ObjectsContainer children (screen, spaceship, hud)
 	var top_objs: Array = []
-	for group in ["screen", "user"]:
+	for group in ["screen", "hud"]:
 		for obj in _placed.get(group, []):
 			if is_instance_valid(obj) and obj.get_parent() == objects_container:
 				top_objs.append(obj)
@@ -1009,7 +1009,7 @@ func _on_dialog_cancel() -> void:
 # --- Persistence ---
 
 func _save_layout() -> void:
-	# Only normalize z_indices for non-assembly groups (screen, user).
+	# Only normalize z_indices for non-assembly groups (screen, hud).
 	# Assembly groups (weaponry/defense/power_core) use explicit local z_index:
 	# spaceship=0, above hull=positive, below hull=negative — must be preserved as-is.
 	for group in GROUPS:
