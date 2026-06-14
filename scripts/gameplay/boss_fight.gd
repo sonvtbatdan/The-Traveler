@@ -19,17 +19,18 @@ extends Control
 const BossElephantScript   := preload("res://scripts/gameplay/boss_elephant.gd")
 const BossChromeleonScript := preload("res://scripts/gameplay/boss_chromeleon.gd")
 const BossMetalflyScript   := preload("res://scripts/gameplay/boss_metalfly.gd")
+const BossNautilusScript   := preload("res://scripts/gameplay/boss_nautilus.gd")
 const BossDeathFXScript    := preload("res://scripts/gameplay/boss_death_fx.gd")
 
-const OC_BOUNDS     := Rect2(270.0, 8.0, 700.0, 764.0)  # play-area rect (viewport)
+const OC_BOUNDS     := Rect2(15.0, 8.0, 955.0, 764.0)   # play-area rect (viewport)
 const OC_TOP        := 8.0    # play-area top edge (objects-container-local y)
-const OC_CENTER_X   := 620.0  # play-area horizontal centre (270 + 700/2)
+const OC_CENTER_X   := 492.0  # play-area horizontal centre (15 + 955/2)
 const BOSS_INTRO_T  := 1.0    # boss/ship fly-in duration (seconds)
 const INTRO_EDGE_CM := 2.0    # boss stops this far from the top edge (player likewise from the bottom)
 
 const WARNING_DELAY   := 5.0    # seconds of warning flash before boss spawns
 const WANDER_DURATION := 5.0    # seconds boss wanders before attacking
-const WANDER_CENTER   := Vector2(620.0, 158.0)  # OC coords — screen (350,150) + SS_OFFSET (270,8)
+const WANDER_CENTER   := Vector2(492.0, 158.0)  # OC coords — screen (477,150) + SS_OFFSET (15,8)
 const WANDER_RADIUS   := 50.0   # max px from center per step
 const WANDER_STEP_T   := 1.2    # seconds per wander step
 
@@ -52,6 +53,7 @@ func setup(oc: Control) -> void:
 	_modules["elephant"]   = _make_module(BossElephantScript)
 	_modules["chromeleon"] = _make_module(BossChromeleonScript)
 	_modules["metalfly"]   = _make_module(BossMetalflyScript)
+	_modules["nautilus"]   = _make_module(BossNautilusScript)
 
 	# Single listener for both boss signals; routed only to the active boss below.
 	GameManager.boss_killed.connect(_on_boss_killed)

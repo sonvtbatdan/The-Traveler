@@ -1,7 +1,7 @@
 extends Control
 
-const SS_OFFSET  := Vector2(270.0, 8.0)
-const OC_BOUNDS  := Rect2(270.0, 8.0, 700.0, 764.0)
+const SS_OFFSET  := Vector2(15.0, 8.0)
+const OC_BOUNDS  := Rect2(15.0, 8.0, 955.0, 764.0)
 
 const GifLoader       := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const PngSpriteLoader := preload("res://scripts/ui/edit_mode/png_sprite_loader.gd")

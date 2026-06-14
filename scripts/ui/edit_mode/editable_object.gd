@@ -198,6 +198,8 @@ func set_gameplay_mode(v: bool) -> void:
 		visible = false   # equipment feature removed; hide any leftover equipment edit sprites in gameplay
 	elif v and group_id == "screen":
 		visible = false
+	elif v and group_id == "hud":
+		visible = false
 	elif v and group_id == "weaponry":
 		# WeaponManager.sync_from_canvas() sets layer_visible per purchase state.
 		# gun_system.gd tự hide gun/turret/emitter/railgun via modulate.a=0.0
@@ -340,7 +342,7 @@ func _flash_ship() -> void:
 
 func _collect_near_asteroids() -> void:
 	var ship_center: Vector2 = global_position + size / 2.0
-	var local: Vector2 = ship_center - Vector2(270.0, 8.0)
+	var local: Vector2 = ship_center - Vector2(15.0, 8.0)
 	for node: Node in get_tree().get_nodes_in_group("asteroid_main"):
 		if node.has_method("collect_near"):
 			node.collect_near(local, 10.0)

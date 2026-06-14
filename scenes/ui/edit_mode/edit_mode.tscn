@@ -68,25 +68,10 @@ layout_mode = 2
 text = "GROUP"
 horizontal_alignment = 1
 
-[node name="EquipmentBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
+[node name="HudBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 toggle_mode = true
-text = "Weaponry"
-
-[node name="ScreenBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
-layout_mode = 2
-toggle_mode = true
-text = "Defense"
-
-[node name="StatBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
-layout_mode = 2
-toggle_mode = true
-text = "Power Core"
-
-[node name="UserBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
-layout_mode = 2
-toggle_mode = true
-text = "User"
+text = "HUD"
 
 [node name="ScreenGroupBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
@@ -116,11 +101,6 @@ layout_mode = 2
 text = "Fit 1440×780"
 visible = false
 
-[node name="ResetScreenBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
-layout_mode = 2
-text = "Reset Screen"
-visible = false
-
 [node name="ResetEquipmentBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2
 text = "Reset Power Core"
@@ -131,11 +111,6 @@ layout_mode = 2
 toggle_mode = true
 text = "Show Weapons"
 visible = false
-
-[node name="SymmetricBtn" type="Button" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
-layout_mode = 2
-toggle_mode = true
-text = "Symmetric"
 
 [node name="Spacer" type="Control" parent="SidePanel/VBox/TopHBox/ButtonsColumn"]
 layout_mode = 2

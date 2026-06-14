@@ -44,8 +44,7 @@ func _configure() -> void:
 	xp_reward = BM_XP
 	contact_damage = 0          # it beams; never rams
 	contact_explodes = false
-	body_color = Color(0.16, 0.12, 0.22)   # dark core; the rainbow glow is the real look
-	shape_kind = "circle"
+	icon_path = "res://assets/enemies/beamer.png"
 
 func _tick(delta: float) -> void:
 	_clock += delta

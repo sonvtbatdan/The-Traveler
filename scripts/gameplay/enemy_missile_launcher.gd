@@ -21,8 +21,8 @@ const ML_DESCEND_SPEED: float = 200.0   # px/s entry descent (matches the Sentin
 const ML_STOP_FRAC: float = 0.30        # parks this far down the screen (a touch higher than the Sentinel,
 										#   to give the upward fan-out room above it)
 const ML_FIRE_DELAY: float = 0.6        # after parking, wait this long, then fire the single fan
-const ML_REFIRE: bool = false           # default: fire ONCE. Flip true to loop on a cooldown.
-const ML_REFIRE_COOLDOWN: float = 6.0   # (only used when ML_REFIRE is true)
+const ML_REFIRE: bool = true
+const ML_REFIRE_COOLDOWN: float = 1.5
 
 # ── Tunables: the plasma-line volley (motion) ─────────────────────────────────
 # Each dart's arc: whip out fast BEHIND the launcher → decelerate to a hover (telegraph) → after a
@@ -98,8 +98,7 @@ func _configure() -> void:
 	xp_reward = ML_XP
 	contact_damage = 0          # it launches darts; never rams
 	contact_explodes = false
-	body_color = Color(0.16, 0.20, 0.34)   # dark blue-grey core; the plasma darts carry the look
-	shape_kind = "square"
+	icon_path = "res://assets/enemies/missilelauncher.png"
 
 ## Called by EnemyManager.spawn_missile_launcher() after add_child() (size is known by then).
 func spawn(mgr: Node) -> void:

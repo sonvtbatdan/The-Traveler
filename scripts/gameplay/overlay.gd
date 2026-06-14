@@ -49,8 +49,8 @@ func _rebuild() -> void:
 	if _source_img == null or _screen_w <= 0.0:
 		return
 
-	_tile_w = _screen_w * _tile_scale
-	_tile_h = float(_source_img.get_height()) * (_tile_w / float(_source_img.get_width()))
+	_tile_w = floorf(_screen_w * _tile_scale)
+	_tile_h = floorf(float(_source_img.get_height()) * (_tile_w / float(_source_img.get_width())))
 	if _tile_h <= 0.0:
 		return
 
@@ -59,7 +59,7 @@ func _rebuild() -> void:
 	_tex = ImageTexture.create_from_image(img)
 
 	_cols = 1
-	_tile_x = (_screen_w - _tile_w) * 0.5
+	_tile_x = floorf((_screen_w - _tile_w) * 0.5)
 	var n_rows: int = ceili(_screen_h / _tile_h) + 1
 	for _row in n_rows:
 		var tr := TextureRect.new()
@@ -106,10 +106,14 @@ func apply_layout_rect(rel_pos: Vector2, sz: Vector2) -> void:
 func _apply_positions() -> void:
 	if _rects.is_empty():
 		return
+	var ih   := int(_tile_h)
+	var ioff := int(_offset)
+	var ix   := int(_tile_x)
+	var ixr  := int(_tile_x_r)
 	for row in _rects.size():
-		_rects[row].position = Vector2(_tile_x, _offset + (row - 1) * _tile_h)
+		_rects[row].position = Vector2(ix, ioff + (row - 1) * ih)
 	for row in _rects_r.size():
-		_rects_r[row].position = Vector2(_tile_x_r, _offset + (row - 1) * _tile_h)
+		_rects_r[row].position = Vector2(ixr, ioff + (row - 1) * ih)
 
 func swap_texture(img_path: String, target_width: float = -1.0, tile_x: float = NAN) -> void:
 	var raw := load(img_path) as Texture2D

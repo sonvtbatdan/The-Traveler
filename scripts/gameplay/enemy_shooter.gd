@@ -35,8 +35,7 @@ func _configure() -> void:
 	xp_reward = SH_XP
 	contact_damage = 0          # it shoots; no contact damage
 	contact_explodes = false
-	body_color = Color(0.4, 0.7, 1.0)   # blue ship
-	shape_kind = "triangle"
+	icon_path = "res://assets/enemies/jetfighter.png"
 
 ## Called by EnemyManager after add_child(): pick a stop point in the top band + a 45° entry line.
 func spawn(mgr: Node) -> void:

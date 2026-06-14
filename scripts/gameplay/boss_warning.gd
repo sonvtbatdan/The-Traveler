@@ -11,8 +11,8 @@ const FLASH_INTERVAL := 0.75  # one on/off cycle (seconds)
 const FADE_TIME      := 0.2   # fade-out duration per flash (seconds)
 
 # SpaceScreen bounds in viewport space, shifted up 300px
-const SS_POS  := Vector2(270.0, 8.0 - 300.0)
-const SS_SIZE := Vector2(700.0, 764.0)
+const SS_POS  := Vector2(15.0, 8.0 - 150.0)
+const SS_SIZE := Vector2(955.0, 764.0)
 
 var _sfx: AudioStream = null
 var _tex: Texture2D   = null

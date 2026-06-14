@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Memory
+
+Khi bắt đầu làm việc với project này, **đọc file memory** tại:
+`C:\Users\sonvt\.claude\projects\C--Users-sonvt\memory\MEMORY.md`
+
+File đó chứa index các memory notes liên quan đến project — coordinate system, locked files, session conventions, v.v.
+
 ## Project
 
 Godot 4 GDScript — "The Traveler", a spaceship idle/clicker game. You captain a ship traveling through deep space. Entry scene: `scenes/main.tscn`. Toggle edit mode with the `toggle_edit_mode` input action (mapped in `project.godot`).

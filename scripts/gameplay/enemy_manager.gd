@@ -8,7 +8,7 @@ extends Control
 ## enemy bullets + explosions), found by locating the spaceship EditableObjectNode in ObjectsContainer
 ## exactly like gun_system does.
 
-const SS_OFFSET := Vector2(270.0, 8.0)   # SpaceScreen origin in viewport/ObjectsContainer coords
+const SS_OFFSET := Vector2(15.0, 8.0)   # SpaceScreen origin in viewport/ObjectsContainer coords
 
 const EnemyDummy := preload("res://scripts/gameplay/enemy_dummy.gd")
 const EnemyDiver := preload("res://scripts/gameplay/enemy_diver.gd")

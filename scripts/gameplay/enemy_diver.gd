@@ -47,8 +47,7 @@ func _configure() -> void:
 	contact_explodes = true
 	auto_register = false     # only a warning sign until it actually enters → not damageable yet
 	contact_active = false    # no contact during the warning
-	body_color = Color(0.95, 0.45, 0.35)
-	shape_kind = "triangle"
+	icon_path = "res://assets/enemies/kingfisher.png"
 
 ## Called by EnemyManager for each burst member. `edge` is shared by the whole burst, `is_lead` marks
 ## the player-tracking lead (i == 0), and `start_delay` staggers when this member's warning begins.
