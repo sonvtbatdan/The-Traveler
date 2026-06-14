@@ -92,7 +92,7 @@ func init(tex: Texture2D, pos: Vector2, sz := Vector2.ZERO) -> void:
 	_setup_price_label()
 	_setup_desc_panel()
 	# Tag the ship body so weapon_system.gd can anchor muzzle/aura to it.
-	if group_id == "weaponry" and source_path.get_file().get_basename().to_lower() in ["view", "spaceship"]:
+	if group_id == "ship" and source_path.get_file().get_basename().to_lower() in ["view", "spaceship"]:
 		add_to_group("ship_body")
 	if is_group_layer():
 		texture_rect.visible = false

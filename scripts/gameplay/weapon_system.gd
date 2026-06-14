@@ -619,7 +619,7 @@ func _process(delta: float) -> void:
 ## the cooldown. The primary slot also honours the AUTO-DRIVE auto-fire toggle.
 func _handle_input(ctx: Dictionary, delta: float) -> void:
 	ctx["cd"] = maxf(0.0, float(ctx["cd"]) - delta)
-	var auto: bool = bool(ctx["allow_auto"]) and _auto_fire
+	var auto: bool = _auto_fire
 	# No firing during the boss fly-in or the death cutscene (player input disabled).
 	var down: bool = (Input.is_mouse_button_pressed(int(ctx["button"])) or auto) and not (GameManager.boss_intro_active or GameManager.input_locked)
 	if _inventory_open():

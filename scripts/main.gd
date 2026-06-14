@@ -8,6 +8,7 @@ const AsteroidLayerScript       := preload("res://scripts/gameplay/asteroid_laye
 const GunSystemScript           := preload("res://scripts/gameplay/gun_system.gd")
 const MaterialPanelScript       := preload("res://scripts/ui/hud/material_panel.gd")
 const BoostButtonScript         := preload("res://scripts/ui/hud/boost_button.gd")
+const AutoFireButtonScript      := preload("res://scripts/ui/hud/auto_fire_button.gd")
 const ShipHpBarScript           := preload("res://scripts/ui/hud/ship_hp_bar.gd")
 const HudHpDisplayScript        := preload("res://scripts/ui/hud/hud_hp_display.gd")
 const BossEditScript            := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
@@ -52,6 +53,7 @@ func _ready() -> void:
 	add_child(LevelDesignPanelScript.new())   # F7 dev tool
 	add_child(InventoryUIScript.new())
 	_add_boost_button()
+	_add_auto_fire_button()
 	_add_ship_hp_bar()
 	_add_hud_hp_display()
 	_add_boss_hp_bar()
@@ -179,6 +181,13 @@ func _add_boost_button() -> void:
 	layer.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(layer)
 	layer.add_child(BoostButtonScript.new())
+
+func _add_auto_fire_button() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 50
+	layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(layer)
+	layer.add_child(AutoFireButtonScript.new())
 
 func _add_ship_hp_bar() -> void:
 	var layer := CanvasLayer.new()

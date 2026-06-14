@@ -216,15 +216,15 @@ func reset_to_origin() -> void:
 		# Reset all children to F4 state (size + scale)
 		for eo in _child_f4_sizes.keys():
 			if is_instance_valid(eo):
-				# Weapon: update animation TextureRect
+				# Weapon or auto-thrust: update animation TextureRect
 				if _static_rects.has(eo) and is_instance_valid(_static_rects[eo]):
 					var tr := _static_rects[eo] as TextureRect
-					tr.position = eo.position
+					tr.position = eo.position - _spaceship_origin
 					tr.size = _child_f4_sizes[eo]
 				# Thrust manual mode: update manual thrust TextureRect
 				elif _manual_thrust_rects.has(eo) and is_instance_valid(_manual_thrust_rects[eo]):
 					var tr := _manual_thrust_rects[eo] as TextureRect
-					tr.position = eo.position
+					tr.position = eo.position - _spaceship_origin
 					tr.size = _child_f4_sizes[eo]
 				# Power core, defense: update EditableObjectNode
 				else:
@@ -373,7 +373,8 @@ func _update_engine_plume() -> void:
 	var sz := _spaceship_eo.size
 	var nozzle_global: Vector2 = xform * Vector2(sz.x * 0.5, sz.y - PLUME_INSET)
 	_engine_plume.position = nozzle_global - global_position
-	_engine_plume.scale = _spaceship_eo.scale          # shrink/grow with the ship
+	_engine_plume.scale    = _spaceship_eo.scale          # shrink/grow with the ship
+	_engine_plume.rotation = _spaceship_eo.rotation      # exhaust follows ship rotation
 	var boosting: bool = GameManager.manual_boost or GameManager.boss_max_hp > 0
 	if boosting:
 		_engine_plume.initial_velocity_min = PLUME_VEL_MIN_BOOST
@@ -654,11 +655,11 @@ func _process(delta: float) -> void:
 		_recoil = _recoil.lerp(Vector2.ZERO, clampf(RECOIL_RETURN * delta, 0.0, 1.0))   # spring back
 		_spaceship_eo.position     = _spaceship_origin + _recoil
 		_spaceship_eo.pivot_offset = _spaceship_eo.size * 0.5  # scale from centre
-		# Fixed 0.35 base (boss-fight size), then the model_size affixes scale sprite AND hitbox.
-		var target_scale_mult := 0.35 * GameManager.model_scale_mult()
+		var target_scale_mult := GameManager.model_scale_mult()
 		if not is_equal_approx(target_scale_mult, _prev_scale_mult):
 			_animate_scale_transition(target_scale_mult)
 			_prev_scale_mult = target_scale_mult
+		_update_ship_facing(delta)
 
 	_update_engine_plume()
 
@@ -758,17 +759,21 @@ func _handle_ship_movement(delta: float) -> void:
 			_dash_cd = GameManager.effective_dash_cd()   # dash_cooldown_reduction affix
 	_space_was_down = space_down
 
+	# When auto-fire rotates the ship to face the cursor, lean/dash textures look wrong.
+	var auto_on: bool = _is_auto_fire_on()
+
 	# Active dash: a fast lunge that overrides normal WASD for its short duration.
 	if _dash_time_left > 0.0:
 		_dash_time_left = maxf(0.0, _dash_time_left - delta)
 		_spaceship_origin += _dash_dir * GameManager.effective_dash_speed() * delta   # dash_distance affix
 		_clamp_ship_origin()
-		if _dash_dir.x < -0.1:
-			_set_ship_pose(POSE_DASH_LEFT)
-		elif _dash_dir.x > 0.1:
-			_set_ship_pose(POSE_DASH_RIGHT)
-		else:
-			_set_ship_pose(POSE_IDLE)
+		if not auto_on:
+			if _dash_dir.x < -0.1:
+				_set_ship_pose(POSE_DASH_LEFT)
+			elif _dash_dir.x > 0.1:
+				_set_ship_pose(POSE_DASH_RIGHT)
+			else:
+				_set_ship_pose(POSE_IDLE)
 		return
 
 	if mv == Vector2.ZERO:
@@ -778,12 +783,13 @@ func _handle_ship_movement(delta: float) -> void:
 	var speed_mult := 1.25 if (GameManager.manual_boost or GameManager.boss_max_hp > 0) else 1.0
 	_spaceship_origin += mv.normalized() * GameManager.effective_move_speed() * speed_mult * delta
 	_clamp_ship_origin()
-	if mv.x < -0.1:
-		_set_ship_pose(POSE_LEAN_LEFT)
-	elif mv.x > 0.1:
-		_set_ship_pose(POSE_LEAN_RIGHT)
-	else:
-		_set_ship_pose(POSE_IDLE)
+	if not auto_on:
+		if mv.x < -0.1:
+			_set_ship_pose(POSE_LEAN_LEFT)
+		elif mv.x > 0.1:
+			_set_ship_pose(POSE_LEAN_RIGHT)
+		else:
+			_set_ship_pose(POSE_IDLE)
 
 # Clamp the ship so its VISIBLE (scaled) body stays inside the screen — not its full unscaled rect.
 # The ship renders at _spaceship_eo.scale (0.70 normal / 0.35 boost) around its centre, so clamping
@@ -974,8 +980,10 @@ func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 	tr.size = eo.size                             # F4-correct size
 	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# Position relative to spaceship (child positioning, like weapons)
-	tr.position = eo.position
+	# Thrust EOs are ObjectsContainer children; their position is in viewport space.
+	# TRects become spaceship children, so position must be relative to ship origin.
+	var ship_pos := _spaceship_eo.position if _spaceship_eo != null and is_instance_valid(_spaceship_eo) else Vector2.ZERO
+	tr.position = eo.position - ship_pos
 	tr.flip_h = eo.texture_rect.flip_h
 	tr.visible = not GameManager.manual_boost
 	tr.z_as_relative = false
@@ -1009,7 +1017,7 @@ func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
 			mtr.size = manual_size
 			mtr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 			mtr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			mtr.position = manual_eo.position
+			mtr.position = manual_eo.position - ship_pos
 			mtr.flip_h = manual_eo.texture_rect.flip_h
 			mtr.visible = GameManager.manual_boost
 			mtr.z_as_relative = false
@@ -1895,3 +1903,25 @@ func _apply_hull_skin() -> void:
 	var prev := _ship_pose
 	_ship_pose = -1   # invalidate so _set_ship_pose always applies
 	_set_ship_pose(prev if prev >= 0 else POSE_IDLE)
+
+func _is_auto_fire_on() -> bool:
+	var ws := get_tree().get_first_node_in_group("weapon_system")
+	return ws != null and ws.has_method("get_auto_fire") and bool(ws.get_auto_fire())
+
+## Rotate ship to face the mouse cursor while auto-fire is ON; snap back to upright when OFF.
+func _update_ship_facing(delta: float) -> void:
+	if not _is_auto_fire_on():
+		if not is_zero_approx(_spaceship_eo.rotation):
+			_spaceship_eo.rotation = lerp_angle(
+				_spaceship_eo.rotation, 0.0, clampf(12.0 * delta, 0.0, 1.0))
+			if absf(_spaceship_eo.rotation) < 0.005:
+				_spaceship_eo.rotation = 0.0
+		return
+	var mouse_global := get_global_mouse_position()
+	var ship_center  := _spaceship_eo.get_global_transform() * (_spaceship_eo.size * 0.5)
+	var dir          := mouse_global - ship_center
+	if dir.length_squared() < 4.0:
+		return
+	dir = dir.normalized()
+	# atan2(dir.x, -dir.y): 0 when mouse is straight up (ship faces up by default)
+	_spaceship_eo.rotation = atan2(dir.x, -dir.y)
