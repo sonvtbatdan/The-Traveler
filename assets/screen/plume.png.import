@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://ccijwbso06may"
-path="res://.godot/imported/thrust.png-1913f5bbfca66547317e32068f9becf0.ctex"
+uid="uid://28nef7t7orqx"
+path="res://.godot/imported/plume.png-023861552603b8a604738a6c274c34cf.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/weaponry/thrust.png"
-dest_files=["res://.godot/imported/thrust.png-1913f5bbfca66547317e32068f9becf0.ctex"]
+source_file="res://assets/screen/plume.png"
+dest_files=["res://.godot/imported/plume.png-023861552603b8a604738a6c274c34cf.ctex"]
 
 [params]
 
