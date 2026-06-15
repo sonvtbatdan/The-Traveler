@@ -9,11 +9,9 @@ const GunSystemScript           := preload("res://scripts/gameplay/gun_system.gd
 const MaterialPanelScript       := preload("res://scripts/ui/hud/material_panel.gd")
 const BoostButtonScript         := preload("res://scripts/ui/hud/boost_button.gd")
 const AutoFireButtonScript      := preload("res://scripts/ui/hud/auto_fire_button.gd")
-const ShipHpBarScript           := preload("res://scripts/ui/hud/ship_hp_bar.gd")
 const HudHpDisplayScript        := preload("res://scripts/ui/hud/hud_hp_display.gd")
 const BossEditScript            := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
 const BossFightScript           := preload("res://scripts/gameplay/boss_fight.gd")  # Boss Manager (owns all boss modules)
-const BossPanelScript           := preload("res://scripts/ui/hud/boss_panel.gd")
 const BossHpBarScript           := preload("res://scripts/ui/hud/boss_hp_bar.gd")
 const InventoryUIScript         := preload("res://scripts/ui/inventory/inventory_ui.gd")
 const WeaponSystemScript        := preload("res://scripts/gameplay/weapon_system.gd")
@@ -21,6 +19,7 @@ const BossMusicScript           := preload("res://scripts/gameplay/boss_music.gd
 const BossWarningScript         := preload("res://scripts/gameplay/boss_warning.gd") # boss-entry warning flash + SFX
 const EnemyManagerScript        := preload("res://scripts/gameplay/enemy_manager.gd")  # normal-enemy spawner/owner
 const EnemyPanelScript          := preload("res://scripts/ui/hud/enemy_panel.gd")      # ENEMIES debug spawn panel
+const HudEditOverlayScript      := preload("res://scripts/ui/hud/hud_edit_overlay.gd") # F6 HUD layout editor
 const LevelDesignPanelScript    := preload("res://scripts/ui/level_design/level_design_panel.gd")  # F7 level-design dev tool
 const WaveDirectorScript        := preload("res://scripts/gameplay/wave_director.gd")              # runtime wave director (plays recipes)
 const PerfOverlayScript         := preload("res://scripts/ui/hud/perf_overlay.gd")                 # F8 dev FPS/frame-time readout
@@ -29,8 +28,9 @@ const PerfOverlayScript         := preload("res://scripts/ui/hud/perf_overlay.gd
 @onready var visual_container: HBoxContainer = %VisualContainer
 
 var _boss_edit_mode: Node = null
-var _death_layer: CanvasLayer = null
-var _victory_layer: CanvasLayer = null
+var _death_layer:    CanvasLayer = null
+var _victory_layer:  CanvasLayer = null
+var _hud_edit = null  # HudEditOverlayScript instance
 
 func _ready() -> void:
 	get_tree().set_auto_accept_quit(false)
@@ -54,10 +54,10 @@ func _ready() -> void:
 	add_child(InventoryUIScript.new())
 	_add_boost_button()
 	_add_auto_fire_button()
-	_add_ship_hp_bar()
 	_add_hud_hp_display()
 	_add_boss_hp_bar()
-	_add_boss_panel()
+	_hud_edit = HudEditOverlayScript.new()
+	add_child(_hud_edit)
 	add_child(BossMusicScript.new())   # loops the boss track during boss fights
 	add_child(BossWarningScript.new()) # warning flash + SFX on boss entry
 	GameManager.load_game()
@@ -189,13 +189,6 @@ func _add_auto_fire_button() -> void:
 	add_child(layer)
 	layer.add_child(AutoFireButtonScript.new())
 
-func _add_ship_hp_bar() -> void:
-	var layer := CanvasLayer.new()
-	layer.layer = 50
-	layer.process_mode = Node.PROCESS_MODE_ALWAYS
-	add_child(layer)
-	layer.add_child(ShipHpBarScript.new())
-
 func _add_hud_hp_display() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 51
@@ -210,10 +203,6 @@ func _add_boss_hp_bar() -> void:
 	add_child(layer)
 	layer.add_child(BossHpBarScript.new())
 
-func _add_boss_panel() -> void:
-	var bp := BossPanelScript.new()
-	bp.position = Vector2(1240.0, 318.0)
-	add_child(bp)
 
 func _on_ship_destroyed() -> void:
 	GameManager.set_boost(false)
@@ -354,7 +343,7 @@ func _add_enemy_panel() -> void:
 	# ENEMIES debug spawn panel — occupies the exact rect the old POWER CORE panel used.
 	var p := EnemyPanelScript.new()
 	add_child(p)
-	p.setup(Rect2(980.0, 410.0, 250.0, 362.0))
+	p.setup(Rect2(980.0, 500.0, 250.0, 205.0))
 
 func _hide_left_panels() -> void:
 	var up := get_node_or_null("UserPanel")
@@ -413,7 +402,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			edit_mode.toggle()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("toggle_boss_edit_mode"):
-		# Boss-edit TOOL disabled for now — F4 no longer opens the editor (the node still loads sprites).
+		if _boss_edit_mode != null:
+			_boss_edit_mode.toggle()
 		get_viewport().set_input_as_handled()
 
 func _on_upgrades_reset() -> void:

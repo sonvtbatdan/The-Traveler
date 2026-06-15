@@ -24,7 +24,7 @@ const SW_LINE_SPACING: float = 70.0           # gap between beads along the trac
 const SW_ENTER_CM: float = 1.5                # straight travel from the edge before the circle forms
 const SW_ROW_SPACING: float = 200.0           # vertical gap between stations (slots 2+ go lower)
 const SW_MAX_ROWS: int = 3                    # how many rows of stations before wrapping
-const SW_ENTER_SPEED: float = 400.0           # travel speed of the conga, the forming ring, AND the dive feed
+const SW_ENTER_SPEED: float = 300.0           # travel speed of the conga, the forming ring, AND the dive feed
 const SW_FORM_TIMEOUT: float = 8.0            # safety backstop if forming somehow stalls
 
 enum State { FORMING, DIVE, DONE }

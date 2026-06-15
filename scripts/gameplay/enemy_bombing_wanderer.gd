@@ -17,6 +17,7 @@ var _vel: Vector2 = Vector2.ZERO
 var _drop_t: float = 0.0
 
 func _configure() -> void:
+	_hp_mult = 1.0   # effective HP = BW_HP × 1.0 = 240 (PDF target)
 	hp_max = BW_HP
 	xp_reward = BW_XP
 	contact_damage = 0

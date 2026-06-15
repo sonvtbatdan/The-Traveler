@@ -16,6 +16,7 @@ const ChoreoSwarmBorder := preload("res://scripts/gameplay/choreographies/choreo
 const ChoreoBeginner1 := preload("res://scripts/gameplay/choreographies/choreo_beginner_1.gd")
 const ChoreoBeginner2 := preload("res://scripts/gameplay/choreographies/choreo_beginner_2.gd")
 const ChoreoBeginner3 := preload("res://scripts/gameplay/choreographies/choreo_beginner_3.gd")
+const ChoreoAnimalWave := preload("res://scripts/gameplay/choreographies/choreo_animal_wave.gd")
 
 const REGISTRY := {
 	"Test_Divers": ChoreoTestDivers,
@@ -30,6 +31,7 @@ const REGISTRY := {
 	"Beginner_1": ChoreoBeginner1,
 	"Beginner_2": ChoreoBeginner2,
 	"Beginner_3": ChoreoBeginner3,
+	"Animal_wave": ChoreoAnimalWave,
 }
 
 ## Plain-language description of each choreography (shown in the F7 help box). Keyed by display name;
@@ -47,6 +49,7 @@ const DESCRIPTIONS := {
 	"Beginner_1": "Gentle 3-phase warm-up: 6 Shooters in 45° lines → 1 player-tracking Sentinel at top-middle → both together. Each phase waits for a screen clear.",
 	"Beginner_2": "3-phase: diver bursts from the top → 2 wandering bombers with interleaved side diver bursts → a final volley of random-edge diver bursts. Each phase waits for a screen clear.",
 	"Beginner_3": "3-phase: 8 Shooters drop from the top into a top-third arc → 8 rise from the bottom into a bottom-third arc → 8 home into the 4 corners (2 each). Each flies in fast, eases into place, then fires. Each phase waits for a screen clear.",
+	"Animal_wave": "10-minute Animal group timeline: Flies+Bug (0–2 min) → Bee/Swarm/Spider (2–4 min) → Dragonfly/Octopus (4–7 min) → full mix with Centipede (7–10 min). Scripted Diver burst at 3 min and Bombing Wanderer at 5 min.",
 }
 
 ## All registered choreography names (for the F7 dropdown).

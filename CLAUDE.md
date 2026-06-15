@@ -80,7 +80,11 @@ Root `Control` with these direct children:
 | 5 | UserPanel |
 | 10 | EditMode overlay |
 | 11 | `auto_clicker_overlay.gd` (autoclicker hand cursors) |
-| 100 | Settings panel (always on top, even above screen group) |
+| 48 | `coord_grid.gd` (coordinate grid — child of enemy_panel) |
+| 50 | HP bars / AUTO-DRIVE / AUTO-FIRE buttons |
+| 51 | HUD display elements |
+| 60 | `inventory_ui.gd` (inventory/equipment screen) |
+| 100 | Settings panel + `hud_edit_overlay.gd` (HUD edit F6) — always on top |
 
 `auto_clicker_overlay.gd` (`scripts/gameplay/auto_clicker_overlay.gd`) draws one hand cursor per owned autoclicker upgrade, placed flush against the ship sprite's silhouette via alpha-edge detection (`_alpha_edge`); rebuilds on `UpgradeManager.upgrade_purchased` / `upgrades_reset`. Self-contained, no signals out.
 
@@ -193,7 +197,9 @@ The active firing engine is **`weapon_system.gd`** (`scripts/gameplay/weapon_sys
 | Where added | `main.gd` → child of `SpaceScreen`, group `"weapon_system"` | `main.gd` → `ObjectsContainer`, z_index just above spaceship |
 | Looked up by | bosses via `get_tree().get_first_node_in_group("weapon_system")` | not group-queried |
 
-`weapon_system.gd` handles fire modes **repeat / charge / beam / channel / aura**; projectiles/missiles/homing/cone-spread/chain/parasites-with-DoT, orbitals, bat swarm, Lasgun (hitscan) + Plasma-Drill (tether) beams, Rift-Maker vortex, environment light overlay, and floating crit damage numbers. Primary weapon = left-click, secondary = right-click. It applies each item's hidden `base_mult` (±20%) and affixes when computing stats. **`gun_system.refresh_layout()` and the F4 save/load cycle remain locked** (see LOCKED MODULES).
+`weapon_system.gd` handles fire modes **repeat / charge / beam / channel / aura**; projectiles/missiles/homing/cone-spread/chain/parasites-with-DoT, orbitals, bat swarm, Laser gun (hitscan, mouse-aimed) + Plasma-Drill (tether) beams, Rift-Maker vortex, environment light overlay, and floating crit damage numbers. Primary weapon = left-click, secondary = right-click. It applies each item's hidden `base_mult` (±20%) and affixes when computing stats. **`gun_system.refresh_layout()` and the F4 save/load cycle remain locked** (see LOCKED MODULES).
+
+**Laser gun** (`fire_type: "hitscan_beam"`, item id `"lasgun"`, display name `"Laser gun"`): beam hướng từ muzzle về phía chuột (`get_local_mouse_position() - muzzle`). Fallback `Vector2.UP` chỉ khi chuột trùng muzzle. Affix `splash_radius` → suffix "of Detonation" (chưa implement splash). **`splash_radius` và các affix `multishot/pierce/ricochet/knockback` chưa được wire vào fire logic** (xem comment `weapon_system.gd:2436`).
 
 ### Gun system (`scripts/gameplay/gun_system.gd`) — legacy mount auto-fire
 
@@ -332,6 +338,34 @@ Upgrades are bought with materials matching `cost_type` from `MaterialManager`.
 ---
 
 ## UI Scripts
+
+### `scripts/ui/hud/hud_edit_overlay.gd` (F6 HUD Edit Mode)
+
+Toggle với **F6**. Cho phép drag/resize các HUD widget theo thời gian thực, lưu vào `user://hud_layout.cfg`.
+
+**Widget registration protocol** — mỗi widget cần:
+```gdscript
+add_to_group("hud_editable")
+set_meta("hud_key", "unique_key_name")
+func get_hud_rect() -> Rect2: ...   # trả về position + size hiện tại
+func apply_hud_rect(rect: Rect2) -> void: ...  # áp dụng rect mới lên node
+static func _load_hud_rect(key: String) -> Rect2: ...  # đọc từ user://hud_layout.cfg
+```
+
+**Widgets hiện đang editable:**
+| Widget | File | hud_key | Default pos |
+|--------|------|---------|-------------|
+| AUTO-DRIVE | `boost_button.gd` | `"boost_button"` | (vp.x-60, 550) |
+| AUTO-FIRE | `auto_fire_button.gd` | `"auto_fire"` | (vp.x-60, 652) |
+| ENEMIES panel | `enemy_panel.gd` | `"enemy_panel"` | (980, 500) |
+| QuickPanel (stat) | `stat_panel.gd` | `"stat_panel"` | (1240, 228) deferred |
+| INVENTORY button | `inventory_ui.gd` | `"inventory_btn"` | (1240, 310) |
+
+**Props panel (X/Y/W/H):** Click frame để chọn (viền vàng) → nhập số vào ô X/Y/W/H → nhấn Enter để áp dụng ngay. Kéo cũng cập nhật các ô này real-time.
+
+**`stat_panel.gd` deferred load:** `_anchor_bottom_right()` chạy deferred → phải gọi `_load_hud_layout()` deferred SAU ĐÓ (thứ tự `call_deferred` trong cùng `_ready()` là đảm bảo). Nếu đảo thứ tự, config bị override bởi `_anchor_bottom_right()`.
+
+**Save:** nút Save trong toolbar → `apply_hud_rect()` tất cả widgets → ghi `user://hud_layout.cfg`. Mỗi widget load config riêng trong `_ready()` / `_reposition()` của nó.
 
 ### `scripts/ui/hud/stat_panel.gd`
 
@@ -490,6 +524,7 @@ For each animated asset:
 | `user://todo.cfg` | TodoList widget state |
 | `user://user_panel.cfg` | UserPanel widget states |
 | `user://session.cfg` | Chatbot / weather-clock conversation history |
+| `user://hud_layout.cfg` | HUD widget positions/sizes — boost_button, auto_fire, enemy_panel, stat_panel, inventory_btn — written by F6 HUD Edit Mode |
 | `res://default_layout.cfg` | positions/sizes của tất cả edit mode objects (tất cả groups kể cả "screen") |
 
 > Verified by grep over `scripts/`. The previously-listed `game_save.cfg`, `upgrades_save.cfg`, `equipment.cfg`, `audio_config.cfg` **do not exist** — GameManager/UpgradeManager/EquipmentManager all write to the shared `user://save.cfg`.
@@ -949,6 +984,28 @@ bx_r = OC_BOUNDS.size.x - bx - bw   # = 700 - bx - bw
 
 ---
 
+## Enemy Panel (`scripts/ui/hud/enemy_panel.gd`)
+
+6-tab panel (Animal / Human / Alien / Asteroid / Boss / Other). **GRID_COLS = 7** (7 thumbnails per row, wraps tự động).
+
+**TAB_ENEMIES** — format `[display_label, spawn_key, icon_path, spawn_group]`:
+
+| Tab | Enemies |
+|-----|---------|
+| Animal | Diver, Bombing wanderer, Swarm, Bee, Bug, Centipede, Dragonfly, Flies, Octopus, Spider |
+| Human | Shooter, Beamer, Missile launcher, Royal, Royal Fighter, Royal Scout, Royal Tanker, Pirate Leader, Pirate Ork, Pirate Spear, Pirate SpearShield |
+| Alien | Sentinels, Cruiser, Crystal, Egg, Fighter, Plate, Scout, Tree |
+| Boss | Elephant, Chromeleon, Metalfly, Nautilus |
+| Other | Dummy (`dummy.png`), Bomb |
+
+Spawn keys **đã implement** trong `enemy_manager`: `spawn_bee/bug/centipede/dragonfly/flies/octopus/spider` (Animal group — xem Animal Enemy Group section).
+
+Spawn keys **chưa implement**: `spawn_royal/royal_fighter/royal_scout/royal_tanker`, `spawn_pirate_leader/ork/spear/spear_shield`, `spawn_alien_cruiser/crystal/egg/fighter/plate/scout/tree`.
+
+Image assets tại `assets/enemies/`: prefix `animal*`, `alien*`, `royal*`, `pirate*`, `dummy.png`.
+
+---
+
 ## Normal Enemy System
 
 ### `enemy_base.gd` — base class
@@ -958,6 +1015,7 @@ bx_r = OC_BOUNDS.size.x - bx - bw   # = 700 - bx - bw
 - **`icon_path: String = ""`** — set trong `_configure()`. Nếu != "" → load texture, override height theo ratio.
 - **`_draw()`**: nếu có texture → `draw_texture_rect` + white flash overlay khi hit. Nếu không → placeholder shape (circle/triangle/diamond/square) + flash.
 - HP bar vẫn hiển thị ở cả 2 trường hợp.
+- **`_hp_mult: float = -1.0`** — per-enemy HP multiplier override. `-1` = dùng global `ENEMY_HP_MULT = 1.5`. Set `_hp_mult = 1.0` trong `_configure()` để bypass global mult (dùng cho Animal enemies với HP đã = effective HP từ PDF).
 
 ### Enemy assets (`assets/enemies/`)
 
@@ -969,6 +1027,42 @@ bx_r = OC_BOUNDS.size.x - bx - bw   # = 700 - bx - bw
 | Bombing Wanderer | `bombing.png` | square | 1.0 |
 | Bomb | `bomb.png` | circle | **0.5** |
 | Swarm | `swarm.png` | triangle | 1.0 |
+
+### Animal Enemy Group — Architecture
+
+7 enemies + 3 flock orchestrators, tất cả trong `scripts/gameplay/`.
+
+**Solo enemies** (có `spawn(mgr)` tự chọn vị trí vào):
+
+| Script | HP | XP | Contact DMG | Behaviour |
+|--------|----|----|-------------|-----------|
+| `enemy_centipede.gd` | 240 | 24 | 20 | Rotate 120°/s, tiến thẳng về player 100px/s, vào từ cạnh ngẫu nhiên |
+| `enemy_dragonfly.gd` | 90 | 10 | 10 | ENTRY → SPIRAL (orbit thu hẹp 180→32px) → DIVE 160px/s |
+| `enemy_octopus.gd` | 240 | 24 | 20 | WAIT 1s → JUMP aim-once smoothstep 600px/s range 200px |
+| `enemy_spider.gd` | 60 | 8 | 8 | Như Octopus nhưng chỉ nhảy theo 4 góc 45° |
+
+**Flock pairs** (orchestrator + member):
+
+| Orchestrator | Member | Count | Behaviour |
+|---|---|---|---|
+| `enemy_bee_flock.gd` | `enemy_bee.gd` (HP 20) | 12 (4×3) | Form → Hold 0.4s → DIVE_ROW top-to-bottom, stagger 0.2s/member |
+| `enemy_bug_flock.gd` | `enemy_bug.gd` (HP 15) | 16 (4×4) | Form → Hold → EXPAND sideways → DIVE |
+| `enemy_flies_flock.gd` | `enemy_fly.gd` (HP 10) | 20 (ring 8+12) | Self-driven scatter, random target 1s interval |
+
+**Flock spawn pattern** (cả 3 orchestrators dùng chung):
+- Tính `_spawn_origin` = điểm ngẫu nhiên trên vòng tròn `radius = half_screen_diagonal + 100px` quanh `ship_center()`
+- Queue toàn bộ members, release lần lượt với interval 0.08–0.12s (không overlap)
+- State machine: `SPAWNING → FORMING → HOLD → DIVE_ROW → DONE`
+
+**GDScript type inference gotcha trong enemy scripts**: `_mgr` typed là `Node` nên `_mgr.ship_center()` trả về `Variant`. Dùng `var x: Vector2 = _mgr.ship_center()` (explicit annotation), KHÔNG dùng `:=` (sẽ lỗi parse).
+
+**Wave timeline**: `choreo_animal_wave.gd` — 4 phases × 30s = 2 phút:
+- 0–30s: Flies + Bug (cap 80, rate 1.0s)
+- 30–60s: Flies/Bug/Bee/Swarm/Spider + Diver event t=45s (cap 150, rate 0.8s)
+- 60–90s: Bee/Swarm/Dragonfly/Spider/Octopus + BombingWanderer event t=75s (cap 250, rate 0.5s)
+- 90–120s: full mix + Centipede (cap 400, rate 0.3s)
+
+Registered trong `choreography_registry.gd` key `"Animal_wave"`. Level file: `levels/Level_Animal.json`.
 
 ---
 

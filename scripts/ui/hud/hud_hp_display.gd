@@ -17,14 +17,43 @@ var _shield_clip:  Control     = null
 var _hp_label:     Label       = null
 var _shield_label: Label       = null
 
-var _hpbar_rect:      Rect2 = Rect2()
-var _hpshield_rect:   Rect2 = Rect2()
-var _hpsheet_rect:    Rect2 = Rect2()
+var _hpbar_rect:       Rect2 = Rect2()
+var _hpshield_rect:    Rect2 = Rect2()
+var _hpsheet_rect:     Rect2 = Rect2()
 var _shieldsheet_rect: Rect2 = Rect2()
+
+var _signals_connected: bool = false
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	call_deferred("_connect_edit_mode")
 	call_deferred("_init_from_layout")
+
+func _connect_edit_mode() -> void:
+	var em := get_tree().get_first_node_in_group("edit_mode_ctrl")
+	if em and em.has_signal("gameplay_mode_changed"):
+		em.gameplay_mode_changed.connect(_on_gameplay_mode_changed)
+
+func _on_gameplay_mode_changed(is_gameplay: bool) -> void:
+	if is_gameplay:
+		_refresh()
+		visible = true
+	else:
+		visible = false
+
+func _refresh() -> void:
+	for child in get_children():
+		child.queue_free()
+	_bg           = null
+	_hp_clip      = null
+	_shield_clip  = null
+	_hp_label     = null
+	_shield_label = null
+	_hpbar_rect       = Rect2()
+	_hpshield_rect    = Rect2()
+	_hpsheet_rect     = Rect2()
+	_shieldsheet_rect = Rect2()
+	_init_from_layout()
 
 func _init_from_layout() -> void:
 	var cfg := ConfigFile.new()
@@ -106,12 +135,11 @@ func _build_display() -> void:
 		_shield_label.position = Vector2(_shieldsheet_rect.position.x, _shieldsheet_rect.position.y - 16)
 		add_child(_shield_label)
 
-	# Re-pin the whole cluster top-left in the arena (shifts this node; children keep their layout offsets).
-	if ARENA_PIN:
-		position = PIN_MARGIN - bg_rect.position
+	if not _signals_connected:
+		GameManager.ship_hp_changed.connect(_on_hp_changed)
+		GameManager.ship_shield_changed.connect(_on_shield_changed)
+		_signals_connected = true
 
-	GameManager.ship_hp_changed.connect(_on_hp_changed)
-	GameManager.ship_shield_changed.connect(_on_shield_changed)
 	_on_hp_changed(GameManager.ship_hp)
 	if has_shield:
 		_on_shield_changed(GameManager.ship_shield)
@@ -128,7 +156,7 @@ func _make_label(font: FontFile, color: Color) -> Label:
 	return lbl
 
 func _on_hp_changed(hp: int) -> void:
-	var pct     := clampf(float(hp) / float(maxi(1, GameManager.ship_max_hp)), 0.0, 1.0)
+	var pct      := clampf(float(hp) / float(maxi(1, GameManager.ship_max_hp)), 0.0, 1.0)
 	var n_frames := int(round(pct * HP_FRAMES))
 	if _hp_clip:
 		_hp_clip.size.x = _hpsheet_rect.size.x * float(n_frames) / float(HP_FRAMES)
@@ -136,10 +164,11 @@ func _on_hp_changed(hp: int) -> void:
 		_hp_label.text = "%d / %d" % [hp, GameManager.ship_max_hp]
 
 func _on_shield_changed(shield: float) -> void:
-	var pct     := clampf(shield / maxf(1.0, GameManager.shield_capacity_total()), 0.0, 1.0)
+	var cap      := GameManager.shield_capacity_total()
+	var pct      := clampf(shield / maxf(1.0, cap), 0.0, 1.0)
 	var n_frames := int(round(pct * SHIELD_FRAMES))
 	if _shield_clip:
 		_shield_clip.size.x = _shieldsheet_rect.size.x * float(n_frames) / float(SHIELD_FRAMES)
 	if _shield_label:
 		_shield_label.visible = shield > 0.0
-		_shield_label.text    = "%d / %d" % [int(round(shield)), int(round(GameManager.shield_capacity_total()))]
+		_shield_label.text    = "%d / %d" % [int(round(shield)), int(round(cap))]
