@@ -29,6 +29,8 @@ var _mat_spins:      Dictionary = {}  # "metal"|"nonmetal"|"liquid"|"organic" ->
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	add_to_group("hud_editable")
+	set_meta("hud_key", "stat_panel")
 	_audio_monitor = AudioMonitorScript.new()
 	add_child(_audio_monitor)
 	_apply_style()
@@ -37,6 +39,7 @@ func _ready() -> void:
 	_auto_mute_on_load()   # start muted on load (dev convenience) — press UNMUTE to restore
 	call_deferred("_build_settings_panel")
 	call_deferred("_anchor_bottom_right")
+	call_deferred("_load_hud_layout")
 
 func _apply_style() -> void:
 	var s := StyleBoxFlat.new()
@@ -374,6 +377,30 @@ func _build_settings_panel() -> void:
 func _anchor_bottom_right() -> void:
 	size = Vector2(size.x, get_combined_minimum_size().y + 8.0)
 	position = Vector2(1240.0, 228.0)
+
+func get_hud_rect() -> Rect2:
+	return Rect2(position, size)
+
+func apply_hud_rect(rect: Rect2) -> void:
+	position = rect.position
+	size     = rect.size
+
+func _load_hud_layout() -> void:
+	var saved := _load_hud_rect("stat_panel")
+	if saved.size != Vector2.ZERO:
+		position = saved.position
+		size     = saved.size
+
+static func _load_hud_rect(key: String) -> Rect2:
+	var cfg := ConfigFile.new()
+	if cfg.load("user://hud_layout.cfg") != OK:
+		return Rect2()
+	if not cfg.has_section_key("hud", key + "/pos"):
+		return Rect2()
+	return Rect2(
+		cfg.get_value("hud", key + "/pos",  Vector2.ZERO) as Vector2,
+		cfg.get_value("hud", key + "/size", Vector2.ZERO) as Vector2
+	)
 
 func _make_lbl(txt: String, sz: int, col: Color) -> Label:
 	var l := Label.new()

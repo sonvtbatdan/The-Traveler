@@ -81,6 +81,8 @@ var _dragging: bool = false        # true while an item is being dragged (drag h
 func _ready() -> void:
 	layer = 60
 	add_to_group("inventory_ui")   # weapon_system checks this to pause firing while open
+	add_to_group("hud_editable")
+	set_meta("hud_key", "inventory_btn")
 	_font = load("res://assets/fonts/Gameplay.ttf") as FontFile
 	_build_toggle_button()
 	_build_panel()
@@ -99,6 +101,31 @@ func _build_toggle_button() -> void:
 	_apply_font(_toggle_btn, 12)
 	_toggle_btn.pressed.connect(toggle)
 	add_child(_toggle_btn)
+	var saved := _load_hud_rect("inventory_btn")
+	if saved.size != Vector2.ZERO:
+		_toggle_btn.position = saved.position
+		_toggle_btn.size     = saved.size
+
+func get_hud_rect() -> Rect2:
+	if is_instance_valid(_toggle_btn):
+		return Rect2(_toggle_btn.position, _toggle_btn.size)
+	return Rect2(Vector2(1240, 310), Vector2(192, 30))
+
+func apply_hud_rect(rect: Rect2) -> void:
+	if is_instance_valid(_toggle_btn):
+		_toggle_btn.position = rect.position
+		_toggle_btn.size     = rect.size
+
+static func _load_hud_rect(key: String) -> Rect2:
+	var cfg := ConfigFile.new()
+	if cfg.load("user://hud_layout.cfg") != OK:
+		return Rect2()
+	if not cfg.has_section_key("hud", key + "/pos"):
+		return Rect2()
+	return Rect2(
+		cfg.get_value("hud", key + "/pos",  Vector2.ZERO) as Vector2,
+		cfg.get_value("hud", key + "/size", Vector2.ZERO) as Vector2
+	)
 
 func _build_panel() -> void:
 	_backdrop = ColorRect.new()

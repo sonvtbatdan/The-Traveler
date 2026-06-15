@@ -80,7 +80,11 @@ Root `Control` with these direct children:
 | 5 | UserPanel |
 | 10 | EditMode overlay |
 | 11 | `auto_clicker_overlay.gd` (autoclicker hand cursors) |
-| 100 | Settings panel (always on top, even above screen group) |
+| 48 | `coord_grid.gd` (coordinate grid — child of enemy_panel) |
+| 50 | HP bars / AUTO-DRIVE / AUTO-FIRE buttons |
+| 51 | HUD display elements |
+| 60 | `inventory_ui.gd` (inventory/equipment screen) |
+| 100 | Settings panel + `hud_edit_overlay.gd` (HUD edit F6) — always on top |
 
 `auto_clicker_overlay.gd` (`scripts/gameplay/auto_clicker_overlay.gd`) draws one hand cursor per owned autoclicker upgrade, placed flush against the ship sprite's silhouette via alpha-edge detection (`_alpha_edge`); rebuilds on `UpgradeManager.upgrade_purchased` / `upgrades_reset`. Self-contained, no signals out.
 
@@ -333,6 +337,34 @@ Upgrades are bought with materials matching `cost_type` from `MaterialManager`.
 
 ## UI Scripts
 
+### `scripts/ui/hud/hud_edit_overlay.gd` (F6 HUD Edit Mode)
+
+Toggle với **F6**. Cho phép drag/resize các HUD widget theo thời gian thực, lưu vào `user://hud_layout.cfg`.
+
+**Widget registration protocol** — mỗi widget cần:
+```gdscript
+add_to_group("hud_editable")
+set_meta("hud_key", "unique_key_name")
+func get_hud_rect() -> Rect2: ...   # trả về position + size hiện tại
+func apply_hud_rect(rect: Rect2) -> void: ...  # áp dụng rect mới lên node
+static func _load_hud_rect(key: String) -> Rect2: ...  # đọc từ user://hud_layout.cfg
+```
+
+**Widgets hiện đang editable:**
+| Widget | File | hud_key | Default pos |
+|--------|------|---------|-------------|
+| AUTO-DRIVE | `boost_button.gd` | `"boost_button"` | (vp.x-60, 550) |
+| AUTO-FIRE | `auto_fire_button.gd` | `"auto_fire"` | (vp.x-60, 652) |
+| ENEMIES panel | `enemy_panel.gd` | `"enemy_panel"` | (980, 500) |
+| QuickPanel (stat) | `stat_panel.gd` | `"stat_panel"` | (1240, 228) deferred |
+| INVENTORY button | `inventory_ui.gd` | `"inventory_btn"` | (1240, 310) |
+
+**Props panel (X/Y/W/H):** Click frame để chọn (viền vàng) → nhập số vào ô X/Y/W/H → nhấn Enter để áp dụng ngay. Kéo cũng cập nhật các ô này real-time.
+
+**`stat_panel.gd` deferred load:** `_anchor_bottom_right()` chạy deferred → phải gọi `_load_hud_layout()` deferred SAU ĐÓ (thứ tự `call_deferred` trong cùng `_ready()` là đảm bảo). Nếu đảo thứ tự, config bị override bởi `_anchor_bottom_right()`.
+
+**Save:** nút Save trong toolbar → `apply_hud_rect()` tất cả widgets → ghi `user://hud_layout.cfg`. Mỗi widget load config riêng trong `_ready()` / `_reposition()` của nó.
+
 ### `scripts/ui/hud/stat_panel.gd`
 
 - Contains control buttons (MUTE, SETTING, QUIT) and cheat buttons (RESET HP, KILL BOSS).
@@ -490,6 +522,7 @@ For each animated asset:
 | `user://todo.cfg` | TodoList widget state |
 | `user://user_panel.cfg` | UserPanel widget states |
 | `user://session.cfg` | Chatbot / weather-clock conversation history |
+| `user://hud_layout.cfg` | HUD widget positions/sizes — boost_button, auto_fire, enemy_panel, stat_panel, inventory_btn — written by F6 HUD Edit Mode |
 | `res://default_layout.cfg` | positions/sizes của tất cả edit mode objects (tất cả groups kể cả "screen") |
 
 > Verified by grep over `scripts/`. The previously-listed `game_save.cfg`, `upgrades_save.cfg`, `equipment.cfg`, `audio_config.cfg` **do not exist** — GameManager/UpgradeManager/EquipmentManager all write to the shared `user://save.cfg`.
@@ -946,6 +979,26 @@ Optional `flip_h` param cho right-side blobs. Blob mirror formula:
 ```gdscript
 bx_r = OC_BOUNDS.size.x - bx - bw   # = 700 - bx - bw
 ```
+
+---
+
+## Enemy Panel (`scripts/ui/hud/enemy_panel.gd`)
+
+6-tab panel (Animal / Human / Alien / Asteroid / Boss / Other). **GRID_COLS = 7** (7 thumbnails per row, wraps tự động).
+
+**TAB_ENEMIES** — format `[display_label, spawn_key, icon_path, spawn_group]`:
+
+| Tab | Enemies |
+|-----|---------|
+| Animal | Diver, Bombing wanderer, Swarm, Bee, Bug, Centipede, Dragonfly, Flies, Octopus, Spider |
+| Human | Shooter, Beamer, Missile launcher, Royal, Royal Fighter, Royal Scout, Royal Tanker, Pirate Leader, Pirate Ork, Pirate Spear, Pirate SpearShield |
+| Alien | Sentinels, Cruiser, Crystal, Egg, Fighter, Plate, Scout, Tree |
+| Boss | Elephant, Chromeleon, Metalfly, Nautilus |
+| Other | Dummy (`dummy.png`), Bomb |
+
+Spawn keys mới cần implement trong `enemy_manager`: `spawn_bee/bug/centipede/dragonfly/flies/octopus/spider`, `spawn_royal/royal_fighter/royal_scout/royal_tanker`, `spawn_pirate_leader/ork/spear/spear_shield`, `spawn_alien_cruiser/crystal/egg/fighter/plate/scout/tree`.
+
+Image assets tại `assets/enemies/`: prefix `animal*`, `alien*`, `royal*`, `pirate*`, `dummy.png`.
 
 ---
 

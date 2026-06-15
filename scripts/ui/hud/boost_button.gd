@@ -8,14 +8,16 @@ var _btn: Button = null
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_to_group("hud_editable")
+	set_meta("hud_key", "boost_button")
 	_btn = Button.new()
 	_btn.text = "AUTO-DRIVE"
-	_btn.custom_minimum_size = Vector2(130, 36)
+	_btn.custom_minimum_size = Vector2(50, 100)
 	_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	var font := load(FONT_PATH) as FontFile
 	if font:
 		_btn.add_theme_font_override("font", font)
-	_btn.add_theme_font_size_override("font_size", 11)
+	_btn.add_theme_font_size_override("font_size", 9)
 	_apply_color(false)
 	add_child(_btn)
 	_btn.pressed.connect(_on_pressed)
@@ -26,8 +28,33 @@ func _ready() -> void:
 	call_deferred("_reposition")
 
 func _reposition() -> void:
+	var saved := _load_hud_rect("boost_button")
+	if saved.size != Vector2.ZERO:
+		_btn.position           = saved.position
+		_btn.custom_minimum_size = saved.size
+		_btn.size               = saved.size
+		return
 	var vp := get_viewport_rect().size
-	_btn.position = Vector2(vp.x - 140, vp.y - 46)
+	_btn.position = Vector2(vp.x - 60, 550)
+
+func get_hud_rect() -> Rect2:
+	return Rect2(_btn.position, _btn.custom_minimum_size)
+
+func apply_hud_rect(rect: Rect2) -> void:
+	_btn.position            = rect.position
+	_btn.custom_minimum_size = rect.size
+	_btn.size                = rect.size
+
+static func _load_hud_rect(key: String) -> Rect2:
+	var cfg := ConfigFile.new()
+	if cfg.load("user://hud_layout.cfg") != OK:
+		return Rect2()
+	if not cfg.has_section_key("hud", key + "/pos"):
+		return Rect2()
+	return Rect2(
+		cfg.get_value("hud", key + "/pos",  Vector2.ZERO) as Vector2,
+		cfg.get_value("hud", key + "/size", Vector2.ZERO) as Vector2
+	)
 
 func _on_pressed() -> void:
 	GameManager.set_boost(not GameManager.manual_boost)
