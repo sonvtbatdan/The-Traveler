@@ -5,7 +5,9 @@ extends Node2D
 ## (inventory/weapons/bosses/enemies/affixes come later). All knobs are in the TUNABLES block below.
 
 const HudHpDisplayScript := preload("res://scripts/ui/hud/hud_hp_display.gd")
-const ArenaSpawnerScript := preload("res://scripts/gameplay/arena_spawner.gd")
+const ArenaEnemyMgrScript := preload("res://scripts/gameplay/arena_enemy_manager.gd")
+const WaveDirectorScript := preload("res://scripts/gameplay/arena_wave_director.gd")
+const WaveEditorScript   := preload("res://scripts/ui/hud/arena_wave_editor.gd")
 const ArenaWeaponsScript := preload("res://scripts/gameplay/arena_weapons.gd")
 const ArenaNebulaScript  := preload("res://scripts/gameplay/arena_nebula.gd")
 const PerfOverlayScript  := preload("res://scripts/ui/hud/perf_overlay.gd")
@@ -45,7 +47,9 @@ func _ready() -> void:
 	_build_player()
 	_build_ui()
 	add_child(PerfOverlayScript.new())   # always-on FPS/frame-ms readout (top-right) for tuning
-	add_child(ArenaSpawnerScript.new())   # spawns enemies in a ring around the player
+	add_child(ArenaEnemyMgrScript.new())  # world-space enemy services (bullets, explosions, ship pos)
+	add_child(WaveDirectorScript.new())   # authored-timeline wave spawner (replaces the basic ring spawner)
+	add_child(WaveEditorScript.new())     # F7 in-game wave editor (add/edit/remove waves live)
 	add_child(ArenaWeaponsScript.new())   # Gatling gun + Gauss cannon, auto-firing toward the ship facing
 
 ## Screen-space HUD: host the sprite HP/shield display (reads GameManager; self-pins top-left in the arena).
@@ -53,7 +57,9 @@ func _build_ui() -> void:
 	var ui := CanvasLayer.new()
 	ui.name = "UI"
 	add_child(ui)
-	ui.add_child(HudHpDisplayScript.new())
+	var hp := HudHpDisplayScript.new()
+	hp.arena_mode = true   # re-pin the HP cluster to the top-left corner (legacy keeps its layout pos)
+	ui.add_child(hp)
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 func _build_player() -> void:

@@ -6,10 +6,10 @@ const HP_FRAMES     := 40
 const SHIELD_FRAMES := 20
 
 # Arena pin: the layout rects are absolute legacy-UI coords (right-side cluster). When hosted in the
-# world-space arena HUD we re-pin the whole cluster's top-left frame corner to PIN_MARGIN. The internal
-# rects/labels are untouched — only this node's own position shifts, so every child rides along.
-const ARENA_PIN  := true
-const PIN_MARGIN := Vector2(16.0, 12.0)
+# world-space arena HUD, set `arena_mode = true` (the arena does this) to re-pin the whole cluster's
+# top-left frame corner to PIN_MARGIN. The legacy game leaves arena_mode false → keeps its layout position.
+const PIN_MARGIN := Vector2(10.0, 8.0)   # flush to the top-left corner of the screen
+var arena_mode: bool = false
 
 var _bg:           TextureRect = null
 var _hp_clip:      Control     = null
@@ -81,6 +81,9 @@ func _build_display() -> void:
 	# Background frame image
 	var bg_path := "res://assets/hud/hpshield.png" if has_shield else "res://assets/hud/hpbar.png"
 	var bg_rect := _hpshield_rect if has_shield else _hpbar_rect
+	# Arena: shift the whole node so the frame's top-left corner lands at PIN_MARGIN (children ride along).
+	if arena_mode:
+		position = PIN_MARGIN - bg_rect.position
 	_bg = TextureRect.new()
 	_bg.texture      = load(bg_path)
 	_bg.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
