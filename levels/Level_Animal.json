@@ -1,0 +1,19 @@
+{
+  "boss": "elephant",
+  "choreo_mode": "fixed",
+  "choreo_pool": [],
+  "choreo_wave_count": 1,
+  "difficulty_ceiling": 10.0,
+  "difficulty_floor": 1.0,
+  "enemy_pool": [],
+  "entry_edges": [
+    "top"
+  ],
+  "length_waves": 1,
+  "mode": "choreography",
+  "name": "Animal Onslaught",
+  "waves": [
+    "Animal_wave"
+  ],
+  "weights": {}
+}

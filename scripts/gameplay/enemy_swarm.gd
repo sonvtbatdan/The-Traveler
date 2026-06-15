@@ -15,7 +15,7 @@
 const SW_HP: float = 20.0
 const SW_XP: int = 4
 const SW_CONTACT_DMG: int = 10
-const SW_ZOOM_SPEED: float = 700.0    # dive (dash) speed
+const SW_ZOOM_SPEED: float = 200.0    # dive (dash) speed
 const SW_CULL: float = 800.0          # despawn once it strays this far beyond the play area
 
 # DEBUG (temporary): draw a yellow arrow showing the path direction the formation computed at this bead

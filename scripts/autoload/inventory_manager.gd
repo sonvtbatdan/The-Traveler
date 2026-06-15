@@ -201,7 +201,7 @@ const ITEM_DEFS: Dictionary = {
 		},
 	},
 	"lasgun": {
-		"name": "Lasgun",
+		"name": "Laser gun",
 		"icon": "res://assets/inventory/laser.png",
 		"size": Vector2i(3, 1),
 		"tags": ["weapon"],

@@ -50,6 +50,8 @@ signal died
 
 ## Global HP multiplier for ALL normal enemies (bosses are separate). 1.5 = +50% HP (halved from 3.0).
 const ENEMY_HP_MULT := 1.5
+## Set > 0 in _configure() to override the global multiplier for this enemy type.
+var _hp_mult: float = -1.0
 
 func _ready() -> void:
 	_configure()
@@ -60,7 +62,7 @@ func _ready() -> void:
 	var d := _diameter_for_hp(hp_max) * size_mult
 	size = Vector2(d, d)
 	pivot_offset = size * 0.5
-	hp_max *= ENEMY_HP_MULT   # +200% HP
+	hp_max *= (_hp_mult if _hp_mult > 0.0 else ENEMY_HP_MULT)
 	hp = hp_max
 	if icon_path != "":
 		if icon_path.ends_with(".gif"):
