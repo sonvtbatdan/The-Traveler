@@ -5,6 +5,12 @@ const LAYOUT_PATH   := "res://default_layout.cfg"
 const HP_FRAMES     := 40
 const SHIELD_FRAMES := 20
 
+# Arena pin: the layout rects are absolute legacy-UI coords (right-side cluster). When hosted in the
+# world-space arena HUD we re-pin the whole cluster's top-left frame corner to PIN_MARGIN. The internal
+# rects/labels are untouched — only this node's own position shifts, so every child rides along.
+const ARENA_PIN  := true
+const PIN_MARGIN := Vector2(16.0, 12.0)
+
 var _bg:           TextureRect = null
 var _hp_clip:      Control     = null
 var _shield_clip:  Control     = null
@@ -99,6 +105,10 @@ func _build_display() -> void:
 		_shield_label = _make_label(font, Color("#84F9FE"))
 		_shield_label.position = Vector2(_shieldsheet_rect.position.x, _shieldsheet_rect.position.y - 16)
 		add_child(_shield_label)
+
+	# Re-pin the whole cluster top-left in the arena (shifts this node; children keep their layout offsets).
+	if ARENA_PIN:
+		position = PIN_MARGIN - bg_rect.position
 
 	GameManager.ship_hp_changed.connect(_on_hp_changed)
 	GameManager.ship_shield_changed.connect(_on_shield_changed)
