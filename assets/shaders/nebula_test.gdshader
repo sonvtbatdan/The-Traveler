@@ -146,7 +146,7 @@ float fbm(vec2 p, int oct) {
 	p = rot * p;
 	for (int k = 0; k < 8; k++) {
 		if (k >= oct) { break; }
-		v += amp * gnoise(p);
+		v += amp * (snoise(p) * 0.5 + 0.5);   // background_test: ALL fields simplex → no square-grid facets anywhere
 		norm += amp;
 		p = rot * p * 2.0;
 		amp *= 0.5;
@@ -284,11 +284,15 @@ void fragment() {
 	vec2 t = vec2(TIME * time_drift);
 	vec2 p = UV * base_scale + world_offset + t;
 
-	// ── Domain warp → swirling cloud turbulence. ──
-	vec2 q = vec2(fbm(p, octaves), fbm(p + vec2(5.2, 1.3), octaves));
-	vec2 r = vec2(fbm(p + warp_strength * q + vec2(1.7, 9.2), octaves),
-	              fbm(p + warp_strength * q + vec2(8.3, 2.8), octaves));
-	float dens = fbm(p + warp_strength * r, octaves);
+	// ── Domain warp → swirling cloud turbulence. background_test: simplex has more high-frequency energy than
+	// gradient noise, so the strong warp folded it into busy "marble" veins. Soften with a gentler warp +
+	// fewer octaves on the detail so it reads as soft painterly clouds again (no facets — simplex). ──
+	float warp_eff = warp_strength * 0.3;   // gentler fold (3.0 → ~1.35)
+	int oct_d = max(octaves - 1, 4);          // a touch less fine detail
+	vec2 q = vec2(fbm(p, oct_d), fbm(p + vec2(5.2, 1.3), oct_d));
+	vec2 r = vec2(fbm(p + warp_eff * q + vec2(1.7, 9.2), oct_d),
+	              fbm(p + warp_eff * q + vec2(8.3, 2.8), oct_d));
+	float dens = fbm(p + warp_eff * r, oct_d);
 
 	// ── Macro BIOME: a huge-scale field deciding the region — empty void ↔ dense nebula. Drives the rest.
 	// Its domain is warped by a medium-frequency field so the void↔dense boundary SNAKES (no straight edge). ──
@@ -302,8 +306,9 @@ void fragment() {
 	// Soft coverage, then GATE by region so voids go near-empty and dense regions get the full nebula.
 	// cloud_softness blurs the density toward a lower-detail form — sampled from the WARPED coordinate so it
 	// stays swirly (an un-warped field here injected angular/faceted contours).
-	float big = fbm((p + warp_strength * r) * 0.6 + 50.0, max(octaves - 1, 5));
-	float dens_s = mix(dens, big, cloud_softness);
+	float big = fbm((p + warp_eff * r) * 0.6 + 50.0, max(octaves - 1, 5));
+	float soft_eff = clamp(cloud_softness + 0.5, 0.0, 0.85);   // blur more → softer cloud body
+	float dens_s = mix(dens, big, soft_eff);
 	float cloud = smoothstep(cloud_coverage - cov_fade_lo, cloud_coverage + cov_fade_hi, dens_s) * (0.35 + 0.65 * big);
 	cloud *= region;
 

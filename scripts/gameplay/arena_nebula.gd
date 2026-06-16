@@ -11,7 +11,7 @@ extends CanvasLayer
 ##       (big dark voids + glowing filaments, not uniform soup). Cheap because nothing is computed live.
 
 # ── SELECTOR ──────────────────────────────────────────────────────────────────
-const ACTIVE_BACKGROUND := 1         # 1 = background_1 (cached fBm), 2 = background_2 (baked), 3 = background_blue (teal+purple)
+const ACTIVE_BACKGROUND := 4         # 1 = background_1 (FROZEN good version), 2 = baked, 3 = blue, 4 = background_test (edge-removal WIP, reuses BG1 params)
 
 # ── SHARED TUNABLES ───────────────────────────────────────────────────────────
 const NEBULA_CANVAS_LAYER := -10     # negative → renders behind the world (star dots are at layer 0, z -100)
@@ -27,6 +27,7 @@ const HERO_COLOR      := Color(0.85, 0.92, 1.0)
 
 # ── BACKGROUND_1 (cached) TUNABLES ────────────────────────────────────────────
 const BG1_SHADER       := "res://assets/shaders/nebula_bg.gdshader"
+const BGTEST_SHADER    := "res://assets/shaders/nebula_test.gdshader"   # background_test: a copy of bg1 to experiment on (edge removal); reuses all BG1_* params
 # On-screen drift ratio ≈ SCROLL_FACTOR × screen_width / BASE_SCALE. At 0.00002 × 1440 / 3 ≈ 0.0096,
 # the nebula moves at ~1% of camera speed — barely at all, and the FURTHEST layer (slowest star = 0.03).
 const BG1_SCROLL_FACTOR := 0.000104
@@ -178,6 +179,7 @@ func _ready() -> void:
 	match ACTIVE_BACKGROUND:
 		2: _rect.material = _make_bg2_material()
 		3: _rect.material = _make_bgblue_material()
+		4: _rect.material = _make_bgtest_material()
 		_: _rect.material = _make_bg1_material()
 	_sub.add_child(_rect)
 
@@ -194,6 +196,13 @@ func _resize() -> void:
 		return
 	_container.position = Vector2.ZERO
 	_container.size = get_viewport().get_visible_rect().size
+
+# ── background_test: identical params to background_1, rendered through the experimental copy shader so
+# background_1 stays a frozen known-good fallback (flip ACTIVE_BACKGROUND back to 1 to restore instantly). ──
+func _make_bgtest_material() -> ShaderMaterial:
+	var mat := _make_bg1_material()
+	mat.shader = load(BGTEST_SHADER)
+	return mat
 
 # ── background_1: cached live domain-warped fBm shader ────────────────────────
 func _make_bg1_material() -> ShaderMaterial:
