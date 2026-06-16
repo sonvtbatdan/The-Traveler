@@ -20,13 +20,13 @@ const MAX_ALIVE     := 120     # hard cap on living enemies (bosses still spawn 
 # ══ 1. ENEMY DEFINITION TABLE ══════════════════════════════════════════════════
 # id → { behavior, hp, speed, size, contact, xp, shape, tint, (explodes), (armor) }
 const ENEMY_DEFS := {
-	"diver":    {"behavior": "dash",      "hp": 30.0,  "speed": 380.0, "size": 14.0, "contact": 10, "explodes": true, "xp": 4,  "icon": "res://assets/enemies/kingfisher.png"},
+	"diver":    {"behavior": "spiral",    "hp": 30.0,  "speed": 320.0, "size": 14.0, "contact": 10, "explodes": true, "xp": 4,  "icon": "res://assets/enemies/kingfisher.png"},
 	"centipede":{"behavior": "centipede", "hp": 240.0, "speed": 100.0, "size": 20.0, "contact": 20, "xp": 24, "armor": 1.0, "icon": "res://assets/enemies/animalcentipede.png"},
 	"dragonfly":{"behavior": "orbit",     "hp": 90.0,  "speed": 130.0, "size": 16.0, "contact": 10, "explodes": true, "xp": 10, "icon": "res://assets/enemies/animaldragonfly.png"},
 	"octopus":  {"behavior": "jump",      "hp": 240.0, "speed": 130.0, "size": 22.0, "contact": 20, "explodes": true, "xp": 24, "icon": "res://assets/enemies/animaloctopus.png"},
 	"spider":   {"behavior": "jump_diag", "hp": 60.0,  "speed": 130.0, "size": 16.0, "contact": 8,  "explodes": true, "xp": 8,  "icon": "res://assets/enemies/animalspider.png"},
 	"bee":      {"behavior": "swarm_dive","hp": 20.0,  "speed": 150.0, "size": 12.0, "contact": 8,  "explodes": true, "xp": 3,  "icon": "res://assets/enemies/animalbee.png"},
-	"bug":      {"behavior": "swarm_dive","hp": 15.0,  "speed": 150.0, "size": 11.0, "contact": 5,  "explodes": true, "xp": 3,  "icon": "res://assets/enemies/animalbug.png"},
+	"bug":      {"behavior": "chase",     "hp": 15.0,  "speed": 100.0, "size": 11.0, "contact": 5,  "explodes": true, "xp": 3,  "icon": "res://assets/enemies/animalbug.png"},
 	"swarm":    {"behavior": "swarm_dive","hp": 20.0,  "speed": 160.0, "size": 12.0, "contact": 10, "explodes": true, "xp": 4,  "icon": "res://assets/enemies/swarm.png"},
 	"fly":      {"behavior": "scatter",   "hp": 10.0,  "speed": 120.0, "size": 9.0,  "contact": 5,  "explodes": true, "xp": 2,  "icon": "res://assets/enemies/animalflies.png"},
 	"shooter":  {"behavior": "shooter",   "hp": 50.0,  "speed": 110.0, "size": 16.0, "contact": 0,  "xp": 10, "icon": "res://assets/enemies/jetfighter.png"},

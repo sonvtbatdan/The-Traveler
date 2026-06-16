@@ -7,7 +7,9 @@ extends Node2D
 const HudHpDisplayScript := preload("res://scripts/ui/hud/hud_hp_display.gd")
 const ArenaEnemyMgrScript := preload("res://scripts/gameplay/arena_enemy_manager.gd")
 const WaveDirectorScript := preload("res://scripts/gameplay/arena_wave_director.gd")
+const TestTemplateScript := preload("res://scripts/gameplay/test_template.gd")
 const WaveEditorScript   := preload("res://scripts/ui/hud/arena_wave_editor.gd")
+const USE_TEST_SPAWNER   := false   # true → use test_template.gd (spawn one enemy every 5s) instead of the timeline
 const ArenaWeaponsScript := preload("res://scripts/gameplay/arena_weapons.gd")
 const ArenaNebulaScript  := preload("res://scripts/gameplay/arena_nebula.gd")
 const PerfOverlayScript  := preload("res://scripts/ui/hud/perf_overlay.gd")
@@ -48,8 +50,11 @@ func _ready() -> void:
 	_build_ui()
 	add_child(PerfOverlayScript.new())   # always-on FPS/frame-ms readout (top-right) for tuning
 	add_child(ArenaEnemyMgrScript.new())  # world-space enemy services (bullets, explosions, ship pos)
-	add_child(WaveDirectorScript.new())   # authored-timeline wave spawner (replaces the basic ring spawner)
-	add_child(WaveEditorScript.new())     # F7 in-game wave editor (add/edit/remove waves live)
+	if USE_TEST_SPAWNER:
+		add_child(TestTemplateScript.new())   # quick test: one enemy every 5s
+	else:
+		add_child(WaveDirectorScript.new())   # authored-timeline wave spawner
+		add_child(WaveEditorScript.new())     # F7 in-game wave editor (add/edit/remove waves live)
 	add_child(ArenaWeaponsScript.new())   # Gatling gun + Gauss cannon, auto-firing toward the ship facing
 
 ## Screen-space HUD: host the sprite HP/shield display (reads GameManager; self-pins top-left in the arena).

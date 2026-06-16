@@ -6,12 +6,16 @@ extends CanvasLayer
 
 const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
 const LEVELS_DIR := "res://levels/arena"
+const TEST_WAVES := 20   # how many repeating time points a Quick-test builds (each spawns COUNT enemies)
 
 var _director: Node = null
 var _root: Control = null
 var _rows_box: VBoxContainer = null
 var _title: Label = null
 var _name_edit: LineEdit = null
+var _test_type: OptionButton = null
+var _test_count: SpinBox = null
+var _test_interval: SpinBox = null
 var _file_opt: OptionButton = null
 var _status: Label = null
 var _readout: TextEdit = null
@@ -98,6 +102,25 @@ func _build_ui() -> void:
 	_status.add_theme_color_override("font_color", Color(0.7, 1.0, 0.7))
 	lib.add_child(_status)
 	vb.add_child(lib)
+
+	# Quick-test builder: one locked type, selectable count, fixed interval → a single-type repeating timeline.
+	var qt := HBoxContainer.new()
+	qt.add_theme_constant_override("separation", 8)
+	qt.add_child(_mk_label("Quick test:", 12))
+	_test_type = OptionButton.new()
+	_test_type.custom_minimum_size = Vector2(130, 0)
+	if _font: _test_type.add_theme_font_override("font", _font)
+	for i in _types.size():
+		_test_type.add_item(String(_types[i]), i)
+	qt.add_child(_test_type)
+	qt.add_child(_mk_label("count", 11))
+	_test_count = _mk_spin(1.0, 200.0, 1.0, 30.0, 80)
+	qt.add_child(_test_count)
+	qt.add_child(_mk_label("every (s)", 11))
+	_test_interval = _mk_spin(0.5, 120.0, 0.5, 10.0, 80)
+	qt.add_child(_test_interval)
+	qt.add_child(_mk_button("Build test timeline", _on_build_test))
+	vb.add_child(qt)
 
 	vb.add_child(HSeparator.new())
 
@@ -229,6 +252,24 @@ func _on_reset() -> void:
 		_director.set_timeline((_director.DEFAULT_TIMELINE as Array).duplicate(true))
 	_rebuild_rows()
 	_refresh_readout()
+
+## Build a single-type repeating timeline: TEST_WAVES time points, every `interval` seconds, each spawning
+## COUNT enemies of the picked type. (COUNT is applied to every time point.)
+func _on_build_test() -> void:
+	if _types.is_empty():
+		return
+	var t: String = String(_types[_test_type.selected])
+	var per_wave := int(_test_count.value)
+	var iv: float = _test_interval.value
+	var entries: Array = []
+	for i in TEST_WAVES:
+		entries.append({"time": float(i) * iv, "type": t, "count": per_wave, "pattern": "scatter"})
+	if _director != null:
+		_director.set_timeline(entries)
+	_name_edit.text = "test_" + t   # so Save names it sensibly in the library
+	_rebuild_rows()
+	_refresh_readout()
+	_set_status("Built %d waves × %d %s, every %.1fs" % [TEST_WAVES, per_wave, t, iv])
 
 # ── Save / Load library (JSON in res://levels/arena/) ───────────────────────────
 func _on_save() -> void:

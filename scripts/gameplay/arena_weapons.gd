@@ -19,9 +19,11 @@ const GAT_LIFETIME      := 1.2      # s before despawn
 const GAT_MAX_DIST      := 1300.0   # px travelled before despawn
 const GAT_HIT_RADIUS    := 16.0     # bullet↔enemy hit distance (px)
 const GAT_SPREAD_DEG    := 3.0      # ± random spray on each shot (0 = laser-straight)
+const GAT_STAGGER       := 0.1      # s the enemy is staggered (movement/attacks frozen) per Gatling hit
 
 # ── TUNABLES: Gauss cannon (auto-charge → heavy piercing orb) ─────────────────
-const GAUSS_ENABLED     := true
+const GAUSS_ENABLED     := false    # disabled for now
+const GAUSS_STAGGER     := 0.35     # s the enemy is staggered per Gauss hit (heavier weapon = more)
 const GAUSS_CHARGE_TIME := 1.4      # s to fully charge between shots (charge rings ramp up over this)
 const GAUSS_SPEED       := 520.0    # px/s (heavy + slow so you watch it plough through)
 const GAUSS_DAMAGE      := 55.0     # damage dealt to EACH enemy it pierces
@@ -205,7 +207,7 @@ func _tick_bullets(delta: float) -> void:
 			for en in enemies:
 				if is_instance_valid(en) and p.distance_to((en as Node2D).global_position) <= GAT_HIT_RADIUS:
 					if en.has_method("take_damage"):
-						en.take_damage(GAT_DAMAGE)
+						en.take_damage(GAT_DAMAGE, GAT_STAGGER)
 					dead = true
 					break
 		if dead:
@@ -252,7 +254,7 @@ func _tick_orbs(delta: float) -> void:
 					continue
 				if p.distance_to((en as Node2D).global_position) <= GAUSS_RADIUS + 8.0:
 					if en.has_method("take_damage"):
-						en.take_damage(GAUSS_DAMAGE)
+						en.take_damage(GAUSS_DAMAGE, GAUSS_STAGGER)
 					hit.append(id)
 					o["pierce_left"] = int(o["pierce_left"]) - 1
 					if int(o["pierce_left"]) <= 0:

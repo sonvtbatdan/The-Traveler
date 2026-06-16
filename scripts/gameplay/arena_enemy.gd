@@ -12,15 +12,48 @@ extends CharacterBody2D
 
 const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const ICON_DRAW_SCALE := 2.6   # drawn sprite width = _radius × this (sprites read a bit bigger than the hit circle)
+const ENEMY_LAYER := 2              # physics layer enemies live on (separate from the player on layer 1)
+const CORE_FRAC := 0.75             # collision-core radius = _radius × this (slightly smaller than the model)
 const RETURN_DIST := 900.0          # dive group re-aims at the player once it gets this far away (loops back)
+const SPIRAL_SHRINK := 150.0        # px/s the spiral radius tightens toward the player (diver)
+const TURN_RATE := 10.0             # how fast a sprite eases to face its movement direction (head = sprite north)
 const THROWN_BOMB_SPEED := 460.0    # bomber's thrown bombs travel this fast (straight, aimed at the player)
 const THROWN_BOMB_RANGE := 1200.0   # a thrown bomb despawns after travelling this far (projectile, not an enemy)
+
+# ── "Alive" procedural-motion tunables (sprite transform only — no new art) ────
+const BOB_AMOUNT     := 0.05    # idle breathing scale pulse (±)
+const BOB_FREQ_MIN   := 2.2     # per-enemy breathing speed range (randomized → crowd desyncs)
+const BOB_FREQ_MAX   := 3.6
+const SQUASH_MAG     := 0.12    # max stretch-along-travel / thin-across when moving fast
+const SQUASH_EASE    := 9.0     # how fast squash eases toward its speed-driven target
+const SQUASH_REF_SPEED := 220.0 # speed at which squash reaches full magnitude
+const HIT_FLASH_COLOR := Color(1.0, 1.0, 1.0)    # normal hit → white
+const KILL_FLASH_COLOR := Color(1.0, 0.18, 0.18) # a killing blow → red
+const HIT_FLASH_TIME := 0.14    # flash duration on hit (more prominent)
+# Flash shader: lerp the sprite's pixels toward flash_color by `flash` (modulate-white can't whiten a texture).
+const FLASH_SHADER_CODE := """
+shader_type canvas_item;
+uniform float flash : hint_range(0.0, 1.0) = 0.0;
+uniform vec4 flash_color : source_color = vec4(1.0);
+void fragment() {
+	COLOR *= texture(TEXTURE, UV);
+	COLOR.rgb = mix(COLOR.rgb, flash_color.rgb, flash * COLOR.a);
+}
+"""
+static var _flash_shader: Shader = null
+const HIT_SQUASH     := 0.42    # extra squash pulse on hit (more prominent)
+const HIT_SQUASH_DECAY := 8.0
+const KNOCKBACK_SPEED := 460.0  # recoil impulse away from the player on hit (px/s, decays) — more prominent
+const KNOCKBACK_DECAY := 10.0
+const SPAWN_POP_TIME := 0.20    # scale-up-with-overshoot + fade-in on spawn
+const DEATH_POP_TIME := 0.15    # stretch + scale-up + fade-out before freeing
+const SCALE_VAR      := 0.15    # per-enemy base-size variance (±) so the crowd looks individual
 
 # Fallbacks so the enemy is self-sufficient if configured without a def (e.g. manager.spawn_bomb).
 const FALLBACK := {
 	"chase": {"behavior": "chase", "hp": 30.0, "speed": 95.0, "size": 16.0, "contact": 6, "xp": 5, "shape": "diamond", "tint": Color(0.95, 0.35, 0.30)},
-	"bomb":  {"behavior": "bomb",  "hp": 50.0, "speed": 120.0, "size": 18.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(0.9, 0.5, 0.2)},
-	"thrown_bomb": {"behavior": "thrown_bomb", "hp": 12.0, "speed": THROWN_BOMB_SPEED, "size": 13.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(1.0, 0.55, 0.2), "icon": "res://assets/enemies/bomb.png"},
+	"bomb":  {"behavior": "bomb",  "hp": 50.0, "speed": 120.0, "size": 18.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(0.9, 0.5, 0.2), "no_collide": true},
+	"thrown_bomb": {"behavior": "thrown_bomb", "hp": 12.0, "speed": THROWN_BOMB_SPEED, "size": 13.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(1.0, 0.55, 0.2), "icon": "res://assets/enemies/bomb.png", "no_collide": true},
 }
 
 var _type: String = "chase"
@@ -36,6 +69,7 @@ var xp: int = 5
 var _color: Color = Color(0.95, 0.35, 0.30)
 var shape_kind: String = "diamond"
 var _icon: String = ""
+var _no_collide: bool = false
 var _tex: Texture2D = null
 var _frames: Array = []
 var _delays: Array = []
@@ -56,10 +90,25 @@ var _aim: Vector2 = Vector2.ZERO
 var _spin: float = 0.0
 var _orbit_r: float = 180.0
 var _orbit_ang: float = 0.0
+var _spiral_dir: float = 1.0   # spin direction (±1) for the spiral approach
 var _scatter_target: Vector2 = Vector2.ZERO
 var _init_done: bool = false
 var _beam_on: bool = false
 var _beam_dir: Vector2 = Vector2.RIGHT
+# "alive" motion state
+var _facing: float = 0.0
+var _prev_pos: Vector2 = Vector2.ZERO
+var _bob_phase: float = 0.0
+var _bob_freq: float = 3.0
+var _scale_var: float = 1.0
+var _squash: float = 0.0
+var _hit_squash: float = 0.0
+var _knockback: Vector2 = Vector2.ZERO
+var _spawn_t: float = 0.0
+var _dying: bool = false
+var _death_t: float = 0.0
+var _stagger_t: float = 0.0   # while > 0, movement/attacks are frozen (per-weapon hit stagger)
+var _flash_color: Color = HIT_FLASH_COLOR
 
 ## Configure from the director's enemy table (or a fallback). Call before add_child.
 func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
@@ -78,17 +127,41 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_color           = d.get("tint", Color(0.95, 0.35, 0.30))
 	shape_kind       = String(d.get("shape", "diamond"))
 	_icon            = String(d.get("icon", ""))
+	_no_collide      = bool(d.get("no_collide", false))
 
 func _ready() -> void:
 	add_to_group("arena_enemy")
 	add_to_group("normal_enemy")
-	collision_layer = 0
-	collision_mask = 0
+	# Collision core: enemies collide with EACH OTHER (own layer) so they can't overlap, but not with the
+	# player (layer 1) — contact stays distance-based. `no_collide` types (projectiles/special) pass freely.
+	if _no_collide:
+		collision_layer = 0
+		collision_mask = 0
+	else:
+		collision_layer = ENEMY_LAYER
+		collision_mask = ENEMY_LAYER
+		var col := CollisionShape2D.new()
+		var shape := CircleShape2D.new()
+		shape.radius = _radius * CORE_FRAC
+		col.shape = shape
+		add_child(col)
 	if _mgr == null or not is_instance_valid(_mgr):
 		_mgr = get_tree().get_first_node_in_group("enemy_manager")
 	_target = get_tree().get_first_node_in_group("player")
 	z_index = 1
+	# Per-instance flash material (shared compiled shader) — lerps the sprite toward white/red on hit.
+	if _flash_shader == null:
+		_flash_shader = Shader.new()
+		_flash_shader.code = FLASH_SHADER_CODE
+	var mat := ShaderMaterial.new()
+	mat.shader = _flash_shader
+	material = mat
 	_load_icon()
+	# Per-enemy "alive" variation so the crowd reads as individuals, not synced clones.
+	_bob_phase = randf() * TAU
+	_bob_freq = randf_range(BOB_FREQ_MIN, BOB_FREQ_MAX)
+	_scale_var = randf_range(1.0 - SCALE_VAR, 1.0 + SCALE_VAR)
+	_prev_pos = global_position
 
 ## Load the sprite (PNG or animated GIF via GifLoader) and compute the drawn size from its aspect ratio.
 func _load_icon() -> void:
@@ -111,14 +184,20 @@ func _load_icon() -> void:
 		_draw_size = Vector2(w, h)
 
 # ── Universal damage contract ──────────────────────────────────────────────────
-func take_damage(amount: float) -> void:
+func take_damage(amount: float, stagger: float = 0.0) -> void:
 	if _dead:
 		return
 	var dr := 0.0
 	if GameManager.has_method("armor_damage_reduction"):
 		dr = GameManager.armor_damage_reduction(armor)
 	hp -= amount * (1.0 - dr)
-	_flash = 0.12
+	# Hit reaction: flash (red if this blow kills, else white) + squash pulse + knockback + brief stagger.
+	_flash_color = KILL_FLASH_COLOR if hp <= 0.0 else HIT_FLASH_COLOR
+	_stagger_t = maxf(_stagger_t, stagger)
+	_flash = HIT_FLASH_TIME
+	_hit_squash = HIT_SQUASH
+	var away := global_position - _player_pos()
+	_knockback = (away.normalized() if away.length() > 0.01 else Vector2.UP) * KNOCKBACK_SPEED
 	queue_redraw()
 	if hp <= 0.0:
 		_die()
@@ -129,7 +208,11 @@ func _die() -> void:
 	_dead = true
 	if xp > 0 and GameManager.has_method("add_xp"):
 		GameManager.add_xp(xp)
-	queue_free()
+	# Start the death pop (a short flourish) instead of freeing immediately; disable collisions meanwhile.
+	_dying = true
+	_death_t = 0.0
+	collision_layer = 0
+	collision_mask = 0
 
 func _player_pos() -> Vector2:
 	if _target != null and is_instance_valid(_target):
@@ -139,6 +222,12 @@ func _player_pos() -> Vector2:
 
 # ── Per-frame ───────────────────────────────────────────────────────────────────
 func _physics_process(delta: float) -> void:
+	if _dying:   # death pop owns the transform; just advance the timer, then free
+		_death_t += delta
+		queue_redraw()
+		if _death_t >= DEATH_POP_TIME:
+			queue_free()
+		return
 	if _dead:
 		return
 	if _target == null or not is_instance_valid(_target):
@@ -146,10 +235,27 @@ func _physics_process(delta: float) -> void:
 		if _target == null:
 			return
 	_t += delta
+	_spawn_t = minf(_spawn_t + delta, SPAWN_POP_TIME)
+	_stagger_t = maxf(0.0, _stagger_t - delta)
 	if not _init_done:
 		_init_behavior()
 		_init_done = true
-	_tick_behavior(delta)
+	if _stagger_t <= 0.0:   # staggered → movement & attacks frozen (knockback/visuals still play)
+		_tick_behavior(delta)
+	# Knockback recoil (decays).
+	if _knockback.length() > 1.0:
+		global_position += _knockback * delta
+		_knockback = _knockback.lerp(Vector2.ZERO, clampf(KNOCKBACK_DECAY * delta, 0.0, 1.0))
+	# Squash/stretch eased from actual speed; hit-squash pulse decays.
+	var moved := global_position - _prev_pos
+	var spd := moved.length() / maxf(delta, 0.0001)
+	var target_squash := SQUASH_MAG * clampf(spd / SQUASH_REF_SPEED, 0.0, 1.0)
+	_squash = lerpf(_squash, target_squash, clampf(SQUASH_EASE * delta, 0.0, 1.0))
+	_hit_squash = lerpf(_hit_squash, 0.0, clampf(HIT_SQUASH_DECAY * delta, 0.0, 1.0))
+	# Face the actual movement direction (centipede keeps its constant spin instead).
+	if behavior != "centipede" and moved.length() > 0.5:
+		_facing = lerp_angle(_facing, moved.angle() + PI * 0.5, clampf(TURN_RATE * delta, 0.0, 1.0))
+	_prev_pos = global_position
 	if not _frames.is_empty():
 		_anim_acc += delta
 		var fd: float = float(_delays[_anim_frame]) if _anim_frame < _delays.size() else 0.1
@@ -157,19 +263,19 @@ func _physics_process(delta: float) -> void:
 			_anim_acc -= fd
 			_anim_frame = (_anim_frame + 1) % _frames.size()
 			_tex = _frames[_anim_frame] as Texture2D
-			queue_redraw()
 	if _flash > 0.0:
 		_flash = maxf(0.0, _flash - delta)
-		queue_redraw()
 	_check_contact()
+	queue_redraw()   # bob/squash/facing animate continuously
 
 func _init_behavior() -> void:
 	var to := _player_pos() - global_position
 	_aim = to.normalized() if to.length() > 0.01 else Vector2.UP
 	match behavior:
-		"orbit":
+		"orbit", "spiral":
 			_orbit_r = global_position.distance_to(_player_pos())
 			_orbit_ang = (global_position - _player_pos()).angle()
+			_spiral_dir = 1.0 if randf() < 0.5 else -1.0
 		"scatter", "bomber":
 			_scatter_target = _player_pos() + _rand_offset(_view().length() * 0.35)
 
@@ -187,11 +293,16 @@ func _tick_behavior(delta: float) -> void:
 			velocity = dir * speed
 			move_and_slide()
 			queue_redraw()
-		"dash":   # diver — dive along the captured aim; once it flies off-view, re-aim and dive back
+		"dash":   # dive along the captured aim; once it flies off-view, re-aim and dive back
 			if dist > RETURN_DIST:
 				_aim = dir
 			velocity = _aim * speed
 			move_and_slide()
+		"spiral":   # diver — orbit the player while tightening the radius (a spiral closing in)
+			var ang_speed := (speed / maxf(40.0, _orbit_r)) * _spiral_dir
+			_orbit_ang += ang_speed * delta
+			_orbit_r = maxf(8.0, _orbit_r - SPIRAL_SHRINK * delta)
+			global_position = pp + Vector2(cos(_orbit_ang), sin(_orbit_ang)) * _orbit_r
 		"orbit":  # dragonfly — orbit + tighten, then dive (loops back when it overshoots off-view)
 			if _phase == 0:
 				_orbit_ang += (speed / maxf(20.0, _orbit_r)) * delta
@@ -362,31 +473,59 @@ func _on_contact_death() -> void:
 		_mgr.explode(global_position, 100.0, 20, self)
 	_die()
 
-# ── Draw: placeholder shape + flash + HP bar ───────────────────────────────────
+# ── Draw: composes idle bob + squash/stretch + facing + spawn/death pop + flash, around the sprite/shape;
+# the HP bar and beam are drawn AFTER resetting the transform so they stay level & unscaled. ────────────
 func _draw() -> void:
-	var col := _color
-	if _flash > 0.0:
-		col = col.lerp(Color.WHITE, 0.7)
+	# Uniform scale: per-enemy base variance × idle bob × spawn/death pop.
+	var bob := 1.0 + sin(_t * _bob_freq + _bob_phase) * BOB_AMOUNT
+	var alpha := 1.0
+	var pop := 1.0
+	if _dying:
+		var df := clampf(_death_t / DEATH_POP_TIME, 0.0, 1.0)
+		pop = 1.0 + 0.6 * df          # scale up
+		alpha = 1.0 - df              # fade out
+		bob = 1.0                     # death owns scale; freeze breathing
+	elif _spawn_t < SPAWN_POP_TIME:
+		var sf := clampf(_spawn_t / SPAWN_POP_TIME, 0.0, 1.0)
+		pop = _ease_out_back(sf)      # 0 → 1 with slight overshoot
+		alpha = sf                    # fade in
+	var uniform := _scale_var * bob * pop
+	# Squash/stretch along the head axis (local Y); thin across (local X). Frozen during death.
+	var sq := 0.0 if _dying else (_squash + _hit_squash)
+	var scale_vec := Vector2(uniform * (1.0 - sq * 0.5), uniform * (1.0 + sq))
+	var rot := _spin if behavior == "centipede" else _facing
+
+	# Drive the flash shader (whitens/reddens the actual sprite pixels — modulate alone can't).
+	var flash_s := clampf(_flash / HIT_FLASH_TIME, 0.0, 1.0)
+	var mat := material as ShaderMaterial
+	if mat != null:
+		mat.set_shader_parameter("flash", flash_s)
+		mat.set_shader_parameter("flash_color", _flash_color)
+	draw_set_transform(Vector2.ZERO, rot, scale_vec)
 	if _tex != null:
-		# Centipede spins; rotate only the sprite (reset transform before the HP bar).
-		if _spin != 0.0:
-			draw_set_transform(Vector2.ZERO, _spin, Vector2.ONE)
-		draw_texture_rect(_tex, Rect2(-_draw_size * 0.5, _draw_size), false)
-		if _flash > 0.0:
-			draw_texture_rect(_tex, Rect2(-_draw_size * 0.5, _draw_size), false, Color(1, 1, 1, 0.6))
-		if _spin != 0.0:
-			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		draw_texture_rect(_tex, Rect2(-_draw_size * 0.5, _draw_size), false, Color(1, 1, 1, alpha))
 	else:
+		var col := _color
+		col.a *= alpha
 		_draw_shape(_radius, col)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # back to level/unscaled for beam + HP bar
+
 	if _beam_on:
 		var end := _beam_dir * 2000.0
 		draw_line(Vector2.ZERO, end, Color(1.0, 0.3, 0.3, 0.85), 8.0)
 		draw_line(Vector2.ZERO, end, Color(1.0, 1.0, 1.0, 0.9), 3.0)
-	if hp < hp_max:
+	if hp < hp_max and not _dying:
 		var ratio := clampf(hp / maxf(1.0, hp_max), 0.0, 1.0)
 		var w := _radius * 2.0
 		draw_rect(Rect2(-_radius, -_radius - 8.0, w, 3.0), Color(0, 0, 0, 0.6))
 		draw_rect(Rect2(-_radius, -_radius - 8.0, w * ratio, 3.0), Color(0.4, 0.95, 0.4))
+
+## Ease-out-back: 0→1 with a slight overshoot past 1 before settling (spawn pop).
+func _ease_out_back(x: float) -> float:
+	var c1 := 1.70158
+	var c3 := c1 + 1.0
+	var f := x - 1.0
+	return 1.0 + c3 * f * f * f + c1 * f * f
 
 func _draw_shape(r: float, col: Color) -> void:
 	var pts: PackedVector2Array
@@ -399,11 +538,6 @@ func _draw_shape(r: float, col: Color) -> void:
 		"circle":
 			draw_circle(Vector2.ZERO, r, col)
 			return
-		_:   # diamond (optionally spun, for centipede)
+		_:   # diamond
 			pts = PackedVector2Array([Vector2(0, -r), Vector2(r, 0), Vector2(0, r), Vector2(-r, 0)])
-	if _spin != 0.0:
-		var out := PackedVector2Array()
-		for p: Vector2 in pts:
-			out.append(p.rotated(_spin))
-		pts = out
-	draw_colored_polygon(pts, col)
+	draw_colored_polygon(pts, col)   # rotation/scale applied by the caller's draw_set_transform
