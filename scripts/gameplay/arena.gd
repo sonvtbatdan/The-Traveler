@@ -12,6 +12,12 @@ const WaveEditorScript   := preload("res://scripts/ui/hud/arena_wave_editor.gd")
 const USE_TEST_SPAWNER   := false   # true → use test_template.gd (spawn one enemy every 5s) instead of the timeline
 const ArenaWeaponsScript := preload("res://scripts/gameplay/arena_weapons.gd")
 const ArenaNebulaScript  := preload("res://scripts/gameplay/arena_nebula.gd")
+const ArenaDustScript    := preload("res://scripts/gameplay/arena_dust.gd")
+const ArenaPlanetsScript := preload("res://scripts/gameplay/arena_planets.gd")
+const ArenaAsteroidsScript := preload("res://scripts/gameplay/arena_asteroids.gd")
+const ArenaCometsScript    := preload("res://scripts/gameplay/arena_comets.gd")
+const PlanetMenuScript   := preload("res://scripts/ui/hud/arena_planet_menu.gd")
+const DebugSpawnScript   := preload("res://scripts/gameplay/arena_debug_spawn.gd")
 const PerfOverlayScript  := preload("res://scripts/ui/hud/perf_overlay.gd")
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
@@ -45,6 +51,12 @@ var _projectiles: Array = []   # {node, vel, life, start}
 func _ready() -> void:
 	randomize()                          # fresh RNG each launch → random spawn spot (below)
 	add_child(ArenaNebulaScript.new())   # procedural nebula on a back CanvasLayer (behind the star dots)
+	add_child(ArenaDustScript.new())     # dark space dust, lit by ship/weapon lights
+	add_child(ArenaPlanetsScript.new())  # sparse mid-parallax procedural planets (z -50)
+	add_child(ArenaCometsScript.new())   # rare mid-parallax comets (z -48)
+	add_child(ArenaAsteroidsScript.new()) # fast near-parallax asteroid fields (z -10, sells speed)
+	add_child(PlanetMenuScript.new())    # F6 menu: inspect/drag-spawn planets
+	add_child(DebugSpawnScript.new())    # F5 asteroids / F9 comet / F10 planet+moons (Shift = clear)
 	_build_parallax()
 	_build_player()
 	_build_ui()

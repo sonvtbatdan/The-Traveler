@@ -20,10 +20,12 @@ const GAT_MAX_DIST      := 1300.0   # px travelled before despawn
 const GAT_HIT_RADIUS    := 16.0     # bullet↔enemy hit distance (px)
 const GAT_SPREAD_DEG    := 3.0      # ± random spray on each shot (0 = laser-straight)
 const GAT_STAGGER       := 0.1      # s the enemy is staggered (movement/attacks frozen) per Gatling hit
+const GAT_LIGHT         := 1.0      # dust-light "value" per Gatling bullet (low → lights up nearby dust only)
 
 # ── TUNABLES: Gauss cannon (auto-charge → heavy piercing orb) ─────────────────
 const GAUSS_ENABLED     := false    # disabled for now
 const GAUSS_STAGGER     := 0.35     # s the enemy is staggered per Gauss hit (heavier weapon = more)
+const GAUSS_LIGHT       := 5.0      # dust-light "value" per Gauss orb (heavy → big bright light)
 const GAUSS_CHARGE_TIME := 1.4      # s to fully charge between shots (charge rings ramp up over this)
 const GAUSS_SPEED       := 520.0    # px/s (heavy + slow so you watch it plough through)
 const GAUSS_DAMAGE      := 55.0     # damage dealt to EACH enemy it pierces
@@ -155,7 +157,20 @@ var _flashes: Array = []         # {pos, age, max_age, radius}
 var _orb_shader: Shader = null
 
 func _ready() -> void:
+	add_to_group("arena_weapons")   # arena_dust queries get_lights() each frame
 	_player = get_tree().get_first_node_in_group("player")
+
+## Light sources this weapon currently emits, for the dust field: one per live projectile/beam.
+## Each: {pos: world Vector2, value: float (light strength), color: Color}.
+func get_lights() -> Array:
+	var lights: Array = []
+	if GAT_ENABLED:
+		for b: Dictionary in _bullets:
+			lights.append({"pos": b["pos"], "value": GAT_LIGHT, "color": GAT_BODY_COL})
+	if GAUSS_ENABLED:
+		for o: Dictionary in _orbs:
+			lights.append({"pos": o["pos"], "value": GAUSS_LIGHT, "color": GAUSS_ORB_LIGHT_COL})
+	return lights
 
 func _process(delta: float) -> void:
 	if _player == null or not is_instance_valid(_player):

@@ -20,7 +20,7 @@ const MAX_ALIVE     := 120     # hard cap on living enemies (bosses still spawn 
 # ══ 1. ENEMY DEFINITION TABLE ══════════════════════════════════════════════════
 # id → { behavior, hp, speed, size, contact, xp, shape, tint, (explodes), (armor) }
 const ENEMY_DEFS := {
-	"diver":    {"behavior": "spiral",    "hp": 30.0,  "speed": 320.0, "size": 14.0, "contact": 10, "explodes": true, "xp": 4,  "icon": "res://assets/enemies/kingfisher.png"},
+	"diver":    {"behavior": "spiral",    "hp": 30.0,  "speed": 150.0, "size": 14.0, "contact": 10, "explodes": true, "xp": 4,  "icon": "res://assets/enemies/kingfisher.png"},
 	"centipede":{"behavior": "centipede", "hp": 240.0, "speed": 100.0, "size": 20.0, "contact": 20, "xp": 24, "armor": 1.0, "icon": "res://assets/enemies/animalcentipede.png"},
 	"dragonfly":{"behavior": "orbit",     "hp": 90.0,  "speed": 130.0, "size": 16.0, "contact": 10, "explodes": true, "xp": 10, "icon": "res://assets/enemies/animaldragonfly.png"},
 	"octopus":  {"behavior": "jump",      "hp": 240.0, "speed": 130.0, "size": 22.0, "contact": 20, "explodes": true, "xp": 24, "icon": "res://assets/enemies/animaloctopus.png"},

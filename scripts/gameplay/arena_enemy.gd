@@ -15,7 +15,7 @@ const ICON_DRAW_SCALE := 2.6   # drawn sprite width = _radius × this (sprites r
 const ENEMY_LAYER := 2              # physics layer enemies live on (separate from the player on layer 1)
 const CORE_FRAC := 0.75             # collision-core radius = _radius × this (slightly smaller than the model)
 const RETURN_DIST := 900.0          # dive group re-aims at the player once it gets this far away (loops back)
-const SPIRAL_SHRINK := 150.0        # px/s the spiral radius tightens toward the player (diver)
+const SPIRAL_SHRINK := 75       # px/s the spiral radius tightens toward the player (diver)
 const TURN_RATE := 10.0             # how fast a sprite eases to face its movement direction (head = sprite north)
 const THROWN_BOMB_SPEED := 460.0    # bomber's thrown bombs travel this fast (straight, aimed at the player)
 const THROWN_BOMB_RANGE := 1200.0   # a thrown bomb despawns after travelling this far (projectile, not an enemy)
@@ -275,7 +275,7 @@ func _init_behavior() -> void:
 		"orbit", "spiral":
 			_orbit_r = global_position.distance_to(_player_pos())
 			_orbit_ang = (global_position - _player_pos()).angle()
-			_spiral_dir = 1.0 if randf() < 0.5 else -1.0
+			_spiral_dir = 1.0   # always clockwise (Y-down screen → increasing angle = clockwise)
 		"scatter", "bomber":
 			_scatter_target = _player_pos() + _rand_offset(_view().length() * 0.35)
 
