@@ -121,23 +121,25 @@ func _ready() -> void:
 	call_deferred("_reposition")
 
 func _reposition() -> void:
-	var vp := get_viewport_rect().size
-	_label.position = Vector2(vp.x - 145, vp.y - 96)
+	# Pinned to the TOP-LEFT with a small margin (arena HUD). Positioning only — HP/shield/energy/ammo
+	# read logic is unchanged. (The legacy scene that also hosts this bar is reference-only.)
+	var m := Vector2(12.0, 12.0)
+	_label.position = m
 	# shield number, right-aligned to the bar's right edge
-	_shield_label.position = Vector2(vp.x - 145 + BAR_W - 60.0, vp.y - 96)
+	_shield_label.position = m + Vector2(BAR_W - 60.0, 0.0)
 	# track is a sibling of label; reposition it too
 	for child in get_children():
 		if child is ColorRect:
-			child.position = Vector2(vp.x - 145, vp.y - 82)
+			child.position = m + Vector2(0.0, 14.0)
 			break
 	if _energy_track != null:
-		_energy_track.position = Vector2(vp.x - 145, vp.y - 66)
+		_energy_track.position = m + Vector2(0.0, 30.0)
 	if _energy_label != null:
-		_energy_label.position = Vector2(vp.x - 145 + BAR_W - 120.0, vp.y - 68)
+		_energy_label.position = m + Vector2(BAR_W - 120.0, 28.0)
 	if _ammo_track != null:
-		_ammo_track.position = Vector2(vp.x - 145, vp.y - 52)
+		_ammo_track.position = m + Vector2(0.0, 44.0)
 	if _ammo_label != null:
-		_ammo_label.position = Vector2(vp.x - 145 + BAR_W - 120.0, vp.y - 54)
+		_ammo_label.position = m + Vector2(BAR_W - 120.0, 44.0)
 
 func _on_hp_changed(hp: int) -> void:
 	var ratio := clampf(float(hp) / float(GameManager.ship_max_hp), 0.0, 1.0)

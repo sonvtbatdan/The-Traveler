@@ -144,6 +144,15 @@ var _lightning_chains:    Array = []   # [{lines: Array, age: float}]
 var _spaceship_eo:        EditableObjectNode = null
 var _spaceship_origin:    Vector2 = Vector2.ZERO
 var _spaceship_origin_sz: Vector2 = Vector2.ZERO
+# Visual recoil: a transient offset added on top of the ship's position that springs back to zero.
+# Triggered by weapon_system.add_recoil() on heavy shots (e.g. the Gauss cannon). Does not affect movement.
+var _recoil:              Vector2 = Vector2.ZERO
+const RECOIL_RETURN := 12.0   # spring-back rate (higher = snappier return)
+
+## Kick the ship backward (opposite `dir`) by `amount` px; it springs back. Visual only.
+func add_recoil(dir: Vector2, amount: float) -> void:
+	if dir.length() > 0.01:
+		_recoil += -dir.normalized() * amount
 # Boss-intro fly-in: float the ship up from below the screen while input is disabled.
 var _intro_was_active:    bool    = false
 var _intro_t:             float   = 0.0
@@ -249,6 +258,7 @@ func _input(event: InputEvent) -> void:
 		get_tree().root.set_input_as_handled()
 
 func _ready() -> void:
+	add_to_group("gun_system")   # so weapon_system can trigger ship recoil on heavy shots
 	WeaponManager.catalog_updated.connect(_refresh_static_frames)
 	WeaponManager.weapons_reset.connect(_refresh_static_frames)
 	WeaponManager.weapon_purchased.connect(func(_id: String, _side: String): _refresh_static_frames())
@@ -604,7 +614,8 @@ func _process(delta: float) -> void:
 	# hitbox shrinks with it; the asteroid collision radius is multiplied by this scale too
 	# (see _check_ship_asteroid_collision).
 	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
-		_spaceship_eo.position     = _spaceship_origin
+		_recoil = _recoil.lerp(Vector2.ZERO, clampf(RECOIL_RETURN * delta, 0.0, 1.0))   # spring back
+		_spaceship_eo.position     = _spaceship_origin + _recoil
 		_spaceship_eo.pivot_offset = _spaceship_eo.size * 0.5  # scale from centre
 		var target_scale_mult := GameManager.model_scale_mult()
 		if not is_equal_approx(target_scale_mult, _prev_scale_mult):

@@ -18,6 +18,129 @@ extends Control
 
 const BULLET_SPEED := 720.0
 const GAUSS_SPEED := 700.0           # heavy lumpy ball — slower so you can see it plough through
+
+# ── Gatling tracer bolt look (standard bullet) — visuals only ─────────────────
+# An elongated glowing capsule: white-hot core → golden body → orange edge, with a soft warm halo.
+# It rotates to face its travel direction. All knobs are tunable by eye.
+const GAT_TRACER_LEN   := 16.0                  # bullet length (px, along travel)
+const GAT_TRACER_WIDTH := 6.0                   # bullet width (px, across) — elongation = LEN / WIDTH
+const GAT_TRACER_SCALE := 1.0                   # overall size multiplier
+const GAT_CORE_COL := Color(1.0, 1.0, 0.85)     # white-hot core (brightest, centre)
+const GAT_BODY_COL := Color(1.0, 0.82, 0.25)    # golden-yellow body
+const GAT_EDGE_COL := Color(1.0, 0.5, 0.12)     # orange/amber outer edge
+const GAT_GLOW_SIZE := 2.4                       # halo size as a multiple of the bullet (soft warm aura)
+const GAT_GLOW_INTENSITY := 0.30                 # halo brightness (0 = no glow)
+const GAT_TAIL_LEN := 12.0                       # length of the soft fading tail behind it (px)
+
+# ── Gauss cannon plasma orb (the "big" bullet) — shader-driven, visuals only ──
+# A teardrop electric energy bolt: a white-hot core column inside a crackling cyan/blue lightning cage
+# (teardrop outline + chaotic webbing, animated), soft blue haze, and tail sparks. Bulbous front leads,
+# point trails (oriented to travel). Rendered by a per-orb ColorRect with the shader below. Speed/
+# damage/charge/pierce are untouched. All knobs are tunable here.
+const GAUSS_ORB_CORE_COL       := Color(0.85, 0.95, 1.0)   # white-hot core column
+const GAUSS_ORB_LIGHT_COL      := Color(0.25, 0.65, 1.0)   # electric cyan/blue lightning cage
+const GAUSS_ORB_HAZE_COL       := Color(0.20, 0.50, 1.0)   # soft blue haze bloom
+const GAUSS_ORB_TEAR_WIDTH     := 0.62    # teardrop fatness (half-width, 0..1 of the quad)
+const GAUSS_ORB_CORE_WIDTH     := 0.10    # white core column thinness
+const GAUSS_ORB_CORE_BRIGHT    := 1.3     # core brightness
+const GAUSS_ORB_LIGHT_DENSITY  := 5.0     # lightning line frequency (higher = busier webbing)
+const GAUSS_ORB_CRACKLE_SPEED  := 6.0     # how fast the lightning flickers / reforms
+const GAUSS_ORB_HAZE_SIZE      := 0.5     # haze bloom size
+const GAUSS_ORB_GLOW           := 1.4     # overall glow intensity
+const GAUSS_ORB_QUAD           := 2.0     # quad half-size = ball radius × this (room for cage + haze)
+# ── "Fired" feel: directional stretch, leading-edge bias, comet trail, launch flash, ship recoil ──
+const GAUSS_ORB_STRETCH       := 1.4      # elongation along travel (1.0 = round; subtle motion blur)
+const GAUSS_ORB_LEAD_BIAS     := 0.6      # fire-ring brighter on the LEADING edge (0 = even, ~1 = strong front)
+const GAUSS_TRAIL_LEN         := 10       # how many past positions the wake follows
+const GAUSS_TRAIL_WIDTH       := 1.15     # wake width at the orb, as a multiple of the ball radius
+const GAUSS_TRAIL_ALPHA       := 0.5      # wake brightness
+const GAUSS_TRAIL_COL         := Color(0.4, 0.7, 1.0)   # electric-blue wake (matches the bolt)
+const GAUSS_LAUNCH_FLASH      := 48.0     # bright muzzle burst radius at the gun on launch
+const GAUSS_RECOIL            := 11.0     # ship recoil kick (px, springs back)
+# Tail sparks: bright cyan flecks shedding off the teardrop's trailing point.
+const GAUSS_SPARK_RATE        := 26.0     # sparks shed per second
+const GAUSS_SPARK_SPEED       := 95.0     # how fast they fly off the tail (backward)
+const GAUSS_SPARK_LIFE        := 0.4      # spark lifetime (s)
+const GAUSS_SPARK_LEN         := 7.0      # spark streak length (px)
+const GAUSS_SPARK_COL         := Color(0.5, 0.85, 1.0)   # cyan flecks
+const GAUSS_SPARK_ALPHA       := 0.9
+
+# ── Gauss charge-up visual: energy rings converging onto the ship, faster as charge fills ──
+const GC_FOCAL_CENTER   := false    # converge onto the ship NOSE (false) or ship CENTRE (true)
+const GC_START_RADIUS   := 150.0    # rings appear this far out (px) and rush inward
+const GC_RING_SIZE      := 13.0     # drawn ring radius at the edge (shrinks as it closes in)
+const GC_COL_OUT        := Color(1.0, 0.30, 0.45)   # far colour (pink/red)
+const GC_COL_IN         := Color(1.0, 1.0, 0.95)    # near colour (white-hot)
+const GC_SPEED_EMPTY    := 130.0    # inward speed at 0% charge (px/s)
+const GC_SPEED_FULL     := 340.0    # inward speed at 100% charge
+const GC_INTERVAL_EMPTY := 0.5      # seconds between spawns at 0% charge (lazy trickle)
+const GC_INTERVAL_FULL  := 0.05     # seconds between spawns at 100% charge (frantic storm)
+const GC_RAMP_CURVE     := 1.6      # ramp shape (>1 = calm early, ramps hard near full)
+const GC_SPAWN_COUNT    := 1        # rings per spawn event (raise for a denser inflow)
+const GC_BRIGHT         := 0.9      # overall brightness
+const GC_FLASH_R        := 7.0      # a ring vanishes in a small flash once this close to the focus
+const GC_RELEASE_FLASH  := 60.0     # final convergence flash radius on release/fire (0 = none)
+
+const GAUSS_ORB_SHADER := """
+shader_type canvas_item;
+render_mode blend_add;
+
+uniform vec4  core_color   : source_color = vec4(0.85, 0.95, 1.0, 1.0);
+uniform vec4  light_color  : source_color = vec4(0.25, 0.65, 1.0, 1.0);
+uniform vec4  haze_color   : source_color = vec4(0.20, 0.50, 1.0, 1.0);
+uniform float tear_width    = 0.62;   // teardrop half-width (fraction of the quad)
+uniform float core_width    = 0.10;   // white core column thinness
+uniform float core_bright   = 1.3;
+uniform float light_density = 5.0;    // lightning line frequency
+uniform float crackle_speed = 6.0;    // how fast the lightning reforms
+uniform float haze_size     = 0.5;
+uniform float glow          = 1.4;
+
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p){
+	vec2 i = floor(p); vec2 f = fract(p);
+	vec2 u = f * f * (3.0 - 2.0 * f);
+	float a = hash(i), b = hash(i + vec2(1.0, 0.0)), c = hash(i + vec2(0.0, 1.0)), d = hash(i + vec2(1.0, 1.0));
+	return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+float fbm(vec2 p){
+	float v = 0.0; float amp = 0.5;
+	for(int k = 0; k < 5; k++){ v += amp * vnoise(p); p *= 2.0; amp *= 0.5; }
+	return v;
+}
+
+void fragment(){
+	vec2 p = (UV - 0.5) * 2.0;            // -1..1; forward (leading) = +X
+	// Teardrop half-width: bulbous front (+X), tapering to a sharp point at the back (-X).
+	float t = clamp((p.x + 1.0) * 0.5, 0.0, 1.0);   // 0 = back point, 1 = front
+	float hw = tear_width * pow(t, 0.6) * (1.0 - smoothstep(0.78, 1.0, t));
+	float d = abs(p.y) - hw;                          // <0 inside, ~0 on the cage outline
+	float inside = step(d, 0.0);
+
+	vec3 col = vec3(0.0);
+
+	// White-hot core column down the axis, strongest through the front-middle of the bulb.
+	float along = smoothstep(0.0, 0.5, t) * (1.0 - smoothstep(0.85, 1.0, t));
+	float core = exp(-pow(p.y / max(core_width, 0.001), 2.0)) * along;
+	col += core_color.rgb * core * core_bright;
+
+	// Animated lightning: thin bright arcs from scrolling noise, webbing the interior + a hot rim cage.
+	vec2 np = vec2(p.x * light_density * 0.6 + TIME * crackle_speed * 0.35,
+	               p.y * light_density + TIME * crackle_speed);
+	float n = fbm(np);
+	float arc = smoothstep(0.05, 0.0, abs(fract(n * 3.0) - 0.5) - 0.02);   // thin bands where noise crosses
+	float rim = exp(-pow(d / 0.06, 2.0));                                  // glowing teardrop outline
+	float light = (arc * inside + rim) * (0.5 + 0.5 * fbm(np * 1.7 + 13.0));
+	col += light_color.rgb * light * 1.6;
+
+	// Soft blue haze bloom outside the teardrop.
+	float haze = exp(-pow(max(d, 0.0) / max(haze_size * 0.5, 0.001), 2.0)) * (1.0 - inside);
+	col += haze_color.rgb * haze * 0.6;
+
+	float a = clamp(core + light + haze + inside * 0.12, 0.0, 1.0);
+	COLOR = vec4(col * glow, a);
+}
+"""
 const BULLET_HIT_RADIUS := 6.0
 const HOMING_TURN := 6.0              # (legacy) how fast old homing bullets bent toward their target
 # Homing Missile — cinematic 4-phase launch: eject → curve up → hang & aim → accelerate → strike+explode.
@@ -42,13 +165,41 @@ const MISSILE_MAX_LIFE := 4.0
 # ── Lasgun BEAM look (tunable — core stays white, colour lives in the glow) ───
 const BEAM_GLOW_COLOR   := Color(1.0, 0.70, 0.40) # beam glow colour — warm/hot (set blue to cool it)
 const BEAM_CORE_COLOR   := Color(1.0, 1.0, 1.0)   # pure white core (always)
-const BEAM_CORE_FRAC    := 0.10   # core width  = this × beam width (thin & sharp)
-const BEAM_INNER_FRAC   := 0.20   # inner glow width (−50%)
-const BEAM_HAZE_FRAC    := 0.75   # outer haze width (−50%)
-const BEAM_INNER_ALPHA  := 0.50   # inner glow opacity
-const BEAM_HAZE_ALPHA   := 0.16   # outer haze opacity (kept low; additive stacks it)
-const BEAM_FLICKER      := 0.12   # brightness shimmer amount (0 = steady)
-const BEAM_FLICKER_SPEED:= 28.0   # shimmer speed
+const BEAM_CORE_FRAC    := 0.11   # white core width as fraction of total beam width
+const BEAM_FLICKER      := 0.10   # brightness shimmer amount (0 = steady)
+const BEAM_FLICKER_SPEED:= 24.0   # shimmer speed
+# ── Prism-column body (player Lasgun): breathing core + flare swell, two-tone violet slabs, ribbons, flecks ──
+const BEAM_CORE_BREATHE   := 0.22   # how much the core pinches/bulges along its length
+const BEAM_CORE_BREATHE_SP:= 3.0    # breathing speed
+const BEAM_CORE_FLARE_AT  := 0.42   # position (0..1 along beam) of the bright swell
+const BEAM_CORE_FLARE_AMT := 0.6    # extra core brightness/width at the swell
+const BEAM_COL_INNER  := Color(0.50, 0.30, 0.92)  # deep blue-violet, hugs the white
+const BEAM_COL_MID    := Color(0.40, 0.20, 0.88)  # deep saturated violet shoulder (peak colour)
+const BEAM_COL_OUTER  := Color(0.46, 0.22, 0.74)  # deep dusky red-violet outer haze
+# Body slabs: [width_fraction, alpha, colour (0=inner 1=mid 2=outer)] — widest first.
+const BEAM_SLABS := [
+	[2.30, 0.06, 2], [1.70, 0.10, 2], [1.20, 0.16, 1], [0.80, 0.24, 1], [0.45, 0.40, 0],
+]
+# Orbiting ribbons (few, large, loose, asymmetric, front/behind depth)
+const RIB_COUNT      := 4
+const RIB_LOOPS      := 3.5     # more wraps → a tight corkscrew
+const RIB_AMP        := 0.49    # 30% closer to the core (was 0.7)
+const RIB_AMP_VARY   := 0.25
+const RIB_AMP_GROW   := 0.12    # stay hugging the body along the whole length (little ballooning)
+const RIB_ASYM       := 0.35
+const RIB_ORBIT_SPEED:= 1.1     # spin around the column faster
+const RIB_SCROLL     := 0.25
+const RIB_SEGS       := 64
+const RIB_WIDTH      := 0.06    # thinner coil
+const RIB_FRONT_A    := 0.95
+const RIB_BACK_A     := 0.22
+const RIB_GLOW_MULT  := 2.2
+const RIB_END_TAPER  := 70.0
+# Twinkling flecks in the haze
+const FLECK_COUNT    := 14
+const FLECK_LEN      := 14.0
+const FLECK_SPREAD   := 0.85
+const FLECK_TWINKLE  := 5.0
 
 # ── Stylized-laser layers (each animates at its own rate → feels alive) ────────
 # Wobble / distortion (energy turbulence rippling down the beam)
@@ -60,7 +211,7 @@ const BEAM_PULSE_COUNT   := 5
 const BEAM_PULSE_SPEED   := 620.0  # px/s
 const BEAM_PULSE_LEN     := 46.0   # length of each pulse streak (px)
 # Electric / lightning crackle (subtle, fast flicker)
-const BEAM_ELEC_INTENSITY:= 0.5    # 0..1 opacity (0 = off)
+const BEAM_ELEC_INTENSITY:= 0.0    # 0..1 opacity (0 = off; jagged crackle replaced by smooth ribbons)
 const BEAM_ELEC_SEGMENTS := 9
 const BEAM_ELEC_AMP      := 6.0    # jaggedness (px)
 const BEAM_ELEC_SPEED    := 22.0   # re-jag / flicker rate per second
@@ -177,6 +328,11 @@ var _block_flashes: Array = []  # bat block-impact pops: {pos, age, max_age}
 
 # Transient FX (all in StreamScreen-local space)
 var _bullets: Array = []   # {pos, vel, dmg, big, life}
+var _gauss_orb_shader: Shader = null   # shared plasma-orb shader for the Gauss "big" bullet
+var _gauss_sparks: Array = []          # tail sparks shed by Gauss bolts: each {pos, vel, life, ttl}
+var _charge_rings: Array = []          # Gauss charge-up rings: each {ang, r}
+var _charge_spawn_acc: float = 0.0
+var _charge_was_charging: bool = false
 var _missiles: Array = []  # Homing Missile choreography: {pos, vel, dmg, target, phase, angle, orbit_t, life}
 var _missile_tex: Texture2D = null
 var _impacts: Array = []   # {pos, age, max_age, radius, color}
@@ -444,6 +600,8 @@ func _process(delta: float) -> void:
 	_tick_fx(_impacts, delta)
 	_tick_fx(_arcs, delta)
 	_tick_fx(_block_flashes, delta)
+	_update_charge_rings(delta)   # Gauss charge-up: energy rings converging onto the ship
+	_update_gauss_sparks(delta)   # Gauss bolt tail sparks (live independently of the bullet)
 	_beam_time += delta
 	_out_of_energy_t = maxf(0.0, _out_of_energy_t - delta)
 	_out_of_ammo_t = maxf(0.0, _out_of_ammo_t - delta)
@@ -598,6 +756,8 @@ func _update_bullets(delta: float) -> void:
 		var big: bool = b["big"]
 		var remove := false
 		if big:
+			_update_gauss_orb(b)   # keep the bolt on the ball (size shrinks with damage)
+			_shed_gauss_sparks(b, delta)   # tail sparks off the trailing point
 			# Piercing: spend damage equal to each rock's HP; leftover keeps flying.
 			var r: float = _ball_radius(b)
 			if boss_rect.has_area() and _circle_hits_rect(pos, maxf(r, 4.0), boss_rect):
@@ -663,6 +823,8 @@ func _update_bullets(delta: float) -> void:
 				remove = true
 		var off: bool = pos.x < -48.0 or pos.x > size.x + 48.0 or pos.y < -48.0 or pos.y > size.y + 48.0
 		if remove or off or float(b["life"]) > 4.0:
+			if big:
+				_free_gauss_orb(b)
 			_bullets.remove_at(i)
 		i -= 1
 
@@ -1084,11 +1246,20 @@ func _spawn_bullet(dmg: float, big: bool, dmg_ref: float = 0.0, def: Dictionary 
 		"is_crit": is_crit,
 	}
 	if big:
-		# Fixed per-ball lumpiness so the metal ball keeps its shape as it shrinks.
+		# Fixed per-ball lumpiness kept as a fallback if the shader orb fails to create.
 		var lumps: Array = []
 		for _k in range(12):
 			lumps.append(randf_range(0.82, 1.14))
 		b["lumps"] = lumps
+		b["trail"] = []                      # path history for the comet wake
+		b["spark_acc"] = 0.0                 # accumulator for tail sparks
+		b["orb_node"] = _make_gauss_orb()    # shader teardrop bolt follows this bullet
+		_update_gauss_orb(b)
+		# Launch event: a bright muzzle burst + a quick ship recoil so it reads as expelled, not floating.
+		_impacts.append({"pos": muzzle, "age": 0.0, "max_age": 0.30, "radius": GAUSS_LAUNCH_FLASH})
+		var gs := get_tree().get_first_node_in_group("gun_system")
+		if gs != null and gs.has_method("add_recoil"):
+			gs.add_recoil(dir, GAUSS_RECOIL)
 	_bullets.append(b)
 	_spawn_impact(muzzle, big)   # muzzle flash
 
@@ -1987,16 +2158,19 @@ func _draw() -> void:
 		var t: float = clampf(1.0 - float(a["age"]) / float(a["max_age"]), 0.0, 1.0)
 		_draw_lightning(a["a"], a["b"], Color(0.75, 0.9, 1.0, t))
 
+	# Gauss charge-up rings converging onto the ship (drawn under the bullets/orb)
+	_draw_charge_rings()
+	_draw_gauss_sparks()   # tail sparks trailing the bolts
+
 	# Bullets
 	for b: Dictionary in _bullets:
 		if b["big"]:
-			_draw_metal_ball(b)
+			_draw_gauss_trail(b)   # comet wake (under the orb node, which draws on top)
+			# The plasma orb is a ColorRect node; only fall back to the drawn ball if it's missing.
+			if b.get("orb_node") == null or not is_instance_valid(b.get("orb_node")):
+				_draw_metal_ball(b)
 		else:
-			var p: Vector2 = b["pos"]
-			var col := Color(1.0, 0.95, 0.55)
-			var tail: Vector2 = p - (b["vel"] as Vector2).normalized() * 10.0
-			draw_line(tail, p, col, 2.5)
-			draw_circle(p, 2.5, col)
+			_draw_tracer(b["pos"], b["vel"])
 
 	# Homing missiles — missile.png sprite, oriented to their facing (nose rotates per phase)
 	for m: Dictionary in _missiles:
@@ -2199,6 +2373,89 @@ func _draw_beam_fx_all() -> void:
 	_draw_beam_fx(_wp)
 	_draw_beam_fx(_ws)
 
+# Smooth deterministic wiggle from two sines (cheap, no RNG) — for ribbon asymmetry/looseness.
+func _wig(t: float) -> float:
+	return sin(t) * 0.7 + sin(t * 2.3 + 1.7) * 0.3
+
+## Player Lasgun "prism column + orbiting ribbons" body, drawn on the additive _glow. a,b=endpoints,
+## w=width, t=time. Two-tone violet slabs, breathing white core, few large asymmetric ribbons with
+## front/behind depth, and twinkling haze flecks. (Uses its own violet palette, not the beam tint.)
+func _draw_prism_beam(a: Vector2, b: Vector2, w: float, t: float) -> void:
+	var seg := b - a
+	var L := seg.length()
+	if L < 1.0:
+		return
+	var dir := seg / L
+	var perp := Vector2(-dir.y, dir.x)
+	var flick := 1.0 + sin(t * BEAM_FLICKER_SPEED) * BEAM_FLICKER
+	# (1) Volumetric body: concentric soft slabs, widest first.
+	for slab in BEAM_SLABS:
+		var frac: float = slab[0]
+		var alpha: float = slab[1]
+		var ci: int = slab[2]
+		var col: Color = BEAM_COL_INNER
+		if ci == 1: col = BEAM_COL_MID
+		elif ci == 2: col = BEAM_COL_OUTER
+		_glow.draw_line(a, b, Color(col.r, col.g, col.b, alpha * flick), maxf(2.0, w * frac))
+	# (2) Orbiting ribbons — two passes: behind the core, then in front (3D wrap).
+	for pass_i in range(2):
+		for r in range(RIB_COUNT):
+			var strand_phase := TAU * float(r) / float(RIB_COUNT)
+			var amp_base := w * RIB_AMP * (1.0 - RIB_AMP_VARY * 0.5 + RIB_AMP_VARY * _wig(float(r) * 2.1))
+			var seed := float(r) * 5.13
+			var prev_pt := Vector2.ZERO
+			var prev_ok := false
+			for s in range(RIB_SEGS + 1):
+				var u := float(s) / float(RIB_SEGS)
+				var alo := L * u
+				var loop_ang := u * RIB_LOOPS * TAU + strand_phase + t * RIB_ORBIT_SPEED * TAU + t * RIB_SCROLL
+				var lateral := sin(loop_ang) + RIB_ASYM * sin(loop_ang * 2.0 + seed)
+				var depth := cos(loop_ang)
+				var amp := amp_base * (1.0 + RIB_AMP_GROW * u) * (0.85 + 0.15 * _wig(u * 3.0 + seed))
+				var ends := clampf(alo / RIB_END_TAPER, 0.0, 1.0) * clampf((L - alo) / RIB_END_TAPER, 0.0, 1.0)
+				var off := lateral * amp * ends
+				var pt := a + dir * alo + perp * off
+				var is_front := depth >= 0.0
+				var want_front := pass_i == 1
+				if is_front == want_front and prev_ok:
+					var base_a := RIB_FRONT_A if is_front else RIB_BACK_A
+					var edge_fade := 0.5 + 0.5 * absf(depth)
+					var aa := base_a * edge_fade * ends * flick
+					var rib_w := maxf(1.0, w * RIB_WIDTH)
+					_glow.draw_line(prev_pt, pt, Color(BEAM_COL_INNER.r, BEAM_COL_INNER.g, BEAM_COL_INNER.b, aa * 0.4), rib_w * RIB_GLOW_MULT)
+					_glow.draw_line(prev_pt, pt, Color(0.92, 0.85, 1.0, aa), rib_w)
+				prev_pt = pt
+				prev_ok = true
+		if pass_i == 0:
+			_draw_core(a, b, dir, perp, w, L, t, flick)
+	# (3) Twinkling flecks in the haze.
+	for f in range(FLECK_COUNT):
+		var fu := fmod(float(f) * 0.137 + t * 0.05, 1.0)
+		var falo := L * fu
+		var fside := _wig(float(f) * 3.3) * w * FLECK_SPREAD
+		var fp := a + dir * falo + perp * fside
+		var tw := 0.5 + 0.5 * sin(t * FLECK_TWINKLE + float(f) * 1.7)
+		var fa := tw * flick
+		var ftail := fp - dir * FLECK_LEN * (0.4 + 0.6 * tw)
+		_glow.draw_line(ftail, fp, Color(1.0, 0.97, 1.0, 0.7 * fa), 2.0)
+		_glow.draw_circle(fp, 1.6 * tw, Color(1.0, 1.0, 1.0, fa))
+
+## Fat-ish white core with breathing width + a mid-length flare swell, soft lilac sheath (no hard edge).
+func _draw_core(a: Vector2, _b: Vector2, dir: Vector2, _perp: Vector2, w: float, L: float, t: float, flick: float) -> void:
+	var N := 28
+	var prev := a
+	for s in range(1, N + 1):
+		var u := float(s) / float(N)
+		var alo := L * u
+		var pt := a + dir * alo
+		var breathe := 1.0 + BEAM_CORE_BREATHE * sin(u * 9.0 - t * BEAM_CORE_BREATHE_SP)
+		var d := absf(u - BEAM_CORE_FLARE_AT)
+		var swell := 1.0 + BEAM_CORE_FLARE_AMT * exp(-d * d * 40.0)
+		var cw := maxf(1.5, w * BEAM_CORE_FRAC * breathe * swell)
+		_glow.draw_line(prev, pt, Color(BEAM_COL_INNER.r, BEAM_COL_INNER.g, BEAM_COL_INNER.b, 0.5 * flick), cw * 2.2)
+		_glow.draw_line(prev, pt, Color(1.0, 1.0, 1.0, flick), cw)
+		prev = pt
+
 func _draw_beam_fx(ctx: Dictionary) -> void:
 	if _glow == null:
 		return
@@ -2210,54 +2467,14 @@ func _draw_beam_fx(ctx: Dictionary) -> void:
 	var flick := 1.0 + sin(_beam_time * BEAM_FLICKER_SPEED) * BEAM_FLICKER   # subtle shimmer
 	var w: float = float(ctx["beam_width"])
 	var g: Color = ctx["beam_color"]   # glow colour (blue for the Lasgun, teal for the tether)
-	# Outer haze — stacked soft lines → smooth blue falloff, no hard edge
-	_glow.draw_line(a, b, Color(g.r, g.g, g.b, BEAM_HAZE_ALPHA * 0.4 * flick), w * BEAM_HAZE_FRAC * 1.8)
-	_glow.draw_line(a, b, Color(g.r, g.g, g.b, BEAM_HAZE_ALPHA * 0.7 * flick), w * BEAM_HAZE_FRAC * 1.25)
-	_glow.draw_line(a, b, Color(g.r, g.g, g.b, BEAM_HAZE_ALPHA * flick),       w * BEAM_HAZE_FRAC)
-	# Inner glow — glow colour blended halfway to white
-	var iw := Color((g.r + 1.0) * 0.5, (g.g + 1.0) * 0.5, (g.b + 1.0) * 0.5, BEAM_INNER_ALPHA * flick)
-	_glow.draw_line(a, b, iw, maxf(2.0, w * BEAM_INNER_FRAC))
+	# Prism-column body: violet slabs + breathing core + orbiting ribbons + haze flecks (player look).
+	_draw_prism_beam(a, b, w, _beam_time)
 
-	# Beam axis
+	# Beam axis (for the streak particles + impact flare below)
 	var seg := b - a
 	var L := seg.length()
 	var dir := (seg / L) if L > 0.001 else Vector2.UP
 	var perp := Vector2(-dir.y, dir.x)
-
-	# (1) Energy wobble layer — rippling bright polyline (heat-haze / turbulence)
-	if BEAM_WOBBLE_AMP > 0.0 and L > 1.0:
-		var wprev := a
-		for s in range(1, 17):
-			var alo := L * float(s) / 16.0
-			var woff := sin(alo * BEAM_WOBBLE_FREQ - _beam_time * BEAM_WOBBLE_SPEED) * BEAM_WOBBLE_AMP
-			var wpt := a + dir * alo + perp * woff
-			_glow.draw_line(wprev, wpt, Color(g.r, g.g, g.b, 0.30 * flick), maxf(2.0, w * 0.16))
-			wprev = wpt
-
-	# (2) Scrolling energy pulses — bright dashes racing gun → impact
-	if L > 1.0:
-		for k in BEAM_PULSE_COUNT:
-			var phase := fmod(_beam_time * BEAM_PULSE_SPEED + float(k) * (L / float(maxi(1, BEAM_PULSE_COUNT))), L)
-			var pc := a + dir * phase
-			var pt := pc - dir * minf(BEAM_PULSE_LEN, phase)
-			_glow.draw_line(pt, pc, Color(1.0, 1.0, 1.0, 0.45 * flick), maxf(2.0, w * 0.22))
-
-	# (3) Electric crackle — jagged polyline, fast flicker (re-jags ELEC_SPEED×/sec)
-	if BEAM_ELEC_INTENSITY > 0.0 and L > 1.0:
-		var eseed := floorf(_beam_time * BEAM_ELEC_SPEED)
-		var ec := Color(0.75, 0.9, 1.0, BEAM_ELEC_INTENSITY * flick)
-		var eprev := a
-		for s in range(1, BEAM_ELEC_SEGMENTS + 1):
-			var alo := L * float(s) / float(BEAM_ELEC_SEGMENTS)
-			var eoff := 0.0
-			if s < BEAM_ELEC_SEGMENTS:
-				eoff = _pseudo(float(s), eseed) * BEAM_ELEC_AMP
-			var ept := a + dir * alo + perp * eoff
-			_glow.draw_line(eprev, ept, ec, 1.5)
-			eprev = ept
-
-	# Core — thin pure white, straight, on top
-	_glow.draw_line(a, b, Color(BEAM_CORE_COLOR.r, BEAM_CORE_COLOR.g, BEAM_CORE_COLOR.b, flick), maxf(1.5, w * BEAM_CORE_FRAC))
 
 	# (4) Stretched particles streaming down the beam
 	for p: Dictionary in (ctx["beam_particles"] as Array):
@@ -2355,6 +2572,213 @@ func _draw_light(ctx: Dictionary) -> void:
 			var rad := LIGHT_IMPACT_RADIUS * float(i + 1) / float(rings)
 			_light.draw_circle(bto, rad, Color(lc.r, lc.g, lc.b, 0.05 * e))
 		_light.draw_circle(bto, LIGHT_IMPACT_RADIUS * 0.16, Color(1.0, 0.92, 0.72, 0.22 * e))
+
+## Draw a standard bullet as a hot golden tracer bolt: an elongated capsule (white-hot core → golden
+## body → orange edge) with a soft warm halo and a short fading tail, rotated to face its travel `vel`.
+func _draw_tracer(p: Vector2, vel: Vector2) -> void:
+	var dir := (vel as Vector2).normalized() if (vel as Vector2).length() > 0.01 else Vector2.UP
+	var ca := dir.x
+	var sa := dir.y
+	var s := GAT_TRACER_SCALE
+	var hl := GAT_TRACER_LEN * 0.5 * s    # half-length (along travel)
+	var hw := GAT_TRACER_WIDTH * 0.5 * s  # half-width (across)
+	# Soft fading tail behind the bolt (trailing taper).
+	var tail_steps := 5
+	for i in range(tail_steps, 0, -1):
+		var f := float(i) / float(tail_steps)            # 1 at far tail → toward head
+		var tp := p - dir * (GAT_TAIL_LEN * s * f)
+		var ta := GAT_GLOW_INTENSITY * (1.0 - f) * 0.7
+		draw_circle(tp, hw * (1.0 - 0.6 * f), Color(GAT_EDGE_COL.r, GAT_EDGE_COL.g, GAT_EDGE_COL.b, ta))
+	# Soft warm glow halo (two layered ellipses → fake additive on the dark background).
+	draw_colored_polygon(_oblong(p, hl * GAT_GLOW_SIZE, hw * GAT_GLOW_SIZE, ca, sa, 20),
+		Color(GAT_EDGE_COL.r, GAT_EDGE_COL.g, GAT_EDGE_COL.b, GAT_GLOW_INTENSITY * 0.5))
+	draw_colored_polygon(_oblong(p, hl * GAT_GLOW_SIZE * 0.6, hw * GAT_GLOW_SIZE * 0.6, ca, sa, 20),
+		Color(GAT_BODY_COL.r, GAT_BODY_COL.g, GAT_BODY_COL.b, GAT_GLOW_INTENSITY))
+	# Capsule body: orange edge → golden body. The bright core is nudged toward the leading end.
+	draw_colored_polygon(_oblong(p, hl, hw, ca, sa, 18), GAT_EDGE_COL)
+	draw_colored_polygon(_oblong(p, hl * 0.72, hw * 0.72, ca, sa, 18), GAT_BODY_COL)
+	var head := p + dir * (hl * 0.28)   # leading end slightly rounder/brighter
+	draw_colored_polygon(_oblong(head, hl * 0.42, hw * 0.5, ca, sa, 16), GAT_CORE_COL)
+
+## Points of an ellipse (half-extents rx along travel, ry across) centred at `c`, rotated by (ca,sa) =
+## (cos,sin) of the travel angle. Used to build the tracer's oriented capsule/halo layers.
+func _oblong(c: Vector2, rx: float, ry: float, ca: float, sa: float, segs: int) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	pts.resize(segs)
+	for i in segs:
+		var t := TAU * float(i) / float(segs)
+		var x := rx * cos(t)
+		var y := ry * sin(t)
+		pts[i] = c + Vector2(x * ca - y * sa, x * sa + y * ca)
+	return pts
+
+## Create the per-orb plasma ColorRect (shared shader; tunable params from the GAUSS_ORB_* consts).
+func _make_gauss_orb() -> ColorRect:
+	if _gauss_orb_shader == null:
+		_gauss_orb_shader = Shader.new()
+		_gauss_orb_shader.code = GAUSS_ORB_SHADER
+	var mat := ShaderMaterial.new()
+	mat.shader = _gauss_orb_shader
+	mat.set_shader_parameter("core_color", GAUSS_ORB_CORE_COL)
+	mat.set_shader_parameter("light_color", GAUSS_ORB_LIGHT_COL)
+	mat.set_shader_parameter("haze_color", GAUSS_ORB_HAZE_COL)
+	mat.set_shader_parameter("tear_width", GAUSS_ORB_TEAR_WIDTH)
+	mat.set_shader_parameter("core_width", GAUSS_ORB_CORE_WIDTH)
+	mat.set_shader_parameter("core_bright", GAUSS_ORB_CORE_BRIGHT)
+	mat.set_shader_parameter("light_density", GAUSS_ORB_LIGHT_DENSITY)
+	mat.set_shader_parameter("crackle_speed", GAUSS_ORB_CRACKLE_SPEED)
+	mat.set_shader_parameter("haze_size", GAUSS_ORB_HAZE_SIZE)
+	mat.set_shader_parameter("glow", GAUSS_ORB_GLOW)
+	var cr := ColorRect.new()
+	cr.material = mat
+	cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(cr)
+	return cr
+
+## Position/size the orb over the ball, STRETCHED along travel and ROTATED to face its velocity, and
+## record the path history for the wake. Quad = ball radius × GAUSS_ORB_QUAD (× stretch on the long axis).
+func _update_gauss_orb(b: Dictionary) -> void:
+	# Record path history for the comet wake (newest first).
+	var trail: Array = b.get("trail", [])
+	trail.push_front(b["pos"])
+	if trail.size() > GAUSS_TRAIL_LEN:
+		trail.resize(GAUSS_TRAIL_LEN)
+	b["trail"] = trail
+	var cr := b.get("orb_node") as ColorRect
+	if cr == null or not is_instance_valid(cr):
+		return
+	var qhalf: float = _ball_radius(b) * GAUSS_ORB_QUAD
+	var w := qhalf * 2.0 * GAUSS_ORB_STRETCH   # long axis (direction of travel)
+	var h := qhalf * 2.0
+	cr.size = Vector2(w, h)
+	cr.pivot_offset = Vector2(w, h) * 0.5      # rotate around the centre
+	var v: Vector2 = b["vel"]
+	cr.rotation = v.angle() if v.length() > 0.01 else 0.0
+	cr.position = (b["pos"] as Vector2) - Vector2(w, h) * 0.5
+
+## A heavy glowing comet wake along the orb's recorded path: thick/bright near the orb, tapering behind.
+func _draw_gauss_trail(b: Dictionary) -> void:
+	var trail: Array = b.get("trail", [])
+	var n := trail.size()
+	if n < 2:
+		return
+	var base_w: float = _ball_radius(b) * GAUSS_TRAIL_WIDTH
+	var c := GAUSS_TRAIL_COL
+	for i in range(n - 1, 0, -1):
+		var f := float(i) / float(n - 1)   # 1 at the tail → 0 near the orb
+		var fade := 1.0 - f
+		var w := base_w * (0.3 + 0.7 * fade)
+		if w < 0.5:
+			continue
+		var pa: Vector2 = trail[i]
+		draw_circle(pa, w * 1.6, Color(c.r, c.g, c.b, GAUSS_TRAIL_ALPHA * 0.22 * fade))
+		draw_circle(pa, w, Color(c.r, c.g, c.b, GAUSS_TRAIL_ALPHA * 0.55 * fade))
+		draw_circle(pa, w * 0.45, Color(1.0, 0.88, 0.9, GAUSS_TRAIL_ALPHA * 0.7 * fade))
+
+func _free_gauss_orb(b: Dictionary) -> void:
+	var cr := b.get("orb_node") as ColorRect
+	if cr != null and is_instance_valid(cr):
+		cr.queue_free()
+	b["orb_node"] = null
+
+## Shed bright cyan sparks off the teardrop's trailing point (they live in _gauss_sparks, independent of
+## the bullet, so they trail behind as the bolt flies on).
+func _shed_gauss_sparks(b: Dictionary, delta: float) -> void:
+	var v: Vector2 = b["vel"]
+	if v.length() < 0.01:
+		return
+	var dir := v.normalized()
+	var tail: Vector2 = (b["pos"] as Vector2) - dir * (_ball_radius(b) * GAUSS_ORB_QUAD * GAUSS_ORB_STRETCH * 0.85)
+	b["spark_acc"] = float(b.get("spark_acc", 0.0)) + GAUSS_SPARK_RATE * delta
+	while float(b["spark_acc"]) >= 1.0:
+		b["spark_acc"] = float(b["spark_acc"]) - 1.0
+		var jit := Vector2(randf_range(-0.6, 0.6), randf_range(-0.6, 0.6))
+		var sv := (-dir + jit).normalized() * GAUSS_SPARK_SPEED * randf_range(0.6, 1.25)
+		_gauss_sparks.append({"pos": tail, "vel": sv, "life": 0.0, "ttl": GAUSS_SPARK_LIFE * randf_range(0.7, 1.2)})
+
+func _update_gauss_sparks(delta: float) -> void:
+	var i := _gauss_sparks.size() - 1
+	while i >= 0:
+		var s: Dictionary = _gauss_sparks[i]
+		s["life"] = float(s["life"]) + delta
+		if float(s["life"]) >= float(s["ttl"]):
+			_gauss_sparks.remove_at(i)
+		else:
+			s["pos"] = (s["pos"] as Vector2) + (s["vel"] as Vector2) * delta
+		i -= 1
+
+func _draw_gauss_sparks() -> void:
+	var c := GAUSS_SPARK_COL
+	for s: Dictionary in _gauss_sparks:
+		var t := clampf(1.0 - float(s["life"]) / maxf(0.01, float(s["ttl"])), 0.0, 1.0)
+		var p: Vector2 = s["pos"]
+		var v: Vector2 = s["vel"]
+		var tail := p - (v.normalized() * GAUSS_SPARK_LEN if v.length() > 0.01 else Vector2.ZERO)
+		draw_line(tail, p, Color(c.r, c.g, c.b, GAUSS_SPARK_ALPHA * t), 2.0)
+		draw_circle(p, 1.6 * t + 0.5, Color(1.0, 1.0, 1.0, GAUSS_SPARK_ALPHA * t))
+
+# ── Gauss charge-up: rings converging onto the ship, faster as the charge fills ───────────────
+## The point the rings converge onto (ship nose by default, or centre).
+func _charge_focal() -> Vector2:
+	return _ship_center() if GC_FOCAL_CENTER else _muzzle()
+
+## Charge progress (0..1) of the currently-charging Gauss-type weapon, or -1.0 if none is charging.
+func _charging_frac() -> float:
+	for ctx: Dictionary in [_wp, _ws]:
+		if not bool(ctx["trigger_down"]):
+			continue
+		var cdef := _equipped_def(String(ctx["slot"]))
+		if not cdef.is_empty() and String(cdef.get("fire_mode", "")) == "charge":
+			var maxc: float = maxf(0.1, float(_stat(cdef, "cooldown_sec", 1.5)))
+			return clampf(float(ctx["charge"]) / maxc, 0.0, 1.0)
+	return -1.0
+
+## Spawn + advance the converging rings; ramps with charge fraction; flashes on release.
+func _update_charge_rings(delta: float) -> void:
+	var frac := _charging_frac()
+	var charging := frac >= 0.0
+	if charging:
+		var focal := _charge_focal()
+		# Spawn frequency ramps up as the charge fills.
+		var interval: float = lerpf(GC_INTERVAL_EMPTY, GC_INTERVAL_FULL, pow(frac, GC_RAMP_CURVE))
+		_charge_spawn_acc += delta
+		while _charge_spawn_acc >= interval:
+			_charge_spawn_acc -= interval
+			for _k in GC_SPAWN_COUNT:
+				_charge_rings.append({"ang": randf() * TAU, "r": GC_START_RADIUS * randf_range(0.85, 1.12)})
+		# All rings rush inward; faster at higher charge.
+		var spd: float = lerpf(GC_SPEED_EMPTY, GC_SPEED_FULL, frac)
+		var i := _charge_rings.size() - 1
+		while i >= 0:
+			var ring: Dictionary = _charge_rings[i]
+			ring["r"] = float(ring["r"]) - spd * delta
+			if float(ring["r"]) <= GC_FLASH_R:
+				_impacts.append({"pos": focal, "age": 0.0, "max_age": 0.16, "radius": GC_FLASH_R * 2.2})
+				_charge_rings.remove_at(i)
+			i -= 1
+	elif _charge_was_charging:
+		# Released / fired this frame — clear the inflow and pop a final convergence flash.
+		_charge_rings.clear()
+		_charge_spawn_acc = 0.0
+		if GC_RELEASE_FLASH > 0.0:
+			_impacts.append({"pos": _charge_focal(), "age": 0.0, "max_age": 0.30, "radius": GC_RELEASE_FLASH})
+	_charge_was_charging = charging
+
+## Draw the converging rings — bigger/fainter out at the edge, smaller/brighter as they close in.
+func _draw_charge_rings() -> void:
+	if _charge_rings.is_empty():
+		return
+	var focal := _charge_focal()
+	for ring: Dictionary in _charge_rings:
+		var r: float = ring["r"]
+		var t := clampf(1.0 - r / GC_START_RADIUS, 0.0, 1.0)   # 0 far → 1 near the focus
+		var pos := focal + Vector2(cos(float(ring["ang"])), sin(float(ring["ang"]))) * r
+		var col := GC_COL_OUT.lerp(GC_COL_IN, t)
+		var a := GC_BRIGHT * (0.12 + 0.88 * t)                 # brighter as it closes in
+		var rs := GC_RING_SIZE * (0.3 + 0.7 * (1.0 - t))       # smaller as it closes in
+		draw_arc(pos, rs * 1.4, 0.0, TAU, 16, Color(col.r, col.g, col.b, a * 0.3), 2.0)   # soft halo
+		draw_arc(pos, rs, 0.0, TAU, 16, Color(col.r, col.g, col.b, a), 2.0)               # bright ring
+		draw_circle(pos, rs * 0.35, Color(col.r, col.g, col.b, a * 0.5))                  # core glint
 
 func _draw_metal_ball(b: Dictionary) -> void:
 	var pos: Vector2 = b["pos"]
