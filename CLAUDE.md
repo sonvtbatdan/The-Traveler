@@ -1070,6 +1070,19 @@ Bottom-center HBox (CanvasLayer). Controls:
 
 **Title label:** font = `Good Old DOS.ttf`, color `#9bfdb0`, size 22. Anchors top=0.035/bottom=0.155 + offset_top=30/offset_bottom=30/offset_left=−10/offset_right=−10.
 
+**Card centering bug (fixed):** `queue_free()` does NOT remove a node from `get_children()` immediately — it only marks it for deletion at end of frame. On the 2nd+ level-up, old cards (3) are still in `_cards_box` when new cards (3) are added → `_position_cards()` sees 6 cards → `cluster_w = 1010px` → `base_x = -163` → all cards shift far left. **Fix:** use `c.free()` (immediate removal) instead of `c.queue_free()` in `_show_cards()`.
+
+**`_position_cards()` — centering formula:** reads `_cards_box.size` directly (fallback to anchor × 720/390 if not yet laid out). Sets `pivot_offset = Vector2(_CW*0.5, _CH*0.5)` on each card so hover scale grows from center.
+
+**Hover effects:** `mouse_entered/exited` connected on the invisible full-rect Button inside each card → `_on_card_hover(card)` sets `card.scale = Vector2(1.03, 1.03)` and `card.modulate = Color(1.03, 1.03, 1.03)`; `_on_card_unhover(card)` resets both to identity.
+
+**SFX:**
+| Sound | Trigger |
+|-------|---------|
+| `assets/audio/sfx/uialert.wav` | Level-up panel shows (`_show_cards()`) |
+| `assets/audio/sfx/uiclick.wav` | Mouse enters a card (hover) |
+| `assets/audio/sfx/selectconfirm2.wav` | Card picked (`_pick()`) |
+
 ### `enemy_dragonfly.gd` — non-arena fix
 
 Fixed with Option B (`DF_ORBIT_CENTER_SPEED = 80px/s` drift, aim-once dive). This file is used only by `enemy_manager.gd` (non-arena waves). The arena dragonfly ("orbit" behavior in `arena_enemy.gd`) still has the snap bug.
