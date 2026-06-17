@@ -219,6 +219,10 @@ var _shield_dmg_timer: float = 999.0    # time since last damage; regen once >= 
 const SHIP_IFRAME_TIME: float = 0.3     # invincibility window after a hit
 var _iframe_timer: float = 0.0
 
+# ── Loot shield immunity (from shield drop in arena) ─────────────────────────
+var _shield_immune: bool = false
+var _shield_timer: float = 0.0
+
 # ── Energy (dash resource) ────────────────────────────────────────────────────
 const SHIP_MAX_ENERGY: float = 100.0
 const ENERGY_REGEN:    float = 5.0      # energy per second
@@ -246,6 +250,8 @@ func set_boost(active: bool) -> void:
 
 func ship_take_damage(dmg: int) -> void:
 	if dmg <= 0 or ship_hp <= 0:
+		return
+	if _shield_immune:
 		return
 	if _iframe_timer > 0.0:
 		return   # still invincible from a recent hit
@@ -460,6 +466,10 @@ func _process(delta: float) -> void:
 		ship_ammo = minf(ammo_cap, ship_ammo + ammo_regen_rate() * delta)
 		ship_ammo_changed.emit(ship_ammo)
 	_tick_shield(delta)
+	if _shield_timer > 0.0:
+		_shield_timer -= delta
+		if _shield_timer <= 0.0:
+			_shield_immune = false
 
 # ---------------------------------------------------------------------------
 # Format and helper stubs to maintain compatibility
@@ -533,11 +543,25 @@ func add_pickup_radius(p: float) -> void: upg_pickup_mult += p;       player_sta
 func add_crit_chance(p: float) -> void: upg_crit_chance += p;         player_stats_changed.emit()
 func add_crit_damage(p: float) -> void: upg_crit_damage += p;         player_stats_changed.emit()
 
+## Heal the player by `amount` HP, capped at max HP. Safe to call from loot drops.
+func heal(amount: int) -> void:
+	if ship_hp <= 0:
+		return
+	ship_hp = mini(ship_max_hp, ship_hp + amount)
+	ship_hp_changed.emit(ship_hp)
+
+## Grant full damage immunity for `duration` seconds (from loot shield drop).
+func activate_shield(duration: float) -> void:
+	_shield_immune = true
+	_shield_timer = duration
+
 ## Start a fresh arena run: reset level/XP + all upgrade modifiers, restore full HP. Called from arena._ready
 ## (flag RESET_RUN_ON_START) so each survival run is a clean Vampire-Survivors climb from level 1.
 func reset_run() -> void:
 	player_level = 1
 	player_xp = 0
+	_shield_immune = false
+	_shield_timer = 0.0
 	upg_max_hp_bonus = 0
 	upg_base_defense = 0
 	upg_hp_regen = 0.0

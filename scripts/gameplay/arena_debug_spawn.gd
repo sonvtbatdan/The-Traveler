@@ -8,12 +8,88 @@ extends CanvasLayer
 ##   F12 = Lasgun weapon pickup near the player  Shift+F12 = clear uncollected weapon pickups
 ## (F6 = planet menu, F7 = wave editor — left alone.) Moons also spawn automatically with F6/streamed planets.
 
+const FR_STEP        := 0.5    # fire-rate mult change per +/- press (tune for faster/slower testing)
+const GAT_INTERVAL   := 0.09   # mirrors arena_weapons.gd GAT_FIRE_INTERVAL (keep in sync if changed)
+const FR_MULT_MIN    := 0.5    # clamp floor so fire rate can't go negative or too slow
+
 var _rng := RandomNumberGenerator.new()
 var _struct_cycle: int = 0   # F11 steps through the four structure types
+var _fr_label: Label = null
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_rng.randomize()
+	_build_fire_rate_ui()
+
+func _build_fire_rate_ui() -> void:
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(root)
+
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 6)
+	hb.anchor_left   = 0.5
+	hb.anchor_right  = 0.5
+	hb.anchor_top    = 1.0
+	hb.anchor_bottom = 1.0
+	hb.offset_left   = -160
+	hb.offset_right  =  160
+	hb.offset_top    =  -38
+	hb.offset_bottom =  -8
+	root.add_child(hb)
+
+	var btn_minus := Button.new()
+	btn_minus.text = "−"
+	btn_minus.custom_minimum_size = Vector2(32, 28)
+	btn_minus.pressed.connect(_fr_decrease)
+	hb.add_child(btn_minus)
+
+	_fr_label = Label.new()
+	_fr_label.custom_minimum_size = Vector2(260, 28)
+	_fr_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_fr_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hb.add_child(_fr_label)
+
+	var btn_plus := Button.new()
+	btn_plus.text = "+"
+	btn_plus.custom_minimum_size = Vector2(32, 28)
+	btn_plus.pressed.connect(_fr_increase)
+	hb.add_child(btn_plus)
+
+	var sep := Control.new()
+	sep.custom_minimum_size = Vector2(16, 0)
+	hb.add_child(sep)
+
+	var btn_lvl := Button.new()
+	btn_lvl.text = "+ Level"
+	btn_lvl.custom_minimum_size = Vector2(72, 28)
+	btn_lvl.pressed.connect(_add_level)
+	hb.add_child(btn_lvl)
+
+func _add_level() -> void:
+	if GameManager.has_method("add_xp"):
+		var level: int = GameManager.player_level if "player_level" in GameManager else 1
+		var xp_needed: int = GameManager.xp_to_next(level) if GameManager.has_method("xp_to_next") else 100
+		GameManager.add_xp(xp_needed)
+
+func _fr_increase() -> void:
+	if GameManager.has_method("add_fire_rate"):
+		GameManager.add_fire_rate(FR_STEP)
+
+func _fr_decrease() -> void:
+	if GameManager.has_method("add_fire_rate") and GameManager.upg_fire_rate_mult - FR_STEP >= FR_MULT_MIN:
+		GameManager.add_fire_rate(-FR_STEP)
+
+func _process(_delta: float) -> void:
+	if _fr_label == null or not GameManager.has_method("get_fire_rate_mult"):
+		return
+	var mult: float = GameManager.get_fire_rate_mult()
+	var shots_per_sec: float = mult / GAT_INTERVAL
+	var barrels: int = maxi(1, floori(shots_per_sec / 10.0))
+	_fr_label.text = "Fire: %.1f/s  |  %d barrel%s  |  ×%.2f" % [
+		shots_per_sec, barrels, "s" if barrels > 1 else " ", mult
+	]
 
 func _input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):

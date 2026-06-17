@@ -10,12 +10,14 @@ extends CharacterBody2D
 ##   dummy, boss_stub(elephant/chromeleon/metalfly). Uses the real enemy sprites (def "icon") when present,
 ##   falling back to placeholder shapes.
 
-const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
+const GifLoader        := preload("res://scripts/ui/edit_mode/gif_loader.gd")
+const ArenaExplosion   := preload("res://scripts/gameplay/arena_explosion.gd")
 const ICON_DRAW_SCALE := 2.6   # drawn sprite width = _radius × this (sprites read a bit bigger than the hit circle)
 const ENEMY_LAYER := 2              # physics layer enemies live on (separate from the player on layer 1)
 const CORE_FRAC := 0.75             # collision-core radius = _radius × this (slightly smaller than the model)
 const RETURN_DIST := 900.0          # dive group re-aims at the player once it gets this far away (loops back)
 const SPIRAL_SHRINK := 75       # px/s the spiral radius tightens toward the player (diver)
+const SPIRAL_CENTER_SPEED := 80.0   # px/s the spiral center drifts toward the player — run faster to pull away
 const TURN_RATE := 10.0             # how fast a sprite eases to face its movement direction (head = sprite north)
 const THROWN_BOMB_SPEED := 460.0    # bomber's thrown bombs travel this fast (straight, aimed at the player)
 const THROWN_BOMB_RANGE := 1200.0   # a thrown bomb despawns after travelling this far (projectile, not an enemy)
@@ -163,7 +165,7 @@ func _ready() -> void:
 	_scale_var = randf_range(1.0 - SCALE_VAR, 1.0 + SCALE_VAR)
 	_prev_pos = global_position
 
-## Load the sprite (PNG or animated GIF via GifLoader) and compute the drawn size from its aspect ratio.
+## Load the sprite (PNG, animated GIF, or sprite-sheet PNG+JSON) and compute draw size.
 func _load_icon() -> void:
 	if _icon == "":
 		return
@@ -175,6 +177,8 @@ func _load_icon() -> void:
 			_tex = _frames[0] as Texture2D if not _frames.is_empty() else g
 		else:
 			_tex = g
+	elif _icon.ends_with(".sheet.png"):
+		_load_sheet_frames(_icon)
 	else:
 		_tex = load(_icon) as Texture2D
 	if _tex != null:
@@ -182,6 +186,41 @@ func _load_icon() -> void:
 		var w := _radius * ICON_DRAW_SCALE
 		var h := w * (ts.y / ts.x) if ts.x > 0.0 else w
 		_draw_size = Vector2(w, h)
+
+## Parse <name>.sheet.json alongside the PNG to slice frames into AtlasTexture objects.
+## JSON format: { "cols": 1, "w": <px>, "h": <px>, "delays": [<sec>, ...] }
+func _load_sheet_frames(path: String) -> void:
+	var json_path := path.replace(".sheet.png", ".sheet.json")
+	var atlas := load(path) as Texture2D
+	if atlas == null:
+		return
+	var cols := 1
+	var fw := atlas.get_width()
+	var fh := atlas.get_height()
+	var raw_delays: Array = [0.1]
+	if FileAccess.file_exists(json_path):
+		var file := FileAccess.open(json_path, FileAccess.READ)
+		if file != null:
+			var data = JSON.parse_string(file.get_as_text())
+			file.close()
+			if data is Dictionary:
+				cols   = int(data.get("cols", 1))
+				fw     = int(data.get("w", fw))
+				fh     = int(data.get("h", fh))
+				raw_delays = data.get("delays", [0.1])
+	var rows := atlas.get_height() / fh if fh > 0 else 1
+	var count := rows * cols
+	_frames.clear()
+	_delays.clear()
+	for i in count:
+		var at := AtlasTexture.new()
+		at.atlas = atlas
+		at.region = Rect2((i % cols) * fw, (i / cols) * fh, fw, fh)
+		_frames.append(at)
+		var d: float = float(raw_delays[i]) if i < raw_delays.size() else float(raw_delays[-1])
+		_delays.append(d)
+	if not _frames.is_empty():
+		_tex = _frames[0] as Texture2D
 
 # ── Universal damage contract ──────────────────────────────────────────────────
 func take_damage(amount: float, stagger: float = 0.0) -> void:
@@ -213,11 +252,31 @@ func _die() -> void:
 			_mgr.spawn_xp_orb(global_position, xp)
 		elif GameManager.has_method("add_xp"):
 			GameManager.add_xp(xp)   # fallback if no manager is wired
+	# Explosion VFX + random boom SFX
+	_spawn_explosion(maxf(_draw_size.x, _radius * 2.0))
+	_play_boom()
 	# Start the death pop (a short flourish) instead of freeing immediately; disable collisions meanwhile.
 	_dying = true
 	_death_t = 0.0
 	collision_layer = 0
 	collision_mask = 0
+
+func _spawn_explosion(size_px: float) -> void:
+	var ex: Node2D = ArenaExplosion.new()
+	get_parent().add_child(ex)
+	(ex as Node2D).global_position = global_position
+	ex.call("setup", global_position, size_px)
+
+func _play_boom() -> void:
+	var stream := load("res://assets/audio/sfx/gunboom%d.wav" % randi_range(1, 5)) as AudioStream
+	if stream == null:
+		return
+	var p := AudioStreamPlayer.new()
+	p.stream = stream
+	p.volume_db = linear_to_db(0.7)
+	get_parent().add_child(p)
+	p.play()
+	p.finished.connect(p.queue_free)
 
 func _player_pos() -> Vector2:
 	if _target != null and is_instance_valid(_target):
@@ -285,6 +344,7 @@ func _init_behavior() -> void:
 			_orbit_r = global_position.distance_to(_player_pos())
 			_orbit_ang = (global_position - _player_pos()).angle()
 			_spiral_dir = 1.0   # always clockwise (Y-down screen → increasing angle = clockwise)
+			_scatter_target = _player_pos()   # spiral: orbit center anchor; drifts toward player each frame
 		"scatter", "bomber":
 			_scatter_target = _player_pos() + _rand_offset(_view().length() * 0.35)
 
@@ -307,11 +367,21 @@ func _tick_behavior(delta: float) -> void:
 				_aim = dir
 			velocity = _aim * speed
 			move_and_slide()
-		"spiral":   # diver — orbit the player while tightening the radius (a spiral closing in)
-			var ang_speed := (speed / maxf(40.0, _orbit_r)) * _spiral_dir
-			_orbit_ang += ang_speed * delta
-			_orbit_r = maxf(8.0, _orbit_r - SPIRAL_SHRINK * delta)
-			global_position = pp + Vector2(cos(_orbit_ang), sin(_orbit_ang)) * _orbit_r
+		"spiral":   # diver — spiral in; center drifts (not snaps) toward player → player can pull away
+			if _phase == 0:
+				_scatter_target = _scatter_target.move_toward(pp, SPIRAL_CENTER_SPEED * delta)
+				var ang_speed := (speed / maxf(40.0, _orbit_r)) * _spiral_dir
+				_orbit_ang += ang_speed * delta
+				_orbit_r = maxf(8.0, _orbit_r - SPIRAL_SHRINK * delta)
+				global_position = _scatter_target + Vector2(cos(_orbit_ang), sin(_orbit_ang)) * _orbit_r
+				if _orbit_r <= 8.0:
+					_phase = 1
+					_aim = dir   # aim-once at the moment of committing to the dash
+			else:   # dash: fly straight at the captured aim; re-aim only if it overshoots far off-screen
+				if dist > RETURN_DIST:
+					_aim = dir
+				velocity = _aim * speed
+				move_and_slide()
 		"orbit":  # dragonfly — orbit + tighten, then dive (loops back when it overshoots off-view)
 			if _phase == 0:
 				_orbit_ang += (speed / maxf(20.0, _orbit_r)) * delta

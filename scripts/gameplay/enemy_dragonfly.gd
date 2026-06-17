@@ -15,12 +15,16 @@ const DF_ORBIT_RADIUS_END: float = 32.0
 const DF_DIVE_SPEED: float = 160.0
 const DF_ROT_SPEED: float = TAU / 3.0   # visual 20 rpm
 const DF_CULL: float = 800.0
+# Orbit center drifts toward the player at this speed (px/s) — player faster than this can pull away
+const DF_ORBIT_CENTER_SPEED: float = 80.0
 
 enum Phase { ENTRY, SPIRAL, DIVE }
 var _phase: int = Phase.ENTRY
 var _entry_target: Vector2 = Vector2.ZERO
 var _orbit_angle: float = 0.0
 var _orbit_radius: float = DF_ORBIT_RADIUS_START
+var _orbit_center: Vector2 = Vector2.ZERO   # drifts toward player at DF_ORBIT_CENTER_SPEED
+var _dive_target: Vector2 = Vector2.ZERO    # captured once when DIVE begins (aim-once)
 
 func _configure() -> void:
 	_hp_mult = 1.0
@@ -54,22 +58,24 @@ func _tick(delta: float) -> void:
 				var offset: Vector2 = center() - _mgr.ship_center()
 				_orbit_radius = clampf(offset.length(), DF_ORBIT_RADIUS_END, DF_ORBIT_RADIUS_START)
 				_orbit_angle = offset.angle()
+				_orbit_center = _mgr.ship_center()   # anchor; drifts from here
 				contact_active = true
 			else:
 				position += to.normalized() * DF_ENTRY_SPEED * delta
 		Phase.SPIRAL:
 			_orbit_angle += DF_SPIN_RATE * delta
 			_orbit_radius = maxf(DF_ORBIT_RADIUS_END, _orbit_radius - DF_SHRINK_RATE * delta)
-			var pc: Vector2 = _mgr.ship_center()
-			var spiral_pos: Vector2 = pc + Vector2(cos(_orbit_angle), sin(_orbit_angle)) * _orbit_radius
+			_orbit_center = _orbit_center.move_toward(_mgr.ship_center(), DF_ORBIT_CENTER_SPEED * delta)
+			var spiral_pos: Vector2 = _orbit_center + Vector2(cos(_orbit_angle), sin(_orbit_angle)) * _orbit_radius
 			var to := spiral_pos - center()
 			var move := minf(to.length(), DF_SPIRAL_SPEED * delta)
 			if to.length() > 0.5:
 				position += to.normalized() * move
 			if _orbit_radius <= DF_ORBIT_RADIUS_END:
+				_dive_target = _mgr.ship_center()   # capture once; player can dodge the dive
 				_phase = Phase.DIVE
 		Phase.DIVE:
-			var to: Vector2 = _mgr.ship_center() - center()
+			var to: Vector2 = _dive_target - center()
 			position += to.normalized() * DF_DIVE_SPEED * delta
 			var c := center()
 			var screen: Vector2 = _mgr.screen_size()

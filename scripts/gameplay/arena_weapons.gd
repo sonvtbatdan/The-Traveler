@@ -345,6 +345,7 @@ func spawn_lasgun_pickup_near(world_pos: Vector2) -> void:
 
 func _tick_bullets(delta: float) -> void:
 	var enemies := get_tree().get_nodes_in_group("arena_enemy")
+	var ruins   := get_tree().get_nodes_in_group("arena_ruin")
 	var i := _bullets.size() - 1
 	while i >= 0:
 		var b: Dictionary = _bullets[i]
@@ -358,7 +359,20 @@ func _tick_bullets(delta: float) -> void:
 					if en.has_method("take_damage"):
 						en.take_damage(_roll_damage(GAT_DAMAGE), GAT_STAGGER)
 					dead = true
+					if _bolt_hit_player != null:
+						_bolt_hit_player.play()
 					break
+			if not dead:
+				for ruin in ruins:
+					if not is_instance_valid(ruin): continue
+					var ruin_r: float = ruin.get("hit_radius") if ruin.get("hit_radius") != null else GAT_HIT_RADIUS
+					if p.distance_to((ruin as Node2D).global_position) <= ruin_r:
+						if ruin.has_method("take_damage"):
+							ruin.take_damage(GAT_DAMAGE * _dmg_mult)
+						dead = true
+						if _bolt_hit_player != null:
+							_bolt_hit_player.play()
+						break
 		if dead:
 			_bullets.remove_at(i)
 		i -= 1
@@ -383,6 +397,7 @@ func _fire_gauss() -> void:
 
 func _tick_orbs(delta: float) -> void:
 	var enemies := get_tree().get_nodes_in_group("arena_enemy")
+	var ruins   := get_tree().get_nodes_in_group("arena_ruin")
 	var i := _orbs.size() - 1
 	while i >= 0:
 		var o: Dictionary = _orbs[i]
@@ -403,12 +418,29 @@ func _tick_orbs(delta: float) -> void:
 					continue
 				if p.distance_to((en as Node2D).global_position) <= GAUSS_RADIUS + 8.0:
 					if en.has_method("take_damage"):
-						en.take_damage(_roll_damage(GAUSS_DAMAGE), GAUSS_STAGGER)
+						en.take_damage(GAUSS_DAMAGE * _dmg_mult, GAUSS_STAGGER)
 					hit.append(id)
 					o["pierce_left"] = int(o["pierce_left"]) - 1
 					if int(o["pierce_left"]) <= 0:
 						dead = true
 						break
+			# Gauss also pierces through ruin ships/boxes
+			if not dead:
+				for ruin in ruins:
+					if not is_instance_valid(ruin):
+						continue
+					var id := (ruin as Node2D).get_instance_id()
+					if id in hit:
+						continue
+					var ruin_r: float = ruin.get("hit_radius") if ruin.get("hit_radius") != null else GAUSS_RADIUS + 8.0
+					if p.distance_to((ruin as Node2D).global_position) <= ruin_r:
+						if ruin.has_method("take_damage"):
+							ruin.take_damage(GAUSS_DAMAGE * _dmg_mult)
+						hit.append(id)
+						o["pierce_left"] = int(o["pierce_left"]) - 1
+						if int(o["pierce_left"]) <= 0:
+							dead = true
+							break
 		if dead:
 			_free_orb(o)
 			_orbs.remove_at(i)
