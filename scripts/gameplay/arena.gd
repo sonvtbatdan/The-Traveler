@@ -23,6 +23,7 @@ const PlanetMenuScript   := preload("res://scripts/ui/hud/arena_planet_menu.gd")
 const DebugSpawnScript   := preload("res://scripts/gameplay/arena_debug_spawn.gd")
 const PerfOverlayScript  := preload("res://scripts/ui/hud/perf_overlay.gd")
 const LevelUpUIScript    := preload("res://scripts/ui/hud/arena_levelup_ui.gd")
+const ArenaRuinLayerScript := preload("res://scripts/gameplay/arena_ruin_layer.gd")
 const RESET_RUN_ON_START := true   # each arena run starts a fresh VS climb (level 1, no upgrades). Flip off to keep saved level.
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
@@ -108,6 +109,7 @@ func _ready() -> void:
 		add_child(WaveDirectorScript.new())   # authored-timeline wave spawner
 		add_child(WaveEditorScript.new())     # F7 in-game wave editor (add/edit/remove waves live)
 	add_child(ArenaWeaponsScript.new())   # Gatling gun + Gauss cannon, auto-firing toward the ship facing
+	add_child(ArenaRuinLayerScript.new()) # periodic ruin ships (every 5–15s): ship → box → loot drop
 
 ## Full-screen "edge of system" vignette; its intensity is driven by player→boundary proximity each frame.
 func _build_boundary_vignette() -> void:

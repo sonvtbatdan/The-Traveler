@@ -5,7 +5,8 @@ extends Node2D
 ## take_wanderer_y_offset. It owns the enemy-bullet pool + explosion FX and routes damage through GameManager.
 
 const ArenaEnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
-const XpOrbScript := preload("res://scripts/gameplay/arena_xp_orb.gd")
+const XpOrbScript      := preload("res://scripts/gameplay/arena_xp_orb.gd")
+const LootScript       := preload("res://scripts/gameplay/arena_loot.gd")
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
 const BULLET_RADIUS    := 5.0
@@ -92,6 +93,12 @@ func explode(blast_center: Vector2, blast_radius: float, dmg: int, source: Node 
 			continue
 		if (en as Node2D).global_position.distance_to(blast_center) <= blast_radius and en.has_method("take_damage"):
 			en.take_damage(float(dmg))
+	# Ruin ships/boxes also take blast damage
+	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+		if ruin == source or not is_instance_valid(ruin):
+			continue
+		if (ruin as Node2D).global_position.distance_to(blast_center) <= blast_radius and ruin.has_method("take_damage"):
+			ruin.take_damage(float(dmg))
 	_explosions.append({"pos": blast_center, "age": 0.0, "max_age": 0.4, "radius": blast_radius})
 
 func _tick_explosions(delta: float) -> void:
@@ -108,6 +115,12 @@ func spawn_xp_orb(pos: Vector2, value: int) -> void:
 	var o := XpOrbScript.new()
 	get_parent().add_child(o)   # same gameplay container as the enemies
 	o.setup(pos, value)
+
+## Drop a loot item (coin / diamond / heart / magnetic / shield) at a world position.
+func spawn_loot(pos: Vector2, type: String) -> void:
+	var l := LootScript.new()
+	get_parent().add_child(l)
+	l.setup(pos, type)
 
 ## Drop a bomb enemy at a world position (falls toward the player, explodes on contact/death).
 func spawn_bomb(pos: Vector2) -> void:

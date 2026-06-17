@@ -10,7 +10,8 @@ extends CharacterBody2D
 ##   dummy, boss_stub(elephant/chromeleon/metalfly). Uses the real enemy sprites (def "icon") when present,
 ##   falling back to placeholder shapes.
 
-const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
+const GifLoader        := preload("res://scripts/ui/edit_mode/gif_loader.gd")
+const ArenaExplosion   := preload("res://scripts/gameplay/arena_explosion.gd")
 const ICON_DRAW_SCALE := 2.6   # drawn sprite width = _radius × this (sprites read a bit bigger than the hit circle)
 const ENEMY_LAYER := 2              # physics layer enemies live on (separate from the player on layer 1)
 const CORE_FRAC := 0.75             # collision-core radius = _radius × this (slightly smaller than the model)
@@ -251,11 +252,31 @@ func _die() -> void:
 			_mgr.spawn_xp_orb(global_position, xp)
 		elif GameManager.has_method("add_xp"):
 			GameManager.add_xp(xp)   # fallback if no manager is wired
+	# Explosion VFX + random boom SFX
+	_spawn_explosion(maxf(_draw_size.x, _radius * 2.0))
+	_play_boom()
 	# Start the death pop (a short flourish) instead of freeing immediately; disable collisions meanwhile.
 	_dying = true
 	_death_t = 0.0
 	collision_layer = 0
 	collision_mask = 0
+
+func _spawn_explosion(size_px: float) -> void:
+	var ex: Node2D = ArenaExplosion.new()
+	get_parent().add_child(ex)
+	(ex as Node2D).global_position = global_position
+	ex.call("setup", global_position, size_px)
+
+func _play_boom() -> void:
+	var stream := load("res://assets/audio/sfx/gunboom%d.wav" % randi_range(1, 5)) as AudioStream
+	if stream == null:
+		return
+	var p := AudioStreamPlayer.new()
+	p.stream = stream
+	p.volume_db = linear_to_db(0.7)
+	get_parent().add_child(p)
+	p.play()
+	p.finished.connect(p.queue_free)
 
 func _player_pos() -> Vector2:
 	if _target != null and is_instance_valid(_target):

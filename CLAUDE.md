@@ -1074,6 +1074,41 @@ Bottom-center HBox (CanvasLayer). Controls:
 
 Fixed with Option B (`DF_ORBIT_CENTER_SPEED = 80px/s` drift, aim-once dive). This file is used only by `enemy_manager.gd` (non-arena waves). The arena dragonfly ("orbit" behavior in `arena_enemy.gd`) still has the snap bug.
 
+### Arena Ruin System
+
+Breakable passive props that drift across the arena — not enemies (use group `"arena_ruin"`, not `"arena_enemy"`), so they do NOT count toward `MAX_ALIVE = 120` in `arena_wave_director.gd`.
+
+| Script | Role |
+|--------|------|
+| `scripts/gameplay/arena_ruin.gd` | Ship (200 HP, 70px) → Box (50 HP, 40px) on death. Drifts 20–50 px/s, rotates 15 RPM. HP bar drawn un-rotated above sprite. Explosion + random gunboom on death. |
+| `scripts/gameplay/arena_ruin_layer.gd` | Periodic spawner — one ship every 5–15s at 650–800px ring around player. |
+| `scripts/gameplay/arena_loot.gd` | Loot dropped by a destroyed box: `coin`/`diamond` (+50 money), `heart` (+25 HP), `magnetic` (pull all XP orbs), `shield` (10s immunity + visual overlay). Plays `start.mp3` on collect. |
+| `scripts/gameplay/arena_shield_visual.gd` | Breathe ±5% + blink in final 3s, auto-free after 10s. Uses `assets/defense/shield.png`. |
+| `scripts/gameplay/arena_explosion.gd` | One-shot 7-frame explosion animation (`Gun-Impact50.sheet.png`). Spawned at death position, scaled to match visual size of the destroyed object. |
+
+**Bullet hit detection for ruins:**
+- `arena_weapons.gd` checks both `"arena_enemy"` and `"arena_ruin"` groups in `_tick_bullets()` and `_tick_orbs()`
+- Ruin hit radius exposed as `hit_radius: float` property (ship ≈ 31.5px, box ≈ 18px) — NOT the shared `GAT_HIT_RADIUS = 16px`
+- Explosions from `arena_enemy_manager.explode()` also damage ruins
+
+**Shield immunity:** `GameManager._shield_immune: bool` + `_shield_timer: float`. Early return in `ship_take_damage()` before iframe check. Reset in `reset_run()`. `activate_shield(duration)` + `heal(amount)` are new methods added to `GameManager`.
+
+**XP orb magnetic item behavior:**
+- `arena_loot.gd` magnetic branch calls `orb.force_magnetize()` (NOT `collect()`)
+- `force_magnetize()` sets `_force_magnet = true` + resets `_vel = Vector2.ZERO`
+- Orb accelerates from 0 → 1200 px/s over 2s (600 px/s² linear ramp) via `_force_magnet` flag in `_process()`
+- Normal magnetization (player walks near) still uses `MAGNET_SPEED = 120` starting speed + `MAGNET_ACCEL = 900`
+
+**SFX:**
+| Sound | Trigger |
+|-------|---------|
+| `assets/audio/sfx/bolt.wav` | Gatling bullet hits enemy or ruin (single shared AudioStreamPlayer, restarts per hit) |
+| `assets/audio/sfx/gunboom1–5.wav` | Random boom when any enemy or ruin dies (fire-and-forget AudioStreamPlayer) |
+| `assets/audio/sfx/start.mp3` | Collecting any loot item from a box |
+| `assets/audio/sfx/equip.wav` | Player ship collects an XP orb |
+
+**HP bar on ruins:** same `draw_rect` pattern as `arena_enemy.gd` — drawn after `draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)` to stay horizontal despite the ruin rotating. Only shown when `hp < hp_max`.
+
 ---
 
 ## Enemy Panel (`scripts/ui/hud/enemy_panel.gd`)
