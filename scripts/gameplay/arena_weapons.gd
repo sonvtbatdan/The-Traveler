@@ -21,6 +21,7 @@ const GAT_HIT_RADIUS    := 16.0     # bullet↔enemy hit distance (px)
 const GAT_SPREAD_DEG    := 3.0      # ± random spray on each shot (0 = laser-straight)
 const GAT_STAGGER       := 0.1      # s the enemy is staggered (movement/attacks frozen) per Gatling hit
 const GAT_LIGHT         := 1.0      # dust-light "value" per Gatling bullet (low → lights up nearby dust only)
+const GAT_BARREL_SPACING := 18.0   # perpendicular gap between barrels (px) when multi-barrel kicks in
 
 # ── TUNABLES: Gauss cannon (auto-charge → heavy piercing orb) ─────────────────
 const GAUSS_ENABLED     := false    # disabled for now
@@ -209,11 +210,17 @@ func _muzzle() -> Vector2:
 
 # ── Gatling ───────────────────────────────────────────────────────────────────
 func _fire_gatling() -> void:
-	var dir := _forward()
-	if GAT_SPREAD_DEG > 0.0:
-		dir = dir.rotated(deg_to_rad(randf_range(-GAT_SPREAD_DEG, GAT_SPREAD_DEG)))
-	var start := _muzzle()
-	_bullets.append({"pos": start, "vel": dir * GAT_SPEED, "life": 0.0, "start": start})
+	var shots_per_sec := _rate_mult / GAT_FIRE_INTERVAL
+	var num_barrels := maxi(1, floori(shots_per_sec / 10.0))
+	var fwd := _forward()
+	var right := fwd.rotated(-PI * 0.5)
+	for i in num_barrels:
+		var lateral := (i - (num_barrels - 1) * 0.5) * GAT_BARREL_SPACING
+		var start := _player.global_position + fwd * MUZZLE_OFFSET + right * lateral
+		var dir := fwd
+		if GAT_SPREAD_DEG > 0.0:
+			dir = fwd.rotated(deg_to_rad(randf_range(-GAT_SPREAD_DEG, GAT_SPREAD_DEG)))
+		_bullets.append({"pos": start, "vel": dir * GAT_SPEED, "life": 0.0, "start": start})
 
 func _tick_bullets(delta: float) -> void:
 	var enemies := get_tree().get_nodes_in_group("arena_enemy")

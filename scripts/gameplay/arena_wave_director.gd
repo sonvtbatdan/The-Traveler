@@ -36,9 +36,9 @@ const ENEMY_DEFS := {
 	"missile":  {"behavior": "missile",   "hp": 728.0, "speed": 90.0,  "size": 22.0, "contact": 0,  "xp": 18, "icon": "res://assets/enemies/missilelauncher.png"},
 	"dummy":    {"behavior": "dummy",     "hp": 200.0, "speed": 0.0,   "size": 18.0, "contact": 0,  "xp": 0,  "icon": "res://assets/enemies/dummy.png"},
 	# bosses — big high-HP stubs (real movesets later)
-	"elephant":  {"behavior": "boss_stub", "hp": 8000.0, "speed": 55.0, "size": 70.0, "contact": 40, "xp": 500, "shape": "circle",  "tint": Color(0.75, 0.70, 0.65)},
-	"chromeleon":{"behavior": "boss_stub", "hp": 6000.0, "speed": 70.0, "size": 60.0, "contact": 35, "xp": 400, "shape": "diamond", "tint": Color(0.45, 0.90, 0.65)},
-	"metalfly":  {"behavior": "boss_stub", "hp": 7000.0, "speed": 65.0, "size": 64.0, "contact": 38, "xp": 450, "shape": "triangle","tint": Color(0.70, 0.75, 0.85)},
+	"elephant":  {"behavior": "boss_stub", "hp": 8000.0, "speed": 55.0, "size": 70.0, "contact": 40, "xp": 500, "shape": "circle",   "tint": Color(0.75, 0.70, 0.65), "icon": "res://assets/bosses/elephant/elephant.sheet.png"},
+	"chromeleon":{"behavior": "boss_stub", "hp": 6000.0, "speed": 70.0, "size": 60.0, "contact": 35, "xp": 400, "shape": "diamond",  "tint": Color(0.45, 0.90, 0.65), "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},
+	"metalfly":  {"behavior": "boss_stub", "hp": 7000.0, "speed": 65.0, "size": 64.0, "contact": 38, "xp": 450, "shape": "triangle", "tint": Color(0.70, 0.75, 0.85), "icon": "res://assets/bosses/metalfly/metalfly.sheet.png"},
 }
 
 # ══ 3. AUTHORED TIMELINE ═══════════════════════════════════════════════════════

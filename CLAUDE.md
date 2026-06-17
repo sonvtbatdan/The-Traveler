@@ -984,6 +984,98 @@ bx_r = OC_BOUNDS.size.x - bx - bw   # = 700 - bx - bw
 
 ---
 
+## Arena System (`scenes/arena.tscn`)
+
+Arena is a **separate, self-contained scene** from `main.tscn` — a Vampire-Survivors-style top-down bullet-heaven mode. It does **not** use `enemy_manager.gd`, `gun_system.gd`, or the individual `enemy_*.gd` scripts. All arena combat logic lives in its own dedicated scripts.
+
+### Key arena scripts
+
+| Script | Role |
+|--------|------|
+| `scripts/gameplay/arena_enemy.gd` | Data-driven enemy behavior engine (all enemy types in one script) |
+| `scripts/gameplay/arena_wave_director.gd` | Authored timeline spawner — fires enemies at scripted timestamps |
+| `scripts/gameplay/arena_weapons.gd` | Player weapon system (Gatling etc.) specific to arena |
+| `scripts/gameplay/arena_debug_spawn.gd` | Debug UI: fire rate +/− buttons, barrel count display, + Level button |
+| `scripts/ui/hud/arena_levelup_ui.gd` | Level-up card UI (pause + pick 1-of-3 upgrade) |
+
+**IMPORTANT:** Fixes to `enemy_dragonfly.gd`, `enemy_swarm.gd`, etc. do **NOT** affect the arena game. To fix arena enemy behavior, edit `arena_enemy.gd`.
+
+### `arena_enemy.gd` — behavior system
+
+Each enemy has a `behavior` string from `ENEMY_DEFS` in `arena_wave_director.gd`. Key behaviors:
+
+| Behavior | Enemy | Notes |
+|----------|-------|-------|
+| `"orbit"` | dragonfly | **Known bug:** orbit center snaps to player each frame — player cannot escape. Not yet fixed. |
+| `"spiral"` | diver | Fixed (2026-06): uses `SPIRAL_CENTER_SPEED = 80px/s` drift + aim-once straight dive when `_orbit_r <= 8` |
+| `"swarm_dive"` | bee, swarm | Chase + dive |
+| `"chase"` | bug | Direct pursuit |
+| `"scatter"` | fly | Random wander |
+| `"jump"` | octopus | Pause → aim-once → leap |
+| `"jump_diag"` | spider | 45° diagonal jumps only |
+| `"shooter"` | jet fighter | Ranged projectiles |
+| `"boss_stub"` | elephant, chromeleon, metalfly | High-HP, slow, no real moveset yet |
+
+**Spiral fix — two phases:**
+```gdscript
+# Phase 0: orbit center drifts toward player at SPIRAL_CENTER_SPEED px/s
+_scatter_target = _scatter_target.move_toward(pp, SPIRAL_CENTER_SPEED * delta)
+# Phase 1 (when _orbit_r <= 8): aim-once straight dive
+_aim = dir  # captured once; player can now dodge
+```
+
+**Sprite sheet animation:** `_load_icon()` auto-detects `.sheet.png`, calls `_load_sheet_frames()` which reads the adjacent `.sheet.json` (cols, fw, fh, delays), slices `AtlasTexture` per frame into `_frames`/`_delays`.
+
+### `arena_wave_director.gd` — ENEMY_DEFS & boss icons
+
+All enemy types defined in `ENEMY_DEFS`. Boss stubs now use real sprite sheet icons:
+```gdscript
+"elephant":  {..., "icon": "res://assets/bosses/elephant/elephant.sheet.png"},
+"chromeleon":{..., "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},
+"metalfly":  {..., "icon": "res://assets/bosses/metalfly/metalfly.sheet.png"},
+```
+
+### `arena_weapons.gd` — Gatling multi-barrel
+
+`GAT_BARREL_SPACING = 18.0px`. `num_barrels = maxi(1, floori(shots_per_sec / 10.0))`. Barrels placed perpendicular to the forward direction:
+
+| shots/sec | barrels |
+|-----------|---------|
+| 10–19.9 | 1 |
+| 20–29.9 | 2 |
+| 30–39.9 | 3 |
+| 40+ | 4+ |
+
+### `arena_debug_spawn.gd` — debug controls
+
+Bottom-center HBox (CanvasLayer). Controls:
+- `[−]` / `[+]` — adjust `GameManager.upg_fire_rate_mult` by `FR_STEP = 0.5`
+- Label (updated every `_process`): `"Fire: X.X/s  |  N barrel(s)  |  ×X.XX"`
+- `[+ Level]` — adds enough XP to trigger the next level-up
+
+`GAT_INTERVAL = 0.09` mirrors `arena_weapons.gd GAT_FIRE_INTERVAL` — keep in sync if changed.
+
+### `arena_levelup_ui.gd` — level-up card UI
+
+**Layout:** `CenterContainer` → `Control 720×390` panel → `TextureRect TEX_FRAME` (full panel bg, `assets/hud/lvupframe.png`).
+
+**Card bg by upgrade category** (`assets/hud/lvgreen/red/blue.png`):
+- Green: `hp`, `hp_regen`, `pickup`
+- Red: `fire_rate`, `damage`
+- Blue: `defense`, `move_speed`, `momentum`
+
+**Card icons:** `res://assets/hud/<id>.png` — id must match the upgrade `id` string exactly.
+
+**Card size:** 160×208. `_cards_box` is a plain `Control` (NOT `HBoxContainer`) — outer cards shift ±20px horizontally via `_CSHIFT`. **Using `HBoxContainer` here causes a runtime type-assign error.**
+
+**Title label:** font = `Good Old DOS.ttf`, color `#9bfdb0`, size 22. Anchors top=0.035/bottom=0.155 + offset_top=30/offset_bottom=30/offset_left=−10/offset_right=−10.
+
+### `enemy_dragonfly.gd` — non-arena fix
+
+Fixed with Option B (`DF_ORBIT_CENTER_SPEED = 80px/s` drift, aim-once dive). This file is used only by `enemy_manager.gd` (non-arena waves). The arena dragonfly ("orbit" behavior in `arena_enemy.gd`) still has the snap bug.
+
+---
+
 ## Enemy Panel (`scripts/ui/hud/enemy_panel.gd`)
 
 6-tab panel (Animal / Human / Alien / Asteroid / Boss / Other). **GRID_COLS = 7** (7 thumbnails per row, wraps tự động).
