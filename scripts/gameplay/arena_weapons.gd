@@ -21,6 +21,8 @@ const GAT_HIT_RADIUS    := 16.0     # bullet↔enemy hit distance (px)
 const GAT_SPREAD_DEG    := 3.0      # ± random spray on each shot (0 = laser-straight)
 const GAT_STAGGER       := 0.1      # s the enemy is staggered (movement/attacks frozen) per Gatling hit
 const GAT_LIGHT         := 1.0      # dust-light "value" per Gatling bullet (low → lights up nearby dust only)
+const GAT_WING_SPACING  := 26.0     # px between the two wing muzzles (twin parallel streams)
+const GAT_WING_FWD      := 22.0     # forward offset of the wing muzzles from ship centre (px)
 
 # ── TUNABLES: Gauss cannon (auto-charge → heavy piercing orb) ─────────────────
 const GAUSS_ENABLED     := false    # disabled for now
@@ -35,6 +37,21 @@ const GAUSS_LIFETIME    := 2.5      # s before despawn
 const GAUSS_MAX_DIST    := 1700.0   # px travelled before despawn
 
 const MUZZLE_OFFSET     := 22.0     # how far ahead of the ship centre shots spawn (px)
+
+# ── TUNABLES: Lasgun (continuous tick-based beam — gained from a pickup, off until then) ──────────────────
+const LASGUN_RANGE   := 1400.0   # beam length px
+const LASGUN_DAMAGE  := 22.0     # damage PER TICK
+const LASGUN_TICK    := 0.10     # s between damage ticks (≈ damage/sec = LASGUN_DAMAGE / this)
+const LASGUN_STAGGER := 0.15     # s stagger per tick
+const LASGUN_WIDTH   := 14.0     # beam hit width (px) — matches the beam visual
+const LASGUN_HIT_PAD := 16.0     # enemy-radius padding for the distance-to-line hit test
+const LASGUN_CYCLE    := 5.0     # full period (s): the beam fires once every CYCLE
+const LASGUN_DURATION := 3.0     # beam-on time within each cycle (s) → fires 3s out of every 5s
+const LASGUN_CHARGE   := 1.5     # charge telegraph (s) before each burst — the orb light-gather plays over this
+
+const BeamScript   := preload("res://scripts/gameplay/arena_lasgun_beam.gd")
+const PickupScript := preload("res://scripts/gameplay/arena_weapon_pickup.gd")
+const OrbChargeScript := preload("res://scripts/gameplay/arena_orb_charge_fx.gd")
 
 # ── Gatling tracer bolt look (copied from weapon_system.gd — visuals only) ────
 const GAT_TRACER_LEN   := 16.0
@@ -157,10 +174,20 @@ var _charge_rings: Array = []    # {ang, r}
 var _charge_spawn_acc: float = 0.0
 var _flashes: Array = []         # {pos, age, max_age, radius}
 var _orb_shader: Shader = null
+var _lasgun_active: bool = false   # turned on by the Lasgun pickup (auto-equip, accumulates with the Gatling)
+var _beam_cd: float = 0.0          # Lasgun damage-tick cooldown
+var _beam: Node2D = null           # additive beam VFX child (gameplay plane → sharp)
+var _las_t: float = 0.0            # Lasgun cycle clock (advances while active)
+var _charge_fx: Node2D = null      # Chromeleon-orb light-gather charge telegraph (ported _ChannelFX)
+var _las_charge_started: bool = false   # one-shot guard so the charge FX triggers once per cycle
 
 func _ready() -> void:
 	add_to_group("arena_weapons")   # arena_dust queries get_lights() each frame
 	_player = get_tree().get_first_node_in_group("player")
+	_beam = BeamScript.new()
+	add_child(_beam)
+	_charge_fx = OrbChargeScript.new()
+	add_child(_charge_fx)
 
 ## Light sources this weapon currently emits, for the dust field: one per live projectile/beam.
 ## Each: {pos: world Vector2, value: float (light strength), color: Color}.
@@ -193,6 +220,10 @@ func _process(delta: float) -> void:
 		if _gauss_charge >= GAUSS_CHARGE_TIME / _rate_mult:
 			_gauss_charge = 0.0
 			_fire_gauss()
+	if _lasgun_active:
+		_fire_lasgun(delta)
+	elif _beam != null:
+		_beam.set_beam(Vector2.ZERO, Vector2.ZERO, false, false)
 	_tick_bullets(delta)
 	_tick_orbs(delta)
 	_update_charge_rings(delta)
@@ -207,13 +238,82 @@ func _forward() -> Vector2:
 func _muzzle() -> Vector2:
 	return _player.global_position + _forward() * MUZZLE_OFFSET
 
-# ── Gatling ───────────────────────────────────────────────────────────────────
+# ── Gatling — twin wing streams ─────────────────────────────────────────────────
 func _fire_gatling() -> void:
+	# Two parallel streams from the left/right wing muzzles. Offsets are in the ship's local frame (fwd/perp),
+	# so they rotate with the aim. Both fire in the facing direction (not converging) → twin wing guns.
+	var fwd := _forward()
+	var perp := Vector2(-fwd.y, fwd.x)   # right-perpendicular (rotates with the ship)
+	var base := _player.global_position + fwd * GAT_WING_FWD
+	for side: float in [-1.0, 1.0]:
+		var dir := fwd
+		if GAT_SPREAD_DEG > 0.0:
+			dir = fwd.rotated(deg_to_rad(randf_range(-GAT_SPREAD_DEG, GAT_SPREAD_DEG)))   # independent per-stream spray
+		var start: Vector2 = base + perp * (side * GAT_WING_SPACING * 0.5)
+		_bullets.append({"pos": start, "vel": dir * GAT_SPEED, "life": 0.0, "start": start})
+
+# ── Lasgun (tick-based hitscan beam — fires along the ship facing = toward the cursor) ───────────────────
+func _fire_lasgun(delta: float) -> void:
+	# Duty cycle: fire for LASGUN_DURATION out of every LASGUN_CYCLE seconds, with a charge telegraph in the
+	# last LASGUN_CHARGE seconds before each burst.
+	_las_t += delta
+	var phase := fmod(_las_t, LASGUN_CYCLE)
+	var firing := phase < LASGUN_DURATION
+	if not firing:
+		# Charge telegraph (Chromeleon orb light-gather) in the last LASGUN_CHARGE seconds before the burst.
+		var charge_start := LASGUN_CYCLE - LASGUN_CHARGE
+		if phase >= charge_start and _charge_fx != null:
+			_charge_fx.position = _muzzle()   # follow the moving nose
+			if not _las_charge_started:
+				_charge_fx.start(LASGUN_CHARGE)
+				_las_charge_started = true
+		if _beam != null:
+			_beam.set_beam(Vector2.ZERO, Vector2.ZERO, false, false)
+		_beam_cd = 0.0   # so the first damage tick lands the instant the burst starts
+		return
+	# Firing: kill the charge FX and arm the next cycle's telegraph.
+	_las_charge_started = false
+	if _charge_fx != null:
+		_charge_fx.stop()
+	var from := _muzzle()
 	var dir := _forward()
-	if GAT_SPREAD_DEG > 0.0:
-		dir = dir.rotated(deg_to_rad(randf_range(-GAT_SPREAD_DEG, GAT_SPREAD_DEG)))
-	var start := _muzzle()
-	_bullets.append({"pos": start, "vel": dir * GAT_SPEED, "life": 0.0, "start": start})
+	# Nearest enemy along the beam line (distance-to-line within range), like the legacy first-hit beam.
+	var best_along := LASGUN_RANGE
+	var best: Node = null
+	for en in get_tree().get_nodes_in_group("arena_enemy"):
+		if not is_instance_valid(en):
+			continue
+		var to_e: Vector2 = (en as Node2D).global_position - from
+		var along := to_e.dot(dir)
+		if along < 0.0 or along > LASGUN_RANGE:
+			continue
+		var perp_d := (to_e - dir * along).length()
+		if perp_d <= LASGUN_WIDTH * 0.5 + LASGUN_HIT_PAD and along < best_along:
+			best_along = along
+			best = en
+	var hit := best != null
+	var end_along: float = (best_along - LASGUN_HIT_PAD) if hit else LASGUN_RANGE   # terminate at the surface
+	var to_pt := from + dir * maxf(0.0, end_along)
+	if _beam != null:
+		_beam.set_beam(from, to_pt, true, hit)
+	# Tick damage (one apply per interval → no per-frame double-hit; damage_mult + fire_rate_mult both apply).
+	_beam_cd -= delta
+	if _beam_cd <= 0.0:
+		if hit and best.has_method("take_damage"):
+			best.take_damage(LASGUN_DAMAGE * _dmg_mult, LASGUN_STAGGER)
+		_beam_cd = LASGUN_TICK / _rate_mult
+
+## Called by the Lasgun pickup on collection — adds the beam to the active loadout (accumulates with Gatling).
+func activate_lasgun() -> void:
+	_lasgun_active = true
+	_las_t = LASGUN_CYCLE - LASGUN_CHARGE   # begin in the charge window → telegraph, then the first burst
+
+## Debug (F12): drop a Lasgun pickup at a world position on the gameplay plane.
+func spawn_lasgun_pickup_near(world_pos: Vector2) -> void:
+	var p := PickupScript.new()
+	p.add_to_group("debug_weapon_pickup")
+	get_parent().add_child(p)
+	p.setup(world_pos, "lasgun")
 
 func _tick_bullets(delta: float) -> void:
 	var enemies := get_tree().get_nodes_in_group("arena_enemy")
