@@ -197,7 +197,8 @@ func take_damage(amount: float, stagger: float = 0.0) -> void:
 	_flash = HIT_FLASH_TIME
 	_hit_squash = HIT_SQUASH
 	var away := global_position - _player_pos()
-	_knockback = (away.normalized() if away.length() > 0.01 else Vector2.UP) * KNOCKBACK_SPEED
+	var momentum: float = GameManager.get_momentum_mult() if GameManager.has_method("get_momentum_mult") else 1.0
+	_knockback = (away.normalized() if away.length() > 0.01 else Vector2.UP) * KNOCKBACK_SPEED * momentum
 	queue_redraw()
 	if hp <= 0.0:
 		_die()
@@ -206,8 +207,12 @@ func _die() -> void:
 	if _dead:
 		return
 	_dead = true
-	if xp > 0 and GameManager.has_method("add_xp"):
-		GameManager.add_xp(xp)
+	# Drop a collectible XP orb (the player magnetizes + collects it) instead of granting XP instantly.
+	if xp > 0:
+		if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("spawn_xp_orb"):
+			_mgr.spawn_xp_orb(global_position, xp)
+		elif GameManager.has_method("add_xp"):
+			GameManager.add_xp(xp)   # fallback if no manager is wired
 	# Start the death pop (a short flourish) instead of freeing immediately; disable collisions meanwhile.
 	_dying = true
 	_death_t = 0.0

@@ -22,6 +22,8 @@ const ArenaDofScript     := preload("res://scripts/gameplay/arena_dof.gd")
 const PlanetMenuScript   := preload("res://scripts/ui/hud/arena_planet_menu.gd")
 const DebugSpawnScript   := preload("res://scripts/gameplay/arena_debug_spawn.gd")
 const PerfOverlayScript  := preload("res://scripts/ui/hud/perf_overlay.gd")
+const LevelUpUIScript    := preload("res://scripts/ui/hud/arena_levelup_ui.gd")
+const RESET_RUN_ON_START := true   # each arena run starts a fresh VS climb (level 1, no upgrades). Flip off to keep saved level.
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
 const SHIP_SPRITE     := "res://assets/screen/Spaceship.png"
@@ -61,6 +63,8 @@ var _edge_vignette_mat: ShaderMaterial = null   # boundary "edge of system" cue
 
 func _ready() -> void:
 	randomize()                          # fresh RNG each launch → random spawn spot (below)
+	if RESET_RUN_ON_START and GameManager.has_method("reset_run"):
+		GameManager.reset_run()          # fresh VS climb: level 1, no upgrades, full HP
 	# Depth-of-field: all non-gameplay layers render into the DoF SubViewport (blurred/dimmed/desaturated
 	# behind the sharp gameplay plane). bg is that SubViewport; parallax/streaming are unchanged because its
 	# camera is synced to the main camera each frame.
@@ -96,6 +100,7 @@ func _ready() -> void:
 	_build_ui()
 	_build_boundary_vignette()
 	add_child(PerfOverlayScript.new())   # always-on FPS/frame-ms readout (top-right) for tuning
+	add_child(LevelUpUIScript.new())     # VS choose-1-of-3 on level-up (pauses the game)
 	add_child(ArenaEnemyMgrScript.new())  # world-space enemy services (bullets, explosions, ship pos)
 	if USE_TEST_SPAWNER:
 		add_child(TestTemplateScript.new())   # quick test: one enemy every 5s
@@ -204,7 +209,8 @@ func _physics_process(delta: float) -> void:
 	if _player == null:
 		return
 	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	_player.velocity = dir * MOVE_SPEED
+	var speed_mult: float = GameManager.get_move_speed_mult() if GameManager.has_method("get_move_speed_mult") else 1.0
+	_player.velocity = dir * MOVE_SPEED * speed_mult
 	_player.move_and_slide()
 	_apply_boundary(delta)
 

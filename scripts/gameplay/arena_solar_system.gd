@@ -35,7 +35,7 @@ const PLANETS := [
 ]
 const BELT_RADIUS := 1480.0         # between Mars (1120) and Jupiter (1850)
 const BELT_WIDTH  := 240.0
-const BELT_COUNT  := 140
+const BELT_COUNT  := 90             # belt rocks (frozen after spawn — see below — so this is mostly node count)
 const BELT_ORBIT_SPEED := 0.05      # whole-belt revolution rad/s (× GLOBAL_ORBIT_MULT)
 
 # Moons (orbit their planet; kept lively but gentle — local motion doesn't affect navigation).
@@ -80,10 +80,12 @@ func _ready() -> void:
 	for i in BELT_COUNT:
 		var a := AsteroidScript.new()
 		_belt.add_child(a)
-		a.setup(rng)
+		a.setup(rng)   # draws once
 		var ang := rng.randf() * TAU
 		var rad := BELT_RADIUS + rng.randf_range(-0.5, 0.5) * BELT_WIDTH
 		a.position = Vector2(cos(ang), sin(ang)) * rad
+		a.set_process(false)   # stop per-frame tumble/redraw — the whole belt revolves as one (perf); distant
+		                       # + blurred, so the lost per-rock spin is imperceptible
 
 func _make_sun() -> Sprite2D:
 	if _white_tex == null:

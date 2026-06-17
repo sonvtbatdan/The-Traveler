@@ -11,7 +11,7 @@ const BLUR_SHADER := "res://assets/shaders/dof_blur.gdshader"
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
 const ENABLED       := true    # blur/dim/desaturate the background (everything except the excluded nebula)
-const DOWNSCALE     := 2.0     # background render res = viewport / this (higher = blurrier + cheaper)
+const DOWNSCALE     := 3.0     # background render res = viewport / this (higher = blurrier + cheaper; 3 = 1/9 the pixels)
 const BLUR_RADIUS   := 1.6     # extra gaussian blur on top of the downscale (source texels)
 const DIM           := 0.62    # global background brightness multiply (<1 = darker)
 const DESATURATION  := 0.55    # 0 = full colour, 1 = greyscale
