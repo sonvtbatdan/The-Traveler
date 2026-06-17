@@ -11,7 +11,7 @@ extends CanvasLayer
 ##       (big dark voids + glowing filaments, not uniform soup). Cheap because nothing is computed live.
 
 # ── SELECTOR ──────────────────────────────────────────────────────────────────
-const ACTIVE_BACKGROUND := 4         # 1 = background_1 (FROZEN good version), 2 = baked, 3 = blue, 4 = background_test (edge-removal WIP, reuses BG1 params)
+const ACTIVE_BACKGROUND := 5         # 1 = background_1 (FROZEN), 2 = baked, 3 = blue, 4 = background_test (edge-free), 5 = background_test_2 (dim + muted copy of test)
 
 # ── SHARED TUNABLES ───────────────────────────────────────────────────────────
 const NEBULA_CANVAS_LAYER := -10     # negative → renders behind the world (star dots are at layer 0, z -100)
@@ -28,6 +28,9 @@ const HERO_COLOR      := Color(0.85, 0.92, 1.0)
 # ── BACKGROUND_1 (cached) TUNABLES ────────────────────────────────────────────
 const BG1_SHADER       := "res://assets/shaders/nebula_bg.gdshader"
 const BGTEST_SHADER    := "res://assets/shaders/nebula_test.gdshader"   # background_test: a copy of bg1 to experiment on (edge removal); reuses all BG1_* params
+const BGTEST2_SHADER   := "res://assets/shaders/nebula_test2.gdshader"  # background_test_2: a copy of test, dimmed + muted (tune the two knobs below)
+const BGTEST2_BRIGHTNESS_MULT := 0.2   # overall brightness vs background_test (0.2 = 80% dimmer). Raise toward 1.0 to brighten.
+const BGTEST2_COLOR_MULT      := 0.2   # colour intensity / saturation (0.2 = 80% less vivid → near-grey). Raise toward 1.0 for more colour.
 # On-screen drift ratio ≈ SCROLL_FACTOR × screen_width / BASE_SCALE. At 0.00002 × 1440 / 3 ≈ 0.0096,
 # the nebula moves at ~1% of camera speed — barely at all, and the FURTHEST layer (slowest star = 0.03).
 const BG1_SCROLL_FACTOR := 0.000104
@@ -54,7 +57,7 @@ const BG1_DENSE_THRESHOLD   := 0.72   # above → dense nebula (wide band = soft
 const BG1_CLUSTER_STRENGTH  := 2.2    # star-density multiplier in dense regions
 const BG1_REGION_COLOR_SCALE := 0.07  # slow field for dominant region hue (big colour blocks)
 const BG1_LANDMARK_SCALE     := 0.8   # coarse grid for rare landmarks (low = big, far apart)
-const BG1_LANDMARK_RARITY    := 0.05  # fraction of coarse cells with a landmark
+const BG1_LANDMARK_RARITY    := 0.0   # 0 = no landmarks (removes the huge glowing nebula-core orbs / giant stars)
 const BG1_LANDMARK_SIZE      := 0.35  # nebula-core glow radius
 const BG1_LANDMARK_INTENSITY := 1.6
 # HDR tone curve: crush voids toward black, lift cores toward white. (Eased so brighter gas doesn't blow out.)
@@ -68,7 +71,7 @@ const BG1_STAR_DENSITY        := 0.07
 const BG1_STAR_BRIGHTNESS     := 0.4    # faint pinprick texture (stars are quiet; gas is the drama)
 const BG1_BRIGHT_STAR_DENSITY := 0.07   # total bright stars (mostly small/faint)
 const BG1_BRIGHT_STAR_SCALE   := 2.2
-const BG1_BIG_STAR_RARITY     := 0.07   # fraction that are big/showy
+const BG1_BIG_STAR_RARITY     := 0.0    # 0 = no big/showy stars (only small pinpoints remain)
 const BG1_HALO_SIZE           := 0.14   # soft halo radius (contained gaussian → no boxes)
 const BG1_MAX_FLARE           := 0.5    # max cross-flare arm length (only used if flares enabled below)
 const BG1_BLOOM_STRENGTH      := 0.6    # colored light bleed into surrounding gas
@@ -180,6 +183,7 @@ func _ready() -> void:
 		2: _rect.material = _make_bg2_material()
 		3: _rect.material = _make_bgblue_material()
 		4: _rect.material = _make_bgtest_material()
+		5: _rect.material = _make_bgtest2_material()
 		_: _rect.material = _make_bg1_material()
 	_sub.add_child(_rect)
 
@@ -203,6 +207,32 @@ func _make_bgtest_material() -> ShaderMaterial:
 	var mat := _make_bg1_material()
 	mat.shader = load(BGTEST_SHADER)
 	return mat
+
+# ── background_test_2: background_test, dimmed + desaturated. Two knobs at the top (BGTEST2_*):
+# BRIGHTNESS_MULT scales the gas + cores + stars; COLOR_MULT desaturates the colour ramps toward grey. ──
+func _make_bgtest2_material() -> ShaderMaterial:
+	var mat := _make_bg1_material()
+	mat.shader = load(BGTEST2_SHADER)
+	var b := BGTEST2_BRIGHTNESS_MULT
+	mat.set_shader_parameter("gas_brightness", BG1_GAS_BRIGHTNESS * b)
+	mat.set_shader_parameter("core_intensity", BG1_CORE_INTENSITY * b)
+	mat.set_shader_parameter("landmark_intensity", BG1_LANDMARK_INTENSITY * b)
+	mat.set_shader_parameter("star_brightness", BG1_STAR_BRIGHTNESS * b)
+	mat.set_shader_parameter("bright_star_brightness", BG1_BRIGHT_STAR_BRIGHTNESS * b)
+	var d := 1.0 - BGTEST2_COLOR_MULT   # fraction to pull each ramp colour toward its grey
+	mat.set_shader_parameter("warm_lo", _muted(BG1_WARM_LO, d))
+	mat.set_shader_parameter("warm_mid", _muted(BG1_WARM_MID, d))
+	mat.set_shader_parameter("warm_hi", _muted(BG1_WARM_HI, d))
+	mat.set_shader_parameter("cool_lo", _muted(BG1_COOL_LO, d))
+	mat.set_shader_parameter("cool_mid", _muted(BG1_COOL_MID, d))
+	mat.set_shader_parameter("cool_hi", _muted(BG1_COOL_HI, d))
+	mat.set_shader_parameter("core_color", _muted(BG1_CORE_COLOR, d))
+	return mat
+
+## Pull a colour `amt` of the way toward its own grey (luminance) → lower colour intensity, same brightness.
+func _muted(c: Color, amt: float) -> Color:
+	var l := c.get_luminance()
+	return c.lerp(Color(l, l, l), clampf(amt, 0.0, 1.0))
 
 # ── background_1: cached live domain-warped fBm shader ────────────────────────
 func _make_bg1_material() -> ShaderMaterial:

@@ -242,6 +242,9 @@ func _physics_process(delta: float) -> void:
 		_init_done = true
 	if _stagger_t <= 0.0:   # staggered → movement & attacks frozen (knockback/visuals still play)
 		_tick_behavior(delta)
+	# Position after intended (pursuit) movement but BEFORE knockback — facing reads from this, so a knockback
+	# push only DISPLACES the enemy, it never turns/reorients it.
+	var pos_pre_knockback := global_position
 	# Knockback recoil (decays).
 	if _knockback.length() > 1.0:
 		global_position += _knockback * delta
@@ -252,9 +255,10 @@ func _physics_process(delta: float) -> void:
 	var target_squash := SQUASH_MAG * clampf(spd / SQUASH_REF_SPEED, 0.0, 1.0)
 	_squash = lerpf(_squash, target_squash, clampf(SQUASH_EASE * delta, 0.0, 1.0))
 	_hit_squash = lerpf(_hit_squash, 0.0, clampf(HIT_SQUASH_DECAY * delta, 0.0, 1.0))
-	# Face the actual movement direction (centipede keeps its constant spin instead).
-	if behavior != "centipede" and moved.length() > 0.5:
-		_facing = lerp_angle(_facing, moved.angle() + PI * 0.5, clampf(TURN_RATE * delta, 0.0, 1.0))
+	# Face the intended movement direction only — knockback must NOT rotate the enemy (centipede keeps spin).
+	var intended := pos_pre_knockback - _prev_pos
+	if behavior != "centipede" and intended.length() > 0.5:
+		_facing = lerp_angle(_facing, intended.angle() + PI * 0.5, clampf(TURN_RATE * delta, 0.0, 1.0))
 	_prev_pos = global_position
 	if not _frames.is_empty():
 		_anim_acc += delta

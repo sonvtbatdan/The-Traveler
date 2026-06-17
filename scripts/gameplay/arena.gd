@@ -16,6 +16,9 @@ const ArenaDustScript    := preload("res://scripts/gameplay/arena_dust.gd")
 const ArenaPlanetsScript := preload("res://scripts/gameplay/arena_planets.gd")
 const ArenaAsteroidsScript := preload("res://scripts/gameplay/arena_asteroids.gd")
 const ArenaCometsScript    := preload("res://scripts/gameplay/arena_comets.gd")
+const ArenaStructuresScript := preload("res://scripts/gameplay/arena_structures.gd")
+const ArenaSolarSystemScript := preload("res://scripts/gameplay/arena_solar_system.gd")
+const ArenaDofScript     := preload("res://scripts/gameplay/arena_dof.gd")
 const PlanetMenuScript   := preload("res://scripts/ui/hud/arena_planet_menu.gd")
 const DebugSpawnScript   := preload("res://scripts/gameplay/arena_debug_spawn.gd")
 const PerfOverlayScript  := preload("res://scripts/ui/hud/perf_overlay.gd")
@@ -42,24 +45,56 @@ const STAR_LAYERS := [
 	[0.06, 1024, 90,  1.5, 0.8],    # mid
 	[0.10, 1024, 55,  2.0, 1.0],    # near, bright (still deep; nothing at surface but ship/enemies)
 ]
+# Solar-system start + soft boundary (world space; the player flies the world, the system orbits origin).
+const PLAYER_START   := Vector2(0.0, -1100.0)   # offset from origin so the player doesn't spawn on the sun
+const SOFT_BOUNDARY  := 9000.0                   # past Neptune's reach; gentle inward drift begins here
+const HARD_BOUNDARY  := 10500.0                  # absolute clamp (player can't pass)
+const BOUNDARY_PULL  := 2.2                      # inward drift past the soft edge (per second × overshoot px)
+const VIGNETTE_FADE  := 2200.0                   # distance the edge vignette fades in over, before SOFT
+const BOUNDARY_VIGNETTE_SHADER := "res://assets/shaders/boundary_vignette.gdshader"
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 var _player: CharacterBody2D = null
 var _fire_acc: float = 0.0
 var _projectiles: Array = []   # {node, vel, life, start}
+var _edge_vignette_mat: ShaderMaterial = null   # boundary "edge of system" cue
 
 func _ready() -> void:
 	randomize()                          # fresh RNG each launch → random spawn spot (below)
-	add_child(ArenaNebulaScript.new())   # procedural nebula on a back CanvasLayer (behind the star dots)
-	add_child(ArenaDustScript.new())     # dark space dust, lit by ship/weapon lights
-	add_child(ArenaPlanetsScript.new())  # sparse mid-parallax procedural planets (z -50)
-	add_child(ArenaCometsScript.new())   # rare mid-parallax comets (z -48)
-	add_child(ArenaAsteroidsScript.new()) # fast near-parallax asteroid fields (z -10, sells speed)
-	add_child(PlanetMenuScript.new())    # F6 menu: inspect/drag-spawn planets
+	# Depth-of-field: all non-gameplay layers render into the DoF SubViewport (blurred/dimmed/desaturated
+	# behind the sharp gameplay plane). bg is that SubViewport; parallax/streaming are unchanged because its
+	# camera is synced to the main camera each frame.
+	var dof := ArenaDofScript.new()
+	add_child(dof)
+	var bg: Node = dof.background_parent()   # DoF SubViewport, or the arena itself when the mask is disabled
+	add_child(ArenaNebulaScript.new())      # procedural nebula — EXCLUDED from the blur (stays sharp in the
+	                                        # main viewport at CL -10, behind the DoF composite at CL -5)
+	bg.add_child(ArenaDustScript.new())     # dark space dust, lit by ship/weapon lights
+	var planets := ArenaPlanetsScript.new()      # sparse mid-parallax procedural planets (z -50)
+	var comets := ArenaCometsScript.new()        # rare mid-parallax comets (z -48)
+	var structures := ArenaStructuresScript.new() # rare huge gas/dust structures (z -60, slow far parallax)
+	var asteroids := ArenaAsteroidsScript.new()  # fast near-parallax asteroid fields (z -10, sells speed)
+	# Authored solar system (replaces random planet scatter): planets/belt on the blurred 0.40 layer; its sun
+	# is hosted in the MAIN viewport (sharp, excluded from the blur).
+	var solar := ArenaSolarSystemScript.new()
+	solar.sun_host = self
+	if ArenaDofScript.ENABLED:               # per-layer depth dim only when the mask is on
+		planets.modulate = ArenaDofScript.MID_MODULATE
+		comets.modulate = ArenaDofScript.MID_MODULATE
+		structures.modulate = ArenaDofScript.FAR_MODULATE
+		asteroids.modulate = ArenaDofScript.MID_MODULATE
+		solar.modulate = ArenaDofScript.MID_MODULATE
+	bg.add_child(planets)                    # streaming OFF (helpers/F10 only); solar system provides planets
+	bg.add_child(comets)
+	bg.add_child(structures)
+	bg.add_child(asteroids)
+	bg.add_child(solar)
+	add_child(PlanetMenuScript.new())    # F6 menu: inspect/drag-spawn planets (input stays in the main viewport)
 	add_child(DebugSpawnScript.new())    # F5 asteroids / F9 comet / F10 planet+moons (Shift = clear)
-	_build_parallax()
+	_build_parallax(bg)
 	_build_player()
 	_build_ui()
+	_build_boundary_vignette()
 	add_child(PerfOverlayScript.new())   # always-on FPS/frame-ms readout (top-right) for tuning
 	add_child(ArenaEnemyMgrScript.new())  # world-space enemy services (bullets, explosions, ship pos)
 	if USE_TEST_SPAWNER:
@@ -68,6 +103,21 @@ func _ready() -> void:
 		add_child(WaveDirectorScript.new())   # authored-timeline wave spawner
 		add_child(WaveEditorScript.new())     # F7 in-game wave editor (add/edit/remove waves live)
 	add_child(ArenaWeaponsScript.new())   # Gatling gun + Gauss cannon, auto-firing toward the ship facing
+
+## Full-screen "edge of system" vignette; its intensity is driven by player→boundary proximity each frame.
+func _build_boundary_vignette() -> void:
+	var cl := CanvasLayer.new()
+	cl.layer = 90   # above gameplay, below the perf overlay (99) / settings (100)
+	add_child(cl)
+	var rect := ColorRect.new()
+	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var m := ShaderMaterial.new()
+	m.shader = load(BOUNDARY_VIGNETTE_SHADER)
+	m.set_shader_parameter("intensity", 0.0)
+	rect.material = m
+	cl.add_child(rect)
+	_edge_vignette_mat = m
 
 ## Screen-space HUD: host the sprite HP/shield display (reads GameManager; self-pins top-left in the arena).
 func _build_ui() -> void:
@@ -82,7 +132,7 @@ func _build_ui() -> void:
 func _build_player() -> void:
 	_player = CharacterBody2D.new()
 	_player.name = "Player"
-	_player.position = Vector2.ZERO   # stays near origin (float precision); the nebula randomizes its own patch
+	_player.position = PLAYER_START   # offset from the sun at origin (solar system orbits world origin)
 
 	var spr := Sprite2D.new()
 	var tex := load(SHIP_SPRITE) as Texture2D
@@ -109,7 +159,7 @@ func _build_player() -> void:
 	_player.add_to_group("player")   # enemies/spawner find the player via this group
 	cam.make_current()
 
-func _build_parallax() -> void:
+func _build_parallax(parent: Node) -> void:
 	var i := 0
 	for layer in STAR_LAYERS:
 		var factor: float = layer[0]
@@ -122,11 +172,13 @@ func _build_parallax() -> void:
 		px.repeat_size = Vector2(float(tile), float(tile))
 		px.repeat_times = 3
 		px.z_index = -100 + i   # well behind the player/projectiles
+		if ArenaDofScript.ENABLED:
+			px.modulate = ArenaDofScript.FAR_MODULATE   # deepest layer → recede most (only when the mask is on)
 		var spr := Sprite2D.new()
 		spr.texture = _make_star_tex(tile, count, dot, bright)
 		spr.centered = false
 		px.add_child(spr)
-		add_child(px)
+		parent.add_child(px)   # into the DoF SubViewport (blurred background)
 		i += 1
 
 ## Build a seamless tiling star texture: random faint dots on a transparent tile (dots kept inside the
@@ -148,12 +200,27 @@ func _make_star_tex(tile: int, count: int, dot: float, bright: float) -> Texture
 	return ImageTexture.create_from_image(img)
 
 # ── Per-frame ─────────────────────────────────────────────────────────────────
-func _physics_process(_delta: float) -> void:
+func _physics_process(delta: float) -> void:
 	if _player == null:
 		return
 	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	_player.velocity = dir * MOVE_SPEED
 	_player.move_and_slide()
+	_apply_boundary(delta)
+
+## Soft outer edge: past SOFT_BOUNDARY the player drifts gently back inward (stronger the further out), and is
+## hard-clamped at HARD_BOUNDARY. A screen vignette fades in as the edge nears. Not a wall — a current.
+func _apply_boundary(delta: float) -> void:
+	var pos := _player.global_position
+	var d := pos.length()
+	if d > SOFT_BOUNDARY and d > 0.0:
+		var inward := -pos / d
+		_player.global_position += inward * (d - SOFT_BOUNDARY) * BOUNDARY_PULL * delta
+		if d > HARD_BOUNDARY:
+			_player.global_position = (pos / d) * HARD_BOUNDARY
+	if _edge_vignette_mat != null:
+		var f := clampf((d - (SOFT_BOUNDARY - VIGNETTE_FADE)) / VIGNETTE_FADE, 0.0, 1.0)
+		_edge_vignette_mat.set_shader_parameter("intensity", f)
 
 func _process(delta: float) -> void:
 	if _player == null:

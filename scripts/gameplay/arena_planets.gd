@@ -5,18 +5,21 @@ extends Node2D
 ## in the same place. z_index keeps them behind gameplay, in front of the nebula/stars.
 
 const PlanetScript := preload("res://scripts/gameplay/arena_planet.gd")
+const ArenaPopulator := preload("res://scripts/gameplay/arena_populator.gd")
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
 const PLANET_FACTOR  := 0.40    # parallax: 0 = static far, 1 = surface speed (mid-distance)
 const PLANET_Z       := -50     # behind player/enemies/projectiles, in front of nebula/stars
-const PLANET_DENSITY := 0.07    # chance a coarse cell holds a planet (LOW = sparse, < 1/screen)
-const PLANET_CELL    := 1500.0  # world px per planet cell (big = sparse)
+const STREAM_ENABLED := false   # random scatter OFF — the authored arena_solar_system.gd replaces it. Helpers
+                                # (spawn_planet_with_moons, _add_moons) + F10 debug stay live.
+# Placement (cell size, rarity weight, jitter, min-distance, biome density) is unified in ArenaPopulator
+# (type ArenaPopulator.PLANET). Only parallax + visuals stay here.
 # Moons orbiting a planet (sells scale).
 const MOON_CHANCE     := 0.45   # chance a planet gets any moons
 const MOON_TWO_CHANCE := 0.35   # of those, chance of a second moon
-const MOON_SIZE_RATIO := Vector2(0.18, 0.32)   # moon radius as a fraction of the parent's
-const MOON_ORBIT_MULT := Vector2(1.5, 2.4)     # orbit radius as a multiple of the parent's radius
-const MOON_ORBIT_SPEED := Vector2(0.15, 0.5)   # radians/sec
+const MOON_SIZE_RATIO := Vector2(0.045, 0.08)  # moon radius as a fraction of the parent's (1/4 of before)
+const MOON_SURFACE_GAP := Vector2(0.39, 0.74)  # moon-surface→planet-surface gap as a fraction of parent radius (1/3 of before)
+const MOON_ORBIT_SPEED := Vector2(0.0375, 0.125) # radians/sec (1/4 of before — slower orbit)
 const MOON_TYPES       := [0, 10]              # rocky or barren
 
 var _planets: Dictionary = {}   # Vector2i cell → planet node
@@ -29,39 +32,33 @@ func _process(_delta: float) -> void:
 	var cam := get_viewport().get_camera_2d()
 	if cam == null:
 		return
-	position = cam.global_position * (1.0 - PLANET_FACTOR)
+	position = cam.global_position * (1.0 - PLANET_FACTOR)   # keep parallax for any F10 debug planets
+	if not STREAM_ENABLED:
+		return
+	var cs := ArenaPopulator.cell_size(ArenaPopulator.PLANET)
 	var vc := cam.global_position * PLANET_FACTOR     # layer-space view centre
 	var vp := get_viewport().get_visible_rect().size / cam.zoom
-	var half := vp * 0.5 + Vector2(PLANET_CELL, PLANET_CELL)
-	var cx0 := int(floor((vc.x - half.x) / PLANET_CELL))
-	var cx1 := int(ceil((vc.x + half.x) / PLANET_CELL))
-	var cy0 := int(floor((vc.y - half.y) / PLANET_CELL))
-	var cy1 := int(ceil((vc.y + half.y) / PLANET_CELL))
+	var half := vp * 0.5 + Vector2(cs, cs)
+	var cx0 := int(floor((vc.x - half.x) / cs))
+	var cx1 := int(ceil((vc.x + half.x) / cs))
+	var cy0 := int(floor((vc.y - half.y) / cs))
+	var cy1 := int(ceil((vc.y + half.y) / cs))
 	var needed := {}
 	for cy in range(cy0, cy1 + 1):
 		for cx in range(cx0, cx1 + 1):
 			var key := Vector2i(cx, cy)
-			if _has_planet(key):
+			var place := ArenaPopulator.place_in_cell(ArenaPopulator.PLANET, key)
+			if not place.is_empty():
 				needed[key] = true
 				if not _planets.has(key):
-					_spawn_cell(key)
+					_spawn_cell(key, place["pos"], place["rng"])
 	for key: Vector2i in _planets.keys():
 		if not needed.has(key):
 			if is_instance_valid(_planets[key]):
 				_planets[key].despawn()   # frees the planet + its moons
 			_planets.erase(key)
 
-func _cell_rng(key: Vector2i) -> RandomNumberGenerator:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = hash(Vector2i(key.x * 73856093, key.y * 19349663))
-	return rng
-
-func _has_planet(key: Vector2i) -> bool:
-	return _cell_rng(key).randf() < PLANET_DENSITY
-
-func _spawn_cell(key: Vector2i) -> void:
-	var rng := _cell_rng(key)
-	rng.randf()   # consume the same density value so the rest matches _has_planet's stream
+func _spawn_cell(key: Vector2i, pos: Vector2, rng: RandomNumberGenerator) -> void:
 	# Weighted type pick across all 12 (common rock/ice; Earth/ringed/carbon rare).
 	var t := rng.randf()
 	var type := 0
@@ -78,11 +75,10 @@ func _spawn_cell(key: Vector2i) -> void:
 	elif t < 0.985: type = 11    # carbon (rare)
 	else: type = 6               # ringed (rarest)
 	var params := PlanetScript.roll_params(type, rng)
-	var jitter := Vector2(rng.randf_range(-0.3, 0.3), rng.randf_range(-0.3, 0.3)) * PLANET_CELL
 	var pl := PlanetScript.new()
 	add_child(pl)
 	pl.apply(params)
-	pl.position = Vector2(key) * PLANET_CELL + Vector2(PLANET_CELL, PLANET_CELL) * 0.5 + jitter
+	pl.position = pos
 	if rng.randf() < MOON_CHANCE:
 		_add_moons(pl, float(params.get("radius", 60.0)), rng)
 	_planets[key] = pl
@@ -102,7 +98,10 @@ func _add_moons(parent: Node2D, parent_radius: float, rng: RandomNumberGenerator
 		var moon := PlanetScript.new()
 		add_child(moon)
 		moon.apply(mp)
-		var orbit_r := parent_radius * rng.randf_range(MOON_ORBIT_MULT.x, MOON_ORBIT_MULT.y) + parent_radius
+		# Centre-to-centre orbit = planet radius + surface gap + the moon's own radius (so the GAP is the
+		# clearance between the two surfaces, set by MOON_SURFACE_GAP).
+		var gap: float = parent_radius * rng.randf_range(MOON_SURFACE_GAP.x, MOON_SURFACE_GAP.y)
+		var orbit_r: float = parent_radius + gap + float(mp["radius"])
 		var spd := rng.randf_range(MOON_ORBIT_SPEED.x, MOON_ORBIT_SPEED.y) * (1.0 if rng.randf() < 0.5 else -1.0)
 		moon.set_orbit(parent, orbit_r, spd, rng.randf() * TAU)
 		moon.position = parent.position + Vector2(cos(moon.orbit_angle), sin(moon.orbit_angle)) * orbit_r

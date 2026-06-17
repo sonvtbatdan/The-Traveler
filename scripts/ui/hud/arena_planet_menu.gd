@@ -4,6 +4,8 @@ extends CanvasLayer
 ## (and Shift+F6) removes manually-placed planets. Pauses the game while open (camera static for placing).
 
 const PlanetScript := preload("res://scripts/gameplay/arena_planet.gd")
+const AsteroidScript := preload("res://scripts/gameplay/arena_asteroid.gd")
+const CometScript := preload("res://scripts/gameplay/arena_comet.gd")
 const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
 const PANEL_W := 340.0
 const PREVIEW := 76.0
@@ -20,9 +22,10 @@ var _open: bool = false
 var _rng := RandomNumberGenerator.new()
 
 var _placing: bool = false
+var _place_kind: String = "planet"
 var _place_params: Dictionary = {}
-var _ghost: ColorRect = null
-var _previews: Array = []   # [{ctrl, params}]
+var _ghost: Control = null
+var _previews: Array = []   # [{ctrl, kind, params}]
 
 func _ready() -> void:
 	layer = 100
@@ -51,7 +54,7 @@ func _input(event: InputEvent) -> void:
 			for pv: Dictionary in _previews:
 				var c := pv["ctrl"] as Control
 				if is_instance_valid(c) and c.get_global_rect().has_point(mp):
-					_start_place(pv["params"])
+					_start_place(String(pv["kind"]), pv["params"])
 					get_viewport().set_input_as_handled()
 					return
 		elif not mb.pressed and _placing:
@@ -90,8 +93,8 @@ func _build_ui() -> void:
 	vb.add_theme_constant_override("separation", 8)
 	panel.add_child(vb)
 
-	vb.add_child(_label("PLANETS  (F6 to close)", 15))
-	vb.add_child(_label("Drag a planet onto the map →", 11))
+	vb.add_child(_label("PLANETS & OBJECTS  (F6 to close)", 15))
+	vb.add_child(_label("Drag a tile onto the map →", 11))
 
 	var btns := HBoxContainer.new()
 	btns.add_theme_constant_override("separation", 10)
@@ -124,6 +127,14 @@ func _rebuild() -> void:
 			var params := PlanetScript.roll_params(type, _rng)
 			row.add_child(_make_preview(params))
 		_grid_box.add_child(row)
+	# ── Non-planet objects: asteroid field, comet, planet + moons (same drag-drop flow). ──
+	_grid_box.add_child(_label("OBJECTS", 12))
+	var orow := HBoxContainer.new()
+	orow.add_theme_constant_override("separation", 6)
+	orow.add_child(_make_viewport_preview("asteroid_field"))
+	orow.add_child(_make_viewport_preview("comet"))
+	orow.add_child(_make_moon_preview(PlanetScript.roll_params(0, _rng)))
+	_grid_box.add_child(orow)
 
 ## A preview = a planet-shader ColorRect (press handled in _input by hit-testing its rect).
 func _make_preview(params: Dictionary) -> Control:
@@ -132,20 +143,91 @@ func _make_preview(params: Dictionary) -> Control:
 	rect.color = Color.WHITE
 	rect.material = PlanetScript.make_material(params)
 	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_previews.append({"ctrl": rect, "params": params})
+	_previews.append({"ctrl": rect, "kind": "planet", "params": params})
 	return rect
 
+## Live preview of a non-planet object (asteroid field / comet) — the real Node2D rendered in a SubViewport.
+func _make_viewport_preview(kind: String) -> Control:
+	var vpc := SubViewportContainer.new()
+	vpc.custom_minimum_size = Vector2(PREVIEW, PREVIEW)
+	vpc.stretch = true
+	vpc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var vp := SubViewport.new()
+	vp.size = Vector2i(int(PREVIEW), int(PREVIEW))
+	vp.transparent_bg = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	vpc.add_child(vp)
+	var bg := ColorRect.new()
+	bg.size = Vector2(PREVIEW, PREVIEW)
+	bg.color = Color(0.03, 0.04, 0.07)
+	vp.add_child(bg)
+	if kind == "asteroid_field":
+		for i in 5:
+			var a := AsteroidScript.new()
+			vp.add_child(a)
+			a.setup(_rng)
+			a.position = Vector2(PREVIEW, PREVIEW) * 0.5 + Vector2(_rng.randf_range(-26.0, 26.0), _rng.randf_range(-24.0, 24.0))
+			a.scale = Vector2.ONE * 1.4
+	else:   # comet
+		var c := CometScript.new()
+		vp.add_child(c)
+		c.setup(_rng)
+		c.position = Vector2(PREVIEW * 0.66, PREVIEW * 0.62)
+		c.scale = Vector2.ONE * 0.22
+	_previews.append({"ctrl": vpc, "kind": kind, "params": {}})
+	return vpc
+
+## Planet-shader preview with a small moon in the corner → reads as "planet + moons".
+func _make_moon_preview(params: Dictionary) -> Control:
+	var holder := Control.new()
+	holder.custom_minimum_size = Vector2(PREVIEW, PREVIEW)
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var rect := ColorRect.new()
+	rect.size = Vector2(PREVIEW, PREVIEW)
+	rect.color = Color.WHITE
+	rect.material = PlanetScript.make_material(params)
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(rect)
+	var moon := ColorRect.new()
+	moon.size = Vector2(PREVIEW, PREVIEW) * 0.28
+	moon.position = Vector2(PREVIEW * 0.62, PREVIEW * 0.06)
+	moon.color = Color.WHITE
+	moon.material = PlanetScript.make_material(PlanetScript.roll_params(10, _rng))
+	moon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(moon)
+	_previews.append({"ctrl": holder, "kind": "planet_moons", "params": params})
+	return holder
+
 # ── Drag-to-map ───────────────────────────────────────────────────────────────
-func _start_place(params: Dictionary) -> void:
+func _start_place(kind: String, params: Dictionary) -> void:
 	_placing = true
+	_place_kind = kind
 	_place_params = params
-	_ghost = ColorRect.new()
-	_ghost.color = Color.WHITE
-	_ghost.size = Vector2(PREVIEW, PREVIEW) * 1.5
-	_ghost.material = PlanetScript.make_material(params)
+	_ghost = _make_ghost(kind, params)
 	_ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ghost.position = get_viewport().get_mouse_position() - Vector2(PREVIEW, PREVIEW) * 0.75
 	_root.add_child(_ghost)
+
+## A cursor-following ghost matching the dragged kind, ~1.5× preview size.
+func _make_ghost(kind: String, params: Dictionary) -> Control:
+	var sz := Vector2(PREVIEW, PREVIEW) * 1.5
+	if kind == "asteroid_field" or kind == "comet":
+		var g := _make_viewport_preview(kind)
+		_previews.pop_back()   # ghost isn't a draggable tile; drop it from the hit-test list
+		g.custom_minimum_size = sz
+		g.size = sz
+		return g
+	if kind == "planet_moons":
+		var g2 := _make_moon_preview(params)
+		_previews.pop_back()
+		g2.custom_minimum_size = sz
+		g2.size = sz
+		return g2
+	var rect := ColorRect.new()
+	rect.color = Color.WHITE
+	rect.size = sz
+	rect.material = PlanetScript.make_material(params)
+	return rect
 
 func _finish_place() -> void:
 	_placing = false
@@ -155,14 +237,29 @@ func _finish_place() -> void:
 	var mouse := get_viewport().get_mouse_position()
 	if mouse.x <= PANEL_W:
 		return   # released over the panel, not the map → cancel
-	var layer_node := get_tree().get_first_node_in_group("arena_planets") as Node2D
-	if layer_node == null:
-		return
 	var cam := get_viewport().get_camera_2d()
 	if cam == null:
 		return
-	# Layer-local position so the planet appears under the cursor at the planet layer's parallax depth.
 	var center := get_viewport().get_visible_rect().size * 0.5
+	var world := cam.global_position + (mouse - center) / cam.zoom   # world point under the cursor
+	if _place_kind == "asteroid_field":
+		var al := get_tree().get_first_node_in_group("arena_asteroids")
+		if al != null:
+			var n: int = al.spawn_field_near(world)
+			_status.text = "Placed asteroid field (%d rocks)" % n
+			print("[object] placed asteroid field (%d rocks)" % n)
+		return
+	if _place_kind == "comet":
+		var cl := get_tree().get_first_node_in_group("arena_comets")
+		if cl != null:
+			cl.spawn_comet_near(world)
+			_status.text = "Placed comet"
+			print("[object] placed comet")
+		return
+	# planet or planet_moons → spawn into the planet layer at the cursor depth
+	var layer_node := get_tree().get_first_node_in_group("arena_planets") as Node2D
+	if layer_node == null:
+		return
 	var f: float = layer_node.PLANET_FACTOR
 	var lpos := cam.global_position * f + (mouse - center) / cam.zoom
 	var pl := PlanetScript.new()
@@ -170,20 +267,26 @@ func _finish_place() -> void:
 	layer_node.add_child(pl)
 	pl.apply(_place_params)
 	pl.position = lpos
-	if layer_node.has_method("maybe_add_moons"):
-		layer_node.maybe_add_moons(pl, float(_place_params.get("radius", 60.0)), _rng)   # moons auto-spawn with planets
-	_status.text = "Placed %s (r=%.0f)" % [PlanetScript.TYPE_NAMES[int(_place_params.get("type", 0))],
-		float(_place_params.get("radius", 0.0))]
+	if _place_kind == "planet_moons" and layer_node.has_method("_add_moons"):
+		layer_node._add_moons(pl, float(_place_params.get("radius", 60.0)), _rng)   # guaranteed moons
+	elif layer_node.has_method("maybe_add_moons"):
+		layer_node.maybe_add_moons(pl, float(_place_params.get("radius", 60.0)), _rng)
 	var ti := int(_place_params.get("type", 0))
 	var tname: String = PlanetScript.TYPE_NAMES[ti] if ti < PlanetScript.TYPE_NAMES.size() else str(ti)
-	print("[planet] placed type %d (%s): %s" % [ti, tname, _place_params])
+	var moons_txt := " + moons" if _place_kind == "planet_moons" else ""
+	_status.text = "Placed %s%s (r=%.0f)" % [tname, moons_txt, float(_place_params.get("radius", 0.0))]
+	print("[planet] placed type %d (%s)%s" % [ti, tname, moons_txt])
 
 func _clear_placed() -> void:
 	for n in get_tree().get_nodes_in_group("debug_planet"):
 		if is_instance_valid(n):
 			n.queue_free()
+	for grp in ["arena_asteroids", "arena_comets"]:
+		var layer := get_tree().get_first_node_in_group(grp)
+		if layer != null and layer.has_method("clear_debug"):
+			layer.clear_debug()
 	if _status != null:
-		_status.text = "Cleared placed planets"
+		_status.text = "Cleared placed planets / asteroids / comets"
 
 # ── Widgets ───────────────────────────────────────────────────────────────────
 func _label(text: String, sz: int) -> Label:
