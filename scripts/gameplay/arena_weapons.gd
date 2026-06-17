@@ -148,6 +148,8 @@ void fragment(){
 var _player: Node2D = null
 var _gat_acc: float = 0.0
 var _gauss_charge: float = 0.0
+var _dmg_mult: float = 1.0    # GameManager.get_damage_mult(), refreshed each frame (Damage upgrade cards)
+var _rate_mult: float = 1.0   # GameManager.get_fire_rate_mult() (Fire Rate upgrade cards)
 var _bullets: Array = []         # Gatling: {pos, vel, life, start}
 var _orbs: Array = []            # Gauss: {pos, vel, life, start, orb_node, trail, spark_acc, pierce_left, hit}
 var _sparks: Array = []          # Gauss tail sparks: {pos, vel, life, ttl}
@@ -177,14 +179,18 @@ func _process(delta: float) -> void:
 		_player = get_tree().get_first_node_in_group("player")
 		if _player == null:
 			return
+	# Player-stat multipliers (base values 1.0 → identical to before).
+	_dmg_mult = GameManager.get_damage_mult() if GameManager.has_method("get_damage_mult") else 1.0
+	_rate_mult = maxf(0.01, GameManager.get_fire_rate_mult()) if GameManager.has_method("get_fire_rate_mult") else 1.0
 	if GAT_ENABLED:
 		_gat_acc += delta
-		while _gat_acc >= GAT_FIRE_INTERVAL:
-			_gat_acc -= GAT_FIRE_INTERVAL
+		var gat_interval := GAT_FIRE_INTERVAL / _rate_mult
+		while _gat_acc >= gat_interval:
+			_gat_acc -= gat_interval
 			_fire_gatling()
 	if GAUSS_ENABLED:
 		_gauss_charge += delta
-		if _gauss_charge >= GAUSS_CHARGE_TIME:
+		if _gauss_charge >= GAUSS_CHARGE_TIME / _rate_mult:
 			_gauss_charge = 0.0
 			_fire_gauss()
 	_tick_bullets(delta)
@@ -222,7 +228,7 @@ func _tick_bullets(delta: float) -> void:
 			for en in enemies:
 				if is_instance_valid(en) and p.distance_to((en as Node2D).global_position) <= GAT_HIT_RADIUS:
 					if en.has_method("take_damage"):
-						en.take_damage(GAT_DAMAGE, GAT_STAGGER)
+						en.take_damage(GAT_DAMAGE * _dmg_mult, GAT_STAGGER)
 					dead = true
 					break
 		if dead:
@@ -269,7 +275,7 @@ func _tick_orbs(delta: float) -> void:
 					continue
 				if p.distance_to((en as Node2D).global_position) <= GAUSS_RADIUS + 8.0:
 					if en.has_method("take_damage"):
-						en.take_damage(GAUSS_DAMAGE, GAUSS_STAGGER)
+						en.take_damage(GAUSS_DAMAGE * _dmg_mult, GAUSS_STAGGER)
 					hit.append(id)
 					o["pierce_left"] = int(o["pierce_left"]) - 1
 					if int(o["pierce_left"]) <= 0:

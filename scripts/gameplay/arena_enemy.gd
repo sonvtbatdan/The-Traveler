@@ -197,7 +197,8 @@ func take_damage(amount: float, stagger: float = 0.0) -> void:
 	_flash = HIT_FLASH_TIME
 	_hit_squash = HIT_SQUASH
 	var away := global_position - _player_pos()
-	_knockback = (away.normalized() if away.length() > 0.01 else Vector2.UP) * KNOCKBACK_SPEED
+	var momentum: float = GameManager.get_momentum_mult() if GameManager.has_method("get_momentum_mult") else 1.0
+	_knockback = (away.normalized() if away.length() > 0.01 else Vector2.UP) * KNOCKBACK_SPEED * momentum
 	queue_redraw()
 	if hp <= 0.0:
 		_die()
@@ -206,8 +207,12 @@ func _die() -> void:
 	if _dead:
 		return
 	_dead = true
-	if xp > 0 and GameManager.has_method("add_xp"):
-		GameManager.add_xp(xp)
+	# Drop a collectible XP orb (the player magnetizes + collects it) instead of granting XP instantly.
+	if xp > 0:
+		if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("spawn_xp_orb"):
+			_mgr.spawn_xp_orb(global_position, xp)
+		elif GameManager.has_method("add_xp"):
+			GameManager.add_xp(xp)   # fallback if no manager is wired
 	# Start the death pop (a short flourish) instead of freeing immediately; disable collisions meanwhile.
 	_dying = true
 	_death_t = 0.0
@@ -242,6 +247,9 @@ func _physics_process(delta: float) -> void:
 		_init_done = true
 	if _stagger_t <= 0.0:   # staggered → movement & attacks frozen (knockback/visuals still play)
 		_tick_behavior(delta)
+	# Position after intended (pursuit) movement but BEFORE knockback — facing reads from this, so a knockback
+	# push only DISPLACES the enemy, it never turns/reorients it.
+	var pos_pre_knockback := global_position
 	# Knockback recoil (decays).
 	if _knockback.length() > 1.0:
 		global_position += _knockback * delta
@@ -252,9 +260,10 @@ func _physics_process(delta: float) -> void:
 	var target_squash := SQUASH_MAG * clampf(spd / SQUASH_REF_SPEED, 0.0, 1.0)
 	_squash = lerpf(_squash, target_squash, clampf(SQUASH_EASE * delta, 0.0, 1.0))
 	_hit_squash = lerpf(_hit_squash, 0.0, clampf(HIT_SQUASH_DECAY * delta, 0.0, 1.0))
-	# Face the actual movement direction (centipede keeps its constant spin instead).
-	if behavior != "centipede" and moved.length() > 0.5:
-		_facing = lerp_angle(_facing, moved.angle() + PI * 0.5, clampf(TURN_RATE * delta, 0.0, 1.0))
+	# Face the intended movement direction only — knockback must NOT rotate the enemy (centipede keeps spin).
+	var intended := pos_pre_knockback - _prev_pos
+	if behavior != "centipede" and intended.length() > 0.5:
+		_facing = lerp_angle(_facing, intended.angle() + PI * 0.5, clampf(TURN_RATE * delta, 0.0, 1.0))
 	_prev_pos = global_position
 	if not _frames.is_empty():
 		_anim_acc += delta

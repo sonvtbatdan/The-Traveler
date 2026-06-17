@@ -3,9 +3,12 @@ extends CanvasLayer
 ##   F5  = asteroid field near the player      Shift+F5  = clear debug asteroid fields
 ##   F9  = comet near the player               Shift+F9  = clear debug comets
 ##   F10 = planet WITH moons near the player    Shift+F10 = clear debug planets (incl. their moons)
+##   F11 = next gas/dust structure near player  Shift+F11 = clear debug structures
+##         (cycles ring nebula → reflection → dark → pillars each press)
 ## (F6 = planet menu, F7 = wave editor — left alone.) Moons also spawn automatically with F6/streamed planets.
 
 var _rng := RandomNumberGenerator.new()
+var _struct_cycle: int = 0   # F11 steps through the four structure types
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -27,6 +30,10 @@ func _input(event: InputEvent) -> void:
 		KEY_F10:
 			if key.shift_pressed: _clear_planets()
 			else: _spawn_planet_with_moons()
+			get_viewport().set_input_as_handled()
+		KEY_F11:
+			if key.shift_pressed: _clear("arena_structures")
+			else: _spawn_structure_cycle()
 			get_viewport().set_input_as_handled()
 
 func _near_player() -> Vector2:
@@ -54,6 +61,15 @@ func _spawn_planet_with_moons() -> void:
 		return
 	var pl: Node2D = layer.spawn_planet_with_moons(_near_player(), _rng)
 	print("[debug] F10 planet+moons spawned: %d moon(s)" % pl._moons.size())
+
+func _spawn_structure_cycle() -> void:
+	var layer := get_tree().get_first_node_in_group("arena_structures")
+	if layer == null:
+		return
+	var t: int = _struct_cycle % 3   # pillars (type 3) disabled for now → set 4 to re-enable
+	_struct_cycle += 1
+	layer.spawn_structure_near(_near_player(), t, _rng)
+	print("[debug] F11 structure spawned: %s" % ArenaStructure.TYPE_NAMES[t])
 
 func _clear(group: String) -> void:
 	var layer := get_tree().get_first_node_in_group(group)

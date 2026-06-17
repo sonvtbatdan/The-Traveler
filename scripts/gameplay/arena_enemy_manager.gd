@@ -5,6 +5,7 @@ extends Node2D
 ## take_wanderer_y_offset. It owns the enemy-bullet pool + explosion FX and routes damage through GameManager.
 
 const ArenaEnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
+const XpOrbScript := preload("res://scripts/gameplay/arena_xp_orb.gd")
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
 const BULLET_RADIUS    := 5.0
@@ -101,6 +102,12 @@ func _tick_explosions(delta: float) -> void:
 		if float(e["age"]) >= float(e["max_age"]):
 			_explosions.remove_at(i)
 		i -= 1
+
+## Drop a collectible XP orb at a world position (gameplay plane → sharp, magnetizes to the player).
+func spawn_xp_orb(pos: Vector2, value: int) -> void:
+	var o := XpOrbScript.new()
+	get_parent().add_child(o)   # same gameplay container as the enemies
+	o.setup(pos, value)
 
 ## Drop a bomb enemy at a world position (falls toward the player, explodes on contact/death).
 func spawn_bomb(pos: Vector2) -> void:

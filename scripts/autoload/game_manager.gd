@@ -17,6 +17,7 @@ signal money_changed(amount: int)   # green-$ player currency
 signal xp_changed(xp: int, xp_to_next: int)   # current XP toward the next level + the threshold
 signal level_changed(level: int)              # fired whenever the level number changes (load + level-ups)
 signal leveled_up(new_level: int)             # fired once per individual level gained (for UI/effects)
+signal player_stats_changed                   # arena-run upgrade stats changed (HUD/weapons may refresh)
 
 signal boss_hp_changed(hp: int)
 signal boss_incoming   # fires immediately when spawn is requested, before the warning delay
@@ -249,8 +250,11 @@ func ship_take_damage(dmg: int) -> void:
 	if _iframe_timer > 0.0:
 		return   # still invincible from a recent hit
 	_iframe_timer = effective_iframe()   # post-hit invuln, lengthened by damage_immunity_duration affix
-	# Armor (+ damage_reduction affix) reduces ALL incoming damage first, before shield.
+	# Armor (+ damage_reduction affix) reduces ALL incoming damage first (a %), before shield.
 	var d := float(dmg) * (1.0 - player_total_dr())
+	# Arena-run flat Base Defense (Armor Plating cards) subtracts AFTER the % DR — a separate flat layer, not
+	# a second percentage (so no double-apply with player_total_dr).
+	d = maxf(0.0, d - float(upg_base_defense))
 	# Shield absorbs next; leftover spills into HP the same hit.
 	if ship_shield > 0.0:
 		var absorbed := minf(ship_shield, d)
@@ -328,6 +332,7 @@ func hp_regen_rate() -> float:
 	if uid != -1:
 		var def: Dictionary = InventoryManager.get_def(String(InventoryManager.get_item(uid).get("def", "")))
 		r += float(def.get("stats", {}).get("hp_regen", 0.0))
+	r += upg_hp_regen   # arena-run HP Regen upgrade cards
 	return r
 func shield_capacity_total() -> float:
 	return _equipped_shield_capacity() + sum_affix("shield_flat")
@@ -356,6 +361,7 @@ func recompute_max_hp() -> void:
 				"hp_flat": flat += float(a.get("value", 0.0))
 				"hp_percentage": pct += float(a.get("value", 0.0))
 	flat += BIO_HP_PER_PT * float(attr("biotech"))   # Biotech flat max-HP bonus
+	flat += float(upg_max_hp_bonus)                  # arena-run Max HP upgrade cards
 	ship_max_hp = maxi(1, int(round((float(BASE_SHIP_HP) + float(hull_bonus) + flat) * (1.0 + pct / 100.0))))
 	ship_hp = mini(ship_hp, ship_max_hp)
 	ship_hp_changed.emit(ship_hp)
@@ -486,6 +492,59 @@ func heal_to_full() -> void:
 	recompute_max_hp()
 	ship_hp = ship_max_hp
 	ship_hp_changed.emit(ship_hp)
+
+# ── ARENA RUN STATS (Vampire-Survivors upgrade store) ────────────────────────────
+# In-memory per-run modifiers picked from the level-up cards. All default to a no-op, so at base values the
+# game plays exactly as before. Folded into the existing HP/regen/DR paths (not a parallel system).
+const PICKUP_RADIUS_BASE: float = 90.0    # base XP-orb magnet radius (px) before % upgrades
+var upg_max_hp_bonus:   int   = 0         # flat +max HP (into recompute_max_hp)
+var upg_base_defense:   int   = 0         # flat damage reduction (subtracted after the % DR)
+var upg_hp_regen:       float = 0.0       # flat HP/sec (into hp_regen_rate)
+var upg_fire_rate_mult: float = 1.0       # weapon fire-rate ×
+var upg_move_speed_mult: float = 1.0      # move-speed ×
+var upg_damage_mult:    float = 1.0       # weapon-damage ×
+var upg_momentum_mult:  float = 1.0       # knockback (+ future weapon scaling) ×
+var upg_pickup_mult:    float = 1.0       # pickup-radius ×
+
+func get_move_speed_mult() -> float: return upg_move_speed_mult
+func get_damage_mult() -> float:     return upg_damage_mult
+func get_fire_rate_mult() -> float:  return upg_fire_rate_mult
+func get_momentum_mult() -> float:   return upg_momentum_mult
+func get_base_defense() -> int:      return upg_base_defense
+func get_pickup_radius() -> float:   return PICKUP_RADIUS_BASE * upg_pickup_mult
+
+func add_max_hp(n: int) -> void:
+	upg_max_hp_bonus += n
+	recompute_max_hp()
+	ship_hp = mini(ship_max_hp, ship_hp + n)   # the HP card also heals
+	ship_hp_changed.emit(ship_hp)
+	player_stats_changed.emit()
+func add_base_defense(n: int) -> void:  upg_base_defense += n;        player_stats_changed.emit()
+func add_fire_rate(p: float) -> void:   upg_fire_rate_mult += p;      player_stats_changed.emit()
+func add_move_speed(p: float) -> void:  upg_move_speed_mult += p;     player_stats_changed.emit()
+func add_damage(p: float) -> void:      upg_damage_mult += p;         player_stats_changed.emit()
+func add_momentum(p: float) -> void:    upg_momentum_mult += p;       player_stats_changed.emit()
+func add_hp_regen(f: float) -> void:    upg_hp_regen += f;            player_stats_changed.emit()
+func add_pickup_radius(p: float) -> void: upg_pickup_mult += p;       player_stats_changed.emit()
+
+## Start a fresh arena run: reset level/XP + all upgrade modifiers, restore full HP. Called from arena._ready
+## (flag RESET_RUN_ON_START) so each survival run is a clean Vampire-Survivors climb from level 1.
+func reset_run() -> void:
+	player_level = 1
+	player_xp = 0
+	upg_max_hp_bonus = 0
+	upg_base_defense = 0
+	upg_hp_regen = 0.0
+	upg_fire_rate_mult = 1.0
+	upg_move_speed_mult = 1.0
+	upg_damage_mult = 1.0
+	upg_momentum_mult = 1.0
+	upg_pickup_mult = 1.0
+	recompute_max_hp()
+	heal_to_full()
+	level_changed.emit(player_level)
+	xp_changed.emit(player_xp, xp_to_next(player_level))
+	player_stats_changed.emit()
 
 func reset_stats() -> void:
 	recompute_max_hp()
