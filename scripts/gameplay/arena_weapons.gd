@@ -23,6 +23,7 @@ const GAT_STAGGER       := 0.1      # s the enemy is staggered (movement/attacks
 const GAT_LIGHT         := 1.0      # dust-light "value" per Gatling bullet (low → lights up nearby dust only)
 const GAT_WING_SPACING  := 26.0     # px between the two wing muzzles (twin parallel streams)
 const GAT_WING_FWD      := 22.0     # forward offset of the wing muzzles from ship centre (px)
+const GAT_MUZZLE_DECAY  := 0.08     # s the muzzle-fire flash decays over (refreshed each shot → ~continuous while firing)
 
 # ── TUNABLES: Gauss cannon (auto-charge → heavy piercing orb) ─────────────────
 const GAUSS_ENABLED     := false    # disabled for now
@@ -45,15 +46,16 @@ const LASGUN_TICK    := 0.10     # s between damage ticks (≈ damage/sec = LASG
 const LASGUN_STAGGER := 0.15     # s stagger per tick
 const LASGUN_WIDTH   := 14.0     # beam hit width (px) — matches the beam visual
 const LASGUN_HIT_PAD := 16.0     # enemy-radius padding for the distance-to-line hit test
-const LASGUN_LIGHT        := 2.8 # dust-light value per sample point along the beam (casts light on the dust)
-const LASGUN_LIGHT_SAMPLES := 10 # number of light points sampled evenly along the beam
+const LASGUN_LIGHT        := 5.5 # dust-light value per sample point along the beam (casts light on the dust)
+const LASGUN_LIGHT_SAMPLES := 16 # number of light points sampled evenly along the beam (denser = brighter line)
 const LASGUN_CYCLE    := 5.0     # full period (s): the beam fires once every CYCLE
 const LASGUN_DURATION := 3.0     # beam-on time within each cycle (s) → fires 3s out of every 5s
 const LASGUN_CHARGE   := 1.5     # charge telegraph (s) before each burst — the orb light-gather plays over this
 
-const BeamScript   := preload("res://scripts/gameplay/arena_lasgun_beam.gd")
+const BeamScript   := preload("res://scripts/gameplay/lasgun_ani_2.gd")   # lasgun_ani_2 (procedural quad+shader); lasgun_ani_1.gd holds the old effect (disabled)
 const PickupScript := preload("res://scripts/gameplay/arena_weapon_pickup.gd")
 const OrbChargeScript := preload("res://scripts/gameplay/arena_orb_charge_fx.gd")
+const GatMuzzleScript := preload("res://scripts/gameplay/arena_gatling_muzzle.gd")
 
 # ── Gatling tracer bolt look (copied from weapon_system.gd — visuals only) ────
 const GAT_TRACER_LEN   := 16.0
@@ -181,6 +183,8 @@ var _orb_shader: Shader = null
 var _lasgun_active: bool = false   # turned on by the Lasgun pickup (auto-equip, accumulates with the Gatling)
 var _beam_cd: float = 0.0          # Lasgun damage-tick cooldown
 var _beam: Node2D = null           # additive beam VFX child (gameplay plane → sharp)
+var _gat_muzzle_t: float = 0.0     # Gatling muzzle-fire intensity (1 on each shot, decays)
+var _gat_muzzle_fx: Node2D = null  # additive Gatling muzzle-flash FX child
 var _las_t: float = 0.0            # Lasgun cycle clock (advances while active)
 var _charge_fx: Node2D = null      # Chromeleon-orb light-gather charge telegraph (ported _ChannelFX)
 var _las_charge_started: bool = false   # one-shot guard so the charge FX triggers once per cycle
@@ -188,6 +192,7 @@ var _beam_light_on: bool = false   # beam currently casting dust light
 var _beam_light_from := Vector2.ZERO
 var _beam_light_to := Vector2.ZERO
 var _beam_light_col := Color(1, 1, 1)
+var _bolt_hit_player: AudioStreamPlayer = null   # bolt-hit sfx (assign in _ready when wired; null = no-op)
 
 func _ready() -> void:
 	add_to_group("arena_weapons")   # arena_dust queries get_lights() each frame
@@ -196,6 +201,8 @@ func _ready() -> void:
 	add_child(_beam)
 	_charge_fx = OrbChargeScript.new()
 	add_child(_charge_fx)
+	_gat_muzzle_fx = GatMuzzleScript.new()
+	add_child(_gat_muzzle_fx)
 
 ## Light sources this weapon currently emits, for the dust field: one per live projectile/beam.
 ## Each: {pos: world Vector2, value: float (light strength), color: Color}.
@@ -244,7 +251,22 @@ func _process(delta: float) -> void:
 	_update_charge_rings(delta)
 	_update_sparks(delta)
 	_update_flashes(delta)
+	_update_gat_muzzle(delta)
 	queue_redraw()
+
+## Decay the Gatling muzzle-fire flash and feed the FX child the two wing-muzzle positions + aim each frame.
+func _update_gat_muzzle(delta: float) -> void:
+	_gat_muzzle_t = maxf(0.0, _gat_muzzle_t - delta / GAT_MUZZLE_DECAY)
+	if _gat_muzzle_fx == null:
+		return
+	if GAT_ENABLED and _gat_muzzle_t > 0.0 and _player != null and is_instance_valid(_player):
+		var fwd := _forward()
+		var perp := Vector2(-fwd.y, fwd.x)
+		var base := _player.global_position + fwd * GAT_WING_FWD
+		var muzzles := [base - perp * (GAT_WING_SPACING * 0.5), base + perp * (GAT_WING_SPACING * 0.5)]
+		_gat_muzzle_fx.set_state(muzzles, fwd, _gat_muzzle_t, GAT_CORE_COL, GAT_BODY_COL, GAT_EDGE_COL)
+	else:
+		_gat_muzzle_fx.set_state([], Vector2.UP, 0.0, GAT_CORE_COL, GAT_BODY_COL, GAT_EDGE_COL)
 
 # ── Aim helpers ───────────────────────────────────────────────────────────────
 func _forward() -> Vector2:
@@ -273,6 +295,7 @@ func _fire_gatling() -> void:
 			dir = fwd.rotated(deg_to_rad(randf_range(-GAT_SPREAD_DEG, GAT_SPREAD_DEG)))   # independent per-stream spray
 		var start: Vector2 = base + perp * (side * GAT_WING_SPACING * 0.5)
 		_bullets.append({"pos": start, "vel": dir * GAT_SPEED, "life": 0.0, "start": start})
+	_gat_muzzle_t = 1.0   # refresh the muzzle-fire flash on every shot
 
 # ── Lasgun (tick-based hitscan beam — fires along the ship facing = toward the cursor) ───────────────────
 func _fire_lasgun(delta: float) -> void:
