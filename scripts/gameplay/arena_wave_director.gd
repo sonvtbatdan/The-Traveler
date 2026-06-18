@@ -36,7 +36,7 @@ const ENEMY_DEFS := {
 	"missile":  {"behavior": "missile",   "hp": 728.0, "speed": 90.0,  "size": 22.0, "contact": 0,  "xp": 18, "icon": "res://assets/enemies/missilelauncher.png"},
 	"dummy":    {"behavior": "dummy",     "hp": 200.0, "speed": 0.0,   "size": 18.0, "contact": 0,  "xp": 0,  "icon": "res://assets/enemies/dummy.png"},
 	# bosses — big high-HP stubs (real movesets later)
-	"elephant":  {"behavior": "boss_stub", "hp": 8000.0, "speed": 55.0, "size": 70.0, "contact": 40, "xp": 500, "shape": "circle",   "tint": Color(0.75, 0.70, 0.65), "icon": "res://assets/bosses/elephant/elephant.sheet.png"},
+	"elephant":  {"behavior": "boss_stub", "hp": 8000.0, "speed": 110.0, "size": 70.0, "contact": 40, "xp": 500, "shape": "circle",   "tint": Color(0.75, 0.70, 0.65), "icon": "res://assets/bosses/elephant/elephant.sheet.png", "boss_script": "res://scripts/gameplay/arena_elephant.gd"},
 	"chromeleon":{"behavior": "boss_stub", "hp": 6000.0, "speed": 70.0, "size": 60.0, "contact": 35, "xp": 400, "shape": "diamond",  "tint": Color(0.45, 0.90, 0.65), "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},
 	"metalfly":  {"behavior": "boss_stub", "hp": 7000.0, "speed": 65.0, "size": 64.0, "contact": 38, "xp": 450, "shape": "triangle", "tint": Color(0.70, 0.75, 0.85), "icon": "res://assets/bosses/metalfly/metalfly.sheet.png"},
 }
@@ -49,6 +49,7 @@ const DEFAULT_TIMELINE := [
 	# ── 0:00–1:00 — gentle intro, single types ──
 	{"time": 1.0,   "type": "fly",       "count": 6,  "pattern": "ring"},
 	{"time": 8.0,   "type": "fly",       "count": 8,  "pattern": "scatter"},
+	{"time": 10.0,  "type": "elephant",  "count": 1,  "pattern": "ring", "is_boss": true},   # TEST: early elephant for iteration — remove later
 	{"time": 15.0,  "type": "diver",     "count": 5,  "pattern": "arc"},
 	{"time": 24.0,  "type": "spider",    "count": 4,  "pattern": "scatter"},
 	{"time": 34.0,  "type": "bug",       "count": 12, "pattern": "stream", "duration": 6.0},
@@ -84,6 +85,14 @@ const DEFAULT_TIMELINE := [
 	{"time": 335.0, "type": "swarm",     "count": 16, "pattern": "ring"},
 ]
 
+# ══ DEBUG ══════════════════════════════════════════════════════════════════════
+# Spawn ONLY the Elephant (one, immediately) and nothing else — for iterating on its moveset.
+# Set DEBUG_ELEPHANT_ONLY = false to restore the full DEFAULT_TIMELINE.
+const DEBUG_ELEPHANT_ONLY := true
+const DEBUG_TIMELINE := [
+	{"time": 1.0, "type": "elephant", "count": 1, "pattern": "ring", "is_boss": true},
+]
+
 # ══ Runtime ════════════════════════════════════════════════════════════════════
 var timeline: Array = []    # live, editable copy of DEFAULT_TIMELINE (the F7 editor mutates this)
 var _player: Node2D = null
@@ -94,7 +103,7 @@ var _streams: Array = []    # active stream entries: {type, left, interval, acc,
 
 func _ready() -> void:
 	add_to_group("wave_director")
-	timeline = DEFAULT_TIMELINE.duplicate(true)
+	timeline = (DEBUG_TIMELINE if DEBUG_ELEPHANT_ONLY else DEFAULT_TIMELINE).duplicate(true)
 	_player = get_tree().get_first_node_in_group("player")
 	_mgr = get_tree().get_first_node_in_group("enemy_manager")
 
@@ -204,7 +213,13 @@ func _spawn(type_id: String, pos: Vector2, is_boss: bool) -> void:
 	var def := src.duplicate()
 	def["hp"] = float(def.get("hp", 30.0)) * HP_MULT
 	def["speed"] = float(def.get("speed", 95.0)) * SPEED_MULT
-	var e := EnemyScript.new()
+	# Bosses with a dedicated class (e.g. the Elephant moveset) instantiate that instead of the generic enemy.
+	var e: Node
+	if def.has("boss_script"):
+		var bs := load(String(def["boss_script"])) as GDScript
+		e = bs.new() if bs != null else EnemyScript.new()
+	else:
+		e = EnemyScript.new()
 	e.configure(type_id, _mgr, def)
 	e.position = pos
 	get_parent().add_child(e)

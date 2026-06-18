@@ -5,6 +5,7 @@ extends CanvasLayer
 ##   F10 = planet WITH moons near the player    Shift+F10 = clear debug planets (incl. their moons)
 ##   F11 = next gas/dust structure near player  Shift+F11 = clear debug structures
 ##         (cycles ring nebula → reflection → dark → pillars each press)
+##   F12 = Lasgun weapon pickup near the player  Shift+F12 = clear uncollected weapon pickups
 ## (F6 = planet menu, F7 = wave editor — left alone.) Moons also spawn automatically with F6/streamed planets.
 
 const FR_STEP        := 0.5    # fire-rate mult change per +/- press (tune for faster/slower testing)
@@ -118,6 +119,10 @@ func _input(event: InputEvent) -> void:
 			if key.shift_pressed: _clear("arena_structures")
 			else: _spawn_structure_cycle()
 			get_viewport().set_input_as_handled()
+		KEY_F12:
+			if key.shift_pressed: _clear_weapon_pickups()
+			else: _spawn_lasgun_pickup()
+			get_viewport().set_input_as_handled()
 
 func _near_player() -> Vector2:
 	var cam := get_viewport().get_camera_2d()
@@ -159,6 +164,19 @@ func _clear(group: String) -> void:
 	if layer != null and layer.has_method("clear_debug"):
 		layer.clear_debug()
 	print("[debug] cleared ", group)
+
+func _spawn_lasgun_pickup() -> void:
+	var weapons := get_tree().get_first_node_in_group("arena_weapons")
+	if weapons == null or not weapons.has_method("spawn_lasgun_pickup_near"):
+		return
+	weapons.spawn_lasgun_pickup_near(_near_player())
+	print("[debug] F12 Lasgun pickup spawned")
+
+func _clear_weapon_pickups() -> void:
+	for n in get_tree().get_nodes_in_group("debug_weapon_pickup"):
+		if is_instance_valid(n):
+			n.queue_free()
+	print("[debug] cleared weapon pickups")
 
 func _clear_planets() -> void:
 	for n in get_tree().get_nodes_in_group("debug_planet"):

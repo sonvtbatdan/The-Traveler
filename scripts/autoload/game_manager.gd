@@ -515,6 +515,8 @@ var upg_move_speed_mult: float = 1.0      # move-speed ×
 var upg_damage_mult:    float = 1.0       # weapon-damage ×
 var upg_momentum_mult:  float = 1.0       # knockback (+ future weapon scaling) ×
 var upg_pickup_mult:    float = 1.0       # pickup-radius ×
+var upg_crit_chance:    float = 0.0       # crit probability 0..1 (0 = no crits → non-destructive at base)
+var upg_crit_damage:    float = 1.5       # crit damage multiplier (a crit deals damage × this)
 
 func get_move_speed_mult() -> float: return upg_move_speed_mult
 func get_damage_mult() -> float:     return upg_damage_mult
@@ -522,6 +524,8 @@ func get_fire_rate_mult() -> float:  return upg_fire_rate_mult
 func get_momentum_mult() -> float:   return upg_momentum_mult
 func get_base_defense() -> int:      return upg_base_defense
 func get_pickup_radius() -> float:   return PICKUP_RADIUS_BASE * upg_pickup_mult
+func get_crit_chance() -> float:     return clampf(upg_crit_chance, 0.0, 1.0)
+func get_crit_damage() -> float:     return upg_crit_damage
 
 func add_max_hp(n: int) -> void:
 	upg_max_hp_bonus += n
@@ -536,6 +540,8 @@ func add_damage(p: float) -> void:      upg_damage_mult += p;         player_sta
 func add_momentum(p: float) -> void:    upg_momentum_mult += p;       player_stats_changed.emit()
 func add_hp_regen(f: float) -> void:    upg_hp_regen += f;            player_stats_changed.emit()
 func add_pickup_radius(p: float) -> void: upg_pickup_mult += p;       player_stats_changed.emit()
+func add_crit_chance(p: float) -> void: upg_crit_chance += p;         player_stats_changed.emit()
+func add_crit_damage(p: float) -> void: upg_crit_damage += p;         player_stats_changed.emit()
 
 ## Heal the player by `amount` HP, capped at max HP. Safe to call from loot drops.
 func heal(amount: int) -> void:
@@ -564,6 +570,8 @@ func reset_run() -> void:
 	upg_damage_mult = 1.0
 	upg_momentum_mult = 1.0
 	upg_pickup_mult = 1.0
+	upg_crit_chance = 0.0
+	upg_crit_damage = 1.5
 	recompute_max_hp()
 	heal_to_full()
 	level_changed.emit(player_level)

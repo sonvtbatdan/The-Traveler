@@ -17,8 +17,10 @@ const UPGRADES := [
 	{"id": "move_speed", "name": "Thrusters",     "mag": 0.06},   # +%
 	{"id": "damage",     "name": "Damage",        "mag": 0.10},   # +%
 	{"id": "momentum",   "name": "Momentum",      "mag": 0.10},   # +%
-	{"id": "hp_regen",   "name": "Repair Drones", "mag": 0.5},    # +HP/sec
-	{"id": "pickup",     "name": "Magnet",        "mag": 0.15},   # +% pickup radius
+	{"id": "hp_regen",    "name": "Repair Drones",   "mag": 0.5},   # +HP/sec
+	{"id": "pickup",      "name": "Magnet",          "mag": 0.15},  # +% pickup radius
+	{"id": "crit_chance", "name": "Critical Strike", "mag": 0.05},  # +5% crit chance
+	{"id": "crit_damage", "name": "Lethality",       "mag": 0.25},  # +25% crit damage multiplier
 ]
 const CHOICES := 3
 
@@ -216,14 +218,18 @@ func _apply(u: Dictionary) -> void:
 		"momentum":   GameManager.add_momentum(mag)
 		"hp_regen":   GameManager.add_hp_regen(mag)
 		"pickup":     GameManager.add_pickup_radius(mag)
+		"crit_chance": GameManager.add_crit_chance(mag)
+		"crit_damage": GameManager.add_crit_damage(mag)
 
 func _effect_text(u: Dictionary) -> String:
 	var mag: float = u["mag"]
 	match String(u["id"]):
-		"hp":       return "+%d Max HP (heal)" % int(mag)
-		"defense":  return "+%d flat defense" % int(mag)
-		"hp_regen": return "+%0.1f HP/sec" % mag
-		_:          return "+%d%%" % int(round(mag * 100.0))
+		"hp":          return "+%d Max HP (heal)" % int(mag)
+		"defense":     return "+%d flat defense" % int(mag)
+		"hp_regen":    return "+%0.1f HP/sec" % mag
+		"crit_chance": return "+%d%% crit chance" % int(round(mag * 100.0))
+		"crit_damage": return "+%d%% crit damage" % int(round(mag * 100.0))
+		_:             return "+%d%%" % int(round(mag * 100.0))
 
 func _current_text(id: String) -> String:
 	match id:
@@ -235,6 +241,8 @@ func _current_text(id: String) -> String:
 		"momentum":   return "now +%d%%" % int(round((GameManager.upg_momentum_mult - 1.0) * 100.0))
 		"hp_regen":   return "now +%0.1f/s" % GameManager.upg_hp_regen
 		"pickup":     return "now +%d%%" % int(round((GameManager.upg_pickup_mult - 1.0) * 100.0))
+		"crit_chance": return "now %d%%" % int(round(GameManager.get_crit_chance() * 100.0))
+		"crit_damage": return "now %d%% dmg" % int(round(GameManager.upg_crit_damage * 100.0))
 	return ""
 
 # ── Hover effects ───────────────────────────────────────────────────────────────
