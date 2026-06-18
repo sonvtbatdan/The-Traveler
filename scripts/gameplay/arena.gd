@@ -24,6 +24,7 @@ const DebugSpawnScript   := preload("res://scripts/gameplay/arena_debug_spawn.gd
 const PerfOverlayScript  := preload("res://scripts/ui/hud/perf_overlay.gd")
 const LevelUpUIScript    := preload("res://scripts/ui/hud/arena_levelup_ui.gd")
 const ArenaRuinLayerScript := preload("res://scripts/gameplay/arena_ruin_layer.gd")
+const ArenaHudButtonsScript := preload("res://scripts/ui/hud/arena_hud_buttons.gd")
 const RESET_RUN_ON_START := true   # each arena run starts a fresh VS climb (level 1, no upgrades). Flip off to keep saved level.
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
@@ -96,6 +97,7 @@ func _ready() -> void:
 	bg.add_child(solar)
 	add_child(PlanetMenuScript.new())    # F6 menu: inspect/drag-spawn planets (input stays in the main viewport)
 	add_child(DebugSpawnScript.new())    # F5 asteroids / F9 comet / F10 planet+moons (Shift = clear)
+	add_child(ArenaHudButtonsScript.new())  # bottom-right HUD: Setting / Devon / Quit
 	_build_parallax(bg)
 	_build_player()
 	_build_ui()

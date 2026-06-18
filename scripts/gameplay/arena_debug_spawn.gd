@@ -14,11 +14,17 @@ const FR_MULT_MIN    := 0.5    # clamp floor so fire rate can't go negative or t
 var _rng := RandomNumberGenerator.new()
 var _struct_cycle: int = 0   # F11 steps through the four structure types
 var _fr_label: Label = null
+var _dev_ui_root: Control = null
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	add_to_group("arena_debug_spawn")
 	_rng.randomize()
 	_build_fire_rate_ui()
+
+func set_dev_ui_visible(v: bool) -> void:
+	if _dev_ui_root != null:
+		_dev_ui_root.visible = v
 
 func _build_fire_rate_ui() -> void:
 	var root := Control.new()
@@ -37,6 +43,7 @@ func _build_fire_rate_ui() -> void:
 	hb.offset_top    =  -38
 	hb.offset_bottom =  -8
 	root.add_child(hb)
+	_dev_ui_root = root
 
 	var btn_minus := Button.new()
 	btn_minus.text = "−"
