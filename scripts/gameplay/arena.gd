@@ -242,12 +242,15 @@ func _apply_boundary(delta: float) -> void:
 func _update_ship_lean(dir: Vector2) -> void:
 	if _ship_spr == null:
 		return
+	# Project world-space movement onto the ship's local right axis so lean is
+	# correct regardless of which way the ship is facing.
+	var local_x := dir.dot(Vector2.RIGHT.rotated(_player.rotation))
 	var new_tex: Texture2D
 	var flip: bool
-	if dir.x < -0.1:
+	if local_x < -0.1:
 		new_tex = _tex_lean
 		flip = false
-	elif dir.x > 0.1:
+	elif local_x > 0.1:
 		new_tex = _tex_lean
 		flip = true
 	else:
