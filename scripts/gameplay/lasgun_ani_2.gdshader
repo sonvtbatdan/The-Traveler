@@ -40,6 +40,27 @@ uniform float flicker_amount = 0.10;
 uniform float overall_intensity = 1.0;
 uniform float activation        = 1.0;   // 0..1 ramp-in/out (width + alpha lerp) set by the script
 
+// Traveling pulse (white-blue brightness wave racing away from the muzzle) + axial roll (helical highlight)
+uniform vec3  wave_color : source_color = vec3(0.80, 0.90, 1.0);
+uniform float wave_speed = 3.0;
+uniform float wave_strength = 0.7;
+uniform float beam_len = 760.0;     // beam length in px (pushed per shot) → pixel-fixed wavelengths
+uniform float wave_len_1 = 137.0;   // four fixed pixel wavelengths (primes → large LCM, never converge)
+uniform float wave_len_2 = 191.0;
+uniform float wave_len_3 = 251.0;
+uniform float wave_len_4 = 313.0;
+uniform float roll_speed = 1.5;
+uniform float roll_amp = 0.18;
+uniform float roll_freq = 9.0;
+uniform float roll_width = 0.06;
+uniform float roll_strength = 0.5;
+uniform float wave_noise = 2.5;    // phase jitter (rad) → irregular pulses
+uniform float coil_noise = 0.06;   // small random wobble on the coil
+uniform float coil_amp_1 = 0.85;   // per-coil weave amplitude as a fraction of roll_amp (all < 1)
+uniform float coil_amp_2 = 0.65;
+uniform float coil_amp_3 = 0.45;
+uniform float coil_amp_4 = 0.30;
+
 // ── hash / value-noise / fbm ──────────────────────────────────────────────────────
 float hash(vec2 p) {
 	p = fract(p * vec2(123.34, 456.21));
@@ -72,11 +93,10 @@ float fbm(vec2 p) {
 void fragment() {
 	float t = TIME;
 
-	// Centerline distance, perturbed by scrolling turbulence so no two frames match.
-	float scroll = t * noise_scroll_speed;
-	float turb = fbm(vec2(UV.x * distort_scale + scroll, UV.y * 3.0)) - 0.5;
-	float dy = abs(UV.y - 0.5) * 2.0;                 // 0 at center → 1 at edge
-	dy += turb * distort_amount;
+	// STRAIGHT main beam: distance from the FIXED centerline (UV.y = 0.5) + a little edge texture.
+	float along = UV.x * beam_len;
+	float dy = abs(UV.y - 0.5) * 2.0;
+	dy += (fbm(vec2(UV.x * distort_scale + t * noise_scroll_speed, UV.y * 3.0)) - 0.5) * distort_amount;
 	dy = max(dy, 0.0);
 
 	// Length envelope: fade in at the tail, flare wider toward the head.
@@ -116,10 +136,31 @@ void fragment() {
 	body *= tail_in * head_mask;
 	glow = (glow * tail_in + tip_splay + fray) * head_mask;
 
+	// Four traveling brightness pulses at the SAME fixed pixel wavelengths (ride the coils). `along`
+	// was computed above with the snake; a noise term keeps each pulse irregular.
+	float wn = (fbm(vec2(UV.x * 5.0, t * 0.7)) - 0.5) * wave_noise;
+	float wsum = 0.0;
+	wsum += pow(0.5 + 0.5 * sin(along / wave_len_1 * TAU - t * wave_speed * 1.00 + wn), 3.0);
+	wsum += pow(0.5 + 0.5 * sin(along / wave_len_2 * TAU - t * wave_speed * 0.83 + wn), 3.0);
+	wsum += pow(0.5 + 0.5 * sin(along / wave_len_3 * TAU - t * wave_speed * 1.19 + wn), 3.0);
+	wsum += pow(0.5 + 0.5 * sin(along / wave_len_4 * TAU - t * wave_speed * 0.67 + wn), 3.0);
+	float wave_m = (wsum * 0.25) * body * wave_strength;
+
+	// COILS wrapping the STRAIGHT beam: several helical threads at FIXED pixel wavelengths (never sync),
+	// each a thin bright highlight weaving across the width off the centerline, with an irregular wobble.
+	float cn = (fbm(vec2(UV.x * 8.0 + t * 1.3, 3.7)) - 0.5) * coil_noise;
+	float coils = 0.0;
+	coils += smoothstep(roll_width, 0.0, abs((UV.y - 0.5) - (roll_amp * coil_amp_1 * sin(along / wave_len_1 * TAU - t * roll_speed * 1.00) + cn)));
+	coils += smoothstep(roll_width, 0.0, abs((UV.y - 0.5) - (roll_amp * coil_amp_2 * sin(along / wave_len_2 * TAU - t * roll_speed * 0.83) + cn)));
+	coils += smoothstep(roll_width, 0.0, abs((UV.y - 0.5) - (roll_amp * coil_amp_3 * sin(along / wave_len_3 * TAU - t * roll_speed * 1.19) + cn)));
+	coils += smoothstep(roll_width, 0.0, abs((UV.y - 0.5) - (roll_amp * coil_amp_4 * sin(along / wave_len_4 * TAU - t * roll_speed * 0.67) + cn)));
+	coils *= tail_in * head_mask * roll_strength;
+
 	vec3 col = (core_color * core * 1.6 + body_color * body + glow_color * glow * 0.8);
+	col += wave_color * (wave_m + coils);
 	col *= flick * overall_intensity * activation;
 
-	float alpha = clamp(core * 1.2 + body * 0.8 + glow * 0.5 + fray * 0.4 + tip_splay * 0.5, 0.0, 1.0);
+	float alpha = clamp(core * 1.2 + body * 0.8 + glow * 0.5 + fray * 0.4 + tip_splay * 0.5 + wave_m * 0.5 + coils * 0.5, 0.0, 1.0);
 	alpha *= activation;
 
 	COLOR = vec4(col, alpha);
