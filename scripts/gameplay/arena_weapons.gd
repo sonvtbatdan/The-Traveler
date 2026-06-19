@@ -52,7 +52,7 @@ const LASGUN_CYCLE    := 5.0     # full period (s): the beam fires once every CY
 const LASGUN_DURATION := 3.0     # beam-on time within each cycle (s) → fires 3s out of every 5s
 const LASGUN_CHARGE   := 1.5     # charge telegraph (s) before each burst — the orb light-gather plays over this
 
-const BeamScript   := preload("res://scripts/gameplay/lasgun_ani_2.gd")   # lasgun_ani_2 (quad+shader); ani_1 + ani_3 kept as disabled backups
+const BeamScript   := preload("res://scripts/gameplay/lasgun_ani_3.gd")   # lasgun_ani_3 (sprite muzzle); ani_1 + ani_2 kept as backups
 const PickupScript := preload("res://scripts/gameplay/arena_weapon_pickup.gd")
 const OrbChargeScript := preload("res://scripts/gameplay/arena_orb_charge_fx.gd")
 const GatMuzzleScript := preload("res://scripts/gameplay/arena_gatling_muzzle.gd")

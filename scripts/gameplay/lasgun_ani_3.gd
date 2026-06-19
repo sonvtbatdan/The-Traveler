@@ -1,251 +1,264 @@
 extends Node2D
-## lasgun_ani_3 — the ARENA Lasgun beam VFX (F12 pickup → arena_weapons → this node). A FRESH build:
-## shares no code with lasgun_ani_1 (immediate-mode original) or lasgun_ani_2 (quad+shader), both kept
-## as backups. Driven by arena_weapons each frame via set_beam(from, to, active, hit) — world-space, the
-## node draws itself on an additive layer. To revert, point arena_weapons.gd's BeamScript back at ani_2.
+## lasgun_ani_3 — the ARENA Lasgun beam VFX, REBUILT as a SPRITE-BASED 3-slice beam from hand-drawn art
+## (body + muzzle cap + impact cap), animated with cheap scroll/pulse/flicker/wobble/packet tricks so the
+## static textures read as a living, flowing beam. Shares no code with ani_1 (immediate procedural) or
+## ani_2 (quad+shader) — both kept as backups. Drop-in: same set_beam/fire/release contract, so
+## arena_weapons.gd swaps it with a one-line preload change.
 ##
-## STAGE 1 (this pass): a clean base beam (glow halo → white core) + a punchy muzzle on the activation
-## edge (scaled fire-flash + expanding shock ring). STAGES 2–4 will add body taper/flow/flicker/haze,
-## a richer impact (burst/sparks/scorch/hit-pop), and a screen-shake (arena player) on top.
+## World-space: from/to are global positions; this node sits at the arena origin (parent transform identity).
+##
+## ── STAGE 1 (this pass): STATIC 3-slice beam ──
+##   Body tiled (or stretched) between two fixed-size additive caps; activation_in/out fade. No animation
+##   yet — Stages 2–4 add the "living" scroll/pulse/flicker/wobble/packets + animated caps.
 
-# ── TUNABLES ──────────────────────────────────────────────────────────────────
-# Base beam look (Stage 1 minimal — enriched in Stage 2)
-@export var beam_width      := 16.0    # total beam width (px); arena set_beam carries no width
-@export var beam_glow_color := Color(1.0, 0.70, 0.40)  # warm glow (core stays white)
-@export var core_color      := Color(1.0, 1.0, 1.0)
-@export var core_frac       := 0.20    # white core width / beam width
-@export var glow_frac       := 1.6     # outer glow width / beam width
-@export var beam_flicker    := 0.10
-@export var beam_flicker_sp := 24.0
-# Impact (Stage 1 minimal — enriched in Stage 3)
-@export var flare_glow_color := Color(1.0, 0.35, 0.10)
-@export var flare_glow_size  := 18.0
-@export var flare_center_size := 5.0
-@export var flare_spark_color := Color(1.0, 0.55, 0.15)
-# Muzzle punch (Stage 1)
-const BEAM_FIRE_FLASH_SIZE      := 46.0   # base fire-flash radius (px)
-const BEAM_FIRE_FLASH_TIME      := 0.12   # fire-flash lifetime (s)
-const BEAM_FIRE_FLASH_SIZE_MULT := 2.4    # multiply the fire-flash radius on activation
-const BEAM_FIRE_RING_SIZE       := 70.0   # expanding shock-ring radius at fire-start
-const BEAM_FIRE_RING_TIME       := 0.18   # ring lifetime (s)
-const BEAM_FIRE_RING_WIDTH      := 6.0    # ring stroke width at birth (thins as it expands)
-# Body taper / flow / fast-flicker / heat-haze (Stage 2)
-const BEAM_TAPER_MUZZLE   := 0.55   # width multiplier at the gun end (narrower)
-const BEAM_TAPER_IMPACT   := 1.15   # width multiplier at the impact end (fatter)
-const BEAM_TAPER_POW      := 1.4    # easing curve of the taper
-const BEAM_BODY_SEGS      := 22     # segments used to draw the tapered body
-const BEAM_FLOW_SPEED     := 2.2    # energy-dash scroll (beam-lengths/sec) racing muzzle → impact
-const BEAM_FLOW_COUNT     := 5      # scrolling energy dashes
-const BEAM_FLOW_LEN       := 40.0   # dash length (px)
-const BEAM_FLICKER_FAST   := 0.06   # extra high-freq flicker layered on the slow shimmer
-const BEAM_FLICKER_FAST_SP:= 70.0
-const BEAM_HAZE_PUFF_RATE := 18.0   # soft heat-haze puffs spawned per second along the beam
-const BEAM_HAZE_PUFF_LIFE := 0.4
-const BEAM_HAZE_PUFF_SIZE := 10.0
-const BEAM_HAZE_PUFF_DRIFT:= 26.0   # px/s lateral drift as puffs peel off and fade
-# Impact burst / first-contact pop / scorch (Stage 3)
-const FLARE_BURST_SIZE_MULT  := 1.5    # scale the sustained impact glow/center
-const FLARE_SPARKS           := 12     # base spark streaks per frame
-const FLARE_SPARKS_MULT      := 1.6
-const FLARE_SPARK_LEN        := 34.0
-const FLARE_SPARK_SPREAD     := 1.7    # cone half-angle (rad) around "back toward the gun"
-const FLARE_SPARK_WIDTH      := 2.0
-const FLARE_RING_PULSE_SPEED := 8.0    # subtle pulsing of the sustained glow
-const FLARE_HIT_POP_SIZE     := 70.0   # one-shot bright ring on FIRST contact
-const FLARE_HIT_POP_TIME     := 0.14
-const FLARE_SCORCH_SIZE      := 22.0   # dark scorch decal radius at the contact point
-const FLARE_SCORCH_ALPHA     := 0.45
-const FLARE_SCORCH_FADE      := 0.6    # how long a scorch mark lingers (s)
-const FLARE_SCORCH_RATE      := 30.0   # scorch marks spawned per second of contact
-const FLARE_SCORCH_COLOR     := Color(0.10, 0.03, 0.02)  # dark burn — drawn on the NORMAL-blend layer
+# ── ART ───────────────────────────────────────────────────────────────────────
+const BODY_PATH   := "res://assets/beams/lasgun3/body.png"
+const MUZZLE_PATH  := "res://assets/beams/lasgun3/muzzle_cap.png"   # single fallback cap
+const IMPACT_PATH  := "res://assets/beams/lasgun3/impact_cap.png"
+const MUZZLE_FRAMES_DIR := "res://assets/beams/lasgun3/muzzle/"   # 12 pre-aligned variation frames (muzzle_00..11.png)
+const MZ_FRAMES := 12
 
+enum BodyFill { TILE, STRETCH }
+
+# ── TUNABLES (Stage 1) ──────────────────────────────────────────────────────────
+@export var beam_thickness  := 120.0   # on-screen height of the body art (full glow, px)
+@export var start_cap_len   := 150.0   # muzzle cap square side (px) — shrink if the burst is too big over the ship
+@export var impact_cap_len  := 170.0   # impact cap square side (px)
+# Muzzle convergence anchor. _from (= arena _muzzle() = ship + fwd*MUZZLE_OFFSET) already EQUALS the gatling
+# midpoint (base = ship + fwd*GAT_WING_FWD), because MUZZLE_OFFSET == GAT_WING_FWD == 22 in arena_weapons.gd.
+# So the convergence sits between the two wing muzzles at (0,0) local by default.
+@export var muzzle_fwd      := 45     # along-axis nudge of the convergence from _from, toward the firing direction
+@export var muzzle_perp     := 0.0     # perpendicular nudge (0 = on-axis, between the two wing muzzles)
+@export var muzzle_anchor_x := 0.436   # the convergence (pointy) point inside the muzzle art — fraction of width (from the aligned frames' anchor proof)
+@export var muzzle_anchor_y := 0.503   # convergence point — fraction of height
+@export var muzzle_fps      := 18.0    # flipbook speed cycling through the 12 muzzle variations (animated muzzle, in sync with the beam)
+@export var body_overlap    := 24.0    # px the body begins BEHIND the convergence so it tucks under the muzzle (seamless attach)
+@export var beam_bwd        := 130.0    # px to pull the beam body BACKWARD toward the muzzle (increase overlap, close the gap)
+@export var body_fill_mode: BodyFill = BodyFill.TILE   # TILE (constant texel density) or STRETCH
+@export var body_v_offset   := -10.0   # perpendicular shift of the BODY (negative = "up"); re-centres the art's slightly-low core onto the axis
+@export var body_tail_fade    := 0.18  # fraction of beam length the body's TAIL (gun end) fades IN over (quadratic) → dissolves into the muzzle, no seam
+@export var body_tail_fade_px := 0.0   # absolute-px override (if > 0, used instead of the fraction → constant fade length at any beam length)
+@export var activation_in   := 0.05    # s to fade the beam in on fire
+@export var activation_out  := 0.08    # s to fade out on release
+# Per-piece tint (alpha is multiplied by the activation ramp each frame).
+@export var body_modulate   := Color(1.0, 1.0, 1.0, 1.0)
+@export var muzzle_modulate := Color(1.0, 1.0, 1.0, 1.0)
+@export var impact_modulate := Color(1.0, 1.0, 1.0, 1.0)
+
+# ── TUNABLES (Stage 2 — the "living" layer: scroll / parallax / breathe / flicker / wobble / packets) ──
+@export_group("Living")
+@export var scroll_speed     := 1000.0   # px/s the body texture scrolls toward impact (energy flow). +ve = toward impact
+@export var layer2_enabled   := true    # second body copy at a different speed/scale → never-repeating complexity
+@export var layer2_speed     := -120.0  # px/s of the 2nd copy (often opposite sign)
+@export var layer2_scale     := 1.15    # different tile scale so the two never sync
+@export var layer2_alpha     := 0.6     # 2nd copy alpha
+@export var pulse_speed      := 6.0     # breathing pulse (width + brightness)
+@export var pulse_width_amt  := 0.06    # thickness *= 1 + sin(t*pulse_speed)*this
+@export var pulse_bright_amt := 0.10    # brightness pulse depth
+@export var pulse_speed2     := 9.7     # 2nd desynced brightness pulse so it's not metronomic
+@export var flicker_amt      := 0.06    # rapid small brightness jitter (the life signal)
+@export var flicker_speed    := 55.0
+@export var wobble_amt       := 3.0     # px lateral (perpendicular) sway of the body
+@export var wobble_speed     := 2.0
+@export var packet_enabled   := true    # bright packets racing down the beam
+@export var packet_count     := 3
+@export var packet_speed     := 2.5     # loops/sec along the beam
+@export var packet_len       := 40.0    # dash length (px)
+@export var packet_width     := 0.35    # fraction of (pulsed) beam thickness
+@export var packet_color     := Color(1.0, 1.0, 1.0, 0.9)
+
+# ── STATE ───────────────────────────────────────────────────────────────────────
+var _body_tex: Texture2D = null
+var _muzzle_tex: Texture2D = null
+var _impact_tex: Texture2D = null
+var _muzzle_frames: Array = []   # 12 AtlasTexture variation frames
+var _muzzle_idx := 0
+var _muzzle_anim_t := 0.0
 var _from := Vector2.ZERO
 var _to := Vector2.ZERO
 var _active := false
 var _hit := false
 var _was_active := false
 var _t := 0.0
-var _fire_flash_t := 0.0
-var _fire_ring_t := 0.0
-var _haze_puffs: Array = []   # {pos, vel, life, size}
-var _haze_acc := 0.0
-var _was_hit := false
-var _hit_pop_t := 0.0
-var _hit_pop_pos := Vector2.ZERO
-var _scorch: Array = []       # {pos, life, size}
-var _scorch_acc := 0.0
-var _scorch_node: Node2D = null   # normal-blend child for dark scorch (additive can't darken)
+var _activation := 0.0   # 0..1 ramped envelope
 
 func _ready() -> void:
 	var m := CanvasItemMaterial.new()
 	m.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	material = m
-	# Normal-blend child UNDER the additive beam for dark scorch marks (additive can't darken).
-	_scorch_node = Node2D.new()
-	_scorch_node.z_index = -1
-	add_child(_scorch_node)
-	_scorch_node.draw.connect(_draw_scorch)
+	_body_tex = _load_tex(BODY_PATH)
+	_muzzle_tex = _load_tex(MUZZLE_PATH)
+	_impact_tex = _load_tex(IMPACT_PATH)
+	_load_muzzle_frames()
 
-## Driven by arena_weapons each frame (world-space coords; this node sits at the arena origin).
+## Load the 12 pre-aligned muzzle variation frames (already transparent; convergence at the same fraction in each).
+func _load_muzzle_frames() -> void:
+	for i in MZ_FRAMES:
+		var tex := _load_tex("%smuzzle_%02d.png" % [MUZZLE_FRAMES_DIR, i])
+		if tex != null:
+			_muzzle_frames.append(tex)
+
+## CPU-side load (Image.load — no Godot-import dependency, works on dev F5). Falls back to load().
+## Returns null on failure; _draw guards against null so a missing file never crashes.
+func _load_tex(path: String) -> Texture2D:
+	var img := Image.new()
+	if img.load(path) == OK:
+		return ImageTexture.create_from_image(img)
+	var t := load(path) as Texture2D
+	if t == null:
+		push_warning("lasgun_ani_3: could not load %s" % path)
+	return t
+
+# ── DRIVER CONTRACT (matches lasgun_ani_2) ──────────────────────────────────────
+## Aim from→to, toggle on/off, flag a hit. Called every frame by arena_weapons.
 func set_beam(from: Vector2, to: Vector2, active: bool, hit: bool) -> void:
-	if active and not _was_active:
-		_fire_flash_t = BEAM_FIRE_FLASH_TIME   # activation edge → muzzle punch
-		_fire_ring_t = BEAM_FIRE_RING_TIME
-	if hit and not _was_hit:                   # first-contact edge → impact pop
-		_hit_pop_t = FLARE_HIT_POP_TIME
-		_hit_pop_pos = to
-	_was_hit = hit
-	_was_active = active
+	_was_active = _active
 	_from = from
 	_to = to
 	_active = active
 	_hit = hit
 	queue_redraw()
 
+## Alias for the spec's fire(origin, target) — continuous: call each frame to keep aiming.
+func fire(origin: Vector2, target: Vector2) -> void:
+	set_beam(origin, target, true, _hit)
+
+## Stop firing; the beam fades out over activation_out seconds.
+func release() -> void:
+	_active = false
+
 func _process(delta: float) -> void:
 	_t += delta
-	_fire_flash_t = maxf(0.0, _fire_flash_t - delta)
-	_fire_ring_t = maxf(0.0, _fire_ring_t - delta)
-	_hit_pop_t = maxf(0.0, _hit_pop_t - delta)
-	_tick_haze(delta)
-	_tick_scorch(delta)
-	if _scorch_node != null:
-		_scorch_node.queue_redraw()
-	if _active or _fire_flash_t > 0.0 or _fire_ring_t > 0.0 or _hit_pop_t > 0.0 or not _haze_puffs.is_empty():
+	var target := 1.0 if _active else 0.0
+	var rate := (1.0 / maxf(0.001, activation_in)) if _active else (1.0 / maxf(0.001, activation_out))
+	_activation = move_toward(_activation, target, rate * delta)
+	# Cycle the muzzle variation flipbook while firing (animated muzzle, driven by the same _t as the beam).
+	if _active and not _muzzle_frames.is_empty():
+		_muzzle_anim_t += delta
+		var spf := 1.0 / maxf(1.0, muzzle_fps)
+		while _muzzle_anim_t >= spf:
+			_muzzle_anim_t -= spf
+			_muzzle_idx = (_muzzle_idx + 1) % MZ_FRAMES
+	if _active or _activation > 0.0001:
 		queue_redraw()
 
-## Spawn dark scorch marks at the moving contact point while the beam hits; cull on lifetime.
-func _tick_scorch(delta: float) -> void:
-	if _active and _hit:
-		_scorch_acc += FLARE_SCORCH_RATE * delta
-		while _scorch_acc >= 1.0:
-			_scorch_acc -= 1.0
-			_scorch.append({"pos": _to, "life": 0.0, "size": FLARE_SCORCH_SIZE * randf_range(0.7, 1.2)})
-	var i := _scorch.size() - 1
-	while i >= 0:
-		var s: Dictionary = _scorch[i]
-		s["life"] = float(s["life"]) + delta
-		if float(s["life"]) >= FLARE_SCORCH_FADE:
-			_scorch.remove_at(i)
-		i -= 1
-
-## Drawn on the normal-blend _scorch_node so the marks read as DARK (under the additive beam).
-func _draw_scorch() -> void:
-	for s: Dictionary in _scorch:
-		var sl := 1.0 - float(s["life"]) / FLARE_SCORCH_FADE
-		var sc := FLARE_SCORCH_COLOR
-		_scorch_node.draw_circle(s["pos"], float(s["size"]) * (0.5 + 0.5 * sl), Color(sc.r, sc.g, sc.b, FLARE_SCORCH_ALPHA * sl))
-
-## Spawn heat-haze puffs along the live beam, drift them perpendicular, cull on lifetime.
-func _tick_haze(delta: float) -> void:
-	if _active:
-		var seg := _to - _from
-		var L := seg.length()
-		if L > 1.0:
-			var dir := seg / L
-			var perp := Vector2(-dir.y, dir.x)
-			_haze_acc += BEAM_HAZE_PUFF_RATE * delta
-			while _haze_acc >= 1.0:
-				_haze_acc -= 1.0
-				var side := 1.0 if randf() < 0.5 else -1.0
-				var at := _from + dir * (randf() * L) + perp * randf_range(-beam_width * 0.4, beam_width * 0.4)
-				_haze_puffs.append({
-					"pos": at,
-					"vel": perp * (side * BEAM_HAZE_PUFF_DRIFT) - dir * (BEAM_HAZE_PUFF_DRIFT * 0.2),
-					"life": 0.0, "size": BEAM_HAZE_PUFF_SIZE * randf_range(0.7, 1.3),
-				})
-	var i := _haze_puffs.size() - 1
-	while i >= 0:
-		var p: Dictionary = _haze_puffs[i]
-		p["life"] = float(p["life"]) + delta
-		if float(p["life"]) >= BEAM_HAZE_PUFF_LIFE:
-			_haze_puffs.remove_at(i)
-		else:
-			p["pos"] = (p["pos"] as Vector2) + (p["vel"] as Vector2) * delta
-		i -= 1
-
 func _draw() -> void:
-	var a := _from
-	var flick := 1.0 + sin(_t * beam_flicker_sp) * beam_flicker
-	flick *= 1.0 + sin(_t * BEAM_FLICKER_FAST_SP) * BEAM_FLICKER_FAST   # fast high-freq shimmer
-	var g := beam_glow_color
-
-	# ── Muzzle punch (runs a beat past release while its timers tick) ──
-	if _fire_flash_t > 0.0:
-		var ft := _fire_flash_t / BEAM_FIRE_FLASH_TIME   # 1 → 0
-		var fr := BEAM_FIRE_FLASH_SIZE * BEAM_FIRE_FLASH_SIZE_MULT * (0.45 + 0.55 * ft)
-		draw_circle(a, fr, Color(g.r, g.g, g.b, 0.28 * ft))
-		draw_circle(a, fr * 0.4, Color(1.0, 1.0, 1.0, 0.8 * ft))
-	if _fire_ring_t > 0.0:
-		var rt := 1.0 - _fire_ring_t / BEAM_FIRE_RING_TIME   # 0 → 1 expand
-		var rr := maxf(1.0, BEAM_FIRE_RING_SIZE * rt)
-		var rw := maxf(1.0, BEAM_FIRE_RING_WIDTH * (1.0 - rt))
-		draw_arc(a, rr, 0.0, TAU, 48, Color(g.r, g.g, g.b, 0.6 * (1.0 - rt)), rw)
-
-	# ── Heat-haze puffs (low-alpha atmosphere; linger/fade even after release) ──
-	for hp: Dictionary in _haze_puffs:
-		var hl := 1.0 - float(hp["life"]) / BEAM_HAZE_PUFF_LIFE
-		var hsz := float(hp["size"]) * (0.6 + 0.5 * (1.0 - hl))
-		draw_circle(hp["pos"], hsz, Color(g.r, g.g, g.b, 0.10 * hl))
-
-	# ── First-contact pop: one-shot bright expanding ring at the impact point ──
-	if _hit_pop_t > 0.0:
-		var pt := 1.0 - _hit_pop_t / FLARE_HIT_POP_TIME   # 0 → 1 expand
-		var pr := maxf(1.0, FLARE_HIT_POP_SIZE * pt)
-		var pw := maxf(1.0, 5.0 * (1.0 - pt))
-		draw_arc(_hit_pop_pos, pr, 0.0, TAU, 40, Color(1.0, 0.9, 0.7, 0.7 * (1.0 - pt)), pw)
-
-	if not _active:
+	if _activation <= 0.0001 or _body_tex == null:
 		return
-	var b := _to
-	var seg := b - a
+	var seg := _to - _from
 	var L := seg.length()
 	if L < 1.0:
 		return
-	var w := beam_width
-	var dir := seg / L
+	var ang := seg.angle()
+	# Work in beam-local space: +X = down-beam, +Y = perpendicular, origin at _from (= the gatling midpoint).
+	draw_set_transform(_from, ang, Vector2.ONE)
 
-	# ── Tapered body: narrow at the muzzle → fatter toward impact, drawn in segments ──
-	var N := BEAM_BODY_SEGS
-	for s in range(N):
-		var u0 := float(s) / float(N)
-		var u1 := float(s + 1) / float(N)
-		var taper := lerpf(BEAM_TAPER_MUZZLE, BEAM_TAPER_IMPACT, pow((u0 + u1) * 0.5, BEAM_TAPER_POW))
-		var p0 := a + dir * (L * u0)
-		var p1 := a + dir * (L * u1)
-		draw_line(p0, p1, Color(g.r, g.g, g.b, 0.22 * flick), maxf(2.0, w * glow_frac * taper))
-		draw_line(p0, p1, Color(g.r, g.g, g.b, 0.45 * flick), maxf(2.0, w * glow_frac * 0.55 * taper))
-		draw_line(p0, p1, Color(core_color.r, core_color.g, core_color.b, flick), maxf(1.5, w * core_frac * taper))
+	# ── Living modulators (Stage 2): breathe (width+brightness), flicker, wobble — all driven by _t ──
+	var pulse_w := 1.0 + sin(_t * pulse_speed) * pulse_width_amt
+	var pulse_b := 1.0 + (sin(_t * pulse_speed) + sin(_t * pulse_speed2)) * 0.5 * pulse_bright_amt
+	var flick := 1.0 + (sin(_t * flicker_speed) * 0.6 + sin(_t * flicker_speed * 2.3) * 0.4) * flicker_amt
+	var bright := maxf(0.0, pulse_b * flick)
+	var thick := beam_thickness * pulse_w
+	var center_y := body_v_offset + sin(_t * wobble_speed) * wobble_amt
 
-	# ── Flow: bright energy dashes racing muzzle → impact ──
-	for k in range(BEAM_FLOW_COUNT):
-		var ph := fmod(_t * BEAM_FLOW_SPEED + float(k) / float(BEAM_FLOW_COUNT), 1.0)
-		var lead := a + dir * (L * ph)
-		var tail := lead - dir * minf(BEAM_FLOW_LEN, L * ph)
-		draw_line(tail, lead, Color(1.0, 1.0, 1.0, 0.5 * flick), maxf(1.5, w * core_frac * 1.2))
+	# Convergence point (the muzzle's pointy core) = the gatling midpoint, nudgeable.
+	var conv := Vector2(muzzle_fwd, muzzle_perp)
 
-	# ── Impact burst — pulsing hot glow + spark spray (back toward the gun) + blinding center ──
-	if _hit:
-		var fg := flare_glow_color
-		var pulse := 1.0 + 0.25 * sin(_t * FLARE_RING_PULSE_SPEED)
-		var gsz := flare_glow_size * FLARE_BURST_SIZE_MULT * pulse
-		draw_circle(b, gsz, Color(fg.r, fg.g, fg.b, 0.20))
-		draw_circle(b, gsz * 0.55, Color(fg.r, fg.g, fg.b, 0.35))
-		# Chaotic spark spray in a backward cone, re-jittered every frame.
-		var back := (-dir).angle()
-		var sc := flare_spark_color
-		var n := maxi(1, int(FLARE_SPARKS * FLARE_SPARKS_MULT) + randi_range(-3, 3))
-		for _i in n:
-			var sang := back + randf_range(-FLARE_SPARK_SPREAD, FLARE_SPARK_SPREAD)
-			var sd := Vector2.from_angle(sang)
-			var sp := Vector2(-sd.y, sd.x)
-			var ln := FLARE_SPARK_LEN * randf_range(0.35, 1.0)
-			var tip := b + sd * ln
-			var br := randf_range(0.5, 1.0)
-			draw_polygon(
-				PackedVector2Array([b + sp * FLARE_SPARK_WIDTH * 0.5, b - sp * FLARE_SPARK_WIDTH * 0.5, tip]),
-				PackedColorArray([Color(1.0, 0.85, 0.5, br), Color(1.0, 0.85, 0.5, br), Color(sc.r, sc.g, sc.b, 0.0)]))
-		# Blinding hot center (jitters per frame).
-		var csz := flare_center_size * FLARE_BURST_SIZE_MULT
-		draw_circle(b, csz * randf_range(0.8, 1.2), Color(1.0, 1.0, 1.0, randf_range(0.7, 1.0)))
-		draw_circle(b, csz * 0.45, Color(1.0, 1.0, 1.0, 1.0))
+	# ── Body: dual scrolling layers from just behind the convergence to the hit point ──
+	# beam_bwd pulls the tail further back toward the muzzle to increase overlap / close any gap.
+	var x0 := conv.x - body_overlap - beam_bwd
+	var x1 := L
+	# Quadratic tail fade: the body ramps alpha 0→1 over `fade_len` from its tail (x0) so it dissolves into the muzzle.
+	var fade_len := body_tail_fade_px if body_tail_fade_px > 0.0 else body_tail_fade * L
+	if x1 - x0 > 2.0:
+		_draw_body_layer(x0, x1, center_y, thick, scroll_speed * _t, 1.0, _lit(body_modulate, bright, 1.0), x0, fade_len)
+		if layer2_enabled:
+			_draw_body_layer(x0, x1, center_y, thick, layer2_speed * _t, layer2_scale, _lit(body_modulate, bright, layer2_alpha), x0, fade_len)
+
+	# ── Traveling packets: bright dashes racing convergence → impact ──
+	if packet_enabled and L - conv.x > 4.0:
+		var pcol := _lit(packet_color, bright, 1.0)
+		for i in maxi(1, packet_count):
+			var ph := fposmod(_t * packet_speed + float(i) / float(maxi(1, packet_count)), 1.0)
+			var px := lerpf(conv.x, L, ph)
+			draw_line(Vector2(px - packet_len * 0.5, center_y), Vector2(px + packet_len * 0.5, center_y),
+				pcol, maxf(1.0, thick * packet_width))
+
+	# ── Muzzle: current flipbook variation (or fallback), drawn at native aspect with its convergence on `conv` ──
+	var mtex: Texture2D = _muzzle_frames[_muzzle_idx] if not _muzzle_frames.is_empty() else _muzzle_tex
+	if mtex != null:
+		var fw := float(mtex.get_width())
+		var fh := float(mtex.get_height())
+		var mh := start_cap_len                              # drawn height (px)
+		var mw := start_cap_len * (fw / maxf(1.0, fh))       # preserve the frame's aspect
+		var tlx := conv.x - muzzle_anchor_x * mw             # anchor (frac) lands on conv
+		var tly := conv.y - muzzle_anchor_y * mh
+		draw_texture_rect(mtex, Rect2(tlx, tly, mw, mh), false, _lit(muzzle_modulate, bright, 1.0))
+
+	# ── Impact cap at the hit point (only when the beam actually hits), on the axis ──
+	if _hit and _impact_tex != null:
+		_draw_cap_at(_impact_tex, L, 0.0, impact_cap_len, _lit(impact_modulate, bright, 1.0))
+
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+## Piece colour: rgb scaled by `bright` (additive over-bright) + alpha = base.a * activation * alpha_mul.
+func _lit(base: Color, bright: float, alpha_mul: float) -> Color:
+	return Color(base.r * bright, base.g * bright, base.b * bright, base.a * _activation * alpha_mul)
+
+## Draw one body layer across local-x [x0, x1] at vertical centre `center_y`, height `thick`, the texture
+## SCROLLED by `scroll_px` (px toward impact) and tiled at native aspect × `tile_scale`. STRETCH fits once.
+## The TAIL fades alpha 0→1 (quadratic) over `fade_len` px from `fade_x0` so the body dissolves into the muzzle.
+func _draw_body_layer(x0: float, x1: float, center_y: float, thick: float, scroll_px: float, tile_scale: float, col: Color, fade_x0: float, fade_len: float) -> void:
+	var top := center_y - thick * 0.5
+	var th := float(_body_tex.get_height())
+	if body_fill_mode == BodyFill.STRETCH:
+		_draw_seg_faded(x0, x1, 0.0, float(_body_tex.get_width()), top, thick, col, fade_x0, fade_len)
+		return
+	var tw := float(_body_tex.get_width())
+	var tile_w := beam_thickness * (tw / maxf(1.0, th)) * maxf(0.05, tile_scale)
+	if tile_w < 1.0:
+		return
+	var off := fposmod(scroll_px, tile_w)        # +X shift (toward impact) as scroll_px grows
+	var x := x0 - tile_w + off
+	while x < x1:
+		var sx0 := maxf(x, x0)
+		var sx1 := minf(x + tile_w, x1)
+		if sx1 > sx0:
+			_draw_seg_faded(sx0, sx1, (sx0 - x) / tile_w * tw, (sx1 - x) / tile_w * tw, top, thick, col, fade_x0, fade_len)
+		x += tile_w
+
+## Draw one body segment [sx0,sx1] sampling src-u [su0,su1] (texture px). Where the segment lies within the
+## tail-fade band [fade_x0, fade_x0+fade_len], split it into thin strips and ramp alpha quadratically; the rest
+## is drawn full-alpha in a single call (alpha-only fade → invisible dissolve under the additive muzzle).
+func _draw_seg_faded(sx0: float, sx1: float, su0: float, su1: float, top: float, thick: float, col: Color, fade_x0: float, fade_len: float) -> void:
+	var th := float(_body_tex.get_height())
+	if fade_len <= 0.0:
+		draw_texture_rect_region(_body_tex, Rect2(sx0, top, sx1 - sx0, thick), Rect2(su0, 0.0, su1 - su0, th), col)
+		return
+	var span := sx1 - sx0
+	var fade_end := fade_x0 + fade_len
+	var split := clampf(fade_end, sx0, sx1)   # boundary between the faded part and the full-alpha part
+	# Faded part [sx0, split] — thin strips, quadratic alpha.
+	if split > sx0:
+		const STRIP := 14.0
+		var x := sx0
+		while x < split:
+			var a := x
+			var b := minf(x + STRIP, split)
+			var sua := lerpf(su0, su1, (a - sx0) / span)
+			var sub := lerpf(su0, su1, (b - sx0) / span)
+			var r := clampf(((a + b) * 0.5 - fade_x0) / fade_len, 0.0, 1.0)
+			var am := r * r
+			draw_texture_rect_region(_body_tex, Rect2(a, top, b - a, thick), Rect2(sua, 0.0, sub - sua, th),
+				Color(col.r, col.g, col.b, col.a * am))
+			x += STRIP
+	# Full-alpha part [split, sx1].
+	if sx1 > split:
+		var su_split := lerpf(su0, su1, (split - sx0) / span)
+		draw_texture_rect_region(_body_tex, Rect2(split, top, sx1 - split, thick), Rect2(su_split, 0.0, su1 - su_split, th), col)
+
+## Draw a square cap (side px) centred at local (cx, cy) — explicit centre so cap placement is
+## independent of body_v_offset (lets the muzzle convergence anchor exactly on the gatling midpoint).
+func _draw_cap_at(tex: Texture2D, cx: float, cy: float, side: float, col: Color) -> void:
+	var half := side * 0.5
+	draw_texture_rect(tex, Rect2(cx - half, cy - half, side, side), false, col)

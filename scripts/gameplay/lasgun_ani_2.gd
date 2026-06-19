@@ -76,12 +76,47 @@ const HEIGHT_PAD             := 3.0      # quad-height multiplier so glow + head
 @export var coil_amp_4    := 0.30
 @export var muzzle_enabled := true
 @export var muzzle_color   := Color(0.45, 0.62, 1.0)  # deeper blue muzzle fire
-@export var muzzle_len     := 80.0   # central flame-spike length (px)
-@export var muzzle_tongues := 5      # flame prongs
+@export var muzzle_len     := 65.4   # radial reach of the fan (px) — twice as big
+@export var muzzle_tongues := 2      # flame prongs
 @export var muzzle_spread  := 1.2    # full fan angle of the prongs (rad)
+# Stage 1 — concave notches + asymmetry (frozen per flash)
+@export var muzzle_notch_depth := 0.45  # how far the valleys between tongues pull back toward the base (0=none, 1=to base)
+@export var muzzle_sharpness   := 2.0   # higher = needlier tongues, deeper notches
+@export var muzzle_asym        := 0.35  # per-tongue length/angle asymmetry (0=symmetric fan)
+@export var muzzle_curve       := 0.30  # sideways hook applied along each tongue (0=straight)
+@export var muzzle_seed_jitter := 0.30  # frozen-per-flash radius jitter (replaces per-frame strobe)
+# Stage 2 — punch-out → collapse birth envelope
+@export var muzzle_attack    := 0.04  # s to punch to peak on activation (snappier)
+@export var muzzle_peak_mult := 1.9   # size multiplier at the punch peak vs steady-state (harder pop)
+@export var muzzle_settle    := 0.14  # s to ease from peak down to steady-state (quicker settle)
+@export var muzzle_frame_time := 0.05 # seconds per procedural "frame" — the shape re-rolls each tick (flipbook cycle)
+@export var muzzle_passes := 2        # (unused since the blob render — superseded by muzzle_soft_gain)
+# Stage 1 — soft additive blob render (feathered edges like the beam)
+@export var muzzle_blobs_per_tongue := 14    # soft circles marched along each tongue centerline (more = smoother)
+@export var muzzle_blob_r_base      := 11.0  # blob radius near the gun (px, soft & fat)
+@export var muzzle_blob_r_tip       := 1.5   # blob radius at the tongue tip (→ soft point)
+@export var muzzle_base_bloom       := 18.0  # radius of the soft root glow at the muzzle base
+@export var muzzle_soft_gain        := 1.0   # master alpha multiplier for the whole muzzle
+@export var muzzle_blob_jitter      := 0.25  # frozen-per-frame radius jitter on each blob (organic edge, no strobe)
+# Shader-driven muzzle (the SAME beam texture reshaped — muzzle_mode = 1). The blob/polygon exports above are now unused.
+@export var muzzle_fan_width := 1.5   # muzzle quad width = beam_thickness * this (the fan span — twice as big)
+@export var muzzle_intensity := 2.8   # muzzle brightness multiplier (so it pops above the beam, not fused)
+@export var mz_tongues       := 6.0   # number of flame tongues across the fan (one more prong)
+@export var mz_spread        := 0.9   # fan HALF-angle (rad) — tongues radiate ±this from the gun (~103° full)
+@export var mz_sharpness     := 1     # (retired — replaced by mz_body_round)
+@export var mz_notch         := 0.45  # valley depth between tongues (0..1 — clearer gaps)
+@export var mz_len_jitter    := 0.35  # per-tongue length variation (more organic asymmetry)
+@export var mz_tip_softness  := 0.50  # (retired — tip taper now driven by mz_tip_frac)
+@export var mz_body_round    := 2.0   # CENTER fatness: >1 fat/convex leaf, =1 diamond, <1 needle
+@export var mz_tip_frac      := 0.2   # fraction of tongue length used for the tip taper (small = blade w/ sudden point)
+@export var mz_count_min     := 2.0   # per-frame tongue count re-rolls in [mz_count_min, mz_tongues]
+@export var mz_round_var     := 1.8   # per-tongue fatness jitter around mz_body_round (needle↔leaf spread)
+@export var mz_asym          := 0.4   # per-tongue sideways lean → asymmetric spikes (0 = symmetric)
 
 var _quad: MeshInstance2D = null
 var _mat: ShaderMaterial = null
+var _muzzle_quad: MeshInstance2D = null   # second quad, same shader, muzzle_mode = 1 (flame tongues)
+var _muzzle_mat: ShaderMaterial = null
 var _from := Vector2.ZERO
 var _to := Vector2.ZERO
 var _active := false
@@ -92,6 +127,9 @@ var _sparks: Array = []          # {pos, vel, life, max_life, size}
 var _spark_acc := 0.0
 var _spark_dirty := false
 var _t := 0.0
+var _was_active := false       # activation edge (false→true) for the muzzle birth punch
+var _muzzle_seed := 0          # frozen per-flash random seed (geometry jitter held for one flash)
+var _muzzle_birth_t := 0.0     # seconds since this flash began (drives the punch-out → settle)
 
 func _ready() -> void:
 	var mesh := QuadMesh.new()
@@ -103,7 +141,18 @@ func _ready() -> void:
 	_quad.material = _mat
 	_quad.visible = false
 	add_child(_quad)
-	_apply_static_uniforms()
+	_apply_static_uniforms(_mat)
+	# Muzzle quad — the SAME shader with muzzle_mode = 1 (the beam texture reshaped into flame tongues).
+	_muzzle_mat = ShaderMaterial.new()
+	_muzzle_mat.shader = load(SHADER_PATH)
+	_apply_static_uniforms(_muzzle_mat)
+	_muzzle_mat.set_shader_parameter("muzzle_mode", 1)
+	_muzzle_quad = MeshInstance2D.new()
+	_muzzle_quad.mesh = mesh   # reuse the unit QuadMesh
+	_muzzle_quad.material = _muzzle_mat
+	_muzzle_quad.visible = false
+	add_child(_muzzle_quad)    # drawn over the beam
+	_push_muzzle_uniforms()
 	if spark_enabled:
 		_spark_node = Node2D.new()
 		var sm := CanvasItemMaterial.new()
@@ -114,6 +163,10 @@ func _ready() -> void:
 
 ## Driver entry point (matches lasgun_ani_1): aim the beam from→to, toggle on/off, flag a hit.
 func set_beam(from: Vector2, to: Vector2, active: bool, hit: bool) -> void:
+	if active and not _was_active:   # fire-start edge → new frozen seed + restart the birth punch
+		_muzzle_seed = randi()
+		_muzzle_birth_t = 0.0
+	_was_active = active
 	_active = active
 	_hit = hit
 	if active:
@@ -145,11 +198,13 @@ func _place_quad() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	_muzzle_birth_t += delta
 	# Ramp the activation envelope in on fire, out on release.
 	var target := 1.0 if _active else 0.0
 	var rate := (1.0 / maxf(0.001, activation_in)) if _active else (1.0 / maxf(0.001, activation_out))
 	_activation = move_toward(_activation, target, rate * delta)
 	_tick_sparks(delta)
+	_update_muzzle_quad()
 	if _quad == null:
 		return
 	if _activation <= 0.0001:
@@ -195,9 +250,7 @@ func _tick_sparks(delta: float) -> void:
 	_spark_dirty = not _sparks.is_empty()
 
 func _draw_overlays() -> void:
-	_draw_sparks()
-	if muzzle_enabled:
-		_draw_muzzle()
+	_draw_sparks()   # muzzle is now the shader quad (_muzzle_quad), not an immediate-mode draw
 
 func _draw_sparks() -> void:
 	var c := spark_color
@@ -206,67 +259,91 @@ func _draw_sparks() -> void:
 		var sz := float(p["size"]) * (0.6 + 0.4 * lf)
 		_spark_node.draw_circle(p["pos"], sz, Color(c.r, c.g, c.b, lf))
 
-## White-blue muzzle fire at the shooting point: a fan of flickering tapered flame tongues (central
-## spike longest), re-jittered each frame, plus a hot base flash. Shape modelled on the reference sheet.
-func _draw_muzzle() -> void:
-	if not _active or _activation < 0.3:
+## Deterministic [0,1) hash — frozen geometry jitter for one flash (seeded by _muzzle_seed).
+func _h(s: int, k: int) -> float:
+	var v := sin(float(s) * 12.9898 + float(k) * 78.233) * 43758.5453
+	return v - floor(v)
+
+## Position/scale the muzzle quad at the gun each frame, oriented along the fire direction, with the
+## birth punch as a scale multiplier. The shader (muzzle_mode = 1) draws the flame from the beam texture.
+func _update_muzzle_quad() -> void:
+	if _muzzle_quad == null:
 		return
 	var d := _to - _from
-	if d.length() < 1.0:
+	if not muzzle_enabled or _activation <= 0.01 or d.length() < 1.0:
+		_muzzle_quad.visible = false
 		return
-	var dir := -d.normalized()   # muzzle fire flares back off the gun (opposite the beam)
-	var base := _from
-	var hw0 := beam_thickness * 0.5
-	var flick := 0.75 + 0.25 * sin(_t * 40.0)
-	var c := muzzle_color
-	for k in range(muzzle_tongues):
-		var f := (float(k) / float(maxi(1, muzzle_tongues - 1))) - 0.5   # -0.5 .. 0.5
-		var td := dir.rotated(f * muzzle_spread)
-		var tp := Vector2(-td.y, td.x)
-		var ln := muzzle_len * (1.0 - absf(f) * 0.55) * randf_range(0.55, 1.0) * flick * _activation
-		var hw := hw0 * (1.0 - absf(f) * 0.4) * randf_range(0.7, 1.0)
-		var tip := base + td * ln
-		_spark_node.draw_polygon(
-			PackedVector2Array([base + tp * hw, base - tp * hw, tip]),
-			PackedColorArray([Color(c.r, c.g, c.b, 0.8), Color(c.r, c.g, c.b, 0.8), Color(c.r, c.g, c.b, 0.0)]))
-	# Blue base glow (no white circle).
-	_spark_node.draw_circle(base, hw0 * 1.3 * flick, Color(c.r, c.g, c.b, 0.35 * _activation))
+	var dir := d.normalized()
+	var mb := _muzzle_birth_mult()
+	var mlen := muzzle_len * mb
+	var mwid := beam_thickness * muzzle_fan_width * mb
+	_muzzle_quad.visible = true
+	_muzzle_quad.position = _from + dir * (mlen * 0.5)   # UV.x = 0 sits at the gun (_from)
+	_muzzle_quad.rotation = dir.angle()
+	_muzzle_quad.scale = Vector2(mlen, mwid)
+	_muzzle_mat.set_shader_parameter("activation", _activation)
+	_muzzle_mat.set_shader_parameter("mz_aspect", mwid / maxf(1.0, mlen))   # un-squash the polar angles
+	_push_muzzle_uniforms()
 
-func _apply_static_uniforms() -> void:
-	_mat.set_shader_parameter("head_flare_power", head_flare_power)
-	_mat.set_shader_parameter("head_softness", head_softness)
-	_mat.set_shader_parameter("tail_fray_amount", tail_fray_amount)
-	_mat.set_shader_parameter("core_width", core_width)
-	_mat.set_shader_parameter("body_width", body_width)
-	_mat.set_shader_parameter("glow_width", glow_width)
-	_mat.set_shader_parameter("core_color", core_color)
-	_mat.set_shader_parameter("body_color", body_color)
-	_mat.set_shader_parameter("glow_color", glow_color)
-	_mat.set_shader_parameter("distort_amount", distort_amount)
-	_mat.set_shader_parameter("distort_scale", distort_scale)
-	_mat.set_shader_parameter("noise_scroll_speed", noise_scroll_speed)
-	_mat.set_shader_parameter("stria_freq", stria_freq)
-	_mat.set_shader_parameter("stria_speed", stria_speed)
-	_mat.set_shader_parameter("stria_strength", stria_strength)
-	_mat.set_shader_parameter("flicker_speed", flicker_speed)
-	_mat.set_shader_parameter("flicker_amount", flicker_amount)
-	_mat.set_shader_parameter("overall_intensity", overall_intensity)
-	_mat.set_shader_parameter("activation", _activation)
-	_mat.set_shader_parameter("wave_color", wave_color)
-	_mat.set_shader_parameter("wave_speed", wave_speed)
-	_mat.set_shader_parameter("wave_strength", wave_strength)
-	_mat.set_shader_parameter("wave_len_1", wave_len_1)
-	_mat.set_shader_parameter("wave_len_2", wave_len_2)
-	_mat.set_shader_parameter("wave_len_3", wave_len_3)
-	_mat.set_shader_parameter("wave_len_4", wave_len_4)
-	_mat.set_shader_parameter("roll_speed", roll_speed)
-	_mat.set_shader_parameter("roll_amp", roll_amp)
-	_mat.set_shader_parameter("roll_freq", roll_freq)
-	_mat.set_shader_parameter("roll_width", roll_width)
-	_mat.set_shader_parameter("roll_strength", roll_strength)
-	_mat.set_shader_parameter("wave_noise", wave_noise)
-	_mat.set_shader_parameter("coil_noise", coil_noise)
-	_mat.set_shader_parameter("coil_amp_1", coil_amp_1)
-	_mat.set_shader_parameter("coil_amp_2", coil_amp_2)
-	_mat.set_shader_parameter("coil_amp_3", coil_amp_3)
-	_mat.set_shader_parameter("coil_amp_4", coil_amp_4)
+## Birth punch-out → collapse multiplier (punch over muzzle_attack, ease back over muzzle_settle).
+func _muzzle_birth_mult() -> float:
+	if _muzzle_birth_t < muzzle_attack:
+		return lerpf(1.0, muzzle_peak_mult, _muzzle_birth_t / maxf(0.0001, muzzle_attack))
+	return lerpf(muzzle_peak_mult, 1.0, clampf((_muzzle_birth_t - muzzle_attack) / maxf(0.0001, muzzle_settle), 0.0, 1.0))
+
+## Push the live-tunable mz_* flame-shape uniforms to the muzzle material.
+func _push_muzzle_uniforms() -> void:
+	if _muzzle_mat == null:
+		return
+	_muzzle_mat.set_shader_parameter("mz_tongues", mz_tongues)
+	_muzzle_mat.set_shader_parameter("mz_spread", mz_spread)
+	_muzzle_mat.set_shader_parameter("mz_sharpness", mz_sharpness)
+	_muzzle_mat.set_shader_parameter("mz_notch", mz_notch)
+	_muzzle_mat.set_shader_parameter("mz_len_jitter", mz_len_jitter)
+	_muzzle_mat.set_shader_parameter("mz_tip_softness", mz_tip_softness)
+	_muzzle_mat.set_shader_parameter("mz_body_round", mz_body_round)
+	_muzzle_mat.set_shader_parameter("mz_tip_frac", mz_tip_frac)
+	_muzzle_mat.set_shader_parameter("mz_count_min", mz_count_min)
+	_muzzle_mat.set_shader_parameter("mz_round_var", mz_round_var)
+	_muzzle_mat.set_shader_parameter("mz_asym", mz_asym)
+	_muzzle_mat.set_shader_parameter("mz_frame", floor(_t / maxf(0.001, muzzle_frame_time)))   # flipbook tick — new shape each muzzle_frame_time
+	_muzzle_mat.set_shader_parameter("overall_intensity", muzzle_intensity)   # brighter than the beam so it reads
+
+func _apply_static_uniforms(mat: ShaderMaterial) -> void:
+	mat.set_shader_parameter("head_flare_power", head_flare_power)
+	mat.set_shader_parameter("head_softness", head_softness)
+	mat.set_shader_parameter("tail_fray_amount", tail_fray_amount)
+	mat.set_shader_parameter("core_width", core_width)
+	mat.set_shader_parameter("body_width", body_width)
+	mat.set_shader_parameter("glow_width", glow_width)
+	mat.set_shader_parameter("core_color", core_color)
+	mat.set_shader_parameter("body_color", body_color)
+	mat.set_shader_parameter("glow_color", glow_color)
+	mat.set_shader_parameter("distort_amount", distort_amount)
+	mat.set_shader_parameter("distort_scale", distort_scale)
+	mat.set_shader_parameter("noise_scroll_speed", noise_scroll_speed)
+	mat.set_shader_parameter("stria_freq", stria_freq)
+	mat.set_shader_parameter("stria_speed", stria_speed)
+	mat.set_shader_parameter("stria_strength", stria_strength)
+	mat.set_shader_parameter("flicker_speed", flicker_speed)
+	mat.set_shader_parameter("flicker_amount", flicker_amount)
+	mat.set_shader_parameter("overall_intensity", overall_intensity)
+	mat.set_shader_parameter("activation", _activation)
+	mat.set_shader_parameter("wave_color", wave_color)
+	mat.set_shader_parameter("wave_speed", wave_speed)
+	mat.set_shader_parameter("wave_strength", wave_strength)
+	mat.set_shader_parameter("wave_len_1", wave_len_1)
+	mat.set_shader_parameter("wave_len_2", wave_len_2)
+	mat.set_shader_parameter("wave_len_3", wave_len_3)
+	mat.set_shader_parameter("wave_len_4", wave_len_4)
+	mat.set_shader_parameter("roll_speed", roll_speed)
+	mat.set_shader_parameter("roll_amp", roll_amp)
+	mat.set_shader_parameter("roll_freq", roll_freq)
+	mat.set_shader_parameter("roll_width", roll_width)
+	mat.set_shader_parameter("roll_strength", roll_strength)
+	mat.set_shader_parameter("wave_noise", wave_noise)
+	mat.set_shader_parameter("coil_noise", coil_noise)
+	mat.set_shader_parameter("coil_amp_1", coil_amp_1)
+	mat.set_shader_parameter("coil_amp_2", coil_amp_2)
+	mat.set_shader_parameter("coil_amp_3", coil_amp_3)
+	mat.set_shader_parameter("coil_amp_4", coil_amp_4)

@@ -92,6 +92,8 @@ const DEBUG_ELEPHANT_ONLY := true
 const DEBUG_TIMELINE := [
 	{"time": 1.0, "type": "elephant", "count": 1, "pattern": "ring", "is_boss": true},
 ]
+# Auto-load NOTHING — no elephant, no enemies at all (empty timeline). Set false to restore spawning.
+const DEBUG_NO_ENEMIES := true
 
 # ══ Runtime ════════════════════════════════════════════════════════════════════
 var timeline: Array = []    # live, editable copy of DEFAULT_TIMELINE (the F7 editor mutates this)
@@ -103,7 +105,7 @@ var _streams: Array = []    # active stream entries: {type, left, interval, acc,
 
 func _ready() -> void:
 	add_to_group("wave_director")
-	timeline = (DEBUG_TIMELINE if DEBUG_ELEPHANT_ONLY else DEFAULT_TIMELINE).duplicate(true)
+	timeline = [] if DEBUG_NO_ENEMIES else (DEBUG_TIMELINE if DEBUG_ELEPHANT_ONLY else DEFAULT_TIMELINE).duplicate(true)
 	_player = get_tree().get_first_node_in_group("player")
 	_mgr = get_tree().get_first_node_in_group("enemy_manager")
 
