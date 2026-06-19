@@ -31,9 +31,15 @@ func _build_ui() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
+	# Load codex texture early to compute its natural aspect ratio
+	var tex_codex := _load_img("res://assets/hud/codex.png")
+	var codex_h := BTN_SIZE
+	if tex_codex != null and tex_codex.get_width() > 0:
+		codex_h = BTN_SIZE * float(tex_codex.get_height()) / float(tex_codex.get_width())
+
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", int(BTN_SEP))
-	var total_h := BTN_SIZE * 4.0 + BTN_SEP * 3.0
+	var total_h := codex_h + BTN_SIZE * 3.0 + BTN_SEP * 3.0
 	vb.anchor_left   = 1.0
 	vb.anchor_right  = 1.0
 	vb.anchor_top    = 1.0
@@ -48,9 +54,9 @@ func _build_ui() -> void:
 	var btn_setting := _make_btn(_load_img("res://assets/hud/Setting.png"))
 	btn_setting.pressed.connect(_on_setting)
 
-	# Codex — above Setting, width matched to Setting
-	var btn_codex := _make_btn(_load_img("res://assets/hud/codex.png"))
-	btn_codex.custom_minimum_size.x = btn_setting.custom_minimum_size.x
+	# Codex — above Setting, width = Setting width, height = natural ratio
+	var btn_codex := _make_btn(tex_codex)
+	btn_codex.custom_minimum_size = Vector2(btn_setting.custom_minimum_size.x, codex_h)
 	btn_codex.pressed.connect(_on_codex)
 	vb.add_child(btn_codex)
 	vb.add_child(btn_setting)
