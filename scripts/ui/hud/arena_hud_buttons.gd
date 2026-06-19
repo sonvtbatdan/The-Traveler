@@ -33,7 +33,7 @@ func _build_ui() -> void:
 
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", int(BTN_SEP))
-	var total_h := BTN_SIZE * 3.0 + BTN_SEP * 2.0
+	var total_h := BTN_SIZE * 4.0 + BTN_SEP * 3.0
 	vb.anchor_left   = 1.0
 	vb.anchor_right  = 1.0
 	vb.anchor_top    = 1.0
@@ -44,9 +44,15 @@ func _build_ui() -> void:
 	vb.offset_bottom = -MARGIN
 	root.add_child(vb)
 
-	# Setting — placeholder
+	# Setting button created first so we can read its width for Codex
 	var btn_setting := _make_btn(_load_img("res://assets/hud/Setting.png"))
 	btn_setting.pressed.connect(_on_setting)
+
+	# Codex — above Setting, width matched to Setting
+	var btn_codex := _make_btn(_load_img("res://assets/hud/codex.png"))
+	btn_codex.custom_minimum_size.x = btn_setting.custom_minimum_size.x
+	btn_codex.pressed.connect(_on_codex)
+	vb.add_child(btn_codex)
 	vb.add_child(btn_setting)
 
 	# Devon / devoff toggle
@@ -66,6 +72,9 @@ func _make_btn(tex: Texture2D) -> TextureButton:
 	btn.stretch_mode = TextureButton.STRETCH_SCALE
 	btn.custom_minimum_size = Vector2(BTN_SIZE, BTN_SIZE)
 	return btn
+
+func _on_codex() -> void:
+	pass   # placeholder — no function yet
 
 func _on_setting() -> void:
 	pass   # placeholder — no function yet
