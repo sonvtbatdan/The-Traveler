@@ -82,6 +82,7 @@ func _play_collect_sfx() -> void:
 		return
 	var p := AudioStreamPlayer.new()
 	p.stream = stream
+	p.bus = "SFX"
 	p.volume_db = linear_to_db(0.8)
 	if get_parent() != null:
 		get_parent().add_child(p)

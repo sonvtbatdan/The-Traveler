@@ -5,6 +5,7 @@ extends Node
 # ---------------------------------------------------------------------------
 
 signal game_loaded
+signal player_hit                  # fired whenever a hit actually lands (after iframe/shield checks)
 signal boost_changed(active: bool)
 signal ship_hp_changed(hp: int)
 signal ship_energy_changed(energy: float)
@@ -270,6 +271,7 @@ func ship_take_damage(dmg: int) -> void:
 	_shield_dmg_timer = 0.0   # any damage (even fully absorbed) restarts the regen delay
 	if d <= 0.0:
 		return
+	player_hit.emit()   # only fires when actual HP damage goes through
 	ship_hp = maxi(0, ship_hp - int(ceil(d)))
 	ship_hp_changed.emit(ship_hp)
 	if ship_hp <= 0:
