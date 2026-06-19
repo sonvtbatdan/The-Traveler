@@ -36,6 +36,7 @@ The game features a **real-time combat / crafting and idle harvesting layer**: a
 - **Parse check (no window):** `godot --headless --check-only --path . --quit` — exit 0 = parse clean
 - **No test suite.** Verification is manual (F5 in editor). Say so explicitly rather than asserting success from a parse check alone.
 - **Shell:** Windows / PowerShell. Use PowerShell syntax (`$null`, `$env:VAR`, backtick for line continuation). Bash tool is available for POSIX scripts.
+- **Git commit — LUÔN commit full project:** Trước mỗi commit, chạy `git status` và `git ls-files --others --exclude-standard` để kiểm tra untracked files. Nếu có file mới (assets, scripts, imports...) phải `git add` tất cả trước khi commit — không được để sót file nào. Dùng `git add assets/ scripts/ scenes/` (theo folder) hoặc `git add -A` nếu cần, sau đó review lại `git status` trước khi `git commit`.
 
 ---
 
