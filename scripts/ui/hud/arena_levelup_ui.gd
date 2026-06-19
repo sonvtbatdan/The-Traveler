@@ -65,11 +65,13 @@ func _show_cards() -> void:
 	pool.shuffle()
 	_current = pool.slice(0, CHOICES)
 	for c in _cards_box.get_children():
-		c.queue_free()
+		if is_instance_valid(c):
+			c.free()   # free immediately so _position_cards() only counts the new cards
 	for i in _current.size():
 		_cards_box.add_child(_make_card(_current[i], i))
 	_position_cards()
 	_root.show()
+	_play_sfx("res://assets/audio/sfx/uialert.wav")
 
 # Card layout constants — keep in sync with custom_minimum_size in _make_card().
 const _CW    := 160.0   # card width
@@ -79,20 +81,22 @@ const _CSHIFT := 20.0   # left card shifts left / right card shifts right by thi
 
 func _position_cards() -> void:
 	var cards := _cards_box.get_children()
-	# _cards_box anchors: left=0.025, right=0.975, top=0.19, bottom=0.97 on a 720×390 panel
-	var box_w := (_cards_box.anchor_right - _cards_box.anchor_left) * 720.0   # ≈ 684
-	var box_h := (_cards_box.anchor_bottom - _cards_box.anchor_top)  * 390.0  # ≈ 304
+	# Use actual resolved size; fall back to anchor × panel size if layout not yet computed.
+	var box_w := _cards_box.size.x if _cards_box.size.x > 1.0 else (_cards_box.anchor_right  - _cards_box.anchor_left) * 720.0
+	var box_h := _cards_box.size.y if _cards_box.size.y > 1.0 else (_cards_box.anchor_bottom - _cards_box.anchor_top)  * 390.0
 	var cluster_w := _CW * cards.size() + _CGAP * (cards.size() - 1)
-	var base_x    := (box_w - cluster_w) * 0.5   # left edge of unshifted cluster
-	var base_y    := (box_h - _CH) * 0.5          # vertically centered
+	var base_x    := (box_w - cluster_w) * 0.5
+	var base_y    := (box_h - _CH) * 0.5
 	for i in cards.size():
 		var x := base_x + i * (_CW + _CGAP)
 		if i == 0:
 			x -= _CSHIFT
 		elif i == cards.size() - 1:
 			x += _CSHIFT
-		(cards[i] as Control).position = Vector2(x, base_y)
-		(cards[i] as Control).size     = Vector2(_CW, _CH)
+		var c := cards[i] as Control
+		c.position     = Vector2(x, base_y)
+		c.size         = Vector2(_CW, _CH)
+		c.pivot_offset = Vector2(_CW * 0.5, _CH * 0.5)   # scale from center on hover
 
 func _bg_tex(id: String) -> Texture2D:
 	match CARD_BG.get(id, "blue"):
@@ -170,6 +174,8 @@ func _make_card(u: Dictionary, idx: int) -> Control:
 	for s in ["normal", "hover", "pressed", "focus", "disabled"]:
 		btn.add_theme_stylebox_override(s, empty)
 	btn.pressed.connect(_pick.bind(idx))
+	btn.mouse_entered.connect(_on_card_hover.bind(card))
+	btn.mouse_exited.connect(_on_card_unhover.bind(card))
 	card.add_child(btn)
 
 	return card
@@ -177,6 +183,7 @@ func _make_card(u: Dictionary, idx: int) -> Control:
 func _pick(idx: int) -> void:
 	if idx < 0 or idx >= _current.size():
 		return
+	_play_sfx("res://assets/audio/sfx/selectconfirm2.wav")
 	_apply(_current[idx])
 	_pending -= 1
 	if _pending > 0:
@@ -237,6 +244,28 @@ func _current_text(id: String) -> String:
 		"crit_chance": return "now %d%%" % int(round(GameManager.get_crit_chance() * 100.0))
 		"crit_damage": return "now %d%% dmg" % int(round(GameManager.upg_crit_damage * 100.0))
 	return ""
+
+# ── Hover effects ───────────────────────────────────────────────────────────────
+func _on_card_hover(card: Control) -> void:
+	card.scale    = Vector2(1.03, 1.03)
+	card.modulate = Color(1.03, 1.03, 1.03)
+	_play_sfx("res://assets/audio/sfx/uiclick.wav")
+
+func _on_card_unhover(card: Control) -> void:
+	card.scale    = Vector2.ONE
+	card.modulate = Color.WHITE
+
+# ── SFX helper ──────────────────────────────────────────────────────────────────
+func _play_sfx(path: String) -> void:
+	var stream := load(path) as AudioStream
+	if stream == null:
+		return
+	var p := AudioStreamPlayer.new()
+	p.stream = stream
+	p.volume_db = linear_to_db(0.8)
+	add_child(p)
+	p.play()
+	p.finished.connect(p.queue_free)
 
 # ── UI build ────────────────────────────────────────────────────────────────────
 func _build_ui() -> void:

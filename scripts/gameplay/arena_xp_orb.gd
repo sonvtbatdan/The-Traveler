@@ -5,7 +5,7 @@ extends Node2D
 ## Lives on the gameplay plane (sharp, not blurred). Persists until collected (survival-friendly).
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
-const ORB_SIZE            := 5.0
+const ORB_SIZE_PER_XP     := 1.0   # radius px = value × this (8 XP → 8 px)
 const COLLECT_RADIUS      := 16.0
 const MAGNET_SPEED        := 120.0    # starting fly speed once magnetized naturally (px/s)
 const MAGNET_ACCEL        := 900.0    # acceleration when magnetized naturally (px/s²)
@@ -83,11 +83,12 @@ func collect() -> void:
 	_collect()
 
 func _draw() -> void:
+	var sz := float(_value) * ORB_SIZE_PER_XP
 	var bob := sin(_t * BOB_SPEED) * BOB_AMP
 	var c := Vector2(0.0, bob)
 	var pulse := 0.85 + 0.15 * sin(_t * BOB_SPEED * 1.7)
 	# Soft outer glow → bright core → white centre.
-	draw_circle(c, ORB_SIZE * 2.4 * pulse, Color(GLOW_COLOR.r, GLOW_COLOR.g, GLOW_COLOR.b, 0.18))
-	draw_circle(c, ORB_SIZE * 1.5 * pulse, Color(GLOW_COLOR.r, GLOW_COLOR.g, GLOW_COLOR.b, 0.35))
-	draw_circle(c, ORB_SIZE * pulse, CORE_COLOR)
-	draw_circle(c, ORB_SIZE * 0.45, Color(1, 1, 1, 0.9))
+	draw_circle(c, sz * 2.4 * pulse, Color(GLOW_COLOR.r, GLOW_COLOR.g, GLOW_COLOR.b, 0.18))
+	draw_circle(c, sz * 1.5 * pulse, Color(GLOW_COLOR.r, GLOW_COLOR.g, GLOW_COLOR.b, 0.35))
+	draw_circle(c, sz * pulse, CORE_COLOR)
+	draw_circle(c, sz * 0.45, Color(1, 1, 1, 0.9))

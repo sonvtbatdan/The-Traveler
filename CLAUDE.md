@@ -84,6 +84,7 @@ Root `Control` with these direct children:
 | 50 | HP bars / AUTO-DRIVE / AUTO-FIRE buttons |
 | 51 | HUD display elements |
 | 60 | `inventory_ui.gd` (inventory/equipment screen) |
+| 95 | `arena_enemy_manager.gd` hit flash (screen-blend red overlay) |
 | 100 | Settings panel + `hud_edit_overlay.gd` (HUD edit F6) — always on top |
 
 `auto_clicker_overlay.gd` (`scripts/gameplay/auto_clicker_overlay.gd`) draws one hand cursor per owned autoclicker upgrade, placed flush against the ship sprite's silhouette via alpha-edge detection (`_alpha_edge`); rebuilds on `UpgradeManager.upgrade_purchased` / `upgrades_reset`. Self-contained, no signals out.
@@ -300,6 +301,8 @@ var boss_intro_active: bool   # true during boss fly-in + wander; blocks boss _p
 ### Signals
 
 `ship_hp_changed(int)`, `shield_changed(float)`, `boss_state_changed(bool)`
+
+`player_hit` — emitted in `ship_take_damage()` **after** armor + shield checks, only when actual HP damage goes through (d > 0). Use this to trigger visual/audio hit feedback. Connected by `arena_enemy_manager.gd` → `_play_hit()` (SFX + screen flash).
 
 **Boss fight signal sequence:**
 ```
@@ -1046,6 +1049,37 @@ All enemy types defined in `ENEMY_DEFS`. Boss stubs now use real sprite sheet ic
 | 30–39.9 | 3 |
 | 40+ | 4+ |
 
+### `arena_elephant.gd` — Arena Elephant Boss
+
+**Separate from `boss_elephant.gd`** — the arena-mode elephant boss living in world space. All its move logic is self-contained in `scripts/gameplay/arena_elephant.gd`.
+
+**Move set (5 moves, random rotation after each via `_begin_random_move()`):**
+
+| ID | Name | Notes |
+|----|------|-------|
+| M1 | Spike Rain | Spin + sweep + spiral spike bursts every 0.2s |
+| M2 | Ring of Fire | `FlameRingReveal` children — jet then ring draw |
+| M3 | Laser | Telegraph + fire from fp2; tracks player then locks aim |
+| M4 | Shot Drop | Entry tween → horizontal sweep + drops from fp3 |
+| M5 | Shoot Blob | Homing blobs from boss center every 1s |
+
+**M2 — Ring of Fire contact rules:** Damage only triggers where **visual fire exists**. The ring uses `FlameRingReveal._draw_progress` (0→1) and an angle-based arc check — player angle must fall within the drawn arc; full-circle contact is intentionally blocked.
+
+**M3 aim-lock:** `const M3_AIM_LOCK_T := 0.5` — elephant tracks player during the 2s charge phase, locks aim only 0.5s before firing. Players have 0.5s to dodge after the aim freezes.
+
+**Projectile persistence:** `_begin_random_move()` does NOT clear `_projectiles`. Bullets from previous moves remain alive until they expire normally — this is intentional.
+
+**`_tick_projectiles(delta)` MUST be called before any phase early-return** in `_process()` so projectiles keep moving during entry tweens.
+
+### `arena_enemy_manager.gd` — Hit Feedback System
+
+`arena_enemy_manager.gd` owns the player-hit SFX + screen flash:
+- **`_hit_player`** (`AudioStreamPlayer`, bus `"SFX"`) — plays `hit.wav` on every real HP hit
+- **`_hit_flash_rect`** (`ColorRect` on `CanvasLayer` layer=95) — screen-blend shader: `COLOR.rgb = mix(screen.rgb, blended, 0.35)` using `render_mode blend_disabled` + `hint_screen_texture`
+- **Flash duration:** `HIT_FLASH_DUR = 0.12s`; intensity ramps 35% → 0 over the duration
+- Sized each `_process()` frame to match viewport size
+- Connected via `GameManager.player_hit.connect(_play_hit)` — NOT called directly
+
 ### `arena_debug_spawn.gd` — debug controls
 
 Bottom-center HBox (CanvasLayer). Controls:
@@ -1069,6 +1103,19 @@ Bottom-center HBox (CanvasLayer). Controls:
 **Card size:** 160×208. `_cards_box` is a plain `Control` (NOT `HBoxContainer`) — outer cards shift ±20px horizontally via `_CSHIFT`. **Using `HBoxContainer` here causes a runtime type-assign error.**
 
 **Title label:** font = `Good Old DOS.ttf`, color `#9bfdb0`, size 22. Anchors top=0.035/bottom=0.155 + offset_top=30/offset_bottom=30/offset_left=−10/offset_right=−10.
+
+**Card centering bug (fixed):** `queue_free()` does NOT remove a node from `get_children()` immediately — it only marks it for deletion at end of frame. On the 2nd+ level-up, old cards (3) are still in `_cards_box` when new cards (3) are added → `_position_cards()` sees 6 cards → `cluster_w = 1010px` → `base_x = -163` → all cards shift far left. **Fix:** use `c.free()` (immediate removal) instead of `c.queue_free()` in `_show_cards()`.
+
+**`_position_cards()` — centering formula:** reads `_cards_box.size` directly (fallback to anchor × 720/390 if not yet laid out). Sets `pivot_offset = Vector2(_CW*0.5, _CH*0.5)` on each card so hover scale grows from center.
+
+**Hover effects:** `mouse_entered/exited` connected on the invisible full-rect Button inside each card → `_on_card_hover(card)` sets `card.scale = Vector2(1.03, 1.03)` and `card.modulate = Color(1.03, 1.03, 1.03)`; `_on_card_unhover(card)` resets both to identity.
+
+**SFX:**
+| Sound | Trigger |
+|-------|---------|
+| `assets/audio/sfx/uialert.wav` | Level-up panel shows (`_show_cards()`) |
+| `assets/audio/sfx/uiclick.wav` | Mouse enters a card (hover) |
+| `assets/audio/sfx/selectconfirm2.wav` | Card picked (`_pick()`) |
 
 ### `enemy_dragonfly.gd` — non-arena fix
 
@@ -1106,6 +1153,8 @@ Breakable passive props that drift across the arena — not enemies (use group `
 | `assets/audio/sfx/gunboom1–5.wav` | Random boom when any enemy or ruin dies (fire-and-forget AudioStreamPlayer) |
 | `assets/audio/sfx/start.mp3` | Collecting any loot item from a box |
 | `assets/audio/sfx/equip.wav` | Player ship collects an XP orb |
+
+**XP orb sizing:** `ORB_SIZE_PER_XP = 1.0` — orb radius (px) = XP value × 1.0. An 8 XP drop has 8px core radius. Scales are applied multiplicatively for glow/pulse rings. Set in `arena_xp_orb.gd`.
 
 **HP bar on ruins:** same `draw_rect` pattern as `arena_enemy.gd` — drawn after `draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)` to stay horizontal despite the ruin rotating. Only shown when `hp < hp_max`.
 

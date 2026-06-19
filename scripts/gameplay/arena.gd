@@ -24,6 +24,7 @@ const DebugSpawnScript   := preload("res://scripts/gameplay/arena_debug_spawn.gd
 const PerfOverlayScript  := preload("res://scripts/ui/hud/perf_overlay.gd")
 const LevelUpUIScript    := preload("res://scripts/ui/hud/arena_levelup_ui.gd")
 const ArenaRuinLayerScript := preload("res://scripts/gameplay/arena_ruin_layer.gd")
+const ArenaHudButtonsScript := preload("res://scripts/ui/hud/arena_hud_buttons.gd")
 const RESET_RUN_ON_START := true   # each arena run starts a fresh VS climb (level 1, no upgrades). Flip off to keep saved level.
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
@@ -58,6 +59,9 @@ const BOUNDARY_VIGNETTE_SHADER := "res://assets/shaders/boundary_vignette.gdshad
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 var _player: CharacterBody2D = null
+var _ship_spr: Sprite2D = null
+var _tex_normal: Texture2D = null
+var _tex_lean: Texture2D = null
 var _fire_acc: float = 0.0
 var _projectiles: Array = []   # {node, vel, life, start}
 var _edge_vignette_mat: ShaderMaterial = null   # boundary "edge of system" cue
@@ -96,6 +100,7 @@ func _ready() -> void:
 	bg.add_child(solar)
 	add_child(PlanetMenuScript.new())    # F6 menu: inspect/drag-spawn planets (input stays in the main viewport)
 	add_child(DebugSpawnScript.new())    # F5 asteroids / F9 comet / F10 planet+moons (Shift = clear)
+	add_child(ArenaHudButtonsScript.new())  # bottom-right HUD: Setting / Devon / Quit
 	_build_parallax(bg)
 	_build_player()
 	_build_ui()
@@ -143,12 +148,15 @@ func _build_player() -> void:
 
 	var spr := Sprite2D.new()
 	var tex := load(SHIP_SPRITE) as Texture2D
+	_tex_normal = tex
+	_tex_lean   = load("res://assets/screen/lean.png") as Texture2D
 	spr.texture = tex
 	# Scale the (large) source art down to PLAYER_SIZE_PX on its longest side.
 	var longest := maxf(float(tex.get_width()), float(tex.get_height())) if tex != null else 1.0
 	var s := PLAYER_SIZE_PX / maxf(1.0, longest)
 	spr.scale = Vector2(s, s)
 	# The ship art points UP (forward = −Y); Sprite2D rotation 0 keeps it upright.
+	_ship_spr = spr
 	_player.add_child(spr)
 
 	var col := CollisionShape2D.new()
@@ -213,6 +221,7 @@ func _physics_process(delta: float) -> void:
 	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var speed_mult: float = GameManager.get_move_speed_mult() if GameManager.has_method("get_move_speed_mult") else 1.0
 	_player.velocity = dir * MOVE_SPEED * speed_mult
+	_update_ship_lean(dir)
 	_player.move_and_slide()
 	_apply_boundary(delta)
 
@@ -229,6 +238,32 @@ func _apply_boundary(delta: float) -> void:
 	if _edge_vignette_mat != null:
 		var f := clampf((d - (SOFT_BOUNDARY - VIGNETTE_FADE)) / VIGNETTE_FADE, 0.0, 1.0)
 		_edge_vignette_mat.set_shader_parameter("intensity", f)
+
+func _update_ship_lean(dir: Vector2) -> void:
+	if _ship_spr == null:
+		return
+	# Project world-space movement onto the ship's local right axis so lean is
+	# correct regardless of which way the ship is facing.
+	var local_x := dir.dot(Vector2.RIGHT.rotated(_player.rotation))
+	var new_tex: Texture2D
+	var flip: bool
+	if local_x < -0.1:
+		new_tex = _tex_lean
+		flip = false
+	elif local_x > 0.1:
+		new_tex = _tex_lean
+		flip = true
+	else:
+		new_tex = _tex_normal
+		flip = false
+	if _ship_spr.texture == new_tex and _ship_spr.flip_h == flip:
+		return
+	_ship_spr.texture = new_tex
+	_ship_spr.flip_h = flip
+	if new_tex != null:
+		var longest := maxf(float(new_tex.get_width()), float(new_tex.get_height()))
+		var s := PLAYER_SIZE_PX / maxf(1.0, longest)
+		_ship_spr.scale = Vector2(s, s)
 
 func _process(delta: float) -> void:
 	if _player == null:

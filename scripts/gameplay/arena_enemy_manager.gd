@@ -7,6 +7,7 @@ extends Node2D
 const ArenaEnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 const XpOrbScript      := preload("res://scripts/gameplay/arena_xp_orb.gd")
 const LootScript       := preload("res://scripts/gameplay/arena_loot.gd")
+const SFX_HIT          := preload("res://assets/audio/sfx/hit.wav")
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
 const BULLET_RADIUS    := 5.0
@@ -14,16 +15,55 @@ const BULLET_MAX_LIFE  := 6.0
 const BULLET_MAX_DIST  := 2200.0
 const BULLET_COLOR     := Color(1.0, 0.45, 0.35)
 
+const HIT_FLASH_DUR := 0.12
+const HIT_FLASH_SHADER := """
+shader_type canvas_item;
+render_mode blend_disabled;
+uniform sampler2D screen_texture : hint_screen_texture, filter_nearest;
+uniform float intensity : hint_range(0.0, 1.0) = 0.0;
+void fragment() {
+	vec4 screen = texture(screen_texture, SCREEN_UV);
+	vec3 red = vec3(0.85, 0.0, 0.0);
+	vec3 blended = 1.0 - (1.0 - red) * (1.0 - screen.rgb);
+	COLOR.rgb = mix(screen.rgb, blended, intensity);
+	COLOR.a = 1.0;
+}
+"""
+
 var _player: Node2D = null
 var _bullets: Array = []      # {pos, vel, dmg, life}
 var _explosions: Array = []   # {pos, age, max_age, radius}
 var _lane_i: int = 0
 var _wanderer_i: int = 0
 
+var _hit_player: AudioStreamPlayer = null
+var _hit_flash_rect: ColorRect = null
+var _hit_flash_mat: ShaderMaterial = null
+var _hit_flash_t: float = 0.0
+
 func _ready() -> void:
 	add_to_group("enemy_manager")
 	z_index = -1   # bullets/explosions just under the player/enemies
 	_player = get_tree().get_first_node_in_group("player")
+	_hit_player = AudioStreamPlayer.new()
+	_hit_player.stream = SFX_HIT
+	_hit_player.bus = "SFX"
+	add_child(_hit_player)
+	var sh := Shader.new()
+	sh.code = HIT_FLASH_SHADER
+	_hit_flash_mat = ShaderMaterial.new()
+	_hit_flash_mat.shader = sh
+	_hit_flash_mat.set_shader_parameter("intensity", 0.0)
+	var cl := CanvasLayer.new()
+	cl.layer = 95
+	_hit_flash_rect = ColorRect.new()
+	_hit_flash_rect.color = Color.WHITE
+	_hit_flash_rect.material = _hit_flash_mat
+	_hit_flash_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hit_flash_rect.hide()
+	cl.add_child(_hit_flash_rect)
+	add_child(cl)
+	GameManager.player_hit.connect(_play_hit)
 
 func _process(delta: float) -> void:
 	if _player == null or not is_instance_valid(_player):
@@ -31,6 +71,16 @@ func _process(delta: float) -> void:
 	_tick_bullets(delta)
 	_tick_explosions(delta)
 	queue_redraw()
+	if _hit_flash_rect != null:
+		if _hit_flash_t > 0.0:
+			_hit_flash_t = maxf(0.0, _hit_flash_t - delta)
+			var vp := get_viewport()
+			if vp != null:
+				_hit_flash_rect.size = vp.get_visible_rect().size
+			_hit_flash_mat.set_shader_parameter("intensity", (_hit_flash_t / HIT_FLASH_DUR) * 0.35)
+			_hit_flash_rect.show()
+		else:
+			_hit_flash_rect.hide()
 
 # ── Legacy API (now world-space) ───────────────────────────────────────────────
 func ship_center() -> Vector2:
@@ -135,6 +185,12 @@ func throw_bomb(pos: Vector2) -> void:
 	b.configure("thrown_bomb", self)
 	b.position = pos
 	get_parent().add_child(b)
+
+func _play_hit() -> void:
+	if _hit_player != null:
+		_hit_player.stop()
+		_hit_player.play()
+	_hit_flash_t = HIT_FLASH_DUR
 
 # ── Draw bullets + explosion rings (world space) ───────────────────────────────
 func _draw() -> void:

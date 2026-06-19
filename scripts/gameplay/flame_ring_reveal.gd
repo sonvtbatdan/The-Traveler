@@ -30,6 +30,9 @@ const FlameRibbon := preload("res://scripts/gameplay/flame_ribbon.gd")
 # Look (pushed to both ribbons; per-ribbon look knobs live on FlameRibbon)
 @export var tint_color         := Color(1, 1, 1, 1)
 @export var intensity          := 1.0
+@export var contact_damage: int = 0   # >0 = deal this damage when player touches jet or ring
+
+const CONTACT_PAD := 16.0   # player ship hit radius
 
 enum Phase { JET, DRAW, HOLD, BURNOUT, DONE }
 var _phase: int = Phase.JET
@@ -39,14 +42,19 @@ var _ring: FlameRibbon = null
 var _ring_pts := PackedVector2Array()
 var _ring_cum := PackedFloat32Array()
 var _ring_total := 0.0
+var _jet_progress: float = 0.0   # 0→1 during JET phase (progressive reveal)
+var _draw_progress: float = 0.0  # 0→1 fraction of ring that has been drawn (used by contact check)
+var _player: Node2D = null
+var visual_alpha: float = 1.0    # current visual alpha; 1 during JET/DRAW/HOLD, fades 1→0 during BURNOUT
 
 func _ready() -> void:
 	_jet = FlameRibbon.new()
 	_jet.beam_width = beam_width
-	_jet.head_enabled = false   # the jet is a plain spoke; only the ring carries the pen-tip head
+	_jet.head_enabled = false
 	add_child(_jet)
 	_ring = FlameRibbon.new()
-	_ring.beam_width = beam_width
+	_ring.beam_width   = beam_width
+	_ring.head_enabled = false
 	add_child(_ring)
 	_rebuild_ring_geom()
 	_apply_alpha(1.0)
@@ -56,9 +64,11 @@ func _ready() -> void:
 func restart() -> void:
 	_phase = Phase.JET
 	_t = 0.0
+	_jet_progress = 0.0
+	_draw_progress = 0.0
 	_apply_alpha(1.0)
-	_ring.build_path(PackedVector2Array(), beam_width)   # clear the ring
-	_draw_jet()
+	_ring.build_path(PackedVector2Array(), beam_width)
+	_draw_jet(0.0)
 
 func _rebuild_ring_geom() -> void:
 	_ring_pts = PackedVector2Array()
@@ -76,8 +86,12 @@ func _rebuild_ring_geom() -> void:
 func _ring_start_point() -> Vector2:
 	return ring_center_offset + Vector2.from_angle(ring_start_angle) * ring_radius
 
-func _draw_jet() -> void:
-	_jet.build_path(PackedVector2Array([Vector2.ZERO, _ring_start_point()]), beam_width)
+func _draw_jet(p: float = 1.0) -> void:
+	if p < 0.001:
+		_jet.build_path(PackedVector2Array(), beam_width)
+		return
+	var end := _ring_start_point()
+	_jet.build_path(PackedVector2Array([Vector2.ZERO, end * clampf(p, 0.0, 1.0)]), beam_width)
 
 ## Partial ring path up to fraction p (0..1), with an interpolated tip so the head glides smoothly.
 func _partial_ring(p: float) -> PackedVector2Array:
@@ -108,6 +122,7 @@ func _ease(p: float) -> float:
 	return pow(s, 1.0 / maxf(0.25, draw_ease)) if draw_ease < 1.0 else pow(s, draw_ease)
 
 func _apply_alpha(a: float) -> void:
+	visual_alpha = a
 	for r: FlameRibbon in [_jet, _ring]:
 		if r != null:
 			r.tint_color = Color(tint_color.r, tint_color.g, tint_color.b, tint_color.a * a)
@@ -118,18 +133,23 @@ func _process(delta: float) -> void:
 	_t += delta
 	match _phase:
 		Phase.JET:
+			_jet_progress = clampf(_t / maxf(0.01, jet_duration), 0.0, 1.0)
+			_draw_progress = 0.0
+			_draw_jet(_jet_progress)
 			if _t >= jet_duration:
 				_phase = Phase.DRAW
 				_t = 0.0
 		Phase.DRAW:
+			_draw_progress = _ease(clampf(_t / maxf(0.01, draw_duration), 0.0, 1.0))
 			if jet_persists:
 				_draw_jet()
-			_draw_ring(_ease(clampf(_t / maxf(0.01, draw_duration), 0.0, 1.0)))
+			_draw_ring(_draw_progress)
 			if _t >= draw_duration:
 				_phase = Phase.HOLD
 				_t = 0.0
 				_draw_ring(1.0)
 		Phase.HOLD:
+			_draw_progress = 1.0
 			if jet_persists:
 				_draw_jet()
 			_draw_ring(1.0)
@@ -138,6 +158,7 @@ func _process(delta: float) -> void:
 				_phase = Phase.BURNOUT
 				_t = 0.0
 		Phase.BURNOUT:
+			_draw_progress = 1.0
 			if jet_persists:
 				_draw_jet()
 			_draw_ring(1.0)
@@ -149,3 +170,41 @@ func _process(delta: float) -> void:
 		Phase.DONE:
 			if auto_loop:
 				restart()
+	if contact_damage > 0 and _phase != Phase.DONE:
+		_check_contact_damage()
+
+func _check_contact_damage() -> void:
+	if _player == null or not is_instance_valid(_player):
+		_player = get_tree().get_first_node_in_group("player")
+	if _player == null:
+		return
+	var pp  := (_player as Node2D).global_position
+	var hw  := beam_width * 0.5 + CONTACT_PAD
+	# Jet segment (world space: node is top_level so local == world)
+	var jet_p := _jet_progress if _phase == Phase.JET \
+			else (1.0 if jet_persists and _phase in [Phase.DRAW, Phase.HOLD, Phase.BURNOUT] else 0.0)
+	if jet_p > 0.001:
+		var j_end := global_position + _ring_start_point() * jet_p
+		if _seg_dist(pp, global_position, j_end) <= hw:
+			GameManager.ship_take_damage(contact_damage)
+			return
+	# Ring arc — only the drawn portion (not the full circle)
+	if _phase in [Phase.DRAW, Phase.HOLD, Phase.BURNOUT] and _draw_progress > 0.001:
+		var rc   := global_position + ring_center_offset
+		var dist := pp.distance_to(rc)
+		if absf(dist - ring_radius) <= hw:
+			# Check that the player's angle falls within the drawn arc
+			var player_angle := (pp - rc).angle()
+			var draw_sgn := -1.0 if ring_clockwise else 1.0
+			var rel := fmod(draw_sgn * (player_angle - ring_start_angle), TAU)
+			if rel < 0.0:
+				rel += TAU
+			if rel <= _draw_progress * TAU:
+				GameManager.ship_take_damage(contact_damage)
+
+func _seg_dist(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab   := b - a
+	var len2 := ab.dot(ab)
+	if len2 < 0.0001:
+		return p.distance_to(a)
+	return p.distance_to(a + ab * clampf((p - a).dot(ab) / len2, 0.0, 1.0))
