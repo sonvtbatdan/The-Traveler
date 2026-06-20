@@ -52,7 +52,22 @@ const LASGUN_CYCLE    := 5.0     # full period (s): the beam fires once every CY
 const LASGUN_DURATION := 3.0     # beam-on time within each cycle (s) → fires 3s out of every 5s
 const LASGUN_CHARGE   := 1.5     # charge telegraph (s) before each burst — the orb light-gather plays over this
 
-const BeamScript   := preload("res://scripts/gameplay/lasgun_ani_3.gd")   # lasgun_ani_3 (sprite muzzle); ani_1 + ani_2 kept as backups
+# ── TUNABLES: Arc (chain lightning — gained from a pickup, off until then) ────────────────────────────────
+# Ported from weapon_system.gd's _fire_chain / _draw_lightning, adapted to arena world space + auto-targeting.
+const ARC_ENABLED_DEFAULT := false   # off until the Arc pickup activates it
+const ARC_DAMAGE   := 20.0     # damage per link
+const ARC_COOLDOWN := 1.0      # s between bursts (before fire-rate mult)
+const ARC_JUMPS    := 4        # extra targets the bolt chains to after the first
+const ARC_ACQUIRE_RANGE := 400.0  # max px to acquire the FIRST target (chains then extend further via ARC_RANGE)
+const ARC_RANGE    := 200.0    # max px between consecutive chain links
+const ARC_LIFE     := 0.60     # s each lightning segment stays visible (dissolves start→end over this)
+const ARC_FADE_SOFT := 0.35    # softness of the dissolve front sweeping from the muzzle to the strike point
+const ARC_STAGGER  := 0.12     # s stagger per link
+const ARC_COL      := Color(0.75, 0.9, 1.0)   # cold electric blue-white (soft outer glow)
+const ARC_EDGE_COL := Color(0.45, 0.75, 1.0)  # light-blue rim drawn just outside the white-hot core
+const ARC_LIGHT    := 4.0      # dust-light value per lit segment endpoint
+
+const BeamScript   := preload("res://scripts/gameplay/lasgun_ani_1.gd")   # lasgun_ani_1 (clean sprite beam); ani_2/ani_3 kept as backups
 const PickupScript := preload("res://scripts/gameplay/arena_weapon_pickup.gd")
 const OrbChargeScript := preload("res://scripts/gameplay/arena_orb_charge_fx.gd")
 const GatMuzzleScript := preload("res://scripts/gameplay/arena_gatling_muzzle.gd")
@@ -92,6 +107,12 @@ const GAUSS_SPARK_LIFE        := 0.4
 const GAUSS_SPARK_LEN         := 7.0
 const GAUSS_SPARK_COL         := Color(0.5, 0.85, 1.0)
 const GAUSS_SPARK_ALPHA       := 0.9
+
+# ── Gauss orb FLIPBOOK (24-frame plasma loop sprite — replaces the procedural shader orb) ──
+const GAUSS_ORB_DIR     := "res://assets/beam references/Gauss_orb_files_2/"   # gauss24_00..23.png (already transparent)
+const GAUSS_FRAME_COUNT := 24
+const GAUSS_ORB_FPS     := 24.0    # plasma-loop playback speed (fps)
+const GAUSS_ORB_DRAW    := 140.0   # on-screen orb diameter incl. transparent margin (px); full uncropped frame
 
 # ── Gauss charge-up rings converging onto the ship (copied — visuals only) ────
 const GC_START_RADIUS   := 150.0
@@ -180,6 +201,15 @@ var _charge_rings: Array = []    # {ang, r}
 var _charge_spawn_acc: float = 0.0
 var _flashes: Array = []         # {pos, age, max_age, radius}
 var _orb_shader: Shader = null
+var _gauss_frames: Array = []      # 12-frame plasma-orb flipbook (cropped from the reference sheet)
+var _gauss_fb_t: float = 0.0
+var _gauss_fb_idx: int = 0
+# Runtime weapon-enable flags (start from the compile-time defaults; pickups flip them on → accumulate, VS-style).
+var _gat_active: bool = GAT_ENABLED
+var _gauss_active: bool = GAUSS_ENABLED
+var _arc_active: bool = ARC_ENABLED_DEFAULT   # turned on by the Arc pickup
+var _arc_cd: float = 0.0           # Arc burst cooldown
+var _arcs: Array = []              # live lightning segments: {a, b, age, max_age}
 var _lasgun_active: bool = false   # turned on by the Lasgun pickup (auto-equip, accumulates with the Gatling)
 var _beam_cd: float = 0.0          # Lasgun damage-tick cooldown
 var _beam: Node2D = null           # additive beam VFX child (gameplay plane → sharp)
@@ -203,17 +233,34 @@ func _ready() -> void:
 	add_child(_charge_fx)
 	_gat_muzzle_fx = GatMuzzleScript.new()
 	add_child(_gat_muzzle_fx)
+	_load_gauss_frames()
+
+## Load the 24-frame Gauss plasma-orb flipbook (individual transparent PNGs). CPU Image.load (no import
+## dependency). The FULL frame is kept (NOT cropped to get_used_rect): the glow pulses, so per-frame
+## content bounds vary — cropping + fixed-size draw would make the orb appear to grow/shrink. All frames
+## share one centered canvas, so the full-frame draw keeps a constant size; only the plasma animates.
+func _load_gauss_frames() -> void:
+	for i in GAUSS_FRAME_COUNT:
+		var path := "%sgauss24_%02d.png" % [GAUSS_ORB_DIR, i]
+		var img := Image.new()
+		if img.load(path) != OK:
+			push_warning("arena_weapons: could not load Gauss orb frame %s" % path)
+			continue
+		_gauss_frames.append(ImageTexture.create_from_image(img))
 
 ## Light sources this weapon currently emits, for the dust field: one per live projectile/beam.
 ## Each: {pos: world Vector2, value: float (light strength), color: Color}.
 func get_lights() -> Array:
 	var lights: Array = []
-	if GAT_ENABLED:
+	if _gat_active:
 		for b: Dictionary in _bullets:
 			lights.append({"pos": b["pos"], "value": GAT_LIGHT, "color": GAT_BODY_COL})
-	if GAUSS_ENABLED:
+	if _gauss_active:
 		for o: Dictionary in _orbs:
 			lights.append({"pos": o["pos"], "value": GAUSS_LIGHT, "color": GAUSS_ORB_LIGHT_COL})
+	if _arc_active:
+		for a: Dictionary in _arcs:
+			lights.append({"pos": a["tip"], "value": ARC_LIGHT, "color": ARC_COL})
 	if _lasgun_active and _beam_light_on:
 		# Light points sampled along the beam → the dust glows the whole length of the laser.
 		for i in LASGUN_LIGHT_SAMPLES:
@@ -231,23 +278,26 @@ func _process(delta: float) -> void:
 	_rate_mult = maxf(0.01, GameManager.get_fire_rate_mult()) if GameManager.has_method("get_fire_rate_mult") else 1.0
 	_crit_chance = GameManager.get_crit_chance() if GameManager.has_method("get_crit_chance") else 0.0
 	_crit_damage = GameManager.get_crit_damage() if GameManager.has_method("get_crit_damage") else 1.5
-	if GAT_ENABLED:
+	if _gat_active:
 		_gat_acc += delta
 		var gat_interval := GAT_FIRE_INTERVAL / _rate_mult
 		while _gat_acc >= gat_interval:
 			_gat_acc -= gat_interval
 			_fire_gatling()
-	if GAUSS_ENABLED:
+	if _gauss_active:
 		_gauss_charge += delta
 		if _gauss_charge >= GAUSS_CHARGE_TIME / _rate_mult:
 			_gauss_charge = 0.0
 			_fire_gauss()
+	if _arc_active:
+		_fire_arc(delta)
 	if _lasgun_active:
 		_fire_lasgun(delta)
 	elif _beam != null:
 		_beam.set_beam(Vector2.ZERO, Vector2.ZERO, false, false)
 	_tick_bullets(delta)
 	_tick_orbs(delta)
+	_tick_arcs(delta)
 	_update_charge_rings(delta)
 	_update_sparks(delta)
 	_update_flashes(delta)
@@ -259,7 +309,7 @@ func _update_gat_muzzle(delta: float) -> void:
 	_gat_muzzle_t = maxf(0.0, _gat_muzzle_t - delta / GAT_MUZZLE_DECAY)
 	if _gat_muzzle_fx == null:
 		return
-	if GAT_ENABLED and _gat_muzzle_t > 0.0 and _player != null and is_instance_valid(_player):
+	if _gat_active and _gat_muzzle_t > 0.0 and _player != null and is_instance_valid(_player):
 		var fwd := _forward()
 		var perp := Vector2(-fwd.y, fwd.x)
 		var base := _player.global_position + fwd * GAT_WING_FWD
@@ -339,7 +389,9 @@ func _fire_lasgun(delta: float) -> void:
 			best = en
 	var hit := best != null
 	var end_along: float = (best_along - LASGUN_HIT_PAD) if hit else LASGUN_RANGE   # terminate at the surface
-	var to_pt := from + dir * maxf(0.0, end_along)
+	# Keep a non-degenerate end point even at point-blank so the beam VFX retains a valid direction and can
+	# apply its own min-length floor (damage still uses the actual target, not this visual end).
+	var to_pt := from + dir * maxf(2.0, end_along)
 	if _beam != null:
 		_beam.set_beam(from, to_pt, true, hit)
 	# Cast light along the beam onto the dust (rainbow hue tracks the beam).
@@ -359,12 +411,175 @@ func activate_lasgun() -> void:
 	_lasgun_active = true
 	_las_t = LASGUN_CYCLE - LASGUN_CHARGE   # begin in the charge window → telegraph, then the first burst
 
-## Debug (F12): drop a Lasgun pickup at a world position on the gameplay plane.
-func spawn_lasgun_pickup_near(world_pos: Vector2) -> void:
+# ── Arc (chain lightning — auto-targets nearest enemy, then chains to nearby foes) ───────────────────────
+## Cooldown-gated burst: strike the enemy nearest the ship, then chain to the nearest un-hit enemy within
+## ARC_RANGE, up to ARC_JUMPS extra links. Each link applies damage + records a fading lightning segment.
+func _fire_arc(delta: float) -> void:
+	_arc_cd -= delta
+	if _arc_cd > 0.0:
+		return
+	_arc_cd = ARC_COOLDOWN / _rate_mult
+	var muzzle := _muzzle()
+	var hit_set: Array = []                 # enemies already struck this burst (no double-hits)
+	var cur := _nearest_enemy(_player.global_position, ARC_ACQUIRE_RANGE, hit_set)
+	if cur == null:
+		return
+	# Pass 1: walk the chain, apply damage, collect the strike points (muzzle → t1 → t2 …).
+	var chain := PackedVector2Array([muzzle])
+	for _j in range(1 + maxi(0, ARC_JUMPS)):
+		if cur == null:
+			break
+		var c: Vector2 = (cur as Node2D).global_position
+		if cur.has_method("take_damage"):
+			cur.take_damage(_roll_damage(ARC_DAMAGE), ARC_STAGGER)
+		chain.append(c)
+		hit_set.append(cur)
+		cur = _nearest_enemy(c, ARC_RANGE, hit_set)
+	if chain.size() < 2:
+		return
+	# Pass 2: each link stores its span [u0,u1] of the TOTAL chain length, so a single dissolve front sweeps
+	# the whole bolt from the ORIGINAL muzzle outward — it does not restart the fade at each bounce point.
+	var seglen := PackedFloat32Array()
+	var total := 0.0
+	for i in range(chain.size() - 1):
+		var l := chain[i].distance_to(chain[i + 1])
+		seglen.append(l)
+		total += l
+	total = maxf(0.001, total)
+	var acc := 0.0
+	for i in range(chain.size() - 1):
+		var u0 := acc / total
+		acc += seglen[i]
+		var u1 := acc / total
+		var paths := _build_arc_paths(chain[i], chain[i + 1])   # shapes fixed once → no per-frame fluctuation
+		_arcs.append({"pts": paths[0], "pts2": paths[1], "pts3": paths[2], "tip": chain[i + 1],
+			"u0": u0, "u1": u1, "age": 0.0, "max_age": ARC_LIFE})
+
+## Nearest live arena_enemy to `from` within `max_dist`, skipping any in `exclude`.
+func _nearest_enemy(from: Vector2, max_dist: float, exclude: Array) -> Node:
+	var best: Node = null
+	var best_d := max_dist
+	for en in get_tree().get_nodes_in_group("arena_enemy"):
+		if not is_instance_valid(en) or en in exclude:
+			continue
+		var d := (en as Node2D).global_position.distance_to(from)
+		if d <= best_d:
+			best_d = d
+			best = en
+	return best
+
+## Age out lightning segments; alpha is computed at draw time from age/max_age.
+func _tick_arcs(delta: float) -> void:
+	var i := _arcs.size() - 1
+	while i >= 0:
+		var a: Dictionary = _arcs[i]
+		a["age"] = float(a["age"]) + delta
+		if float(a["age"]) >= float(a["max_age"]):
+			_arcs.remove_at(i)
+		else:
+			_arcs[i] = a
+		i -= 1
+
+## Build the (fixed) bolt geometry for a→b: a single gentle bow toward the target plus a small FIXED ripple,
+## so the bolt "arcs slightly" but never fluctuates frame-to-frame. Returns [main_path, companion_path].
+func _build_arc_paths(a: Vector2, b: Vector2) -> Array:
+	var segs := 12
+	var seg := b - a
+	var dist := seg.length()
+	var perp := seg.normalized().rotated(PI * 0.5) if dist > 0.01 else Vector2.UP
+	var bow := perp * randf_range(-1.0, 1.0) * clampf(dist * 0.07, 6.0, 28.0)   # gentle shared arc, chosen once
+	var zig := clampf(dist * 0.02, 1.5, 5.0) * 1.4     # main zigzag amplitude (40% rougher than before)
+	var zig_c := zig * 0.6                              # secondary-strand zigzag — smaller (not too much)
+	var off := perp * 4.0                               # companion sits a little to one side of the main line
+	var off3 := perp * -4.0                             # third strand to the other side
+	var pts := PackedVector2Array()
+	var pts2 := PackedVector2Array()
+	var pts3 := PackedVector2Array()
+	for i in range(segs + 1):
+		var u := float(i) / float(segs)
+		var arc := a.lerp(b, u) + bow * sin(u * PI)     # shared bow → all strands track the same direction
+		# Main: rough zigzag = a tighter sine ripple + a random kink (both FIXED at spawn → no fluctuation).
+		var pm := arc + perp * sin(u * PI * 4.0) * zig + perp * randf_range(-1.0, 1.0) * zig * 0.6
+		pts.append(pm)
+		# Companion: same general direction, kept near the main line, but with its OWN modest random noise.
+		var pc := arc + off + perp * sin(u * PI * 5.0) * zig_c * 0.5 + perp * randf_range(-1.0, 1.0) * zig_c
+		pts2.append(pc)
+		# Third strand: same idea (similar math), other side, its own noise.
+		var pc3 := arc + off3 + perp * sin(u * PI * 6.0) * zig_c * 0.4 + perp * randf_range(-1.0, 1.0) * zig_c * 0.9
+		pts3.append(pc3)
+	# Anchor every strand's endpoints exactly to muzzle/target for a clean attach (no floating ends).
+	pts[0] = a; pts[pts.size() - 1] = b
+	pts2[0] = a; pts2[pts2.size() - 1] = b
+	pts3[0] = a; pts3[pts3.size() - 1] = b
+	return [pts, pts2, pts3]
+
+## Draw one stored chain link. All three strands dissolve along the SAME global front that sweeps the whole
+## bolt from the original muzzle (each link maps its vertices into its [u0,u1] span of the chain).
+func _draw_arc(d: Dictionary) -> void:
+	var life: float = clampf(float(d["age"]) / float(d["max_age"]), 0.0, 1.0)
+	var u0: float = d["u0"]
+	var u1: float = d["u1"]
+	_draw_bolt(d["pts"], 1.0, life, u0, u1)            # main line
+	_draw_bolt(d["pts2"], 0.3, life, u0, u1)           # companion (0.3× width)
+	_draw_bolt(d["pts3"], 1.0 / 6.0, life, u0, u1)     # third strand (1/6× width)
+	# Strike-point burst — fades when the global dissolve front reaches this link's end (u1).
+	var front := life * (1.0 + ARC_FADE_SOFT) - ARC_FADE_SOFT
+	var tipv := clampf((u1 - front) / ARC_FADE_SOFT, 0.0, 1.0)
+	var tip: Vector2 = d["tip"]
+	draw_circle(tip, 9.0, Color(ARC_COL.r, ARC_COL.g, ARC_COL.b, 0.30 * tipv))
+	draw_circle(tip, 4.0, Color(1, 1, 1, 0.85 * tipv))
+
+## A thick, glowing bolt along `pts`, widths × `wscale`: soft outer glow → light-blue edge → white-hot core.
+## Per-vertex alpha dissolves along the GLOBAL chain parameter (vertex u mapped into [u0,u1]) so the muzzle
+## end fades first and the front sweeps toward the far tip — "first spawned, first faded".
+func _draw_bolt(pts: PackedVector2Array, wscale: float, life: float, u0: float, u1: float) -> void:
+	var n := pts.size()
+	if n < 2:
+		return
+	var front := life * (1.0 + ARC_FADE_SOFT) - ARC_FADE_SOFT
+	var vis := PackedFloat32Array()
+	for i in n:
+		var gu := lerpf(u0, u1, float(i) / float(n - 1))   # this vertex's position along the WHOLE chain
+		vis.append(clampf((gu - front) / ARC_FADE_SOFT, 0.0, 1.0))
+	# Soft outer glow (ARC_COL).
+	var widths := [20.0, 11.0]
+	var alphas := [0.16, 0.35]
+	for li in widths.size():
+		var cols := PackedColorArray()
+		for i in n:
+			cols.append(Color(ARC_COL.r, ARC_COL.g, ARC_COL.b, float(alphas[li]) * vis[i]))
+		draw_polyline_colors(pts, cols, float(widths[li]) * wscale)
+	# Light-blue edge, then white-hot core on top → white centre with a light-blue rim.
+	var edge := PackedColorArray()
+	var core := PackedColorArray()
+	for i in n:
+		edge.append(Color(ARC_EDGE_COL.r, ARC_EDGE_COL.g, ARC_EDGE_COL.b, 0.9 * vis[i]))
+		core.append(Color(1, 1, 1, 0.95 * vis[i]))
+	draw_polyline_colors(pts, edge, 5.5 * wscale)
+	draw_polyline_colors(pts, core, 2.8 * wscale)
+
+## Called by the Arc pickup on collection — adds chain lightning to the active loadout (accumulates).
+func activate_arc() -> void:
+	_arc_active = true
+	_arc_cd = 0.0   # fire on the next frame
+
+## Called by Gatling / Gauss pickups — turn the (otherwise default-state) weapon on so it accumulates too.
+func activate_gatling() -> void:
+	_gat_active = true
+
+func activate_gauss() -> void:
+	_gauss_active = true
+
+## Generic pickup drop used by the F12 weapon palette: spawn a `kind` pickup at a world position.
+func spawn_weapon_pickup(kind: String, world_pos: Vector2) -> void:
 	var p := PickupScript.new()
 	p.add_to_group("debug_weapon_pickup")
 	get_parent().add_child(p)
-	p.setup(world_pos, "lasgun")
+	p.setup(world_pos, kind)
+
+## Debug (legacy F12): drop a Lasgun pickup at a world position on the gameplay plane.
+func spawn_lasgun_pickup_near(world_pos: Vector2) -> void:
+	spawn_weapon_pickup("lasgun", world_pos)
 
 func _tick_bullets(delta: float) -> void:
 	var enemies := get_tree().get_nodes_in_group("arena_enemy")
@@ -419,6 +634,13 @@ func _fire_gauss() -> void:
 		_flashes.append({"pos": _muzzle(), "age": 0.0, "max_age": 0.30, "radius": GC_RELEASE_FLASH})
 
 func _tick_orbs(delta: float) -> void:
+	# Advance the shared 12-frame Gauss-orb plasma loop (all live orbs show the same frame).
+	if not _gauss_frames.is_empty() and GAUSS_ORB_FPS > 0.0:
+		_gauss_fb_t += delta
+		var gspf := 1.0 / GAUSS_ORB_FPS
+		while _gauss_fb_t >= gspf:
+			_gauss_fb_t -= gspf
+			_gauss_fb_idx = (_gauss_fb_idx + 1) % _gauss_frames.size()
 	var enemies := get_tree().get_nodes_in_group("arena_enemy")
 	var ruins   := get_tree().get_nodes_in_group("arena_ruin")
 	var i := _orbs.size() - 1
@@ -469,27 +691,18 @@ func _tick_orbs(delta: float) -> void:
 			_orbs.remove_at(i)
 		i -= 1
 
-func _make_orb() -> ColorRect:
-	if _orb_shader == null:
-		_orb_shader = Shader.new()
-		_orb_shader.code = GAUSS_ORB_SHADER
-	var mat := ShaderMaterial.new()
-	mat.shader = _orb_shader
-	mat.set_shader_parameter("core_color", GAUSS_ORB_CORE_COL)
-	mat.set_shader_parameter("light_color", GAUSS_ORB_LIGHT_COL)
-	mat.set_shader_parameter("haze_color", GAUSS_ORB_HAZE_COL)
-	mat.set_shader_parameter("tear_width", GAUSS_ORB_TEAR_WIDTH)
-	mat.set_shader_parameter("core_width", GAUSS_ORB_CORE_WIDTH)
-	mat.set_shader_parameter("core_bright", GAUSS_ORB_CORE_BRIGHT)
-	mat.set_shader_parameter("light_density", GAUSS_ORB_LIGHT_DENSITY)
-	mat.set_shader_parameter("crackle_speed", GAUSS_ORB_CRACKLE_SPEED)
-	mat.set_shader_parameter("haze_size", GAUSS_ORB_HAZE_SIZE)
-	mat.set_shader_parameter("glow", GAUSS_ORB_GLOW)
-	var cr := ColorRect.new()
-	cr.material = mat
-	cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(cr)
-	return cr
+## The Gauss projectile is now a 12-frame plasma flipbook sprite (round orb). Normal alpha blend — the
+## frames are finished art with the glow baked in (additive would blow out the white-hot core).
+func _make_orb() -> TextureRect:
+	var tr := TextureRect.new()
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_SCALE
+	tr.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	if not _gauss_frames.is_empty():
+		tr.texture = _gauss_frames[_gauss_fb_idx]
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(tr)
+	return tr
 
 func _update_orb_node(o: Dictionary) -> void:
 	var trail: Array = o.get("trail", [])
@@ -497,22 +710,20 @@ func _update_orb_node(o: Dictionary) -> void:
 	if trail.size() > GAUSS_TRAIL_LEN:
 		trail.resize(GAUSS_TRAIL_LEN)
 	o["trail"] = trail
-	var cr := o.get("orb_node") as ColorRect
-	if cr == null or not is_instance_valid(cr):
+	var tr := o.get("orb_node") as TextureRect
+	if tr == null or not is_instance_valid(tr):
 		return
-	var qhalf := GAUSS_RADIUS * GAUSS_ORB_QUAD
-	var w := qhalf * 2.0 * GAUSS_ORB_STRETCH
-	var h := qhalf * 2.0
-	cr.size = Vector2(w, h)
-	cr.pivot_offset = Vector2(w, h) * 0.5
-	var v: Vector2 = o["vel"]
-	cr.rotation = v.angle() if v.length() > 0.01 else 0.0
-	cr.position = (o["pos"] as Vector2) - Vector2(w, h) * 0.5
+	if not _gauss_frames.is_empty():
+		tr.texture = _gauss_frames[_gauss_fb_idx]   # advance the shared plasma loop
+	# Round orb → square footprint, no stretch/rotation (the plasma ball is radially symmetric).
+	var d := GAUSS_ORB_DRAW
+	tr.size = Vector2(d, d)
+	tr.position = (o["pos"] as Vector2) - Vector2(d, d) * 0.5
 
 func _free_orb(o: Dictionary) -> void:
-	var cr := o.get("orb_node") as ColorRect
-	if cr != null and is_instance_valid(cr):
-		cr.queue_free()
+	var tr := o.get("orb_node") as TextureRect
+	if tr != null and is_instance_valid(tr):
+		tr.queue_free()
 	o["orb_node"] = null
 
 func _shed_sparks(o: Dictionary, delta: float) -> void:
@@ -541,7 +752,7 @@ func _update_sparks(delta: float) -> void:
 
 # ── Gauss charge rings (auto-charge: charging is always true between shots) ────
 func _update_charge_rings(delta: float) -> void:
-	if not GAUSS_ENABLED:
+	if not _gauss_active:
 		return
 	var frac := clampf(_gauss_charge / maxf(0.01, GAUSS_CHARGE_TIME), 0.0, 1.0)
 	var focal := _muzzle()
@@ -579,6 +790,9 @@ func _draw() -> void:
 	_draw_sparks()
 	for b: Dictionary in _bullets:
 		_draw_tracer(b["pos"], b["vel"])
+	# Arc chain lightning — each stored bolt fades from the outside in over its lifetime.
+	for a: Dictionary in _arcs:
+		_draw_arc(a)
 	_draw_flashes()
 
 func _draw_tracer(p: Vector2, vel: Vector2) -> void:

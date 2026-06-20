@@ -67,13 +67,23 @@ enum BodyFill { TILE, STRETCH }
 @export var packet_width     := 0.35    # fraction of (pulsed) beam thickness
 @export var packet_color     := Color(1.0, 1.0, 1.0, 0.9)
 
+# ── TUNABLES (Stage 3 — animated caps: muzzle fire-start punch + subtle pulse, impact spin/shimmer) ──
+@export_group("Caps")
+@export var cap_pulse_speed   := 7.0    # subtle continuous scale pulse on both caps
+@export var cap_pulse_amt     := 0.05   # scale *= 1 + sin(t*cap_pulse_speed)*this
+@export var birth_punch_mult  := 1.5    # muzzle scale at the fire-start edge (punches big, then settles)
+@export var birth_punch_time  := 0.12   # s for the muzzle punch to settle back to 1
+@export var impact_spin_speed := 0.8    # rad/s continuous rotation of the impact cap (shimmer)
+
 # ── STATE ───────────────────────────────────────────────────────────────────────
 var _body_tex: Texture2D = null
 var _muzzle_tex: Texture2D = null
 var _impact_tex: Texture2D = null
 var _muzzle_frames: Array = []   # 12 AtlasTexture variation frames
+var _packet_tex: Texture2D = null   # procedural soft radial glow for the traveling packets (built in _ready)
 var _muzzle_idx := 0
 var _muzzle_anim_t := 0.0
+var _muzzle_birth_t := 999.0   # seconds since the fire-start edge (drives the muzzle scale-punch); large = settled
 var _from := Vector2.ZERO
 var _to := Vector2.ZERO
 var _active := false
@@ -90,6 +100,22 @@ func _ready() -> void:
 	_muzzle_tex = _load_tex(MUZZLE_PATH)
 	_impact_tex = _load_tex(IMPACT_PATH)
 	_load_muzzle_frames()
+	_packet_tex = _make_glow_tex(64)
+
+## Build a soft radial-alpha glow: white core (alpha 1) fading smoothly to transparent at the rim (alpha 0).
+## Drawn additively + stretched per packet, so the dash fades to nothing at every edge (no hard rectangle).
+func _make_glow_tex(size: int) -> Texture2D:
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	var c := (size - 1) * 0.5
+	for y in size:
+		for x in size:
+			# Normalised distance from centre (0 at core → 1 at the inscribed rim).
+			var d := Vector2(x - c, y - c).length() / c
+			# Smooth falloff: bright plateau in the middle, alpha → 0 well before the corners.
+			var a := clampf(1.0 - d, 0.0, 1.0)
+			a = a * a   # quadratic → softer, glow-like edge
+			img.set_pixel(x, y, Color(1.0, 1.0, 1.0, a))
+	return ImageTexture.create_from_image(img)
 
 ## Load the 12 pre-aligned muzzle variation frames (already transparent; convergence at the same fraction in each).
 func _load_muzzle_frames() -> void:
@@ -112,6 +138,8 @@ func _load_tex(path: String) -> Texture2D:
 # ── DRIVER CONTRACT (matches lasgun_ani_2) ──────────────────────────────────────
 ## Aim from→to, toggle on/off, flag a hit. Called every frame by arena_weapons.
 func set_beam(from: Vector2, to: Vector2, active: bool, hit: bool) -> void:
+	if active and not _active:   # fire-start edge → restart the muzzle scale-punch
+		_muzzle_birth_t = 0.0
 	_was_active = _active
 	_from = from
 	_to = to
@@ -129,6 +157,7 @@ func release() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	_muzzle_birth_t += delta
 	var target := 1.0 if _active else 0.0
 	var rate := (1.0 / maxf(0.001, activation_in)) if _active else (1.0 / maxf(0.001, activation_out))
 	_activation = move_toward(_activation, target, rate * delta)
@@ -175,29 +204,38 @@ func _draw() -> void:
 		if layer2_enabled:
 			_draw_body_layer(x0, x1, center_y, thick, layer2_speed * _t, layer2_scale, _lit(body_modulate, bright, layer2_alpha), x0, fade_len)
 
-	# ── Traveling packets: bright dashes racing convergence → impact ──
-	if packet_enabled and L - conv.x > 4.0:
+	# ── Traveling packets: soft additive glints racing convergence → impact ──
+	# Stretched radial-glow texture (white core → transparent rim) so each packet fades to nothing at
+	# every edge — no hard rectangle. Additive blend comes from the node material (BLEND_MODE_ADD).
+	if packet_enabled and _packet_tex != null and L - conv.x > 4.0:
 		var pcol := _lit(packet_color, bright, 1.0)
+		var ph_h := maxf(1.0, thick * packet_width)   # cross-beam glow height (px)
 		for i in maxi(1, packet_count):
 			var ph := fposmod(_t * packet_speed + float(i) / float(maxi(1, packet_count)), 1.0)
 			var px := lerpf(conv.x, L, ph)
-			draw_line(Vector2(px - packet_len * 0.5, center_y), Vector2(px + packet_len * 0.5, center_y),
-				pcol, maxf(1.0, thick * packet_width))
+			# Fade each glint in/out near the beam ends so packets don't pop at the muzzle/impact.
+			var edge := minf(ph, 1.0 - ph) / 0.15
+			var pc := Color(pcol.r, pcol.g, pcol.b, pcol.a * clampf(edge, 0.0, 1.0))
+			draw_texture_rect(_packet_tex,
+				Rect2(px - packet_len * 0.5, center_y - ph_h * 0.5, packet_len, ph_h), false, pc)
 
-	# ── Muzzle: current flipbook variation (or fallback), drawn at native aspect with its convergence on `conv` ──
+	# ── Muzzle (flipbook variation): fire-start scale-PUNCH + subtle pulse, anchored so convergence stays on `conv` ──
 	var mtex: Texture2D = _muzzle_frames[_muzzle_idx] if not _muzzle_frames.is_empty() else _muzzle_tex
 	if mtex != null:
 		var fw := float(mtex.get_width())
 		var fh := float(mtex.get_height())
-		var mh := start_cap_len                              # drawn height (px)
-		var mw := start_cap_len * (fw / maxf(1.0, fh))       # preserve the frame's aspect
-		var tlx := conv.x - muzzle_anchor_x * mw             # anchor (frac) lands on conv
+		var mscale := _muzzle_birth_mult() * (1.0 + sin(_t * cap_pulse_speed) * cap_pulse_amt)
+		var mh := start_cap_len * mscale                     # drawn height (px), scaled about the anchor
+		var mw := start_cap_len * (fw / maxf(1.0, fh)) * mscale
+		var tlx := conv.x - muzzle_anchor_x * mw             # anchor (frac) lands on conv at any scale
 		var tly := conv.y - muzzle_anchor_y * mh
 		draw_texture_rect(mtex, Rect2(tlx, tly, mw, mh), false, _lit(muzzle_modulate, bright, 1.0))
 
-	# ── Impact cap at the hit point (only when the beam actually hits), on the axis ──
+	# ── Impact cap (only on hit): slow spin + scale pulse → shimmer. Drawn in its own transform at the hit point. ──
 	if _hit and _impact_tex != null:
-		_draw_cap_at(_impact_tex, L, 0.0, impact_cap_len, _lit(impact_modulate, bright, 1.0))
+		var iside := impact_cap_len * (1.0 + sin(_t * cap_pulse_speed) * cap_pulse_amt)
+		draw_set_transform(_to, ang + _t * impact_spin_speed, Vector2.ONE)
+		draw_texture_rect(_impact_tex, Rect2(-iside * 0.5, -iside * 0.5, iside, iside), false, _lit(impact_modulate, bright, 1.0))
 
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
@@ -257,8 +295,9 @@ func _draw_seg_faded(sx0: float, sx1: float, su0: float, su1: float, top: float,
 		var su_split := lerpf(su0, su1, (split - sx0) / span)
 		draw_texture_rect_region(_body_tex, Rect2(split, top, sx1 - split, thick), Rect2(su_split, 0.0, su1 - su_split, th), col)
 
-## Draw a square cap (side px) centred at local (cx, cy) — explicit centre so cap placement is
-## independent of body_v_offset (lets the muzzle convergence anchor exactly on the gatling midpoint).
-func _draw_cap_at(tex: Texture2D, cx: float, cy: float, side: float, col: Color) -> void:
-	var half := side * 0.5
-	draw_texture_rect(tex, Rect2(cx - half, cy - half, side, side), false, col)
+## Muzzle scale at the fire-start edge: punches to birth_punch_mult, eases back to 1 over birth_punch_time.
+func _muzzle_birth_mult() -> float:
+	if _muzzle_birth_t >= birth_punch_time:
+		return 1.0
+	var r := _muzzle_birth_t / maxf(0.0001, birth_punch_time)   # 0..1
+	return lerpf(birth_punch_mult, 1.0, r * r)                  # quadratic ease-out from the punch
