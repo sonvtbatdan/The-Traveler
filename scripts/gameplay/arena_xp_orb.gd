@@ -6,6 +6,8 @@ extends Node2D
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
 const ORB_SIZE_PER_XP     := 1.0   # radius px = value × this (8 XP → 8 px)
+const BIG_ORB_THRESHOLD   := 100   # xp > this → red orb with xp/BIG_ORB_DIV size
+const BIG_ORB_DIV         := 5.0   # big orb radius = xp / this (500 xp → 100 px)
 const COLLECT_RADIUS      := 16.0
 const MAGNET_SPEED        := 120.0    # starting fly speed once magnetized naturally (px/s)
 const MAGNET_ACCEL        := 900.0    # acceleration when magnetized naturally (px/s²)
@@ -16,6 +18,8 @@ const BOB_AMP        := 2.5
 const BOB_SPEED      := 3.0
 const CORE_COLOR     := Color(0.45, 1.0, 0.7)
 const GLOW_COLOR     := Color(0.30, 0.95, 0.85)
+const BIG_CORE_COLOR := Color(1.0, 0.18, 0.08)
+const BIG_GLOW_COLOR := Color(1.0, 0.05, 0.0)
 
 var _value: int = 1
 var _vel := Vector2.ZERO
@@ -83,12 +87,15 @@ func collect() -> void:
 	_collect()
 
 func _draw() -> void:
-	var sz := float(_value) * ORB_SIZE_PER_XP
+	var big := _value > BIG_ORB_THRESHOLD
+	var sz := (float(_value) / BIG_ORB_DIV) if big else (float(_value) * ORB_SIZE_PER_XP)
+	var core_col := BIG_CORE_COLOR if big else CORE_COLOR
+	var glow_col := BIG_GLOW_COLOR if big else GLOW_COLOR
 	var bob := sin(_t * BOB_SPEED) * BOB_AMP
 	var c := Vector2(0.0, bob)
 	var pulse := 0.85 + 0.15 * sin(_t * BOB_SPEED * 1.7)
 	# Soft outer glow → bright core → white centre.
-	draw_circle(c, sz * 2.4 * pulse, Color(GLOW_COLOR.r, GLOW_COLOR.g, GLOW_COLOR.b, 0.18))
-	draw_circle(c, sz * 1.5 * pulse, Color(GLOW_COLOR.r, GLOW_COLOR.g, GLOW_COLOR.b, 0.35))
-	draw_circle(c, sz * pulse, CORE_COLOR)
+	draw_circle(c, sz * 2.4 * pulse, Color(glow_col.r, glow_col.g, glow_col.b, 0.18))
+	draw_circle(c, sz * 1.5 * pulse, Color(glow_col.r, glow_col.g, glow_col.b, 0.35))
+	draw_circle(c, sz * pulse, core_col)
 	draw_circle(c, sz * 0.45, Color(1, 1, 1, 0.9))
