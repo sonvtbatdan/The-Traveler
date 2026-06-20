@@ -17,6 +17,8 @@ const KIND_STYLE := {
 	"arc":     {"color": Color(0.55, 0.8, 1.0),  "ring": Color(0.7, 0.9, 1.0),  "emblem": "bolt"},
 	"gauss":   {"color": Color(0.4, 0.7, 1.0),   "ring": Color(0.7, 0.9, 1.0),  "emblem": "orb"},
 	"gatling": {"color": Color(1.0, 0.82, 0.25), "ring": Color(1.0, 0.9, 0.5),  "emblem": "tracer"},
+	"orbital": {"color": Color(0.65, 0.78, 0.95), "ring": Color(0.8, 0.9, 1.0), "emblem": "orb"},
+	"void":    {"color": Color(0.7, 0.4, 1.0),    "ring": Color(0.85, 0.7, 1.0), "emblem": "orb"},
 }
 const DEFAULT_STYLE := {"color": Color(0.8, 0.8, 0.8), "ring": Color(0.95, 0.95, 0.95), "emblem": "beam"}
 

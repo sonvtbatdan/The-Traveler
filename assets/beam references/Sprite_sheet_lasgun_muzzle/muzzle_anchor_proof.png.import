@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cdf6qbc66y7n5"
-path="res://.godot/imported/muzzle_anchor_proof.png-4f1097d424acb25c0f1daf21ae85a719.ctex"
+path="res://.godot/imported/muzzle_anchor_proof.png-957200f49b3d7687621878123259d256.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/beam references/files/muzzle_anchor_proof.png"
-dest_files=["res://.godot/imported/muzzle_anchor_proof.png-4f1097d424acb25c0f1daf21ae85a719.ctex"]
+source_file="res://assets/beam references/Sprite_sheet_lasgun_muzzle/muzzle_anchor_proof.png"
+dest_files=["res://.godot/imported/muzzle_anchor_proof.png-957200f49b3d7687621878123259d256.ctex"]
 
 [params]
 

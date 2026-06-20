@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dm47a3fgwyt78"
-path="res://.godot/imported/muzzle_02.png-bb9fb3e59669aff341b2a6e2cce0e9f1.ctex"
+uid="uid://cm53pub8r4idr"
+path="res://.godot/imported/Sprite_orbital_2.png-1b90fe75a45ac129a3fa8ffd00cc53e2.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/beam references/Sprite_sheet_lasgun_muzzle/muzzle_02.png"
-dest_files=["res://.godot/imported/muzzle_02.png-bb9fb3e59669aff341b2a6e2cce0e9f1.ctex"]
+source_file="res://assets/beam references/Sprite_orbital_2.png"
+dest_files=["res://.godot/imported/Sprite_orbital_2.png-1b90fe75a45ac129a3fa8ffd00cc53e2.ctex"]
 
 [params]
 

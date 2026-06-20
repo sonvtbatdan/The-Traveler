@@ -31,13 +31,102 @@ const GAUSS_STAGGER     := 0.35     # s the enemy is staggered per Gauss hit (he
 const GAUSS_LIGHT       := 5.0      # dust-light "value" per Gauss orb (heavy → big bright light)
 const GAUSS_CHARGE_TIME := 1.4      # s to fully charge between shots (charge rings ramp up over this)
 const GAUSS_SPEED       := 520.0    # px/s (heavy + slow so you watch it plough through)
-const GAUSS_DAMAGE      := 55.0     # damage dealt to EACH enemy it pierces
-const GAUSS_PIERCE      := 6        # how many enemies one orb punches through before despawning
-const GAUSS_RADIUS      := 30.0     # orb ball radius (drives orb size + hit radius)
-const GAUSS_LIFETIME    := 2.5      # s before despawn
-const GAUSS_MAX_DIST    := 1700.0   # px travelled before despawn
+const GAUSS_DAMAGE      := 55.0     # per-shot DAMAGE BUDGET the orb carries (× damage-mult at fire)
+const GAUSS_RADIUS      := 30.0     # FULL hit radius (at full budget); shrinks ∝ sqrt(damage)
+const GAUSS_MIN_DMG     := 1.0      # cull the orb once its remaining budget falls below this
+const GAUSS_CULL_DIST   := 1800.0   # cull the orb once it gets this far from the player ("too far to notice")
+const GAUSS_LIFETIME    := 8.0      # s before despawn (generous backstop; damage/distance are the real culls)
 
 const MUZZLE_OFFSET     := 22.0     # how far ahead of the ship centre shots spawn (px)
+
+# ── TUNABLES: Orbitals (spiky energy orbs circling the ship, contact damage — ported from weapon_system.gd) ──
+const ORBITAL_BALLS        := 3       # number of orbiting balls (evenly spaced)
+const ORBITAL_RADIUS       := 350.0   # orbit radius around the ship (px)
+const ORBITAL_SPIN         := 90.0   # deg/sec (one loop every 3s); always-on passive (no overcharge in arena)
+const ORBITAL_BALL_RADIUS  := 9.0     # procedural-fallback ball radius (px)
+const ORBITAL_HIT_PAD      := 16.0    # (fallback) added to the ball radius for the contact test
+const ORBITAL_DAMAGE       := 25.0    # damage per ball collision (× damage-mult, crit-rollable); also fallback if the item def is missing
+const ORBITAL_HIT_COOLDOWN := 0.12    # per-ball seconds before it can hit again (~1 hit per pass)
+const ORBITAL_STAGGER      := 0.1     # s stagger per orbital hit
+const ORBITAL_LIGHT        := 2.5     # dust-light value per ball
+const ORBITAL_COL          := Color(0.6, 0.85, 1.0)   # electric arc tint (fallback draw + dust light)
+const ORBITAL_SPRITE       := "res://assets/beam references/Sprite_orbital_2.png"   # spiky energy orb art (white bg keyed out)
+const ORBITAL_DRAW         := 45.0    # on-screen orb diameter (px)
+const ORBITAL_KEY_THR      := 240     # white-key threshold (0-255): border-connected pixels ≥ this → transparent
+const ORBITAL_HIT_FRAC     := 0.45    # collision radius = ORBITAL_DRAW * 0.5 * this (matches the sprite body)
+# Motion blur (afterimage ghosts + tangent streak glow). Orbit speed is fixed → blur is a constant knob.
+const ORBITAL_BLUR_AMT     := 0.9     # overall blur strength (0 = crisp, 1 = full)
+const trail_ghosts         := 5       # afterimage copies behind the body
+const trail_arc_step       := 0.06    # rad between ghosts, stepping BACK along the orbit (curved trail; tighter spacing)
+const trail_alpha_falloff  := 0.55    # each older ghost = prev * this
+const trail_scale_falloff  := 0.97    # each older ghost slightly smaller
+const trail_tint           := Color(0.6, 0.85, 1.0)   # cool tint pushed into ghosts (energy streak, not clones)
+const streak_enabled       := true
+const streak_len_min       := 8.0     # tangent streak length at low blur (px)
+const streak_len_max       := 60.0    # streak length at full blur (px)
+const streak_width         := 18.0    # streak thickness (px)
+const streak_alpha         := 0.5
+
+# ── TUNABLES: Void gun (Rift Maker — auto-casts a growing void on the nearest enemy; ported from weapon_system.gd) ──
+const VOID_COOLDOWN     := 5.0     # s between casts (measured from cast start)
+const VOID_DURATION     := 3.0     # s the void stays open
+const VOID_RAMP         := 2.5     # s to grow from min→max size/damage
+const VOID_RADIUS_MIN   := 40.0    # damage radius at placement (px)
+const VOID_RADIUS_MAX   := 90.0    # damage radius at full growth (px)
+const VOID_DAMAGE_MIN   := 20.0    # damage/SEC at placement (ramps)
+const VOID_DAMAGE_MAX   := 195.0   # damage/SEC at full growth
+const VOID_TICK         := 0.3     # s between damage ticks
+const VOID_HIT_PAD      := 14.0    # enemy half-size pad added to the radius test
+const VOID_VISUAL_SCALE := 1.1     # vortex draw diameter = (radius*2) * this (cover the damage zone)
+const VOID_COL          := Color(0.7, 0.4, 1.0)   # void purple (pickup tint / dust light)
+
+# Rift-Maker vortex shader (additive swirl) — copied verbatim from weapon_system.gd.
+const RIFT_VORTEX_SHADER := "shader_type canvas_item;
+render_mode blend_add;
+
+uniform sampler2D portal_texture : source_color, filter_linear_mipmap_anisotropic;
+uniform vec4  arm_color  : source_color = vec4(0.55, 0.20, 0.95, 1.0);
+uniform vec4  core_color : source_color = vec4(0.95, 0.75, 1.0, 1.0);
+uniform vec4  eye_color  : source_color = vec4(0.04, 0.0, 0.10, 1.0);
+uniform float vortex_effect_radius : hint_range(0.05, 0.5, 0.01) = 0.5;
+uniform float eye_size : hint_range(0.0, 0.5, 0.01) = 0.12;
+uniform float twist_strength : hint_range(0.0, 30.0, 0.1) = 9.0;
+uniform float arm_count : hint_range(1.0, 12.0, 0.5) = 5.0;
+uniform float pulsation_speed : hint_range(0.0, 5.0, 0.01) = 0.7;
+uniform float breath_magnitude : hint_range(-0.3, 0.3, 0.005) = 0.05;
+uniform float overall_rotation_speed : hint_range(-3.0, 3.0, 0.01) = 0.42;
+uniform float texture_scroll_speed : hint_range(-2.0, 2.0, 0.01) = 0.5;
+uniform float edge_softness : hint_range(0.01, 0.5, 0.005) = 0.12;
+uniform float contrast : hint_range(0.5, 6.0, 0.05) = 2.4;
+uniform float glow : hint_range(0.0, 4.0, 0.01) = 1.7;
+uniform float growth : hint_range(0.0, 1.0, 0.01) = 1.0;
+
+void fragment() {
+	vec2 uv = UV - 0.5;
+	float dist = length(uv);
+	float ang = atan(uv.y, uv.x);
+	float t = sin(TIME * pulsation_speed);
+	float spatial = smoothstep(0.0, vortex_effect_radius, vortex_effect_radius - dist);
+	float twist = spatial * twist_strength * (0.5 + 0.5 * growth) * t;
+	float a2 = ang + TIME * overall_rotation_speed + twist;
+	vec2 puv  = vec2(a2 * arm_count / 6.2831853, dist - TIME * texture_scroll_speed);
+	float n   = texture(portal_texture, fract(puv)).r;
+	float n2  = texture(portal_texture, fract(puv * 2.0 + 0.5)).r;
+	float raw = clamp(n * 0.7 + n2 * 0.5, 0.0, 1.0);
+	float arms = pow(raw, contrast);
+	float core = smoothstep(eye_size + 0.18, eye_size, dist);
+	float eye  = smoothstep(eye_size, 0.0, dist);
+	vec3 col = mix(arm_color.rgb, core_color.rgb, core);
+	col = mix(col, eye_color.rgb, eye);
+	float breath = 1.0 + breath_magnitude * t;
+	float bright = arms * (0.35 + 0.65 * growth) * glow * breath;
+	bright += core * (0.5 * growth) * glow;
+	float edge  = smoothstep(vortex_effect_radius, vortex_effect_radius - edge_softness, dist);
+	float alpha = edge * (1.0 - eye * 0.85);
+	COLOR = vec4(col * bright, alpha);
+	if (UV.x < 0.0 || UV.x > 1.0 || UV.y < 0.0 || UV.y > 1.0) COLOR.a = 0.0;
+}
+"
 
 # ── TUNABLES: Lasgun (continuous tick-based beam — gained from a pickup, off until then) ──────────────────
 const LASGUN_RANGE   := 1400.0   # beam length px
@@ -195,7 +284,7 @@ var _rate_mult: float = 1.0   # GameManager.get_fire_rate_mult() (Fire Rate upgr
 var _crit_chance: float = 0.0 # GameManager.get_crit_chance() (Critical Strike cards)
 var _crit_damage: float = 1.5 # GameManager.get_crit_damage() (Lethality cards)
 var _bullets: Array = []         # Gatling: {pos, vel, life, start}
-var _orbs: Array = []            # Gauss: {pos, vel, life, start, orb_node, trail, spark_acc, pierce_left, hit}
+var _orbs: Array = []            # Gauss: {pos, vel, life, start, orb_node, trail, spark_acc, dmg, dmg_ref, hit}
 var _sparks: Array = []          # Gauss tail sparks: {pos, vel, life, ttl}
 var _charge_rings: Array = []    # {ang, r}
 var _charge_spawn_acc: float = 0.0
@@ -210,6 +299,19 @@ var _gauss_active: bool = GAUSS_ENABLED
 var _arc_active: bool = ARC_ENABLED_DEFAULT   # turned on by the Arc pickup
 var _arc_cd: float = 0.0           # Arc burst cooldown
 var _arcs: Array = []              # live lightning segments: {a, b, age, max_age}
+var _orbital_active: bool = false  # turned on by the Orbital pickup
+var _orbital_angle: float = 0.0    # current orbit angle (deg)
+var _orbital_t: float = 0.0        # time accumulator for the electric-arc crackle
+var _orbital_cd: Array = []        # per-ball hit cooldown timers
+var _orbital_tex: Texture2D = null # orb sprite (white background keyed out); null → procedural fallback
+var _orbital_damage: float = ORBITAL_DAMAGE   # per-collision damage, ported from the "orbitals" item def at _ready
+var _void_active: bool = false     # turned on by the Void pickup
+var _void_cd: float = 0.0          # cast cooldown (ready when <= 0)
+var _void_on: bool = false         # a void is currently open
+var _void_pos: Vector2 = Vector2.ZERO
+var _void_age: float = 0.0         # 0 → VOID_DURATION
+var _void_tick: float = 0.0        # damage-tick accumulator
+var _void_node: ColorRect = null   # the swirling-vortex visual
 var _lasgun_active: bool = false   # turned on by the Lasgun pickup (auto-equip, accumulates with the Gatling)
 var _beam_cd: float = 0.0          # Lasgun damage-tick cooldown
 var _beam: Node2D = null           # additive beam VFX child (gameplay plane → sharp)
@@ -234,6 +336,80 @@ func _ready() -> void:
 	_gat_muzzle_fx = GatMuzzleScript.new()
 	add_child(_gat_muzzle_fx)
 	_load_gauss_frames()
+	_orbital_tex = _load_orbital_tex()
+	# Port the orbital's per-collision damage straight from the inventory item def (fallback to the const).
+	var odef: Dictionary = InventoryManager.ITEM_DEFS.get("orbitals", {}) if InventoryManager else {}
+	var ostats: Dictionary = odef.get("stats", {})
+	_orbital_damage = float(ostats.get("damage", ORBITAL_DAMAGE))
+	_void_node = _make_void_node()
+
+## The Void's swirling vortex: a ColorRect driven by the additive Rift-Maker shader (procedural seamless
+## noise → spiral arms). Positioned/sized to the live void each frame; hidden when no void is open.
+func _make_void_node() -> ColorRect:
+	var rnoise := FastNoiseLite.new()
+	rnoise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	rnoise.frequency = 0.045
+	rnoise.fractal_octaves = 4
+	var rtex := NoiseTexture2D.new()
+	rtex.width = 256
+	rtex.height = 256
+	rtex.seamless = true
+	rtex.noise = rnoise
+	var sh := Shader.new()
+	sh.code = RIFT_VORTEX_SHADER
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	mat.set_shader_parameter("portal_texture", rtex)
+	var cr := ColorRect.new()
+	cr.material = mat
+	cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cr.visible = false
+	add_child(cr)
+	return cr
+
+## Load the orbital sprite and KEY OUT its solid near-white background. The art has white metal too, so a
+## flat white-key would punch holes — instead flood-fill from the borders: only near-white pixels CONNECTED
+## to the image edge (the background) become transparent. Downscaled first so the fill is cheap. Returns
+## null on failure (the procedural ball is then used as a fallback).
+func _load_orbital_tex() -> Texture2D:
+	var img := Image.new()
+	if img.load(ORBITAL_SPRITE) != OK:
+		push_warning("arena_weapons: could not load orbital sprite %s" % ORBITAL_SPRITE)
+		return null
+	img.convert(Image.FORMAT_RGBA8)
+	if img.get_width() > 256:
+		img.resize(256, 256, Image.INTERPOLATE_BILINEAR)
+	var w := img.get_width()
+	var h := img.get_height()
+	var thr := float(ORBITAL_KEY_THR) / 255.0
+	var seen := PackedByteArray()
+	seen.resize(w * h)
+	var stack: Array[int] = []
+	for x in range(w):
+		stack.append(x)
+		stack.append((h - 1) * w + x)
+	for y in range(h):
+		stack.append(y * w)
+		stack.append(y * w + w - 1)
+	while not stack.is_empty():
+		var idx: int = stack.pop_back()
+		if seen[idx] != 0:
+			continue
+		seen[idx] = 1
+		var x := idx % w
+		var y := idx / w
+		var c := img.get_pixel(x, y)
+		if c.r < thr or c.g < thr or c.b < thr:
+			continue   # not background-white → boundary; don't cross
+		img.set_pixel(x, y, Color(c.r, c.g, c.b, 0.0))   # erase background
+		if x > 0: stack.append(idx - 1)
+		if x < w - 1: stack.append(idx + 1)
+		if y > 0: stack.append(idx - w)
+		if y < h - 1: stack.append(idx + w)
+	var ur := img.get_used_rect()
+	if ur.size.x <= 0 or ur.size.y <= 0:
+		return ImageTexture.create_from_image(img)
+	return ImageTexture.create_from_image(img.get_region(ur))
 
 ## Load the 24-frame Gauss plasma-orb flipbook (individual transparent PNGs). CPU Image.load (no import
 ## dependency). The FULL frame is kept (NOT cropped to get_used_rect): the glow pulses, so per-frame
@@ -266,6 +442,11 @@ func get_lights() -> Array:
 		for i in LASGUN_LIGHT_SAMPLES:
 			var f := float(i) / float(maxi(1, LASGUN_LIGHT_SAMPLES - 1))
 			lights.append({"pos": _beam_light_from.lerp(_beam_light_to, f), "value": LASGUN_LIGHT, "color": _beam_light_col})
+	if _orbital_active and _player != null and is_instance_valid(_player):
+		for c: Vector2 in _orbital_positions():
+			lights.append({"pos": c, "value": ORBITAL_LIGHT, "color": ORBITAL_COL})
+	if _void_on:
+		lights.append({"pos": _void_pos, "value": 6.0, "color": VOID_COL})
 	return lights
 
 func _process(delta: float) -> void:
@@ -291,6 +472,10 @@ func _process(delta: float) -> void:
 			_fire_gauss()
 	if _arc_active:
 		_fire_arc(delta)
+	if _orbital_active:
+		_tick_orbital(delta)
+	if _void_active:
+		_tick_void(delta)
 	if _lasgun_active:
 		_fire_lasgun(delta)
 	elif _beam != null:
@@ -563,6 +748,194 @@ func activate_arc() -> void:
 	_arc_active = true
 	_arc_cd = 0.0   # fire on the next frame
 
+## Called by the Orbital pickup — adds the orbiting balls to the active loadout (accumulates).
+func activate_orbital() -> void:
+	_orbital_active = true
+	_orbital_cd.resize(ORBITAL_BALLS)
+	for k in ORBITAL_BALLS:
+		_orbital_cd[k] = 0.0
+
+## Called by the Void pickup — adds the auto-casting void gun to the loadout (accumulates).
+func activate_void() -> void:
+	_void_active = true
+	_void_cd = 0.0   # cast on the next available enemy
+
+# ── Void gun (Rift Maker): every VOID_COOLDOWN s, tear a growing void on the nearest enemy for VOID_DURATION s ──
+func _tick_void(delta: float) -> void:
+	if not _void_on:
+		_void_cd -= delta
+		if _void_cd <= 0.0:
+			var e := _nearest_enemy(_player.global_position, INF, [])
+			if e != null:
+				_void_pos = (e as Node2D).global_position
+				_void_age = 0.0
+				_void_tick = 0.0
+				_void_on = true
+				_void_cd = VOID_COOLDOWN
+				if _void_node != null:
+					_void_node.visible = true
+		return
+	_void_age += delta
+	if _void_age >= VOID_DURATION:
+		_void_on = false
+		if _void_node != null:
+			_void_node.visible = false
+		return
+	var f := clampf(_void_age / VOID_RAMP, 0.0, 1.0)
+	var radius := lerpf(VOID_RADIUS_MIN, VOID_RADIUS_MAX, f)
+	# Damage everything inside the radius, in ticks (DoT ramps with growth).
+	_void_tick += delta
+	while _void_tick >= VOID_TICK:
+		_void_tick -= VOID_TICK
+		var per_tick := lerpf(VOID_DAMAGE_MIN, VOID_DAMAGE_MAX, f) * VOID_TICK * _dmg_mult
+		for en in get_tree().get_nodes_in_group("arena_enemy"):
+			if not is_instance_valid(en):
+				continue
+			if _void_pos.distance_to((en as Node2D).global_position) <= radius + VOID_HIT_PAD:
+				if en.has_method("take_damage"):
+					en.take_damage(per_tick, 0.0)
+		for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+			if not is_instance_valid(ruin):
+				continue
+			var rr: float = radius + (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0)
+			if _void_pos.distance_to((ruin as Node2D).global_position) <= rr:
+				if ruin.has_method("take_damage"):
+					ruin.take_damage(per_tick)
+	# Size/position the vortex visual to the void.
+	if _void_node != null:
+		var diam := radius * 2.0 * VOID_VISUAL_SCALE
+		_void_node.position = _void_pos - Vector2(diam * 0.5, diam * 0.5)
+		_void_node.size = Vector2(diam, diam)
+		var mat := _void_node.material as ShaderMaterial
+		if mat != null:
+			mat.set_shader_parameter("growth", f)
+
+# ── Orbitals (metal balls circling the ship; contact damage with a per-ball cooldown) ──────────────────
+## World positions of the orbiting balls this frame (evenly spaced on the orbit around the ship).
+func _orbital_positions() -> Array:
+	var out: Array = []
+	var ship := _player.global_position
+	var step := 360.0 / float(ORBITAL_BALLS)
+	for k in ORBITAL_BALLS:
+		var ang := deg_to_rad(_orbital_angle + step * float(k))
+		out.append(ship + Vector2(cos(ang), sin(ang)) * ORBITAL_RADIUS)
+	return out
+
+func _tick_orbital(delta: float) -> void:
+	_orbital_t += delta
+	_orbital_angle = fmod(_orbital_angle + ORBITAL_SPIN * delta, 360.0)
+	if _orbital_cd.size() < ORBITAL_BALLS:
+		_orbital_cd.resize(ORBITAL_BALLS)
+	var enemies := get_tree().get_nodes_in_group("arena_enemy")
+	var ruins   := get_tree().get_nodes_in_group("arena_ruin")
+	var balls := _orbital_positions()
+	var hit_r := ORBITAL_DRAW * 0.5 * ORBITAL_HIT_FRAC if _orbital_tex != null else ORBITAL_BALL_RADIUS + ORBITAL_HIT_PAD
+	for k in ORBITAL_BALLS:
+		_orbital_cd[k] = maxf(0.0, float(_orbital_cd[k]) - delta)
+		if float(_orbital_cd[k]) > 0.0:
+			continue
+		var bpos: Vector2 = balls[k]
+		var struck := false
+		for en in enemies:
+			if not is_instance_valid(en):
+				continue
+			if bpos.distance_to((en as Node2D).global_position) <= hit_r:
+				if en.has_method("take_damage"):
+					en.take_damage(_roll_damage(_orbital_damage), ORBITAL_STAGGER)
+				struck = true
+				break
+		if not struck:
+			for ruin in ruins:
+				if not is_instance_valid(ruin):
+					continue
+				var rr: float = (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0) + ORBITAL_BALL_RADIUS
+				if bpos.distance_to((ruin as Node2D).global_position) <= rr:
+					if ruin.has_method("take_damage"):
+						ruin.take_damage(_orbital_damage * _dmg_mult)
+					struck = true
+					break
+		if struck:
+			_orbital_cd[k] = ORBITAL_HIT_COOLDOWN
+
+## Per ball, drawn BACK→FRONT: tangent streak glow → afterimage ghosts → crisp body. The orbit is
+## deterministic, so past ghost positions are just θ stepped back along the arc (no history buffer).
+func _draw_orbital() -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	var ship := _player.global_position
+	var step := 360.0 / float(ORBITAL_BALLS)
+	var blur := ORBITAL_BLUR_AMT
+	for k in ORBITAL_BALLS:
+		var th := deg_to_rad(_orbital_angle + step * float(k))
+		var c := ship + Vector2(cos(th), sin(th)) * ORBITAL_RADIUS
+		if blur > 0.001:
+			if streak_enabled:
+				_draw_orbital_streak(ship, th, blur)
+			_draw_orbital_ghosts(ship, th, blur)
+		_draw_orbital_ball(c)
+
+## Afterimage ghosts: copies of the orb at θ stepped BACK along the orbit, fading + shrinking + tinted.
+func _draw_orbital_ghosts(ship: Vector2, th: float, blur: float) -> void:
+	if _orbital_tex == null:
+		return
+	var n := maxi(1, int(round(float(trail_ghosts) * blur)))
+	for j in range(1, n + 1):
+		var gth := th - trail_arc_step * float(j)   # back along the arc (spin is +θ)
+		var gc := ship + Vector2(cos(gth), sin(gth)) * ORBITAL_RADIUS
+		var d := ORBITAL_DRAW * pow(trail_scale_falloff, float(j))
+		var a := pow(trail_alpha_falloff, float(j)) * blur
+		draw_texture_rect(_orbital_tex, Rect2(gc.x - d * 0.5, gc.y - d * 0.5, d, d), false,
+			Color(trail_tint.r, trail_tint.g, trail_tint.b, a))
+
+## Soft tangent streak glow: stacked low-alpha circles sampled along the arc behind the orbital → a smooth
+## speed smear, brightest at the body and fading backward (soft mix-blend glow, no hard shape).
+func _draw_orbital_streak(ship: Vector2, th: float, blur: float) -> void:
+	var length := lerpf(streak_len_min, streak_len_max, blur)
+	var back_ang := length / maxf(1.0, ORBITAL_RADIUS)   # arc (rad) the streak spans
+	var m := 8
+	for s in range(1, m + 1):
+		var f := float(s) / float(m)                     # 0 at body → 1 at tail
+		var sth := th - back_ang * f
+		var sc := ship + Vector2(cos(sth), sin(sth)) * ORBITAL_RADIUS
+		var a := streak_alpha * blur * (1.0 - f)
+		var rad := streak_width * 0.5 * (1.0 - f * 0.4)
+		draw_circle(sc, rad, Color(trail_tint.r, trail_tint.g, trail_tint.b, a))
+
+func _draw_orbital_ball(c: Vector2) -> void:
+	# Sprite path: draw the keyed orb art (crisp, NO self-rotation — orbit-only). It carries its own energy.
+	if _orbital_tex != null:
+		var d := ORBITAL_DRAW
+		draw_texture_rect(_orbital_tex, Rect2(c.x - d * 0.5, c.y - d * 0.5, d, d), false)
+		return
+	# Procedural fallback (no sprite): soft glow + crackling arcs + a 3-layer metal sphere.
+	var r := ORBITAL_BALL_RADIUS
+	# Soft electric glow.
+	draw_circle(c, r * 2.4, Color(ORBITAL_COL.r, ORBITAL_COL.g, ORBITAL_COL.b, 0.12))
+	draw_circle(c, r * 1.5, Color(ORBITAL_COL.r, ORBITAL_COL.g, ORBITAL_COL.b, 0.20))
+	# Crackling lightning spokes (re-jagged ~18×/s).
+	var jag := floorf(_orbital_t * 18.0)
+	var arcs := 4
+	for a in arcs:
+		var base_ang := _orbital_t * 5.0 + TAU * float(a) / float(arcs)
+		var dir := Vector2(cos(base_ang), sin(base_ang))
+		var perp := Vector2(-dir.y, dir.x)
+		var prev := c + dir * r
+		for s in range(1, 4):
+			var tt := float(s) / 3.0
+			var jit := _orb_pseudo(base_ang * 10.0 + float(s), jag) * 6.0
+			var pt := c + dir * (r + r * 2.0 * tt) + perp * jit
+			draw_line(prev, pt, Color(ORBITAL_COL.r, ORBITAL_COL.g, ORBITAL_COL.b, 0.7 * (1.0 - tt * 0.5)), 1.5)
+			prev = pt
+	# Metal sphere: dark rim → grey body → bright specular highlight.
+	draw_circle(c, r + 1.0, Color(0.04, 0.05, 0.08))
+	draw_circle(c, r, Color(0.55, 0.58, 0.66))
+	draw_circle(c - Vector2(r * 0.3, r * 0.3), r * 0.36, Color(0.86, 0.9, 0.96))
+
+## Deterministic pseudo-random in [-0.5, 0.5] from two seeds (for the lightning jitter).
+func _orb_pseudo(a: float, b: float) -> float:
+	var v := sin(a * 12.9898 + b * 78.233) * 43758.5453
+	return (v - floorf(v)) - 0.5
+
 ## Called by Gatling / Gauss pickups — turn the (otherwise default-state) weapon on so it accumulates too.
 func activate_gatling() -> void:
 	_gat_active = true
@@ -620,9 +993,10 @@ func _fire_gauss() -> void:
 	var dir := _forward()
 	var start := _muzzle()
 	var orb := _make_orb()
+	var budget := GAUSS_DAMAGE * _dmg_mult   # the orb carries this much damage; size ∝ sqrt(dmg/dmg_ref)
 	var o := {
 		"pos": start, "vel": dir * GAUSS_SPEED, "life": 0.0, "start": start,
-		"orb_node": orb, "trail": [], "spark_acc": 0.0, "pierce_left": GAUSS_PIERCE, "hit": [],
+		"orb_node": orb, "trail": [], "spark_acc": 0.0, "dmg": budget, "dmg_ref": budget, "hit": [],
 	}
 	_orbs.append(o)
 	_update_orb_node(o)
@@ -651,41 +1025,41 @@ func _tick_orbs(delta: float) -> void:
 		_update_orb_node(o)
 		_shed_sparks(o, delta)
 		var p: Vector2 = o["pos"]
-		var dead := float(o["life"]) >= GAUSS_LIFETIME or p.distance_to(o["start"]) >= GAUSS_MAX_DIST
-		# Pierce: damage each enemy once, decrementing the pierce budget.
+		var dmg := float(o["dmg"])
+		# Cull when the budget is spent, the orb drifts too far from the player, or the lifetime backstop.
+		var far := _player != null and is_instance_valid(_player) and p.distance_to(_player.global_position) > GAUSS_CULL_DIST
+		var dead := dmg <= GAUSS_MIN_DMG or float(o["life"]) >= GAUSS_LIFETIME or far
+		# Damage-budget pierce: hit each target once, spend min(dmg, target.hp); overkill carries on.
 		if not dead:
+			var frac := clampf(dmg / maxf(1.0, float(o["dmg_ref"])), 0.0, 1.0)
+			var r := GAUSS_RADIUS * sqrt(frac) + 8.0   # hit radius shrinks ∝ sqrt(damage)
 			var hit: Array = o["hit"]
 			for en in enemies:
-				if not is_instance_valid(en):
+				if not is_instance_valid(en) or (en as Node2D).get_instance_id() in hit:
 					continue
-				var id := (en as Node2D).get_instance_id()
-				if id in hit:
-					continue
-				if p.distance_to((en as Node2D).global_position) <= GAUSS_RADIUS + 8.0:
-					if en.has_method("take_damage"):
-						en.take_damage(GAUSS_DAMAGE * _dmg_mult, GAUSS_STAGGER)
-					hit.append(id)
-					o["pierce_left"] = int(o["pierce_left"]) - 1
-					if int(o["pierce_left"]) <= 0:
+				if p.distance_to((en as Node2D).global_position) <= r:
+					var absorbed: float = minf(dmg, maxf(0.0, float(en.hp)))
+					en.take_damage(absorbed, GAUSS_STAGGER)
+					dmg -= absorbed
+					hit.append((en as Node2D).get_instance_id())
+					if dmg <= GAUSS_MIN_DMG:
 						dead = true
 						break
-			# Gauss also pierces through ruin ships/boxes
 			if not dead:
 				for ruin in ruins:
-					if not is_instance_valid(ruin):
+					if not is_instance_valid(ruin) or (ruin as Node2D).get_instance_id() in hit:
 						continue
-					var id := (ruin as Node2D).get_instance_id()
-					if id in hit:
-						continue
-					var ruin_r: float = ruin.get("hit_radius") if ruin.get("hit_radius") != null else GAUSS_RADIUS + 8.0
+					var ruin_r: float = (ruin.get("hit_radius") if ruin.get("hit_radius") != null else GAUSS_RADIUS) + 8.0
 					if p.distance_to((ruin as Node2D).global_position) <= ruin_r:
-						if ruin.has_method("take_damage"):
-							ruin.take_damage(GAUSS_DAMAGE * _dmg_mult)
-						hit.append(id)
-						o["pierce_left"] = int(o["pierce_left"]) - 1
-						if int(o["pierce_left"]) <= 0:
+						var rhp: float = float(ruin.hp) if ruin.get("hp") != null else dmg
+						var absorbed: float = minf(dmg, maxf(0.0, rhp))
+						ruin.take_damage(absorbed)
+						dmg -= absorbed
+						hit.append((ruin as Node2D).get_instance_id())
+						if dmg <= GAUSS_MIN_DMG:
 							dead = true
 							break
+			o["dmg"] = dmg
 		if dead:
 			_free_orb(o)
 			_orbs.remove_at(i)
@@ -715,8 +1089,10 @@ func _update_orb_node(o: Dictionary) -> void:
 		return
 	if not _gauss_frames.is_empty():
 		tr.texture = _gauss_frames[_gauss_fb_idx]   # advance the shared plasma loop
-	# Round orb → square footprint, no stretch/rotation (the plasma ball is radially symmetric).
-	var d := GAUSS_ORB_DRAW
+	# Round orb → square footprint, no stretch/rotation. Diameter shrinks ∝ sqrt(remaining damage) so the
+	# orb's AREA is proportional to its damage budget.
+	var frac := clampf(float(o["dmg"]) / maxf(1.0, float(o["dmg_ref"])), 0.0, 1.0)
+	var d := GAUSS_ORB_DRAW * sqrt(frac)
 	tr.size = Vector2(d, d)
 	tr.position = (o["pos"] as Vector2) - Vector2(d, d) * 0.5
 
@@ -793,6 +1169,8 @@ func _draw() -> void:
 	# Arc chain lightning — each stored bolt fades from the outside in over its lifetime.
 	for a: Dictionary in _arcs:
 		_draw_arc(a)
+	if _orbital_active:
+		_draw_orbital()
 	_draw_flashes()
 
 func _draw_tracer(p: Vector2, vel: Vector2) -> void:

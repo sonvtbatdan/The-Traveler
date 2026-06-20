@@ -3,15 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://0yy4i8kv0ol1"
-path="res://.godot/imported/muzzle_09.png-2c8fb75104f672c389d6ff68234caa5f.ctex"
+path="res://.godot/imported/muzzle_09.png-af49f2e1a71d2b93411a01ab0aa4de2f.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/beam references/files/muzzle_09.png"
-dest_files=["res://.godot/imported/muzzle_09.png-2c8fb75104f672c389d6ff68234caa5f.ctex"]
+source_file="res://assets/beam references/Sprite_sheet_lasgun_muzzle/muzzle_09.png"
+dest_files=["res://.godot/imported/muzzle_09.png-af49f2e1a71d2b93411a01ab0aa4de2f.ctex"]
 
 [params]
 
