@@ -109,6 +109,32 @@ Cả hai được tạo trong `main.gd._add_scrolling_background/overlay()` và 
 - `_tile_x` = x position của cột trong SpaceScreen (mặc định căn giữa)
 - `_offset` tăng mỗi frame → khi `>= tile_h` thì wrap về 0 (seamless scroll)
 
+### Aspect Ratio — QUY TẮC BẮT BUỘC
+
+**KHÔNG BAO GIỜ stretch ảnh.** Mọi ảnh phải giữ đúng ratio gốc (width/height từ texture).
+
+**Pattern chuẩn — scale theo width:**
+```gdscript
+var tex_w := float(tex.get_width())
+var tex_h := float(tex.get_height())
+var display_w := 60.0                          # width mong muốn
+var display_h := display_w * tex_h / tex_w    # height tính từ ratio
+var sz := Vector2(display_w, display_h)
+```
+
+**Pattern chuẩn — scale theo height:**
+```gdscript
+var display_h := 80.0
+var display_w := display_h * tex_w / tex_h
+var sz := Vector2(display_w, display_h)
+```
+
+Áp dụng cho: TextureButton (custom_minimum_size), TextureRect (size), EditableObjectNode (init size), SpinBox W↔H (aspect-lock), bất kỳ node nào hiển thị ảnh.
+
+**TextureButton:** dùng `ignore_texture_size = true` + `stretch_mode = STRETCH_SCALE` → Godot scale ảnh vào vùng `custom_minimum_size`. Luôn tính `custom_minimum_size` từ ratio để không bị méo.
+
+---
+
 ### Image scaling — QUAN TRỌNG
 
 Không dùng `TextureRect.stretch_mode` để scale background/overlay tile. Thay vào đó:
@@ -990,6 +1016,8 @@ bx_r = OC_BOUNDS.size.x - bx - bw   # = 700 - bx - bw
 
 ## Arena System (`scenes/arena.tscn`)
 
+> **RULE — Default target for enemy changes:** Khi thực hiện bất kỳ thay đổi nào liên quan đến enemy (behavior, shooting, FP, plume, stats...), mặc định ghi vào **`arena_enemy.gd`**. Chỉ ghi vào file lẻ (`enemy_bee.gd`, `enemy_sentinel.gd`, ...) khi user yêu cầu cụ thể non-arena behavior.
+
 Arena is a **separate, self-contained scene** from `main.tscn` — a Vampire-Survivors-style top-down bullet-heaven mode. It does **not** use `enemy_manager.gd`, `gun_system.gd`, or the individual `enemy_*.gd` scripts. All arena combat logic lives in its own dedicated scripts.
 
 ### Key arena scripts
@@ -1029,6 +1057,36 @@ _aim = dir  # captured once; player can now dodge
 ```
 
 **Sprite sheet animation:** `_load_icon()` auto-detects `.sheet.png`, calls `_load_sheet_frames()` which reads the adjacent `.sheet.json` (cols, fw, fh, delays), slices `AtlasTexture` per frame into `_frames`/`_delays`.
+
+### `arena_enemy.gd` — Dynamic Plume VFX (2026-06-20)
+
+New vars after `_plumes` array:
+```gdscript
+var _plume_base: Array = []        # [{vel_min, vel_max, sc_min, sc_max, life}] per plume
+var _plume_base_cols: Array = []   # [PackedColorArray] per plume
+var _plume_red_cols: Array = []    # pre-built red gradient (dragonfly proximity)
+var _plume_in_red: bool = false
+```
+
+Cached at the END of `_setup_plumes()` (after the for loop building `_plumes`). Helper functions:
+
+| Function | Effect |
+|----------|--------|
+| `_apply_plume_vel_mult(m)` | Scale `initial_velocity_min/max` on all plumes |
+| `_apply_plume_full_mult(m)` | Scale vel + `scale_amount_min/max` + `lifetime` on all plumes |
+| `_apply_plume_color(want_red)` | Swap `color_ramp.colors` to red tone; guarded by `_plume_in_red` flag (only updates when state flips) |
+| `_update_plumes()` | `match behavior` dispatcher — called in `_process()` just before the plume rotation sync block |
+
+**Behavior → plume rule:**
+
+| Behavior | Condition | Effect |
+|----------|-----------|--------|
+| `"swarm_dive"` | `_phase == 1` (diving) | vel × 2 |
+| `"orbit"` | distance to player < 350px | color → red tone |
+| `"jump"` | `_phase == 1` (airborne) | vel × 3, scale × 3, life × 3 |
+| `"jump_diag"` | `_phase == 1` (airborne) | vel × 3, scale × 3, life × 3 |
+
+**IMPORTANT — legacy enemy files (`enemy_bee.gd`, `enemy_dragonfly.gd`, `enemy_octopus.gd`, `enemy_spider.gd`):** These extend `enemy_base.gd` and are loaded by `enemy_manager.gd` which no active scene uses. All arena enemies are `arena_enemy.gd` (CharacterBody2D). The legacy files got plume helpers added too (for non-arena waves) but they do NOT affect the arena.
 
 ### `arena_wave_director.gd` — ENEMY_DEFS & boss icons
 
@@ -1089,6 +1147,52 @@ Bottom-center HBox (CanvasLayer). Controls:
 - `[+ Level]` — adds enough XP to trigger the next level-up
 
 `GAT_INTERVAL = 0.09` mirrors `arena_weapons.gd GAT_FIRE_INTERVAL` — keep in sync if changed.
+
+**Dev mode default state (2026-06-20):** `const DEV_MODE := false` — panel starts hidden. `arena_hud_buttons.gd` shows `dev:off` icon at game start (clicking toggles to `dev:on` and reveals firerate/level controls). Changed from `true` → `false` so players don't see debug controls by default.
+
+### `arena_weapons.gd` — Crit System (2026-06-20)
+
+- `const BASE_CRIT_CHANCE := 0.10` — 10% base crit chance at game start, additive with `GameManager.get_crit_chance()` from upgrade cards. Without this, upgrading "crit damage" (multiplier) had no effect because default chance was 0%.
+- `_crit_chance = BASE_CRIT_CHANCE + (GameManager.get_crit_chance() if GameManager.has_method("get_crit_chance") else 0.0)` — refreshed on every upgrade pickup.
+- `_roll_damage(base: float) -> Dictionary` returns `{"dmg": float, "is_crit": bool}` (changed from plain `float`).
+- `_spawn_crit_number(world_pos: Vector2, amount: float)` — spawns a floating Label in a CanvasLayer (layer 12) at screen-space coords via `get_viewport().get_canvas_transform() * world_pos`. Style: red fill `Color(1.0, 0.15, 0.10)`, white outline (size 7), font `Gameplay.ttf` at 22px, scale ×1.6. Tweens: rise 48px over 0.8s, fade out, then `queue_free()`.
+- All three weapons (Gatling, Arc, Lasgun) call `_spawn_crit_number()` when `is_crit == true`.
+
+### `arena_weapons.gd` — SFX
+
+| Const | File | Trigger |
+|-------|------|---------|
+| `SFX_ENGINE_HUM` | `sfx/enginehum3.wav` | Always-on engine hum — loops via `finished` signal, stops when `ship_hp <= 0`, restarts on `_on_ship_hp_changed`. `PROCESS_MODE_PAUSABLE` → tự pause khi game paused. |
+| `SFX_GAUSS_FIRE` | `sfx/hitimpact.wav` | Gauss cannon fires (once per shot) |
+| `SFX_GAUSS_IMPACT` | `sfx/AstroMenace-SFX/weaponfire6.wav` | Gauss orb hits an enemy or ruin |
+| `SFX_LASGUN_CHARGE` | `sfx/Scifi/blg_beam_01.wav` | Lasgun charge phase bắt đầu (one-shot, guarded by `_las_charge_started`) |
+| `SFX_LASGUN_BEAM` | `sfx/AstroMenace-SFX/weaponfire14.wav` | Lasgun beam firing — restarts nếu WAV kết thúc trước khi beam tắt (guarded by `_las_beam_playing` flag) |
+
+**`arena_elephant.gd` M5 SFX:** `SFX_M1 = preload("res://assets/audio/sfx/blob.wav")` (Shoot Blob move).
+
+**Asset folder note:** `AstroMenace-SFX/` nằm ở `assets/audio/sfx/AstroMenace-SFX/` (không phải `sfx/Scifi/AstroMenace-SFX/`).
+
+### `arena_weapons.gd` — Gauss orb visuals
+
+- `GAUSS_ORB_DRAW = 38.0` px — kích thước hiển thị trên screen (TextureRect 38×38). Frame nguồn là ~421px nhưng được scale về 38px.
+- `GAUSS_TRAIL_WIDTH = 0.75` — hệ số nhân bán kính trail circle (`base_w = GAUSS_RADIUS × GAUSS_TRAIL_WIDTH`). Giảm để trail nhỏ hơn, bớt "vòng sáng" quanh orb.
+- **Trail và charge rings dùng gradient layers** — mỗi vị trí trail vẽ 4 circle lồng nhau (outer soft → inner bright) với `antialiased=true`. Charge rings tương tự 4 arc layers. Đây là cách mô phỏng soft/glow edge trong Godot 4 CanvasItem `_draw()` (không có built-in blur).
+
+### `arena_weapons.gd` — Auto-fire logic
+
+**`_has_enemy_on_screen() -> bool`:**
+- Trả `true` ngay nếu `GameManager.is_boss_alive()` (boss luôn kích hoạt auto-fire bất kể vị trí)
+- Dùng `get_viewport().get_canvas_transform()` convert world pos → screen pos
+- Rect kiểm tra = viewport rect được mở rộng 50% mỗi cạnh (`grow_individual(vp_size.x * 0.5, vp_size.y * 0.5, ...)`) — tổng diện tích gấp 4 lần screen
+
+**Behavior khi không có enemy:**
+
+| Weapon | Behavior |
+|--------|----------|
+| Gatling | Tích `_gat_acc` bình thường, không gọi `_fire_gatling()` → bắn ngay khi enemy xuất hiện |
+| Gauss | Charge đến full (`_gauss_charge` vẫn tăng), giữ nguyên, fire ngay khi enemy xuất hiện |
+| Arc | Skip `_fire_arc()` — `_arc_cd` vẫn tick |
+| Lasgun | Dừng `_fire_lasgun(delta)` → `_las_t` không advance (cycle paused); tắt beam visuals + audio |
 
 ### `arena_levelup_ui.gd` — level-up card UI
 
@@ -1285,6 +1389,16 @@ Only applies to auto-loaded playlists at startup — manual URL submissions are 
 Button's `hover` stylebox already provides a blue background highlight. Combined effect: blue bg + white text.
 
 ---
+
+## Enemy Plume VFX — Thrust Point
+
+Khi spawn CPUParticles2D plume tại các TP (Thrust Point) của enemy:
+
+```gdscript
+var amount := int(enemy_width / 5.0)  # e.g. width=200 → amount=40
+```
+
+Quy tắc: `amount = enemy_display_width / 5`. Điều này giữ VFX nhẹ với enemy nhỏ và đẹp với enemy lớn. Dùng lifetime ~0.35s, blend_mode = ADD giống ship plume.
 
 ## Thrust Objects Policy
 

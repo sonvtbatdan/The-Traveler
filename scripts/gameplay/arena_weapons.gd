@@ -156,7 +156,19 @@ const ARC_COL      := Color(0.75, 0.9, 1.0)   # cold electric blue-white (soft o
 const ARC_EDGE_COL := Color(0.45, 0.75, 1.0)  # light-blue rim drawn just outside the white-hot core
 const ARC_LIGHT    := 4.0      # dust-light value per lit segment endpoint
 
-const BeamScript   := preload("res://scripts/gameplay/lasgun_ani_1.gd")   # lasgun_ani_1 (clean sprite beam); ani_2/ani_3 kept as backups
+const BeamScript   := preload("res://scripts/gameplay/lasgun_ani_3.gd")   # lasgun_ani_3 (sprite muzzle); ani_1 + ani_2 kept as backups
+const SFX_BOLT_HIT: Array[AudioStream] = [
+	preload("res://assets/audio/sfx/gunboom1.wav"),
+	preload("res://assets/audio/sfx/gunboom2.wav"),
+	preload("res://assets/audio/sfx/gunboom3.wav"),
+	preload("res://assets/audio/sfx/gunboom4.wav"),
+	preload("res://assets/audio/sfx/gunboom5.wav"),
+]
+const SFX_ENGINE_HUM: AudioStream = preload("res://assets/audio/sfx/enginehum3.wav")
+const SFX_GAUSS_FIRE: AudioStream = preload("res://assets/audio/sfx/hitimpact.wav")
+const SFX_GAUSS_IMPACT: AudioStream = preload("res://assets/audio/sfx/AstroMenace-SFX/weaponfire6.wav")
+const SFX_LASGUN_CHARGE: AudioStream = preload("res://assets/audio/sfx/Scifi/blg_beam_01.wav")
+const SFX_LASGUN_BEAM: AudioStream = preload("res://assets/audio/sfx/AstroMenace-SFX/weaponfire14.wav")
 const PickupScript := preload("res://scripts/gameplay/arena_weapon_pickup.gd")
 const OrbChargeScript := preload("res://scripts/gameplay/arena_orb_charge_fx.gd")
 const GatMuzzleScript := preload("res://scripts/gameplay/arena_gatling_muzzle.gd")
@@ -186,7 +198,7 @@ const GAUSS_ORB_GLOW          := 1.4
 const GAUSS_ORB_QUAD          := 2.0    # quad half-size = ball radius × this
 const GAUSS_ORB_STRETCH       := 1.4    # elongation along travel
 const GAUSS_TRAIL_LEN         := 10
-const GAUSS_TRAIL_WIDTH       := 1.15
+const GAUSS_TRAIL_WIDTH       := 0.75
 const GAUSS_TRAIL_ALPHA       := 0.5
 const GAUSS_TRAIL_COL         := Color(0.4, 0.7, 1.0)
 const GAUSS_LAUNCH_FLASH      := 48.0
@@ -201,7 +213,7 @@ const GAUSS_SPARK_ALPHA       := 0.9
 const GAUSS_ORB_DIR     := "res://assets/beam references/Gauss_orb_files_2/"   # gauss24_00..23.png (already transparent)
 const GAUSS_FRAME_COUNT := 24
 const GAUSS_ORB_FPS     := 24.0    # plasma-loop playback speed (fps)
-const GAUSS_ORB_DRAW    := 140.0   # on-screen orb diameter incl. transparent margin (px); full uncropped frame
+const GAUSS_ORB_DRAW    := 38.0    # on-screen orb diameter incl. transparent margin (px); full uncropped frame
 
 # ── Gauss charge-up rings converging onto the ship (copied — visuals only) ────
 const GC_START_RADIUS   := 150.0
@@ -281,7 +293,8 @@ var _gat_acc: float = 0.0
 var _gauss_charge: float = 0.0
 var _dmg_mult: float = 1.0    # GameManager.get_damage_mult(), refreshed each frame (Damage upgrade cards)
 var _rate_mult: float = 1.0   # GameManager.get_fire_rate_mult() (Fire Rate upgrade cards)
-var _crit_chance: float = 0.0 # GameManager.get_crit_chance() (Critical Strike cards)
+const BASE_CRIT_CHANCE := 0.10  # 10% base crit chance before any upgrade cards
+var _crit_chance: float = BASE_CRIT_CHANCE
 var _crit_damage: float = 1.5 # GameManager.get_crit_damage() (Lethality cards)
 var _bullets: Array = []         # Gatling: {pos, vel, life, start}
 var _orbs: Array = []            # Gauss: {pos, vel, life, start, orb_node, trail, spark_acc, dmg, dmg_ref, hit}
@@ -296,6 +309,12 @@ var _gauss_fb_idx: int = 0
 # Runtime weapon-enable flags (start from the compile-time defaults; pickups flip them on → accumulate, VS-style).
 var _gat_active: bool = GAT_ENABLED
 var _gauss_active: bool = GAUSS_ENABLED
+var _engine_hum: AudioStreamPlayer = null
+var _gauss_fire_player: AudioStreamPlayer = null
+var _gauss_impact_player: AudioStreamPlayer = null
+var _las_charge_player: AudioStreamPlayer = null
+var _las_beam_player: AudioStreamPlayer = null
+var _las_beam_playing: bool = false
 var _arc_active: bool = ARC_ENABLED_DEFAULT   # turned on by the Arc pickup
 var _arc_cd: float = 0.0           # Arc burst cooldown
 var _arcs: Array = []              # live lightning segments: {a, b, age, max_age}
@@ -325,6 +344,8 @@ var _beam_light_from := Vector2.ZERO
 var _beam_light_to := Vector2.ZERO
 var _beam_light_col := Color(1, 1, 1)
 var _bolt_hit_player: AudioStreamPlayer = null   # bolt-hit sfx (assign in _ready when wired; null = no-op)
+var _crit_layer: CanvasLayer = null
+var _crit_host: Control = null
 
 func _ready() -> void:
 	add_to_group("arena_weapons")   # arena_dust queries get_lights() each frame
@@ -336,80 +357,42 @@ func _ready() -> void:
 	_gat_muzzle_fx = GatMuzzleScript.new()
 	add_child(_gat_muzzle_fx)
 	_load_gauss_frames()
-	_orbital_tex = _load_orbital_tex()
-	# Port the orbital's per-collision damage straight from the inventory item def (fallback to the const).
-	var odef: Dictionary = InventoryManager.ITEM_DEFS.get("orbitals", {}) if InventoryManager else {}
-	var ostats: Dictionary = odef.get("stats", {})
-	_orbital_damage = float(ostats.get("damage", ORBITAL_DAMAGE))
-	_void_node = _make_void_node()
-
-## The Void's swirling vortex: a ColorRect driven by the additive Rift-Maker shader (procedural seamless
-## noise → spiral arms). Positioned/sized to the live void each frame; hidden when no void is open.
-func _make_void_node() -> ColorRect:
-	var rnoise := FastNoiseLite.new()
-	rnoise.noise_type = FastNoiseLite.TYPE_SIMPLEX
-	rnoise.frequency = 0.045
-	rnoise.fractal_octaves = 4
-	var rtex := NoiseTexture2D.new()
-	rtex.width = 256
-	rtex.height = 256
-	rtex.seamless = true
-	rtex.noise = rnoise
-	var sh := Shader.new()
-	sh.code = RIFT_VORTEX_SHADER
-	var mat := ShaderMaterial.new()
-	mat.shader = sh
-	mat.set_shader_parameter("portal_texture", rtex)
-	var cr := ColorRect.new()
-	cr.material = mat
-	cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cr.visible = false
-	add_child(cr)
-	return cr
-
-## Load the orbital sprite and KEY OUT its solid near-white background. The art has white metal too, so a
-## flat white-key would punch holes — instead flood-fill from the borders: only near-white pixels CONNECTED
-## to the image edge (the background) become transparent. Downscaled first so the fill is cheap. Returns
-## null on failure (the procedural ball is then used as a fallback).
-func _load_orbital_tex() -> Texture2D:
-	var img := Image.new()
-	if img.load(ORBITAL_SPRITE) != OK:
-		push_warning("arena_weapons: could not load orbital sprite %s" % ORBITAL_SPRITE)
-		return null
-	img.convert(Image.FORMAT_RGBA8)
-	if img.get_width() > 256:
-		img.resize(256, 256, Image.INTERPOLATE_BILINEAR)
-	var w := img.get_width()
-	var h := img.get_height()
-	var thr := float(ORBITAL_KEY_THR) / 255.0
-	var seen := PackedByteArray()
-	seen.resize(w * h)
-	var stack: Array[int] = []
-	for x in range(w):
-		stack.append(x)
-		stack.append((h - 1) * w + x)
-	for y in range(h):
-		stack.append(y * w)
-		stack.append(y * w + w - 1)
-	while not stack.is_empty():
-		var idx: int = stack.pop_back()
-		if seen[idx] != 0:
-			continue
-		seen[idx] = 1
-		var x := idx % w
-		var y := idx / w
-		var c := img.get_pixel(x, y)
-		if c.r < thr or c.g < thr or c.b < thr:
-			continue   # not background-white → boundary; don't cross
-		img.set_pixel(x, y, Color(c.r, c.g, c.b, 0.0))   # erase background
-		if x > 0: stack.append(idx - 1)
-		if x < w - 1: stack.append(idx + 1)
-		if y > 0: stack.append(idx - w)
-		if y < h - 1: stack.append(idx + w)
-	var ur := img.get_used_rect()
-	if ur.size.x <= 0 or ur.size.y <= 0:
-		return ImageTexture.create_from_image(img)
-	return ImageTexture.create_from_image(img.get_region(ur))
+	_bolt_hit_player = AudioStreamPlayer.new()
+	_bolt_hit_player.bus = "SFX"
+	add_child(_bolt_hit_player)
+	_gauss_fire_player = AudioStreamPlayer.new()
+	_gauss_fire_player.bus = "SFX"
+	add_child(_gauss_fire_player)
+	_gauss_impact_player = AudioStreamPlayer.new()
+	_gauss_impact_player.stream = SFX_GAUSS_IMPACT
+	_gauss_impact_player.bus = "SFX"
+	add_child(_gauss_impact_player)
+	_las_charge_player = AudioStreamPlayer.new()
+	_las_charge_player.stream = SFX_LASGUN_CHARGE
+	_las_charge_player.bus = "SFX"
+	add_child(_las_charge_player)
+	_las_beam_player = AudioStreamPlayer.new()
+	_las_beam_player.stream = SFX_LASGUN_BEAM
+	_las_beam_player.bus = "SFX"
+	add_child(_las_beam_player)
+	_engine_hum = AudioStreamPlayer.new()
+	_engine_hum.stream = SFX_ENGINE_HUM
+	_engine_hum.bus = "SFX"
+	_engine_hum.process_mode = Node.PROCESS_MODE_PAUSABLE
+	add_child(_engine_hum)
+	_engine_hum.finished.connect(func() -> void:
+		if GameManager.ship_hp > 0:
+			_engine_hum.play()
+	)
+	GameManager.ship_hp_changed.connect(_on_ship_hp_changed)
+	_engine_hum.play()
+	_crit_layer = CanvasLayer.new()
+	_crit_layer.layer = 12
+	add_child(_crit_layer)
+	_crit_host = Control.new()
+	_crit_host.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_crit_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_crit_layer.add_child(_crit_host)
 
 ## Load the 24-frame Gauss plasma-orb flipbook (individual transparent PNGs). CPU Image.load (no import
 ## dependency). The FULL frame is kept (NOT cropped to get_used_rect): the glow pulses, so per-frame
@@ -449,6 +432,23 @@ func get_lights() -> Array:
 		lights.append({"pos": _void_pos, "value": 6.0, "color": VOID_COL})
 	return lights
 
+func _has_enemy_on_screen() -> bool:
+	if GameManager.has_method("is_boss_alive") and GameManager.is_boss_alive():
+		return true
+	var enemies := get_tree().get_nodes_in_group("arena_enemy")
+	if enemies.is_empty():
+		return false
+	var canvas_xform := get_viewport().get_canvas_transform()
+	var vp_size := get_viewport().get_visible_rect().size
+	var screen_rect := Rect2(Vector2.ZERO, vp_size).grow_individual(
+		vp_size.x * 0.5, vp_size.y * 0.5, vp_size.x * 0.5, vp_size.y * 0.5)
+	for en in enemies:
+		if not is_instance_valid(en):
+			continue
+		if screen_rect.has_point(canvas_xform * (en as Node2D).global_position):
+			return true
+	return false
+
 func _process(delta: float) -> void:
 	if _player == null or not is_instance_valid(_player):
 		_player = get_tree().get_first_node_in_group("player")
@@ -457,27 +457,39 @@ func _process(delta: float) -> void:
 	# Player-stat multipliers (base values 1.0 → identical to before).
 	_dmg_mult = GameManager.get_damage_mult() if GameManager.has_method("get_damage_mult") else 1.0
 	_rate_mult = maxf(0.01, GameManager.get_fire_rate_mult()) if GameManager.has_method("get_fire_rate_mult") else 1.0
-	_crit_chance = GameManager.get_crit_chance() if GameManager.has_method("get_crit_chance") else 0.0
+	_crit_chance = BASE_CRIT_CHANCE + (GameManager.get_crit_chance() if GameManager.has_method("get_crit_chance") else 0.0)
 	_crit_damage = GameManager.get_crit_damage() if GameManager.has_method("get_crit_damage") else 1.5
+	var enemy_on_screen := _has_enemy_on_screen()
 	if _gat_active:
 		_gat_acc += delta
-		var gat_interval := GAT_FIRE_INTERVAL / _rate_mult
-		while _gat_acc >= gat_interval:
-			_gat_acc -= gat_interval
-			_fire_gatling()
+		if enemy_on_screen:
+			var gat_interval := GAT_FIRE_INTERVAL / _rate_mult
+			while _gat_acc >= gat_interval:
+				_gat_acc -= gat_interval
+				_fire_gatling()
 	if _gauss_active:
+		# Keep charging while waiting; fire only when an enemy is visible.
 		_gauss_charge += delta
-		if _gauss_charge >= GAUSS_CHARGE_TIME / _rate_mult:
+		if _gauss_charge >= GAUSS_CHARGE_TIME / _rate_mult and enemy_on_screen:
 			_gauss_charge = 0.0
 			_fire_gauss()
-	if _arc_active:
+	if _arc_active and enemy_on_screen:
 		_fire_arc(delta)
 	if _orbital_active:
 		_tick_orbital(delta)
 	if _void_active:
 		_tick_void(delta)
 	if _lasgun_active:
-		_fire_lasgun(delta)
+		if enemy_on_screen:
+			_fire_lasgun(delta)
+		else:
+			# Pause the lasgun cycle — stop beam visuals/audio but don't reset _las_t.
+			if _las_beam_playing:
+				_las_beam_player.stop()
+				_las_beam_playing = false
+			if _beam != null:
+				_beam.set_beam(Vector2.ZERO, Vector2.ZERO, false, false)
+			_beam_light_on = false
 	elif _beam != null:
 		_beam.set_beam(Vector2.ZERO, Vector2.ZERO, false, false)
 	_tick_bullets(delta)
@@ -510,12 +522,38 @@ func _forward() -> Vector2:
 func _muzzle() -> Vector2:
 	return _player.global_position + _forward() * MUZZLE_OFFSET
 
-## Base damage × the Damage-card multiplier, then a crit roll (Critical Strike chance → Lethality multiplier).
-func _roll_damage(base: float) -> float:
+## Base damage × the Damage-card multiplier, then a crit roll. Returns {dmg, is_crit}.
+func _roll_damage(base: float) -> Dictionary:
 	var dmg := base * _dmg_mult
+	var is_crit := false
 	if _crit_chance > 0.0 and randf() < _crit_chance:
 		dmg *= _crit_damage
-	return dmg
+		is_crit = true
+	return {"dmg": dmg, "is_crit": is_crit}
+
+func _spawn_crit_number(world_pos: Vector2, amount: float) -> void:
+	if _crit_host == null:
+		return
+	var screen_pos: Vector2 = get_viewport().get_canvas_transform() * world_pos
+	var lbl := Label.new()
+	lbl.text = str(roundi(amount))
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var font := load("res://assets/fonts/Gameplay.ttf") as FontFile
+	if font != null:
+		lbl.add_theme_font_override("font", font)
+	lbl.add_theme_font_size_override("font_size", 22)
+	lbl.add_theme_color_override("font_color", Color(1.0, 0.15, 0.10))
+	lbl.add_theme_color_override("font_outline_color", Color(1.0, 1.0, 1.0, 1.0))
+	lbl.add_theme_constant_override("outline_size", 7)
+	lbl.reset_size()
+	lbl.position = screen_pos + Vector2(randf_range(-10.0, 10.0), -16.0) - lbl.size * 0.5
+	lbl.scale = Vector2.ONE * 1.6
+	_crit_host.add_child(lbl)
+	var tw := create_tween().set_parallel(true)
+	tw.tween_property(lbl, "position:y", lbl.position.y - 48.0, 0.80)
+	tw.tween_property(lbl, "scale", Vector2.ONE, 0.20).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_property(lbl, "modulate:a", 0.0, 0.80).set_ease(Tween.EASE_IN)
+	tw.chain().tween_callback(func() -> void: lbl.queue_free())
 
 # ── Gatling — twin wing streams ─────────────────────────────────────────────────
 func _fire_gatling() -> void:
@@ -546,14 +584,23 @@ func _fire_lasgun(delta: float) -> void:
 			_charge_fx.position = _muzzle()   # follow the moving nose
 			if not _las_charge_started:
 				_charge_fx.start(LASGUN_CHARGE)
+				_las_charge_player.play()
 				_las_charge_started = true
 		if _beam != null:
 			_beam.set_beam(Vector2.ZERO, Vector2.ZERO, false, false)
 		_beam_light_on = false
 		_beam_cd = 0.0   # so the first damage tick lands the instant the burst starts
+		if _las_beam_playing:
+			_las_beam_player.stop()
+			_las_beam_playing = false
 		return
 	# Firing: kill the charge FX and arm the next cycle's telegraph.
 	_las_charge_started = false
+	if not _las_beam_playing:
+		_las_beam_player.play()
+		_las_beam_playing = true
+	elif not _las_beam_player.playing:
+		_las_beam_player.play()
 	if _charge_fx != null:
 		_charge_fx.stop()
 	var from := _muzzle()
@@ -569,7 +616,9 @@ func _fire_lasgun(delta: float) -> void:
 		if along < 0.0 or along > LASGUN_RANGE:
 			continue
 		var perp_d := (to_e - dir * along).length()
-		if perp_d <= LASGUN_WIDTH * 0.5 + LASGUN_HIT_PAD and along < best_along:
+		var _en_r3 = en.get("hit_radius")
+		var _las_hit_w: float = LASGUN_WIDTH * 0.5 + (float(_en_r3) if _en_r3 != null else LASGUN_HIT_PAD)
+		if perp_d <= _las_hit_w and along < best_along:
 			best_along = along
 			best = en
 	var hit := best != null
@@ -588,13 +637,24 @@ func _fire_lasgun(delta: float) -> void:
 	_beam_cd -= delta
 	if _beam_cd <= 0.0:
 		if hit and best.has_method("take_damage"):
-			best.take_damage(_roll_damage(LASGUN_DAMAGE), LASGUN_STAGGER)
+			var _las_r := _roll_damage(LASGUN_DAMAGE)
+			best.take_damage(float(_las_r["dmg"]), LASGUN_STAGGER)
+			if bool(_las_r["is_crit"]):
+				_spawn_crit_number((best as Node2D).global_position, float(_las_r["dmg"]))
 		_beam_cd = LASGUN_TICK / _rate_mult
 
 ## Called by the Lasgun pickup on collection — adds the beam to the active loadout (accumulates with Gatling).
 func activate_lasgun() -> void:
 	_lasgun_active = true
 	_las_t = LASGUN_CYCLE - LASGUN_CHARGE   # begin in the charge window → telegraph, then the first burst
+
+func _on_ship_hp_changed(hp: int) -> void:
+	if not is_instance_valid(_engine_hum):
+		return
+	if hp <= 0:
+		_engine_hum.stop()
+	elif not _engine_hum.playing:
+		_engine_hum.play()
 
 # ── Arc (chain lightning — auto-targets nearest enemy, then chains to nearby foes) ───────────────────────
 ## Cooldown-gated burst: strike the enemy nearest the ship, then chain to the nearest un-hit enemy within
@@ -616,7 +676,10 @@ func _fire_arc(delta: float) -> void:
 			break
 		var c: Vector2 = (cur as Node2D).global_position
 		if cur.has_method("take_damage"):
-			cur.take_damage(_roll_damage(ARC_DAMAGE), ARC_STAGGER)
+			var _arc_r := _roll_damage(ARC_DAMAGE)
+			cur.take_damage(float(_arc_r["dmg"]), ARC_STAGGER)
+			if bool(_arc_r["is_crit"]):
+				_spawn_crit_number(c, float(_arc_r["dmg"]))
 		chain.append(c)
 		hit_set.append(cur)
 		cur = _nearest_enemy(c, ARC_RANGE, hit_set)
@@ -966,11 +1029,19 @@ func _tick_bullets(delta: float) -> void:
 		var dead := float(b["life"]) >= GAT_LIFETIME or p.distance_to(b["start"]) >= GAT_MAX_DIST
 		if not dead:
 			for en in enemies:
-				if is_instance_valid(en) and p.distance_to((en as Node2D).global_position) <= GAT_HIT_RADIUS:
+				if not is_instance_valid(en):
+					continue
+				var _en_r = en.get("hit_radius")
+				var _hit_r: float = float(_en_r) if _en_r != null else GAT_HIT_RADIUS
+				if p.distance_to((en as Node2D).global_position) <= _hit_r:
 					if en.has_method("take_damage"):
-						en.take_damage(_roll_damage(GAT_DAMAGE), GAT_STAGGER)
+						var _gat_r := _roll_damage(GAT_DAMAGE)
+						en.take_damage(float(_gat_r["dmg"]), GAT_STAGGER)
+						if bool(_gat_r["is_crit"]):
+							_spawn_crit_number(p, float(_gat_r["dmg"]))
 					dead = true
 					if _bolt_hit_player != null:
+						_bolt_hit_player.stream = SFX_BOLT_HIT[randi() % SFX_BOLT_HIT.size()]
 						_bolt_hit_player.play()
 					break
 			if not dead:
@@ -982,6 +1053,7 @@ func _tick_bullets(delta: float) -> void:
 							ruin.take_damage(GAT_DAMAGE * _dmg_mult)
 						dead = true
 						if _bolt_hit_player != null:
+							_bolt_hit_player.stream = SFX_BOLT_HIT[randi() % SFX_BOLT_HIT.size()]
 							_bolt_hit_player.play()
 						break
 		if dead:
@@ -990,6 +1062,8 @@ func _tick_bullets(delta: float) -> void:
 
 # ── Gauss ─────────────────────────────────────────────────────────────────────
 func _fire_gauss() -> void:
+	_gauss_fire_player.stream = SFX_GAUSS_FIRE
+	_gauss_fire_player.play()
 	var dir := _forward()
 	var start := _muzzle()
 	var orb := _make_orb()
@@ -1037,12 +1111,18 @@ func _tick_orbs(delta: float) -> void:
 			for en in enemies:
 				if not is_instance_valid(en) or (en as Node2D).get_instance_id() in hit:
 					continue
-				if p.distance_to((en as Node2D).global_position) <= r:
-					var absorbed: float = minf(dmg, maxf(0.0, float(en.hp)))
-					en.take_damage(absorbed, GAUSS_STAGGER)
-					dmg -= absorbed
-					hit.append((en as Node2D).get_instance_id())
-					if dmg <= GAUSS_MIN_DMG:
+				var id := (en as Node2D).get_instance_id()
+				if id in hit:
+					continue
+				var _en_r2 = en.get("hit_radius")
+				var _hit_r2: float = (float(_en_r2) if _en_r2 != null else GAUSS_RADIUS) + 8.0
+				if p.distance_to((en as Node2D).global_position) <= _hit_r2:
+					if en.has_method("take_damage"):
+						en.take_damage(GAUSS_DAMAGE * _dmg_mult, GAUSS_STAGGER)
+					_gauss_impact_player.play()
+					hit.append(id)
+					o["pierce_left"] = int(o["pierce_left"]) - 1
+					if int(o["pierce_left"]) <= 0:
 						dead = true
 						break
 			if not dead:
@@ -1219,9 +1299,11 @@ func _draw_gauss_trail(o: Dictionary) -> void:
 		if w < 0.5:
 			continue
 		var pa: Vector2 = trail[i]
-		draw_circle(pa, w * 1.6, Color(c.r, c.g, c.b, GAUSS_TRAIL_ALPHA * 0.22 * fade))
-		draw_circle(pa, w, Color(c.r, c.g, c.b, GAUSS_TRAIL_ALPHA * 0.55 * fade))
-		draw_circle(pa, w * 0.45, Color(1.0, 0.88, 0.9, GAUSS_TRAIL_ALPHA * 0.7 * fade))
+		draw_circle(pa, w * 2.6, Color(c.r, c.g, c.b, GAUSS_TRAIL_ALPHA * 0.05 * fade), true, -1.0, true)
+		draw_circle(pa, w * 1.8, Color(c.r, c.g, c.b, GAUSS_TRAIL_ALPHA * 0.12 * fade), true, -1.0, true)
+		draw_circle(pa, w * 1.2, Color(c.r, c.g, c.b, GAUSS_TRAIL_ALPHA * 0.28 * fade), true, -1.0, true)
+		draw_circle(pa, w, Color(c.r, c.g, c.b, GAUSS_TRAIL_ALPHA * 0.50 * fade), true, -1.0, true)
+		draw_circle(pa, w * 0.45, Color(1.0, 0.88, 0.9, GAUSS_TRAIL_ALPHA * 0.7 * fade), true, -1.0, true)
 
 func _draw_sparks() -> void:
 	var c := GAUSS_SPARK_COL
@@ -1244,8 +1326,10 @@ func _draw_charge_rings() -> void:
 		var col := GC_COL_OUT.lerp(GC_COL_IN, t)
 		var a := GC_BRIGHT * (0.12 + 0.88 * t)
 		var rs := GC_RING_SIZE * (0.3 + 0.7 * (1.0 - t))
-		draw_arc(pos, rs * 1.4, 0.0, TAU, 16, Color(col.r, col.g, col.b, a * 0.3), 2.0)
-		draw_arc(pos, rs, 0.0, TAU, 16, Color(col.r, col.g, col.b, a), 2.0)
+		draw_arc(pos, rs * 2.4, 0.0, TAU, 16, Color(col.r, col.g, col.b, a * 0.05), 3.0, true)
+		draw_arc(pos, rs * 1.7, 0.0, TAU, 16, Color(col.r, col.g, col.b, a * 0.14), 2.5, true)
+		draw_arc(pos, rs * 1.2, 0.0, TAU, 16, Color(col.r, col.g, col.b, a * 0.28), 2.0, true)
+		draw_arc(pos, rs, 0.0, TAU, 16, Color(col.r, col.g, col.b, a), 2.0, true)
 		draw_circle(pos, rs * 0.35, Color(col.r, col.g, col.b, a * 0.5))
 
 func _draw_flashes() -> void:

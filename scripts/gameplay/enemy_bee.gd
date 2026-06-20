@@ -20,6 +20,17 @@ var _phase: int = Phase.ENTER
 var _target_pos: Vector2 = Vector2.ZERO   # world-space centre of this member's formation slot
 var _heading: float = 0.0
 var _dive_speed: float = BE_DIVE_SPEED_INIT
+var _plume_base: Array = []   # [{vel_min, vel_max}] per plume
+
+func _ready() -> void:
+	super._ready()
+	for p: CPUParticles2D in _plumes:
+		_plume_base.append({"vel_min": p.initial_velocity_min, "vel_max": p.initial_velocity_max})
+
+func _apply_plume_vel_mult(m: float) -> void:
+	for i: int in _plumes.size():
+		_plumes[i].initial_velocity_min = float(_plume_base[i]["vel_min"]) * m
+		_plumes[i].initial_velocity_max = float(_plume_base[i]["vel_max"]) * m
 
 func _configure() -> void:
 	_hp_mult = 1.0
@@ -74,3 +85,4 @@ func _tick(delta: float) -> void:
 			var screen: Vector2 = _mgr.screen_size()
 			if c.x < -BE_CULL or c.x > screen.x + BE_CULL or c.y < -BE_CULL or c.y > screen.y + BE_CULL:
 				despawn()
+	_apply_plume_vel_mult(2.0 if _phase == Phase.DIVE else 1.0)

@@ -27,6 +27,7 @@ func _ready() -> void:
 	music_player = AudioStreamPlayer.new()
 	add_child(music_player)
 	sfx_player = AudioStreamPlayer.new()
+	sfx_player.bus = "SFX"
 	add_child(sfx_player)
 	music_player.finished.connect(_on_track_finished)
 	_build_playlist()

@@ -17,6 +17,26 @@ var _jump_start: Vector2 = Vector2.ZERO
 var _jump_end: Vector2 = Vector2.ZERO
 var _jump_t: float = 0.0
 var _jump_duration: float = 0.0
+var _plume_base: Array = []   # [{vel_min, vel_max, sc_min, sc_max, life}] per plume
+
+func _ready() -> void:
+	super._ready()
+	for p: CPUParticles2D in _plumes:
+		_plume_base.append({
+			"vel_min": p.initial_velocity_min, "vel_max": p.initial_velocity_max,
+			"sc_min": p.scale_amount_min, "sc_max": p.scale_amount_max,
+			"life": p.lifetime,
+		})
+
+func _apply_plume_mult(m: float) -> void:
+	for i: int in _plumes.size():
+		var p: CPUParticles2D = _plumes[i]
+		var b: Dictionary = _plume_base[i]
+		p.initial_velocity_min = float(b["vel_min"]) * m
+		p.initial_velocity_max = float(b["vel_max"]) * m
+		p.scale_amount_min     = float(b["sc_min"])  * m
+		p.scale_amount_max     = float(b["sc_max"])  * m
+		p.lifetime             = float(b["life"])    * m
 
 func _configure() -> void:
 	_hp_mult = 1.0
@@ -51,6 +71,7 @@ func _tick(delta: float) -> void:
 		_jump_acc += delta
 		if _jump_acc >= SP_JUMP_INTERVAL:
 			_start_jump()
+	_apply_plume_mult(4.0 if _jumping else 1.0)
 
 func _start_jump() -> void:
 	var screen: Vector2 = _mgr.screen_size()

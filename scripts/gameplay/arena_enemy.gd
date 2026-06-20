@@ -58,6 +58,18 @@ const FALLBACK := {
 	"thrown_bomb": {"behavior": "thrown_bomb", "hp": 12.0, "speed": THROWN_BOMB_SPEED, "size": 13.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(1.0, 0.55, 0.2), "icon": "res://assets/enemies/bomb.png", "no_collide": true},
 }
 
+# ── Fire-point positions (loaded from creep_layout.cfg [firepoints]) ─────────
+static var _fp_fracs_cache: Dictionary = {}
+var _fp_fracs: Array = []   # Array[{frac:Vector2, dir_angle:float, id:int}]
+
+# ── Thrust-point plume VFX ────────────────────────────────────────────────────
+static var _tp_fracs_cache: Dictionary = {}
+var _plumes: Array[CPUParticles2D] = []
+var _plume_base: Array = []        # [{vel_min, vel_max, sc_min, sc_max, life}] per plume
+var _plume_base_cols: Array = []   # [PackedColorArray] per plume
+var _plume_red_cols: Array = []    # pre-built red gradient (dragonfly proximity)
+var _plume_in_red: bool = false
+
 var _type: String = "chase"
 var behavior: String = "chase"
 var hp_max: float = 30.0
@@ -65,6 +77,8 @@ var hp: float = 30.0
 var armor: float = 0.0
 var speed: float = 95.0
 var _radius: float = 16.0
+var hit_radius: float:
+	get: return _radius
 var contact_damage: int = 6
 var contact_explodes: bool = false
 var xp: int = 5
@@ -98,6 +112,9 @@ var _scatter_target: Vector2 = Vector2.ZERO
 var _init_done: bool = false
 var _beam_on: bool = false
 var _beam_dir: Vector2 = Vector2.RIGHT
+var _beam_origin: Vector2 = Vector2.ZERO   # local-space offset to muzzle (for draw + hit-test)
+var _burst_shots: int = 0   # shooter burst: bullets remaining in current burst
+var _burst_t: float = 0.0   # shooter burst: countdown to next shot
 # "alive" motion state
 var _facing: float = 0.0
 var _prev_pos: Vector2 = Vector2.ZERO
@@ -161,6 +178,8 @@ func _ready() -> void:
 	mat.shader = _flash_shader
 	material = mat
 	_load_icon()
+	_setup_plumes()
+	_setup_fire_points()
 	# Per-enemy "alive" variation so the crowd reads as individuals, not synced clones.
 	_bob_phase = randf() * TAU
 	_bob_freq = randf_range(BOB_FREQ_MIN, BOB_FREQ_MAX)
@@ -188,6 +207,13 @@ func _load_icon() -> void:
 		var w := _radius * ICON_DRAW_SCALE
 		var h := w * (ts.y / ts.x) if ts.x > 0.0 else w
 		_draw_size = Vector2(w, h)
+		var cname := _icon.get_file().get_basename().to_lower()
+		var eo_cfg := ConfigFile.new()
+		if eo_cfg.load("res://creep_layout.cfg") == OK:
+			var eo: Dictionary = eo_cfg.get_value("creeps", cname, {})
+			var eo_sz: Vector2 = eo.get("size", Vector2.ZERO)
+			if eo_sz.x > 0.0 and eo_sz.y > 0.0:
+				_draw_size = eo_sz
 
 ## Parse <name>.sheet.json alongside the PNG to slice frames into AtlasTexture objects.
 ## JSON format: { "cols": 1, "w": <px>, "h": <px>, "delays": [<sec>, ...] }
@@ -223,6 +249,184 @@ func _load_sheet_frames(path: String) -> void:
 		_delays.append(d)
 	if not _frames.is_empty():
 		_tex = _frames[0] as Texture2D
+
+# ── Thrust-point plume VFX ────────────────────────────────────────────────────
+func _setup_plumes() -> void:
+	if _icon.is_empty() or _draw_size == Vector2.ZERO:
+		return
+	var cname := _icon.get_file().get_basename().to_lower()
+	if not _tp_fracs_cache.has(cname):
+		_tp_fracs_cache[cname] = _load_tp_fracs(cname)
+	var fracs: Array = _tp_fracs_cache[cname]
+	if fracs.is_empty():
+		return
+	var all_styles := _load_plume_styles_for(cname)
+	for i: int in fracs.size():
+		var fd: Dictionary = fracs[i]
+		var tp_id: int = int(fd.get("id", i + 1))
+		var style: Dictionary = all_styles.get("tp_%d" % tp_id, {})
+		var p := _make_plume(fd["frac"] as Vector2, float(fd["dir_angle"]), style)
+		add_child(p)
+		_plumes.append(p)
+	var red := PackedColorArray([
+		Color(1.0, 0.20, 0.10, 1.0), Color(0.85, 0.05, 0.02, 1.0),
+		Color(0.60, 0.00, 0.00, 0.85), Color(0.40, 0.00, 0.00, 0.00),
+	])
+	for p2: CPUParticles2D in _plumes:
+		_plume_base.append({"vel_min": p2.initial_velocity_min, "vel_max": p2.initial_velocity_max,
+			"sc_min": p2.scale_amount_min, "sc_max": p2.scale_amount_max, "life": p2.lifetime})
+		_plume_base_cols.append(p2.color_ramp.colors.duplicate())
+		_plume_red_cols.append(red)
+
+static func _load_plume_styles_for(cname: String) -> Dictionary:
+	var cfg := ConfigFile.new()
+	if cfg.load("res://plume_styles.cfg") != OK:
+		return {}
+	return cfg.get_value("styles", cname, {})
+
+static func _load_tp_fracs(cname: String) -> Array:
+	const SCREEN_ORIGIN := Vector2(15.0, 8.0)
+	var cfg := ConfigFile.new()
+	if cfg.load("res://creep_layout.cfg") != OK:
+		return []
+	var eo: Dictionary = cfg.get_value("creeps", cname, {})
+	if eo.is_empty():
+		return []
+	var eo_pos: Vector2 = eo.get("pos", Vector2(480.0, 380.0))
+	var eo_size: Vector2 = eo.get("size", Vector2(60.0, 60.0))
+	if eo_size.x <= 0.0 or eo_size.y <= 0.0:
+		return []
+	var tps: Array = cfg.get_value("thrustpoints", cname, [])
+	var result: Array = []
+	for i: int in tps.size():
+		var tp: Dictionary = tps[i]
+		var tp_oc: Vector2 = (tp["pos"] as Vector2) + SCREEN_ORIGIN
+		var frac := (tp_oc - eo_pos) / eo_size
+		result.append({"frac": frac, "dir_angle": float(tp.get("dir_angle", PI * 0.5)), "id": int(tp.get("id", i + 1))})
+	return result
+
+func _setup_fire_points() -> void:
+	if _icon.is_empty() or _draw_size == Vector2.ZERO:
+		return
+	var cname := _icon.get_file().get_basename().to_lower()
+	if not _fp_fracs_cache.has(cname):
+		_fp_fracs_cache[cname] = _load_fp_fracs(cname)
+	_fp_fracs = _fp_fracs_cache[cname]
+
+static func _load_fp_fracs(cname: String) -> Array:
+	const SCREEN_ORIGIN := Vector2(15.0, 8.0)
+	var cfg := ConfigFile.new()
+	if cfg.load("res://creep_layout.cfg") != OK:
+		return []
+	var eo: Dictionary = cfg.get_value("creeps", cname, {})
+	if eo.is_empty():
+		return []
+	var eo_pos: Vector2  = eo.get("pos",  Vector2(480.0, 380.0))
+	var eo_size: Vector2 = eo.get("size", Vector2(60.0,  60.0))
+	if eo_size.x <= 0.0 or eo_size.y <= 0.0:
+		return []
+	var fps: Array = cfg.get_value("firepoints", cname, [])
+	var result: Array = []
+	for i: int in fps.size():
+		var fp: Dictionary = fps[i]
+		var fp_oc: Vector2 = (fp["pos"] as Vector2) + SCREEN_ORIGIN
+		var frac := (fp_oc - eo_pos) / eo_size
+		result.append({"frac": frac, "dir_angle": float(fp.get("dir_angle", 0.0)), "id": int(fp.get("id", i + 1))})
+	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["id"]) < int(b["id"]))
+	return result
+
+## World position of fire-point `idx`. Falls back to global_position if FP not configured.
+## Origin of CharacterBody2D is CENTER; frac offset shifted by -0.5 to match.
+func _muzzle(idx: int = 0) -> Vector2:
+	if idx < _fp_fracs.size() and _draw_size != Vector2.ZERO:
+		return global_position + (_fp_fracs[idx]["frac"] as Vector2 - Vector2(0.5, 0.5)) * _draw_size
+	return global_position
+
+func _make_plume(frac: Vector2, dir_angle: float, style: Dictionary = {}) -> CPUParticles2D:
+	var p := CPUParticles2D.new()
+	# Origin of CharacterBody2D is CENTER; _draw_size is the full drawn sprite extent.
+	# frac (0,0)=top-left (1,1)=bottom-right → shift by -0.5 to center on origin.
+	p.position = (frac - Vector2(0.5, 0.5)) * _draw_size
+	p.amount = maxi(1, int(_draw_size.x / 5.0))
+	p.lifetime             = float(style.get("lifetime", 0.35))
+	p.emitting = true
+	p.local_coords = true
+	p.process_mode = Node.PROCESS_MODE_ALWAYS
+	p.z_as_relative = true
+	p.z_index = 1
+	p.gravity = Vector2.ZERO
+	p.direction = Vector2.RIGHT.rotated(dir_angle)
+	p.spread               = float(style.get("spread",   12.0))
+	p.initial_velocity_min = float(style.get("vel_min",  80.0))
+	p.initial_velocity_max = float(style.get("vel_max",  130.0))
+	p.scale_amount_min     = float(style.get("sc_min",   1.0))
+	p.scale_amount_max     = float(style.get("sc_max",   2.2))
+	var taper := Curve.new()
+	taper.add_point(Vector2(0.0, 1.0))
+	taper.add_point(Vector2(1.0, 0.05))
+	p.scale_amount_curve = taper
+	# Store unrotated values so _physics_process can re-apply visual rotation each frame.
+	p.set_meta("base_pos", p.position)
+	p.set_meta("base_dir", p.direction)
+	var img := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	var ctr := Vector2(16, 16) * 0.5
+	for iy in 16:
+		for ix in 16:
+			var d: float = Vector2(ix + 0.5, iy + 0.5).distance_to(ctr) / 8.0
+			var a: float = clampf(1.0 - d, 0.0, 1.0)
+			img.set_pixel(ix, iy, Color(1.0, 1.0, 1.0, a * a))
+	p.texture = ImageTexture.create_from_image(img)
+	var col_core:  Color = style.get("col_core",  Color(1.0, 0.95, 0.7, 1.0))
+	var col_flame: Color = style.get("col_flame", Color(1.0, 0.6,  0.2, 1.0))
+	var col_cool:  Color = style.get("col_cool",  Color(0.45, 0.6, 1.0, 0.85))
+	var col_fade           := col_cool; col_fade.a = 0.0
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.3, 0.65, 1.0])
+	grad.colors  = PackedColorArray([col_core, col_flame, col_cool, col_fade])
+	p.color_ramp = grad
+	var cm := CanvasItemMaterial.new()
+	cm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	p.material = cm
+	return p
+
+# ── Dynamic plume modulation ──────────────────────────────────────────────────
+func _apply_plume_vel_mult(m: float) -> void:
+	for i: int in _plumes.size():
+		var b: Dictionary = _plume_base[i]
+		_plumes[i].initial_velocity_min = float(b["vel_min"]) * m
+		_plumes[i].initial_velocity_max = float(b["vel_max"]) * m
+
+func _apply_plume_full_mult(m: float) -> void:
+	for i: int in _plumes.size():
+		var p: CPUParticles2D = _plumes[i]
+		var b: Dictionary = _plume_base[i]
+		p.initial_velocity_min = float(b["vel_min"]) * m
+		p.initial_velocity_max = float(b["vel_max"]) * m
+		p.scale_amount_min     = float(b["sc_min"])  * m
+		p.scale_amount_max     = float(b["sc_max"])  * m
+		p.lifetime             = float(b["life"])    * m
+
+func _apply_plume_color(want_red: bool) -> void:
+	if want_red == _plume_in_red:
+		return
+	_plume_in_red = want_red
+	var src: Array = _plume_red_cols if want_red else _plume_base_cols
+	for i: int in _plumes.size():
+		if _plumes[i].color_ramp != null and i < src.size():
+			_plumes[i].color_ramp.colors = src[i]
+
+func _update_plumes() -> void:
+	if _plume_base.is_empty():
+		return
+	match behavior:
+		"swarm_dive":
+			_apply_plume_vel_mult(2.0 if _phase == 1 else 1.0)
+		"orbit":
+			_apply_plume_color(global_position.distance_to(_player_pos()) < 350.0)
+		"jump":
+			_apply_plume_full_mult(3.0 if _phase == 1 else 1.0)
+		"jump_diag":
+			_apply_plume_full_mult(3.0 if _phase == 1 else 1.0)
 
 # ── Universal damage contract ──────────────────────────────────────────────────
 func take_damage(amount: float, stagger: float = 0.0) -> void:
@@ -272,11 +476,12 @@ func _spawn_explosion(size_px: float) -> void:
 	ex.call("setup", global_position, size_px)
 
 func _play_boom() -> void:
-	var stream := load("res://assets/audio/sfx/gunboom%d.wav" % randi_range(1, 5)) as AudioStream
+	var stream := load("res://assets/audio/sfx/boom.wav") as AudioStream
 	if stream == null:
 		return
 	var p := AudioStreamPlayer.new()
 	p.stream = stream
+	p.bus = "SFX"
 	p.volume_db = linear_to_db(0.7)
 	get_parent().add_child(p)
 	p.play()
@@ -338,6 +543,14 @@ func _physics_process(delta: float) -> void:
 	if _flash > 0.0:
 		_flash = maxf(0.0, _flash - delta)
 	_check_contact()
+	# Sync plume emitters to the visual rotation (draw_set_transform rotates the sprite but not node children).
+	_update_plumes()
+	if not _plumes.is_empty():
+		var vrot := _spin if behavior == "centipede" else _facing
+		for p: CPUParticles2D in _plumes:
+			if is_instance_valid(p):
+				p.position  = (p.get_meta("base_pos") as Vector2).rotated(vrot)
+				p.direction = (p.get_meta("base_dir") as Vector2).rotated(vrot)
 	queue_redraw()   # bob/squash/facing animate continuously
 
 func _init_behavior() -> void:
@@ -422,35 +635,47 @@ func _tick_behavior(delta: float) -> void:
 					_aim = dir
 				velocity = _aim * speed * 1.6
 				move_and_slide()
-		"shooter":
+		"shooter":   # burst of 1 shot per FP (up to 4), 0.2s between shots, 1s between bursts
 			_standoff(dist, dir, 340.0)
-			if _fire_ready(1.0):
-				_mgr.spawn_bullet(global_position, dir * 280.0, 5)
-		"sentinel":   # hold, fire a fan TOWARD the player
+			var sh_total := maxi(1, _fp_fracs.size())
+			if _burst_shots == 0 and _fire_ready(1.0):
+				_burst_shots = sh_total
+				_burst_t = 0.0
+			if _burst_shots > 0:
+				_burst_t -= delta
+				if _burst_t <= 0.0:
+					var fp_idx := sh_total - _burst_shots
+					_mgr.spawn_bullet(_muzzle(fp_idx), dir * 280.0, 5)
+					_burst_shots -= 1
+					if _burst_shots > 0:
+						_burst_t = 0.2
+		"sentinel":   # hold, fire a fan TOWARD the player from FP 0
 			_standoff(dist, dir, 420.0)
 			if _fire_ready(2.0):
+				var muzzle := _muzzle(0)
 				var base := dir.angle()
 				for k in 5:
 					var a := base + deg_to_rad(lerpf(-24.0, 24.0, float(k) / 4.0))
-					_mgr.spawn_bullet(global_position, Vector2(cos(a), sin(a)) * 260.0, 5)
+					_mgr.spawn_bullet(muzzle, Vector2(cos(a), sin(a)) * 260.0, 5)
 		"beamer":
 			_standoff(dist, dir, 380.0)
 			_beamer_tick(delta, dir)
-		"bomber":   # bombing-wanderer — roam near the player, drop bombs
+		"bomber":   # bombing-wanderer — roam near the player, drop bombs from FP 0
 			if global_position.distance_to(_scatter_target) < 30.0 or _t - _timer > 1.5:
 				_scatter_target = pp + _rand_offset(260.0)
 				_timer = _t
 			velocity = (_scatter_target - global_position).normalized() * speed
 			move_and_slide()
 			if _fire_ready(3.0) and _mgr != null and _mgr.has_method("throw_bomb"):
-				_mgr.throw_bomb(global_position)   # fast bomb aimed straight at the player
-		"missile":   # launcher — periodic spread burst at the player
+				_mgr.throw_bomb(_muzzle(0))
+		"missile":   # launcher — periodic spread burst at the player, 1 shot per FP
 			_standoff(dist, dir, 460.0)
 			if _fire_ready(2.5):
+				var ml_total := maxi(1, _fp_fracs.size())
 				var ba := dir.angle()
-				for k in 4:
-					var a := ba + deg_to_rad(lerpf(-18.0, 18.0, float(k) / 3.0))
-					_mgr.spawn_bullet(global_position, Vector2(cos(a), sin(a)) * 230.0, 8)
+				for k in ml_total:
+					var a := ba + deg_to_rad(lerpf(-18.0, 18.0, float(k) / maxf(1.0, float(ml_total - 1))))
+					_mgr.spawn_bullet(_muzzle(k), Vector2(cos(a), sin(a)) * 230.0, 8)
 		"bomb":   # falls toward the player; explodes on contact/death
 			velocity = dir * speed
 			move_and_slide()
@@ -513,6 +738,7 @@ func _beamer_tick(delta: float, dir: Vector2) -> void:
 				_phase = 2
 				_timer = 0.0
 				_beam_dir = dir
+				_beam_origin = _muzzle(0) - global_position   # local offset to FP
 				_beam_on = true
 		2:
 			if _timer >= 3.0:
@@ -520,10 +746,11 @@ func _beamer_tick(delta: float, dir: Vector2) -> void:
 				_timer = 0.0
 				_beam_on = false
 			else:
+				var beam_world := global_position + _beam_origin
 				var pp := _player_pos()
-				var proj := (pp - global_position).dot(_beam_dir)
+				var proj := (pp - beam_world).dot(_beam_dir)
 				if proj > 0.0:
-					var closest := global_position + _beam_dir * proj
+					var closest := beam_world + _beam_dir * proj
 					if closest.distance_to(pp) <= 30.0 and fmod(_timer, 0.5) < delta:
 						GameManager.ship_take_damage(5)
 		3:
@@ -594,9 +821,10 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # back to level/unscaled for beam + HP bar
 
 	if _beam_on:
-		var end := _beam_dir * 2000.0
-		draw_line(Vector2.ZERO, end, Color(1.0, 0.3, 0.3, 0.85), 8.0)
-		draw_line(Vector2.ZERO, end, Color(1.0, 1.0, 1.0, 0.9), 3.0)
+		var bstart := _beam_origin   # local offset from enemy center to muzzle
+		var bend := bstart + _beam_dir * 2000.0
+		draw_line(bstart, bend, Color(1.0, 0.3, 0.3, 0.85), 8.0)
+		draw_line(bstart, bend, Color(1.0, 1.0, 1.0, 0.9), 3.0)
 	if hp < hp_max and not _dying:
 		var ratio := clampf(hp / maxf(1.0, hp_max), 0.0, 1.0)
 		var w := _radius * 2.0

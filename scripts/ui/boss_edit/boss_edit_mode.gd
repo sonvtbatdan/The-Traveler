@@ -50,6 +50,8 @@ var _grid_overlay:     Control       = null
 var _fp_target_label:  Label         = null
 var _lock_btn:         Button        = null
 var _save_confirm_dlg: ConfirmationDialog = null
+var _fp_angle_row:     Control  = null
+var _fp_angle_spin:    SpinBox  = null
 
 # Panel drag state — each panel tracked separately
 var _dragging_asset:   bool    = false
@@ -227,6 +229,25 @@ func _build_asset_panel() -> void:
 	_fp_vbox.add_theme_constant_override("separation", 2)
 	fp_scroll.add_child(_fp_vbox)
 
+	# FP direction angle row — shown when a FP is selected
+	_fp_angle_row = HBoxContainer.new()
+	_fp_angle_row.visible = false
+	_fp_angle_row.add_theme_constant_override("separation", 4)
+	root.add_child(_fp_angle_row)
+	var al := Label.new()
+	al.text = "Dir:"
+	al.add_theme_font_size_override("font_size", 10)
+	al.custom_minimum_size = Vector2(24.0, 0.0)
+	_fp_angle_row.add_child(al)
+	_fp_angle_spin = SpinBox.new()
+	_fp_angle_spin.min_value = -180.0
+	_fp_angle_spin.max_value = 180.0
+	_fp_angle_spin.step = 1.0
+	_fp_angle_spin.suffix = "°"
+	_fp_angle_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_fp_angle_spin.value_changed.connect(func(_v: float) -> void: _on_fp_angle_changed())
+	_fp_angle_row.add_child(_fp_angle_spin)
+
 # ── RIGHT panel: boss buttons + transform + actions ────────────────────────────
 
 func _build_ctrl_panel() -> void:
@@ -319,7 +340,7 @@ func _build_ctrl_panel() -> void:
 	btn_row.add_child(_delete_btn)
 
 	var close_btn := Button.new()
-	close_btn.text = "Close  [F5]"
+	close_btn.text = "Close  [F3]"
 	close_btn.pressed.connect(_request_close)
 	root.add_child(close_btn)
 
@@ -489,6 +510,7 @@ func _set_active_boss(boss_name: String) -> void:
 	_update_all_boss_interactivity()
 	_update_grid_overlay()
 	_refresh_fp_list()
+	_refresh_fp_angle_ui()
 	_update_lock_btn()
 	for name: String in _boss_buttons:
 		(_boss_buttons[name] as Button).button_pressed = (name == boss_name)
@@ -687,7 +709,7 @@ func _add_firepoint_at(viewport_pos: Vector2) -> void:
 			_fire_points[_active_boss] = []
 			_fp_id_counter[_active_boss] = 1
 		var fp_id: int = _fp_id_counter.get(_active_boss, 1)
-		_fire_points[_active_boss].append({"pos": ss_pos, "id": fp_id})
+		_fire_points[_active_boss].append({"pos": ss_pos, "id": fp_id, "dir_angle": 0.0})
 		_fp_id_counter[_active_boss] = fp_id + 1
 	else:
 		var key := _active_boss + "_" + _fp_target_basename
@@ -695,7 +717,7 @@ func _add_firepoint_at(viewport_pos: Vector2) -> void:
 			_weapon_fire_points[key] = []
 			_wp_fp_id_counter[key] = 1
 		var fp_id: int = _wp_fp_id_counter.get(key, 1)
-		_weapon_fire_points[key].append({"pos": ss_pos, "id": fp_id})
+		_weapon_fire_points[key].append({"pos": ss_pos, "id": fp_id, "dir_angle": 0.0})
 		_wp_fp_id_counter[key] = fp_id + 1
 	_dirty = true
 	_refresh_fp_list()
@@ -707,6 +729,7 @@ func _select_fp(idx: int) -> void:
 		_select_obj(null)
 	_refresh_fp_list()
 	_update_grid_overlay()
+	_refresh_fp_angle_ui()
 
 func _delete_selected_fp() -> void:
 	if _selected_fp_idx < 0:
@@ -719,6 +742,31 @@ func _delete_selected_fp() -> void:
 	_selected_fp_idx = -1
 	_dirty = true
 	_refresh_fp_list()
+	_update_grid_overlay()
+
+func _refresh_fp_angle_ui() -> void:
+	if _fp_angle_row == null:
+		return
+	var show := _selected_fp_idx >= 0
+	_fp_angle_row.visible = show
+	if not show:
+		return
+	var fps: Array = _get_fp_array()
+	if _selected_fp_idx >= fps.size():
+		return
+	_updating_spin = true
+	_fp_angle_spin.value = snappedf(rad_to_deg(float(fps[_selected_fp_idx].get("dir_angle", 0.0))), 1.0)
+	_updating_spin = false
+
+func _on_fp_angle_changed() -> void:
+	if _updating_spin or _selected_fp_idx < 0:
+		return
+	var fps: Array = _get_fp_array()
+	if _selected_fp_idx >= fps.size():
+		return
+	fps[_selected_fp_idx]["dir_angle"] = deg_to_rad(_fp_angle_spin.value)
+	_set_fp_array(fps)
+	_dirty = true
 	_update_grid_overlay()
 
 func _get_fp_array() -> Array:
@@ -773,6 +821,7 @@ func _make_fp_row(fp: Dictionary, idx: int) -> Control:
 
 	var fp_id: int   = fp.get("id",  idx + 1)
 	var pos: Vector2 = fp.get("pos", Vector2.ZERO)
+	var angle_deg    := int(round(rad_to_deg(float(fp.get("dir_angle", 0.0)))))
 
 	var id_lbl := Label.new()
 	id_lbl.text = "FP%d" % fp_id
@@ -782,7 +831,7 @@ func _make_fp_row(fp: Dictionary, idx: int) -> Control:
 	hbox.add_child(id_lbl)
 
 	var pos_lbl := Label.new()
-	pos_lbl.text = "(%d, %d)" % [int(pos.x), int(pos.y)]
+	pos_lbl.text = "(%d,%d) %d°" % [int(pos.x), int(pos.y), angle_deg]
 	pos_lbl.add_theme_font_size_override("font_size", 10)
 	pos_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hbox.add_child(pos_lbl)
@@ -1129,7 +1178,7 @@ func _do_save_layout() -> void:
 		# Fire points — boss main body
 		var fp_data: Array[Dictionary] = []
 		for fp: Dictionary in _fire_points.get(boss_name, []):
-			fp_data.append({"pos": fp["pos"], "id": fp.get("id", 0)})
+			fp_data.append({"pos": fp["pos"], "id": fp.get("id", 0), "dir_angle": fp.get("dir_angle", 0.0)})
 		cfg.set_value("firepoints", boss_name, fp_data)
 		# Fire points — weapon EOs (blueorb, tealorb, etc.)
 		var wlist: Array = _placed.get(boss_name, [])
@@ -1141,7 +1190,7 @@ func _do_save_layout() -> void:
 			var key := boss_name + "_" + wbn
 			var wfp_data: Array[Dictionary] = []
 			for fp: Dictionary in _weapon_fire_points.get(key, []):
-				wfp_data.append({"pos": fp["pos"], "id": fp.get("id", 0)})
+				wfp_data.append({"pos": fp["pos"], "id": fp.get("id", 0), "dir_angle": fp.get("dir_angle", 0.0)})
 			if not wfp_data.is_empty():
 				cfg.set_value("firepoints", key, wfp_data)
 	cfg.save(LAYOUT_PATH)
@@ -1179,7 +1228,7 @@ func _load_layout() -> void:
 		var max_id := 0
 		for fp: Dictionary in cfg.get_value("firepoints", boss_name, []):
 			var fp_id: int = fp.get("id", max_id + 1)
-			_fire_points[boss_name].append({"pos": fp.get("pos", Vector2.ZERO), "id": fp_id})
+			_fire_points[boss_name].append({"pos": fp.get("pos", Vector2.ZERO), "id": fp_id, "dir_angle": fp.get("dir_angle", 0.0)})
 			max_id = maxi(max_id, fp_id)
 		_fp_id_counter[boss_name] = max_id + 1
 		# Fire points — weapon EOs
@@ -1194,7 +1243,7 @@ func _load_layout() -> void:
 			var wmax_id := 0
 			for fp: Dictionary in cfg.get_value("firepoints", key, []):
 				var fp_id: int = fp.get("id", wmax_id + 1)
-				_weapon_fire_points[key].append({"pos": fp.get("pos", Vector2.ZERO), "id": fp_id})
+				_weapon_fire_points[key].append({"pos": fp.get("pos", Vector2.ZERO), "id": fp_id, "dir_angle": fp.get("dir_angle", 0.0)})
 				wmax_id = maxi(wmax_id, fp_id)
 			_wp_fp_id_counter[key] = wmax_id + 1
 	# Lock states

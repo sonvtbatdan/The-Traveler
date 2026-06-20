@@ -25,6 +25,33 @@ var _orbit_angle: float = 0.0
 var _orbit_radius: float = DF_ORBIT_RADIUS_START
 var _orbit_center: Vector2 = Vector2.ZERO   # drifts toward player at DF_ORBIT_CENTER_SPEED
 var _dive_target: Vector2 = Vector2.ZERO    # captured once when DIVE begins (aim-once)
+var _plume_base_cols:  Array = []   # [PackedColorArray] per plume
+var _plume_red_cols:   Array = []   # pre-built red-tone gradient per plume
+var _plume_in_red: bool = false
+
+func _ready() -> void:
+	super._ready()
+	var red := PackedColorArray([
+		Color(1.0, 0.20, 0.10, 1.0),
+		Color(0.85, 0.05, 0.02, 1.0),
+		Color(0.60, 0.00, 0.00, 0.85),
+		Color(0.40, 0.00, 0.00, 0.00),
+	])
+	for p: CPUParticles2D in _plumes:
+		_plume_base_cols.append(p.color_ramp.colors.duplicate() if p.color_ramp != null else PackedColorArray())
+		_plume_red_cols.append(red)
+
+func _update_plume_color() -> void:
+	if _mgr == null:
+		return
+	var want_red := center().distance_to(_mgr.ship_center()) < 350.0
+	if want_red == _plume_in_red:
+		return
+	_plume_in_red = want_red
+	var src: Array = _plume_red_cols if want_red else _plume_base_cols
+	for i: int in _plumes.size():
+		if _plumes[i].color_ramp != null and i < src.size():
+			_plumes[i].color_ramp.colors = src[i]
 
 func _configure() -> void:
 	_hp_mult = 1.0
@@ -47,6 +74,7 @@ func spawn(mgr: Node) -> void:
 func _tick(delta: float) -> void:
 	if _mgr == null:
 		return
+	_update_plume_color()
 	rotation += DF_ROT_SPEED * delta
 	match _phase:
 		Phase.ENTRY:
