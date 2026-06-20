@@ -26,6 +26,7 @@ const PerfOverlayScript  := preload("res://scripts/ui/hud/perf_overlay.gd")
 const LevelUpUIScript    := preload("res://scripts/ui/hud/arena_levelup_ui.gd")
 const ArenaRuinLayerScript := preload("res://scripts/gameplay/arena_ruin_layer.gd")
 const ArenaHudButtonsScript := preload("res://scripts/ui/hud/arena_hud_buttons.gd")
+const BossEditScript        := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
 const RESET_RUN_ON_START := true   # each arena run starts a fresh VS climb (level 1, no upgrades). Flip off to keep saved level.
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
@@ -66,6 +67,7 @@ var _tex_lean: Texture2D = null
 var _fire_acc: float = 0.0
 var _projectiles: Array = []   # {node, vel, life, start}
 var _edge_vignette_mat: ShaderMaterial = null   # boundary "edge of system" cue
+var _boss_edit: Node = null
 
 func _ready() -> void:
 	randomize()                          # fresh RNG each launch → random spawn spot (below)
@@ -117,6 +119,7 @@ func _ready() -> void:
 		add_child(WaveEditorScript.new())     # F7 in-game wave editor (add/edit/remove waves live)
 	add_child(ArenaWeaponsScript.new())   # Gatling gun + Gauss cannon, auto-firing toward the ship facing
 	add_child(ArenaRuinLayerScript.new()) # periodic ruin ships (every 5–15s): ship → box → loot drop
+	call_deferred("_setup_boss_edit")
 
 ## Full-screen "edge of system" vignette; its intensity is driven by player→boundary proximity each frame.
 func _build_boundary_vignette() -> void:
@@ -322,3 +325,25 @@ func _tick_projectiles(delta: float) -> void:
 			n.queue_free()
 			_projectiles.remove_at(i)
 		i -= 1
+
+# ── Boss Edit (F3) ────────────────────────────────────────────────────────────
+func _setup_boss_edit() -> void:
+	# Provide a full-screen Control as ObjectsContainer so boss_edit_mode can place
+	# boss sprites in screen space (same role as edit_mode's ObjectsContainer in main.gd).
+	var cl := CanvasLayer.new()
+	cl.layer = 9
+	add_child(cl)
+	var oc := Control.new()
+	oc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	oc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cl.add_child(oc)
+	var bem := BossEditScript.new()
+	add_child(bem)
+	_boss_edit = bem
+	bem.setup(oc)
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("toggle_boss_edit_mode"):
+		if _boss_edit != null:
+			_boss_edit.toggle()
+		get_viewport().set_input_as_handled()

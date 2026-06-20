@@ -1,12 +1,20 @@
 extends CanvasLayer
-## Debug spawner for the non-planet celestial bodies. Keys (all confirmed unbound elsewhere):
-##   F5  = asteroid field near the player      Shift+F5  = clear debug asteroid fields
-##   F9  = comet near the player               Shift+F9  = clear debug comets
-##   F10 = planet WITH moons near the player    Shift+F10 = clear debug planets (incl. their moons)
-##   F11 = next gas/dust structure near player  Shift+F11 = clear debug structures
-##         (cycles ring nebula → reflection → dark → pillars each press)
-## (F6 = planet menu, F7 = wave editor, F12 = weapon palette — handled elsewhere, left alone.)
-## Moons also spawn automatically with F6/streamed planets.
+## Debug spawner + dev-mode HUD for the arena.
+##
+## Hotkeys (F-keys always active regardless of DEV_MODE):
+##   F3        Boss Edit (toggle)
+##   F5        Asteroid field near player       Shift+F5  = clear
+##   F6        Planet menu
+##   F7        Wave editor
+##   F9        Comet near player                Shift+F9  = clear
+##   F10       Planet + moons near player       Shift+F10 = clear
+##   F11       Space structure (cycles types)   Shift+F11 = clear
+##   F12       Lasgun weapon pickup             Shift+F12 = clear
+##   [−]/[+]   Fire rate mult
+##   [+Level]  Force level-up
+
+# Set true to show the hotkey panel + fire-rate controls at startup.
+const DEV_MODE := false
 
 const FR_STEP        := 0.5    # fire-rate mult change per +/- press (tune for faster/slower testing)
 const GAT_INTERVAL   := 0.09   # mirrors arena_weapons.gd GAT_FIRE_INTERVAL (keep in sync if changed)
@@ -22,6 +30,9 @@ func _ready() -> void:
 	add_to_group("arena_debug_spawn")
 	_rng.randomize()
 	_build_fire_rate_ui()
+	_build_hotkey_panel()
+	if _dev_ui_root != null:
+		_dev_ui_root.visible = DEV_MODE
 
 func set_dev_ui_visible(v: bool) -> void:
 	if _dev_ui_root != null:
@@ -166,3 +177,44 @@ func _clear_planets() -> void:
 		if is_instance_valid(n):
 			n.queue_free()
 	print("[debug] cleared debug planets")
+
+func _build_hotkey_panel() -> void:
+	if _dev_ui_root == null:
+		return
+	var panel := Panel.new()
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.position = Vector2(8.0, 208.0)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.04, 0.04, 0.08, 0.72)
+	sb.set_corner_radius_all(4)
+	sb.content_margin_left   = 10.0
+	sb.content_margin_right  = 10.0
+	sb.content_margin_top    = 7.0
+	sb.content_margin_bottom = 7.0
+	panel.add_theme_stylebox_override("panel", sb)
+	_dev_ui_root.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_theme_constant_override("separation", 2)
+	panel.add_child(vbox)
+
+	var rows: Array[String] = [
+		"F3         Boss Edit (toggle)",
+		"F5         Asteroids          Shift+F5  clear",
+		"F6         Planet menu",
+		"F7         Wave editor",
+		"F9         Comet              Shift+F9  clear",
+		"F10        Planet + moons     Shift+F10 clear",
+		"F11        Structure          Shift+F11 clear",
+		"F12        Lasgun pickup      Shift+F12 clear",
+		"[ − ] [ + ]  Fire rate",
+		"[ +Level ]   Level up",
+	]
+	for row: String in rows:
+		var lbl := Label.new()
+		lbl.text = row
+		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		lbl.add_theme_font_size_override("font_size", 11)
+		lbl.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95, 0.90))
+		vbox.add_child(lbl)

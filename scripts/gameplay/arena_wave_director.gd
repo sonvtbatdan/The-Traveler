@@ -93,7 +93,7 @@ const DEBUG_TIMELINE := [
 	{"time": 1.0, "type": "elephant", "count": 1, "pattern": "ring", "is_boss": true},
 ]
 # Auto-load NOTHING — no elephant, no enemies at all (empty timeline). Set false to restore spawning.
-const DEBUG_NO_ENEMIES := true
+const DEBUG_NO_ENEMIES := false
 
 # ══ Runtime ════════════════════════════════════════════════════════════════════
 var timeline: Array = []    # live, editable copy of DEFAULT_TIMELINE (the F7 editor mutates this)

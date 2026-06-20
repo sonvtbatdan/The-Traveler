@@ -7,7 +7,7 @@ const MAJOR_INTERVAL := 100.0  # thicker line every 100px
 
 var show_grid:        bool  = false
 var is_edit_open:     bool  = false
-var fire_points:      Array = []   # Array[Dictionary {pos:Vector2, id:int}]
+var fire_points:      Array = []   # Array[Dictionary {pos:Vector2, id:int, dir_angle:float}]
 var selected_fp_idx:  int   = -1
 
 func _process(_delta: float) -> void:
@@ -101,6 +101,18 @@ func _draw_fire_points() -> void:
 		draw_line(vp_pos + Vector2(0, -10), vp_pos + Vector2(0, 10), col, 2.0)
 		# Ring
 		draw_arc(vp_pos, 5.5, 0.0, TAU, 20, col, 1.5)
+		# Direction arrow
+		var dir_angle: float = float(fp.get("dir_angle", 0.0))
+		var dir_vec   := Vector2.RIGHT.rotated(dir_angle) * 32.0
+		var tip       := vp_pos + dir_vec
+		var arr_col   := Color(0.25, 1.0, 0.45, 0.95) if is_sel else Color(0.55, 1.0, 0.35, 0.80)
+		draw_line(vp_pos, tip, arr_col, 2.0)
+		var back := -dir_vec.normalized() * 7.0
+		draw_line(tip, tip + back.rotated(0.5),  arr_col, 2.0)
+		draw_line(tip, tip + back.rotated(-0.5), arr_col, 2.0)
+		draw_string(ThemeDB.fallback_font, tip + Vector2(4.0, -2.0),
+			"%d°" % int(round(rad_to_deg(dir_angle))),
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, arr_col)
 		# Label with shadow
 		var fp_id: int = fp.get("id", i + 1)
 		var lbl_pos := vp_pos + Vector2(10.0, -3.0)

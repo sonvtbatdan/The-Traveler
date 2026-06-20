@@ -183,7 +183,7 @@ func _make_card(u: Dictionary, idx: int) -> Control:
 func _pick(idx: int) -> void:
 	if idx < 0 or idx >= _current.size():
 		return
-	_play_sfx("res://assets/audio/sfx/selectconfirm2.wav")
+	_play_sfx("res://assets/audio/sfx/selectconfirm3.wav")
 	_apply(_current[idx])
 	_pending -= 1
 	if _pending > 0:
@@ -262,6 +262,7 @@ func _play_sfx(path: String) -> void:
 		return
 	var p := AudioStreamPlayer.new()
 	p.stream = stream
+	p.bus = "SFX"
 	p.volume_db = linear_to_db(0.8)
 	add_child(p)
 	p.play()
