@@ -58,6 +58,10 @@ const FALLBACK := {
 	"thrown_bomb": {"behavior": "thrown_bomb", "hp": 12.0, "speed": THROWN_BOMB_SPEED, "size": 13.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(1.0, 0.55, 0.2), "icon": "res://assets/enemies/bomb.png", "no_collide": true},
 }
 
+# ── Fire-point positions (loaded from creep_layout.cfg [firepoints]) ─────────
+static var _fp_fracs_cache: Dictionary = {}
+var _fp_fracs: Array = []   # Array[{frac:Vector2, dir_angle:float, id:int}]
+
 # ── Thrust-point plume VFX ────────────────────────────────────────────────────
 static var _tp_fracs_cache: Dictionary = {}
 var _plumes: Array[CPUParticles2D] = []
@@ -108,6 +112,9 @@ var _scatter_target: Vector2 = Vector2.ZERO
 var _init_done: bool = false
 var _beam_on: bool = false
 var _beam_dir: Vector2 = Vector2.RIGHT
+var _beam_origin: Vector2 = Vector2.ZERO   # local-space offset to muzzle (for draw + hit-test)
+var _burst_shots: int = 0   # shooter burst: bullets remaining in current burst
+var _burst_t: float = 0.0   # shooter burst: countdown to next shot
 # "alive" motion state
 var _facing: float = 0.0
 var _prev_pos: Vector2 = Vector2.ZERO
@@ -172,6 +179,7 @@ func _ready() -> void:
 	material = mat
 	_load_icon()
 	_setup_plumes()
+	_setup_fire_points()
 	# Per-enemy "alive" variation so the crowd reads as individuals, not synced clones.
 	_bob_phase = randf() * TAU
 	_bob_freq = randf_range(BOB_FREQ_MIN, BOB_FREQ_MAX)
@@ -296,6 +304,43 @@ static func _load_tp_fracs(cname: String) -> Array:
 		var frac := (tp_oc - eo_pos) / eo_size
 		result.append({"frac": frac, "dir_angle": float(tp.get("dir_angle", PI * 0.5)), "id": int(tp.get("id", i + 1))})
 	return result
+
+func _setup_fire_points() -> void:
+	if _icon.is_empty() or _draw_size == Vector2.ZERO:
+		return
+	var cname := _icon.get_file().get_basename().to_lower()
+	if not _fp_fracs_cache.has(cname):
+		_fp_fracs_cache[cname] = _load_fp_fracs(cname)
+	_fp_fracs = _fp_fracs_cache[cname]
+
+static func _load_fp_fracs(cname: String) -> Array:
+	const SCREEN_ORIGIN := Vector2(15.0, 8.0)
+	var cfg := ConfigFile.new()
+	if cfg.load("res://creep_layout.cfg") != OK:
+		return []
+	var eo: Dictionary = cfg.get_value("creeps", cname, {})
+	if eo.is_empty():
+		return []
+	var eo_pos: Vector2  = eo.get("pos",  Vector2(480.0, 380.0))
+	var eo_size: Vector2 = eo.get("size", Vector2(60.0,  60.0))
+	if eo_size.x <= 0.0 or eo_size.y <= 0.0:
+		return []
+	var fps: Array = cfg.get_value("firepoints", cname, [])
+	var result: Array = []
+	for i: int in fps.size():
+		var fp: Dictionary = fps[i]
+		var fp_oc: Vector2 = (fp["pos"] as Vector2) + SCREEN_ORIGIN
+		var frac := (fp_oc - eo_pos) / eo_size
+		result.append({"frac": frac, "dir_angle": float(fp.get("dir_angle", 0.0)), "id": int(fp.get("id", i + 1))})
+	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["id"]) < int(b["id"]))
+	return result
+
+## World position of fire-point `idx`. Falls back to global_position if FP not configured.
+## Origin of CharacterBody2D is CENTER; frac offset shifted by -0.5 to match.
+func _muzzle(idx: int = 0) -> Vector2:
+	if idx < _fp_fracs.size() and _draw_size != Vector2.ZERO:
+		return global_position + (_fp_fracs[idx]["frac"] as Vector2 - Vector2(0.5, 0.5)) * _draw_size
+	return global_position
 
 func _make_plume(frac: Vector2, dir_angle: float, style: Dictionary = {}) -> CPUParticles2D:
 	var p := CPUParticles2D.new()
@@ -590,35 +635,47 @@ func _tick_behavior(delta: float) -> void:
 					_aim = dir
 				velocity = _aim * speed * 1.6
 				move_and_slide()
-		"shooter":
+		"shooter":   # burst of 1 shot per FP (up to 4), 0.2s between shots, 1s between bursts
 			_standoff(dist, dir, 340.0)
-			if _fire_ready(1.0):
-				_mgr.spawn_bullet(global_position, dir * 280.0, 5)
-		"sentinel":   # hold, fire a fan TOWARD the player
+			var sh_total := maxi(1, _fp_fracs.size())
+			if _burst_shots == 0 and _fire_ready(1.0):
+				_burst_shots = sh_total
+				_burst_t = 0.0
+			if _burst_shots > 0:
+				_burst_t -= delta
+				if _burst_t <= 0.0:
+					var fp_idx := sh_total - _burst_shots
+					_mgr.spawn_bullet(_muzzle(fp_idx), dir * 280.0, 5)
+					_burst_shots -= 1
+					if _burst_shots > 0:
+						_burst_t = 0.2
+		"sentinel":   # hold, fire a fan TOWARD the player from FP 0
 			_standoff(dist, dir, 420.0)
 			if _fire_ready(2.0):
+				var muzzle := _muzzle(0)
 				var base := dir.angle()
 				for k in 5:
 					var a := base + deg_to_rad(lerpf(-24.0, 24.0, float(k) / 4.0))
-					_mgr.spawn_bullet(global_position, Vector2(cos(a), sin(a)) * 260.0, 5)
+					_mgr.spawn_bullet(muzzle, Vector2(cos(a), sin(a)) * 260.0, 5)
 		"beamer":
 			_standoff(dist, dir, 380.0)
 			_beamer_tick(delta, dir)
-		"bomber":   # bombing-wanderer — roam near the player, drop bombs
+		"bomber":   # bombing-wanderer — roam near the player, drop bombs from FP 0
 			if global_position.distance_to(_scatter_target) < 30.0 or _t - _timer > 1.5:
 				_scatter_target = pp + _rand_offset(260.0)
 				_timer = _t
 			velocity = (_scatter_target - global_position).normalized() * speed
 			move_and_slide()
 			if _fire_ready(3.0) and _mgr != null and _mgr.has_method("throw_bomb"):
-				_mgr.throw_bomb(global_position)   # fast bomb aimed straight at the player
-		"missile":   # launcher — periodic spread burst at the player
+				_mgr.throw_bomb(_muzzle(0))
+		"missile":   # launcher — periodic spread burst at the player, 1 shot per FP
 			_standoff(dist, dir, 460.0)
 			if _fire_ready(2.5):
+				var ml_total := maxi(1, _fp_fracs.size())
 				var ba := dir.angle()
-				for k in 4:
-					var a := ba + deg_to_rad(lerpf(-18.0, 18.0, float(k) / 3.0))
-					_mgr.spawn_bullet(global_position, Vector2(cos(a), sin(a)) * 230.0, 8)
+				for k in ml_total:
+					var a := ba + deg_to_rad(lerpf(-18.0, 18.0, float(k) / maxf(1.0, float(ml_total - 1))))
+					_mgr.spawn_bullet(_muzzle(k), Vector2(cos(a), sin(a)) * 230.0, 8)
 		"bomb":   # falls toward the player; explodes on contact/death
 			velocity = dir * speed
 			move_and_slide()
@@ -681,6 +738,7 @@ func _beamer_tick(delta: float, dir: Vector2) -> void:
 				_phase = 2
 				_timer = 0.0
 				_beam_dir = dir
+				_beam_origin = _muzzle(0) - global_position   # local offset to FP
 				_beam_on = true
 		2:
 			if _timer >= 3.0:
@@ -688,10 +746,11 @@ func _beamer_tick(delta: float, dir: Vector2) -> void:
 				_timer = 0.0
 				_beam_on = false
 			else:
+				var beam_world := global_position + _beam_origin
 				var pp := _player_pos()
-				var proj := (pp - global_position).dot(_beam_dir)
+				var proj := (pp - beam_world).dot(_beam_dir)
 				if proj > 0.0:
-					var closest := global_position + _beam_dir * proj
+					var closest := beam_world + _beam_dir * proj
 					if closest.distance_to(pp) <= 30.0 and fmod(_timer, 0.5) < delta:
 						GameManager.ship_take_damage(5)
 		3:
@@ -762,9 +821,10 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # back to level/unscaled for beam + HP bar
 
 	if _beam_on:
-		var end := _beam_dir * 2000.0
-		draw_line(Vector2.ZERO, end, Color(1.0, 0.3, 0.3, 0.85), 8.0)
-		draw_line(Vector2.ZERO, end, Color(1.0, 1.0, 1.0, 0.9), 3.0)
+		var bstart := _beam_origin   # local offset from enemy center to muzzle
+		var bend := bstart + _beam_dir * 2000.0
+		draw_line(bstart, bend, Color(1.0, 0.3, 0.3, 0.85), 8.0)
+		draw_line(bstart, bend, Color(1.0, 1.0, 1.0, 0.9), 3.0)
 	if hp < hp_max and not _dying:
 		var ratio := clampf(hp / maxf(1.0, hp_max), 0.0, 1.0)
 		var w := _radius * 2.0

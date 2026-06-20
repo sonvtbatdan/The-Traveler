@@ -1016,6 +1016,8 @@ bx_r = OC_BOUNDS.size.x - bx - bw   # = 700 - bx - bw
 
 ## Arena System (`scenes/arena.tscn`)
 
+> **RULE — Default target for enemy changes:** Khi thực hiện bất kỳ thay đổi nào liên quan đến enemy (behavior, shooting, FP, plume, stats...), mặc định ghi vào **`arena_enemy.gd`**. Chỉ ghi vào file lẻ (`enemy_bee.gd`, `enemy_sentinel.gd`, ...) khi user yêu cầu cụ thể non-arena behavior.
+
 Arena is a **separate, self-contained scene** from `main.tscn` — a Vampire-Survivors-style top-down bullet-heaven mode. It does **not** use `enemy_manager.gd`, `gun_system.gd`, or the individual `enemy_*.gd` scripts. All arena combat logic lives in its own dedicated scripts.
 
 ### Key arena scripts
