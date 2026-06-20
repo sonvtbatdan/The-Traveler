@@ -26,7 +26,7 @@ const ENEMY_DEFS := {
 	"octopus":  {"behavior": "jump",      "hp": 240.0, "speed": 130.0, "size": 22.0, "contact": 20, "explodes": true, "xp": 24, "icon": "res://assets/enemies/animaloctopus.png"},
 	"spider":   {"behavior": "jump_diag", "hp": 60.0,  "speed": 130.0, "size": 16.0, "contact": 8,  "explodes": true, "xp": 8,  "icon": "res://assets/enemies/animalspider.png"},
 	"bee":      {"behavior": "swarm_dive","hp": 20.0,  "speed": 150.0, "size": 12.0, "contact": 8,  "explodes": true, "xp": 3,  "icon": "res://assets/enemies/animalbee.png"},
-	"bug":      {"behavior": "chase",     "hp": 15.0,  "speed": 100.0, "size": 11.0, "contact": 5,  "explodes": true, "xp": 3,  "icon": "res://assets/enemies/animalbug.png"},
+	"bug":      {"behavior": "chase",     "hp": 100.0, "speed": 100.0, "size": 11.0, "contact": 5,  "explodes": true, "xp": 3,  "icon": "res://assets/enemies/animalbug.png"},
 	"swarm":    {"behavior": "swarm_dive","hp": 20.0,  "speed": 160.0, "size": 12.0, "contact": 10, "explodes": true, "xp": 4,  "icon": "res://assets/enemies/swarm.png"},
 	"fly":      {"behavior": "scatter",   "hp": 10.0,  "speed": 120.0, "size": 9.0,  "contact": 5,  "explodes": true, "xp": 2,  "icon": "res://assets/enemies/animalflies.png"},
 	"shooter":  {"behavior": "shooter",   "hp": 50.0,  "speed": 110.0, "size": 16.0, "contact": 0,  "xp": 10, "icon": "res://assets/enemies/jetfighter.png"},
@@ -34,7 +34,7 @@ const ENEMY_DEFS := {
 	"beamer":   {"behavior": "beamer",    "hp": 60.0,  "speed": 90.0,  "size": 18.0, "contact": 0,  "xp": 12, "icon": "res://assets/enemies/beamer.png"},
 	"bomber":   {"behavior": "bomber",    "hp": 240.0, "speed": 100.0, "size": 20.0, "contact": 0,  "xp": 24, "icon": "res://assets/enemies/bombing.gif"},
 	"missile":  {"behavior": "missile",   "hp": 728.0, "speed": 90.0,  "size": 22.0, "contact": 0,  "xp": 18, "icon": "res://assets/enemies/missilelauncher.png"},
-	"dummy":    {"behavior": "dummy",     "hp": 200.0, "speed": 0.0,   "size": 18.0, "contact": 0,  "xp": 0,  "icon": "res://assets/enemies/dummy.png"},
+	"dummy":    {"behavior": "dummy",     "hp": 200.0, "speed": 0.0,   "size": 18.0, "contact": 0,  "xp": 0,  "invincible": true, "icon": "res://assets/enemies/dummy.png"},
 	# bosses — big high-HP stubs (real movesets later)
 	"elephant":  {"behavior": "boss_stub", "hp": 8000.0, "speed": 110.0, "size": 70.0, "contact": 40, "xp": 500, "shape": "circle",   "tint": Color(0.75, 0.70, 0.65), "icon": "res://assets/bosses/elephant/elephant.sheet.png", "boss_script": "res://scripts/gameplay/arena_elephant.gd"},
 	"chromeleon":{"behavior": "boss_stub", "hp": 6000.0, "speed": 70.0, "size": 60.0, "contact": 35, "xp": 400, "shape": "diamond",  "tint": Color(0.45, 0.90, 0.65), "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},
@@ -225,3 +225,7 @@ func _spawn(type_id: String, pos: Vector2, is_boss: bool) -> void:
 	e.configure(type_id, _mgr, def)
 	e.position = pos
 	get_parent().add_child(e)
+
+## Debug: drop one invincible dummy (blocks the beam, never dies) at a world position. Bypasses MAX_ALIVE.
+func spawn_dummy_near(pos: Vector2) -> void:
+	_spawn("dummy", pos, true)

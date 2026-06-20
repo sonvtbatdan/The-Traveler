@@ -1,0 +1,125 @@
+{
+  "name": "test_bug",
+  "timeline": [
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 0.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 10.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 20.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 30.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 40.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 50.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 60.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 70.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 80.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 90.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 100.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 110.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 120.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 130.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 140.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 150.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 160.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 170.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 180.0,
+      "type": "bug"
+    },
+    {
+      "count": 30,
+      "pattern": "scatter",
+      "time": 190.0,
+      "type": "bug"
+    }
+  ]
+}

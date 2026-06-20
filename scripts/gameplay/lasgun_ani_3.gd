@@ -80,6 +80,7 @@ var _body_tex: Texture2D = null
 var _muzzle_tex: Texture2D = null
 var _impact_tex: Texture2D = null
 var _muzzle_frames: Array = []   # 12 AtlasTexture variation frames
+var _packet_tex: Texture2D = null   # procedural soft radial glow for the traveling packets (built in _ready)
 var _muzzle_idx := 0
 var _muzzle_anim_t := 0.0
 var _muzzle_birth_t := 999.0   # seconds since the fire-start edge (drives the muzzle scale-punch); large = settled
@@ -99,6 +100,22 @@ func _ready() -> void:
 	_muzzle_tex = _load_tex(MUZZLE_PATH)
 	_impact_tex = _load_tex(IMPACT_PATH)
 	_load_muzzle_frames()
+	_packet_tex = _make_glow_tex(64)
+
+## Build a soft radial-alpha glow: white core (alpha 1) fading smoothly to transparent at the rim (alpha 0).
+## Drawn additively + stretched per packet, so the dash fades to nothing at every edge (no hard rectangle).
+func _make_glow_tex(size: int) -> Texture2D:
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	var c := (size - 1) * 0.5
+	for y in size:
+		for x in size:
+			# Normalised distance from centre (0 at core → 1 at the inscribed rim).
+			var d := Vector2(x - c, y - c).length() / c
+			# Smooth falloff: bright plateau in the middle, alpha → 0 well before the corners.
+			var a := clampf(1.0 - d, 0.0, 1.0)
+			a = a * a   # quadratic → softer, glow-like edge
+			img.set_pixel(x, y, Color(1.0, 1.0, 1.0, a))
+	return ImageTexture.create_from_image(img)
 
 ## Load the 12 pre-aligned muzzle variation frames (already transparent; convergence at the same fraction in each).
 func _load_muzzle_frames() -> void:
@@ -187,14 +204,20 @@ func _draw() -> void:
 		if layer2_enabled:
 			_draw_body_layer(x0, x1, center_y, thick, layer2_speed * _t, layer2_scale, _lit(body_modulate, bright, layer2_alpha), x0, fade_len)
 
-	# ── Traveling packets: bright dashes racing convergence → impact ──
-	if packet_enabled and L - conv.x > 4.0:
+	# ── Traveling packets: soft additive glints racing convergence → impact ──
+	# Stretched radial-glow texture (white core → transparent rim) so each packet fades to nothing at
+	# every edge — no hard rectangle. Additive blend comes from the node material (BLEND_MODE_ADD).
+	if packet_enabled and _packet_tex != null and L - conv.x > 4.0:
 		var pcol := _lit(packet_color, bright, 1.0)
+		var ph_h := maxf(1.0, thick * packet_width)   # cross-beam glow height (px)
 		for i in maxi(1, packet_count):
 			var ph := fposmod(_t * packet_speed + float(i) / float(maxi(1, packet_count)), 1.0)
 			var px := lerpf(conv.x, L, ph)
-			draw_line(Vector2(px - packet_len * 0.5, center_y), Vector2(px + packet_len * 0.5, center_y),
-				pcol, maxf(1.0, thick * packet_width))
+			# Fade each glint in/out near the beam ends so packets don't pop at the muzzle/impact.
+			var edge := minf(ph, 1.0 - ph) / 0.15
+			var pc := Color(pcol.r, pcol.g, pcol.b, pcol.a * clampf(edge, 0.0, 1.0))
+			draw_texture_rect(_packet_tex,
+				Rect2(px - packet_len * 0.5, center_y - ph_h * 0.5, packet_len, ph_h), false, pc)
 
 	# ── Muzzle (flipbook variation): fire-start scale-PUNCH + subtle pulse, anchored so convergence stays on `conv` ──
 	var mtex: Texture2D = _muzzle_frames[_muzzle_idx] if not _muzzle_frames.is_empty() else _muzzle_tex

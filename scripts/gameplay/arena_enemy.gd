@@ -72,6 +72,7 @@ var _color: Color = Color(0.95, 0.35, 0.30)
 var shape_kind: String = "diamond"
 var _icon: String = ""
 var _no_collide: bool = false
+var _invincible: bool = false   # test dummy: blocks the beam (group "arena_enemy") but ignores all damage
 var _tex: Texture2D = null
 var _frames: Array = []
 var _delays: Array = []
@@ -130,6 +131,7 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	shape_kind       = String(d.get("shape", "diamond"))
 	_icon            = String(d.get("icon", ""))
 	_no_collide      = bool(d.get("no_collide", false))
+	_invincible      = bool(d.get("invincible", false))
 
 func _ready() -> void:
 	add_to_group("arena_enemy")
@@ -226,6 +228,8 @@ func _load_sheet_frames(path: String) -> void:
 func take_damage(amount: float, stagger: float = 0.0) -> void:
 	if _dead:
 		return
+	if _invincible:
+		return   # test dummy — still blocks the beam (it's in "arena_enemy") but never takes damage or dies
 	var dr := 0.0
 	if GameManager.has_method("armor_damage_reduction"):
 		dr = GameManager.armor_damage_reduction(armor)
