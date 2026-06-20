@@ -69,14 +69,14 @@ const POSE_DASH_RIGHT := 4
 # A continuous CPUParticles2D flame behind the engine nozzle: warm white-hot core → blue tips,
 # additive so it reads as hot light. Streams faster/longer while boosting or in a boss fight.
 const PLUME_ENABLED       := true
-const PLUME_AMOUNT        := 40
+const PLUME_AMOUNT        := 60
 const PLUME_INSET         := 6.0     # px (ship-local) the plume root sits up inside the nozzle
-const PLUME_VEL_MIN       := 110.0   # idle exhaust speed
-const PLUME_VEL_MAX       := 150.0
-const PLUME_VEL_MIN_BOOST := 200.0   # boost exhaust speed
-const PLUME_VEL_MAX_BOOST := 270.0
-const PLUME_LIFE          := 0.40
-const PLUME_LIFE_BOOST    := 0.55
+const PLUME_VEL_MIN       := 160.0   # idle exhaust speed
+const PLUME_VEL_MAX       := 230.0
+const PLUME_VEL_MIN_BOOST := 260.0   # boost exhaust speed
+const PLUME_VEL_MAX_BOOST := 360.0
+const PLUME_LIFE          := 0.55
+const PLUME_LIFE_BOOST    := 0.75
 const PLUME_SPREAD        := 11.0    # degrees half-cone
 
 var _bullet_tex:           Texture2D = null
@@ -285,7 +285,7 @@ func _make_plume_node(radius: float, amount: int) -> CPUParticles2D:
 	p.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	p.amount = amount
 	p.lifetime = PLUME_LIFE
-	p.local_coords = true
+	p.local_coords = false
 	p.emitting = false
 	p.process_mode = Node.PROCESS_MODE_ALWAYS   # keep running in F4 (tree paused)
 	p.z_as_relative = false
@@ -297,11 +297,11 @@ func _make_plume_node(radius: float, amount: int) -> CPUParticles2D:
 	p.initial_velocity_max = PLUME_VEL_MAX
 	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
 	p.emission_sphere_radius = radius
-	p.scale_amount_min = 0.7
-	p.scale_amount_max = 1.1
+	p.scale_amount_min = 1.2
+	p.scale_amount_max = 2.5
 	var taper := Curve.new()
 	taper.add_point(Vector2(0.0, 1.0))
-	taper.add_point(Vector2(1.0, 0.15))
+	taper.add_point(Vector2(1.0, 0.08))
 	p.scale_amount_curve = taper
 	var grad := Gradient.new()
 	grad.offsets = PackedFloat32Array([0.0, 0.3, 0.65, 1.0])

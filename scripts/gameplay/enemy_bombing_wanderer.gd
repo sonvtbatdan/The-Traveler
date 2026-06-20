@@ -77,4 +77,4 @@ func _tick(delta: float) -> void:
 
 func _drop_bomb() -> void:
 	if _mgr != null and _mgr.has_method("spawn_bomb"):
-		_mgr.spawn_bomb(center())
+		_mgr.spawn_bomb(_muzzle(0))

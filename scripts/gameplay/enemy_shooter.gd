@@ -29,6 +29,8 @@ var fire_interval_mult: float = 1.0
 # Gate firing on/off (default on). A choreography sets this false to hold fire while it flies the shooter
 # into position, then true once parked (so it forms up THEN shoots). Combat is otherwise unchanged.
 var fire_enabled: bool = true
+var _burst_shots: int  = 0   # bullets remaining in current burst
+var _burst_t:     float = 0.0 # countdown to next burst shot
 
 func _configure() -> void:
 	hp_max = SH_HP
@@ -76,25 +78,34 @@ func _tick(delta: float) -> void:
 
 func _tick_fire(delta: float) -> void:
 	if not fire_enabled:
-		return   # held by a choreography until it reaches its position
+		return
 	if _mgr == null or not is_instance_valid(_mgr):
 		return
 	var ship: Vector2 = _mgr.ship_center()
-	# Ease the facing toward the player instead of snapping (avoids a jerk when it starts aiming after a
-	# scripted fly-in). Bullets aim independently in _fire(), so this is purely the visual turn.
 	var target_rot := (ship - center()).angle() + PI * 0.5
 	rotation = lerp_angle(rotation, target_rot, clampf(SH_TURN_RATE * delta, 0.0, 1.0))
 	var interval := SH_FIRE_INTERVAL * fire_interval_mult
 	_fire_t += delta
-	if _fire_t >= interval:
+	if _fire_t >= interval and _burst_shots == 0:
 		_fire_t -= interval
-		_fire(ship)
+		var total := max(1, _fp_fracs.size())
+		_burst_shots = total
+		_burst_t = 0.0
+	if _burst_shots > 0:
+		_burst_t -= delta
+		if _burst_t <= 0.0:
+			var total := max(1, _fp_fracs.size())
+			var fp_idx := total - _burst_shots
+			_fire_from(ship, fp_idx)
+			_burst_shots -= 1
+			if _burst_shots > 0:
+				_burst_t = 0.2
 
-func _fire(ship: Vector2) -> void:
+func _fire_from(ship: Vector2, fp_idx: int) -> void:
 	if _mgr == null or not _mgr.has_method("spawn_bullet"):
 		return
-	var muzzle := center()
-	var dir := (ship - muzzle)
+	var muzzle := _muzzle(fp_idx)
+	var dir := ship - muzzle
 	if dir.length() < 0.01:
 		return
 	_mgr.spawn_bullet(muzzle, dir.normalized() * SH_BULLET_SPEED, SH_BULLET_DMG)

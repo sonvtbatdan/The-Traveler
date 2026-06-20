@@ -1150,6 +1150,29 @@ Bottom-center HBox (CanvasLayer). Controls:
 
 **Dev mode default state (2026-06-20):** `const DEV_MODE := false` — panel starts hidden. `arena_hud_buttons.gd` shows `dev:off` icon at game start (clicking toggles to `dev:on` and reveals firerate/level controls). Changed from `true` → `false` so players don't see debug controls by default.
 
+### `arena_debug_spawn.gd` — Quick Spawn panel (2026-06-21)
+
+Panel added to `_dev_ui_root` (bottom-left, 192×242px). Only visible when Dev:on.
+
+**Layout:**
+- Header: "Quick Spawn" label + "CLEAR ALL" button — each `SIZE_EXPAND_FILL`, row height 50px
+- Grid: `GridContainer` 4 columns × 48×48px cells inside `ScrollContainer` (4 rows visible = 192px height; scroll reveals row 5)
+
+**Enemy order** (`QUICK_SPAWN_ORDER` const): fly, bee, bug, swarm, diver, dragonfly, octopus, spider, centipede, shooter, sentinel, beamer, bomber, missile, dummy → then bosses: elephant, chromeleon, metalfly. Bosses get red background cells.
+
+**Thumbnails:** loaded via `_load_thumb(icon)` — GIF path → `GifLoader.load_gif()` frame 0; PNG → `load()`. Source: `WaveDir.ENEMY_DEFS[type_id]["icon"]`.
+
+**Spawn:** random position in viewport (`camera.global_position ± 500/270px`). Enemy added as sibling of `wave_director` (same parent as other arena enemies). Tagged with group `"quick_spawn_enemy"`.
+
+**CLEAR ALL:** removes only enemies in group `"quick_spawn_enemy"`.
+
+**Key preloads at top of file:**
+```gdscript
+const GifLoader   := preload("res://scripts/ui/edit_mode/gif_loader.gd")
+const WaveDir     := preload("res://scripts/gameplay/arena_wave_director.gd")
+const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
+```
+
 ### `arena_weapons.gd` — Crit System (2026-06-20)
 
 - `const BASE_CRIT_CHANCE := 0.10` — 10% base crit chance at game start, additive with `GameManager.get_crit_chance()` from upgrade cards. Without this, upgrading "crit damage" (multiplier) had no effect because default chance was 0%.
@@ -1194,6 +1217,26 @@ Bottom-center HBox (CanvasLayer). Controls:
 | Arc | Skip `_fire_arc()` — `_arc_cd` vẫn tick |
 | Lasgun | Dừng `_fire_lasgun(delta)` → `_las_t` không advance (cycle paused); tắt beam visuals + audio |
 
+### `arena_enemy.gd` — `_MissileVolley` inner class (2026-06-21)
+
+Missile launcher behavior fires a fan-boomerang volley: darts fly outward (behind launcher), decelerate + hover (telegraph), then return homing to player.
+
+**Class vars:**
+```gdscript
+var _launcher: Node = null   # the arena_enemy that spawned this volley
+```
+Set via `launch(muzzles, away, launcher)`. The launcher is **excluded** from dart–enemy collision checks (`en == _launcher` guard) to prevent self-hit.
+
+**Self-hit bug (fixed 2026-06-21):** Launcher is in group `"arena_enemy"`. During the return phase, darts fly back toward the player and can pass through the launcher (which maintains standoff at ~460px). Without the guard, darts hitting launcher would be removed early, resulting in 2–3 darts visible instead of 4. Fix: pass `self` into `launch()`, skip it in the collision loop.
+
+**Dart–enemy damage:** darts also deal `ML_LINE_DMG = 8` to other arena enemies on hit. Uses `en.get("_radius")` for hit radius; falls back to 16px. Calls `en.call("take_damage", float(ML_LINE_DMG), 0.0)`.
+
+**Off-screen culling removed:** original had hardcoded `Vector2(1440, 780)` screen check (from shmup parent). This caused darts to be removed the instant they entered the return phase (having flown outside those bounds). Culling is lifetime-only now (`ML_LIFETIME = 6.0s`).
+
+**Key constants:** `ML_FAN_ANGLE = 80°`, `ML_OUT_SPEED = 750px/s`, `ML_DRAG = 0.06` (exponential, ~6% remains after 1s), `ML_HOVER_END = 0.6s`, `ML_STAGGER = 0.12s/dart`, `ML_RETURN_START = 320px/s`, `ML_RETURN_MAX = 900px/s`, `ML_RETURN_ACCEL = 200px/s²`, `ML_ACCEL_RAMP = 1.5`.
+
+**Spider jump randomization (2026-06-21):** `_jump_interval` var (range 0.5–1.5s, randomized via `randf_range`) re-randomized after each jump. Only affects `jump_diag` (spider); octopus still uses fixed 1.0s interval.
+
 ### `arena_levelup_ui.gd` — level-up card UI
 
 **Layout:** `CenterContainer` → `Control 720×390` panel → `TextureRect TEX_FRAME` (full panel bg, `assets/hud/lvupframe.png`).
@@ -1201,7 +1244,7 @@ Bottom-center HBox (CanvasLayer). Controls:
 **Card bg by upgrade category** (`assets/hud/lvgreen/red/blue.png`):
 - Green: `hp`, `hp_regen`, `pickup`
 - Red: `fire_rate`, `damage`
-- Blue: `defense`, `move_speed`, `momentum`
+- Blue: `defense`, `move_speed`, `momentum`, `crit_chance`, `crit_damage` (default — not in CARD_BG dict, falls through to `"blue"`)
 
 **Card icons:** `res://assets/hud/<id>.png` — id must match the upgrade `id` string exactly.
 

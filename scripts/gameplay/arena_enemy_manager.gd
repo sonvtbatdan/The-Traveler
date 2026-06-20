@@ -186,6 +186,18 @@ func throw_bomb(pos: Vector2) -> void:
 	b.position = pos
 	get_parent().add_child(b)
 
+## Spawn a small flock of bee enemies near the player — used by the F12 debug palette to test plume VFX.
+func spawn_bee() -> void:
+	const BEE_DEF := {"behavior": "swarm_dive", "hp": 20.0, "speed": 150.0, "size": 12.0,
+		"contact": 8, "explodes": true, "xp": 3, "icon": "res://assets/enemies/animalbee.png"}
+	var pp := ship_center()
+	for i in 6:
+		var e := ArenaEnemyScript.new()
+		e.configure("bee", self, BEE_DEF)
+		var a := TAU * float(i) / 6.0
+		e.position = pp + Vector2(cos(a), sin(a)) * 500.0
+		get_parent().add_child(e)
+
 func _play_hit() -> void:
 	if _hit_player != null:
 		_hit_player.stop()

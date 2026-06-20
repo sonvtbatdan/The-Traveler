@@ -115,6 +115,8 @@ var _beam_dir: Vector2 = Vector2.RIGHT
 var _beam_origin: Vector2 = Vector2.ZERO   # local-space offset to muzzle (for draw + hit-test)
 var _burst_shots: int = 0   # shooter burst: bullets remaining in current burst
 var _burst_t: float = 0.0   # shooter burst: countdown to next shot
+var _missile_volley: Node = null   # missile: in-flight plasma volley (self-frees when done)
+var _jump_interval: float = 1.0   # jump_diag (spider): randomized per jump (±0.5 s)
 # "alive" motion state
 var _facing: float = 0.0
 var _prev_pos: Vector2 = Vector2.ZERO
@@ -564,6 +566,8 @@ func _init_behavior() -> void:
 			_scatter_target = _player_pos()   # spiral: orbit center anchor; drifts toward player each frame
 		"scatter", "bomber":
 			_scatter_target = _player_pos() + _rand_offset(_view().length() * 0.35)
+		"jump_diag":
+			_jump_interval = randf_range(0.5, 1.5)
 
 func _tick_behavior(delta: float) -> void:
 	var pp := _player_pos()
@@ -668,14 +672,21 @@ func _tick_behavior(delta: float) -> void:
 			move_and_slide()
 			if _fire_ready(3.0) and _mgr != null and _mgr.has_method("throw_bomb"):
 				_mgr.throw_bomb(_muzzle(0))
-		"missile":   # launcher — periodic spread burst at the player, 1 shot per FP
+		"missile":   # launcher — fan BEHIND launcher → hover → boomerang at player
 			_standoff(dist, dir, 460.0)
-			if _fire_ready(2.5):
+			if _fire_ready(2.5) and (_missile_volley == null or not is_instance_valid(_missile_volley)):
 				var ml_total := maxi(1, _fp_fracs.size())
-				var ba := dir.angle()
+				var muzzles: Array = []
 				for k in ml_total:
-					var a := ba + deg_to_rad(lerpf(-18.0, 18.0, float(k) / maxf(1.0, float(ml_total - 1))))
-					_mgr.spawn_bullet(_muzzle(k), Vector2(cos(a), sin(a)) * 230.0, 8)
+					muzzles.append(_muzzle(k))
+				var vol := _MissileVolley.new()
+				if _mgr != null and is_instance_valid(_mgr):
+					_mgr.add_child(vol)
+				else:
+					get_parent().add_child(vol)
+				vol.global_position = Vector2.ZERO
+				vol.launch(muzzles, -dir, self)
+				_missile_volley = vol
 		"bomb":   # falls toward the player; explodes on contact/death
 			velocity = dir * speed
 			move_and_slide()
@@ -690,11 +701,14 @@ func _tick_behavior(delta: float) -> void:
 
 ## Octopus/spider shared leap engine.
 func _jump_tick(delta: float, dir: Vector2, diagonal: bool) -> void:
+	var interval := _jump_interval if diagonal else 1.0
 	if _phase == 0:   # wait, then aim
 		_timer += delta
-		if _timer >= 1.0:
+		if _timer >= interval:
 			_timer = 0.0
 			_phase = 1
+			if diagonal:
+				_jump_interval = randf_range(0.5, 1.5)   # randomize next wait
 			var d := dir
 			if diagonal:
 				var a := (roundf(dir.angle() / (PI * 0.5) - 0.5) + 0.5) * (PI * 0.5)
@@ -767,6 +781,11 @@ func _view() -> Vector2:
 func _rand_offset(r: float) -> Vector2:
 	var a := randf() * TAU
 	return Vector2(cos(a), sin(a)) * randf_range(r * 0.4, r)
+
+func _exit_tree() -> void:
+	if _missile_volley != null and is_instance_valid(_missile_volley):
+		_missile_volley.queue_free()
+	_missile_volley = null
 
 # ── Contact ─────────────────────────────────────────────────────────────────────
 func _check_contact() -> void:
@@ -852,3 +871,288 @@ func _draw_shape(r: float, col: Color) -> void:
 		_:   # diamond
 			pts = PackedVector2Array([Vector2(0, -r), Vector2(r, 0), Vector2(0, r), Vector2(-r, 0)])
 	draw_colored_polygon(pts, col)   # rotation/scale applied by the caller's draw_set_transform
+
+# ── Missile launcher plasma volley ────────────────────────────────────────────
+## Owns N plasma darts through the boomerang arc: fan-out BEHIND the launcher →
+## decelerate to hover (telegraph) → stagger-return at player with homing acceleration.
+## Parented to the arena enemy manager at world origin so draw coords = world coords.
+class _MissileVolley extends Node2D:
+	const ML_FAN_ANGLE     := 80.0
+	const ML_OUT_SPEED     := 750.0
+	const ML_DRAG          := 0.06
+	const ML_HOVER_END     := 1.0
+	const ML_STAGGER       := 0.5
+	const ML_RETURN_START  := 40.0
+	const ML_RETURN_ACCEL  := 900.0
+	const ML_ACCEL_RAMP    := 9.0
+	const ML_RETURN_MAX    := 800.0
+	const ML_TURN_EARLY    := 10.0
+	const ML_TURN_LATE     := 3.0
+	const ML_TURN_SWITCH_T := 0.5
+	const ML_LINE_DMG      := 8
+	const ML_HIT_R         := 6.0
+	const ML_LIFETIME      := 6.0
+	const ML_TRAIL_LEN     := 40
+	const ML_GLOW_INTENSITY := 1.0
+	const ML_COL_HEAD      := Color(0.55, 0.85, 1.0)
+	const ML_COL_TAIL      := Color(0.62, 0.30, 1.0)
+	const ML_CORE_SIZE     := 9.0
+	const ML_CORE_BRIGHT   := 1.0
+	const ML_BLOOM_SIZE    := 32.0
+	const ML_BLOOM_ALPHA   := 0.5
+	const ML_TAIL_MIN      := 28.0
+	const ML_TAIL_MAX      := 180.0
+	const ML_FULL_SPEED    := 700.0
+	const ML_TAIL_SAMPLES  := 30
+	const ML_TAIL_W_HEAD   := 24.0
+	const ML_TAIL_W_TAIL   := 2.0
+	const ML_SPINE_FRAC    := 0.32
+	const ML_SPINE_ALPHA   := 0.7
+	const ML_HAZE_ALPHA    := 0.30
+	const ML_HAZE_WISP     := 5.0
+	const ML_FLARE_ON      := true
+	const ML_FLARE_SCALE   := 1.0
+	const ML_FLARE_LONG    := 80.0
+	const ML_FLARE_SHORT   := 30.0
+	const ML_FLARE_THIN    := 6.0
+	const ML_FLARE_ALPHA   := 0.5
+	const ML_DUST_ON       := true
+	const ML_DUST_GAP      := 11.0
+	const ML_DUST_TTL      := 0.7
+	const ML_DUST_SIZE     := 5.0
+	const ML_DUST_SPREAD   := 6.0
+	const ML_GLITTER_SPEED := 20.0
+
+	var _lines: Array = []
+	var _dust:  Array = []
+	var _clock: float = 0.0
+	var _soft: Texture2D = null
+	var _launcher: Node = null   # excluded from dart–enemy collision checks (self-hit guard)
+
+	func launch(muzzles: Array, away: Vector2, launcher: Node = null) -> void:
+		_launcher = launcher
+		z_index = 4
+		var m := CanvasItemMaterial.new()
+		m.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+		material = m
+		_soft = _make_soft_tex()
+		var base_ang := away.angle()
+		var count: int = maxi(1, muzzles.size())
+		for i in count:
+			var frac: float = 0.0 if count <= 1 else float(i) / float(count - 1)
+			var ang := base_ang + deg_to_rad(ML_FAN_ANGLE) * (frac - 0.5)
+			var dir := Vector2(cos(ang), sin(ang))
+			var dart_pos: Vector2 = muzzles[i] if i < muzzles.size() else Vector2.ZERO
+			_lines.append({
+				"pos": dart_pos, "vel": dir * ML_OUT_SPEED,
+				"t": 0.0, "life": 0.0,
+				"return_at": ML_HOVER_END + float(i) * ML_STAGGER,
+				"returning": false, "speed": 0.0, "seek_t": 0.0,
+				"trail": [dart_pos] as Array,
+				"dust_acc": 0.0, "phase": randf() * TAU,
+			})
+
+	func _process(delta: float) -> void:
+		_clock += delta
+		var player := get_tree().get_first_node_in_group("player") as Node2D
+		if player == null:
+			queue_redraw()
+			return
+		var ship_c: Vector2 = player.global_position
+		var ship_r: float   = 16.0
+		var i := _lines.size() - 1
+		while i >= 0:
+			var ln: Dictionary = _lines[i]
+			ln["t"]    = float(ln["t"])    + delta
+			ln["life"] = float(ln["life"]) + delta
+			var prev: Vector2 = ln["pos"]
+			if not bool(ln["returning"]):
+				_tick_out(ln, delta)
+				if float(ln["t"]) >= float(ln["return_at"]):
+					_begin_return(ln, ship_c)
+			else:
+				_tick_return(ln, delta, ship_c)
+			var trail: Array = ln["trail"]
+			trail.push_front(ln["pos"])
+			if trail.size() > ML_TRAIL_LEN:
+				trail.resize(ML_TRAIL_LEN)
+			_shed_dust(ln, prev)
+			var p: Vector2 = ln["pos"]
+			var removed := false
+			if p.distance_to(ship_c) <= ship_r + ML_HIT_R:
+				GameManager.ship_take_damage(ML_LINE_DMG)
+				_lines.remove_at(i)
+				removed = true
+			if not removed:
+				for en: Node in get_tree().get_nodes_in_group("arena_enemy"):
+					if not is_instance_valid(en) or en == _launcher:
+						continue
+					var en2 := en as Node2D
+					var er: float = en.get("_radius") if en.get("_radius") != null else 16.0
+					if p.distance_to(en2.global_position) <= er + ML_HIT_R:
+						if en.has_method("take_damage"):
+							en.call("take_damage", float(ML_LINE_DMG), 0.0)
+						_lines.remove_at(i)
+						removed = true
+						break
+			if not removed and float(ln["life"]) >= ML_LIFETIME:
+				_lines.remove_at(i)
+			i -= 1
+		_tick_dust(delta)
+		queue_redraw()
+		if _lines.is_empty() and _dust.is_empty():
+			queue_free()
+
+	func _tick_out(ln: Dictionary, delta: float) -> void:
+		ln["vel"] = (ln["vel"] as Vector2) * pow(ML_DRAG, delta)
+		ln["pos"] = (ln["pos"] as Vector2) + (ln["vel"] as Vector2) * delta
+
+	func _begin_return(ln: Dictionary, ship_c: Vector2) -> void:
+		# Point TOWARD the player from the start — vel starts near-zero after drag,
+		# so preserving current direction would keep the dart flying away forever.
+		var toward := (ship_c - (ln["pos"] as Vector2)).normalized()
+		if toward.length() < 0.01:
+			toward = Vector2.DOWN
+		ln["returning"] = true
+		ln["speed"]     = ML_RETURN_START
+		ln["seek_t"]    = 0.0
+		ln["vel"]       = toward * ML_RETURN_START
+
+	func _tick_return(ln: Dictionary, delta: float, ship_c: Vector2) -> void:
+		ln["seek_t"] = float(ln["seek_t"]) + delta
+		var accel := ML_RETURN_ACCEL * (1.0 + ML_ACCEL_RAMP * float(ln["seek_t"]))
+		ln["speed"]  = minf(ML_RETURN_MAX, float(ln["speed"]) + accel * delta)
+		var spd: float = ln["speed"]
+		var cur: Vector2 = ln["vel"]
+		var desired := (ship_c - (ln["pos"] as Vector2)).normalized() * spd
+		var turn: float = ML_TURN_EARLY if float(ln["seek_t"]) < ML_TURN_SWITCH_T else ML_TURN_LATE
+		var steer := cur.lerp(desired, clampf(turn * delta, 0.0, 1.0))
+		if steer.length() > 0.01:
+			ln["vel"] = steer.normalized() * spd
+		ln["pos"] = (ln["pos"] as Vector2) + (ln["vel"] as Vector2) * delta
+
+	func _shed_dust(ln: Dictionary, prev: Vector2) -> void:
+		if not ML_DUST_ON:
+			return
+		var p: Vector2 = ln["pos"]
+		var seg := p - prev
+		var moved := seg.length()
+		if moved < 0.01:
+			return
+		var acc := float(ln["dust_acc"]) + moved
+		var d := seg / moved
+		var perp := Vector2(-d.y, d.x)
+		while acc >= ML_DUST_GAP:
+			acc -= ML_DUST_GAP
+			var along := prev + d * (moved - acc)
+			_dust.append({
+				"pos":   along + perp * randf_range(-ML_DUST_SPREAD, ML_DUST_SPREAD),
+				"life":  0.0,
+				"ttl":   ML_DUST_TTL * randf_range(0.7, 1.2),
+				"size":  ML_DUST_SIZE * randf_range(0.6, 1.2),
+				"hue":   randf(),
+				"phase": randf() * TAU,
+			})
+		ln["dust_acc"] = acc
+
+	func _tick_dust(delta: float) -> void:
+		var i := _dust.size() - 1
+		while i >= 0:
+			_dust[i]["life"] = float(_dust[i]["life"]) + delta
+			if float(_dust[i]["life"]) >= float(_dust[i]["ttl"]):
+				_dust.remove_at(i)
+			i -= 1
+
+	func _draw() -> void:
+		_draw_dust()
+		for ln: Dictionary in _lines:
+			_draw_comet(ln["pos"], _dart_dir(ln["vel"], ln["trail"]),
+				(ln["vel"] as Vector2).length(), float(ln["phase"]), ln["trail"])
+
+	func _dart_dir(v: Vector2, trail: Array) -> Vector2:
+		if v.length() > 1.0:
+			return v.normalized()
+		if trail.size() >= 2:
+			var diff: Vector2 = (trail[0] as Vector2) - (trail[1] as Vector2)
+			if diff.length() > 0.01:
+				return diff.normalized()
+		return Vector2.UP
+
+	func _tail_samples(trail: Array, tail_len: float, n: int) -> Array:
+		var out: Array = []
+		if trail.is_empty() or tail_len <= 0.0 or n < 2:
+			return out
+		var step := tail_len / float(n - 1)
+		out.append(trail[0])
+		var next_mark := step
+		var traveled := 0.0
+		var i := 0
+		while i < trail.size() - 1 and out.size() < n:
+			var p0: Vector2 = trail[i]
+			var p1: Vector2 = trail[i + 1]
+			var seglen := p0.distance_to(p1)
+			if seglen < 0.0001:
+				i += 1
+				continue
+			while next_mark <= traveled + seglen and out.size() < n:
+				out.append(p0.lerp(p1, (next_mark - traveled) / seglen))
+				next_mark += step
+			traveled += seglen
+			i += 1
+		return out
+
+	func _draw_comet(p: Vector2, d: Vector2, speed: float, phase: float, trail: Array) -> void:
+		var tail_len := lerpf(ML_TAIL_MIN, ML_TAIL_MAX, clampf(speed / ML_FULL_SPEED, 0.0, 1.0))
+		var pts := _tail_samples(trail, tail_len, ML_TAIL_SAMPLES)
+		var perp := Vector2(-d.y, d.x)
+		for k in range(pts.size() - 1, -1, -1):
+			var f := float(k) / float(ML_TAIL_SAMPLES - 1)
+			var fade := 1.0 - f
+			var col := ML_COL_HEAD.lerp(ML_COL_TAIL, f)
+			var body_w := lerpf(ML_TAIL_W_HEAD, ML_TAIL_W_TAIL, f)
+			var bp: Vector2 = pts[k]
+			var wob := sin(f * 9.0 + phase + _clock * 2.0) * ML_HAZE_WISP * f
+			_blob(bp + perp * wob, Vector2(body_w * 2.0, body_w * 2.0), 0.0, _ca(col, ML_HAZE_ALPHA * fade))
+			var sc := col.lerp(Color(1.0, 1.0, 1.0, 1.0), fade * 0.6)
+			_blob(bp, Vector2(body_w * ML_SPINE_FRAC * 2.0, body_w * ML_SPINE_FRAC * 2.0), 0.0, _ca(sc, ML_SPINE_ALPHA * fade))
+		_blob(p, Vector2(ML_BLOOM_SIZE * 2.0, ML_BLOOM_SIZE * 2.0), 0.0, _ca(ML_COL_HEAD, ML_BLOOM_ALPHA * 0.5))
+		_blob(p, Vector2(ML_BLOOM_SIZE * 1.1, ML_BLOOM_SIZE * 1.1), 0.0, _ca(Color(0.8, 0.93, 1.0), ML_BLOOM_ALPHA))
+		_blob(p, Vector2(ML_CORE_SIZE * 2.0,  ML_CORE_SIZE * 2.0),  0.0, _ca(Color(1.0, 1.0, 1.0), ML_CORE_BRIGHT))
+		if ML_FLARE_ON:
+			var ang := d.angle()
+			var tw := 0.6 + 0.4 * sin(_clock * ML_GLITTER_SPEED + phase)
+			var fcol := _ca(Color(0.85, 0.95, 1.0), ML_FLARE_ALPHA * tw)
+			_blob(p, Vector2(ML_FLARE_LONG * ML_FLARE_SCALE,        ML_FLARE_THIN * ML_FLARE_SCALE),        ang,              fcol)
+			_blob(p, Vector2(ML_FLARE_SHORT * ML_FLARE_SCALE, ML_FLARE_THIN * 0.8 * ML_FLARE_SCALE), ang + PI * 0.5, fcol)
+
+	func _draw_dust() -> void:
+		for m: Dictionary in _dust:
+			var fade := 1.0 - clampf(float(m["life"]) / maxf(0.01, float(m["ttl"])), 0.0, 1.0)
+			var tw   := 0.25 + 0.75 * (0.5 + 0.5 * sin(_clock * ML_GLITTER_SPEED + float(m["phase"])))
+			var col  := ML_COL_HEAD.lerp(Color(1.0, 1.0, 1.0, 1.0), float(m["hue"]))
+			var a    := fade * tw
+			var sz: float = float(m["size"])
+			_blob(m["pos"], Vector2(sz * 2.2, sz * 2.2), 0.0, Color(col.r, col.g, col.b, 0.22 * a))
+			_blob(m["pos"], Vector2(sz * 0.9,  sz * 0.9),  0.0, Color(1.0, 1.0, 1.0,     0.80 * a))
+
+	func _ca(c: Color, a: float) -> Color:
+		return Color(c.r, c.g, c.b, clampf(a * ML_GLOW_INTENSITY, 0.0, 1.0))
+
+	func _blob(pos: Vector2, sizev: Vector2, rot: float, col: Color) -> void:
+		if _soft == null:
+			return
+		draw_set_transform(pos, rot, Vector2.ONE)
+		draw_texture_rect(_soft, Rect2(-sizev * 0.5, sizev), false, col)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+	func _make_soft_tex() -> Texture2D:
+		var s := 64
+		var img := Image.create(s, s, false, Image.FORMAT_RGBA8)
+		var c := float(s - 1) * 0.5
+		for y in s:
+			for x in s:
+				var dx := (float(x) - c) / c
+				var dy := (float(y) - c) / c
+				var a := pow(clampf(1.0 - sqrt(dx * dx + dy * dy), 0.0, 1.0), 2.4)
+				img.set_pixel(x, y, Color(1.0, 1.0, 1.0, a))
+		return ImageTexture.create_from_image(img)

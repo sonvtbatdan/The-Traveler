@@ -133,12 +133,19 @@ func _tick(delta: float) -> void:
 func _fire_volley() -> void:
 	if _mgr == null or not is_instance_valid(_mgr):
 		return
-	var muzzle := center()
-	var to_player: Vector2 = _mgr.ship_center() - muzzle
+	var origin := center()
+	var to_player: Vector2 = _mgr.ship_center() - origin
 	var away: Vector2 = (-to_player).normalized() if to_player.length() > 0.01 else Vector2.UP
+	var muzzles: Array = []
+	if _fp_fracs.size() >= ML_FAN_COUNT:
+		for i in ML_FAN_COUNT:
+			muzzles.append(_muzzle(i))
+	else:
+		for i in ML_FAN_COUNT:
+			muzzles.append(origin)
 	var volley := _PlasmaVolley.new()
 	_mgr.add_child(volley)
-	volley.launch(_mgr, muzzle, away)
+	volley.launch(_mgr, muzzles, away)
 	_volley = volley
 
 func _exit_tree() -> void:
@@ -159,9 +166,9 @@ class _PlasmaVolley extends Node2D:
 	var _clock: float = 0.0  # drives the twinkle shimmer
 	var _soft: Texture2D = null   # soft radial sprite stamped for every glow layer (edgeless falloff)
 
-	## Build the fan. `muzzle` = launcher centre; `away` = unit direction away from the player (the fan
-	## is centred on this and spread across ML_FAN_ANGLE).
-	func launch(mgr: Node, muzzle: Vector2, away: Vector2) -> void:
+	## Build the fan. `muzzles` = per-dart start positions; `away` = unit direction away from the player
+	## (the fan is centred on this and spread across ML_FAN_ANGLE).
+	func launch(mgr: Node, muzzles: Array, away: Vector2) -> void:
 		_mgr = mgr
 		z_index = 4   # above enemies/bullets; the additive glow reads as light
 		# Additive blend → the core, glow and trail stack as light (same technique as the Beamer's _OrbGlow).
@@ -175,8 +182,9 @@ class _PlasmaVolley extends Node2D:
 			var frac: float = 0.0 if count <= 1 else float(i) / float(count - 1)
 			var ang := base_ang + deg_to_rad(ML_FAN_ANGLE) * (frac - 0.5)
 			var dir := Vector2(cos(ang), sin(ang))
+			var dart_pos: Vector2 = muzzles[i] if i < muzzles.size() else (muzzles[0] if not muzzles.is_empty() else Vector2.ZERO)
 			_lines.append({
-				"pos": muzzle,
+				"pos": dart_pos,
 				"vel": dir * ML_OUT_SPEED,          # fast launch outward (fan-out)
 				"t": 0.0,                            # time since fire
 				"life": 0.0,                         # total lifetime (for the hard cull)

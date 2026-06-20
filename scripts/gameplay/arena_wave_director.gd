@@ -49,7 +49,6 @@ const DEFAULT_TIMELINE := [
 	# ── 0:00–1:00 — gentle intro, single types ──
 	{"time": 1.0,   "type": "fly",       "count": 6,  "pattern": "ring"},
 	{"time": 8.0,   "type": "fly",       "count": 8,  "pattern": "scatter"},
-	{"time": 10.0,  "type": "elephant",  "count": 1,  "pattern": "ring", "is_boss": true},   # TEST: early elephant for iteration — remove later
 	{"time": 15.0,  "type": "diver",     "count": 5,  "pattern": "arc"},
 	{"time": 24.0,  "type": "spider",    "count": 4,  "pattern": "scatter"},
 	{"time": 34.0,  "type": "bug",       "count": 12, "pattern": "stream", "duration": 6.0},
@@ -88,7 +87,7 @@ const DEFAULT_TIMELINE := [
 # ══ DEBUG ══════════════════════════════════════════════════════════════════════
 # Spawn ONLY the Elephant (one, immediately) and nothing else — for iterating on its moveset.
 # Set DEBUG_ELEPHANT_ONLY = false to restore the full DEFAULT_TIMELINE.
-const DEBUG_ELEPHANT_ONLY := true
+const DEBUG_ELEPHANT_ONLY := false
 const DEBUG_TIMELINE := [
 	{"time": 1.0, "type": "elephant", "count": 1, "pattern": "ring", "is_boss": true},
 ]

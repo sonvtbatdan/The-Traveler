@@ -68,7 +68,7 @@ func _tick(delta: float) -> void:
 				_ph = Ph.FIRE; _ph_t = 0.0; _dmg_acc = 0.0
 				queue_redraw()
 		Ph.FIRE:
-			var origin := center()
+			var origin := _muzzle(0)
 			var length := _arena_edge_len(origin, _fire_dir)
 			var hit := _beam_hits_ship(origin, _fire_dir, length, BM_LASER_WIDTH)
 			if not _beam.is_empty():
