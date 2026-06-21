@@ -1167,7 +1167,8 @@ func _update_beam(ctx: Dictionary, def: Dictionary, delta: float) -> void:
 			ctx["cd"] = interval
 	else:  # hitscan_beam
 		var max_len := get_weapon_stat(def, "range_px", 760.0)
-		var dir := Vector2.UP   # fire straight forward (ship faces up); never tilts toward targets
+		var to_mouse := get_local_mouse_position() - muzzle
+		var dir := to_mouse.normalized() if to_mouse.length() > 1.0 else Vector2.UP
 		var res := _beam_first_hit(muzzle, dir, max_len, width * 0.5)
 		var hit: Dictionary = res["target"]
 		ctx["beam_active"] = true

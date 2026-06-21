@@ -38,8 +38,6 @@ const DASH_CD                 := 1.0     # dash cooldown (s)
 const DASH_COST               := 10.0    # energy per dash
 const DASH_SPEED              := 840.0   # px/s during the dash lunge
 const DASH_TIME               := 0.15    # dash duration (s) → ~126px
-const SHOW_THRUST_TRAILS      := true    # engine auto.gif/manual.gif flame overlays (sized via the control, not native)
-
 const SHIP_DEFAULT_SKIN := "res://assets/screen/Spaceship.png"
 const SHIP_DEFAULT_LEAN := "res://assets/screen/lean.png"
 const SHIP_DEFAULT_DASH := "res://assets/screen/dash.png"
@@ -71,14 +69,14 @@ const POSE_DASH_RIGHT := 4
 # A continuous CPUParticles2D flame behind the engine nozzle: warm white-hot core → blue tips,
 # additive so it reads as hot light. Streams faster/longer while boosting or in a boss fight.
 const PLUME_ENABLED       := true
-const PLUME_AMOUNT        := 40
+const PLUME_AMOUNT        := 60
 const PLUME_INSET         := 6.0     # px (ship-local) the plume root sits up inside the nozzle
-const PLUME_VEL_MIN       := 110.0   # idle exhaust speed
-const PLUME_VEL_MAX       := 150.0
-const PLUME_VEL_MIN_BOOST := 200.0   # boost exhaust speed
-const PLUME_VEL_MAX_BOOST := 270.0
-const PLUME_LIFE          := 0.40
-const PLUME_LIFE_BOOST    := 0.55
+const PLUME_VEL_MIN       := 160.0   # idle exhaust speed
+const PLUME_VEL_MAX       := 230.0
+const PLUME_VEL_MIN_BOOST := 260.0   # boost exhaust speed
+const PLUME_VEL_MAX_BOOST := 360.0
+const PLUME_LIFE          := 0.55
+const PLUME_LIFE_BOOST    := 0.75
 const PLUME_SPREAD        := 11.0    # degrees half-cone
 
 var _bullet_tex:           Texture2D = null
@@ -181,15 +179,8 @@ var _drag_start_pos:      Vector2 = Vector2.ZERO
 var _drag_start_size:     Vector2 = Vector2.ZERO
 var _drag_start_mouse:    Vector2 = Vector2.ZERO
 var _weapon_eo_rels:      Dictionary = {}  # EditableObjectNode -> Vector2 (offset từ ship center)
-var _thrust_eos:          Array = []       # thrust.png reference EOs — hidden in gameplay
-var _auto_thrust_eos:     Array = []       # auto.gif reference EOs — hidden, display via TextureRect
-var _auto_thrust_frames:  Array = []
-var _auto_thrust_delays:  Array = []
-var _manual_thrust_eos:   Array = []       # manual.gif reference EOs — hidden, display via TextureRect
-var _manual_thrust_frames: Array = []
-var _manual_thrust_delays: Array = []
-var _manual_thrust_rects:  Dictionary = {} # auto EO -> manual TR (derived from auto EO position/size)
-var _engine_plume:         CPUParticles2D = null   # continuous exhaust flame (GRAPHICS_SPEC #5)
+var _engine_plumes:  Array[CPUParticles2D] = []   # one per plume EO; PROCESS_MODE_ALWAYS so visible in F4
+var _plume_offsets:  Array[Vector2]        = []   # ship-local offset per plume (ship top-left origin)
 
 var _lasers:     Array = []   # [{lines: Array[Line2D], age: float}]
 const LASER_DURATION := 0.18
@@ -216,14 +207,9 @@ func reset_to_origin() -> void:
 		# Reset all children to F4 state (size + scale)
 		for eo in _child_f4_sizes.keys():
 			if is_instance_valid(eo):
-				# Weapon or auto-thrust: update animation TextureRect
+				# Weapon: update animation TextureRect
 				if _static_rects.has(eo) and is_instance_valid(_static_rects[eo]):
 					var tr := _static_rects[eo] as TextureRect
-					tr.position = eo.position - _spaceship_origin
-					tr.size = _child_f4_sizes[eo]
-				# Thrust manual mode: update manual thrust TextureRect
-				elif _manual_thrust_rects.has(eo) and is_instance_valid(_manual_thrust_rects[eo]):
-					var tr := _manual_thrust_rects[eo] as TextureRect
 					tr.position = eo.position - _spaceship_origin
 					tr.size = _child_f4_sizes[eo]
 				# Power core, defense: update EditableObjectNode
@@ -279,7 +265,6 @@ func _ready() -> void:
 	GameManager.boost_changed.connect(_on_boost_changed)
 	InventoryManager.inventory_changed.connect(_apply_hull_skin)
 	_refresh_static_frames()
-	_setup_engine_plume()
 
 func _on_boost_changed(active: bool) -> void:
 	var mult: float = 2.0 if active else 1.0
@@ -289,48 +274,35 @@ func _on_boost_changed(active: bool) -> void:
 	for ov in get_tree().get_nodes_in_group("scrolling_overlay"):
 		if ov.has_method("set_speed_mult"):
 			ov.set_speed_mult(mult)
-	for raw_eo in _auto_thrust_eos:
-		if not is_instance_valid(raw_eo):
-			continue
-		var eo := raw_eo as EditableObjectNode
-		if _static_rects.has(eo) and is_instance_valid(_static_rects[eo]):
-			_static_rects[eo].visible = not active
-	# Manual trails are keyed by the MANUAL eo, so toggle them via their own dict.
-	for key_eo in _manual_thrust_rects:
-		var mtr := _manual_thrust_rects[key_eo] as TextureRect
-		if is_instance_valid(mtr):
-			mtr.visible = active
 
 # ── Engine exhaust plume ───────────────────────────────────────────────────────
-# Build the CPUParticles2D once and park it on this canvas; _update_engine_plume() positions
-# and tunes it every frame to follow the ship's nozzle and react to boost.
-func _setup_engine_plume() -> void:
-	if not PLUME_ENABLED or _engine_plume != null:
-		return
+# Creates one CPUParticles2D flame node. Called per plume EO from _refresh_static_frames().
+# PROCESS_MODE_ALWAYS keeps the particle system running in F4 edit mode so the flame is
+# visible while the user adjusts position/size via the bounding box.
+func _make_plume_node(radius: float, amount: int) -> CPUParticles2D:
 	var p := CPUParticles2D.new()
 	p.texture = _make_soft_dot()
 	p.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	p.amount = PLUME_AMOUNT
+	p.amount = amount
 	p.lifetime = PLUME_LIFE
-	p.local_coords = true
+	p.local_coords = false
 	p.emitting = false
+	p.process_mode = Node.PROCESS_MODE_ALWAYS   # keep running in F4 (tree paused)
 	p.z_as_relative = false
-	p.z_index = 6                          # just under the ship sprite so the flame sits behind it
-	p.direction = Vector2(0.0, 1.0)        # exhaust streams downward (behind the upward-facing ship)
+	p.z_index = 6
+	p.direction = Vector2(0.0, 1.0)
 	p.spread = PLUME_SPREAD
-	p.gravity = Vector2.ZERO               # space: no fall
+	p.gravity = Vector2.ZERO
 	p.initial_velocity_min = PLUME_VEL_MIN
 	p.initial_velocity_max = PLUME_VEL_MAX
 	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
-	p.emission_sphere_radius = 3.0
-	p.scale_amount_min = 0.7
-	p.scale_amount_max = 1.1
-	# Taper: fat at the nozzle, shrinking to a point at the tip.
+	p.emission_sphere_radius = radius
+	p.scale_amount_min = 1.2
+	p.scale_amount_max = 2.5
 	var taper := Curve.new()
 	taper.add_point(Vector2(0.0, 1.0))
-	taper.add_point(Vector2(1.0, 0.15))
+	taper.add_point(Vector2(1.0, 0.08))
 	p.scale_amount_curve = taper
-	# Warm white-hot core → orange → blue tip → fade out.
 	var grad := Gradient.new()
 	grad.offsets = PackedFloat32Array([0.0, 0.3, 0.65, 1.0])
 	grad.colors = PackedColorArray([
@@ -340,12 +312,10 @@ func _setup_engine_plume() -> void:
 		Color(0.2, 0.45, 1.0, 0.0),
 	])
 	p.color_ramp = grad
-	# Additive so it reads as hot light (and blooms if glow is ever switched on).
 	var cm := CanvasItemMaterial.new()
 	cm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	p.material = cm
-	add_child(p)
-	_engine_plume = p
+	return p
 
 # Soft round dot used as the particle texture — a radial alpha falloff, additive-friendly.
 func _make_soft_dot() -> ImageTexture:
@@ -360,32 +330,40 @@ func _make_soft_dot() -> ImageTexture:
 			img.set_pixel(x, y, Color(1.0, 1.0, 1.0, a))
 	return ImageTexture.create_from_image(img)
 
-# Follow the ship's nozzle, scale with the ship, and intensify while boosting.
+# Follow each plume EO's offset from ship, scale/rotate with ship, intensify while boosting.
 func _update_engine_plume() -> void:
-	if _engine_plume == null or not is_instance_valid(_engine_plume):
+	if _engine_plumes.is_empty():
 		return
 	var ship_ok: bool = _spaceship_eo != null and is_instance_valid(_spaceship_eo) and _spaceship_eo.visible
-	_engine_plume.emitting = ship_ok
-	if not ship_ok:
-		return
-	# Anchor at the ship's bottom-centre (the engine nozzle), a few px up inside it.
-	var xform := _spaceship_eo.get_global_transform()
-	var sz := _spaceship_eo.size
-	var nozzle_global: Vector2 = xform * Vector2(sz.x * 0.5, sz.y - PLUME_INSET)
-	_engine_plume.position = nozzle_global - global_position
-	_engine_plume.scale    = _spaceship_eo.scale          # shrink/grow with the ship
-	_engine_plume.rotation = _spaceship_eo.rotation      # exhaust follows ship rotation
 	var boosting: bool = GameManager.manual_boost or GameManager.boss_max_hp > 0
-	if boosting:
-		_engine_plume.initial_velocity_min = PLUME_VEL_MIN_BOOST
-		_engine_plume.initial_velocity_max = PLUME_VEL_MAX_BOOST
-		_engine_plume.lifetime = PLUME_LIFE_BOOST
-		_engine_plume.speed_scale = 1.4
-	else:
-		_engine_plume.initial_velocity_min = PLUME_VEL_MIN
-		_engine_plume.initial_velocity_max = PLUME_VEL_MAX
-		_engine_plume.lifetime = PLUME_LIFE
-		_engine_plume.speed_scale = 1.0
+	for i in _engine_plumes.size():
+		var p := _engine_plumes[i]
+		if not is_instance_valid(p):
+			continue
+		p.emitting = ship_ok
+		if not ship_ok:
+			continue
+		var xform := _spaceship_eo.get_global_transform()
+		var offset: Vector2 = _plume_offsets[i] if i < _plume_offsets.size() else Vector2.ZERO
+		var nozzle_global: Vector2
+		if offset != Vector2.ZERO:
+			nozzle_global = xform * offset
+		else:
+			var sz := _spaceship_eo.size
+			nozzle_global = xform * Vector2(sz.x * 0.5, sz.y - PLUME_INSET)
+		p.position = nozzle_global - global_position
+		p.scale    = _spaceship_eo.scale
+		p.rotation = _spaceship_eo.rotation
+		if boosting:
+			p.initial_velocity_min = PLUME_VEL_MIN_BOOST
+			p.initial_velocity_max = PLUME_VEL_MAX_BOOST
+			p.lifetime    = PLUME_LIFE_BOOST
+			p.speed_scale = 1.4
+		else:
+			p.initial_velocity_min = PLUME_VEL_MIN
+			p.initial_velocity_max = PLUME_VEL_MAX
+			p.lifetime    = PLUME_LIFE
+			p.speed_scale = 1.0
 
 func _load_assets() -> void:
 	var rb := load("res://assets/sprites/weapons/Gun Bullet Sprite.png") as Texture2D
@@ -525,22 +503,6 @@ func _load_assets() -> void:
 		if not rbframes.is_empty():
 			_railgun_bullet_tex = rbframes[0] as Texture2D
 
-	var auto_anim := GifLoader.load_gif("res://assets/sprites/thrust/auto.gif")
-	if auto_anim != null:
-		if auto_anim.has_meta("gif_frames"):
-			_auto_thrust_frames = auto_anim.get_meta("gif_frames")
-			_auto_thrust_delays = auto_anim.get_meta("gif_delays")
-		else:
-			_auto_thrust_frames = [auto_anim]; _auto_thrust_delays = [0.05]
-
-	var manual_anim := GifLoader.load_gif("res://assets/sprites/thrust/manual.gif")
-	if manual_anim != null:
-		if manual_anim.has_meta("gif_frames"):
-			_manual_thrust_frames = manual_anim.get_meta("gif_frames")
-			_manual_thrust_delays = manual_anim.get_meta("gif_delays")
-		else:
-			_manual_thrust_frames = [manual_anim]; _manual_thrust_delays = [0.05]
-
 	_sfx_gun_shoot    = load("res://assets/audio/sfx/gunshoot.wav") as AudioStream
 	_sfx_turret_shoot = load("res://assets/audio/sfx/turretshoot.wav") as AudioStream
 	_sfx_gun_boom_big = load("res://assets/audio/sfx/gunboombig.wav") as AudioStream
@@ -669,11 +631,6 @@ func _process(delta: float) -> void:
 			# Weapon: update animation TextureRect (hiển thị thực tế)
 			if _static_rects.has(eo) and is_instance_valid(_static_rects[eo]):
 				var tr := _static_rects[eo] as TextureRect
-				tr.position = eo.position
-				tr.size = _child_f4_sizes[eo]
-			# Thrust manual mode: update manual thrust TextureRect
-			elif _manual_thrust_rects.has(eo) and is_instance_valid(_manual_thrust_rects[eo]):
-				var tr := _manual_thrust_rects[eo] as TextureRect
 				tr.position = eo.position
 				tr.size = _child_f4_sizes[eo]
 			# Power core, defense: update EditableObjectNode
@@ -832,7 +789,6 @@ func _refresh_static_frames() -> void:
 		if old != null and is_instance_valid(old):
 			old.queue_free()
 	_static_rects.clear()
-	_manual_thrust_rects.clear()
 	_child_f4_sizes.clear()
 	var prev_ship := _spaceship_eo
 	_spaceship_eo = _find_spaceship_eo()
@@ -841,6 +797,34 @@ func _refresh_static_frames() -> void:
 		_spaceship_origin_sz = _spaceship_eo.size
 		if prev_ship != _spaceship_eo:
 			_spaceship_eo.object_clicked.connect(_on_ship_clicked)
+	# Scan plume EOs (ship group, basename "plume") — one CPUParticles2D per EO.
+	# z_index >= 10 → particle count; otherwise use PLUME_AMOUNT default.
+	for _p in _engine_plumes:
+		if is_instance_valid(_p):
+			_p.queue_free()
+	_engine_plumes.clear()
+	_plume_offsets.clear()
+	var _parent_node := get_parent()
+	if _spaceship_eo != null and is_instance_valid(_spaceship_eo) and is_instance_valid(_parent_node):
+		for _child in _parent_node.get_children():
+			var _peo := _child as EditableObjectNode
+			if _peo == null:
+				continue
+			if _peo.source_path.get_file().get_basename().to_lower() != "plume":
+				continue
+			_peo.modulate.a = 0.0
+			var _radius := maxf(1.0, _peo.size.x * 0.5)
+			var _amount := _peo.z_index if _peo.z_index >= 10 else PLUME_AMOUNT
+			var _pnode := _make_plume_node(_radius, _amount)
+			add_child(_pnode)
+			_engine_plumes.append(_pnode)
+			_plume_offsets.append(_peo.position + _peo.size * 0.5 - _spaceship_eo.position)
+	# Fallback: no plume EOs in layout → one default plume at nozzle (offset = Vector2.ZERO)
+	if _engine_plumes.is_empty() and _spaceship_eo != null and is_instance_valid(_spaceship_eo):
+		var _pnode := _make_plume_node(3.0, PLUME_AMOUNT)
+		add_child(_pnode)
+		_engine_plumes.append(_pnode)
+		_plume_offsets.append(Vector2.ZERO)
 	_weapon_eo_rels.clear()
 	# Reset railgun states khi catalog thay đổi (weapon mới mua/reset)
 	_railgun_states.clear()
@@ -848,37 +832,6 @@ func _refresh_static_frames() -> void:
 	for weapon_id in ["gun", "turret", "lightning_emitter", "railgun", "left_canon_heavy_bolt", "wing"]:
 		for eo: EditableObjectNode in WeaponManager.get_all_objects(weapon_id):
 			eo.modulate.a = 0.0
-	# Thrust: ẩn PNG reference, toggle auto.gif theo boost state
-	_thrust_eos.clear()
-	_auto_thrust_eos.clear()
-	_manual_thrust_eos.clear()
-	var _thrust_candidates: Array = []
-	var parent := get_parent()
-	if is_instance_valid(parent):
-		for child in parent.get_children():
-			_thrust_candidates.append(child)
-	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
-		for child in _spaceship_eo.get_children():
-			_thrust_candidates.append(child)
-	# First pass: collect all thrust EOs
-	for child in _thrust_candidates:
-		var eo := child as EditableObjectNode
-		if eo == null or eo.is_group_layer():
-			continue
-		var base := eo.source_path.get_file().get_basename().to_lower()
-		if base == "thrust":
-			_thrust_eos.append(eo)
-			eo.modulate.a = 0.0
-		elif base == "auto":
-			_auto_thrust_eos.append(eo)
-			eo.modulate.a = 0.0
-		elif base == "manual":
-			_manual_thrust_eos.append(eo)
-			eo.modulate.a = 0.0
-			_child_f4_sizes[eo] = eo.size
-	# Second pass: setup auto thrust (which creates manual TR too)
-	for eo in _auto_thrust_eos:
-		_setup_auto_thrust_idle(eo)
 	# Tạo static frame (GIF frame 0) cho các vũ khí đang active
 	for eo: EditableObjectNode in WeaponManager.get_active_objects("gun"):
 		var cx: float = eo.global_position.x + eo.size.x * 0.5
@@ -966,70 +919,6 @@ func _setup_emitter_idle(eo: EditableObjectNode) -> void:
 	eo.modulate.a = 0.0
 	_gun_anims.append({"tr": tr, "frame": 0, "acc": 0.0,
 		"gun_eo": eo, "frames": resized, "delays": _emitter_delays, "loop": true})
-
-func _setup_auto_thrust_idle(eo: EditableObjectNode) -> void:
-	if not SHOW_THRUST_TRAILS:
-		return   # thrust-trail flame overlays disabled — no auto/manual TextureRects created
-	if _auto_thrust_frames.is_empty():
-		return
-	var resized := _resize_frame(_auto_thrust_frames[0] as Texture2D, eo.size)
-	var tr := TextureRect.new()
-	tr.texture = _auto_thrust_frames[0] as Texture2D
-	tr.stretch_mode = TextureRect.STRETCH_SCALE   # scale the frame to the control size (can't blow up to native)
-	tr.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
-	tr.size = eo.size                             # F4-correct size
-	tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# Thrust EOs are ObjectsContainer children; their position is in viewport space.
-	# TRects become spaceship children, so position must be relative to ship origin.
-	var ship_pos := _spaceship_eo.position if _spaceship_eo != null and is_instance_valid(_spaceship_eo) else Vector2.ZERO
-	tr.position = eo.position - ship_pos
-	tr.flip_h = eo.texture_rect.flip_h
-	tr.visible = not GameManager.manual_boost
-	tr.z_as_relative = false
-	tr.z_index = _eo_effective_z(eo)
-	if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
-		_spaceship_eo.add_child(tr)
-	else:
-		add_child(tr)
-	_static_rects[eo] = tr
-	_child_f4_sizes[eo] = eo.size
-	_gun_anims.append({"tr": tr, "frame": 0, "acc": 0.0,
-		"gun_eo": null, "frames": _auto_thrust_frames, "delays": _auto_thrust_delays, "loop": true})
-	if not _manual_thrust_frames.is_empty():
-		# Find corresponding manual EO by closest position match
-		var manual_eo: EditableObjectNode = null
-		var closest_dist := INF
-		for candidate in _manual_thrust_eos:
-			if is_instance_valid(candidate):
-				var dist := eo.position.distance_to(candidate.position)
-				if dist < closest_dist:
-					closest_dist = dist
-					manual_eo = candidate
-
-		if manual_eo != null:
-			var manual_size := manual_eo.size
-			var manual_resized := _resize_frame(_manual_thrust_frames[0] as Texture2D, manual_size)
-			var mtr := TextureRect.new()
-			mtr.texture = _manual_thrust_frames[0] as Texture2D
-			mtr.stretch_mode = TextureRect.STRETCH_SCALE
-			mtr.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
-			mtr.size = manual_size
-			mtr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			mtr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			mtr.position = manual_eo.position - ship_pos
-			mtr.flip_h = manual_eo.texture_rect.flip_h
-			mtr.visible = GameManager.manual_boost
-			mtr.z_as_relative = false
-			mtr.z_index = _eo_effective_z(manual_eo)
-			if _spaceship_eo != null and is_instance_valid(_spaceship_eo):
-				_spaceship_eo.add_child(mtr)
-			else:
-				add_child(mtr)
-			_manual_thrust_rects[manual_eo] = mtr
-			_child_f4_sizes[manual_eo] = manual_size
-			_gun_anims.append({"tr": mtr, "frame": 0, "acc": 0.0,
-				"gun_eo": null, "frames": _manual_thrust_frames, "delays": _manual_thrust_delays, "loop": true})
 
 ## Trả về z_index tuyệt đối của một weapon EO trong CanvasLayer.
 ## Với z_as_relative=true (weapon là child của spaceship): effective_z = parent.z + local_z
@@ -1753,15 +1642,7 @@ func _tick_lasers(delta: float) -> void:
 # Gameplay Edit Mode Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-func _find_object_at_pos(pos: Vector2) -> EditableObjectNode:
-	# Check auto thrust first (higher priority)
-	for eo in _auto_thrust_eos:
-		if is_instance_valid(eo) and _point_in_rect(pos, eo):
-			return eo
-	# Then manual thrust
-	for eo in _manual_thrust_eos:
-		if is_instance_valid(eo) and _point_in_rect(pos, eo):
-			return eo
+func _find_object_at_pos(_pos: Vector2) -> EditableObjectNode:
 	return null
 
 func _point_in_rect(pos: Vector2, eo: EditableObjectNode) -> bool:

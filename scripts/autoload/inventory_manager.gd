@@ -201,7 +201,7 @@ const ITEM_DEFS: Dictionary = {
 		},
 	},
 	"lasgun": {
-		"name": "Lasgun",
+		"name": "Laser gun",
 		"icon": "res://assets/inventory/laser.png",
 		"size": Vector2i(3, 1),
 		"tags": ["weapon"],
@@ -327,7 +327,7 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "epic",
 		"desc": "Three crackling metal balls orbit your ship, smashing anything they touch — free, always on. Hold to overcharge: they spin up to 3× speed (more hits) while it drains your energy.",
 		"stats": {
-			"damage": 38,            # per collision (−30% from 54; routed through get_weapon_stat)
+			"damage": 25,            # per collision (routed through get_weapon_stat)
 			"weight": 5,
 			"energy": 20,            # per-second drain while overcharged
 			"activation_energy": 10, # one-time cost to start the overcharge

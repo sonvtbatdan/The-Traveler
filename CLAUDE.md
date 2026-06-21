@@ -36,6 +36,7 @@ The game features a **real-time combat / crafting and idle harvesting layer**: a
 - **Parse check (no window):** `godot --headless --check-only --path . --quit` — exit 0 = parse clean
 - **No test suite.** Verification is manual (F5 in editor). Say so explicitly rather than asserting success from a parse check alone.
 - **Shell:** Windows / PowerShell. Use PowerShell syntax (`$null`, `$env:VAR`, backtick for line continuation). Bash tool is available for POSIX scripts.
+- **Git commit — LUÔN commit full project:** Trước mỗi commit, chạy `git status` và `git ls-files --others --exclude-standard` để kiểm tra untracked files. Nếu có file mới (assets, scripts, imports...) phải `git add` tất cả trước khi commit — không được để sót file nào. Dùng `git add assets/ scripts/ scenes/` (theo folder) hoặc `git add -A` nếu cần, sau đó review lại `git status` trước khi `git commit`.
 
 ---
 
@@ -80,7 +81,12 @@ Root `Control` with these direct children:
 | 5 | UserPanel |
 | 10 | EditMode overlay |
 | 11 | `auto_clicker_overlay.gd` (autoclicker hand cursors) |
-| 100 | Settings panel (always on top, even above screen group) |
+| 48 | `coord_grid.gd` (coordinate grid — child of enemy_panel) |
+| 50 | HP bars / AUTO-DRIVE / AUTO-FIRE buttons |
+| 51 | HUD display elements |
+| 60 | `inventory_ui.gd` (inventory/equipment screen) |
+| 95 | `arena_enemy_manager.gd` hit flash (screen-blend red overlay) |
+| 100 | Settings panel + `hud_edit_overlay.gd` (HUD edit F6) — always on top |
 
 `auto_clicker_overlay.gd` (`scripts/gameplay/auto_clicker_overlay.gd`) draws one hand cursor per owned autoclicker upgrade, placed flush against the ship sprite's silhouette via alpha-edge detection (`_alpha_edge`); rebuilds on `UpgradeManager.upgrade_purchased` / `upgrades_reset`. Self-contained, no signals out.
 
@@ -102,6 +108,32 @@ Cả hai được tạo trong `main.gd._add_scrolling_background/overlay()` và 
 - Chỉ 1 column dọc, `n_rows = ceili(screen_h / tile_h) + 1`
 - `_tile_x` = x position của cột trong SpaceScreen (mặc định căn giữa)
 - `_offset` tăng mỗi frame → khi `>= tile_h` thì wrap về 0 (seamless scroll)
+
+### Aspect Ratio — QUY TẮC BẮT BUỘC
+
+**KHÔNG BAO GIỜ stretch ảnh.** Mọi ảnh phải giữ đúng ratio gốc (width/height từ texture).
+
+**Pattern chuẩn — scale theo width:**
+```gdscript
+var tex_w := float(tex.get_width())
+var tex_h := float(tex.get_height())
+var display_w := 60.0                          # width mong muốn
+var display_h := display_w * tex_h / tex_w    # height tính từ ratio
+var sz := Vector2(display_w, display_h)
+```
+
+**Pattern chuẩn — scale theo height:**
+```gdscript
+var display_h := 80.0
+var display_w := display_h * tex_w / tex_h
+var sz := Vector2(display_w, display_h)
+```
+
+Áp dụng cho: TextureButton (custom_minimum_size), TextureRect (size), EditableObjectNode (init size), SpinBox W↔H (aspect-lock), bất kỳ node nào hiển thị ảnh.
+
+**TextureButton:** dùng `ignore_texture_size = true` + `stretch_mode = STRETCH_SCALE` → Godot scale ảnh vào vùng `custom_minimum_size`. Luôn tính `custom_minimum_size` từ ratio để không bị méo.
+
+---
 
 ### Image scaling — QUAN TRỌNG
 
@@ -193,7 +225,9 @@ The active firing engine is **`weapon_system.gd`** (`scripts/gameplay/weapon_sys
 | Where added | `main.gd` → child of `SpaceScreen`, group `"weapon_system"` | `main.gd` → `ObjectsContainer`, z_index just above spaceship |
 | Looked up by | bosses via `get_tree().get_first_node_in_group("weapon_system")` | not group-queried |
 
-`weapon_system.gd` handles fire modes **repeat / charge / beam / channel / aura**; projectiles/missiles/homing/cone-spread/chain/parasites-with-DoT, orbitals, bat swarm, Lasgun (hitscan) + Plasma-Drill (tether) beams, Rift-Maker vortex, environment light overlay, and floating crit damage numbers. Primary weapon = left-click, secondary = right-click. It applies each item's hidden `base_mult` (±20%) and affixes when computing stats. **`gun_system.refresh_layout()` and the F4 save/load cycle remain locked** (see LOCKED MODULES).
+`weapon_system.gd` handles fire modes **repeat / charge / beam / channel / aura**; projectiles/missiles/homing/cone-spread/chain/parasites-with-DoT, orbitals, bat swarm, Laser gun (hitscan, mouse-aimed) + Plasma-Drill (tether) beams, Rift-Maker vortex, environment light overlay, and floating crit damage numbers. Primary weapon = left-click, secondary = right-click. It applies each item's hidden `base_mult` (±20%) and affixes when computing stats. **`gun_system.refresh_layout()` and the F4 save/load cycle remain locked** (see LOCKED MODULES).
+
+**Laser gun** (`fire_type: "hitscan_beam"`, item id `"lasgun"`, display name `"Laser gun"`): beam hướng từ muzzle về phía chuột (`get_local_mouse_position() - muzzle`). Fallback `Vector2.UP` chỉ khi chuột trùng muzzle. Affix `splash_radius` → suffix "of Detonation" (chưa implement splash). **`splash_radius` và các affix `multishot/pierce/ricochet/knockback` chưa được wire vào fire logic** (xem comment `weapon_system.gd:2436`).
 
 ### Gun system (`scripts/gameplay/gun_system.gd`) — legacy mount auto-fire
 
@@ -295,6 +329,8 @@ var boss_intro_active: bool   # true during boss fly-in + wander; blocks boss _p
 
 `ship_hp_changed(int)`, `shield_changed(float)`, `boss_state_changed(bool)`
 
+`player_hit` — emitted in `ship_take_damage()` **after** armor + shield checks, only when actual HP damage goes through (d > 0). Use this to trigger visual/audio hit feedback. Connected by `arena_enemy_manager.gd` → `_play_hit()` (SFX + screen flash).
+
 **Boss fight signal sequence:**
 ```
 boss_incoming  → warning overlay shows, bg/overlay swapped, normal music fades out
@@ -332,6 +368,34 @@ Upgrades are bought with materials matching `cost_type` from `MaterialManager`.
 ---
 
 ## UI Scripts
+
+### `scripts/ui/hud/hud_edit_overlay.gd` (F6 HUD Edit Mode)
+
+Toggle với **F6**. Cho phép drag/resize các HUD widget theo thời gian thực, lưu vào `user://hud_layout.cfg`.
+
+**Widget registration protocol** — mỗi widget cần:
+```gdscript
+add_to_group("hud_editable")
+set_meta("hud_key", "unique_key_name")
+func get_hud_rect() -> Rect2: ...   # trả về position + size hiện tại
+func apply_hud_rect(rect: Rect2) -> void: ...  # áp dụng rect mới lên node
+static func _load_hud_rect(key: String) -> Rect2: ...  # đọc từ user://hud_layout.cfg
+```
+
+**Widgets hiện đang editable:**
+| Widget | File | hud_key | Default pos |
+|--------|------|---------|-------------|
+| AUTO-DRIVE | `boost_button.gd` | `"boost_button"` | (vp.x-60, 550) |
+| AUTO-FIRE | `auto_fire_button.gd` | `"auto_fire"` | (vp.x-60, 652) |
+| ENEMIES panel | `enemy_panel.gd` | `"enemy_panel"` | (980, 500) |
+| QuickPanel (stat) | `stat_panel.gd` | `"stat_panel"` | (1240, 228) deferred |
+| INVENTORY button | `inventory_ui.gd` | `"inventory_btn"` | (1240, 310) |
+
+**Props panel (X/Y/W/H):** Click frame để chọn (viền vàng) → nhập số vào ô X/Y/W/H → nhấn Enter để áp dụng ngay. Kéo cũng cập nhật các ô này real-time.
+
+**`stat_panel.gd` deferred load:** `_anchor_bottom_right()` chạy deferred → phải gọi `_load_hud_layout()` deferred SAU ĐÓ (thứ tự `call_deferred` trong cùng `_ready()` là đảm bảo). Nếu đảo thứ tự, config bị override bởi `_anchor_bottom_right()`.
+
+**Save:** nút Save trong toolbar → `apply_hud_rect()` tất cả widgets → ghi `user://hud_layout.cfg`. Mỗi widget load config riêng trong `_ready()` / `_reposition()` của nó.
 
 ### `scripts/ui/hud/stat_panel.gd`
 
@@ -490,6 +554,7 @@ For each animated asset:
 | `user://todo.cfg` | TodoList widget state |
 | `user://user_panel.cfg` | UserPanel widget states |
 | `user://session.cfg` | Chatbot / weather-clock conversation history |
+| `user://hud_layout.cfg` | HUD widget positions/sizes — boost_button, auto_fire, enemy_panel, stat_panel, inventory_btn — written by F6 HUD Edit Mode |
 | `res://default_layout.cfg` | positions/sizes của tất cả edit mode objects (tất cả groups kể cả "screen") |
 
 > Verified by grep over `scripts/`. The previously-listed `game_save.cfg`, `upgrades_save.cfg`, `equipment.cfg`, `audio_config.cfg` **do not exist** — GameManager/UpgradeManager/EquipmentManager all write to the shared `user://save.cfg`.
@@ -949,6 +1014,337 @@ bx_r = OC_BOUNDS.size.x - bx - bw   # = 700 - bx - bw
 
 ---
 
+## Arena System (`scenes/arena.tscn`)
+
+> **RULE — Default target for enemy changes:** Khi thực hiện bất kỳ thay đổi nào liên quan đến enemy (behavior, shooting, FP, plume, stats...), mặc định ghi vào **`arena_enemy.gd`**. Chỉ ghi vào file lẻ (`enemy_bee.gd`, `enemy_sentinel.gd`, ...) khi user yêu cầu cụ thể non-arena behavior.
+
+Arena is a **separate, self-contained scene** from `main.tscn` — a Vampire-Survivors-style top-down bullet-heaven mode. It does **not** use `enemy_manager.gd`, `gun_system.gd`, or the individual `enemy_*.gd` scripts. All arena combat logic lives in its own dedicated scripts.
+
+### Key arena scripts
+
+| Script | Role |
+|--------|------|
+| `scripts/gameplay/arena_enemy.gd` | Data-driven enemy behavior engine (all enemy types in one script) |
+| `scripts/gameplay/arena_wave_director.gd` | Authored timeline spawner — fires enemies at scripted timestamps |
+| `scripts/gameplay/arena_weapons.gd` | Player weapon system (Gatling etc.) specific to arena |
+| `scripts/gameplay/arena_debug_spawn.gd` | Debug UI: fire rate +/− buttons, barrel count display, + Level button |
+| `scripts/ui/hud/arena_levelup_ui.gd` | Level-up card UI (pause + pick 1-of-3 upgrade) |
+
+**IMPORTANT:** Fixes to `enemy_dragonfly.gd`, `enemy_swarm.gd`, etc. do **NOT** affect the arena game. To fix arena enemy behavior, edit `arena_enemy.gd`.
+
+### `arena_enemy.gd` — behavior system
+
+Each enemy has a `behavior` string from `ENEMY_DEFS` in `arena_wave_director.gd`. Key behaviors:
+
+| Behavior | Enemy | Notes |
+|----------|-------|-------|
+| `"orbit"` | dragonfly | **Known bug:** orbit center snaps to player each frame — player cannot escape. Not yet fixed. |
+| `"spiral"` | diver | Fixed (2026-06): uses `SPIRAL_CENTER_SPEED = 80px/s` drift + aim-once straight dive when `_orbit_r <= 8` |
+| `"swarm_dive"` | bee, swarm | Chase + dive |
+| `"chase"` | bug | Direct pursuit |
+| `"scatter"` | fly | Random wander |
+| `"jump"` | octopus | Pause → aim-once → leap |
+| `"jump_diag"` | spider | 45° diagonal jumps only |
+| `"shooter"` | jet fighter | Ranged projectiles |
+| `"boss_stub"` | elephant, chromeleon, metalfly | High-HP, slow, no real moveset yet |
+
+**Spiral fix — two phases:**
+```gdscript
+# Phase 0: orbit center drifts toward player at SPIRAL_CENTER_SPEED px/s
+_scatter_target = _scatter_target.move_toward(pp, SPIRAL_CENTER_SPEED * delta)
+# Phase 1 (when _orbit_r <= 8): aim-once straight dive
+_aim = dir  # captured once; player can now dodge
+```
+
+**Sprite sheet animation:** `_load_icon()` auto-detects `.sheet.png`, calls `_load_sheet_frames()` which reads the adjacent `.sheet.json` (cols, fw, fh, delays), slices `AtlasTexture` per frame into `_frames`/`_delays`.
+
+### `arena_enemy.gd` — Dynamic Plume VFX (2026-06-20)
+
+New vars after `_plumes` array:
+```gdscript
+var _plume_base: Array = []        # [{vel_min, vel_max, sc_min, sc_max, life}] per plume
+var _plume_base_cols: Array = []   # [PackedColorArray] per plume
+var _plume_red_cols: Array = []    # pre-built red gradient (dragonfly proximity)
+var _plume_in_red: bool = false
+```
+
+Cached at the END of `_setup_plumes()` (after the for loop building `_plumes`). Helper functions:
+
+| Function | Effect |
+|----------|--------|
+| `_apply_plume_vel_mult(m)` | Scale `initial_velocity_min/max` on all plumes |
+| `_apply_plume_full_mult(m)` | Scale vel + `scale_amount_min/max` + `lifetime` on all plumes |
+| `_apply_plume_color(want_red)` | Swap `color_ramp.colors` to red tone; guarded by `_plume_in_red` flag (only updates when state flips) |
+| `_update_plumes()` | `match behavior` dispatcher — called in `_process()` just before the plume rotation sync block |
+
+**Behavior → plume rule:**
+
+| Behavior | Condition | Effect |
+|----------|-----------|--------|
+| `"swarm_dive"` | `_phase == 1` (diving) | vel × 2 |
+| `"orbit"` | distance to player < 350px | color → red tone |
+| `"jump"` | `_phase == 1` (airborne) | vel × 3, scale × 3, life × 3 |
+| `"jump_diag"` | `_phase == 1` (airborne) | vel × 3, scale × 3, life × 3 |
+
+**IMPORTANT — legacy enemy files (`enemy_bee.gd`, `enemy_dragonfly.gd`, `enemy_octopus.gd`, `enemy_spider.gd`):** These extend `enemy_base.gd` and are loaded by `enemy_manager.gd` which no active scene uses. All arena enemies are `arena_enemy.gd` (CharacterBody2D). The legacy files got plume helpers added too (for non-arena waves) but they do NOT affect the arena.
+
+### `arena_wave_director.gd` — ENEMY_DEFS & boss icons
+
+All enemy types defined in `ENEMY_DEFS`. Boss stubs now use real sprite sheet icons:
+```gdscript
+"elephant":  {..., "icon": "res://assets/bosses/elephant/elephant.sheet.png"},
+"chromeleon":{..., "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},
+"metalfly":  {..., "icon": "res://assets/bosses/metalfly/metalfly.sheet.png"},
+```
+
+### `arena_weapons.gd` — Gatling multi-barrel
+
+`GAT_BARREL_SPACING = 18.0px`. `num_barrels = maxi(1, floori(shots_per_sec / 10.0))`. Barrels placed perpendicular to the forward direction:
+
+| shots/sec | barrels |
+|-----------|---------|
+| 10–19.9 | 1 |
+| 20–29.9 | 2 |
+| 30–39.9 | 3 |
+| 40+ | 4+ |
+
+### `arena_elephant.gd` — Arena Elephant Boss
+
+**Separate from `boss_elephant.gd`** — the arena-mode elephant boss living in world space. All its move logic is self-contained in `scripts/gameplay/arena_elephant.gd`.
+
+**Move set (5 moves, random rotation after each via `_begin_random_move()`):**
+
+| ID | Name | Notes |
+|----|------|-------|
+| M1 | Spike Rain | Spin + sweep + spiral spike bursts every 0.2s |
+| M2 | Ring of Fire | `FlameRingReveal` children — jet then ring draw |
+| M3 | Laser | Telegraph + fire from fp2; tracks player then locks aim |
+| M4 | Shot Drop | Entry tween → horizontal sweep + drops from fp3 |
+| M5 | Shoot Blob | Homing blobs from boss center every 1s |
+
+**M2 — Ring of Fire contact rules:** Damage only triggers where **visual fire exists**. The ring uses `FlameRingReveal._draw_progress` (0→1) and an angle-based arc check — player angle must fall within the drawn arc; full-circle contact is intentionally blocked.
+
+**M3 aim-lock:** `const M3_AIM_LOCK_T := 0.5` — elephant tracks player during the 2s charge phase, locks aim only 0.5s before firing. Players have 0.5s to dodge after the aim freezes.
+
+**Projectile persistence:** `_begin_random_move()` does NOT clear `_projectiles`. Bullets from previous moves remain alive until they expire normally — this is intentional.
+
+**`_tick_projectiles(delta)` MUST be called before any phase early-return** in `_process()` so projectiles keep moving during entry tweens.
+
+### `arena_enemy_manager.gd` — Hit Feedback System
+
+`arena_enemy_manager.gd` owns the player-hit SFX + screen flash:
+- **`_hit_player`** (`AudioStreamPlayer`, bus `"SFX"`) — plays `hit.wav` on every real HP hit
+- **`_hit_flash_rect`** (`ColorRect` on `CanvasLayer` layer=95) — screen-blend shader: `COLOR.rgb = mix(screen.rgb, blended, 0.35)` using `render_mode blend_disabled` + `hint_screen_texture`
+- **Flash duration:** `HIT_FLASH_DUR = 0.12s`; intensity ramps 35% → 0 over the duration
+- Sized each `_process()` frame to match viewport size
+- Connected via `GameManager.player_hit.connect(_play_hit)` — NOT called directly
+
+### `arena_debug_spawn.gd` — debug controls
+
+Bottom-center HBox (CanvasLayer). Controls:
+- `[−]` / `[+]` — adjust `GameManager.upg_fire_rate_mult` by `FR_STEP = 0.5`
+- Label (updated every `_process`): `"Fire: X.X/s  |  N barrel(s)  |  ×X.XX"`
+- `[+ Level]` — adds enough XP to trigger the next level-up
+
+`GAT_INTERVAL = 0.09` mirrors `arena_weapons.gd GAT_FIRE_INTERVAL` — keep in sync if changed.
+
+**Dev mode default state (2026-06-20):** `const DEV_MODE := false` — panel starts hidden. `arena_hud_buttons.gd` shows `dev:off` icon at game start (clicking toggles to `dev:on` and reveals firerate/level controls). Changed from `true` → `false` so players don't see debug controls by default.
+
+### `arena_debug_spawn.gd` — Quick Spawn panel (2026-06-21)
+
+Panel added to `_dev_ui_root` (bottom-left, 192×242px). Only visible when Dev:on.
+
+**Layout:**
+- Header: "Quick Spawn" label + "CLEAR ALL" button — each `SIZE_EXPAND_FILL`, row height 50px
+- Grid: `GridContainer` 4 columns × 48×48px cells inside `ScrollContainer` (4 rows visible = 192px height; scroll reveals row 5)
+
+**Enemy order** (`QUICK_SPAWN_ORDER` const): fly, bee, bug, swarm, diver, dragonfly, octopus, spider, centipede, shooter, sentinel, beamer, bomber, missile, dummy → then bosses: elephant, chromeleon, metalfly. Bosses get red background cells.
+
+**Thumbnails:** loaded via `_load_thumb(icon)` — GIF path → `GifLoader.load_gif()` frame 0; PNG → `load()`. Source: `WaveDir.ENEMY_DEFS[type_id]["icon"]`.
+
+**Spawn:** random position in viewport (`camera.global_position ± 500/270px`). Enemy added as sibling of `wave_director` (same parent as other arena enemies). Tagged with group `"quick_spawn_enemy"`.
+
+**CLEAR ALL:** removes only enemies in group `"quick_spawn_enemy"`.
+
+**Key preloads at top of file:**
+```gdscript
+const GifLoader   := preload("res://scripts/ui/edit_mode/gif_loader.gd")
+const WaveDir     := preload("res://scripts/gameplay/arena_wave_director.gd")
+const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
+```
+
+### `arena_weapons.gd` — Crit System (2026-06-20)
+
+- `const BASE_CRIT_CHANCE := 0.10` — 10% base crit chance at game start, additive with `GameManager.get_crit_chance()` from upgrade cards. Without this, upgrading "crit damage" (multiplier) had no effect because default chance was 0%.
+- `_crit_chance = BASE_CRIT_CHANCE + (GameManager.get_crit_chance() if GameManager.has_method("get_crit_chance") else 0.0)` — refreshed on every upgrade pickup.
+- `_roll_damage(base: float) -> Dictionary` returns `{"dmg": float, "is_crit": bool}` (changed from plain `float`).
+- `_spawn_crit_number(world_pos: Vector2, amount: float)` — spawns a floating Label in a CanvasLayer (layer 12) at screen-space coords via `get_viewport().get_canvas_transform() * world_pos`. Style: red fill `Color(1.0, 0.15, 0.10)`, white outline (size 7), font `Gameplay.ttf` at 22px, scale ×1.6. Tweens: rise 48px over 0.8s, fade out, then `queue_free()`.
+- All three weapons (Gatling, Arc, Lasgun) call `_spawn_crit_number()` when `is_crit == true`.
+
+### `arena_weapons.gd` — SFX
+
+| Const | File | Trigger |
+|-------|------|---------|
+| `SFX_ENGINE_HUM` | `sfx/enginehum3.wav` | Always-on engine hum — loops via `finished` signal, stops when `ship_hp <= 0`, restarts on `_on_ship_hp_changed`. `PROCESS_MODE_PAUSABLE` → tự pause khi game paused. |
+| `SFX_GAUSS_FIRE` | `sfx/hitimpact.wav` | Gauss cannon fires (once per shot) |
+| `SFX_GAUSS_IMPACT` | `sfx/AstroMenace-SFX/weaponfire6.wav` | Gauss orb hits an enemy or ruin |
+| `SFX_LASGUN_CHARGE` | `sfx/Scifi/blg_beam_01.wav` | Lasgun charge phase bắt đầu (one-shot, guarded by `_las_charge_started`) |
+| `SFX_LASGUN_BEAM` | `sfx/AstroMenace-SFX/weaponfire14.wav` | Lasgun beam firing — restarts nếu WAV kết thúc trước khi beam tắt (guarded by `_las_beam_playing` flag) |
+
+**`arena_elephant.gd` M5 SFX:** `SFX_M1 = preload("res://assets/audio/sfx/blob.wav")` (Shoot Blob move).
+
+**Asset folder note:** `AstroMenace-SFX/` nằm ở `assets/audio/sfx/AstroMenace-SFX/` (không phải `sfx/Scifi/AstroMenace-SFX/`).
+
+### `arena_weapons.gd` — Gauss orb visuals
+
+- `GAUSS_ORB_DRAW = 38.0` px — kích thước hiển thị trên screen (TextureRect 38×38). Frame nguồn là ~421px nhưng được scale về 38px.
+- `GAUSS_TRAIL_WIDTH = 0.75` — hệ số nhân bán kính trail circle (`base_w = GAUSS_RADIUS × GAUSS_TRAIL_WIDTH`). Giảm để trail nhỏ hơn, bớt "vòng sáng" quanh orb.
+- **Trail và charge rings dùng gradient layers** — mỗi vị trí trail vẽ 4 circle lồng nhau (outer soft → inner bright) với `antialiased=true`. Charge rings tương tự 4 arc layers. Đây là cách mô phỏng soft/glow edge trong Godot 4 CanvasItem `_draw()` (không có built-in blur).
+
+### `arena_weapons.gd` — Auto-fire logic
+
+**`_has_enemy_on_screen() -> bool`:**
+- Trả `true` ngay nếu `GameManager.is_boss_alive()` (boss luôn kích hoạt auto-fire bất kể vị trí)
+- Dùng `get_viewport().get_canvas_transform()` convert world pos → screen pos
+- Rect kiểm tra = viewport rect được mở rộng 50% mỗi cạnh (`grow_individual(vp_size.x * 0.5, vp_size.y * 0.5, ...)`) — tổng diện tích gấp 4 lần screen
+
+**Behavior khi không có enemy:**
+
+| Weapon | Behavior |
+|--------|----------|
+| Gatling | Tích `_gat_acc` bình thường, không gọi `_fire_gatling()` → bắn ngay khi enemy xuất hiện |
+| Gauss | Charge đến full (`_gauss_charge` vẫn tăng), giữ nguyên, fire ngay khi enemy xuất hiện |
+| Arc | Skip `_fire_arc()` — `_arc_cd` vẫn tick |
+| Lasgun | Dừng `_fire_lasgun(delta)` → `_las_t` không advance (cycle paused); tắt beam visuals + audio |
+
+### `arena_enemy.gd` — `_MissileVolley` inner class (2026-06-21)
+
+Missile launcher behavior fires a fan-boomerang volley: darts fly outward (behind launcher), decelerate + hover (telegraph), then return homing to player.
+
+**Class vars:**
+```gdscript
+var _launcher: Node = null   # the arena_enemy that spawned this volley
+```
+Set via `launch(muzzles, away, launcher)`. The launcher is **excluded** from dart–enemy collision checks (`en == _launcher` guard) to prevent self-hit.
+
+**Self-hit bug (fixed 2026-06-21):** Launcher is in group `"arena_enemy"`. During the return phase, darts fly back toward the player and can pass through the launcher (which maintains standoff at ~460px). Without the guard, darts hitting launcher would be removed early, resulting in 2–3 darts visible instead of 4. Fix: pass `self` into `launch()`, skip it in the collision loop.
+
+**Dart–enemy damage:** darts also deal `ML_LINE_DMG = 8` to other arena enemies on hit. Uses `en.get("_radius")` for hit radius; falls back to 16px. Calls `en.call("take_damage", float(ML_LINE_DMG), 0.0)`.
+
+**Off-screen culling removed:** original had hardcoded `Vector2(1440, 780)` screen check (from shmup parent). This caused darts to be removed the instant they entered the return phase (having flown outside those bounds). Culling is lifetime-only now (`ML_LIFETIME = 6.0s`).
+
+**Key constants:** `ML_FAN_ANGLE = 80°`, `ML_OUT_SPEED = 750px/s`, `ML_DRAG = 0.06` (exponential, ~6% remains after 1s), `ML_HOVER_END = 0.6s`, `ML_STAGGER = 0.12s/dart`, `ML_RETURN_START = 320px/s`, `ML_RETURN_MAX = 900px/s`, `ML_RETURN_ACCEL = 200px/s²`, `ML_ACCEL_RAMP = 1.5`.
+
+**Spider jump randomization (2026-06-21):** `_jump_interval` var (range 0.5–1.5s, randomized via `randf_range`) re-randomized after each jump. Only affects `jump_diag` (spider); octopus still uses fixed 1.0s interval.
+
+### `arena_levelup_ui.gd` — level-up card UI
+
+**Layout:** `CenterContainer` → `Control 800×433` panel → `TextureRect TEX_FRAME` (full panel bg, `assets/hud/lvupframe.png`).
+
+**Card bg by upgrade category** (`assets/hud/lvgreen/red/blue.png`):
+- Green: `hp`, `hp_regen`, `pickup`
+- Red: `fire_rate`, `damage`
+- Blue: `defense`, `move_speed`, `momentum`, `crit_chance`, `crit_damage` (default — not in CARD_BG dict, falls through to `"blue"`)
+
+**Card icons:** `res://assets/hud/<id>.png` — id must match the upgrade `id` string exactly.
+
+**Card size:** 160×208. `_cards_box` is a plain `Control` (NOT `HBoxContainer`) — outer cards shift ±20px horizontally via `_CSHIFT`. **Using `HBoxContainer` here causes a runtime type-assign error.**
+
+**Title label:** font = `Good Old DOS.ttf`, color `#E5792A`, size 22. Anchors top=0.035/bottom=0.155 + offset_top=38/offset_bottom=38/offset_left=−10/offset_right=−10.
+
+**`_position_cards()` — centering formula:** reads `_cards_box.size` directly (fallback to anchor × 720/390 if not yet laid out). Sets `pivot_offset = Vector2(_CW*0.5, _CH*0.5)` on each card so hover scale grows from center. `base_y = (box_h - _CH) * 0.5 - 22.0`.
+
+**3-label hover system per card** — nodes stored via `card.set_meta(key, node)`:
+
+| Meta key | Default | On hover |
+|----------|---------|----------|
+| `"icon_tex"` | `modulate.a = 1.0` | `modulate.a = 0.2` (dim, not hidden) |
+| `"lbl_name"` | hidden | visible |
+| `"lbl_effect"` | visible | hidden |
+| `"lbl_current"` | hidden | visible |
+
+- `lbl_name`: font Good Old DOS 15px, no number prefix. Names with `\n` → anchor top=0.252/bottom=0.342; names without `\n` → top=0.276/bottom=0.366.
+- `lbl_effect`: font Good Old DOS 14px, anchor top=0.728/bottom=0.858.
+- `lbl_current`: font Good Old DOS 14px, gray `Color(0.75, 0.75, 0.75)`. Same anchors as lbl_effect **except** `crit_damage`/`crit_chance` → top=0.714/bottom=0.844 (3px higher).
+
+**Multi-line names in UPGRADES const:** `"Armor\nPlating"`, `"Fire\nRate"`, `"Repair\nDrones"`, `"Critical\nStrike"`.
+
+**`_effect_text()` overrides:** `move_speed` → `"+N% Speed"`; `crit_chance` → `"+N% Crit\nChance"`; `crit_damage` → `"+N% Crit\nDamage"`. `_current_text()` prefix is `"Now"` (capital N).
+
+**Card centering bug (fixed):** `queue_free()` does NOT remove a node from `get_children()` immediately — it only marks it for deletion at end of frame. On the 2nd+ level-up, old cards (3) are still in `_cards_box` when new cards (3) are added → `_position_cards()` sees 6 cards → `cluster_w = 1010px` → `base_x = -163` → all cards shift far left. **Fix:** use `c.free()` (immediate removal) instead of `c.queue_free()` in `_show_cards()`.
+
+**SFX:**
+| Sound | Trigger |
+|-------|---------|
+| `assets/audio/sfx/uialert.wav` | Level-up panel shows (`_show_cards()`) |
+| `assets/audio/sfx/uiclick.wav` | Mouse enters a card (hover) |
+| `assets/audio/sfx/selectconfirm3.wav` | Card picked (`_pick()`) |
+
+### `enemy_dragonfly.gd` — non-arena fix
+
+Fixed with Option B (`DF_ORBIT_CENTER_SPEED = 80px/s` drift, aim-once dive). This file is used only by `enemy_manager.gd` (non-arena waves). The arena dragonfly ("orbit" behavior in `arena_enemy.gd`) still has the snap bug.
+
+### Arena Ruin System
+
+Breakable passive props that drift across the arena — not enemies (use group `"arena_ruin"`, not `"arena_enemy"`), so they do NOT count toward `MAX_ALIVE = 120` in `arena_wave_director.gd`.
+
+| Script | Role |
+|--------|------|
+| `scripts/gameplay/arena_ruin.gd` | Ship (200 HP, 70px) → Box (50 HP, 40px) on death. Drifts 20–50 px/s, rotates 15 RPM. HP bar drawn un-rotated above sprite. Explosion + random gunboom on death. |
+| `scripts/gameplay/arena_ruin_layer.gd` | Periodic spawner — one ship every 5–15s at 650–800px ring around player. |
+| `scripts/gameplay/arena_loot.gd` | Loot dropped by a destroyed box: `coin`/`diamond` (+50 money), `heart` (+25 HP), `magnetic` (pull all XP orbs), `shield` (10s immunity + visual overlay). Plays `start.mp3` on collect. |
+| `scripts/gameplay/arena_shield_visual.gd` | Breathe ±5% + blink in final 3s, auto-free after 10s. Uses `assets/defense/shield.png`. |
+| `scripts/gameplay/arena_explosion.gd` | One-shot 7-frame explosion animation (`Gun-Impact50.sheet.png`). Spawned at death position, scaled to match visual size of the destroyed object. |
+
+**Bullet hit detection for ruins:**
+- `arena_weapons.gd` checks both `"arena_enemy"` and `"arena_ruin"` groups in `_tick_bullets()` and `_tick_orbs()`
+- Ruin hit radius exposed as `hit_radius: float` property (ship ≈ 31.5px, box ≈ 18px) — NOT the shared `GAT_HIT_RADIUS = 16px`
+- Explosions from `arena_enemy_manager.explode()` also damage ruins
+
+**Shield immunity:** `GameManager._shield_immune: bool` + `_shield_timer: float`. Early return in `ship_take_damage()` before iframe check. Reset in `reset_run()`. `activate_shield(duration)` + `heal(amount)` are new methods added to `GameManager`.
+
+**XP orb magnetic item behavior:**
+- `arena_loot.gd` magnetic branch calls `orb.force_magnetize()` (NOT `collect()`)
+- `force_magnetize()` sets `_force_magnet = true` + resets `_vel = Vector2.ZERO`
+- Orb accelerates from 0 → 1200 px/s over 2s (600 px/s² linear ramp) via `_force_magnet` flag in `_process()`
+- Normal magnetization (player walks near) still uses `MAGNET_SPEED = 120` starting speed + `MAGNET_ACCEL = 900`
+
+**SFX:**
+| Sound | Trigger |
+|-------|---------|
+| `assets/audio/sfx/bolt.wav` | Gatling bullet hits enemy or ruin (single shared AudioStreamPlayer, restarts per hit) |
+| `assets/audio/sfx/gunboom1–5.wav` | Random boom when any enemy or ruin dies (fire-and-forget AudioStreamPlayer) |
+| `assets/audio/sfx/start.mp3` | Collecting any loot item from a box |
+| `assets/audio/sfx/equip.wav` | Player ship collects an XP orb |
+
+**XP orb sizing:** `ORB_SIZE_PER_XP = 1.0` — orb radius (px) = XP value × 1.0. An 8 XP drop has 8px core radius. Scales are applied multiplicatively for glow/pulse rings. Set in `arena_xp_orb.gd`.
+
+**HP bar on ruins:** same `draw_rect` pattern as `arena_enemy.gd` — drawn after `draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)` to stay horizontal despite the ruin rotating. Only shown when `hp < hp_max`.
+
+---
+
+## Enemy Panel (`scripts/ui/hud/enemy_panel.gd`)
+
+6-tab panel (Animal / Human / Alien / Asteroid / Boss / Other). **GRID_COLS = 7** (7 thumbnails per row, wraps tự động).
+
+**TAB_ENEMIES** — format `[display_label, spawn_key, icon_path, spawn_group]`:
+
+| Tab | Enemies |
+|-----|---------|
+| Animal | Diver, Bombing wanderer, Swarm, Bee, Bug, Centipede, Dragonfly, Flies, Octopus, Spider |
+| Human | Shooter, Beamer, Missile launcher, Royal, Royal Fighter, Royal Scout, Royal Tanker, Pirate Leader, Pirate Ork, Pirate Spear, Pirate SpearShield |
+| Alien | Sentinels, Cruiser, Crystal, Egg, Fighter, Plate, Scout, Tree |
+| Boss | Elephant, Chromeleon, Metalfly, Nautilus |
+| Other | Dummy (`dummy.png`), Bomb |
+
+Spawn keys **đã implement** trong `enemy_manager`: `spawn_bee/bug/centipede/dragonfly/flies/octopus/spider` (Animal group — xem Animal Enemy Group section).
+
+Spawn keys **chưa implement**: `spawn_royal/royal_fighter/royal_scout/royal_tanker`, `spawn_pirate_leader/ork/spear/spear_shield`, `spawn_alien_cruiser/crystal/egg/fighter/plate/scout/tree`.
+
+Image assets tại `assets/enemies/`: prefix `animal*`, `alien*`, `royal*`, `pirate*`, `dummy.png`.
+
+---
+
 ## Normal Enemy System
 
 ### `enemy_base.gd` — base class
@@ -958,6 +1354,7 @@ bx_r = OC_BOUNDS.size.x - bx - bw   # = 700 - bx - bw
 - **`icon_path: String = ""`** — set trong `_configure()`. Nếu != "" → load texture, override height theo ratio.
 - **`_draw()`**: nếu có texture → `draw_texture_rect` + white flash overlay khi hit. Nếu không → placeholder shape (circle/triangle/diamond/square) + flash.
 - HP bar vẫn hiển thị ở cả 2 trường hợp.
+- **`_hp_mult: float = -1.0`** — per-enemy HP multiplier override. `-1` = dùng global `ENEMY_HP_MULT = 1.5`. Set `_hp_mult = 1.0` trong `_configure()` để bypass global mult (dùng cho Animal enemies với HP đã = effective HP từ PDF).
 
 ### Enemy assets (`assets/enemies/`)
 
@@ -969,6 +1366,42 @@ bx_r = OC_BOUNDS.size.x - bx - bw   # = 700 - bx - bw
 | Bombing Wanderer | `bombing.png` | square | 1.0 |
 | Bomb | `bomb.png` | circle | **0.5** |
 | Swarm | `swarm.png` | triangle | 1.0 |
+
+### Animal Enemy Group — Architecture
+
+7 enemies + 3 flock orchestrators, tất cả trong `scripts/gameplay/`.
+
+**Solo enemies** (có `spawn(mgr)` tự chọn vị trí vào):
+
+| Script | HP | XP | Contact DMG | Behaviour |
+|--------|----|----|-------------|-----------|
+| `enemy_centipede.gd` | 240 | 24 | 20 | Rotate 120°/s, tiến thẳng về player 100px/s, vào từ cạnh ngẫu nhiên |
+| `enemy_dragonfly.gd` | 90 | 10 | 10 | ENTRY → SPIRAL (orbit thu hẹp 180→32px) → DIVE 160px/s |
+| `enemy_octopus.gd` | 240 | 24 | 20 | WAIT 1s → JUMP aim-once smoothstep 600px/s range 200px |
+| `enemy_spider.gd` | 60 | 8 | 8 | Như Octopus nhưng chỉ nhảy theo 4 góc 45° |
+
+**Flock pairs** (orchestrator + member):
+
+| Orchestrator | Member | Count | Behaviour |
+|---|---|---|---|
+| `enemy_bee_flock.gd` | `enemy_bee.gd` (HP 20) | 12 (4×3) | Form → Hold 0.4s → DIVE_ROW top-to-bottom, stagger 0.2s/member |
+| `enemy_bug_flock.gd` | `enemy_bug.gd` (HP 15) | 16 (4×4) | Form → Hold → EXPAND sideways → DIVE |
+| `enemy_flies_flock.gd` | `enemy_fly.gd` (HP 10) | 20 (ring 8+12) | Self-driven scatter, random target 1s interval |
+
+**Flock spawn pattern** (cả 3 orchestrators dùng chung):
+- Tính `_spawn_origin` = điểm ngẫu nhiên trên vòng tròn `radius = half_screen_diagonal + 100px` quanh `ship_center()`
+- Queue toàn bộ members, release lần lượt với interval 0.08–0.12s (không overlap)
+- State machine: `SPAWNING → FORMING → HOLD → DIVE_ROW → DONE`
+
+**GDScript type inference gotcha trong enemy scripts**: `_mgr` typed là `Node` nên `_mgr.ship_center()` trả về `Variant`. Dùng `var x: Vector2 = _mgr.ship_center()` (explicit annotation), KHÔNG dùng `:=` (sẽ lỗi parse).
+
+**Wave timeline**: `choreo_animal_wave.gd` — 4 phases × 30s = 2 phút:
+- 0–30s: Flies + Bug (cap 80, rate 1.0s)
+- 30–60s: Flies/Bug/Bee/Swarm/Spider + Diver event t=45s (cap 150, rate 0.8s)
+- 60–90s: Bee/Swarm/Dragonfly/Spider/Octopus + BombingWanderer event t=75s (cap 250, rate 0.5s)
+- 90–120s: full mix + Centipede (cap 400, rate 0.3s)
+
+Registered trong `choreography_registry.gd` key `"Animal_wave"`. Level file: `levels/Level_Animal.json`.
 
 ---
 
@@ -1014,6 +1447,16 @@ Only applies to auto-loaded playlists at startup — manual URL submissions are 
 Button's `hover` stylebox already provides a blue background highlight. Combined effect: blue bg + white text.
 
 ---
+
+## Enemy Plume VFX — Thrust Point
+
+Khi spawn CPUParticles2D plume tại các TP (Thrust Point) của enemy:
+
+```gdscript
+var amount := int(enemy_width / 5.0)  # e.g. width=200 → amount=40
+```
+
+Quy tắc: `amount = enemy_display_width / 5`. Điều này giữ VFX nhẹ với enemy nhỏ và đẹp với enemy lớn. Dùng lifetime ~0.35s, blend_mode = ADD giống ship plume.
 
 ## Thrust Objects Policy
 

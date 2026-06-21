@@ -1,0 +1,194 @@
+{
+  "name": "my_timeline",
+  "timeline": [
+    {
+      "count": 6,
+      "pattern": "ring",
+      "time": 1.0,
+      "type": "fly"
+    },
+    {
+      "count": 8,
+      "pattern": "scatter",
+      "time": 8.0,
+      "type": "fly"
+    },
+    {
+      "count": 5,
+      "pattern": "arc",
+      "time": 15.0,
+      "type": "diver"
+    },
+    {
+      "count": 4,
+      "pattern": "scatter",
+      "time": 24.0,
+      "type": "spider"
+    },
+    {
+      "count": 12,
+      "duration": 6.0,
+      "pattern": "stream",
+      "time": 34.0,
+      "type": "bug"
+    },
+    {
+      "count": 4,
+      "pattern": "ring",
+      "time": 46.0,
+      "type": "dragonfly"
+    },
+    {
+      "count": 3,
+      "pattern": "arc",
+      "time": 55.0,
+      "type": "shooter"
+    },
+    {
+      "count": 12,
+      "pattern": "ring",
+      "time": 66.0,
+      "type": "bee"
+    },
+    {
+      "count": 3,
+      "pattern": "scatter",
+      "time": 78.0,
+      "type": "octopus"
+    },
+    {
+      "count": 8,
+      "duration": 5.0,
+      "pattern": "stream",
+      "time": 86.0,
+      "type": "diver"
+    },
+    {
+      "count": 2,
+      "pattern": "arc",
+      "time": 98.0,
+      "type": "sentinel"
+    },
+    {
+      "count": 3,
+      "pattern": "scatter",
+      "time": 108.0,
+      "type": "centipede"
+    },
+    {
+      "count": 1,
+      "is_boss": true,
+      "pattern": "ring",
+      "time": 120.0,
+      "type": "metalfly"
+    },
+    {
+      "count": 14,
+      "duration": 10.0,
+      "pattern": "stream",
+      "time": 125.0,
+      "type": "fly"
+    },
+    {
+      "count": 3,
+      "pattern": "ring",
+      "time": 140.0,
+      "type": "beamer"
+    },
+    {
+      "count": 16,
+      "pattern": "ring",
+      "time": 150.0,
+      "type": "bug"
+    },
+    {
+      "count": 2,
+      "pattern": "arc",
+      "time": 162.0,
+      "type": "bomber"
+    },
+    {
+      "count": 12,
+      "duration": 6.0,
+      "pattern": "stream",
+      "time": 172.0,
+      "type": "swarm"
+    },
+    {
+      "count": 2,
+      "pattern": "scatter",
+      "time": 186.0,
+      "type": "missile"
+    },
+    {
+      "count": 8,
+      "pattern": "ring",
+      "time": 196.0,
+      "type": "dragonfly"
+    },
+    {
+      "count": 5,
+      "pattern": "scatter",
+      "time": 206.0,
+      "type": "octopus"
+    },
+    {
+      "count": 1,
+      "is_boss": true,
+      "pattern": "ring",
+      "time": 210.0,
+      "type": "chromeleon"
+    },
+    {
+      "count": 16,
+      "duration": 12.0,
+      "pattern": "stream",
+      "time": 215.0,
+      "type": "bee"
+    },
+    {
+      "count": 6,
+      "pattern": "ring",
+      "time": 235.0,
+      "type": "shooter"
+    },
+    {
+      "count": 5,
+      "pattern": "scatter",
+      "time": 250.0,
+      "type": "centipede"
+    },
+    {
+      "count": 4,
+      "pattern": "arc",
+      "time": 265.0,
+      "type": "sentinel"
+    },
+    {
+      "count": 1,
+      "is_boss": true,
+      "pattern": "ring",
+      "time": 300.0,
+      "type": "elephant"
+    },
+    {
+      "count": 12,
+      "duration": 12.0,
+      "pattern": "stream",
+      "time": 305.0,
+      "type": "diver"
+    },
+    {
+      "count": 3,
+      "pattern": "scatter",
+      "time": 320.0,
+      "type": "missile"
+    },
+    {
+      "count": 16,
+      "pattern": "ring",
+      "time": 335.0,
+      "type": "swarm"
+    }
+  ]
+}

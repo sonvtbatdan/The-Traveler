@@ -3,7 +3,8 @@ extends CanvasLayer
 const EditableObject  := preload("res://scenes/ui/edit_mode/editable_object.tscn")
 const GifLoader       := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const GridOverlay     := preload("res://scripts/ui/boss_edit/grid_overlay.gd")
-const LAYOUT_PATH     := "res://boss_layout.cfg"
+const LAYOUT_PATH         := "res://boss_layout.cfg"
+const PLUME_STYLES_PATH   := "res://boss_plume_styles.cfg"
 const BOSSES_FOLDER   := "res://assets/bosses/"
 const ASSET_PANEL_W   := 210.0
 const CTRL_PANEL_W    := 224.0
@@ -50,6 +51,34 @@ var _grid_overlay:     Control       = null
 var _fp_target_label:  Label         = null
 var _lock_btn:         Button        = null
 var _save_confirm_dlg: ConfirmationDialog = null
+var _fp_angle_row:     Control  = null
+var _fp_angle_spin:    SpinBox  = null
+var _adding_thrustpoint:  bool       = false
+var _thrust_points:       Dictionary = {}   # boss_name -> Array[{pos, id, dir_angle}]
+var _tp_id_counter:       Dictionary = {}
+var _selected_tp_idx:     int        = -1
+var _selected_tp_indices: Array[int] = []
+var _tp_vbox:       VBoxContainer = null
+var _tp_angle_row:  Control       = null
+var _tp_angle_spin: SpinBox       = null
+var _add_tp_btn:    Button        = null
+var _zoom_slider:         HSlider           = null
+var _zoom_pct_lbl:        Label             = null
+
+# Plume editor UI
+var _plume_vel_min_spin:  SpinBox           = null
+var _plume_vel_max_spin:  SpinBox           = null
+var _plume_life_spin:     SpinBox           = null
+var _plume_spread_spin:   SpinBox           = null
+var _plume_sc_min_spin:   SpinBox           = null
+var _plume_sc_max_spin:   SpinBox           = null
+var _plume_col_core_btn:  ColorPickerButton = null
+var _plume_col_flame_btn: ColorPickerButton = null
+var _plume_col_cool_btn:  ColorPickerButton = null
+var _plume_styles:        Dictionary        = {}
+var _plume_tp_label:      Label             = null
+var _updating_plume:      bool              = false
+var _preview_plumes:      Array[CPUParticles2D] = []
 
 # Panel drag state — each panel tracked separately
 var _dragging_asset:   bool    = false
@@ -63,11 +92,18 @@ var _updating_spin:         bool    = false
 var _aspect_ratio:          float   = 1.0
 var _undo_stack: Array[Dictionary] = []
 
+# Zoom state (mouse-scroll zoom of the objects container)
+var _zoom:     float = 1.0
+const ZOOM_MIN := 0.4
+const ZOOM_MAX := 5.0
+const ZOOM_RATIO := 1.15   # zoom multiplier per scroll notch
+
 # ── Lifecycle ──────────────────────────────────────────────────────────────────
 
 func _ready() -> void:
 	layer = 11
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	add_to_group("boss_edit")
 	_scan_bosses()
 	_build_ui()
 	_build_boss_buttons()
@@ -77,6 +113,7 @@ func _ready() -> void:
 func setup(objects_container: Control) -> void:
 	_objects_container = objects_container
 	_load_layout()
+	_load_plume_styles()
 	_update_gameplay_visibility()
 
 func is_open() -> bool:
@@ -169,28 +206,6 @@ func _build_asset_panel() -> void:
 	root.add_theme_constant_override("separation", 4)
 	_asset_panel.add_child(root)
 
-	# ── LAYERS ──
-	var title_bar := Panel.new()
-	title_bar.custom_minimum_size = Vector2(0.0, 32.0)
-	title_bar.gui_input.connect(_on_asset_title_input)
-	root.add_child(title_bar)
-	var tl := Label.new()
-	tl.text = "LAYERS"
-	tl.add_theme_font_size_override("font_size", 12)
-	tl.set_anchors_preset(Control.PRESET_FULL_RECT)
-	tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	tl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	title_bar.add_child(tl)
-
-	var layers_scroll := ScrollContainer.new()
-	layers_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	root.add_child(layers_scroll)
-
-	_asset_vbox = VBoxContainer.new()
-	_asset_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_asset_vbox.add_theme_constant_override("separation", 2)
-	layers_scroll.add_child(_asset_vbox)
-
 	# ── FIRE POINTS ──
 	root.add_child(HSeparator.new())
 
@@ -218,7 +233,7 @@ func _build_asset_panel() -> void:
 	add_child(_save_confirm_dlg)
 
 	var fp_scroll := ScrollContainer.new()
-	fp_scroll.custom_minimum_size = Vector2(0.0, 130.0)
+	fp_scroll.custom_minimum_size = Vector2(0.0, 80.0)
 	fp_scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	root.add_child(fp_scroll)
 
@@ -227,12 +242,181 @@ func _build_asset_panel() -> void:
 	_fp_vbox.add_theme_constant_override("separation", 2)
 	fp_scroll.add_child(_fp_vbox)
 
+	# FP direction angle row — shown when a FP is selected
+	_fp_angle_row = HBoxContainer.new()
+	_fp_angle_row.visible = false
+	_fp_angle_row.add_theme_constant_override("separation", 4)
+	root.add_child(_fp_angle_row)
+	var al := Label.new()
+	al.text = "Dir:"
+	al.add_theme_font_size_override("font_size", 10)
+	al.custom_minimum_size = Vector2(24.0, 0.0)
+	_fp_angle_row.add_child(al)
+	_fp_angle_spin = SpinBox.new()
+	_fp_angle_spin.min_value = -180.0
+	_fp_angle_spin.max_value = 180.0
+	_fp_angle_spin.step = 1.0
+	_fp_angle_spin.suffix = "°"
+	_fp_angle_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_fp_angle_spin.value_changed.connect(func(_v: float) -> void: _on_fp_angle_changed())
+	_fp_angle_row.add_child(_fp_angle_spin)
+
+	# ── THRUST POINTS ──────────────────────────────────────────────────────────────
+	root.add_child(HSeparator.new())
+	var tp_hdr := Label.new()
+	tp_hdr.text = "THRUST POINTS"
+	tp_hdr.add_theme_font_size_override("font_size", 11)
+	tp_hdr.modulate = Color(0.10, 0.90, 0.65)
+	root.add_child(tp_hdr)
+
+	var tp_scroll := ScrollContainer.new()
+	tp_scroll.custom_minimum_size = Vector2(0.0, 150.0)
+	tp_scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	root.add_child(tp_scroll)
+	_tp_vbox = VBoxContainer.new()
+	_tp_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_tp_vbox.add_theme_constant_override("separation", 2)
+	tp_scroll.add_child(_tp_vbox)
+
+	_tp_angle_row = HBoxContainer.new()
+	_tp_angle_row.visible = false
+	_tp_angle_row.add_theme_constant_override("separation", 4)
+	root.add_child(_tp_angle_row)
+	var tpal := Label.new()
+	tpal.text = "Dir:"
+	tpal.add_theme_font_size_override("font_size", 10)
+	tpal.custom_minimum_size = Vector2(24.0, 0.0)
+	_tp_angle_row.add_child(tpal)
+	_tp_angle_spin = SpinBox.new()
+	_tp_angle_spin.min_value = -180.0
+	_tp_angle_spin.max_value = 180.0
+	_tp_angle_spin.step = 1.0
+	_tp_angle_spin.suffix = "°"
+	_tp_angle_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_tp_angle_spin.value_changed.connect(func(_v: float) -> void: _on_tp_angle_changed())
+	_tp_angle_row.add_child(_tp_angle_spin)
+
+	# ── TRANSFORM ──────────────────────────────────────────────────────────────────
+	root.add_child(HSeparator.new())
+	_add_section(root, "TRANSFORM")
+
+	var pos_row := HBoxContainer.new()
+	pos_row.add_theme_constant_override("separation", 3)
+	root.add_child(pos_row)
+	_pos_x_spin = _small_spin(pos_row, "X", -3000.0, 3000.0)
+	_pos_y_spin = _small_spin(pos_row, "Y", -3000.0, 3000.0)
+
+	var sz_row := HBoxContainer.new()
+	sz_row.add_theme_constant_override("separation", 3)
+	root.add_child(sz_row)
+	_sz_w_spin = _small_spin(sz_row, "W", 1.0, 2000.0, _on_w_spin_changed)
+	_sz_h_spin = _small_spin(sz_row, "H", 1.0, 2000.0, _on_h_spin_changed)
+
+	var z_row := HBoxContainer.new()
+	z_row.add_theme_constant_override("separation", 3)
+	root.add_child(z_row)
+	_z_spin = _small_spin(z_row, "Z", -500.0, 500.0)
+	var z_spacer := Control.new()
+	z_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	z_row.add_child(z_spacer)
+
+	var zoom_row := HBoxContainer.new()
+	zoom_row.add_theme_constant_override("separation", 4)
+	root.add_child(zoom_row)
+	var zoom_lbl := Label.new()
+	zoom_lbl.text = "Zoom:"
+	zoom_lbl.add_theme_font_size_override("font_size", 10)
+	zoom_lbl.custom_minimum_size = Vector2(34.0, 0.0)
+	zoom_row.add_child(zoom_lbl)
+	_zoom_slider = HSlider.new()
+	_zoom_slider.min_value = 50.0
+	_zoom_slider.max_value = 200.0
+	_zoom_slider.step      = 1.0
+	_zoom_slider.value     = 100.0
+	_zoom_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_zoom_slider.value_changed.connect(_on_zoom_slider_changed)
+	zoom_row.add_child(_zoom_slider)
+	_zoom_pct_lbl = Label.new()
+	_zoom_pct_lbl.text = "100%"
+	_zoom_pct_lbl.add_theme_font_size_override("font_size", 10)
+	_zoom_pct_lbl.custom_minimum_size = Vector2(36.0, 0.0)
+	_zoom_pct_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	zoom_row.add_child(_zoom_pct_lbl)
+
+	# ── PLUME STYLE ────────────────────────────────────────────────────────────────
+	root.add_child(HSeparator.new())
+	var pe_hdr_row := HBoxContainer.new()
+	pe_hdr_row.add_theme_constant_override("separation", 4)
+	root.add_child(pe_hdr_row)
+	var pe_lbl := Label.new()
+	pe_lbl.text = "PLUME STYLE"
+	pe_lbl.add_theme_font_size_override("font_size", 10)
+	pe_lbl.modulate = Color(0.55, 0.90, 1.0)
+	pe_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pe_hdr_row.add_child(pe_lbl)
+	var pe_reset := Button.new()
+	pe_reset.text = "Reset"
+	pe_reset.add_theme_font_size_override("font_size", 9)
+	pe_reset.pressed.connect(_reset_plume_style)
+	pe_hdr_row.add_child(pe_reset)
+
+	_plume_tp_label = Label.new()
+	_plume_tp_label.text = "– select a TP –"
+	_plume_tp_label.add_theme_font_size_override("font_size", 10)
+	_plume_tp_label.modulate = Color(0.7, 0.7, 0.7)
+	root.add_child(_plume_tp_label)
+
+	var vel_row := HBoxContainer.new()
+	vel_row.add_theme_constant_override("separation", 3)
+	root.add_child(vel_row)
+	var vel_lbl := Label.new()
+	vel_lbl.text = "Vel:"
+	vel_lbl.add_theme_font_size_override("font_size", 10)
+	vel_lbl.custom_minimum_size = Vector2(24.0, 0.0)
+	vel_row.add_child(vel_lbl)
+	_plume_vel_min_spin = _mk_pspin(vel_row, 0.0, 600.0, 5.0)
+	_plume_vel_max_spin = _mk_pspin(vel_row, 0.0, 600.0, 5.0)
+
+	var ls_row := HBoxContainer.new()
+	ls_row.add_theme_constant_override("separation", 3)
+	root.add_child(ls_row)
+	var life_lbl := Label.new()
+	life_lbl.text = "Life:"
+	life_lbl.add_theme_font_size_override("font_size", 10)
+	life_lbl.custom_minimum_size = Vector2(24.0, 0.0)
+	ls_row.add_child(life_lbl)
+	_plume_life_spin = _mk_pspin(ls_row, 0.05, 3.0, 0.05)
+	var spr_lbl := Label.new()
+	spr_lbl.text = "Spr:"
+	spr_lbl.add_theme_font_size_override("font_size", 10)
+	ls_row.add_child(spr_lbl)
+	_plume_spread_spin = _mk_pspin(ls_row, 0.0, 90.0, 1.0)
+
+	var sc_row := HBoxContainer.new()
+	sc_row.add_theme_constant_override("separation", 3)
+	root.add_child(sc_row)
+	var sc_lbl := Label.new()
+	sc_lbl.text = "Sc:"
+	sc_lbl.add_theme_font_size_override("font_size", 10)
+	sc_lbl.custom_minimum_size = Vector2(24.0, 0.0)
+	sc_row.add_child(sc_lbl)
+	_plume_sc_min_spin = _mk_pspin(sc_row, 0.1, 8.0, 0.1)
+	_plume_sc_max_spin = _mk_pspin(sc_row, 0.1, 8.0, 0.1)
+
+	var col_row := HBoxContainer.new()
+	col_row.add_theme_constant_override("separation", 3)
+	root.add_child(col_row)
+	_plume_col_core_btn  = _mk_pcol_vbox(col_row, "Core",  Color(1.0, 0.95, 0.7, 1.0))
+	_plume_col_flame_btn = _mk_pcol_vbox(col_row, "Flame", Color(1.0, 0.6,  0.2, 1.0))
+	_plume_col_cool_btn  = _mk_pcol_vbox(col_row, "Cool",  Color(0.45, 0.6, 1.0, 0.85))
+
 # ── RIGHT panel: boss buttons + transform + actions ────────────────────────────
 
 func _build_ctrl_panel() -> void:
 	_ctrl_panel = Panel.new()
+	var _vp_w: float = get_viewport().get_visible_rect().size.x
 	_ctrl_panel.size     = Vector2(CTRL_PANEL_W, 730.0)
-	_ctrl_panel.position = Vector2(20.0 + ASSET_PANEL_W + 8.0, 44.0)
+	_ctrl_panel.position = Vector2(_vp_w - CTRL_PANEL_W - 20.0, 44.0)
 	add_child(_ctrl_panel)
 
 	var root := VBoxContainer.new()
@@ -254,7 +438,7 @@ func _build_ctrl_panel() -> void:
 
 	_add_section(root, "BOSSES")
 	var boss_scroll := ScrollContainer.new()
-	boss_scroll.custom_minimum_size = Vector2(0.0, 76.0)
+	boss_scroll.custom_minimum_size = Vector2(0.0, 160.0)
 	boss_scroll.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	root.add_child(boss_scroll)
 	_boss_btn_vbox = VBoxContainer.new()
@@ -263,21 +447,16 @@ func _build_ctrl_panel() -> void:
 	boss_scroll.add_child(_boss_btn_vbox)
 
 	root.add_child(HSeparator.new())
-	_add_section(root, "TRANSFORM")
 
-	var pos_row := HBoxContainer.new()
-	root.add_child(pos_row)
-	_pos_x_spin = _spin(pos_row, "X", -3000.0, 3000.0)
-	_pos_y_spin = _spin(pos_row, "Y", -3000.0, 3000.0)
-
-	var sz_row := HBoxContainer.new()
-	root.add_child(sz_row)
-	_sz_w_spin = _spin(sz_row, "W", 1.0, 2000.0, _on_w_spin_changed)
-	_sz_h_spin = _spin(sz_row, "H", 1.0, 2000.0, _on_h_spin_changed)
-
-	var z_row := HBoxContainer.new()
-	root.add_child(z_row)
-	_z_spin = _spin(z_row, "Z", -500.0, 500.0)
+	_add_section(root, "LAYERS")
+	var layers_scroll := ScrollContainer.new()
+	layers_scroll.custom_minimum_size = Vector2(0.0, 80.0)
+	layers_scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	root.add_child(layers_scroll)
+	_asset_vbox = VBoxContainer.new()
+	_asset_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_asset_vbox.add_theme_constant_override("separation", 2)
+	layers_scroll.add_child(_asset_vbox)
 
 	root.add_child(HSeparator.new())
 
@@ -299,6 +478,13 @@ func _build_ctrl_panel() -> void:
 	_add_fp_btn.pressed.connect(_toggle_adding_firepoint)
 	mode_row.add_child(_add_fp_btn)
 
+	_add_tp_btn = Button.new()
+	_add_tp_btn.text = "Add TP"
+	_add_tp_btn.toggle_mode = true
+	_add_tp_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_add_tp_btn.pressed.connect(_toggle_adding_thrustpoint)
+	mode_row.add_child(_add_tp_btn)
+
 	root.add_child(HSeparator.new())
 
 	var btn_row := HBoxContainer.new()
@@ -319,7 +505,7 @@ func _build_ctrl_panel() -> void:
 	btn_row.add_child(_delete_btn)
 
 	var close_btn := Button.new()
-	close_btn.text = "Close  [F5]"
+	close_btn.text = "Close  [F3]"
 	close_btn.pressed.connect(_request_close)
 	root.add_child(close_btn)
 
@@ -344,6 +530,50 @@ func _spin(parent: HBoxContainer, prefix: String, mn: float, mx: float, cb: Call
 		sb.value_changed.connect(func(_v: float) -> void: _on_spin_changed())
 	parent.add_child(sb)
 	return sb
+
+func _small_spin(parent: HBoxContainer, prefix: String, mn: float, mx: float, cb: Callable = Callable()) -> SpinBox:
+	var lbl := Label.new()
+	lbl.text = prefix + ":"
+	lbl.add_theme_font_size_override("font_size", 10)
+	lbl.custom_minimum_size = Vector2(14.0, 0.0)
+	parent.add_child(lbl)
+	var sb := SpinBox.new()
+	sb.min_value = mn; sb.max_value = mx; sb.step = 1.0
+	sb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sb.get_line_edit().add_theme_font_size_override("font_size", 10)
+	if cb.is_valid():
+		sb.value_changed.connect(func(_v: float) -> void: cb.call())
+	else:
+		sb.value_changed.connect(func(_v: float) -> void: _on_spin_changed())
+	parent.add_child(sb)
+	return sb
+
+func _mk_pspin(parent: HBoxContainer, mn: float, mx: float, step: float) -> SpinBox:
+	var sb := SpinBox.new()
+	sb.min_value = mn; sb.max_value = mx; sb.step = step
+	sb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sb.get_line_edit().add_theme_font_size_override("font_size", 10)
+	sb.value_changed.connect(func(_v: float) -> void: _on_plume_changed())
+	parent.add_child(sb)
+	return sb
+
+func _mk_pcol_vbox(parent: HBoxContainer, lbl_text: String, default_col: Color) -> ColorPickerButton:
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 1)
+	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(vb)
+	var lbl := Label.new()
+	lbl.text = lbl_text
+	lbl.add_theme_font_size_override("font_size", 9)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(lbl)
+	var cpb := ColorPickerButton.new()
+	cpb.color = default_col
+	cpb.custom_minimum_size = Vector2(0.0, 22.0)
+	cpb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cpb.color_changed.connect(func(_c: Color) -> void: _on_plume_changed())
+	vb.add_child(cpb)
+	return cpb
 
 func _build_boss_buttons() -> void:
 	for child in _boss_btn_vbox.get_children():
@@ -435,6 +665,7 @@ func toggle() -> void:
 		_grid_overlay.is_edit_open = true
 		_set_ui_visible(true)
 		get_tree().paused = true
+		_reset_zoom()
 		_update_all_boss_interactivity()
 		if _active_boss.is_empty() and not _all_boss_names.is_empty():
 			_set_active_boss(_all_boss_names[0])
@@ -451,13 +682,17 @@ func _request_close() -> void:
 func _close() -> void:
 	_is_open = false
 	_grid_mode = false
-	_adding_firepoint = false
+	_adding_firepoint  = false
+	_adding_thrustpoint = false
 	_fp_target_basename = ""
-	_grid_btn.button_pressed  = false
+	_grid_btn.button_pressed   = false
 	_add_fp_btn.button_pressed = false
+	_add_tp_btn.button_pressed = false
 	_grid_overlay.show_grid    = false
 	_grid_overlay.is_edit_open = false
+	_reset_zoom()
 	_select_fp(-1)
+	_select_tp(-1)
 	_set_ui_visible(false)
 	_select_obj(null)
 	_update_all_boss_interactivity()
@@ -469,6 +704,10 @@ func _set_ui_visible(v: bool) -> void:
 	_asset_panel.visible  = v
 	_ctrl_panel.visible   = v
 	if not v:
+		for p: CPUParticles2D in _preview_plumes:
+			if is_instance_valid(p):
+				p.queue_free()
+		_preview_plumes.clear()
 		_dragging_asset  = false
 		_dragging_ctrl   = false
 		_canvas_dragging = false
@@ -484,11 +723,19 @@ func _set_active_boss(boss_name: String) -> void:
 		_load_or_create_boss(boss_name)
 	if not _fire_points.has(boss_name):
 		_fire_points[boss_name] = []
+	if not _thrust_points.has(boss_name):
+		_thrust_points[boss_name] = []
 	_select_obj(null)
 	_selected_fp_idx = -1
+	_selected_tp_idx = -1
+	_selected_tp_indices.clear()
 	_update_all_boss_interactivity()
 	_update_grid_overlay()
 	_refresh_fp_list()
+	_refresh_fp_angle_ui()
+	_refresh_tp_list()
+	_refresh_tp_angle_ui()
+	_refresh_plume_editor()
 	_update_lock_btn()
 	for name: String in _boss_buttons:
 		(_boss_buttons[name] as Button).button_pressed = (name == boss_name)
@@ -681,13 +928,14 @@ func _toggle_adding_firepoint() -> void:
 func _add_firepoint_at(viewport_pos: Vector2) -> void:
 	if _active_boss.is_empty():
 		return
-	var ss_pos := viewport_pos - SCREEN_ORIGIN
+	var oc_pos: Vector2 = _objects_container.position if (_objects_container != null and is_instance_valid(_objects_container)) else Vector2.ZERO
+	var ss_pos := (viewport_pos - oc_pos) / _zoom - SCREEN_ORIGIN
 	if _fp_target_basename.is_empty():
 		if not _fire_points.has(_active_boss):
 			_fire_points[_active_boss] = []
 			_fp_id_counter[_active_boss] = 1
 		var fp_id: int = _fp_id_counter.get(_active_boss, 1)
-		_fire_points[_active_boss].append({"pos": ss_pos, "id": fp_id})
+		_fire_points[_active_boss].append({"pos": ss_pos, "id": fp_id, "dir_angle": 0.0})
 		_fp_id_counter[_active_boss] = fp_id + 1
 	else:
 		var key := _active_boss + "_" + _fp_target_basename
@@ -695,18 +943,22 @@ func _add_firepoint_at(viewport_pos: Vector2) -> void:
 			_weapon_fire_points[key] = []
 			_wp_fp_id_counter[key] = 1
 		var fp_id: int = _wp_fp_id_counter.get(key, 1)
-		_weapon_fire_points[key].append({"pos": ss_pos, "id": fp_id})
+		_weapon_fire_points[key].append({"pos": ss_pos, "id": fp_id, "dir_angle": 0.0})
 		_wp_fp_id_counter[key] = fp_id + 1
 	_dirty = true
 	_refresh_fp_list()
 	_update_grid_overlay()
 
 func _select_fp(idx: int) -> void:
+	_selected_tp_idx = -1
+	_selected_tp_indices.clear()
+	_refresh_tp_angle_ui()
 	_selected_fp_idx = idx
 	if idx >= 0:
 		_select_obj(null)
 	_refresh_fp_list()
 	_update_grid_overlay()
+	_refresh_fp_angle_ui()
 
 func _delete_selected_fp() -> void:
 	if _selected_fp_idx < 0:
@@ -719,6 +971,31 @@ func _delete_selected_fp() -> void:
 	_selected_fp_idx = -1
 	_dirty = true
 	_refresh_fp_list()
+	_update_grid_overlay()
+
+func _refresh_fp_angle_ui() -> void:
+	if _fp_angle_row == null:
+		return
+	var show := _selected_fp_idx >= 0
+	_fp_angle_row.visible = show
+	if not show:
+		return
+	var fps: Array = _get_fp_array()
+	if _selected_fp_idx >= fps.size():
+		return
+	_updating_spin = true
+	_fp_angle_spin.value = snappedf(rad_to_deg(float(fps[_selected_fp_idx].get("dir_angle", 0.0))), 1.0)
+	_updating_spin = false
+
+func _on_fp_angle_changed() -> void:
+	if _updating_spin or _selected_fp_idx < 0:
+		return
+	var fps: Array = _get_fp_array()
+	if _selected_fp_idx >= fps.size():
+		return
+	fps[_selected_fp_idx]["dir_angle"] = deg_to_rad(_fp_angle_spin.value)
+	_set_fp_array(fps)
+	_dirty = true
 	_update_grid_overlay()
 
 func _get_fp_array() -> Array:
@@ -740,11 +1017,240 @@ func _update_fp_target_label() -> void:
 	else:
 		_fp_target_label.text = "Target: " + _fp_target_basename
 
+func _reset_zoom() -> void:
+	_zoom = 1.0
+	if _objects_container != null and is_instance_valid(_objects_container):
+		_objects_container.position = Vector2.ZERO
+		_objects_container.scale    = Vector2.ONE
+	if _grid_overlay != null:
+		_grid_overlay.zoom          = 1.0
+		_grid_overlay.canvas_offset = Vector2.ZERO
+	_sync_zoom_slider()
+
+func _sync_zoom_slider() -> void:
+	if _zoom_slider == null or _updating_spin:
+		return
+	_updating_spin = true
+	_zoom_slider.value = clampf(_zoom * 100.0, _zoom_slider.min_value, _zoom_slider.max_value)
+	if _zoom_pct_lbl != null:
+		_zoom_pct_lbl.text = "%d%%" % int(round(_zoom * 100.0))
+	_updating_spin = false
+
+func _on_zoom_slider_changed(value: float) -> void:
+	if _updating_spin:
+		return
+	_zoom = value / 100.0
+	var center := get_viewport().get_visible_rect().size * 0.5
+	_apply_zoom(center)
+	if _zoom_pct_lbl != null:
+		_zoom_pct_lbl.text = "%d%%" % int(round(value))
+
+func _apply_zoom(mouse_vp: Vector2) -> void:
+	if _objects_container == null or not is_instance_valid(_objects_container):
+		return
+	var old_offset := _objects_container.position
+	var old_zoom   := _objects_container.scale.x
+	_objects_container.position = mouse_vp + (old_offset - mouse_vp) * (_zoom / old_zoom)
+	_objects_container.scale    = Vector2(_zoom, _zoom)
+	_sync_zoom_slider()
+	_update_grid_overlay()
+
 func _update_grid_overlay() -> void:
 	if _grid_overlay == null:
 		return
 	_grid_overlay.fire_points     = _get_fp_array()
 	_grid_overlay.selected_fp_idx = _selected_fp_idx
+	_grid_overlay.thrust_points   = _thrust_points.get(_active_boss, [])
+	_grid_overlay.selected_tp_idx = _selected_tp_idx
+	if _objects_container != null and is_instance_valid(_objects_container):
+		_grid_overlay.zoom          = _zoom
+		_grid_overlay.canvas_offset = _objects_container.position
+	_refresh_plume_preview()
+
+func _refresh_plume_preview() -> void:
+	for p: CPUParticles2D in _preview_plumes:
+		if is_instance_valid(p):
+			p.queue_free()
+	_preview_plumes.clear()
+	if _objects_container == null or not is_instance_valid(_objects_container):
+		return
+	var cmap: Dictionary = _plume_styles.get(_active_boss, {})
+	var tps: Array = _thrust_points.get(_active_boss, [])
+	for i: int in tps.size():
+		var tp: Dictionary = tps[i]
+		var tp_id: int = int(tp.get("id", i + 1))
+		var style: Dictionary = cmap.get("tp_%d" % tp_id, _default_plume_style())
+		var ss_pos: Vector2 = tp["pos"]
+		var dir_angle: float = float(tp.get("dir_angle", PI * 0.5))
+		var p := _make_preview_plume(ss_pos + SCREEN_ORIGIN, dir_angle, style)
+		_objects_container.add_child(p)
+		_preview_plumes.append(p)
+
+func _make_preview_plume(oc_pos: Vector2, dir_angle: float, style: Dictionary = {}) -> CPUParticles2D:
+	var p := CPUParticles2D.new()
+	p.position = oc_pos
+	p.amount = 20
+	p.lifetime  = float(style.get("lifetime", 0.35))
+	p.local_coords = true
+	p.emitting = true
+	p.process_mode = Node.PROCESS_MODE_ALWAYS
+	p.z_as_relative = false
+	p.z_index = 200
+	p.gravity = Vector2.ZERO
+	p.direction = Vector2.RIGHT.rotated(dir_angle)
+	p.spread              = float(style.get("spread",   12.0))
+	p.initial_velocity_min = float(style.get("vel_min", 50.0))
+	p.initial_velocity_max = float(style.get("vel_max", 90.0))
+	p.scale_amount_min    = float(style.get("sc_min",  1.0))
+	p.scale_amount_max    = float(style.get("sc_max",  2.0))
+	var taper := Curve.new()
+	taper.add_point(Vector2(0.0, 1.0))
+	taper.add_point(Vector2(1.0, 0.0))
+	p.scale_amount_curve = taper
+	var img := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	var ctr := Vector2(16, 16) * 0.5
+	for iy in 16:
+		for ix in 16:
+			var d: float = Vector2(ix + 0.5, iy + 0.5).distance_to(ctr) / 8.0
+			var a: float = clampf(1.0 - d, 0.0, 1.0)
+			img.set_pixel(ix, iy, Color(1.0, 1.0, 1.0, a * a))
+	p.texture = ImageTexture.create_from_image(img)
+	var col_core:  Color = style.get("col_core",  Color(1.0, 0.95, 0.7, 1.0))
+	var col_flame: Color = style.get("col_flame", Color(1.0, 0.6,  0.2, 1.0))
+	var col_cool:  Color = style.get("col_cool",  Color(0.45, 0.6, 1.0, 0.85))
+	var col_fade           := col_cool; col_fade.a = 0.0
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.3, 0.65, 1.0])
+	grad.colors  = PackedColorArray([col_core, col_flame, col_cool, col_fade])
+	p.color_ramp = grad
+	var cm := CanvasItemMaterial.new()
+	cm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	p.material = cm
+	return p
+
+func _default_plume_style() -> Dictionary:
+	return {
+		"vel_min":   80.0,
+		"vel_max":   130.0,
+		"lifetime":  0.35,
+		"spread":    12.0,
+		"sc_min":    1.0,
+		"sc_max":    2.2,
+		"col_core":  Color(1.0, 0.95, 0.7, 1.0),
+		"col_flame": Color(1.0, 0.6,  0.2, 1.0),
+		"col_cool":  Color(0.45, 0.6, 1.0, 0.85),
+	}
+
+func _get_selected_tp_id() -> int:
+	if _active_boss.is_empty() or _selected_tp_idx < 0:
+		return -1
+	var tps: Array = _thrust_points.get(_active_boss, [])
+	if _selected_tp_idx >= tps.size():
+		return -1
+	return int(tps[_selected_tp_idx].get("id", _selected_tp_idx + 1))
+
+func _get_tp_plume_style(tp_id: int) -> Dictionary:
+	if _active_boss.is_empty() or tp_id < 0:
+		return _default_plume_style()
+	if not _plume_styles.has(_active_boss):
+		_plume_styles[_active_boss] = {}
+	var cmap: Dictionary = _plume_styles[_active_boss]
+	var key := "tp_%d" % tp_id
+	if not cmap.has(key):
+		cmap[key] = _default_plume_style()
+	return cmap[key]
+
+func _refresh_plume_editor() -> void:
+	if _plume_vel_min_spin == null:
+		return
+	var n := _selected_tp_indices.size()
+	var has_tp := n > 0
+	var tp_id := _get_selected_tp_id()
+	if _plume_tp_label != null:
+		if not has_tp:
+			_plume_tp_label.text    = "– select a TP –"
+			_plume_tp_label.modulate = Color(0.55, 0.55, 0.55)
+		elif n == 1:
+			_plume_tp_label.text    = "TP %d" % tp_id
+			_plume_tp_label.modulate = Color(0.55, 0.90, 1.0)
+		else:
+			_plume_tp_label.text    = "%d TPs selected" % n
+			_plume_tp_label.modulate = Color(0.75, 0.90, 1.0)
+	for spin: SpinBox in [_plume_vel_min_spin, _plume_vel_max_spin,
+			_plume_life_spin, _plume_spread_spin,
+			_plume_sc_min_spin, _plume_sc_max_spin]:
+		spin.editable = has_tp
+	for cpb: ColorPickerButton in [_plume_col_core_btn, _plume_col_flame_btn, _plume_col_cool_btn]:
+		cpb.disabled = not has_tp
+	if not has_tp or tp_id < 0:
+		return
+	_updating_plume = true
+	var s := _get_tp_plume_style(tp_id)
+	_plume_vel_min_spin.value  = float(s.get("vel_min",  80.0))
+	_plume_vel_max_spin.value  = float(s.get("vel_max",  130.0))
+	_plume_life_spin.value     = float(s.get("lifetime", 0.35))
+	_plume_spread_spin.value   = float(s.get("spread",   12.0))
+	_plume_sc_min_spin.value   = float(s.get("sc_min",   1.0))
+	_plume_sc_max_spin.value   = float(s.get("sc_max",   2.2))
+	_plume_col_core_btn.color  = s.get("col_core",  Color(1.0, 0.95, 0.7, 1.0))
+	_plume_col_flame_btn.color = s.get("col_flame", Color(1.0, 0.6,  0.2, 1.0))
+	_plume_col_cool_btn.color  = s.get("col_cool",  Color(0.45, 0.6, 1.0, 0.85))
+	_updating_plume = false
+
+func _on_plume_changed() -> void:
+	if _updating_plume or _active_boss.is_empty() or _selected_tp_indices.is_empty():
+		return
+	if not _plume_styles.has(_active_boss):
+		_plume_styles[_active_boss] = {}
+	var tps: Array = _thrust_points.get(_active_boss, [])
+	for sel_idx: int in _selected_tp_indices:
+		if sel_idx < 0 or sel_idx >= tps.size():
+			continue
+		var tp_id: int = int(tps[sel_idx].get("id", sel_idx + 1))
+		var s := _get_tp_plume_style(tp_id)
+		s["vel_min"]   = _plume_vel_min_spin.value
+		s["vel_max"]   = _plume_vel_max_spin.value
+		s["lifetime"]  = _plume_life_spin.value
+		s["spread"]    = _plume_spread_spin.value
+		s["sc_min"]    = _plume_sc_min_spin.value
+		s["sc_max"]    = _plume_sc_max_spin.value
+		s["col_core"]  = _plume_col_core_btn.color
+		s["col_flame"] = _plume_col_flame_btn.color
+		s["col_cool"]  = _plume_col_cool_btn.color
+		_plume_styles[_active_boss]["tp_%d" % tp_id] = s
+	_refresh_plume_preview()
+	_dirty = true
+
+func _reset_plume_style() -> void:
+	if _active_boss.is_empty() or _selected_tp_indices.is_empty():
+		return
+	if not _plume_styles.has(_active_boss):
+		_plume_styles[_active_boss] = {}
+	var tps: Array = _thrust_points.get(_active_boss, [])
+	for sel_idx: int in _selected_tp_indices:
+		if sel_idx < 0 or sel_idx >= tps.size():
+			continue
+		var tp_id: int = int(tps[sel_idx].get("id", sel_idx + 1))
+		_plume_styles[_active_boss]["tp_%d" % tp_id] = _default_plume_style()
+	_refresh_plume_editor()
+	_refresh_plume_preview()
+	_dirty = true
+
+func _load_plume_styles() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(PLUME_STYLES_PATH) != OK:
+		return
+	if not cfg.has_section("styles"):
+		return
+	for key: String in cfg.get_section_keys("styles"):
+		_plume_styles[key] = cfg.get_value("styles", key, _default_plume_style())
+
+func _save_plume_styles() -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(PLUME_STYLES_PATH)
+	for bname: String in _plume_styles:
+		cfg.set_value("styles", bname, _plume_styles[bname])
+	cfg.save(PLUME_STYLES_PATH)
 
 func _refresh_fp_list() -> void:
 	_update_fp_target_label()
@@ -773,6 +1279,7 @@ func _make_fp_row(fp: Dictionary, idx: int) -> Control:
 
 	var fp_id: int   = fp.get("id",  idx + 1)
 	var pos: Vector2 = fp.get("pos", Vector2.ZERO)
+	var angle_deg    := int(round(rad_to_deg(float(fp.get("dir_angle", 0.0)))))
 
 	var id_lbl := Label.new()
 	id_lbl.text = "FP%d" % fp_id
@@ -782,7 +1289,7 @@ func _make_fp_row(fp: Dictionary, idx: int) -> Control:
 	hbox.add_child(id_lbl)
 
 	var pos_lbl := Label.new()
-	pos_lbl.text = "(%d, %d)" % [int(pos.x), int(pos.y)]
+	pos_lbl.text = "(%d,%d) %d°" % [int(pos.x), int(pos.y), angle_deg]
 	pos_lbl.add_theme_font_size_override("font_size", 10)
 	pos_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hbox.add_child(pos_lbl)
@@ -796,10 +1303,158 @@ func _make_fp_row(fp: Dictionary, idx: int) -> Control:
 	)
 	return row
 
+# ── Thrust points ──────────────────────────────────────────────────────────────
+
+func _toggle_adding_thrustpoint() -> void:
+	_adding_thrustpoint = _add_tp_btn.button_pressed
+	if _adding_thrustpoint:
+		_adding_firepoint = false
+		_add_fp_btn.button_pressed = false
+		_select_obj(null)
+		_select_fp(-1)
+	_update_all_boss_interactivity()
+
+func _add_thrustpoint_at(viewport_pos: Vector2) -> void:
+	if _active_boss.is_empty():
+		return
+	var oc_pos: Vector2 = _objects_container.position if (_objects_container != null and is_instance_valid(_objects_container)) else Vector2.ZERO
+	var ss_pos := (viewport_pos - oc_pos) / _zoom - SCREEN_ORIGIN
+	if not _thrust_points.has(_active_boss):
+		_thrust_points[_active_boss] = []
+		_tp_id_counter[_active_boss] = 1
+	var tp_id: int = _tp_id_counter.get(_active_boss, 1)
+	_thrust_points[_active_boss].append({"pos": ss_pos, "id": tp_id, "dir_angle": PI * 0.5})
+	_tp_id_counter[_active_boss] = tp_id + 1
+	_dirty = true
+	_refresh_tp_list()
+	_update_grid_overlay()
+
+func _refresh_tp_list() -> void:
+	for child in _tp_vbox.get_children():
+		child.queue_free()
+	var tps: Array = _thrust_points.get(_active_boss, [])
+	for i: int in tps.size():
+		_tp_vbox.add_child(_make_tp_row(tps[i], i))
+
+func _make_tp_row(tp: Dictionary, idx: int) -> Control:
+	var is_sel: bool = _selected_tp_indices.has(idx)
+	var row := Panel.new()
+	row.custom_minimum_size = Vector2(0.0, 30.0)
+	row.mouse_filter = Control.MOUSE_FILTER_STOP
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.10, 0.80, 0.55, 0.38) if is_sel else Color(0.0, 0.0, 0.0, 0.0)
+	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
+	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
+	row.add_theme_stylebox_override("panel", style)
+	var hbox := HBoxContainer.new()
+	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hbox.add_theme_constant_override("separation", 5)
+	row.add_child(hbox)
+	var tp_id: int   = tp.get("id",  idx + 1)
+	var pos: Vector2 = tp.get("pos", Vector2.ZERO)
+	var angle_deg    := int(round(rad_to_deg(float(tp.get("dir_angle", 0.0)))))
+	var id_lbl := Label.new()
+	id_lbl.text = "TP%d" % tp_id
+	id_lbl.add_theme_font_size_override("font_size", 11)
+	id_lbl.custom_minimum_size = Vector2(30.0, 0.0)
+	id_lbl.modulate = Color(0.20, 1.0, 0.80) if is_sel else Color(0.10, 0.75, 0.55)
+	hbox.add_child(id_lbl)
+	var pos_lbl := Label.new()
+	pos_lbl.text = "(%d,%d) %d°" % [int(pos.x), int(pos.y), angle_deg]
+	pos_lbl.add_theme_font_size_override("font_size", 10)
+	pos_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_child(pos_lbl)
+	var cap_idx := idx
+	row.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton \
+				and (e as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT \
+				and (e as InputEventMouseButton).pressed:
+			if Input.is_key_pressed(KEY_SHIFT):
+				_select_tp_add(cap_idx)
+			else:
+				_select_tp(cap_idx)
+	)
+	return row
+
+func _select_tp(idx: int) -> void:
+	_selected_tp_idx = idx
+	_selected_tp_indices.clear()
+	if idx >= 0:
+		_selected_tp_indices.append(idx)
+		_select_obj(null)
+		_selected_fp_idx = -1
+		_refresh_fp_list()
+	_refresh_tp_list()
+	_update_grid_overlay()
+	_refresh_tp_angle_ui()
+	_refresh_plume_editor()
+
+func _select_tp_add(idx: int) -> void:
+	if idx < 0:
+		return
+	_select_obj(null)
+	_selected_fp_idx = -1
+	_refresh_fp_list()
+	if _selected_tp_indices.has(idx):
+		_selected_tp_indices.erase(idx)
+		if _selected_tp_idx == idx:
+			_selected_tp_idx = _selected_tp_indices.back() if not _selected_tp_indices.is_empty() else -1
+	else:
+		_selected_tp_indices.append(idx)
+		_selected_tp_idx = idx
+	_refresh_tp_list()
+	_update_grid_overlay()
+	_refresh_tp_angle_ui()
+	_refresh_plume_editor()
+
+func _delete_selected_tp() -> void:
+	if _selected_tp_indices.is_empty():
+		return
+	var tps: Array = _thrust_points.get(_active_boss, [])
+	var sorted: Array[int] = _selected_tp_indices.duplicate()
+	sorted.sort()
+	sorted.reverse()
+	for idx: int in sorted:
+		if idx >= 0 and idx < tps.size():
+			tps.remove_at(idx)
+	_thrust_points[_active_boss] = tps
+	_selected_tp_idx = -1
+	_selected_tp_indices.clear()
+	_dirty = true
+	_refresh_tp_list()
+	_update_grid_overlay()
+	_refresh_tp_angle_ui()
+	_refresh_plume_editor()
+
+func _refresh_tp_angle_ui() -> void:
+	if _tp_angle_row == null:
+		return
+	var show := not _selected_tp_indices.is_empty()
+	_tp_angle_row.visible = show
+	if not show or _selected_tp_idx < 0:
+		return
+	var tps: Array = _thrust_points.get(_active_boss, [])
+	if _selected_tp_idx >= tps.size():
+		return
+	_updating_spin = true
+	_tp_angle_spin.value = snappedf(rad_to_deg(float(tps[_selected_tp_idx].get("dir_angle", 0.0))), 1.0)
+	_updating_spin = false
+
+func _on_tp_angle_changed() -> void:
+	if _updating_spin or _selected_tp_indices.is_empty():
+		return
+	var tps: Array = _thrust_points.get(_active_boss, [])
+	for sel_idx: int in _selected_tp_indices:
+		if sel_idx >= 0 and sel_idx < tps.size():
+			tps[sel_idx]["dir_angle"] = deg_to_rad(_tp_angle_spin.value)
+	_thrust_points[_active_boss] = tps
+	_dirty = true
+	_update_grid_overlay()
+
 # ── Interactivity + GIF animation control ─────────────────────────────────────
 
 func _update_all_boss_interactivity() -> void:
-	var allow_select: bool = not _grid_mode and not _adding_firepoint
+	var allow_select: bool = not _grid_mode and not _adding_firepoint and not _adding_thrustpoint
 	for boss_name: String in _all_boss_names:
 		var is_active: bool = _is_open and boss_name == _active_boss
 		for eo in _placed.get(boss_name, []):
@@ -829,6 +1484,9 @@ func _on_canvas_object_clicked(obj: EditableObjectNode) -> void:
 	else:
 		_fp_target_basename = ""
 	_selected_fp_idx = -1
+	_selected_tp_idx = -1
+	_selected_tp_indices.clear()
+	_refresh_tp_angle_ui()
 	_refresh_fp_list()
 	_update_grid_overlay()
 
@@ -873,6 +1531,17 @@ func _input(event: InputEvent) -> void:
 				_set_fp_array(fps)
 				_dirty = true
 				_refresh_fp_list()
+				_update_grid_overlay()
+				get_viewport().set_input_as_handled()
+				return
+			elif not _selected_tp_indices.is_empty():
+				var tps: Array = _thrust_points.get(_active_boss, [])
+				for sel_idx: int in _selected_tp_indices:
+					if sel_idx >= 0 and sel_idx < tps.size():
+						tps[sel_idx]["pos"] = (tps[sel_idx]["pos"] as Vector2) + dir
+				_thrust_points[_active_boss] = tps
+				_dirty = true
+				_refresh_tp_list()
 				_update_grid_overlay()
 				get_viewport().set_input_as_handled()
 				return
@@ -926,7 +1595,7 @@ func _input(event: InputEvent) -> void:
 				if not _canvas_drag_undo_pushed:
 					_canvas_drag_undo_pushed = true
 					_push_undo_transform(_selected_obj)
-				_selected_obj.position += delta
+				_selected_obj.position += delta / _zoom
 				_refresh_transform_panel()
 				_dirty = true
 		elif event is InputEventMouseButton \
@@ -949,6 +1618,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		if not ke.echo and ke.keycode == KEY_DELETE:
 			if _selected_fp_idx >= 0:
 				_delete_selected_fp()
+			elif not _selected_tp_indices.is_empty():
+				_delete_selected_tp()
 			elif is_instance_valid(_selected_obj):
 				_delete_selected()
 			get_viewport().set_input_as_handled()
@@ -957,6 +1628,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			if _adding_firepoint:
 				_adding_firepoint = false
 				_add_fp_btn.button_pressed = false
+				_update_all_boss_interactivity()
+				get_viewport().set_input_as_handled()
+				return
+			elif _adding_thrustpoint:
+				_adding_thrustpoint = false
+				_add_tp_btn.button_pressed = false
 				_update_all_boss_interactivity()
 				get_viewport().set_input_as_handled()
 				return
@@ -979,9 +1656,21 @@ func _unhandled_input(event: InputEvent) -> void:
 		var mb := event as InputEventMouseButton
 		var in_panels := _asset_panel.get_global_rect().has_point(mb.position) \
 					  or _ctrl_panel.get_global_rect().has_point(mb.position)
+		# ── Scroll zoom ──
+		if mb.pressed and not in_panels and \
+				(mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN):
+			var factor := ZOOM_RATIO if mb.button_index == MOUSE_BUTTON_WHEEL_UP else (1.0 / ZOOM_RATIO)
+			_zoom = clampf(_zoom * factor, ZOOM_MIN, ZOOM_MAX)
+			_apply_zoom(mb.position)
+			get_viewport().set_input_as_handled()
+			return
 		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed and not in_panels:
 			if _adding_firepoint:
 				_add_firepoint_at(mb.position)
+				get_viewport().set_input_as_handled()
+				return
+			elif _adding_thrustpoint:
+				_add_thrustpoint_at(mb.position)
 				get_viewport().set_input_as_handled()
 				return
 		if mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed and not in_panels:
@@ -990,6 +1679,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			if _adding_firepoint:
 				_adding_firepoint = false
 				_add_fp_btn.button_pressed = false
+				_update_all_boss_interactivity()
+			elif _adding_thrustpoint:
+				_adding_thrustpoint = false
+				_add_tp_btn.button_pressed = false
 				_update_all_boss_interactivity()
 			elif _grid_mode:
 				_grid_mode = false
@@ -1129,8 +1822,13 @@ func _do_save_layout() -> void:
 		# Fire points — boss main body
 		var fp_data: Array[Dictionary] = []
 		for fp: Dictionary in _fire_points.get(boss_name, []):
-			fp_data.append({"pos": fp["pos"], "id": fp.get("id", 0)})
+			fp_data.append({"pos": fp["pos"], "id": fp.get("id", 0), "dir_angle": fp.get("dir_angle", 0.0)})
 		cfg.set_value("firepoints", boss_name, fp_data)
+		# Thrust points
+		var tp_data: Array[Dictionary] = []
+		for tp: Dictionary in _thrust_points.get(boss_name, []):
+			tp_data.append({"pos": tp["pos"], "id": tp.get("id", 0), "dir_angle": tp.get("dir_angle", 0.0)})
+		cfg.set_value("thrustpoints", boss_name, tp_data)
 		# Fire points — weapon EOs (blueorb, tealorb, etc.)
 		var wlist: Array = _placed.get(boss_name, [])
 		for i: int in range(1, wlist.size()):
@@ -1141,10 +1839,11 @@ func _do_save_layout() -> void:
 			var key := boss_name + "_" + wbn
 			var wfp_data: Array[Dictionary] = []
 			for fp: Dictionary in _weapon_fire_points.get(key, []):
-				wfp_data.append({"pos": fp["pos"], "id": fp.get("id", 0)})
+				wfp_data.append({"pos": fp["pos"], "id": fp.get("id", 0), "dir_angle": fp.get("dir_angle", 0.0)})
 			if not wfp_data.is_empty():
 				cfg.set_value("firepoints", key, wfp_data)
 	cfg.save(LAYOUT_PATH)
+	_save_plume_styles()
 	_dirty = false
 
 func _load_layout() -> void:
@@ -1179,9 +1878,17 @@ func _load_layout() -> void:
 		var max_id := 0
 		for fp: Dictionary in cfg.get_value("firepoints", boss_name, []):
 			var fp_id: int = fp.get("id", max_id + 1)
-			_fire_points[boss_name].append({"pos": fp.get("pos", Vector2.ZERO), "id": fp_id})
+			_fire_points[boss_name].append({"pos": fp.get("pos", Vector2.ZERO), "id": fp_id, "dir_angle": fp.get("dir_angle", 0.0)})
 			max_id = maxi(max_id, fp_id)
 		_fp_id_counter[boss_name] = max_id + 1
+		# Thrust points
+		_thrust_points[boss_name] = []
+		var max_tp_id := 0
+		for tp: Dictionary in cfg.get_value("thrustpoints", boss_name, []):
+			var tp_id: int = tp.get("id", max_tp_id + 1)
+			_thrust_points[boss_name].append({"pos": tp.get("pos", Vector2.ZERO), "id": tp_id, "dir_angle": tp.get("dir_angle", 0.0)})
+			max_tp_id = maxi(max_tp_id, tp_id)
+		_tp_id_counter[boss_name] = max_tp_id + 1
 		# Fire points — weapon EOs
 		var placed_list: Array = _placed.get(boss_name, [])
 		for i: int in range(1, placed_list.size()):
@@ -1194,7 +1901,7 @@ func _load_layout() -> void:
 			var wmax_id := 0
 			for fp: Dictionary in cfg.get_value("firepoints", key, []):
 				var fp_id: int = fp.get("id", wmax_id + 1)
-				_weapon_fire_points[key].append({"pos": fp.get("pos", Vector2.ZERO), "id": fp_id})
+				_weapon_fire_points[key].append({"pos": fp.get("pos", Vector2.ZERO), "id": fp_id, "dir_angle": fp.get("dir_angle", 0.0)})
 				wmax_id = maxi(wmax_id, fp_id)
 			_wp_fp_id_counter[key] = wmax_id + 1
 	# Lock states

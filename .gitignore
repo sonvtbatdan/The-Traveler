@@ -20,3 +20,6 @@ audio_config.cfg
 # OS
 .DS_Store
 Thumbs.db
+
+# Microsoft Office temp lock files
+~$*

@@ -18,6 +18,10 @@ uniform float time_drift      = 0.005;
 uniform float warp_strength    = 3.0;        // domain-warp amount (lower → fewer fold streaks)
 uniform float cloud_coverage  : hint_range(0.0, 1.0) = 0.42;
 uniform float cloud_softness  : hint_range(0.0, 1.0) = 0.45; // blends density toward its low-freq form (blur)
+// Coverage fade band around cloud_coverage — wide = gas ramps in over a long density range (no defined
+// silhouette onset). Lower = density where gas starts to appear; hi = where it reaches full.
+uniform float cov_fade_lo     : hint_range(0.0, 0.5) = 0.15;
+uniform float cov_fade_hi     : hint_range(0.1, 1.0) = 0.6;
 uniform float brightness      : hint_range(0.0, 2.0) = 0.9;
 uniform float gas_brightness  : hint_range(0.0, 4.0) = 2.2;  // gas is the HERO — much brighter than before
 uniform float gas_opacity     : hint_range(0.0, 3.0) = 1.6;  // how opaquely gas overrides the void
@@ -78,8 +82,14 @@ uniform vec3 cool_mid: source_color = vec3(0.18, 0.34, 0.78);
 uniform vec3 cool_hi : source_color = vec3(0.70, 0.92, 1.00);
 uniform vec3 core_color : source_color = vec3(1.00, 0.95, 0.88);   // hot emission tint
 
+// Precision-stable hash (Dave Hoskins). The old sin(dot(p,k))*43758 form lost float32 precision at the
+// large sample coordinates this nebula uses (world_offset += _spawn_offset up to ±2000, plus +900/+500
+// per-field offsets) → its level sets printed as straight diagonal seams. This works on fractional parts
+// (×~0.1, not ×43758) so it stays well-distributed and seam-free into the thousands.
 float hash(vec2 p) {
-	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+	vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+	p3 += dot(p3, p3.yzx + 33.33);
+	return fract((p3.x + p3.y) * p3.z);
 }
 
 vec2 grad(vec2 ip) {
@@ -100,8 +110,34 @@ float gnoise(vec2 p) {
 	return n * 0.5 + 0.5;
 }
 
-// fBm: sum octaves, freq ×2 / amp ×0.5, each octave rotated. More octaves → fractal (curvy) contours,
-// not the straight iso-lines of a single low-frequency octave (the cause of faceting).
+// Simplex noise (Ashima/Gustavson) — triangular lattice, so NO square-grid straight facets like gradient
+// noise has. fbm uses this now: the low-frequency macro fields (biome/hue/heat) were printing the gradient
+// lattice as straight diagonal flat panels; simplex removes them at the source. Returns ~[-1, 1].
+vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec3 permute(vec3 x) { return mod289(((x * 34.0) + 1.0) * x); }
+float snoise(vec2 v) {
+	const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
+	vec2 i  = floor(v + dot(v, C.yy));
+	vec2 x0 = v - i + dot(i, C.xx);
+	vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+	vec4 x12 = x0.xyxy + C.xxzz; x12.xy -= i1;
+	i = mod289(i);
+	vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0)) + i.x + vec3(0.0, i1.x, 1.0));
+	vec3 m = max(0.5 - vec3(dot(x0, x0), dot(x12.xy, x12.xy), dot(x12.zw, x12.zw)), 0.0);
+	m = m * m; m = m * m;
+	vec3 x = 2.0 * fract(p * C.www) - 1.0;
+	vec3 h = abs(x) - 0.5;
+	vec3 ox = floor(x + 0.5);
+	vec3 a0 = x - ox;
+	m *= 1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h);
+	vec3 g;
+	g.x  = a0.x * x0.x + h.x * x0.y;
+	g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+	return 130.0 * dot(m, g);
+}
+
+// fBm: sum octaves, freq ×2 / amp ×0.5, each octave rotated.
 float fbm(vec2 p, int oct) {
 	float v = 0.0;
 	float amp = 0.5;
@@ -111,6 +147,26 @@ float fbm(vec2 p, int oct) {
 	for (int k = 0; k < 8; k++) {
 		if (k >= oct) { break; }
 		v += amp * gnoise(p);
+		norm += amp;
+		p = rot * p * 2.0;
+		amp *= 0.5;
+	}
+	return v / max(norm, 0.0001);
+}
+
+// Simplex fBm — used ONLY for the low-frequency macro fields (biome / region hue / brightness heatmap).
+// Those are sampled at very low frequency with few octaves, where gradient noise's square lattice printed
+// as straight diagonal facet panels. Simplex (triangular lattice) has no such grid → curvy at every scale.
+// The high-frequency cloud detail (q/r/dens/big) stays on the softer gradient fbm above.
+float fbm_s(vec2 p, int oct) {
+	float v = 0.0;
+	float amp = 0.5;
+	float norm = 0.0;
+	mat2 rot = mat2(vec2(0.80, 0.60), vec2(-0.60, 0.80));
+	p = rot * p;
+	for (int k = 0; k < 8; k++) {
+		if (k >= oct) { break; }
+		v += amp * (snoise(p) * 0.5 + 0.5);
 		norm += amp;
 		p = rot * p * 2.0;
 		amp *= 0.5;
@@ -236,8 +292,11 @@ void fragment() {
 
 	// ── Macro BIOME: a huge-scale field deciding the region — empty void ↔ dense nebula. Drives the rest.
 	// Its domain is warped by a medium-frequency field so the void↔dense boundary SNAKES (no straight edge). ──
-	float bwarp  = fbm(p * 0.6 + 21.0, 4);
-	float biome  = fbm(p * biome_scale + (bwarp - 0.5) * biome_warp + 900.0, max(octaves - 2, 5));
+	// Medium-frequency warp so the void↔dense boundary snakes. With simplex noise there is no square-grid
+	// lattice, so a gentle warp keeps the regions LARGE and smooth (no facets) — the strong `r` warp would
+	// over-drive this low-frequency field into busy high-frequency noise.
+	float bwarp  = fbm_s(p * 0.6 + 21.0, 4);
+	float biome  = fbm_s(p * biome_scale + (bwarp - 0.5) * biome_warp + 900.0, max(octaves - 2, 5));
 	float region = smoothstep(void_threshold, dense_threshold, biome);   // 0 = void, 1 = dense nebula
 
 	// Soft coverage, then GATE by region so voids go near-empty and dense regions get the full nebula.
@@ -245,17 +304,21 @@ void fragment() {
 	// stays swirly (an un-warped field here injected angular/faceted contours).
 	float big = fbm((p + warp_strength * r) * 0.6 + 50.0, max(octaves - 1, 5));
 	float dens_s = mix(dens, big, cloud_softness);
-	float cloud = smoothstep(cloud_coverage, cloud_coverage + 0.5, dens_s) * (0.35 + 0.65 * big);
+	float cloud = smoothstep(cloud_coverage - cov_fade_lo, cloud_coverage + cov_fade_hi, dens_s) * (0.35 + 0.65 * big);
 	cloud *= region;
 
 	// ── Dominant region hue in BIG blocks (a SLOW field, not screen-scale → warm/cool don't average to
 	// brown). Whole areas read warm (red→gold) or cool (indigo→blue); fine cloud detail rides on top. ──
-	float region_hue = smoothstep(0.35, 0.65, fbm(p * region_color_scale + 500.0, max(octaves - 3, 4)));
+	// Warp the hue field the same way the biome is warped (reusing bwarp) so the warm/cool boundary SNAKES
+	// instead of cutting a straight diagonal — an unwarped low-freq field is near-planar, so its smoothstep
+	// crossing renders as a straight line. Wider band → the handoff is a soft blend, not a defined edge.
+	float region_hue = smoothstep(0.30, 0.70,
+		fbm_s(p * region_color_scale + (bwarp - 0.5) * biome_warp + 500.0, max(octaves - 3, 4)));
 	float gi = clamp(dens, 0.0, 1.0);   // ramp input: denser gas → bright end of its ramp
 	vec3 base = mix(cool_ramp(gi), warm_ramp(gi), region_hue);
 
-	// ── Brightness heatmap (within-region texture). ──
-	float hf = fbm(p * bright_var_scale + 300.0, 4);
+	// ── Brightness heatmap (within-region texture). Simplex (fbm_s) → smooth curvy variation, no facets. ──
+	float hf = fbm_s(p * bright_var_scale + 300.0, 4);
 	float heat = smoothstep(0.25, 0.75, hf);
 	float gb = brightness * gas_brightness * mix(bright_var_min, bright_var_max, heat);
 

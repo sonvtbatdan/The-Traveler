@@ -17,6 +17,7 @@ var _vel: Vector2 = Vector2.ZERO
 var _drop_t: float = 0.0
 
 func _configure() -> void:
+	_hp_mult = 1.0   # effective HP = BW_HP × 1.0 = 240 (PDF target)
 	hp_max = BW_HP
 	xp_reward = BW_XP
 	contact_damage = 0
@@ -76,4 +77,4 @@ func _tick(delta: float) -> void:
 
 func _drop_bomb() -> void:
 	if _mgr != null and _mgr.has_method("spawn_bomb"):
-		_mgr.spawn_bomb(center())
+		_mgr.spawn_bomb(_muzzle(0))

@@ -50,6 +50,18 @@ signal died
 
 ## Global HP multiplier for ALL normal enemies (bosses are separate). 1.5 = +50% HP (halved from 3.0).
 const ENEMY_HP_MULT := 1.5
+## Set > 0 in _configure() to override the global multiplier for this enemy type.
+var _hp_mult: float = -1.0
+
+# ── Fire-point positions ──────────────────────────────────────────────────────
+static var _fp_fracs_cache: Dictionary = {}
+var _fp_fracs: Array = []   # Array[{frac:Vector2, dir_angle:float, id:int}]
+
+# ── Thrust-point plume VFX ────────────────────────────────────────────────────
+# Cache: basename → Array[{frac:Vector2, dir_angle:float}] — loaded once per type per session.
+static var _tp_fracs_cache: Dictionary = {}
+
+var _plumes: Array[CPUParticles2D] = []
 
 func _ready() -> void:
 	_configure()
@@ -60,7 +72,7 @@ func _ready() -> void:
 	var d := _diameter_for_hp(hp_max) * size_mult
 	size = Vector2(d, d)
 	pivot_offset = size * 0.5
-	hp_max *= ENEMY_HP_MULT   # +200% HP
+	hp_max *= (_hp_mult if _hp_mult > 0.0 else ENEMY_HP_MULT)
 	hp = hp_max
 	if icon_path != "":
 		if icon_path.ends_with(".gif"):
@@ -83,6 +95,8 @@ func _ready() -> void:
 	_ws = get_tree().get_first_node_in_group("weapon_system")
 	if auto_register:
 		_register()
+	_setup_plumes()
+	_setup_fire_points()
 	queue_redraw()
 
 ## Register as a weapon target so player weapons + acid shred can hit this enemy. Idempotent.
@@ -179,6 +193,134 @@ func _unregister() -> void:
 
 func _exit_tree() -> void:
 	_unregister()
+
+# ── Fire-point helpers ─────────────────────────────────────────────────────────
+func _setup_fire_points() -> void:
+	var cname := icon_path.get_file().get_basename().to_lower()
+	if cname.is_empty():
+		return
+	if not _fp_fracs_cache.has(cname):
+		_fp_fracs_cache[cname] = _load_fp_fracs(cname)
+	_fp_fracs = _fp_fracs_cache[cname]
+
+static func _load_fp_fracs(cname: String) -> Array:
+	const SCREEN_ORIGIN := Vector2(15.0, 8.0)
+	var cfg := ConfigFile.new()
+	if cfg.load("res://creep_layout.cfg") != OK:
+		return []
+	var eo: Dictionary = cfg.get_value("creeps", cname, {})
+	if eo.is_empty():
+		return []
+	var eo_pos: Vector2  = eo.get("pos",  Vector2(480.0, 380.0))
+	var eo_size: Vector2 = eo.get("size", Vector2(60.0,  60.0))
+	if eo_size.x <= 0.0 or eo_size.y <= 0.0:
+		return []
+	var fps: Array = cfg.get_value("firepoints", cname, [])
+	var result: Array = []
+	for i: int in fps.size():
+		var fp: Dictionary = fps[i]
+		var fp_oc: Vector2 = (fp["pos"] as Vector2) + SCREEN_ORIGIN
+		var frac := (fp_oc - eo_pos) / eo_size
+		result.append({"frac": frac, "dir_angle": float(fp.get("dir_angle", 0.0)), "id": int(fp.get("id", i + 1))})
+	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["id"]) < int(b["id"]))
+	return result
+
+## World position of fire-point `idx`. Falls back to center() if FP not configured.
+func _muzzle(idx: int = 0) -> Vector2:
+	if idx < _fp_fracs.size():
+		return position + (_fp_fracs[idx]["frac"] as Vector2) * size
+	return center()
+
+# ── Thrust-point plume VFX ────────────────────────────────────────────────────
+func _setup_plumes() -> void:
+	var cname := icon_path.get_file().get_basename().to_lower()
+	if cname.is_empty():
+		return
+	if not _tp_fracs_cache.has(cname):
+		_tp_fracs_cache[cname] = _load_tp_fracs(cname)
+	var fracs: Array = _tp_fracs_cache[cname]
+	if fracs.is_empty():
+		return
+	var amount := maxi(1, int(size.x / 5.0))
+	var all_styles := _load_plume_styles_for(cname)
+	for i: int in fracs.size():
+		var fd: Dictionary = fracs[i]
+		var tp_id: int = int(fd.get("id", i + 1))
+		var style: Dictionary = all_styles.get("tp_%d" % tp_id, {})
+		var p := _make_enemy_plume(amount, fd["frac"] as Vector2, float(fd["dir_angle"]), style)
+		add_child(p)
+		_plumes.append(p)
+
+static func _load_plume_styles_for(cname: String) -> Dictionary:
+	var cfg := ConfigFile.new()
+	if cfg.load("res://plume_styles.cfg") != OK:
+		return {}
+	return cfg.get_value("styles", cname, {})
+
+static func _load_tp_fracs(cname: String) -> Array:
+	# TP positions are saved in SS space; EO pos is saved in OC-local space.
+	# OC-local = SS + SCREEN_ORIGIN (15, 8) — convert TP to OC-local before computing fraction.
+	const SCREEN_ORIGIN := Vector2(15.0, 8.0)
+	var cfg := ConfigFile.new()
+	if cfg.load("res://creep_layout.cfg") != OK:
+		return []
+	var eo: Dictionary = cfg.get_value("creeps", cname, {})
+	if eo.is_empty():
+		return []
+	var eo_pos: Vector2 = eo.get("pos", Vector2(480.0, 380.0))
+	var eo_size: Vector2 = eo.get("size", Vector2(60.0, 60.0))
+	if eo_size.x <= 0.0 or eo_size.y <= 0.0:
+		return []
+	var tps: Array = cfg.get_value("thrustpoints", cname, [])
+	var result: Array = []
+	for i: int in tps.size():
+		var tp: Dictionary = tps[i]
+		var tp_oc: Vector2 = (tp["pos"] as Vector2) + SCREEN_ORIGIN
+		var frac := (tp_oc - eo_pos) / eo_size
+		result.append({"frac": frac, "dir_angle": float(tp.get("dir_angle", PI * 0.5)), "id": int(tp.get("id", i + 1))})
+	return result
+
+func _make_enemy_plume(amount: int, frac: Vector2, dir_angle: float, style: Dictionary = {}) -> CPUParticles2D:
+	var p := CPUParticles2D.new()
+	p.position = frac * size
+	p.amount = amount
+	p.lifetime             = float(style.get("lifetime", 0.35))
+	p.emitting = true
+	p.local_coords = true
+	p.process_mode = Node.PROCESS_MODE_ALWAYS
+	p.z_as_relative = true
+	p.z_index = 1
+	p.gravity = Vector2.ZERO
+	p.direction = Vector2.RIGHT.rotated(dir_angle)
+	p.spread               = float(style.get("spread",   12.0))
+	p.initial_velocity_min = float(style.get("vel_min",  80.0))
+	p.initial_velocity_max = float(style.get("vel_max",  130.0))
+	p.scale_amount_min     = float(style.get("sc_min",   1.0))
+	p.scale_amount_max     = float(style.get("sc_max",   2.2))
+	var taper := Curve.new()
+	taper.add_point(Vector2(0.0, 1.0))
+	taper.add_point(Vector2(1.0, 0.05))
+	p.scale_amount_curve = taper
+	var img := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	var ctr := Vector2(16, 16) * 0.5
+	for iy in 16:
+		for ix in 16:
+			var d: float = Vector2(ix + 0.5, iy + 0.5).distance_to(ctr) / 8.0
+			var a: float = clampf(1.0 - d, 0.0, 1.0)
+			img.set_pixel(ix, iy, Color(1.0, 1.0, 1.0, a * a))
+	p.texture = ImageTexture.create_from_image(img)
+	var col_core:  Color = style.get("col_core",  Color(1.0, 0.95, 0.7, 1.0))
+	var col_flame: Color = style.get("col_flame", Color(1.0, 0.6,  0.2, 1.0))
+	var col_cool:  Color = style.get("col_cool",  Color(0.45, 0.6, 1.0, 0.85))
+	var col_fade           := col_cool; col_fade.a = 0.0
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.3, 0.65, 1.0])
+	grad.colors  = PackedColorArray([col_core, col_flame, col_cool, col_fade])
+	p.color_ramp = grad
+	var cm := CanvasItemMaterial.new()
+	cm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	p.material = cm
+	return p
 
 # ── Per-frame ─────────────────────────────────────────────────────────────────
 func _process(delta: float) -> void:

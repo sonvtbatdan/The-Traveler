@@ -20,6 +20,13 @@ const EnemySwarmFlock := preload("res://scripts/gameplay/enemy_swarm_flock.gd")
 const EnemySwarmMember := preload("res://scripts/gameplay/enemy_swarm.gd")
 const EnemyBeamer := preload("res://scripts/gameplay/enemy_beamer.gd")
 const EnemyMissileLauncher := preload("res://scripts/gameplay/enemy_missile_launcher.gd")
+const EnemyBeeHiveFlock := preload("res://scripts/gameplay/enemy_bee_flock.gd")
+const EnemyBugFlock := preload("res://scripts/gameplay/enemy_bug_flock.gd")
+const EnemyFliesFlock := preload("res://scripts/gameplay/enemy_flies_flock.gd")
+const EnemyCentipede := preload("res://scripts/gameplay/enemy_centipede.gd")
+const EnemyDragonfly := preload("res://scripts/gameplay/enemy_dragonfly.gd")
+const EnemyOctopus := preload("res://scripts/gameplay/enemy_octopus.gd")
+const EnemySpider := preload("res://scripts/gameplay/enemy_spider.gd")
 
 # Reusable enemy bullet tuning.
 const BULLET_RADIUS := 5.0
@@ -192,6 +199,13 @@ func spawn_type(type: String, edges: Array = []) -> void:
 		"swarm":             spawn_swarm()
 		"beamer":            spawn_beamer()
 		"missile_launcher":  spawn_missile_launcher()
+		"bee":               spawn_bee()
+		"bug":               spawn_bug()
+		"flies":             spawn_flies()
+		"centipede":         spawn_centipede()
+		"dragonfly":         spawn_dragonfly()
+		"octopus":           spawn_octopus()
+		"spider":            spawn_spider()
 
 func spawn_shooter() -> void:
 	var e := EnemyShooter.new()
@@ -339,6 +353,46 @@ func spawn_swarm_at(ring_center: Vector2, from_left: bool = true) -> Node:
 	flock.setup(self, 0)
 	flock.spawn_flock_at(ring_center, from_left)
 	return flock
+
+## ── Animal-group spawners ─────────────────────────────────────────────────────
+
+func spawn_bee() -> void:
+	var flock := EnemyBeeHiveFlock.new()
+	add_child(flock)
+	flock.setup(self)
+	flock.spawn_flock()
+
+func spawn_bug() -> void:
+	var flock := EnemyBugFlock.new()
+	add_child(flock)
+	flock.setup(self)
+	flock.spawn_flock()
+
+func spawn_flies() -> void:
+	var flock := EnemyFliesFlock.new()
+	add_child(flock)
+	flock.setup(self)
+	flock.spawn_flock()
+
+func spawn_centipede() -> void:
+	var e := EnemyCentipede.new()
+	add_child(e)
+	e.spawn(self)
+
+func spawn_dragonfly() -> void:
+	var e := EnemyDragonfly.new()
+	add_child(e)
+	e.spawn(self)
+
+func spawn_octopus() -> void:
+	var e := EnemyOctopus.new()
+	add_child(e)
+	e.spawn(self)
+
+func spawn_spider() -> void:
+	var e := EnemySpider.new()
+	add_child(e)
+	e.spawn(self)
 
 func clear_enemies() -> void:
 	for n in get_tree().get_nodes_in_group("normal_enemy"):
