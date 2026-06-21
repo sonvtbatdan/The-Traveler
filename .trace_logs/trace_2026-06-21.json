@@ -1,0 +1,208 @@
+{
+ "date": "2026-06-21",
+ "description": "Arena roguelite overhaul — P1 (weapons/firing) + P2 (economy/hub) + P3 (boss drops/fragments) + P4 (~31 cards) + P5 (drones/thrust/hull) + P6 (balance pass).",
+ "entries": [
+  {
+   "id": 1,
+   "timestamp": "2026-06-21T12:00:00Z",
+   "task": "Phase 1 of the arena roguelite overhaul: rarity scheme, weapon group taxonomy, new weapons, shared stat resolver, and an equipment-driven world-space firing engine for the arena.",
+   "files_modified": [
+    {
+     "path": "scripts/autoload/inventory_manager.gd",
+     "action": "edited",
+     "lines": "RARITY_COLORS (~63), RARITY_LOOT_WEIGHTS (~77), roll_asteroid_drop + new _is_craft_only helper (~756-820), _weapon_base_ids (~1028), and ITEM_DEFS weapon blocks",
+     "reason": "6-tier rarity (common/uncommon/rare/very_rare/unique/legendary) + remap existing epics/legendaries; add group + damage_kind tags to all weapons; add 7 new standard weapons (ricochet_cannon, flak_burst, shockwave_emitter, tesla_coil, railgun, mortar, splash_hammer) and 10 fragment-crafted unique weapons (singularity_lance, hailstorm, wraithfire, hivemind, prism_array, graviton_well, thunderhead, annihilator, omega_swarm, event_horizon); exclude unique/fragment items from random rolls. LOCKED FILE — user granted permission to edit the rarity const tables + roll exclusion in addition to ITEM_DEFS."
+    },
+    {
+     "path": "scripts/autoload/game_manager.gd",
+     "action": "edited",
+     "lines": "REQ_BY_RARITY (~126); upg_group_dmg/upg_kind_dmg + group_damage_mult/kind_damage_mult (~521); reset_run (~562)",
+     "reason": "6-tier equip requirements; per-group and per-damage-kind run multipliers (Phase 4 card hooks) reset each run."
+    },
+    {
+     "path": "scripts/gameplay/weapon_stats.gd",
+     "action": "created",
+     "reason": "New shared, stateless WeaponStats resolver (raw_stat/get_stat/resolve_def/roll_crit) — single source of truth for weapon numbers used by both weapon_system.gd (main scene) and the new arena engine."
+    },
+    {
+     "path": "scripts/gameplay/weapon_system.gd",
+     "action": "edited",
+     "lines": "get_weapon_stat (~2863), _stat (~2841), _equipped_def (~2999), _roll_crit (~1282)",
+     "reason": "Delegate stat/equip/crit math to WeaponStats so the main scene and arena cannot diverge. Behavior preserved (thin wrappers)."
+    },
+    {
+     "path": "scripts/gameplay/arena_loadout.gd",
+     "action": "created",
+     "reason": "Equipment-driven world-space firing engine: reads equipped primary/secondary weapons via WeaponStats and auto-fires them, dispatching every fire_mode (repeat/charge/beam/channel/aura/orbital) and fire_type (projectile/cone/homing/chain/radial/splash_melee/hitscan_beam/tether/growing_zone/minion/orbital/parasite_blob/acid_cloud). radial + splash_melee are the two new behaviors. Run-card multipliers + crit fold in here."
+    },
+    {
+     "path": "scripts/gameplay/arena.gd",
+     "action": "edited",
+     "lines": "preload ArenaLoadoutScript (~13); add_child in _ready (~123)",
+     "reason": "Instantiate the loadout engine alongside the existing arena_weapons (fallback)."
+    },
+    {
+     "path": "scripts/gameplay/arena_weapons.gd",
+     "action": "edited",
+     "lines": "_process gatling gate (~353); new _loadout_has_primary helper (~325)",
+     "reason": "Stand down the default Gatling when an inventory primary weapon is equipped, so the two firing paths don't stack."
+    }
+   ],
+   "changes_summary": "Foundation phase of turning the arena into a run-based roguelite. Data layer: 6-tier rarity replacing the old 4 tiers (epic->rare remaps; legendary hulls re-tiered), a 6-group weapon taxonomy (ballistic/energy/hybrid/explosive/area_dot/summon) with damage_kind tags, 20 standard weapons (13 existing + 7 new) and 10 fragment-crafted uniques carrying their fragment lists. Logic layer: extracted a shared WeaponStats resolver so the arena and main scene compute identical damage; added GameManager group/kind run-multiplier hooks. Firing: a new arena_loadout.gd reads equipped inventory weapons and fires them in world-space (unifying the arena with InventoryManager per the approved plan), with arena_weapons.gd kept as the default/fallback gun.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --editor --quit --path . (regenerate global class cache for new WeaponStats class_name)",
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (parse check)"
+   ],
+   "git_commit_hash": "pending (not committed — user has not requested a commit)",
+   "rollback_steps": [
+    "git checkout -- scripts/autoload/inventory_manager.gd scripts/autoload/game_manager.gd scripts/gameplay/weapon_system.gd scripts/gameplay/arena.gd scripts/gameplay/arena_weapons.gd",
+    "git clean -f scripts/gameplay/weapon_stats.gd scripts/gameplay/arena_loadout.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse/compile check clean (0 Parse/Compile errors) and an 8s headless runtime smoke test produced 0 script errors. Manual F5 play-test still required: equip weapons of each group in the arena and confirm they fire with correct shared damage/crit. Pre-existing unrelated issues observed: lasgun_ani_3.gd _load_tex runtime texture-load error; enemy_shooter.gd / enemy_missile_launcher.gd flagged only under the editor-import warnings-as-errors mode (compile fine at runtime)."
+   }
+  },
+  {
+   "id": 2,
+   "timestamp": "2026-06-21T14:00:00Z",
+   "task": "Phase 2 — between-run economy + hub: coins spending, blueprint shop, unique-fragment crafting, permanent passives, and the run-end (death -> hub) flow. Game now boots into the hub.",
+   "files_modified": [
+    {"path": "scripts/autoload/game_manager.gd", "action": "edited", "lines": "add_money area (~241): can_afford + spend_money; run state rebirth_charges/run_coin_mult + grant_rebirth/try_rebirth (~525); reset_run resets them (~575)", "reason": "Money spending + permanent-passive run hooks (revive charge, coin multiplier)."},
+    {"path": "scripts/autoload/meta_manager.gd", "action": "created", "reason": "New MetaManager autoload: persistent blueprints + owned unique fragments + crafted uniques + passives (saved to user://save.cfg [meta]). Buy/craft/fragment-roll/passive APIs; apply_run_start folds passives into the run. Calls only public InventoryManager/GameManager APIs (locked data layer untouched)."},
+    {"path": "project.godot", "action": "edited", "lines": "[autoload] add MetaManager; [application] run/main_scene -> scenes/hub.tscn", "reason": "Register the new autoload; boot into the hub instead of straight into the arena."},
+    {"path": "scenes/hub.tscn", "action": "created", "reason": "Hub/Dock-Workshop launch scene (Control root + hub_screen.gd)."},
+    {"path": "scripts/ui/hub/hub_screen.gd", "action": "created", "reason": "Hub UI: Shop (buy known-blueprint weapons) / Craft (assemble uniques from owned fragments) / Fragments (collection tracker) / Passives (buy permanent upgrades) tabs + coin display + LAUNCH RUN. Hosts the inventory/equip UI so you can equip before launching. Includes a +1000 debug coin button for testing."},
+    {"path": "scripts/gameplay/arena.gd", "action": "edited", "lines": "preload InventoryUIScript (~26); _ready: apply_run_start after reset_run + connect ship_destroyed + add_child InventoryUIScript (~76,~115); new _on_run_ended/_show_run_over run-end overlay (~333)", "reason": "Apply passives at run start; on death (after rebirth) show RUN OVER -> RETURN TO DOCK; make the equip screen reachable in the arena."},
+    {"path": "scripts/gameplay/arena_loot.gd", "action": "edited", "lines": "coin/diamond collect (~61)", "reason": "Scale coin pickups by GameManager.run_coin_mult (Scavenger passive)."}
+   ],
+   "changes_summary": "Built the between-run loop. New MetaManager autoload persists blueprints/fragments/crafted-uniques/passives in user://save.cfg [meta]. New hub scene (now the boot scene) lets the player spend coins on blueprint weapons, assemble fragment-complete uniques, track fragment collection, and buy permanent passives; the inventory/equip UI is hosted in both the hub and the arena (was main-scene only). The arena now applies passives at run start and, on ship death, shows a RUN OVER overlay that returns to the hub (Phoenix Core revive consumed first). Common+uncommon standard weapons are seeded as starter blueprints so the shop is usable immediately; rarer blueprints unlock via Phase-3 boss-drop disassembly.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (0 parse/compile errors)",
+    "C:\\Program Files\\Godot\\Godot.exe --headless --path . (7s boot-into-hub smoke test, 0 script errors)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/autoload/game_manager.gd scripts/gameplay/arena.gd scripts/gameplay/arena_loot.gd project.godot",
+    "git clean -f scripts/autoload/meta_manager.gd scripts/ui/hub/hub_screen.gd scenes/hub.tscn"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse clean + headless hub boot clean. Manual F5 needed: boot -> hub, use +1000 debug coins, buy a weapon (Shop) + a passive, press I to equip, LAUNCH RUN, confirm passives applied + equipped weapon fires, die -> RUN OVER -> RETURN TO DOCK, confirm coins/blueprints/passives persisted. Fragment drop + blueprint-unlock-via-disassemble are Phase 3 (roll_fragment_drop/unlock_blueprint exist but nothing calls them yet). Selling left at flat $1 (locked get_sell_price untouched)."
+   }
+  },
+  {
+   "id": 3,
+   "timestamp": "2026-06-21T15:30:00Z",
+   "task": "Phase 3 — boss weapon drops with level-capped rarity, the Equip(run-temp)/Disassemble(blueprint) salvage choice, unique fragment drops from bosses, and run-temporary loot that's cleared at the next run start.",
+   "files_modified": [
+    {"path": "scripts/autoload/meta_manager.gd", "action": "edited", "lines": "RARITY_RANK const (~16); run_temp_uids state (~33); roll_fragment_drop now rank-gated + new roll_boss_weapon + mark_run_temp/purge_run_temp (~150-210); save/load run_temp (~persistence)", "reason": "Boss-drop generation (rarity-capped standard weapon roller, rank-gated fragment roller) + run-temporary item lifecycle (mark + purge via public sell path)."},
+    {"path": "scripts/ui/hud/arena_drop_ui.gd", "action": "created", "reason": "On GameManager.boss_defeated, roll this boss's loot (weapons capped by boss index: boss1 uncommon / boss2+ rare, 1-3 weapons; +70% one fragment, rank-gated by boss depth) and present a pause-safe salvage screen: per-weapon EQUIP (run-temp, auto-equipped into a free weapon slot) vs DISASSEMBLE (MetaManager.unlock_blueprint). Fragments auto-recovered with a notice; CONTINUE enabled once every weapon is resolved."},
+    {"path": "scripts/gameplay/arena.gd", "action": "edited", "lines": "preload DropUIScript (~27); _ready: purge_run_temp before reset + add_child DropUIScript (~76,~116)", "reason": "Show the salvage screen on boss kills; clear last run's temporary loot at run start."}
+   ],
+   "changes_summary": "Bosses now pay out. On boss_defeated the new salvage UI rolls weapons (rarity capped by an escalating per-run boss index so early bosses can't drop top-tier gear) plus a high-chance unique fragment drawn only from pieces you don't yet own (rank-gated by boss depth, never re-dropping owned pieces). Each weapon offers Equip-for-the-run (added + auto-equipped, flagged run-temp and sold off at the next run start) or Disassemble (permanently unlocks its blueprint in the hub shop). MetaManager gained the rarity-capped boss-weapon roller, the rank-gated fragment roller, and the run-temp mark/purge lifecycle (persisted so a mid-run quit still cleans up).",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (0 parse/compile errors)",
+    "C:\\Program Files\\Godot\\Godot.exe --headless --path . (7s boot smoke test, 0 script errors)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/autoload/meta_manager.gd scripts/gameplay/arena.gd",
+    "git clean -f scripts/ui/hud/arena_drop_ui.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse clean + headless boot clean. Manual F5 needed: in a run, defeat a boss (arena_elephant emits boss_defeated) → SALVAGE screen appears with weapon choices + possible fragment; pick Equip vs Disassemble; confirm disassembled weapons appear in the hub Shop, equipped ones fire then vanish at next run start, and fragments show under the Fragments tab. Known minor edge: a boss kill that also triggers a level-up can stack the level-up + salvage pause overlays (polish later). Run-temp purge uses sell_item (pays a token $1 each — acceptable; avoids editing the locked inventory_manager)."
+   }
+  },
+  {
+   "id": 4,
+   "timestamp": "2026-06-21T16:45:00Z",
+   "task": "Phase 4 — expand the in-run level-up card pool from 10 to ~31 cards, including group-damage, damage-kind, firing-mechanic, and combo cards that cross-buff weapon groups. All reset per run.",
+   "files_modified": [
+    {"path": "scripts/autoload/game_manager.gd", "action": "edited", "lines": "upg_mech + mech_bonus + add_group_dmg/add_kind_dmg/add_mech (~525); reset_run clears upg_mech (~585)", "reason": "Card-effect setters for group/kind damage and firing-mechanic bonuses; per-run mechanic mod store + accessor."},
+    {"path": "scripts/gameplay/arena_loadout.gd", "action": "edited", "lines": "new _mech() helper (~before _run_mult); reads in _fire_projectile (pierce/ricochet/ricochet_range/splash), _fire_cone (splash), _fire_chain (chain_jumps), _fire_radial/_tick_zone/_tick_aura (radius)", "reason": "Firing engine folds card mechanic bonuses onto each weapon's base stat (splash only widens weapons that already splash)."},
+    {"path": "scripts/ui/hud/arena_levelup_ui.gd", "action": "edited", "lines": "UPGRADES +21 entries (6 group + 5 kind + 6 mech + 4 combo); _apply dispatches by type; _effect_text/_current_text generalized + GROUP_LABEL/KIND_LABEL/_mech_effect_text helpers; _make_card passes full dict to _current_text", "reason": "31-card pool where many cards cross-buff a weapon group/kind or a firing mechanic; display + apply for the new card types."}
+   ],
+   "changes_summary": "The level-up draft is now build-defining. Added group-damage cards (Ballistics/Energy Flux/Hybrid Core/Ordnance/Saturation/Legion), damage-kind cards (Incendiary/Radiance/Impact/Ionize/Detonation), mechanic cards (Conductor +chain, Ricochet, Piercing Rounds, Overpressure +splash, Resonance +AoE, Rebound +bounce range), and combo cards (Overcharge/Demolition/Velocity/Momentum Drive) that pair a group buff with a mechanic. Cards feed GameManager.upg_group_dmg/upg_kind_dmg/upg_mech (all reset each run); the arena firing engine reads the group/kind damage mults (already wired in Phase 1) plus the new mechanic bonuses (chain jumps, ricochet, pierce, splash radius, AoE radius). ~31 cards total, drawn 3-at-a-time on level-up.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (0 parse/compile errors)",
+    "C:\\Program Files\\Godot\\Godot.exe --headless --path . (7s boot smoke test, 0 script errors)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/autoload/game_manager.gd scripts/gameplay/arena_loadout.gd scripts/ui/hud/arena_levelup_ui.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse clean + headless boot clean. Manual F5 needed: in a run, level up and confirm the new cards appear and read correctly (effect + 'Now +X' on hover); pick e.g. Conductor with a chain weapon (Arc/Tesla/Thunderhead) and confirm extra jumps, Overpressure with Mortar/Flak and confirm wider splash, a group card and confirm that group hits harder. New cards have no art yet (res://assets/hud/<id>.png missing) so their icon area is blank — functional, art is a later pass. Cards aren't filtered to equipped groups (a roguelite norm; could filter later)."
+   }
+  },
+  {
+   "id": 5,
+   "timestamp": "2026-06-21T18:15:00Z",
+   "task": "Phase 5 — support systems: drones (5 archetypes with real behaviour), 4 thruster modes, and hull damage-kind cross-interactions (Glass/Cursed).",
+   "files_modified": [
+    {"path": "scripts/autoload/inventory_manager.gd", "action": "edited", "lines": "ITEM_DEFS: replaced ion_thruster+combat_drone placeholders with 4 thrusters (strong/reverse/smart/defend via stats.thruster_type) + 10 drones (combat/defend/repair/collect/lucky, 2 tiers each, via stats.drone_type); added kind_bonus+max_hp_pct to glass_hull and kind_bonus+luck_mult to cursed_hull", "reason": "Data for the drone/thrust/hull systems (ITEM_DEFS is the editable part of the locked file)."},
+    {"path": "scripts/gameplay/arena_enemy_manager.gd", "action": "edited", "lines": "after spawn_bullet (~118): push_bullets_away + nearest_bullet_offset", "reason": "Public enemy-bullet helpers for the Bulwark/Guardian push and the Smart-thruster dodge (enemy bullets are a private array with no group)."},
+    {"path": "scripts/autoload/game_manager.gd", "action": "edited", "lines": "run_luck var + reset (~ run-state); recompute_max_hp applies hull max_hp_pct; new _equipped_hull_def/hull_kind_mult/hull_luck_mult (~388)", "reason": "Hull cross-interaction accessors (damage-kind bonus, max-HP penalty, luck) + the live luck stat set by Lucky drones."},
+    {"path": "scripts/gameplay/weapon_stats.gd", "action": "edited", "lines": "get_stat cat (~30)", "reason": "Fold GameManager.hull_kind_mult into the damage multiplier so Glass/Cursed lift the matching damage_kind in BOTH the arena and the main scene."},
+    {"path": "scripts/gameplay/arena_loadout.gd", "action": "edited", "lines": "drone state in _ready; _tick_drones call in _process; new _tick_drones/_drone_combat/_drone_defend/_drone_repair/_drone_collect + _draw_drone; _crit_roll applies hull_luck_mult", "reason": "Drone behaviours (combat fires bolts via drone_damage_mult+kind; defend pushes enemy fire; repair heals; collect magnetizes XP orbs; lucky sets run_luck) + Cursed-hull crit penalty."},
+    {"path": "scripts/gameplay/arena.gd", "action": "edited", "lines": "_enemy_mgr var; _physics_process thruster branch; new _thruster_def/_arena_enemy_mgr/_smart_dodge/_defend_push", "reason": "Thruster behaviours: strong=raw speed, reverse=faster backpedal, smart=auto-dodge incoming fire, defend=shove enemy fire away."},
+    {"path": "scripts/ui/hud/arena_drop_ui.gd", "action": "edited", "lines": "fragment chance (~_present_drops)", "reason": "Fragment drop chance scales with luck (Cursed lowers, Lucky raises)."},
+    {"path": "scripts/gameplay/arena_loot.gd", "action": "edited", "lines": "coin collect (~62)", "reason": "Lucky drone run_luck also boosts coin pickups."}
+   ],
+   "changes_summary": "Added the support-system trio. Drones: 5 archetypes (combat shoots via drone_damage_mult + kind, defend pushes enemy bullets away, repair heals over time, collect magnetizes XP orbs, lucky sets a live run_luck that raises drop/coin/fragment chance), 10 defs across 2 tiers, equipped in drone_1/drone_2 and run by the loadout engine (orbiting visuals). Thrusters: 4 modes read by the arena player controller (strong speed, reverse backpedal boost, smart auto-dodge using a new enemy-bullet query, defend bullet-push). Hull cross-interactions: Glass amplifies Light/Energy damage but -15% max HP; Cursed amplifies Fire/Explosive but -30% luck (crit + drop) — implemented as GameManager hull accessors folded into the shared weapon_stats damage model (applies in both scenes), recompute_max_hp, the crit roll, and the salvage fragment chance.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (0 parse/compile errors)",
+    "C:\\Program Files\\Godot\\Godot.exe --headless --path . (7s boot smoke test, 0 script errors)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/autoload/inventory_manager.gd scripts/autoload/game_manager.gd scripts/gameplay/arena_enemy_manager.gd scripts/gameplay/weapon_stats.gd scripts/gameplay/arena_loadout.gd scripts/gameplay/arena.gd scripts/ui/hud/arena_drop_ui.gd scripts/gameplay/arena_loot.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse clean + headless boot clean. Manual F5 needed: equip a common drone (Collector/Guardian = req 0) and confirm orbit + behaviour; equip Reverse Thruster (req 0) and confirm faster backpedal; Smart/Defend thrusters need Maneuverability points (rare/very_rare). Hull cross-interactions need Biotech to equip (Glass req 8, Cursed req 28) — spec Biotech or temporarily lower the req to test the +Light/Fire damage, -max HP, -crit. Drone behaviours are functional with simple orbit visuals (bespoke art later). Full 6-rarity matrix per drone is content fill-in (10 defs span 5 rarities now)."
+   }
+  },
+  {
+   "id": 6,
+   "timestamp": "2026-06-21T19:30:00Z",
+   "task": "Phase 6 — first balance pass: fix the crit test value, trim time-sink enemy/boss HP, amp swarm peaks, fix one weapon outlier, and document a DPS reference + tuning knobs in design.md.",
+   "files_modified": [
+    {"path": "scripts/gameplay/weapon_stats.gd", "action": "edited", "lines": "BASE_CRIT_CHANCE (11)", "reason": "20% TEST value ('every hit crits') → 0; crit now from affixes/cards."},
+    {"path": "scripts/gameplay/weapon_system.gd", "action": "edited", "lines": "BASE_CRIT_CHANCE (279)", "reason": "Same crit fix, kept in sync with weapon_stats."},
+    {"path": "scripts/gameplay/arena_wave_director.gd", "action": "edited", "lines": "ENEMY_DEFS (centipede/octopus 240→180, bomber 240→190, sentinel 560→420, missile 728→520; elephant 8000→5500, metalfly 7000→4800, chromeleon 6000→4200); DEFAULT_TIMELINE counts (bug@34 12→16, bee@66 12→16, bug@150 16→22, swarm@172 12→16)", "reason": "Punchier heavy/turret kills + ~25-30% lower boss HP toward 30-60s fights + bigger swarm peaks."},
+    {"path": "scripts/autoload/inventory_manager.gd", "action": "edited", "lines": "acid_sprayer tick_damage 5→8", "reason": "Pure-DoT outlier was underweight (~10 DPS → ~16 + shred + AoE)."},
+    {"path": "design.md", "action": "edited", "lines": "appended 'Arena Roguelite — Balance Pass (Phase 6)' section", "reason": "Deliverable: documents the feel target, before/after change tables, a 30-weapon DPS reference with roles, weapons to watch, and the knobs for the next iteration."}
+   ],
+   "changes_summary": "First balance tuning of the new arena roguelite. Fixed the crit baseline (test 20% → 0; arena keeps an intentional 10% base). Trimmed the heavy/turret enemies (sentinel/missile/centipede/octopus/bomber) so they stop being time-sinks against base weapons, while leaving the already-fast early swarm unchanged. Cut boss HP ~25-30% toward 30-60s fights (all boss HP flows from ENEMY_DEFS; the Elephant reads def.hp). Amped four swarm waves for the 'overflowing' feel. Bumped the underweight Acid Sprayer DoT. Documented everything in design.md including a full 30-weapon DPS reference table (with roles + outliers to monitor like Prism Array/Plasma Drill/Rift Maker) and the exact knobs to re-tune. All values are explicitly first-pass pending playtest.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (0 parse/compile errors)",
+    "C:\\Program Files\\Godot\\Godot.exe --headless --path . (6s boot smoke test, 0 script errors)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/weapon_stats.gd scripts/gameplay/weapon_system.gd scripts/gameplay/arena_wave_director.gd scripts/autoload/inventory_manager.gd design.md"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse clean + headless boot clean. Balance is inherently playtest-driven: numbers are first-pass and documented in design.md for iteration. Manual F5 needed to feel the pacing (do early waves clear fast, do bosses last ~30-60s with a mid loadout, does it get overwhelming late) and to flag overpowered weapons (Prism Array etc.). Adjust the knobs listed in design.md. This completes the 6-phase plan (c-project-the-traveler-twinkling-turing.md)."
+   }
+  },
+  {
+   "id": 7,
+   "timestamp": "2026-06-21T19:50:00Z",
+   "task": "Pause the game while the Inventory screen is open.",
+   "files_modified": [
+    {"path": "scripts/ui/inventory/inventory_ui.gd", "action": "edited", "lines": "_ready process_mode (~83); _was_paused var + open()/close() pause toggle (~265)", "reason": "open() pauses the tree (remembering prior state so it nests under level-up/salvage overlays); close() restores it; CanvasLayer set PROCESS_MODE_ALWAYS so the panel + I/ESC toggle stay interactive while paused."}
+   ],
+   "changes_summary": "Opening the inventory (I key / button) now pauses the game and closing it resumes (only if the inventory was what paused it). The inventory layer runs PROCESS_MODE_ALWAYS so it stays usable while paused. Applies in every scene that hosts inventory_ui (arena, hub, main idle scene).",
+   "commands_executed": ["C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (0 parse/compile errors)"],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": ["git checkout -- scripts/ui/inventory/inventory_ui.gd"],
+   "verification": {"status": "partial", "notes": "Parse clean. Manual F5: press I in the arena → game freezes, panel usable, drag/equip works; press I/ESC → resumes. If pausing the main idle scene is unwanted, scope the pause to the arena."}
+  }
+ ]
+}

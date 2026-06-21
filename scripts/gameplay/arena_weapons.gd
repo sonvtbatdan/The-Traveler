@@ -158,13 +158,10 @@ const ARC_LIGHT    := 4.0      # dust-light value per lit segment endpoint
 
 const BeamScript   := preload("res://scripts/gameplay/lasgun_ani_3.gd")   # lasgun_ani_3 (sprite muzzle); ani_1 + ani_2 kept as backups
 const SFX_BOLT_HIT: Array[AudioStream] = [
-	preload("res://assets/audio/sfx/gunboom1.wav"),
-	preload("res://assets/audio/sfx/gunboom2.wav"),
-	preload("res://assets/audio/sfx/gunboom3.wav"),
-	preload("res://assets/audio/sfx/gunboom4.wav"),
-	preload("res://assets/audio/sfx/gunboom5.wav"),
+	preload("res://assets/audio/sfx/railgun.wav"),
+	preload("res://assets/audio/sfx/railgun2.wav"),
 ]
-const SFX_ENGINE_HUM: AudioStream = preload("res://assets/audio/sfx/enginehum3.wav")
+const SFX_ENGINE_HUM: AudioStream = preload("res://assets/audio/sfx/Scifi/scifi-background-noise.wav")
 const SFX_GAUSS_FIRE: AudioStream = preload("res://assets/audio/sfx/hitimpact.wav")
 const SFX_GAUSS_IMPACT: AudioStream = preload("res://assets/audio/sfx/AstroMenace-SFX/weaponfire6.wav")
 const SFX_LASGUN_CHARGE: AudioStream = preload("res://assets/audio/sfx/Scifi/blg_beam_01.wav")
@@ -432,6 +429,12 @@ func get_lights() -> Array:
 		lights.append({"pos": _void_pos, "value": 6.0, "color": VOID_COL})
 	return lights
 
+## True when the equipment-driven loadout engine has a primary weapon equipped (so this default
+## auto-gun should stand down and let the loadout engine fire instead).
+func _loadout_has_primary() -> bool:
+	var lo := get_tree().get_first_node_in_group("arena_loadout")
+	return lo != null and lo.has_method("has_primary_weapon") and lo.has_primary_weapon()
+
 func _has_enemy_on_screen() -> bool:
 	if GameManager.has_method("is_boss_alive") and GameManager.is_boss_alive():
 		return true
@@ -460,7 +463,9 @@ func _process(delta: float) -> void:
 	_crit_chance = BASE_CRIT_CHANCE + (GameManager.get_crit_chance() if GameManager.has_method("get_crit_chance") else 0.0)
 	_crit_damage = GameManager.get_crit_damage() if GameManager.has_method("get_crit_damage") else 1.5
 	var enemy_on_screen := _has_enemy_on_screen()
-	if _gat_active:
+	# Stand down the default Gatling when the player has an inventory weapon equipped — the loadout
+	# engine (arena_loadout.gd) drives firing then, so the two don't stack.
+	if _gat_active and not _loadout_has_primary():
 		_gat_acc += delta
 		if enemy_on_screen:
 			var gat_interval := GAT_FIRE_INTERVAL / _rate_mult

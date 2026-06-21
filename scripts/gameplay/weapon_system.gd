@@ -276,7 +276,7 @@ var _auto_fire := false
 # ── Crit + floating damage numbers ────────────────────────────────────────────
 # Crit mechanic: roll crit_chance% per hit; on a crit, multiply damage by
 # (1 + crit_damage/100). Both read via get_weapon_stat so affixes raise them.
-const BASE_CRIT_CHANCE := 20   # % — TEMP TEST VALUE (every hit crits). SET BACK TO 0.0 when done!
+const BASE_CRIT_CHANCE := 0    # % base crit when a weapon has no crit affix (crit comes from affixes/cards).
 const BASE_CRIT_DAMAGE := 100.0   # % extra damage on a crit (100 = double)
 # Floating number look (Phase 1 = normal hits).
 # Show the real boss hitbox rect (the ship circle is drawn by gun_system).
@@ -1280,12 +1280,7 @@ func _spawn_impact(pos: Vector2, big: bool) -> void:
 ## Roll a crit for this hit. Returns {dmg, crit}. crit_chance/crit_damage read via
 ## get_weapon_stat → AFFIX HOOK: the crit_chance/crit_damage affixes raise them.
 func _roll_crit(def: Dictionary, base: float) -> Dictionary:
-	var chance := get_weapon_stat(def, "crit_chance", BASE_CRIT_CHANCE)
-	var crit := randf() * 100.0 < chance
-	var dmg := base
-	if crit:
-		dmg = base * (1.0 + get_weapon_stat(def, "crit_damage", BASE_CRIT_DAMAGE) / 100.0)
-	return {"dmg": dmg, "crit": crit}
+	return WeaponStats.roll_crit(def, base)
 
 ## Single hook fired whenever damage lands: floating number always; on a crit also a
 ## bigger coloured impact flash + a brief hit-stop.
@@ -2839,8 +2834,7 @@ func _cm_to_px(cm: float) -> float:
 	return cm / 2.54 * float(dpi)
 
 func _stat(def: Dictionary, key: String, fallback: float) -> float:
-	var stats: Dictionary = def.get("stats", {})
-	return float(stats.get(key, fallback))
+	return WeaponStats.raw_stat(def, key, fallback)
 
 # Stat keys each affix maps onto (an affix only changes the matching keys).
 const _AFFIX_DAMAGE_KEYS   := ["damage", "damage_min", "damage_max", "damage_per_tick", "dps"]
@@ -2861,41 +2855,8 @@ const _AFFIX_ENERGY_KEYS   := ["energy", "activation_energy"]
 ##   multishot, pierce, ricochet, splash_radius, knockback → need projectile-behaviour changes
 ##   energy_leech, hp_leech, shield_leech, energy_regen_flat, energy_regen_percentage → need on-hit/regen hooks
 func get_weapon_stat(def: Dictionary, key: String, fallback: float) -> float:
-	var v := _stat(def, key, fallback)
-	# Hidden ±20% base-damage roll (damage keys only) — applied before any affixes.
-	var is_dmg: bool = key in _AFFIX_DAMAGE_KEYS
-	if is_dmg:
-		v *= float(def.get("base_mult", 1.0))
-	# Attribute category damage multiplier (Marksmanship / weapon-class bonuses). Applies to every
-	# damage-like key, including shot_damage/tick_damage which sit outside the affix damage keys.
-	var cat := GameManager.weapon_damage_mult(def) if (is_dmg or key == "shot_damage" or key == "tick_damage") else 1.0
-	var affixes: Array = def.get("affixes", [])
-	if affixes.is_empty():
-		return v * cat
-	var dmg_pct := 0.0
-	for a: Dictionary in affixes:
-		var id := String(a.get("id", ""))
-		var val := float(a.get("value", 0.0))
-		match id:
-			"damage_flat":
-				if is_dmg:
-					v += val
-			"damage_percentage":
-				if is_dmg:
-					dmg_pct += val
-			"fire_rate":
-				if key in _AFFIX_COOLDOWN_KEYS:
-					v = v / (1.0 + val / 100.0)        # % faster → lower cooldown
-			"energy_consumption_percentage":
-				if key in _AFFIX_ENERGY_KEYS:
-					v = v * (1.0 + val / 100.0)        # val is negative → cheaper
-			"crit_chance":
-				if key == "crit_chance":
-					v += val                           # affix adds to base crit chance
-			"crit_damage":
-				if key == "crit_damage":
-					v += val                           # affix adds to base crit damage
-	return v * (1.0 + dmg_pct / 100.0) * cat           # dmg_pct is 0 for non-damage keys; cat = attribute mult
+	# Delegates to the shared resolver so the main scene + arena agree on every number.
+	return WeaponStats.get_stat(def, key, fallback)
 
 func _primary_def() -> Dictionary:
 	return _equipped_def("primary_weapon")
@@ -2997,23 +2958,7 @@ func damage_per_hit(slot: String) -> Dictionary:
 	return {"valid": true, "min": lo, "max": hi}
 
 func _equipped_def(slot: String) -> Dictionary:
-	var uid: int = InventoryManager.equipped_uid(slot)
-	if uid == -1:
-		return {}
-	var item: Dictionary = InventoryManager.get_item(uid)
-	var def: Dictionary = InventoryManager.get_def(String(item.get("def", "")))
-	if def.is_empty():
-		return {}
-	var affixes: Array = item.get("affixes", [])
-	var base_mult := float(item.get("base_mult", 1.0))
-	if affixes.is_empty() and base_mult == 1.0:
-		return def
-	# Attach the instance's rolled affixes + base-damage roll WITHOUT mutating the
-	# shared ITEM_DEFS entry, so get_weapon_stat() can apply them.
-	var d := def.duplicate()
-	d["affixes"] = affixes
-	d["base_mult"] = base_mult
-	return d
+	return WeaponStats.resolve_def(slot)
 
 func _ast() -> Node:
 	return get_tree().get_first_node_in_group("asteroid_main")

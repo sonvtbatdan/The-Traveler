@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="The Traveler"
-run/main_scene="res://scenes/arena.tscn"
+run/main_scene="res://scenes/hub.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 
@@ -25,6 +25,7 @@ GameManager="*res://scripts/autoload/game_manager.gd"
 WeaponManager="*res://scripts/autoload/weapon_manager.gd"
 AffixManager="*res://scripts/autoload/affix_manager.gd"
 InventoryManager="*res://scripts/autoload/inventory_manager.gd"
+MetaManager="*res://scripts/autoload/meta_manager.gd"
 
 [display]
 

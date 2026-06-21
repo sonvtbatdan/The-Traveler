@@ -124,7 +124,7 @@ const MAN_DRONE_DMG_PER_PT: float = 0.02   # NOTE: no drone-firing system yet �
 # Default minimum-attribute requirement to EQUIP an item, keyed by the item's rarity (tunable).
 # common gear is freely equippable; rarer gear demands you spec into its attribute.
 const REQ_BY_RARITY: Dictionary = {
-	"common": 0, "rare": 8, "epic": 16, "legendary": 24,
+	"common": 0, "uncommon": 4, "rare": 8, "very_rare": 14, "unique": 20, "legendary": 28,
 }
 
 const ATTRIBUTE_NAMES: Array[String] = ["marksmanship", "engineering", "biotech", "maneuverability"]
@@ -242,6 +242,18 @@ func add_money(amount: int) -> void:
 	money += amount
 	money_changed.emit(money)
 	save_game()
+
+func can_afford(amount: int) -> bool:
+	return money >= amount
+
+## Spend `amount` coins if affordable. Returns true on success (money debited), false if too poor.
+func spend_money(amount: int) -> bool:
+	if amount < 0 or money < amount:
+		return false
+	money -= amount
+	money_changed.emit(money)
+	save_game()
+	return true
 
 func set_boost(active: bool) -> void:
 	if manual_boost == active:
@@ -370,9 +382,33 @@ func recompute_max_hp() -> void:
 				"hp_percentage": pct += float(a.get("value", 0.0))
 	flat += BIO_HP_PER_PT * float(attr("biotech"))   # Biotech flat max-HP bonus
 	flat += float(upg_max_hp_bonus)                  # arena-run Max HP upgrade cards
-	ship_max_hp = maxi(1, int(round((float(BASE_SHIP_HP) + float(hull_bonus) + flat) * (1.0 + pct / 100.0))))
+	var hull_hp_pct := float(_equipped_hull_def().get("stats", {}).get("max_hp_pct", 0.0))   # Glass Hull penalty
+	ship_max_hp = maxi(1, int(round((float(BASE_SHIP_HP) + float(hull_bonus) + flat) * (1.0 + pct / 100.0) * (1.0 + hull_hp_pct / 100.0))))
 	ship_hp = mini(ship_hp, ship_max_hp)
 	ship_hp_changed.emit(ship_hp)
+
+# ── Hull cross-interactions (Phase 5) ─────────────────────────────────────────────
+## The equipped hull's def ({} if none). Cursed/Glass etc. carry stats.kind_bonus, max_hp_pct, luck_mult.
+func _equipped_hull_def() -> Dictionary:
+	var uid: int = InventoryManager.equipped_uid("hull")
+	if uid == -1:
+		return {}
+	return InventoryManager.get_def(String(InventoryManager.get_item(uid).get("def", "")))
+
+## Damage multiplier the equipped hull grants a weapon, from its kind_bonus matched against the weapon's
+## damage_kind tags (e.g. Glass → +Light/+Energy, Cursed → +Fire/+Explosive). 1.0 when no hull / no match.
+func hull_kind_mult(kinds: Array) -> float:
+	var kb: Dictionary = _equipped_hull_def().get("stats", {}).get("kind_bonus", {})
+	if kb.is_empty():
+		return 1.0
+	var bonus := 0.0
+	for k in kinds:
+		bonus += float(kb.get(String(k), 0.0))
+	return 1.0 + bonus / 100.0
+
+## Luck multiplier from the equipped hull (Cursed → <1 reduces crit + drop chance). 1.0 by default.
+func hull_luck_mult() -> float:
+	return float(_equipped_hull_def().get("stats", {}).get("luck_mult", 1.0))
 
 func _on_equipment_changed(_slot: String, _uid: int) -> void:
 	recompute_max_hp()
@@ -519,6 +555,57 @@ var upg_momentum_mult:  float = 1.0       # knockback (+ future weapon scaling) 
 var upg_pickup_mult:    float = 1.0       # pickup-radius ×
 var upg_crit_chance:    float = 0.0       # crit probability 0..1 (0 = no crits → non-destructive at base)
 var upg_crit_damage:    float = 1.5       # crit damage multiplier (a crit deals damage × this)
+# Per-weapon-group and per-damage-kind run multipliers — populated by the group-scoped level-up cards
+# (Phase 4). Empty = every group/kind at ×1.0 (no-op at base). The shared firing engines read these via
+# group_damage_mult() / kind_damage_mult() so a "boost the energy group" card lifts every energy weapon.
+var upg_group_dmg: Dictionary = {}        # group name → extra multiplier added to 1.0 (e.g. {"energy": 0.25})
+var upg_kind_dmg:  Dictionary = {}        # damage_kind → extra multiplier added to 1.0 (e.g. {"fire": 0.4})
+var upg_mech:      Dictionary = {}        # mechanic key → flat bonus (chain_jumps/ricochet/pierce/splash_radius/radius/…)
+
+## Flat run bonus for a firing-mechanic key (chain_jumps, ricochet, ricochet_range, pierce, splash_radius,
+## radius). 0 when no card has boosted it. The arena firing engine adds this onto the weapon's base stat.
+func mech_bonus(key: String) -> float:
+	return float(upg_mech.get(key, 0.0))
+
+func add_group_dmg(group: String, amt: float) -> void:
+	upg_group_dmg[group] = float(upg_group_dmg.get(group, 0.0)) + amt
+	player_stats_changed.emit()
+
+func add_kind_dmg(kind: String, amt: float) -> void:
+	upg_kind_dmg[kind] = float(upg_kind_dmg.get(kind, 0.0)) + amt
+	player_stats_changed.emit()
+
+func add_mech(key: String, amt: float) -> void:
+	upg_mech[key] = float(upg_mech.get(key, 0.0)) + amt
+	player_stats_changed.emit()
+# Permanent-passive run state (set by MetaManager.apply_run_start each run; reset_run clears to base).
+var rebirth_charges: int = 0              # Phoenix Core: revive-on-death charges available THIS run
+var run_coin_mult:   float = 1.0          # Scavenger: multiplies in-run coin pickups (arena_loot reads this)
+var run_luck:        float = 0.0          # Lucky drone: additive luck this run (drop/fragment/coin chance)
+
+## Grant `n` one-run revive charges (Phoenix Core passive). Consumed by the arena on ship death.
+func grant_rebirth(n: int) -> void:
+	rebirth_charges = maxi(rebirth_charges, n)
+
+## Try to spend a revive charge: heals to half HP and returns true, or false if none left.
+func try_rebirth() -> bool:
+	if rebirth_charges <= 0:
+		return false
+	rebirth_charges -= 1
+	ship_hp = maxi(1, int(ship_max_hp / 2))
+	ship_hp_changed.emit(ship_hp)
+	return true
+
+## Run damage multiplier for a weapon group ("ballistic"/"energy"/…). 1.0 when no card boosts it.
+func group_damage_mult(group: String) -> float:
+	return 1.0 + float(upg_group_dmg.get(group, 0.0))
+
+## Run damage multiplier across a weapon's damage_kind tags (fire/light/kinetic/…). Stacks additively.
+func kind_damage_mult(kinds: Array) -> float:
+	var bonus := 0.0
+	for k in kinds:
+		bonus += float(upg_kind_dmg.get(String(k), 0.0))
+	return 1.0 + bonus
 
 func get_move_speed_mult() -> float: return upg_move_speed_mult
 func get_damage_mult() -> float:     return upg_damage_mult
@@ -574,6 +661,12 @@ func reset_run() -> void:
 	upg_pickup_mult = 1.0
 	upg_crit_chance = 0.0
 	upg_crit_damage = 1.5
+	upg_group_dmg = {}
+	upg_kind_dmg = {}
+	upg_mech = {}
+	rebirth_charges = 0
+	run_coin_mult = 1.0
+	run_luck = 0.0
 	recompute_max_hp()
 	heal_to_full()
 	level_changed.emit(player_level)

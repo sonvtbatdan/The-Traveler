@@ -21,24 +21,24 @@ const MAX_ALIVE     := 120     # hard cap on living enemies (bosses still spawn 
 # id → { behavior, hp, speed, size, contact, xp, shape, tint, (explodes), (armor) }
 const ENEMY_DEFS := {
 	"diver":    {"behavior": "spiral",    "hp": 30.0,  "speed": 150.0, "size": 14.0, "contact": 10, "explodes": true, "xp": 4,  "icon": "res://assets/enemies/kingfisher.png"},
-	"centipede":{"behavior": "centipede", "hp": 240.0, "speed": 100.0, "size": 20.0, "contact": 20, "xp": 24, "armor": 1.0, "icon": "res://assets/enemies/animalcentipede.png"},
+	"centipede":{"behavior": "centipede", "hp": 180.0, "speed": 100.0, "size": 20.0, "contact": 20, "xp": 24, "armor": 1.0, "icon": "res://assets/enemies/animalcentipede.png"},
 	"dragonfly":{"behavior": "orbit",     "hp": 90.0,  "speed": 130.0, "size": 16.0, "contact": 10, "explodes": true, "xp": 10, "icon": "res://assets/enemies/animaldragonfly.png"},
-	"octopus":  {"behavior": "jump",      "hp": 240.0, "speed": 130.0, "size": 22.0, "contact": 20, "explodes": true, "xp": 24, "icon": "res://assets/enemies/animaloctopus.png"},
+	"octopus":  {"behavior": "jump",      "hp": 180.0, "speed": 130.0, "size": 22.0, "contact": 20, "explodes": true, "xp": 24, "icon": "res://assets/enemies/animaloctopus.png"},
 	"spider":   {"behavior": "jump_diag", "hp": 60.0,  "speed": 130.0, "size": 16.0, "contact": 8,  "explodes": true, "xp": 8,  "icon": "res://assets/enemies/animalspider.png"},
 	"bee":      {"behavior": "swarm_dive","hp": 20.0,  "speed": 150.0, "size": 12.0, "contact": 8,  "explodes": true, "xp": 3,  "icon": "res://assets/enemies/animalbee.png"},
 	"bug":      {"behavior": "chase",     "hp": 100.0, "speed": 100.0, "size": 11.0, "contact": 5,  "explodes": true, "xp": 3,  "icon": "res://assets/enemies/animalbug.png"},
 	"swarm":    {"behavior": "swarm_dive","hp": 20.0,  "speed": 160.0, "size": 12.0, "contact": 10, "explodes": true, "xp": 4,  "icon": "res://assets/enemies/swarm.png"},
 	"fly":      {"behavior": "scatter",   "hp": 10.0,  "speed": 120.0, "size": 9.0,  "contact": 5,  "explodes": true, "xp": 2,  "icon": "res://assets/enemies/animalflies.png"},
 	"shooter":  {"behavior": "shooter",   "hp": 50.0,  "speed": 110.0, "size": 16.0, "contact": 0,  "xp": 10, "icon": "res://assets/enemies/jetfighter.png"},
-	"sentinel": {"behavior": "sentinel",  "hp": 560.0, "speed": 90.0,  "size": 22.0, "contact": 0,  "xp": 14, "icon": "res://assets/enemies/sentinel.png"},
+	"sentinel": {"behavior": "sentinel",  "hp": 420.0, "speed": 90.0,  "size": 22.0, "contact": 0,  "xp": 14, "icon": "res://assets/enemies/sentinel.png"},
 	"beamer":   {"behavior": "beamer",    "hp": 60.0,  "speed": 90.0,  "size": 18.0, "contact": 0,  "xp": 12, "icon": "res://assets/enemies/beamer.png"},
-	"bomber":   {"behavior": "bomber",    "hp": 240.0, "speed": 100.0, "size": 20.0, "contact": 0,  "xp": 24, "icon": "res://assets/enemies/bombing.gif"},
-	"missile":  {"behavior": "missile",   "hp": 728.0, "speed": 90.0,  "size": 22.0, "contact": 0,  "xp": 18, "icon": "res://assets/enemies/missilelauncher.png"},
+	"bomber":   {"behavior": "bomber",    "hp": 190.0, "speed": 100.0, "size": 20.0, "contact": 0,  "xp": 24, "icon": "res://assets/enemies/bombing.gif"},
+	"missile":  {"behavior": "missile",   "hp": 520.0, "speed": 90.0,  "size": 22.0, "contact": 0,  "xp": 18, "icon": "res://assets/enemies/missilelauncher.png"},
 	"dummy":    {"behavior": "dummy",     "hp": 200.0, "speed": 0.0,   "size": 18.0, "contact": 0,  "xp": 0,  "invincible": true, "icon": "res://assets/enemies/dummy.png"},
 	# bosses — big high-HP stubs (real movesets later)
-	"elephant":  {"behavior": "boss_stub", "hp": 8000.0, "speed": 110.0, "size": 70.0, "contact": 40, "xp": 500, "shape": "circle",   "tint": Color(0.75, 0.70, 0.65), "icon": "res://assets/bosses/elephant/elephant.sheet.png", "boss_script": "res://scripts/gameplay/arena_elephant.gd"},
-	"chromeleon":{"behavior": "boss_stub", "hp": 6000.0, "speed": 70.0, "size": 60.0, "contact": 35, "xp": 400, "shape": "diamond",  "tint": Color(0.45, 0.90, 0.65), "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},
-	"metalfly":  {"behavior": "boss_stub", "hp": 7000.0, "speed": 65.0, "size": 64.0, "contact": 38, "xp": 450, "shape": "triangle", "tint": Color(0.70, 0.75, 0.85), "icon": "res://assets/bosses/metalfly/metalfly.sheet.png"},
+	"elephant":  {"behavior": "boss_stub", "hp": 5500.0, "speed": 110.0, "size": 70.0, "contact": 40, "xp": 500, "shape": "circle",   "tint": Color(0.75, 0.70, 0.65), "icon": "res://assets/bosses/elephant/elephant.sheet.png", "boss_script": "res://scripts/gameplay/arena_elephant.gd"},
+	"chromeleon":{"behavior": "boss_stub", "hp": 4200.0, "speed": 70.0, "size": 60.0, "contact": 35, "xp": 400, "shape": "diamond",  "tint": Color(0.45, 0.90, 0.65), "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},
+	"metalfly":  {"behavior": "boss_stub", "hp": 4800.0, "speed": 65.0, "size": 64.0, "contact": 38, "xp": 450, "shape": "triangle", "tint": Color(0.70, 0.75, 0.85), "icon": "res://assets/bosses/metalfly/metalfly.sheet.png"},
 }
 
 # ══ 3. AUTHORED TIMELINE ═══════════════════════════════════════════════════════
@@ -51,11 +51,11 @@ const DEFAULT_TIMELINE := [
 	{"time": 8.0,   "type": "fly",       "count": 8,  "pattern": "scatter"},
 	{"time": 15.0,  "type": "diver",     "count": 5,  "pattern": "arc"},
 	{"time": 24.0,  "type": "spider",    "count": 4,  "pattern": "scatter"},
-	{"time": 34.0,  "type": "bug",       "count": 12, "pattern": "stream", "duration": 6.0},
+	{"time": 34.0,  "type": "bug",       "count": 16, "pattern": "stream", "duration": 6.0},
 	{"time": 46.0,  "type": "dragonfly", "count": 4,  "pattern": "ring"},
 	{"time": 55.0,  "type": "shooter",   "count": 3,  "pattern": "arc"},
 	# ── 1:00–2:00 — mixed, higher counts ──
-	{"time": 66.0,  "type": "bee",       "count": 12, "pattern": "ring"},
+	{"time": 66.0,  "type": "bee",       "count": 16, "pattern": "ring"},
 	{"time": 78.0,  "type": "octopus",   "count": 3,  "pattern": "scatter"},
 	{"time": 86.0,  "type": "diver",     "count": 8,  "pattern": "stream", "duration": 5.0},
 	{"time": 98.0,  "type": "sentinel",  "count": 2,  "pattern": "arc"},
@@ -65,9 +65,9 @@ const DEFAULT_TIMELINE := [
 	{"time": 125.0, "type": "fly",       "count": 14, "pattern": "stream", "duration": 10.0},
 	# ── 2:10–3:30 — escalation ──
 	{"time": 140.0, "type": "beamer",    "count": 3,  "pattern": "ring"},
-	{"time": 150.0, "type": "bug",       "count": 16, "pattern": "ring"},
+	{"time": 150.0, "type": "bug",       "count": 22, "pattern": "ring"},
 	{"time": 162.0, "type": "bomber",    "count": 2,  "pattern": "arc"},
-	{"time": 172.0, "type": "swarm",     "count": 12, "pattern": "stream", "duration": 6.0},
+	{"time": 172.0, "type": "swarm",     "count": 16, "pattern": "stream", "duration": 6.0},
 	{"time": 186.0, "type": "missile",   "count": 2,  "pattern": "scatter"},
 	{"time": 196.0, "type": "dragonfly", "count": 8,  "pattern": "ring"},
 	{"time": 206.0, "type": "octopus",   "count": 5,  "pattern": "scatter"},

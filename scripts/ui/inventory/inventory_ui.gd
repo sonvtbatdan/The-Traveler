@@ -80,6 +80,7 @@ var _dragging: bool = false        # true while an item is being dragged (drag h
 
 func _ready() -> void:
 	layer = 60
+	process_mode = Node.PROCESS_MODE_ALWAYS   # stay interactive while the inventory pauses the game
 	add_to_group("inventory_ui")   # weapon_system checks this to pause firing while open
 	add_to_group("hud_editable")
 	set_meta("hud_key", "inventory_btn")
@@ -262,12 +263,16 @@ func _rebuild() -> void:
 
 # ── Open / close ────────────────────────────────────────────────────────────
 
+var _was_paused: bool = false   # restore the prior pause state on close (plays nice w/ level-up overlays)
+
 func open() -> void:
 	_backdrop.show()
 	_panel.show()
 	if _sheet != null:
 		_sheet.show()
 	_toggle_btn.hide()
+	_was_paused = get_tree().paused
+	get_tree().paused = true   # opening the inventory pauses the game
 
 func close() -> void:
 	_backdrop.hide()
@@ -275,6 +280,8 @@ func close() -> void:
 	if _sheet != null:
 		_sheet.hide()
 	_toggle_btn.show()
+	if not _was_paused:
+		get_tree().paused = false   # only unpause if WE paused it
 
 func is_open() -> bool:
 	return _panel.visible

@@ -11,6 +11,7 @@ const TestTemplateScript := preload("res://scripts/gameplay/test_template.gd")
 const WaveEditorScript   := preload("res://scripts/ui/hud/arena_wave_editor.gd")
 const USE_TEST_SPAWNER   := false   # true → use test_template.gd (spawn one enemy every 5s) instead of the timeline
 const ArenaWeaponsScript := preload("res://scripts/gameplay/arena_weapons.gd")
+const ArenaLoadoutScript := preload("res://scripts/gameplay/arena_loadout.gd")   # fires EQUIPPED inventory weapons
 const ArenaNebulaScript  := preload("res://scripts/gameplay/arena_nebula.gd")
 const ArenaDustScript    := preload("res://scripts/gameplay/arena_dust.gd")
 const ArenaPlanetsScript := preload("res://scripts/gameplay/arena_planets.gd")
@@ -24,6 +25,8 @@ const DebugSpawnScript   := preload("res://scripts/gameplay/arena_debug_spawn.gd
 const WeaponPaletteScript := preload("res://scripts/gameplay/arena_weapon_palette.gd")
 const PerfOverlayScript  := preload("res://scripts/ui/hud/perf_overlay.gd")
 const LevelUpUIScript    := preload("res://scripts/ui/hud/arena_levelup_ui.gd")
+const InventoryUIScript  := preload("res://scripts/ui/inventory/inventory_ui.gd")   # equip screen (I key)
+const DropUIScript       := preload("res://scripts/ui/hud/arena_drop_ui.gd")          # boss-defeated salvage choice
 const ArenaRuinLayerScript := preload("res://scripts/gameplay/arena_ruin_layer.gd")
 const ArenaHudButtonsScript := preload("res://scripts/ui/hud/arena_hud_buttons.gd")
 const BossEditScript        := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
@@ -68,13 +71,21 @@ var _tex_lean: Texture2D = null
 var _fire_acc: float = 0.0
 var _projectiles: Array = []   # {node, vel, life, start}
 var _edge_vignette_mat: ShaderMaterial = null   # boundary "edge of system" cue
+var _enemy_mgr: Node = null   # arena_enemy_manager (smart/defend thruster bullet queries)
 var _boss_edit:  Node = null
 var _creep_edit: Node = null
 
 func _ready() -> void:
 	randomize()                          # fresh RNG each launch → random spawn spot (below)
+	if MetaManager.has_method("purge_run_temp"):
+		MetaManager.purge_run_temp()     # clear last run's temporary boss-drop loot
 	if RESET_RUN_ON_START and GameManager.has_method("reset_run"):
 		GameManager.reset_run()          # fresh VS climb: level 1, no upgrades, full HP
+		if typeof(MetaManager) != TYPE_NIL and MetaManager.has_method("apply_run_start"):
+			MetaManager.apply_run_start()   # fold permanent passives into this run
+	# Run ends → back to the hub (death; rebirth charges are consumed first).
+	if GameManager.has_signal("ship_destroyed"):
+		GameManager.ship_destroyed.connect(_on_run_ended)
 	# Depth-of-field: all non-gameplay layers render into the DoF SubViewport (blurred/dimmed/desaturated
 	# behind the sharp gameplay plane). bg is that SubViewport; parallax/streaming are unchanged because its
 	# camera is synced to the main camera each frame.
@@ -113,13 +124,16 @@ func _ready() -> void:
 	_build_boundary_vignette()
 	add_child(PerfOverlayScript.new())   # always-on FPS/frame-ms readout (top-right) for tuning
 	add_child(LevelUpUIScript.new())     # VS choose-1-of-3 on level-up (pauses the game)
+	add_child(InventoryUIScript.new())   # equip/loadout screen (toggle with the I key) — drives arena_loadout
+	add_child(DropUIScript.new())        # boss-defeated salvage: equip (run) vs disassemble (blueprint)
 	add_child(ArenaEnemyMgrScript.new())  # world-space enemy services (bullets, explosions, ship pos)
 	if USE_TEST_SPAWNER:
 		add_child(TestTemplateScript.new())   # quick test: one enemy every 5s
 	else:
 		add_child(WaveDirectorScript.new())   # authored-timeline wave spawner
 		add_child(WaveEditorScript.new())     # F7 in-game wave editor (add/edit/remove waves live)
-	add_child(ArenaWeaponsScript.new())   # Gatling gun + Gauss cannon, auto-firing toward the ship facing
+	add_child(ArenaWeaponsScript.new())   # default/pickup weapons (fallback when nothing is equipped)
+	add_child(ArenaLoadoutScript.new())   # fires the player's EQUIPPED inventory loadout (primary + secondary)
 	add_child(ArenaRuinLayerScript.new()) # periodic ruin ships (every 5–15s): ship → box → loot drop
 	call_deferred("_setup_boss_edit")
 	call_deferred("_setup_creep_edit")
@@ -228,7 +242,22 @@ func _physics_process(delta: float) -> void:
 		return
 	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var speed_mult: float = GameManager.get_move_speed_mult() if GameManager.has_method("get_move_speed_mult") else 1.0
-	_player.velocity = dir * MOVE_SPEED * speed_mult
+	var spd := MOVE_SPEED * speed_mult
+	# Equipped thruster behaviour (Phase 5): strong=raw speed, reverse=faster backpedal,
+	# smart=auto-dodge incoming fire, defend=shove enemy fire away from the hull.
+	var tstats: Dictionary = _thruster_def().get("stats", {})
+	var ttype := String(tstats.get("thruster_type", ""))
+	var fwd := Vector2.UP.rotated(_player.rotation)
+	if ttype == "strong":
+		spd *= float(tstats.get("speed_mult", 1.0))
+	elif ttype == "reverse" and dir.dot(fwd) < -0.1:
+		spd *= float(tstats.get("reverse_mult", 1.0))   # boost only while backpedalling
+	var vel := dir * spd
+	if ttype == "smart":
+		vel += _smart_dodge(tstats)
+	elif ttype == "defend":
+		_defend_push(tstats)
+	_player.velocity = vel
 	_update_ship_lean(dir)
 	_player.move_and_slide()
 	_apply_boundary(delta)
@@ -246,6 +275,34 @@ func _apply_boundary(delta: float) -> void:
 	if _edge_vignette_mat != null:
 		var f := clampf((d - (SOFT_BOUNDARY - VIGNETTE_FADE)) / VIGNETTE_FADE, 0.0, 1.0)
 		_edge_vignette_mat.set_shader_parameter("intensity", f)
+
+## The equipped thruster's def ({} if none) — read each physics frame for its behaviour.
+func _thruster_def() -> Dictionary:
+	var uid: int = InventoryManager.equipped_uid("thruster")
+	if uid == -1:
+		return {}
+	return InventoryManager.get_def(String(InventoryManager.get_item(uid).get("def", "")))
+
+func _arena_enemy_mgr() -> Node:
+	if _enemy_mgr == null or not is_instance_valid(_enemy_mgr):
+		_enemy_mgr = get_tree().get_first_node_in_group("enemy_manager")
+	return _enemy_mgr
+
+## Smart thruster: a velocity kick away from the nearest incoming enemy bullet (Vector2.ZERO if clear).
+func _smart_dodge(stats: Dictionary) -> Vector2:
+	var mgr := _arena_enemy_mgr()
+	if mgr == null or not mgr.has_method("nearest_bullet_offset"):
+		return Vector2.ZERO
+	var off: Vector2 = mgr.nearest_bullet_offset(_player.global_position, float(stats.get("dodge_radius", 130.0)))
+	if off == Vector2.ZERO:
+		return Vector2.ZERO
+	return -off.normalized() * float(stats.get("dodge_force", 680.0))
+
+## Bulwark thruster: shove enemy fire near the ship outward.
+func _defend_push(stats: Dictionary) -> void:
+	var mgr := _arena_enemy_mgr()
+	if mgr != null and mgr.has_method("push_bullets_away"):
+		mgr.push_bullets_away(_player.global_position, float(stats.get("push_radius", 170.0)), float(stats.get("push_force", 560.0)))
 
 func _update_ship_lean(dir: Vector2) -> void:
 	if _ship_spr == null:
@@ -357,6 +414,59 @@ func _setup_creep_edit() -> void:
 	add_child(cem)
 	_creep_edit = cem
 	cem.setup(oc)
+
+# ── Run end (death → hub) ───────────────────────────────────────────────────────
+var _run_over_shown: bool = false
+
+func _on_run_ended() -> void:
+	# Phoenix Core passive: spend a revive charge and keep playing instead of ending the run.
+	if GameManager.has_method("try_rebirth") and GameManager.try_rebirth():
+		return
+	if _run_over_shown:
+		return
+	_run_over_shown = true
+	call_deferred("_show_run_over")   # ship_destroyed can fire inside a boss tick → defer
+
+func _show_run_over() -> void:
+	get_tree().paused = true
+	var cl := CanvasLayer.new()
+	cl.layer = 200
+	cl.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(cl)
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.78)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	cl.add_child(dim)
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_CENTER)
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_theme_constant_override("separation", 18)
+	cl.add_child(box)
+	var title := Label.new()
+	title.text = "RUN OVER"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var tf := load("res://assets/fonts/Good Old DOS.ttf") as Font
+	if tf != null:
+		title.add_theme_font_override("font", tf)
+	title.add_theme_font_size_override("font_size", 48)
+	title.add_theme_color_override("font_color", Color("#E5792A"))
+	box.add_child(title)
+	var sub := Label.new()
+	var lvl: int = GameManager.player_level if "player_level" in GameManager else 1
+	sub.text = "Reached level %d" % lvl
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.add_theme_font_size_override("font_size", 22)
+	sub.add_theme_color_override("font_color", Color(0.8, 0.82, 0.88))
+	box.add_child(sub)
+	var btn := Button.new()
+	btn.text = "RETURN TO DOCK"
+	btn.custom_minimum_size = Vector2(260, 56)
+	btn.add_theme_font_size_override("font_size", 22)
+	btn.pressed.connect(func() -> void:
+		get_tree().paused = false
+		get_tree().change_scene_to_file("res://scenes/hub.tscn"))
+	box.add_child(btn)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_boss_edit_mode"):

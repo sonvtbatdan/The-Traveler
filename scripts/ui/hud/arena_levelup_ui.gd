@@ -21,6 +21,35 @@ const UPGRADES := [
 	{"id": "pickup",      "name": "Magnet",          "mag": 0.15},  # +% pickup radius
 	{"id": "crit_chance", "name": "Critical\nStrike", "mag": 0.05},  # +5% crit chance
 	{"id": "crit_damage", "name": "Lethality",       "mag": 0.25},  # +25% crit damage multiplier
+	# ── Group damage cards (cross-buff a whole weapon group) ──
+	{"id": "grp_ballistic", "name": "Ballistics",   "mag": 0.25, "type": "group", "group": "ballistic"},
+	{"id": "grp_energy",    "name": "Energy\nFlux",  "mag": 0.25, "type": "group", "group": "energy"},
+	{"id": "grp_hybrid",    "name": "Hybrid\nCore",  "mag": 0.25, "type": "group", "group": "hybrid"},
+	{"id": "grp_explosive", "name": "Ordnance",      "mag": 0.25, "type": "group", "group": "explosive"},
+	{"id": "grp_area",      "name": "Saturation",    "mag": 0.25, "type": "group", "group": "area_dot"},
+	{"id": "grp_summon",    "name": "Legion",        "mag": 0.25, "type": "group", "group": "summon"},
+	# ── Damage-kind cards (buff a damage element across groups) ──
+	{"id": "kind_fire",     "name": "Incendiary",    "mag": 0.30, "type": "kind", "kind": "fire"},
+	{"id": "kind_light",    "name": "Radiance",      "mag": 0.30, "type": "kind", "kind": "light"},
+	{"id": "kind_kinetic",  "name": "Impact",        "mag": 0.30, "type": "kind", "kind": "kinetic"},
+	{"id": "kind_energy",   "name": "Ionize",        "mag": 0.30, "type": "kind", "kind": "energy"},
+	{"id": "kind_explosive","name": "Detonation",    "mag": 0.30, "type": "kind", "kind": "explosive"},
+	# ── Mechanic cards (modify firing behaviour) ──
+	{"id": "mech_chain",      "name": "Conductor",      "mag": 2,  "type": "mech", "mech": "chain_jumps"},
+	{"id": "mech_ricochet",   "name": "Ricochet",       "mag": 1,  "type": "mech", "mech": "ricochet"},
+	{"id": "mech_pierce",     "name": "Piercing\nRounds","mag": 1, "type": "mech", "mech": "pierce"},
+	{"id": "mech_splash",     "name": "Overpressure",   "mag": 30, "type": "mech", "mech": "splash_radius"},
+	{"id": "mech_radius",     "name": "Resonance",      "mag": 25, "type": "mech", "mech": "radius"},
+	{"id": "mech_rico_range", "name": "Rebound",        "mag": 80, "type": "mech", "mech": "ricochet_range"},
+	# ── Combo cards (group damage + a mechanic at once) ──
+	{"id": "combo_overcharge", "name": "Overcharge", "type": "combo",
+		"effects": [{"kind": "group", "key": "energy", "mag": 0.15}, {"kind": "mech", "key": "chain_jumps", "mag": 1}]},
+	{"id": "combo_demolition", "name": "Demolition", "type": "combo",
+		"effects": [{"kind": "group", "key": "explosive", "mag": 0.15}, {"kind": "mech", "key": "splash_radius", "mag": 25}]},
+	{"id": "combo_velocity", "name": "Velocity", "type": "combo",
+		"effects": [{"kind": "group", "key": "ballistic", "mag": 0.15}, {"kind": "mech", "key": "ricochet", "mag": 1}]},
+	{"id": "combo_momentum", "name": "Momentum\nDrive", "type": "combo",
+		"effects": [{"kind": "group", "key": "energy", "mag": 0.15}, {"kind": "mech", "key": "ricochet_range", "mag": 60}]},
 ]
 const CHOICES := 3
 
@@ -166,7 +195,7 @@ func _make_card(u: Dictionary, idx: int) -> Control:
 
 	# Current value label — second text box (83%–96%)
 	var lbl_current := Label.new()
-	lbl_current.text = _current_text(String(u["id"]))
+	lbl_current.text = _current_text(u)
 	lbl_current.add_theme_font_override("font", load("res://assets/fonts/Good Old DOS.ttf"))
 	lbl_current.add_theme_font_size_override("font_size", 14)
 	lbl_current.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -227,6 +256,19 @@ func _input(event: InputEvent) -> void:
 
 # ── Apply + display ─────────────────────────────────────────────────────────────
 func _apply(u: Dictionary) -> void:
+	var t := String(u.get("type", ""))
+	if t != "":
+		match t:
+			"group": GameManager.add_group_dmg(String(u["group"]), float(u["mag"]))
+			"kind":  GameManager.add_kind_dmg(String(u["kind"]), float(u["mag"]))
+			"mech":  GameManager.add_mech(String(u["mech"]), float(u["mag"]))
+			"combo":
+				for e: Dictionary in u.get("effects", []):
+					match String(e["kind"]):
+						"group": GameManager.add_group_dmg(String(e["key"]), float(e["mag"]))
+						"kind":  GameManager.add_kind_dmg(String(e["key"]), float(e["mag"]))
+						"mech":  GameManager.add_mech(String(e["key"]), float(e["mag"]))
+		return
 	var mag: float = u["mag"]
 	match String(u["id"]):
 		"hp":         GameManager.add_max_hp(int(mag))
@@ -240,7 +282,37 @@ func _apply(u: Dictionary) -> void:
 		"crit_chance": GameManager.add_crit_chance(mag)
 		"crit_damage": GameManager.add_crit_damage(mag)
 
+const GROUP_LABEL := {"ballistic": "Ballistic", "energy": "Energy", "hybrid": "Hybrid", "explosive": "Explosive", "area_dot": "Area", "summon": "Summon"}
+const KIND_LABEL  := {"fire": "Fire", "light": "Light", "kinetic": "Kinetic", "energy": "Energy", "explosive": "Blast"}
+
+func _mech_effect_text(key: String, mag: float) -> String:
+	match key:
+		"chain_jumps":    return "+%d Chain" % int(mag)
+		"ricochet":       return "+%d Ricochet" % int(mag)
+		"pierce":         return "+%d Pierce" % int(mag)
+		"splash_radius":  return "+%d Splash" % int(mag)
+		"radius":         return "+%d AoE" % int(mag)
+		"ricochet_range": return "+%d Bounce" % int(mag)
+	return "+%d" % int(mag)
+
+func _label_for(kind_type: String, key: String) -> String:
+	if kind_type == "group":
+		return String(GROUP_LABEL.get(key, key))
+	return String(KIND_LABEL.get(key, key))
+
 func _effect_text(u: Dictionary) -> String:
+	match String(u.get("type", "")):
+		"group": return "+%d%% %s" % [int(round(float(u["mag"]) * 100.0)), String(GROUP_LABEL.get(String(u["group"]), u["group"]))]
+		"kind":  return "+%d%% %s" % [int(round(float(u["mag"]) * 100.0)), String(KIND_LABEL.get(String(u["kind"]), u["kind"]))]
+		"mech":  return _mech_effect_text(String(u["mech"]), float(u["mag"]))
+		"combo":
+			var parts: Array = []
+			for e: Dictionary in u.get("effects", []):
+				if String(e["kind"]) == "mech":
+					parts.append(_mech_effect_text(String(e["key"]), float(e["mag"])))
+				else:
+					parts.append("+%d%% %s" % [int(round(float(e["mag"]) * 100.0)), _label_for(String(e["kind"]), String(e["key"]))])
+			return "\n".join(PackedStringArray(parts))
 	var mag: float = u["mag"]
 	match String(u["id"]):
 		"hp":          return "+%d Max HP" % int(mag)
@@ -251,8 +323,13 @@ func _effect_text(u: Dictionary) -> String:
 		"crit_damage": return "+%d%% Crit\nDamage" % int(round(mag * 100.0))
 		_:             return "+%d%%" % int(round(mag * 100.0))
 
-func _current_text(id: String) -> String:
-	match id:
+func _current_text(u: Dictionary) -> String:
+	match String(u.get("type", "")):
+		"group": return "Now +%d%%" % int(round((GameManager.group_damage_mult(String(u["group"])) - 1.0) * 100.0))
+		"kind":  return "Now +%d%%" % int(round((GameManager.kind_damage_mult([String(u["kind"])]) - 1.0) * 100.0))
+		"mech":  return "Now +%d" % int(GameManager.mech_bonus(String(u["mech"])))
+		"combo": return ""
+	match String(u["id"]):
 		"hp":         return "Now +%d" % GameManager.upg_max_hp_bonus
 		"defense":    return "Now +%d" % GameManager.upg_base_defense
 		"fire_rate":  return "Now +%d%%" % int(round((GameManager.upg_fire_rate_mult - 1.0) * 100.0))
