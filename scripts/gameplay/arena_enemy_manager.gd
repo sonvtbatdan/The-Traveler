@@ -116,6 +116,32 @@ func take_wanderer_y_offset() -> float:
 func spawn_bullet(pos: Vector2, vel: Vector2, dmg: int) -> void:
 	_bullets.append({"pos": pos, "vel": vel, "dmg": dmg, "life": 0.0, "start": pos})
 
+## Deflect every enemy bullet within `radius` of `center` to fly outward at ≥ `force` px/s. Used by the
+## Bulwark thruster + Guardian drone to shove incoming fire away. Returns how many bullets were pushed.
+func push_bullets_away(center: Vector2, radius: float, force: float) -> int:
+	var n := 0
+	for b: Dictionary in _bullets:
+		var p: Vector2 = b["pos"]
+		var d := p.distance_to(center)
+		if d <= radius:
+			var away := (p - center).normalized() if d > 0.01 else Vector2.UP
+			b["vel"] = away * maxf((b["vel"] as Vector2).length(), force)
+			n += 1
+	return n
+
+## Offset from `center` to the nearest enemy bullet within `radius` (Vector2.ZERO if none). The Smart
+## thruster reads this to nudge the ship off incoming fire.
+func nearest_bullet_offset(center: Vector2, radius: float) -> Vector2:
+	var best := Vector2.ZERO
+	var best_d := radius
+	for b: Dictionary in _bullets:
+		var off: Vector2 = (b["pos"] as Vector2) - center
+		var d := off.length()
+		if d < best_d:
+			best_d = d
+			best = off
+	return best
+
 func _tick_bullets(delta: float) -> void:
 	var sc := ship_center()
 	var sr := ship_radius()

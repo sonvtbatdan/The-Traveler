@@ -60,7 +60,9 @@ func _collect() -> void:
 	match _type:
 		"coin", "diamond":
 			if GameManager.has_method("add_money"):
-				GameManager.add_money(50)
+				var mult: float = GameManager.run_coin_mult if "run_coin_mult" in GameManager else 1.0
+				mult += GameManager.run_luck if "run_luck" in GameManager else 0.0   # Lucky drone boosts coins too
+				GameManager.add_money(int(round(50.0 * mult)))   # Scavenger passive + luck scale pickups
 		"heart":
 			if GameManager.has_method("heal"):
 				GameManager.heal(25)

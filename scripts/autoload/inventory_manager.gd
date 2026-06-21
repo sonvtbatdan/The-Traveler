@@ -60,11 +60,15 @@ const SLOT_RULES: Dictionary = {
 }
 
 # Placeholder icon colour per rarity (used until real art is added).
+# Six-tier scheme: the 20 standard weapons roll common/uncommon/rare; the 10 fragment-crafted
+# uniques are very_rare/unique/legendary. (epic was remapped → rare in the 4→6 migration.)
 const RARITY_COLORS: Dictionary = {
-	"common":    Color(0.62, 0.66, 0.72),
-	"rare":      Color(0.30, 0.55, 0.95),
-	"epic":      Color(0.65, 0.35, 0.90),
-	"legendary": Color(0.95, 0.60, 0.20),
+	"common":    Color(0.62, 0.66, 0.72),   # grey
+	"uncommon":  Color(0.40, 0.80, 0.45),   # green
+	"rare":      Color(0.30, 0.55, 0.95),   # blue
+	"very_rare": Color(0.65, 0.35, 0.90),   # purple
+	"unique":    Color(0.95, 0.60, 0.20),   # orange/gold
+	"legendary": Color(0.95, 0.30, 0.25),   # red
 }
 
 # Display colour by AFFIX COUNT (not loot rarity): 0 affixes = white (common), 1-2 = blue (uncommon).
@@ -72,12 +76,14 @@ const COLOR_NO_AFFIX := Color(0.95, 0.95, 0.95)   # white  — no affixes (commo
 const COLOR_AFFIXED  := Color(0.35, 0.60, 1.0)    # blue   — 1-2 affixes (uncommon)
 
 # Asteroid loot drop weights per rarity. Pool total / LOOT_DENOM ≈ base drop chance.
-# With the 4 current items the base chance is roughly 5.7 % per destroyed asteroid.
-# Rare items are ~3× less likely than common; epic ~10× less likely than common.
+# Six-tier scheme. unique = 0 (fragment-crafted only; also hard-excluded in roll_asteroid_drop);
+# legendary kept at 1 so the rare legendary hulls can still trickle out of asteroids.
 const RARITY_LOOT_WEIGHTS: Dictionary = {
 	"common":    40,
-	"rare":      12,
-	"epic":       4,
+	"uncommon":  18,
+	"rare":       8,
+	"very_rare":  3,
+	"unique":     0,
 	"legendary":  1,
 }
 const LOOT_DENOM: int = 1000
@@ -100,6 +106,8 @@ const ITEM_DEFS: Dictionary = {
 		"fire_mode": "charge",   # hold to charge (up to cooldown_sec); damage scales with charge
 		"fire_type": "projectile",
 		"rarity": "rare",
+		"group": "hybrid",
+		"damage_kind": ["kinetic", "energy"],
 		"desc": "Charge up, then fire a big chunk of metal at a target. Heavy single-target burst — slow cadence, big hit.",
 		"stats": {
 			"damage": 110,
@@ -115,13 +123,15 @@ const ITEM_DEFS: Dictionary = {
 		"tags": ["weapon"],
 		"fire_mode": "repeat",
 		"fire_type": "acid_cloud",   # lob a glob that settles into a damaging armor-shredding mist
-		"rarity": "rare",
+		"rarity": "uncommon",
+		"group": "area_dot",
+		"damage_kind": ["bio"],
 		"desc": "Lob a glob of acid mist that settles into a cloud. Enemies inside take steady damage and lose armor — softening them up for your other guns.",
 		"stats": {
 			"cooldown_sec": 1.0,
 			"ammo_cost": 12,               # per shot
-			"tick_damage": 5,              # damage per tick (through enemy armor)
-			"tick_interval_sec": 0.5,      # → 10 DPS while inside
+			"tick_damage": 8,              # damage per tick (through enemy armor) — Phase 6: 5→8 (DoT was underweight)
+			"tick_interval_sec": 0.5,      # → 16 DPS while inside, plus armor shred + AoE
 			"shred_per_sec": 1,            # armor an enemy loses per second inside the cloud
 			"cloud_lifetime_sec": 5.0,
 			"cloud_radius": 90,
@@ -135,7 +145,9 @@ const ITEM_DEFS: Dictionary = {
 		"tags": ["weapon", "shield"],
 		"fire_mode": "aura",   # always-on while equipped; damages everything within radius_px each tick
 		"fire_type": "aura",
-		"rarity": "epic",
+		"rarity": "rare",
+		"group": "energy",
+		"damage_kind": ["energy"],
 		"desc": "An electric area-effect aura around the ship. Always-on while equipped; damages every enemy within a radius each tick.",
 		"stats": {
 			"damage_per_tick": 14,
@@ -153,6 +165,8 @@ const ITEM_DEFS: Dictionary = {
 		"fire_mode": "repeat",   # hold to keep firing every cooldown_sec
 		"fire_type": "projectile",
 		"rarity": "common",
+		"group": "ballistic",
+		"damage_kind": ["kinetic"],
 		"desc": "Fires fast; hold to keep firing. The baseline rapid-fire weapon — light, cheap, reliable sustained fire.",
 		"uses_ammo": true,
 		"stats": {
@@ -169,7 +183,9 @@ const ITEM_DEFS: Dictionary = {
 		"tags": ["weapon"],
 		"fire_mode": "repeat",   # auto-fires every cooldown_sec while held
 		"fire_type": "homing",   # picks the nearest target; missile curves toward it
-		"rarity": "rare",
+		"rarity": "uncommon",
+		"group": "explosive",
+		"damage_kind": ["explosive", "fire"],
 		"desc": "Launches out the back, loops around the ship, then streaks to the cursor and bursts in an explosion.",
 		"stats": {
 			"damage": 19,
@@ -186,6 +202,8 @@ const ITEM_DEFS: Dictionary = {
 		"fire_mode": "repeat",
 		"fire_type": "cone",   # a spread of pellets that vanish after range_px
 		"rarity": "common",
+		"group": "ballistic",
+		"damage_kind": ["kinetic"],
 		"uses_ammo": true,
 		"desc": "Short-range burst of pellets in a cone. Fires a quick double-tap, then a brief reload. Devastating up close, harmless at range.",
 		"stats": {
@@ -209,6 +227,8 @@ const ITEM_DEFS: Dictionary = {
 		"fire_type": "hitscan_beam",  # instant beam, stops at the first target
 		"uses_ammo": true,            # drains the ammo bar at stats.ammo per second
 		"rarity": "rare",
+		"group": "energy",
+		"damage_kind": ["energy", "light"],
 		"desc": "A continuous beam fired straight forward that burns the first target in its line. Hold to sustain.",
 		"stats": {
 			"damage": 20,             # per tick (−70% from 66)
@@ -227,7 +247,9 @@ const ITEM_DEFS: Dictionary = {
 		"tags": ["weapon"],
 		"fire_mode": "repeat",
 		"fire_type": "chain",   # hits a target, then jumps to nearby ones
-		"rarity": "rare",
+		"rarity": "uncommon",
+		"group": "ballistic",
+		"damage_kind": ["energy"],
 		"desc": "Lightning that strikes a target then chains to nearby ones.",
 		"stats": {
 			"damage": 30,
@@ -245,7 +267,9 @@ const ITEM_DEFS: Dictionary = {
 		"tags": ["weapon"],
 		"fire_mode": "beam",
 		"fire_type": "tether",   # short-range tether to the nearest target
-		"rarity": "epic",
+		"rarity": "rare",
+		"group": "hybrid",
+		"damage_kind": ["energy", "fire"],
 		"desc": "A short-range tether that latches the nearest target and drills it with massive sustained damage.",
 		"stats": {
 			"damage": 70,            # per tick
@@ -264,7 +288,9 @@ const ITEM_DEFS: Dictionary = {
 		"fire_mode": "channel",        # hold to sustain
 		"fire_type": "growing_zone",   # places a void at a spot that grows in size + damage while held
 		"uses_ammo": true,             # drains the ammo bar (10 to start + 20/s held; can't fire at 0)
-		"rarity": "legendary",
+		"rarity": "rare",
+		"group": "area_dot",
+		"damage_kind": ["energy"],
 		"desc": "Hold to tear open a void at a spot. It grows wider and hits harder the longer you hold it, then collapses when released.",
 		"stats": {
 			"damage_min": 20,          # damage/tick at placement (-50%)
@@ -285,7 +311,9 @@ const ITEM_DEFS: Dictionary = {
 		"tags": ["weapon"],
 		"fire_mode": "repeat",
 		"fire_type": "parasite_blob",  # fire a blob that bursts on an enemy into orbiting parasites
-		"rarity": "epic",
+		"rarity": "rare",
+		"group": "summon",
+		"damage_kind": ["bio"],
 		"desc": "Fire a meaty blob that bursts on an enemy into parasites orbiting it like an atom, each gnawing it. Parasites stack and live briefly.",
 		"stats": {
 			"cooldown_sec": 1.0,           # blob fire rate
@@ -304,7 +332,9 @@ const ITEM_DEFS: Dictionary = {
 		"tags": ["weapon"],
 		"fire_mode": "channel",        # hold to sustain the swarm
 		"fire_type": "minion",         # spawns bats that auto-attack + body-block boss projectiles
-		"rarity": "rare",
+		"rarity": "uncommon",
+		"group": "summon",
+		"damage_kind": ["bio"],
 		"desc": "Hold to release a swarm of bats that chase down the nearest target and body-block incoming boss fire. Downed bats respawn while held.",
 		"stats": {
 			"damage": 5,               # per bat hit
@@ -324,7 +354,9 @@ const ITEM_DEFS: Dictionary = {
 		"fire_mode": "orbital",     # always-on passive + hold to power up (new behaviour)
 		"fire_type": "orbital",     # 3 metal balls orbit the ship; collide for damage
 		"uses_energy": true,        # powering up costs energy (10 to start + 20/s); the passive is free
-		"rarity": "epic",
+		"rarity": "rare",
+		"group": "summon",
+		"damage_kind": ["kinetic", "energy"],
 		"desc": "Three crackling metal balls orbit your ship, smashing anything they touch — free, always on. Hold to overcharge: they spin up to 3× speed (more hits) while it drains your energy.",
 		"stats": {
 			"damage": 38,            # per collision (−30% from 54; routed through get_weapon_stat)
@@ -333,6 +365,201 @@ const ITEM_DEFS: Dictionary = {
 			"activation_energy": 10, # one-time cost to start the overcharge
 		},
 	},
+	# ── New standard weapons (Phase 1) — fill out the 6-group taxonomy to 20 total. Icons are
+	# runtime placeholders ("") until art lands. New fire_types radial / splash_melee + projectile
+	# stats ricochet / pierce / splash_radius are handled by the shared engine (weapon_stats + the
+	# arena firing engine; back-ported to weapon_system for the main scene).
+	"ricochet_cannon": {
+		"name": "Ricochet Cannon",
+		"icon": "",
+		"size": Vector2i(2, 1),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",
+		"fire_type": "projectile",
+		"rarity": "common",
+		"group": "ballistic",
+		"damage_kind": ["kinetic"],
+		"desc": "Fires bouncing slugs that ricochet off into nearby enemies. Great for clearing packs in tight space.",
+		"stats": { "damage": 12, "cooldown_sec": 0.3, "ricochet": 2, "ricochet_range_px": 220, "weight": 4 },
+	},
+	"flak_burst": {
+		"name": "Flak Burst",
+		"icon": "",
+		"size": Vector2i(2, 1),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",
+		"fire_type": "cone",
+		"rarity": "uncommon",
+		"group": "ballistic",
+		"damage_kind": ["kinetic", "explosive"],
+		"uses_ammo": true,
+		"desc": "Spits a wide cone of flak shells that pop on contact for a little splash. Crowd shredder at mid range.",
+		"stats": { "damage": 14, "pellets": 6, "spread_deg": 50, "range_px": 280, "cooldown_sec": 0.8, "splash_radius": 34, "weight": 5, "ammo": 2 },
+	},
+	"shockwave_emitter": {
+		"name": "Shockwave Emitter",
+		"icon": "",
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",
+		"fire_type": "radial",   # closed-range omnidirectional energy pulse around the ship
+		"rarity": "uncommon",
+		"group": "energy",
+		"damage_kind": ["energy"],
+		"uses_energy": true,
+		"desc": "Pulses a ring of force outward from the hull, knocking back and frying everything close. Pure point-blank defense.",
+		"stats": { "damage": 26, "cooldown_sec": 0.7, "radius_px": 170, "knockback": 220, "weight": 5, "energy_per_shot": 10 },
+	},
+	"tesla_coil": {
+		"name": "Tesla Coil",
+		"icon": "",
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",
+		"fire_type": "chain",
+		"rarity": "rare",
+		"group": "energy",
+		"damage_kind": ["energy"],
+		"uses_energy": true,
+		"desc": "Auto-arcs lightning to the nearest target and forks aggressively to many more. Loves dense swarms.",
+		"stats": { "damage": 22, "cooldown_sec": 0.35, "chain_jumps": 6, "chain_range_px": 200, "weight": 6, "energy": 14 },
+	},
+	"railgun": {
+		"name": "Railgun",
+		"icon": "",
+		"size": Vector2i(3, 1),
+		"tags": ["weapon"],
+		"fire_mode": "charge",
+		"fire_type": "projectile",
+		"rarity": "rare",
+		"group": "hybrid",
+		"damage_kind": ["kinetic", "energy"],
+		"uses_energy": true,
+		"desc": "Charge, then launch a hypersonic slug that punches clean through a line of enemies. Snipe whole rows.",
+		"stats": { "damage": 140, "cooldown_sec": 1.2, "pierce": 5, "weight": 8, "energy_per_shot": 14 },
+	},
+	"mortar": {
+		"name": "Mortar",
+		"icon": "",
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",
+		"fire_type": "projectile",
+		"rarity": "uncommon",
+		"group": "explosive",
+		"damage_kind": ["explosive", "fire"],
+		"desc": "Lobs shells toward the cursor that detonate in a fiery blast. Splash damage rules the crowd.",
+		"stats": { "damage": 30, "cooldown_sec": 1.0, "splash_radius": 95, "weight": 6 },
+	},
+	"splash_hammer": {
+		"name": "Splash Hammer",
+		"icon": "",
+		"size": Vector2i(2, 1),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",
+		"fire_type": "splash_melee",   # short-range arc swing dealing splash damage in front
+		"rarity": "common",
+		"group": "explosive",
+		"damage_kind": ["kinetic", "explosive"],
+		"desc": "Swings a concussive hammer in a short arc, splashing everything in front of the ship. Brutal in melee.",
+		"stats": { "damage": 28, "cooldown_sec": 0.6, "range_px": 130, "arc_deg": 120, "weight": 5 },
+	},
+
+	# ── Unique weapons (Phase 1) — never random-rolled (see _is_craft_only). Each is assembled at the
+	# crafting bench once you own all its fragments. "fragments" lists the distinct piece names; the
+	# [fragments] save section (Phase 2) tracks which indices you own. very_rare=3 / unique=4 /
+	# legendary=5 pieces. They reuse existing fire_types so the shared engine fires them unchanged.
+	"singularity_lance": {
+		"name": "Singularity Lance", "icon": "", "size": Vector2i(3, 1), "tags": ["weapon"],
+		"fire_mode": "beam", "fire_type": "hitscan_beam",
+		"rarity": "very_rare", "unique": true, "craftable_from_fragments": true,
+		"group": "hybrid", "damage_kind": ["energy", "light"], "uses_ammo": true,
+		"fragments": ["Lens Core", "Focusing Coil", "Containment Ring"],
+		"desc": "A continuous lance of collapsed light that burns its target and detonates a small singularity at the impact point.",
+		"stats": { "damage": 45, "tick_interval_sec": 0.12, "range_px": 900, "beam_width": 56, "splash_radius": 60, "weight": 6, "ammo": 24, "activation_ammo": 12 },
+	},
+	"hailstorm": {
+		"name": "Hailstorm", "icon": "", "size": Vector2i(2, 2), "tags": ["weapon"],
+		"fire_mode": "repeat", "fire_type": "cone",
+		"rarity": "very_rare", "unique": true, "craftable_from_fragments": true,
+		"group": "ballistic", "damage_kind": ["kinetic"], "uses_ammo": true,
+		"fragments": ["Frost Chamber", "Shard Feeder", "Cryo Valve"],
+		"desc": "A blizzard of razor ice shards in a wide cone that chills and shreds anything in front of you.",
+		"stats": { "damage": 22, "pellets": 10, "spread_deg": 46, "range_px": 320, "cooldown_sec": 0.45, "slow": 30, "weight": 6, "ammo": 3 },
+	},
+	"wraithfire": {
+		"name": "Wraithfire", "icon": "", "size": Vector2i(2, 2), "tags": ["weapon"],
+		"fire_mode": "repeat", "fire_type": "projectile",
+		"rarity": "very_rare", "unique": true, "craftable_from_fragments": true,
+		"group": "explosive", "damage_kind": ["fire", "explosive"],
+		"fragments": ["Ember Core", "Soul Wick", "Pyre Shell"],
+		"desc": "Hurls ghostly fireballs that burst into a clinging blaze, burning everything caught in the splash.",
+		"stats": { "damage": 40, "cooldown_sec": 0.7, "splash_radius": 120, "burn": 18, "weight": 6 },
+	},
+	"hivemind": {
+		"name": "Hivemind", "icon": "", "size": Vector2i(2, 2), "tags": ["weapon"],
+		"fire_mode": "channel", "fire_type": "minion",
+		"rarity": "unique", "unique": true, "craftable_from_fragments": true,
+		"group": "summon", "damage_kind": ["bio"], "uses_energy": true,
+		"fragments": ["Brood Node", "Neural Mesh", "Hatch Cluster", "Queen Cell"],
+		"desc": "Hold to unleash a living swarm that hunts, body-blocks, and arcs neural lightning between victims.",
+		"stats": { "damage": 12, "attack_interval_sec": 0.3, "bats": 8, "respawn_sec": 2.0, "bat_range_px": 320, "chain_jumps": 2, "weight": 7, "energy": 12 },
+	},
+	"prism_array": {
+		"name": "Prism Array", "icon": "", "size": Vector2i(3, 1), "tags": ["weapon"],
+		"fire_mode": "beam", "fire_type": "hitscan_beam",
+		"rarity": "unique", "unique": true, "craftable_from_fragments": true,
+		"group": "energy", "damage_kind": ["light", "energy"], "uses_ammo": true,
+		"fragments": ["Prism Facet", "Refractor", "Light Well", "Spectrum Gate"],
+		"desc": "Splits a coherent beam into a fan of three searing lances that sweep with the cursor.",
+		"stats": { "damage": 35, "tick_interval_sec": 0.12, "range_px": 820, "beam_width": 36, "beams": 3, "beam_spread_deg": 16, "weight": 6, "ammo": 26, "activation_ammo": 12 },
+	},
+	"graviton_well": {
+		"name": "Graviton Well", "icon": "", "size": Vector2i(2, 2), "tags": ["weapon"],
+		"fire_mode": "channel", "fire_type": "growing_zone",
+		"rarity": "unique", "unique": true, "craftable_from_fragments": true,
+		"group": "area_dot", "damage_kind": ["energy"], "uses_ammo": true,
+		"fragments": ["Mass Core", "Warp Coil", "Tidal Lens", "Singularity Seed"],
+		"desc": "Hold to open a gravity well that drags enemies inward and crushes them harder the longer it grows.",
+		"stats": { "damage_min": 30, "damage_max": 260, "ramp_sec": 2.5, "tick_interval_sec": 0.25, "radius_min": 50, "radius_max": 120, "pull": 180, "weight": 8, "ammo": 22, "activation_ammo": 10 },
+	},
+	"thunderhead": {
+		"name": "Thunderhead", "icon": "", "size": Vector2i(2, 2), "tags": ["weapon"],
+		"fire_mode": "repeat", "fire_type": "chain",
+		"rarity": "unique", "unique": true, "craftable_from_fragments": true,
+		"group": "energy", "damage_kind": ["energy"], "uses_energy": true,
+		"fragments": ["Storm Cell", "Charge Bank", "Arc Node", "Static Crown"],
+		"desc": "A rolling storm that forks lightning to a dozen targets at once and discharges a shock pulse around the ship.",
+		"stats": { "damage": 30, "cooldown_sec": 0.3, "chain_jumps": 10, "chain_range_px": 240, "radius_px": 150, "weight": 7, "energy": 18 },
+	},
+	"annihilator": {
+		"name": "Annihilator", "icon": "", "size": Vector2i(3, 2), "tags": ["weapon"],
+		"fire_mode": "charge", "fire_type": "projectile",
+		"rarity": "legendary", "unique": true, "craftable_from_fragments": true,
+		"group": "hybrid", "damage_kind": ["kinetic", "energy"], "uses_energy": true,
+		"fragments": ["Core Breach", "Rail Spine", "Capacitor Bank", "Aiming Reticle", "Doom Trigger"],
+		"desc": "Charge to vent the whole reactor into one hypersonic lance that pierces an entire column and detonates.",
+		"stats": { "damage": 320, "cooldown_sec": 1.6, "pierce": 12, "splash_radius": 100, "weight": 9, "energy_per_shot": 22 },
+	},
+	"omega_swarm": {
+		"name": "Omega Swarm", "icon": "", "size": Vector2i(2, 2), "tags": ["weapon"],
+		"fire_mode": "orbital", "fire_type": "orbital",
+		"rarity": "legendary", "unique": true, "craftable_from_fragments": true,
+		"group": "summon", "damage_kind": ["kinetic", "energy"], "uses_energy": true,
+		"fragments": ["Orbit Hub", "Drone Bay", "Gyro Ring", "Power Spindle", "Command Halo"],
+		"desc": "Six heavy orbs storm around the ship, grinding everything they touch — overcharge to whip them to a blur.",
+		"stats": { "damage": 70, "orbs": 6, "weight": 8, "energy": 22, "activation_energy": 12 },
+	},
+	"event_horizon": {
+		"name": "Event Horizon", "icon": "", "size": Vector2i(2, 2), "tags": ["weapon"],
+		"fire_mode": "channel", "fire_type": "growing_zone",
+		"rarity": "legendary", "unique": true, "craftable_from_fragments": true,
+		"group": "area_dot", "damage_kind": ["energy"], "uses_ammo": true,
+		"fragments": ["Void Heart", "Collapse Matrix", "Dark Lattice", "Horizon Edge", "Null Anchor"],
+		"desc": "Tear a true black hole into the field: a vast, devouring void that grows to swallow the screen.",
+		"stats": { "damage_min": 40, "damage_max": 400, "ramp_sec": 3.0, "tick_interval_sec": 0.25, "radius_min": 60, "radius_max": 170, "pull": 240, "weight": 9, "ammo": 26, "activation_ammo": 12 },
+	},
+
 	"shield_generator": {
 		"name": "Shield Generator",
 		"icon": "res://assets/inventory/shield.png",
@@ -362,7 +589,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"adamantine_hull": {
 		"name": "Adamantine Hull", "icon": "res://assets/inventory/Hull/adamantine.png", "size": Vector2i(2, 3), "tags": ["hull"],
-		"rarity": "epic",
+		"rarity": "rare",
 		"desc": "Every 10s gains a shield that blocks the first instance of damage, then breaks.",
 		# TODO(innate): shield_on_cd — recharging 1-hit shield on a 10s cooldown.
 		"stats": { "bonus_hp": 30, "armor": 20, "innate": "shield_on_cd", "innate_cd_sec": 10.0, "weight": 9 },
@@ -377,13 +604,15 @@ const ITEM_DEFS: Dictionary = {
 	"glass_hull": {
 		"name": "Glass Hull", "icon": "res://assets/inventory/Hull/glass.png", "size": Vector2i(2, 3), "tags": ["hull"],
 		"rarity": "rare",
-		"desc": "High risk, high reward — +10% damage taken AND +10% damage dealt.",
-		# SIMPLE: glass — scale damage taken/dealt by the pcts below.
-		"stats": { "bonus_hp": 30, "armor": 0, "innate": "glass", "extra_damage_taken_pct": 10, "extra_damage_dealt_pct": 10, "weight": 5 },
+		"desc": "Lensed plating — amplifies beam/laser (Light & Energy) firepower, but fragile: -15% max HP.",
+		# SIMPLE: glass — scale damage taken/dealt by the pcts below. Cross-interaction (Phase 5):
+		# kind_bonus lifts Light/Energy damage; max_hp_pct shrinks the HP pool (read in recompute_max_hp).
+		"stats": { "bonus_hp": 30, "armor": 0, "innate": "glass", "extra_damage_taken_pct": 10, "extra_damage_dealt_pct": 10,
+			"kind_bonus": {"light": 25, "energy": 15}, "max_hp_pct": -15, "weight": 5 },
 	},
 	"neutronium_hull": {
 		"name": "Neutronium Hull", "icon": "res://assets/inventory/Hull/neutronium.png", "size": Vector2i(2, 3), "tags": ["hull"],
-		"rarity": "epic",
+		"rarity": "very_rare",
 		"desc": "Immensely dense — big bonus HP and damage reduction, but -10% flying speed.",
 		# SIMPLE: move_speed_down — apply move_speed_pct% (negative) to ship speed.
 		"stats": { "bonus_hp": 80, "armor": 80, "innate": "move_speed_down", "move_speed_pct": -10, "weight": 12 },
@@ -404,7 +633,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"pzt_hull": {
 		"name": "PZT Hull", "icon": "res://assets/inventory/Hull/pzt.png", "size": Vector2i(2, 3), "tags": ["hull"],
-		"rarity": "epic",
+		"rarity": "very_rare",
 		"desc": "Piezoelectric — converts a portion of incoming damage into energy.",
 		# TODO(innate): energy_convert — convert energy_convert_pct% of damage taken into energy.
 		"stats": { "bonus_hp": 25, "armor": 50, "innate": "energy_convert", "energy_convert_pct": 20, "weight": 7 },
@@ -419,9 +648,11 @@ const ITEM_DEFS: Dictionary = {
 	"cursed_hull": {
 		"name": "Cursed Hull", "icon": "res://assets/inventory/Hull/cursed.png", "size": Vector2i(2, 3), "tags": ["hull"],
 		"rarity": "legendary",
-		"desc": "Vengeful — reflects 100% of damage taken back at the attacker (red zap).",
-		# TODO(innate): reflect_damage — deal reflect_pct% of damage taken back + red-laser VFX.
-		"stats": { "bonus_hp": 50, "armor": 0, "innate": "reflect_damage", "reflect_pct": 100, "weight": 8 },
+		"desc": "Vengeful pact — supercharges Fire & Explosive firepower, but curses your luck (-30% crit & drop).",
+		# Cross-interaction (Phase 5): kind_bonus lifts Fire/Explosive damage; luck_mult scales crit chance +
+		# drop/fragment chance down (read in the crit roll + the salvage screen). reflect_damage VFX still TODO.
+		"stats": { "bonus_hp": 50, "armor": 0, "innate": "reflect_damage", "reflect_pct": 100,
+			"kind_bonus": {"fire": 30, "explosive": 30}, "luck_mult": 0.7, "weight": 8 },
 	},
 
 	# ── New gear types (Phase 3) — one placeholder each so the slots + attribute equip-gating are
@@ -446,21 +677,97 @@ const ITEM_DEFS: Dictionary = {
 		"desc": "Aero foils. Requires Maneuverability to equip. (Bonus effect coming soon.)",
 		"stats": { "weight": 4 },
 	},
-	"ion_thruster": {
-		"name": "Ion Thruster", "icon": "", "size": Vector2i(2, 1), "tags": ["thruster"],
-		"rarity": "rare",
-		"desc": "Drive unit. Requires Maneuverability to equip. (Bonus effect coming soon.)",
-		"stats": { "weight": 5 },
+	# ── Thrusters (Phase 5) — one per behaviour; the arena player controller reads stats.thruster_type.
+	"strong_thruster": {
+		"name": "Strong Thruster", "icon": "", "size": Vector2i(2, 1), "tags": ["thruster"],
+		"rarity": "uncommon",
+		"desc": "Brute-force drive — raw top speed. Requires Maneuverability to equip.",
+		"stats": { "thruster_type": "strong", "speed_mult": 1.25, "weight": 5 },
 	},
+	"reverse_thruster": {
+		"name": "Reverse Thruster", "icon": "", "size": Vector2i(2, 1), "tags": ["thruster"],
+		"rarity": "common",
+		"desc": "Tuned for the backpedal — kite fast, retreat faster. Requires Maneuverability to equip.",
+		"stats": { "thruster_type": "reverse", "reverse_mult": 1.6, "weight": 4 },
+	},
+	"smart_thruster": {
+		"name": "Smart Thruster", "icon": "", "size": Vector2i(2, 1), "tags": ["thruster"],
+		"rarity": "rare",
+		"desc": "AI-assisted micro-bursts auto-nudge the ship off incoming fire. Requires Maneuverability to equip.",
+		"stats": { "thruster_type": "smart", "dodge_radius": 130, "dodge_force": 680, "weight": 6 },
+	},
+	"defend_thruster": {
+		"name": "Bulwark Thruster", "icon": "", "size": Vector2i(2, 1), "tags": ["thruster"],
+		"rarity": "very_rare",
+		"desc": "Vents a pressure wash that shoves enemy fire away from the hull. Requires Maneuverability to equip.",
+		"stats": { "thruster_type": "defend", "push_radius": 170, "push_force": 560, "weight": 6 },
+	},
+
+	# ── Drones (Phase 5) — 5 archetypes via stats.drone_type; the arena loadout engine runs the behaviour.
+	# Two tiers each here (spanning rarities); more rarity variants are content fill-in.
 	"combat_drone": {
 		"name": "Combat Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
+		"rarity": "uncommon", "damage_kind": ["energy"],
+		"desc": "Autonomous gun drone — orbits and fires at the nearest enemy. Requires Maneuverability to equip.",
+		"stats": { "drone_type": "combat", "damage": 6, "fire_interval_sec": 0.5, "range_px": 420, "weight": 3 },
+	},
+	"combat_drone_mk2": {
+		"name": "War Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
+		"rarity": "very_rare", "damage_kind": ["energy"],
+		"desc": "A heavier gun drone — faster, harder-hitting bolts. Requires Maneuverability to equip.",
+		"stats": { "drone_type": "combat", "damage": 14, "fire_interval_sec": 0.35, "range_px": 520, "weight": 4 },
+	},
+	"guardian_drone": {
+		"name": "Guardian Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
+		"rarity": "common",
+		"desc": "Orbits close and shoves nearby enemy fire away from you. Requires Maneuverability to equip.",
+		"stats": { "drone_type": "defend", "push_radius": 110, "push_force": 320, "weight": 3 },
+	},
+	"guardian_drone_mk2": {
+		"name": "Aegis Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
 		"rarity": "rare",
-		"desc": "Autonomous drone. Requires Maneuverability to equip. (Drones don't fire yet — Maneuverability's drone-damage bonus is reserved for when they do.)",
-		"stats": { "weight": 3 },
+		"desc": "A stronger shield drone — a wider, harder bullet-sweep. Requires Maneuverability to equip.",
+		"stats": { "drone_type": "defend", "push_radius": 160, "push_force": 520, "weight": 3 },
+	},
+	"repair_drone": {
+		"name": "Repair Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
+		"rarity": "uncommon",
+		"desc": "Field-welds your hull, healing a trickle of HP over time. Requires Maneuverability to equip.",
+		"stats": { "drone_type": "repair", "heal_per_sec": 1.5, "weight": 3 },
+	},
+	"repair_drone_mk2": {
+		"name": "Medic Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
+		"rarity": "very_rare",
+		"desc": "An advanced repair unit — a steady, strong heal. Requires Maneuverability to equip.",
+		"stats": { "drone_type": "repair", "heal_per_sec": 4.0, "weight": 3 },
+	},
+	"collector_drone": {
+		"name": "Collector Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
+		"rarity": "common",
+		"desc": "Reels in nearby XP orbs so you don't have to chase them. Requires Maneuverability to equip.",
+		"stats": { "drone_type": "collect", "radius_px": 240, "weight": 2 },
+	},
+	"collector_drone_mk2": {
+		"name": "Magnet Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
+		"rarity": "rare",
+		"desc": "A wide-field collector — vacuums orbs from much farther out. Requires Maneuverability to equip.",
+		"stats": { "drone_type": "collect", "radius_px": 380, "weight": 2 },
+	},
+	"lucky_drone": {
+		"name": "Lucky Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
+		"rarity": "rare",
+		"desc": "A four-leaf charm core — nudges coin and item drop rates up. Requires Maneuverability to equip.",
+		"stats": { "drone_type": "lucky", "luck": 0.15, "weight": 2 },
+	},
+	"lucky_drone_mk2": {
+		"name": "Fortune Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
+		"rarity": "unique",
+		"desc": "Bends probability hard in your favour — a big luck boost. Requires Maneuverability to equip.",
+		"stats": { "drone_type": "lucky", "luck": 0.35, "weight": 2 },
 	},
 	"ancient_relic": {
 		"name": "Ancient Relic", "icon": "", "size": Vector2i(1, 2), "tags": ["relic"],
-		"rarity": "epic",
+		"rarity": "rare",
 		"desc": "A humming artifact. Requires Biotech to equip. (Bonus effect coming soon.)",
 		"stats": { "weight": 2 },
 	},
@@ -755,6 +1062,14 @@ func _make_placeholder(d: Dictionary) -> Texture2D:
 
 # ── Asteroid loot (Phase 4) ─────────────────────────────────────────────────────
 
+## True for items that must NOT appear in random rolls: fragment-crafted uniques and the
+## fragments themselves. They enter the game only through boss drops + the crafting bench.
+func _is_craft_only(d: Dictionary) -> bool:
+	if bool(d.get("unique", false)):
+		return true
+	var tags: Array = d.get("tags", [])
+	return tags.has("fragment")
+
 ## Roll for an item drop when an asteroid is destroyed.
 ## Adds the item to the backpack and returns its def_id, or "" if nothing dropped.
 ## Callers can use the returned id to show a visual notification.
@@ -762,6 +1077,8 @@ func roll_asteroid_drop() -> String:
 	# Build the weighted pool from the current ITEM_DEFS.
 	var pool_weight: int = 0
 	for id: String in ITEM_DEFS:
+		if _is_craft_only(ITEM_DEFS[id]):
+			continue
 		var r := String(ITEM_DEFS[id].get("rarity", "common"))
 		pool_weight += int(RARITY_LOOT_WEIGHTS.get(r, 0))
 	# pool_weight / LOOT_DENOM = base drop probability per asteroid.
@@ -771,6 +1088,8 @@ func roll_asteroid_drop() -> String:
 	var pick: float = randf() * float(pool_weight)
 	var cum: float = 0.0
 	for id: String in ITEM_DEFS:
+		if _is_craft_only(ITEM_DEFS[id]):
+			continue
 		var r := String(ITEM_DEFS[id].get("rarity", "common"))
 		cum += float(int(RARITY_LOOT_WEIGHTS.get(r, 0)))
 		if pick < cum:
@@ -790,6 +1109,8 @@ func _weapon_base_ids() -> Array:
 	var out: Array = []
 	for id: String in ITEM_DEFS:
 		var tags: Array = ITEM_DEFS[id].get("tags", [])
+		if _is_craft_only(ITEM_DEFS[id]):
+			continue   # fragment-crafted uniques are never randomly rolled
 		if tags.has("weapon") and not tags.has("shield"):
 			out.append(id)
 	return out

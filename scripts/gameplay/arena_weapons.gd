@@ -322,6 +322,12 @@ func get_lights() -> Array:
 			lights.append({"pos": _beam_light_from.lerp(_beam_light_to, f), "value": LASGUN_LIGHT, "color": _beam_light_col})
 	return lights
 
+## True when the equipment-driven loadout engine has a primary weapon equipped (so this default
+## auto-gun should stand down and let the loadout engine fire instead).
+func _loadout_has_primary() -> bool:
+	var lo := get_tree().get_first_node_in_group("arena_loadout")
+	return lo != null and lo.has_method("has_primary_weapon") and lo.has_primary_weapon()
+
 func _has_enemy_on_screen() -> bool:
 	if GameManager.has_method("is_boss_alive") and GameManager.is_boss_alive():
 		return true
@@ -350,7 +356,9 @@ func _process(delta: float) -> void:
 	_crit_chance = BASE_CRIT_CHANCE + (GameManager.get_crit_chance() if GameManager.has_method("get_crit_chance") else 0.0)
 	_crit_damage = GameManager.get_crit_damage() if GameManager.has_method("get_crit_damage") else 1.5
 	var enemy_on_screen := _has_enemy_on_screen()
-	if _gat_active:
+	# Stand down the default Gatling when the player has an inventory weapon equipped — the loadout
+	# engine (arena_loadout.gd) drives firing then, so the two don't stack.
+	if _gat_active and not _loadout_has_primary():
 		_gat_acc += delta
 		if enemy_on_screen:
 			var gat_interval := GAT_FIRE_INTERVAL / _rate_mult
