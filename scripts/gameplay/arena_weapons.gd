@@ -904,7 +904,10 @@ func _tick_orbital(delta: float) -> void:
 				continue
 			if bpos.distance_to((en as Node2D).global_position) <= hit_r:
 				if en.has_method("take_damage"):
-					en.take_damage(_roll_damage(_orbital_damage), ORBITAL_STAGGER)
+					var _orb_r := _roll_damage(_orbital_damage)
+					en.take_damage(float(_orb_r["dmg"]), ORBITAL_STAGGER)
+					if bool(_orb_r["is_crit"]):
+						_spawn_crit_number((en as Node2D).global_position, float(_orb_r["dmg"]))
 				struck = true
 				break
 		if not struck:
@@ -1117,12 +1120,14 @@ func _tick_orbs(delta: float) -> void:
 				var _en_r2 = en.get("hit_radius")
 				var _hit_r2: float = (float(_en_r2) if _en_r2 != null else GAUSS_RADIUS) + 8.0
 				if p.distance_to((en as Node2D).global_position) <= _hit_r2:
+					var ehp: float = float(en.hp) if en.get("hp") != null else dmg
+					var en_absorbed: float = minf(dmg, maxf(0.0, ehp))
 					if en.has_method("take_damage"):
-						en.take_damage(GAUSS_DAMAGE * _dmg_mult, GAUSS_STAGGER)
+						en.take_damage(en_absorbed, GAUSS_STAGGER)
 					_gauss_impact_player.play()
 					hit.append(id)
-					o["pierce_left"] = int(o["pierce_left"]) - 1
-					if int(o["pierce_left"]) <= 0:
+					dmg -= en_absorbed
+					if dmg <= GAUSS_MIN_DMG:
 						dead = true
 						break
 			if not dead:
