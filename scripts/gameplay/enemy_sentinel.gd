@@ -94,7 +94,7 @@ func _tick(delta: float) -> void:
 func _fire_volley() -> void:
 	if _mgr == null or not _mgr.has_method("spawn_bullet"):
 		return
-	var muzzle := center()
+	var muzzle := _muzzle(0)
 	var aim := Vector2.UP if flip_v else Vector2.DOWN   # fire straight forward; UP when bottom-mirrored
 	var half := float(SE_RAYS - 1) * 0.5
 	for r in SE_RAYS:

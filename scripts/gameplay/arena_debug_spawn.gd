@@ -1,5 +1,6 @@
 extends CanvasLayer
 ## Debug spawner + dev-mode HUD for the arena.
+## Quick Spawn panel (Dev:on only) — bottom-left, 4-column enemy grid, bosses last with red bg.
 ##
 ## Hotkeys (F-keys always active regardless of DEV_MODE):
 ##   F3        Boss Edit (toggle)
@@ -12,6 +13,20 @@ extends CanvasLayer
 ##   F12       Lasgun weapon pickup             Shift+F12 = clear
 ##   [−]/[+]   Fire rate mult
 ##   [+Level]  Force level-up
+
+const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
+const WaveDir   := preload("res://scripts/gameplay/arena_wave_director.gd")
+const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
+
+# Enemy order in the quick-spawn grid — normals first, bosses last.
+const QUICK_SPAWN_ORDER: Array[String] = [
+	"fly", "bee", "bug", "swarm",
+	"diver", "dragonfly", "octopus", "spider",
+	"centipede", "shooter", "sentinel", "beamer",
+	"bomber", "missile", "dummy",
+	"elephant", "chromeleon", "metalfly",
+]
+const QUICK_BOSS_IDS: Array[String] = ["elephant", "chromeleon", "metalfly"]
 
 # Set true to show the hotkey panel + fire-rate controls at startup.
 const DEV_MODE := false
@@ -31,6 +46,7 @@ func _ready() -> void:
 	_rng.randomize()
 	_build_fire_rate_ui()
 	_build_hotkey_panel()
+	_build_quick_spawn_panel()
 	if _dev_ui_root != null:
 		_dev_ui_root.visible = DEV_MODE
 
@@ -177,6 +193,167 @@ func _clear_planets() -> void:
 		if is_instance_valid(n):
 			n.queue_free()
 	print("[debug] cleared debug planets")
+
+# ── Quick Spawn panel ──────────────────────────────────────────────────────────
+
+func _build_quick_spawn_panel() -> void:
+	if _dev_ui_root == null:
+		return
+	const CELL  := 48
+	const COLS  := 4
+	const HDR_H := 50
+	const W     := COLS * CELL   # 192 px
+	const GRID_H := CELL * 4    # 4 visible rows = 192 px
+
+	var panel := Panel.new()
+	var ps := StyleBoxFlat.new()
+	ps.bg_color = Color(0.04, 0.05, 0.08, 0.90)
+	ps.set_corner_radius_all(4)
+	ps.border_width_left = 1; ps.border_width_right  = 1
+	ps.border_width_top  = 1; ps.border_width_bottom = 1
+	ps.border_color = Color(0.30, 0.40, 0.60, 0.65)
+	panel.add_theme_stylebox_override("panel", ps)
+	panel.anchor_left   = 0.0; panel.anchor_right  = 0.0
+	panel.anchor_top    = 1.0; panel.anchor_bottom = 1.0
+	panel.offset_left   = 8.0
+	panel.offset_right  = 8.0 + W
+	panel.offset_top    = -(HDR_H + GRID_H + 8)
+	panel.offset_bottom = -8.0
+	_dev_ui_root.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vbox.add_theme_constant_override("separation", 0)
+	panel.add_child(vbox)
+
+	# Header row
+	var hdr := HBoxContainer.new()
+	hdr.custom_minimum_size = Vector2(0.0, float(HDR_H))
+	hdr.add_theme_constant_override("separation", 0)
+	vbox.add_child(hdr)
+
+	var lbl_title := Label.new()
+	lbl_title.text = "Quick Spawn"
+	lbl_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl_title.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	lbl_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl_title.add_theme_font_size_override("font_size", 11)
+	lbl_title.add_theme_color_override("font_color", Color(0.75, 0.87, 1.00))
+	hdr.add_child(lbl_title)
+
+	var btn_clear := Button.new()
+	btn_clear.text = "CLEAR ALL"
+	btn_clear.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_clear.add_theme_font_size_override("font_size", 10)
+	btn_clear.pressed.connect(_clear_quick_spawn)
+	hdr.add_child(btn_clear)
+
+	vbox.add_child(HSeparator.new())
+
+	# Scrollable grid (4 visible rows, scrolls for row 5+)
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(float(W), float(GRID_H))
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_AUTO
+	vbox.add_child(scroll)
+
+	var grid := GridContainer.new()
+	grid.columns = COLS
+	grid.add_theme_constant_override("h_separation", 0)
+	grid.add_theme_constant_override("v_separation", 0)
+	scroll.add_child(grid)
+
+	for type_id: String in QUICK_SPAWN_ORDER:
+		grid.add_child(_make_quick_cell(type_id, CELL))
+
+func _make_quick_cell(type_id: String, cell_size: int) -> Control:
+	var is_boss: bool = QUICK_BOSS_IDS.has(type_id)
+	var def: Dictionary = WaveDir.ENEMY_DEFS.get(type_id, {})
+
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(cell_size, cell_size)
+	btn.focus_mode    = Control.FOCUS_NONE
+	btn.tooltip_text  = type_id
+	btn.clip_contents = true
+
+	var _make_style := func(bg: Color, border: Color) -> StyleBoxFlat:
+		var s := StyleBoxFlat.new()
+		s.bg_color = bg
+		s.set_corner_radius_all(2)
+		s.border_width_left = 1; s.border_width_right  = 1
+		s.border_width_top  = 1; s.border_width_bottom = 1
+		s.border_color = border
+		return s
+
+	if is_boss:
+		btn.add_theme_stylebox_override("normal",  _make_style.call(Color(0.42, 0.05, 0.05, 0.80), Color(0.65, 0.15, 0.10, 0.80)))
+		btn.add_theme_stylebox_override("hover",   _make_style.call(Color(0.65, 0.10, 0.08, 0.92), Color(1.00, 0.35, 0.25, 1.00)))
+		btn.add_theme_stylebox_override("pressed", _make_style.call(Color(0.25, 0.03, 0.03, 0.95), Color(0.65, 0.15, 0.10, 0.80)))
+	else:
+		btn.add_theme_stylebox_override("normal",  _make_style.call(Color(0.08, 0.10, 0.15, 0.82), Color(0.25, 0.30, 0.48, 0.55)))
+		btn.add_theme_stylebox_override("hover",   _make_style.call(Color(0.14, 0.18, 0.26, 0.92), Color(0.50, 0.65, 1.00, 0.90)))
+		btn.add_theme_stylebox_override("pressed", _make_style.call(Color(0.05, 0.07, 0.10, 0.95), Color(0.25, 0.30, 0.48, 0.55)))
+	btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+
+	var icon_path: String = String(def.get("icon", ""))
+	if icon_path != "":
+		var thumb := _load_thumb(icon_path)
+		if thumb != null:
+			var tr := TextureRect.new()
+			tr.texture = thumb
+			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			tr.set_anchors_preset(Control.PRESET_FULL_RECT)
+			tr.offset_left = 3; tr.offset_right  = -3
+			tr.offset_top  = 3; tr.offset_bottom = -3
+			btn.add_child(tr)
+
+	btn.pressed.connect(_spawn_quick_enemy.bind(type_id))
+	return btn
+
+func _load_thumb(icon: String) -> Texture2D:
+	if icon.ends_with(".gif"):
+		var g := GifLoader.load_gif(icon)
+		if g != null and g.has_meta("gif_frames"):
+			var frames: Array = g.get_meta("gif_frames")
+			if not frames.is_empty():
+				return frames[0] as Texture2D
+		return null
+	return load(icon) as Texture2D
+
+func _spawn_quick_enemy(type_id: String) -> void:
+	var src: Dictionary = WaveDir.ENEMY_DEFS.get(type_id, {})
+	if src.is_empty():
+		return
+	var def := src.duplicate()
+	var mgr := get_tree().get_first_node_in_group("enemy_manager")
+
+	# Random position within roughly the visible viewport
+	var cam := get_viewport().get_camera_2d()
+	var base := cam.global_position if cam != null else Vector2.ZERO
+	var pos := base + Vector2(_rng.randf_range(-500.0, 500.0), _rng.randf_range(-270.0, 270.0))
+
+	var e: Node
+	if def.has("boss_script"):
+		var bs := load(String(def["boss_script"])) as GDScript
+		e = bs.new() if bs != null else EnemyScript.new()
+	else:
+		e = EnemyScript.new()
+	e.call("configure", type_id, mgr, def)
+	e.set("position", pos)
+	e.add_to_group("quick_spawn_enemy")
+
+	var wd := get_tree().get_first_node_in_group("wave_director")
+	if wd != null:
+		wd.get_parent().add_child(e)
+	else:
+		get_tree().current_scene.add_child(e)
+
+func _clear_quick_spawn() -> void:
+	for e: Node in get_tree().get_nodes_in_group("quick_spawn_enemy"):
+		if is_instance_valid(e):
+			e.queue_free()
 
 func _build_hotkey_panel() -> void:
 	if _dev_ui_root == null:

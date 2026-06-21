@@ -262,10 +262,9 @@ func _gui_input(event: InputEvent) -> void:
 		if event.pressed:
 			get_viewport().set_input_as_handled()
 			object_clicked.emit(self)
-			if selected:  # Only drag if already selected via object list
-				_dragging = true
-				_drag_start_mouse = get_global_mouse_position()
-				_drag_start_pos = position
+			_dragging = true
+			_drag_start_mouse = get_global_mouse_position()
+			_drag_start_pos = position
 		else:
 			if _dragging:
 				transform_ended.emit(self)

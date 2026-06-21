@@ -75,6 +75,11 @@ func _build_ui() -> void:
 	dummy.tooltip_text = "Drop an invincible target dummy that blocks the beam (takes no damage)"
 	dummy.pressed.connect(_spawn_dummy)
 	bottom.add_child(dummy)
+	var bee := Button.new()
+	bee.text = "Spawn Bee"
+	bee.tooltip_text = "Spawn animalbee flock (has thrust-point plumes — use to test plume VFX)"
+	bee.pressed.connect(_spawn_bee)
+	bottom.add_child(bee)
 	var clear := Button.new()
 	clear.text = "Clear pickups"
 	clear.pressed.connect(_clear_pickups)
@@ -144,6 +149,14 @@ func _spawn_dummy() -> void:
 	if wd == null or player == null or not wd.has_method("spawn_dummy_near"):
 		return
 	wd.spawn_dummy_near((player as Node2D).global_position + Vector2(150, 0))
+	if _open:
+		_toggle()
+
+func _spawn_bee() -> void:
+	var mgr := get_tree().get_first_node_in_group("enemy_manager")
+	if mgr == null or not mgr.has_method("spawn_bee"):
+		return
+	mgr.spawn_bee()
 	if _open:
 		_toggle()
 

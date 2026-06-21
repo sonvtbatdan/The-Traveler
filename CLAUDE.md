@@ -1150,6 +1150,29 @@ Bottom-center HBox (CanvasLayer). Controls:
 
 **Dev mode default state (2026-06-20):** `const DEV_MODE := false` — panel starts hidden. `arena_hud_buttons.gd` shows `dev:off` icon at game start (clicking toggles to `dev:on` and reveals firerate/level controls). Changed from `true` → `false` so players don't see debug controls by default.
 
+### `arena_debug_spawn.gd` — Quick Spawn panel (2026-06-21)
+
+Panel added to `_dev_ui_root` (bottom-left, 192×242px). Only visible when Dev:on.
+
+**Layout:**
+- Header: "Quick Spawn" label + "CLEAR ALL" button — each `SIZE_EXPAND_FILL`, row height 50px
+- Grid: `GridContainer` 4 columns × 48×48px cells inside `ScrollContainer` (4 rows visible = 192px height; scroll reveals row 5)
+
+**Enemy order** (`QUICK_SPAWN_ORDER` const): fly, bee, bug, swarm, diver, dragonfly, octopus, spider, centipede, shooter, sentinel, beamer, bomber, missile, dummy → then bosses: elephant, chromeleon, metalfly. Bosses get red background cells.
+
+**Thumbnails:** loaded via `_load_thumb(icon)` — GIF path → `GifLoader.load_gif()` frame 0; PNG → `load()`. Source: `WaveDir.ENEMY_DEFS[type_id]["icon"]`.
+
+**Spawn:** random position in viewport (`camera.global_position ± 500/270px`). Enemy added as sibling of `wave_director` (same parent as other arena enemies). Tagged with group `"quick_spawn_enemy"`.
+
+**CLEAR ALL:** removes only enemies in group `"quick_spawn_enemy"`.
+
+**Key preloads at top of file:**
+```gdscript
+const GifLoader   := preload("res://scripts/ui/edit_mode/gif_loader.gd")
+const WaveDir     := preload("res://scripts/gameplay/arena_wave_director.gd")
+const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
+```
+
 ### `arena_weapons.gd` — Crit System (2026-06-20)
 
 - `const BASE_CRIT_CHANCE := 0.10` — 10% base crit chance at game start, additive with `GameManager.get_crit_chance()` from upgrade cards. Without this, upgrading "crit damage" (multiplier) had no effect because default chance was 0%.
@@ -1194,33 +1217,68 @@ Bottom-center HBox (CanvasLayer). Controls:
 | Arc | Skip `_fire_arc()` — `_arc_cd` vẫn tick |
 | Lasgun | Dừng `_fire_lasgun(delta)` → `_las_t` không advance (cycle paused); tắt beam visuals + audio |
 
+### `arena_enemy.gd` — `_MissileVolley` inner class (2026-06-21)
+
+Missile launcher behavior fires a fan-boomerang volley: darts fly outward (behind launcher), decelerate + hover (telegraph), then return homing to player.
+
+**Class vars:**
+```gdscript
+var _launcher: Node = null   # the arena_enemy that spawned this volley
+```
+Set via `launch(muzzles, away, launcher)`. The launcher is **excluded** from dart–enemy collision checks (`en == _launcher` guard) to prevent self-hit.
+
+**Self-hit bug (fixed 2026-06-21):** Launcher is in group `"arena_enemy"`. During the return phase, darts fly back toward the player and can pass through the launcher (which maintains standoff at ~460px). Without the guard, darts hitting launcher would be removed early, resulting in 2–3 darts visible instead of 4. Fix: pass `self` into `launch()`, skip it in the collision loop.
+
+**Dart–enemy damage:** darts also deal `ML_LINE_DMG = 8` to other arena enemies on hit. Uses `en.get("_radius")` for hit radius; falls back to 16px. Calls `en.call("take_damage", float(ML_LINE_DMG), 0.0)`.
+
+**Off-screen culling removed:** original had hardcoded `Vector2(1440, 780)` screen check (from shmup parent). This caused darts to be removed the instant they entered the return phase (having flown outside those bounds). Culling is lifetime-only now (`ML_LIFETIME = 6.0s`).
+
+**Key constants:** `ML_FAN_ANGLE = 80°`, `ML_OUT_SPEED = 750px/s`, `ML_DRAG = 0.06` (exponential, ~6% remains after 1s), `ML_HOVER_END = 0.6s`, `ML_STAGGER = 0.12s/dart`, `ML_RETURN_START = 320px/s`, `ML_RETURN_MAX = 900px/s`, `ML_RETURN_ACCEL = 200px/s²`, `ML_ACCEL_RAMP = 1.5`.
+
+**Spider jump randomization (2026-06-21):** `_jump_interval` var (range 0.5–1.5s, randomized via `randf_range`) re-randomized after each jump. Only affects `jump_diag` (spider); octopus still uses fixed 1.0s interval.
+
 ### `arena_levelup_ui.gd` — level-up card UI
 
-**Layout:** `CenterContainer` → `Control 720×390` panel → `TextureRect TEX_FRAME` (full panel bg, `assets/hud/lvupframe.png`).
+**Layout:** `CenterContainer` → `Control 800×433` panel → `TextureRect TEX_FRAME` (full panel bg, `assets/hud/lvupframe.png`).
 
 **Card bg by upgrade category** (`assets/hud/lvgreen/red/blue.png`):
 - Green: `hp`, `hp_regen`, `pickup`
 - Red: `fire_rate`, `damage`
-- Blue: `defense`, `move_speed`, `momentum`
+- Blue: `defense`, `move_speed`, `momentum`, `crit_chance`, `crit_damage` (default — not in CARD_BG dict, falls through to `"blue"`)
 
 **Card icons:** `res://assets/hud/<id>.png` — id must match the upgrade `id` string exactly.
 
 **Card size:** 160×208. `_cards_box` is a plain `Control` (NOT `HBoxContainer`) — outer cards shift ±20px horizontally via `_CSHIFT`. **Using `HBoxContainer` here causes a runtime type-assign error.**
 
-**Title label:** font = `Good Old DOS.ttf`, color `#9bfdb0`, size 22. Anchors top=0.035/bottom=0.155 + offset_top=30/offset_bottom=30/offset_left=−10/offset_right=−10.
+**Title label:** font = `Good Old DOS.ttf`, color `#E5792A`, size 22. Anchors top=0.035/bottom=0.155 + offset_top=38/offset_bottom=38/offset_left=−10/offset_right=−10.
+
+**`_position_cards()` — centering formula:** reads `_cards_box.size` directly (fallback to anchor × 720/390 if not yet laid out). Sets `pivot_offset = Vector2(_CW*0.5, _CH*0.5)` on each card so hover scale grows from center. `base_y = (box_h - _CH) * 0.5 - 22.0`.
+
+**3-label hover system per card** — nodes stored via `card.set_meta(key, node)`:
+
+| Meta key | Default | On hover |
+|----------|---------|----------|
+| `"icon_tex"` | `modulate.a = 1.0` | `modulate.a = 0.2` (dim, not hidden) |
+| `"lbl_name"` | hidden | visible |
+| `"lbl_effect"` | visible | hidden |
+| `"lbl_current"` | hidden | visible |
+
+- `lbl_name`: font Good Old DOS 15px, no number prefix. Names with `\n` → anchor top=0.252/bottom=0.342; names without `\n` → top=0.276/bottom=0.366.
+- `lbl_effect`: font Good Old DOS 14px, anchor top=0.728/bottom=0.858.
+- `lbl_current`: font Good Old DOS 14px, gray `Color(0.75, 0.75, 0.75)`. Same anchors as lbl_effect **except** `crit_damage`/`crit_chance` → top=0.714/bottom=0.844 (3px higher).
+
+**Multi-line names in UPGRADES const:** `"Armor\nPlating"`, `"Fire\nRate"`, `"Repair\nDrones"`, `"Critical\nStrike"`.
+
+**`_effect_text()` overrides:** `move_speed` → `"+N% Speed"`; `crit_chance` → `"+N% Crit\nChance"`; `crit_damage` → `"+N% Crit\nDamage"`. `_current_text()` prefix is `"Now"` (capital N).
 
 **Card centering bug (fixed):** `queue_free()` does NOT remove a node from `get_children()` immediately — it only marks it for deletion at end of frame. On the 2nd+ level-up, old cards (3) are still in `_cards_box` when new cards (3) are added → `_position_cards()` sees 6 cards → `cluster_w = 1010px` → `base_x = -163` → all cards shift far left. **Fix:** use `c.free()` (immediate removal) instead of `c.queue_free()` in `_show_cards()`.
-
-**`_position_cards()` — centering formula:** reads `_cards_box.size` directly (fallback to anchor × 720/390 if not yet laid out). Sets `pivot_offset = Vector2(_CW*0.5, _CH*0.5)` on each card so hover scale grows from center.
-
-**Hover effects:** `mouse_entered/exited` connected on the invisible full-rect Button inside each card → `_on_card_hover(card)` sets `card.scale = Vector2(1.03, 1.03)` and `card.modulate = Color(1.03, 1.03, 1.03)`; `_on_card_unhover(card)` resets both to identity.
 
 **SFX:**
 | Sound | Trigger |
 |-------|---------|
 | `assets/audio/sfx/uialert.wav` | Level-up panel shows (`_show_cards()`) |
 | `assets/audio/sfx/uiclick.wav` | Mouse enters a card (hover) |
-| `assets/audio/sfx/selectconfirm2.wav` | Card picked (`_pick()`) |
+| `assets/audio/sfx/selectconfirm3.wav` | Card picked (`_pick()`) |
 
 ### `enemy_dragonfly.gd` — non-arena fix
 
