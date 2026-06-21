@@ -69,13 +69,10 @@ const ARC_LIGHT    := 4.0      # dust-light value per lit segment endpoint
 
 const BeamScript   := preload("res://scripts/gameplay/lasgun_ani_3.gd")   # lasgun_ani_3 (sprite muzzle); ani_1 + ani_2 kept as backups
 const SFX_BOLT_HIT: Array[AudioStream] = [
-	preload("res://assets/audio/sfx/gunboom1.wav"),
-	preload("res://assets/audio/sfx/gunboom2.wav"),
-	preload("res://assets/audio/sfx/gunboom3.wav"),
-	preload("res://assets/audio/sfx/gunboom4.wav"),
-	preload("res://assets/audio/sfx/gunboom5.wav"),
+	preload("res://assets/audio/sfx/railgun.wav"),
+	preload("res://assets/audio/sfx/railgun2.wav"),
 ]
-const SFX_ENGINE_HUM: AudioStream = preload("res://assets/audio/sfx/enginehum3.wav")
+const SFX_ENGINE_HUM: AudioStream = preload("res://assets/audio/sfx/Scifi/scifi-background-noise.wav")
 const SFX_GAUSS_FIRE: AudioStream = preload("res://assets/audio/sfx/hitimpact.wav")
 const SFX_GAUSS_IMPACT: AudioStream = preload("res://assets/audio/sfx/AstroMenace-SFX/weaponfire6.wav")
 const SFX_LASGUN_CHARGE: AudioStream = preload("res://assets/audio/sfx/Scifi/blg_beam_01.wav")

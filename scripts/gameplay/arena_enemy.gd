@@ -12,6 +12,8 @@ extends CharacterBody2D
 
 const GifLoader        := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const ArenaExplosion   := preload("res://scripts/gameplay/arena_explosion.gd")
+
+static var simplified_mode: bool = false
 const ICON_DRAW_SCALE := 2.6   # drawn sprite width = _radius × this (sprites read a bit bigger than the hit circle)
 const ENEMY_LAYER := 2              # physics layer enemies live on (separate from the player on layer 1)
 const CORE_FRAC := 0.75             # collision-core radius = _radius × this (slightly smaller than the model)
@@ -85,6 +87,7 @@ var xp: int = 5
 var _color: Color = Color(0.95, 0.35, 0.30)
 var shape_kind: String = "diamond"
 var _icon: String = ""
+var _original_icon: String = ""
 var _no_collide: bool = false
 var _invincible: bool = false   # test dummy: blocks the beam (group "arena_enemy") but ignores all damage
 var _tex: Texture2D = null
@@ -148,7 +151,12 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	xp               = int(d.get("xp", 5))
 	_color           = d.get("tint", Color(0.95, 0.35, 0.30))
 	shape_kind       = String(d.get("shape", "diamond"))
-	_icon            = String(d.get("icon", ""))
+	_original_icon   = String(d.get("icon", ""))
+	_icon            = _original_icon
+	if simplified_mode and _icon.begins_with("res://assets/enemies/"):
+		var s_path: String = "res://assets/enemies/simplified/" + _icon.get_file()
+		if FileAccess.file_exists(s_path):
+			_icon = s_path
 	_no_collide      = bool(d.get("no_collide", false))
 	_invincible      = bool(d.get("invincible", false))
 
@@ -251,6 +259,29 @@ func _load_sheet_frames(path: String) -> void:
 		_delays.append(d)
 	if not _frames.is_empty():
 		_tex = _frames[0] as Texture2D
+
+## Swap or revert sprite for simplified mode. Called by arena_hud_buttons after scanning the folder.
+## simplified_files: dict of filename → full res:// path for every file found in assets/enemies/simplified/.
+func apply_simplified(enabled: bool, simplified_files: Dictionary) -> void:
+	if _original_icon == "" or not _original_icon.begins_with("res://assets/enemies/"):
+		return
+	if enabled:
+		var fname: String = _original_icon.get_file()
+		if simplified_files.has(fname):
+			_reload_icon(simplified_files[fname])
+	else:
+		_reload_icon(_original_icon)
+
+func _reload_icon(new_path: String) -> void:
+	_frames.clear()
+	_delays.clear()
+	_anim_acc = 0.0
+	_anim_frame = 0
+	_tex = null
+	_draw_size = Vector2.ZERO
+	_icon = new_path
+	_load_icon()
+	queue_redraw()
 
 # ── Thrust-point plume VFX ────────────────────────────────────────────────────
 func _setup_plumes() -> void:
