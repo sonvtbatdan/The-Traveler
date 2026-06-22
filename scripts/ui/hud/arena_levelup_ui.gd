@@ -26,6 +26,8 @@ const OWNED_UPGRADE_CHANCE := 0.65
 const WEAPON_WEIGHTS := {
 	"gatling": 100, "lasgun": 80, "arc": 80, "gauss": 70,
 	"orbital": 50, "void": 40, "red_x": 30, "chemtrail": 40,
+	"nuke": 20, "sonic": 60, "zsword": 50, "ionize": 70,
+	"boomerang": 50, "parasite": 50, "moroboshi": 30, "swarm": 40, "snake": 30,
 }
 const WEAPON_FALLBACK_COLOR := Color(0.55, 0.62, 0.72)   # placeholder swatch if a weapon icon fails to load
 
