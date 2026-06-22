@@ -12,6 +12,7 @@ const WaveEditorScript   := preload("res://scripts/ui/hud/arena_wave_editor.gd")
 const USE_TEST_SPAWNER   := false   # true → use test_template.gd (spawn one enemy every 5s) instead of the timeline
 const ArenaWeaponsScript := preload("res://scripts/gameplay/arena_weapons.gd")
 const ArenaAuxScript     := preload("res://scripts/gameplay/arena_aux.gd")           # auxiliary (passive) item data layer
+const CamShakeScript     := preload("res://scripts/gameplay/arena_camera_shake.gd")  # follow camera + screen-shake
 const ArenaNebulaScript  := preload("res://scripts/gameplay/arena_nebula.gd")
 const ArenaDustScript    := preload("res://scripts/gameplay/arena_dust.gd")
 const ArenaPlanetsScript := preload("res://scripts/gameplay/arena_planets.gd")
@@ -226,7 +227,7 @@ func _build_player() -> void:
 	col.shape = shape
 	_player.add_child(col)
 
-	var cam := Camera2D.new()
+	var cam := CamShakeScript.new()   # Camera2D + screen-shake (group "camera_shake")
 	cam.zoom = CAM_ZOOM
 	cam.enabled = true
 	_player.add_child(cam)

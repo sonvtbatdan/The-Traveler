@@ -97,6 +97,16 @@ var _anim_acc: float = 0.0
 var _anim_frame: int = 0
 var _draw_size: Vector2 = Vector2.ZERO
 
+# ── Tracking eye (optional, def "eye"): a separate sprite that slides within a socket toward the player ──
+const EYE_TRACK_SPEED := 9.0        # how fast the eye eases toward its player-tracking target
+var _has_eye: bool = false
+var _eye_icon: String = ""
+var _eye_tex: Texture2D = null
+var _eye_socket: Vector2 = Vector2(0.5, 0.5)   # socket center, fraction of draw rect (0..1)
+var _eye_range: Vector2 = Vector2.ZERO         # max eye displacement, fraction of draw size
+var _eye_size_frac: Vector2 = Vector2.ZERO     # eye sprite size, fraction of draw size
+var _eye_off: Vector2 = Vector2.ZERO           # current eye offset (local px from socket center, smoothed)
+
 var _mgr: Node = null
 var _target: Node2D = null
 var _flash: float = 0.0
@@ -159,6 +169,13 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 			_icon = s_path
 	_no_collide      = bool(d.get("no_collide", false))
 	_invincible      = bool(d.get("invincible", false))
+	var eye_cfg: Dictionary = d.get("eye", {})
+	if not eye_cfg.is_empty():
+		_has_eye       = true
+		_eye_icon      = String(eye_cfg.get("icon", ""))
+		_eye_socket    = eye_cfg.get("socket", Vector2(0.5, 0.5))
+		_eye_range     = eye_cfg.get("range", Vector2.ZERO)
+		_eye_size_frac = eye_cfg.get("size", Vector2.ZERO)
 
 func _ready() -> void:
 	add_to_group("arena_enemy")
@@ -224,6 +241,8 @@ func _load_icon() -> void:
 			var eo_sz: Vector2 = eo.get("size", Vector2.ZERO)
 			if eo_sz.x > 0.0 and eo_sz.y > 0.0:
 				_draw_size = eo_sz
+	if _has_eye and _eye_icon != "" and _eye_tex == null:
+		_eye_tex = load(_eye_icon) as Texture2D
 
 ## Parse <name>.sheet.json alongside the PNG to slice frames into AtlasTexture objects.
 ## JSON format: { "cols": 1, "w": <px>, "h": <px>, "delays": [<sec>, ...] }
@@ -584,7 +603,22 @@ func _physics_process(delta: float) -> void:
 			if is_instance_valid(p):
 				p.position  = (p.get_meta("base_pos") as Vector2).rotated(vrot)
 				p.direction = (p.get_meta("base_dir") as Vector2).rotated(vrot)
+	if _has_eye:
+		_update_eye(delta)
 	queue_redraw()   # bob/squash/facing animate continuously
+
+## Slide the tracking eye toward the player within its socket. _eye_off is in local (pre-rotation) px,
+## relative to the socket center, smoothed so the gaze eases rather than snaps.
+func _update_eye(delta: float) -> void:
+	if _draw_size == Vector2.ZERO:
+		return
+	var rot := _spin if behavior == "centipede" else _facing
+	var to_world := _player_pos() - global_position
+	var target := Vector2.ZERO
+	if to_world.length() > 1.0:
+		var dir_local := to_world.normalized().rotated(-rot)   # gaze direction in the sprite's local frame
+		target = Vector2(dir_local.x * _eye_range.x * _draw_size.x, dir_local.y * _eye_range.y * _draw_size.y)
+	_eye_off = _eye_off.lerp(target, clampf(EYE_TRACK_SPEED * delta, 0.0, 1.0))
 
 func _init_behavior() -> void:
 	var to := _player_pos() - global_position
@@ -864,6 +898,12 @@ func _draw() -> void:
 	draw_set_transform(Vector2.ZERO, rot, scale_vec)
 	if _tex != null:
 		draw_texture_rect(_tex, Rect2(-_draw_size * 0.5, _draw_size), false, Color(1, 1, 1, alpha))
+		# Tracking eye: drawn in the same rotated/scaled frame so it sits in the socket and slides toward the player.
+		if _has_eye and _eye_tex != null:
+			var socket := (_eye_socket - Vector2(0.5, 0.5)) * _draw_size
+			var eye_sz := _eye_size_frac * _draw_size
+			var eye_center := socket + _eye_off
+			draw_texture_rect(_eye_tex, Rect2(eye_center - eye_sz * 0.5, eye_sz), false, Color(1, 1, 1, alpha))
 	else:
 		var col := _color
 		col.a *= alpha

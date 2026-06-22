@@ -26,7 +26,7 @@ const ENEMY_DEFS := {
 	"octopus":  {"behavior": "jump",      "hp": 180.0, "speed": 130.0, "size": 22.0, "contact": 20, "explodes": true, "xp": 24, "icon": "res://assets/enemies/animaloctopus.png"},
 	"spider":   {"behavior": "jump_diag", "hp": 60.0,  "speed": 130.0, "size": 16.0, "contact": 8,  "explodes": true, "xp": 8,  "icon": "res://assets/enemies/animalspider.png"},
 	"bee":      {"behavior": "swarm_dive","hp": 20.0,  "speed": 150.0, "size": 12.0, "contact": 8,  "explodes": true, "xp": 3,  "icon": "res://assets/enemies/animalbee.png"},
-	"bug":      {"behavior": "chase",     "hp": 100.0, "speed": 100.0, "size": 11.0, "contact": 5,  "explodes": true, "xp": 3,  "icon": "res://assets/enemies/animalbug.png"},
+	"bug":      {"behavior": "chase",     "hp": 100.0, "speed": 100.0, "size": 11.0, "contact": 5,  "explodes": true, "xp": 3,  "icon": "res://assets/enemies/animalbug.png", "eye": {"icon": "res://assets/enemies/animalbug_eye.png", "socket": Vector2(0.5265, 0.3551), "range": Vector2(0.0754, 0.0507), "size": Vector2(0.1701, 0.1957)}},
 	"swarm":    {"behavior": "swarm_dive","hp": 20.0,  "speed": 160.0, "size": 12.0, "contact": 10, "explodes": true, "xp": 4,  "icon": "res://assets/enemies/swarm.png"},
 	"fly":      {"behavior": "scatter",   "hp": 10.0,  "speed": 120.0, "size": 9.0,  "contact": 5,  "explodes": true, "xp": 2,  "icon": "res://assets/enemies/animalflies.png"},
 	"shooter":  {"behavior": "shooter",   "hp": 50.0,  "speed": 110.0, "size": 16.0, "contact": 0,  "xp": 10, "icon": "res://assets/enemies/jetfighter.png"},

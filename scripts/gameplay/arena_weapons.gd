@@ -67,11 +67,11 @@ const WEAPON_INFO := {
 
 # ── TUNABLES: Batch-1 weapons (Nuke / Sonic Wave / Z-Sword / Ionizing Field) ──────
 # Nuke (Kinetic) — long-cooldown player-centred blast + auto knockback + lingering radiation slow zone.
-const NUKE_COOLDOWN      := 7.0
+const NUKE_COOLDOWN      := 15.0
 const NUKE_DAMAGE        := 200.0
 const NUKE_RADIUS        := 540.0    # AoE (was 360, +50%) — also sizes the explosion visual
 const NUKE_BLAST_STAGGER := 0.6      # blast freeze on hit
-const NUKE_DURATION      := 6.0      # the hitbox stays live this long (≈ the explosion animation) — each enemy hit once
+# (the damage window is set per detonation to the explosion's FIRE phase — see _fire_nuke / _nuke_blast_dur)
 # Sonic Wave (Energy) — 3 expanding rings; each ring damages every enemy its front passes, once.
 const SONIC_COOLDOWN     := 3.0
 const SONIC_RINGS        := 3
@@ -80,6 +80,7 @@ const SONIC_MAX_RADIUS   := 320.0
 const SONIC_EXPAND_TIME  := 0.7
 const SONIC_DAMAGE       := 30.0
 const SONIC_BAND         := 24.0     # ring-front thickness for the hit test
+const SONIC_CONE_HALF    := 1.05     # half-angle of the forward cone the arcs fan into (~120° total)
 const SONIC_COL          := Color(0.55, 0.85, 1.0)
 # Z-Sword (Energy) — energy blade extends from the ship and sweeps a full circle.
 const ZSWORD_COOLDOWN    := 4.0
@@ -282,12 +283,20 @@ const CHEMTRAIL_PARTICLES := 280                        # -80% density → thin,
 const ARC_JUMPS    := 4        # extra targets the bolt chains to after the first
 const ARC_ACQUIRE_RANGE := 400.0  # max px to acquire the FIRST target (chains then extend further via ARC_RANGE)
 const ARC_RANGE    := 200.0    # max px between consecutive chain links
-const ARC_LIFE     := 0.60     # s each lightning segment stays visible (dissolves start→end over this)
-const ARC_FADE_SOFT := 0.35    # softness of the dissolve front sweeping from the muzzle to the strike point
+const ARC_LIFE     := 0.60     # s each lightning bolt stays visible (dissolves via the shader vanishing_value)
 const ARC_STAGGER  := 0.12     # s stagger per link
-const ARC_COL      := Color(0.75, 0.9, 1.0)   # cold electric blue-white (soft outer glow)
-const ARC_EDGE_COL := Color(0.45, 0.75, 1.0)  # light-blue rim drawn just outside the white-hot core
+const ARC_COL      := Color(0.75, 0.9, 1.0)   # cold electric blue-white (used for the dust light tint)
 const ARC_LIGHT    := 4.0      # dust-light value per lit segment endpoint
+# Textured-lightning visuals (2D-lightning tutorial): each chain link is a Line2D with arc_lightning.gdshader
+# (scrolling thunder texture + smoothstep vanish + additive HDR), plus a CPUParticles2D spark burst + flare.
+const ARC_BOLT_SHADER := "res://scripts/gameplay/fx/arc_lightning.gdshader"
+const ARC_BOLT_WIDTH  := 26.0   # Line2D width (px) — the thunder texture's vertical shake fills this
+const ARC_BOLT_Z      := 7      # render above enemies
+const ARC_THUNDER_UNIT := 90.0  # px of bolt per one thunder-texture tile (sets crackle density)
+const ARC_HDR_COL     := Color(1.5, 2.4, 3.4)   # HDR electric blue-white for the bolt (blooms)
+const ARC_SPARK_COL   := Color(1.8, 2.6, 3.6)   # HDR sparks
+const ARC_FLARE_COL   := Color(2.2, 2.6, 3.4)   # HDR strike flare
+const ARC_SPARK_COUNT := 12
 
 const BeamScript   := preload("res://scripts/gameplay/lasgun_ani_1.gd")   # lasgun_ani_1: Isaac-model body (no backward extension) + anchored, non-spinning, beam-aligned impact flipbook from the impact spritesheet; ani_2/ani_3 kept as backups
 const SFX_BOLT_HIT: Array[AudioStream] = [
@@ -488,7 +497,10 @@ var _chemtrail_tick_acc: float = 0.0  # weapon-level DoT tick (single damage per
 var _chemtrail_emit_acc: float = 0.0  # emit-rate accumulator (puffs shot out the back at a steady cadence)
 var _chemtrail_fx: DynamicFire = null # ONE recolored toxic-fire emitter spanning all puff centres
 var _arc_cd: float = 0.0           # Arc burst cooldown
-var _arcs: Array = []              # live lightning segments: {a, b, age, max_age}
+var _arcs: Array = []              # live lightning links: {ln, mat, tip, age, max_age, fx, fx_ttl, fx_freed}
+var _arc_thunder_tex: ImageTexture = null   # procedural tileable thunder texture (cached)
+var _arc_spark_tex: ImageTexture = null     # small stretched spark streak (cached)
+var _arc_glow_tex: ImageTexture = null      # round soft glow for the strike flare (cached)
 var _orbital_active: bool = false  # turned on by the Orbital pickup
 var _orbital_angle: float = 0.0    # current orbit angle (deg)
 var _orbital_t: float = 0.0        # time accumulator for the electric-arc crackle
@@ -510,6 +522,7 @@ var _nuke_blast_t: float = 0.0
 var _nuke_blast_pos: Vector2 = Vector2.ZERO   # fixed detonation centre (matches the explosion FX)
 var _nuke_blast_reach: float = 0.0
 var _nuke_hit: Dictionary = {}          # instance_id → true: each enemy/ruin damaged at most once per detonation
+var _nuke_blast_dur: float = 0.0        # damage window = the explosion's FIRE phase only (excludes the smoke tail)
 var _sonic_active: bool = false
 var _sonic_cd: float = 0.0
 var _sonic_queue: float = 0.0          # stagger timer for the remaining rings of a volley
@@ -944,6 +957,7 @@ func _fire_arc(delta: float) -> void:
 	if _arc_cd > 0.0:
 		return
 	_arc_cd = ARC_COOLDOWN / _rate_mult
+	_ensure_arc_textures()
 	var muzzle := _muzzle()
 	var hit_set: Array = []                 # enemies already struck this burst (no double-hits)
 	var cur := _nearest_enemy(_player.global_position, ARC_ACQUIRE_RANGE, hit_set)
@@ -965,23 +979,14 @@ func _fire_arc(delta: float) -> void:
 		cur = _nearest_enemy(c, ARC_RANGE, hit_set)
 	if chain.size() < 2:
 		return
-	# Pass 2: each link stores its span [u0,u1] of the TOTAL chain length, so a single dissolve front sweeps
-	# the whole bolt from the ORIGINAL muzzle outward — it does not restart the fade at each bounce point.
-	var seglen := PackedFloat32Array()
-	var total := 0.0
+	# Pass 2 (textured-lightning rewrite): each link is a Line2D bolt with the scrolling thunder shader, plus a
+	# spark burst + flare at its strike point. A small per-link delay (outer links linger) keeps the muzzle-first
+	# dissolve feel. Damage/chaining above is unchanged.
 	for i in range(chain.size() - 1):
-		var l := chain[i].distance_to(chain[i + 1])
-		seglen.append(l)
-		total += l
-	total = maxf(0.001, total)
-	var acc := 0.0
-	for i in range(chain.size() - 1):
-		var u0 := acc / total
-		acc += seglen[i]
-		var u1 := acc / total
-		var paths := _build_arc_paths(chain[i], chain[i + 1])   # shapes fixed once → no per-frame fluctuation
-		_arcs.append({"pts": paths[0], "pts2": paths[1], "pts3": paths[2], "tip": chain[i + 1],
-			"u0": u0, "u1": u1, "age": 0.0, "max_age": ARC_LIFE})
+		var delay := float(i) * ARC_STAGGER * 0.4   # later links dissolve slightly later → outward sweep
+		_spawn_arc_bolt(chain[i], chain[i + 1], delay)
+		_spawn_arc_sparks(chain[i + 1])
+		_spawn_arc_flare(chain[i + 1])
 
 ## Nearest live arena_enemy to `from` within `max_dist`, skipping any in `exclude`.
 func _nearest_enemy(from: Vector2, max_dist: float, exclude: Array) -> Node:
@@ -996,95 +1001,199 @@ func _nearest_enemy(from: Vector2, max_dist: float, exclude: Array) -> Node:
 			best = en
 	return best
 
-## Age out lightning segments; alpha is computed at draw time from age/max_age.
+## Advance each live bolt: animate its shader `vanishing_value` (dissolve), free the spark/flare FX once they've
+## played, and free the Line2D when its life ends. (Bolts are Line2D children, not immediate-mode draws.)
 func _tick_arcs(delta: float) -> void:
 	var i := _arcs.size() - 1
 	while i >= 0:
 		var a: Dictionary = _arcs[i]
-		a["age"] = float(a["age"]) + delta
-		if float(a["age"]) >= float(a["max_age"]):
+		var age := float(a["age"]) + delta
+		a["age"] = age
+		var ln: Line2D = a["ln"]
+		var mat: ShaderMaterial = a["mat"]
+		var delay: float = a["delay"]
+		var life := clampf((age - delay) / maxf(0.01, float(a["max_age"]) - delay), 0.0, 1.0)
+		if is_instance_valid(mat):
+			mat.set_shader_parameter("vanishing_value", life)   # 0→1 dissolves the thunder texture away
+		if not bool(a["fx_freed"]) and age >= float(a["fx_ttl"]):
+			a["fx_freed"] = true
+			for fx in a["fx"]:
+				if is_instance_valid(fx):
+					(fx as Node).queue_free()
+		if age >= float(a["max_age"]):
+			if is_instance_valid(ln):
+				ln.queue_free()
+			for fx in a["fx"]:
+				if is_instance_valid(fx):
+					(fx as Node).queue_free()
 			_arcs.remove_at(i)
 		else:
 			_arcs[i] = a
 		i -= 1
 
-## Build the (fixed) bolt geometry for a→b: a single gentle bow toward the target plus a small FIXED ripple,
-## so the bolt "arcs slightly" but never fluctuates frame-to-frame. Returns [main_path, companion_path].
-func _build_arc_paths(a: Vector2, b: Vector2) -> Array:
-	var segs := 12
+## Build/cache the procedural textures the textured-lightning visuals need (thunder bolt, spark streak, glow).
+func _ensure_arc_textures() -> void:
+	if _arc_thunder_tex == null:
+		_arc_thunder_tex = _make_thunder_tex()
+	if _arc_spark_tex == null:
+		_arc_spark_tex = _make_arc_spark_tex()
+	if _arc_glow_tex == null:
+		_arc_glow_tex = _make_arc_glow_tex()
+
+## One chain link as a Line2D bolt with the scrolling thunder shader (additive HDR → blooms). `delay` staggers
+## the dissolve so outer links linger. Each bolt gets its OWN shader material (per-bolt scroll/tiling/phase).
+func _spawn_arc_bolt(a: Vector2, b: Vector2, delay: float) -> void:
+	var ln := Line2D.new()
+	ln.points = _arc_line_points(a, b)
+	ln.width = ARC_BOLT_WIDTH
+	ln.texture = _arc_thunder_tex
+	ln.texture_mode = Line2D.LINE_TEXTURE_STRETCH
+	ln.joint_mode = Line2D.LINE_JOINT_ROUND
+	ln.begin_cap_mode = Line2D.LINE_CAP_NONE
+	ln.end_cap_mode = Line2D.LINE_CAP_NONE
+	ln.z_index = ARC_BOLT_Z
+	var mat := ShaderMaterial.new()
+	mat.shader = load(ARC_BOLT_SHADER)
+	mat.set_shader_parameter("basic_texture", _arc_thunder_tex)
+	mat.set_shader_parameter("color", ARC_HDR_COL)
+	mat.set_shader_parameter("scroll_speed", randf_range(-3.5, -1.5) * (1.0 if randf() < 0.5 else -1.0))
+	mat.set_shader_parameter("tiling_x", maxf(1.0, a.distance_to(b) / ARC_THUNDER_UNIT))
+	mat.set_shader_parameter("vanishing_value", 0.0)
+	ln.material = mat
+	add_child(ln)
+	_arcs.append({"ln": ln, "mat": mat, "tip": b, "age": 0.0, "max_age": ARC_LIFE,
+		"delay": delay, "fx": [], "fx_ttl": 0.3, "fx_freed": false})
+
+## A gently-bowed centreline a→b (texture supplies the crackle, so only a soft bow is needed here).
+func _arc_line_points(a: Vector2, b: Vector2) -> PackedVector2Array:
+	var segs := 6
 	var seg := b - a
 	var dist := seg.length()
 	var perp := seg.normalized().rotated(PI * 0.5) if dist > 0.01 else Vector2.UP
-	var bow := perp * randf_range(-1.0, 1.0) * clampf(dist * 0.07, 6.0, 28.0)   # gentle shared arc, chosen once
-	var zig := clampf(dist * 0.02, 1.5, 5.0) * 1.4     # main zigzag amplitude (40% rougher than before)
-	var zig_c := zig * 0.6                              # secondary-strand zigzag — smaller (not too much)
-	var off := perp * 4.0                               # companion sits a little to one side of the main line
-	var off3 := perp * -4.0                             # third strand to the other side
+	var bow := perp * randf_range(-1.0, 1.0) * clampf(dist * 0.06, 4.0, 22.0)
 	var pts := PackedVector2Array()
-	var pts2 := PackedVector2Array()
-	var pts3 := PackedVector2Array()
 	for i in range(segs + 1):
 		var u := float(i) / float(segs)
-		var arc := a.lerp(b, u) + bow * sin(u * PI)     # shared bow → all strands track the same direction
-		# Main: rough zigzag = a tighter sine ripple + a random kink (both FIXED at spawn → no fluctuation).
-		var pm := arc + perp * sin(u * PI * 4.0) * zig + perp * randf_range(-1.0, 1.0) * zig * 0.6
-		pts.append(pm)
-		# Companion: same general direction, kept near the main line, but with its OWN modest random noise.
-		var pc := arc + off + perp * sin(u * PI * 5.0) * zig_c * 0.5 + perp * randf_range(-1.0, 1.0) * zig_c
-		pts2.append(pc)
-		# Third strand: same idea (similar math), other side, its own noise.
-		var pc3 := arc + off3 + perp * sin(u * PI * 6.0) * zig_c * 0.4 + perp * randf_range(-1.0, 1.0) * zig_c * 0.9
-		pts3.append(pc3)
-	# Anchor every strand's endpoints exactly to muzzle/target for a clean attach (no floating ends).
-	pts[0] = a; pts[pts.size() - 1] = b
-	pts2[0] = a; pts2[pts2.size() - 1] = b
-	pts3[0] = a; pts3[pts3.size() - 1] = b
-	return [pts, pts2, pts3]
+		pts.append(a.lerp(b, u) + bow * sin(u * PI))
+	pts[0] = a
+	pts[pts.size() - 1] = b
+	return pts
 
-## Draw one stored chain link. All three strands dissolve along the SAME global front that sweeps the whole
-## bolt from the original muzzle (each link maps its vertices into its [u0,u1] span of the chain).
-func _draw_arc(d: Dictionary) -> void:
-	var life: float = clampf(float(d["age"]) / float(d["max_age"]), 0.0, 1.0)
-	var u0: float = d["u0"]
-	var u1: float = d["u1"]
-	_draw_bolt(d["pts"], 1.0, life, u0, u1)            # main line
-	_draw_bolt(d["pts2"], 0.3, life, u0, u1)           # companion (0.3× width)
-	_draw_bolt(d["pts3"], 1.0 / 6.0, life, u0, u1)     # third strand (1/6× width)
-	# Strike-point burst — fades when the global dissolve front reaches this link's end (u1).
-	var front := life * (1.0 + ARC_FADE_SOFT) - ARC_FADE_SOFT
-	var tipv := clampf((u1 - front) / ARC_FADE_SOFT, 0.0, 1.0)
-	var tip: Vector2 = d["tip"]
-	draw_circle(tip, 9.0, Color(ARC_COL.r, ARC_COL.g, ARC_COL.b, 0.30 * tipv))
-	draw_circle(tip, 4.0, Color(1, 1, 1, 0.85 * tipv))
-
-## A thick, glowing bolt along `pts`, widths × `wscale`: soft outer glow → light-blue edge → white-hot core.
-## Per-vertex alpha dissolves along the GLOBAL chain parameter (vertex u mapped into [u0,u1]) so the muzzle
-## end fades first and the front sweeps toward the far tip — "first spawned, first faded".
-func _draw_bolt(pts: PackedVector2Array, wscale: float, life: float, u0: float, u1: float) -> void:
-	var n := pts.size()
-	if n < 2:
+## Stretched spark burst at a strike point (CPUParticles2D, additive HDR, velocity-aligned). Tracked + freed
+## by the owning bolt in _tick_arcs (see fx/fx_ttl).
+func _spawn_arc_sparks(pos: Vector2) -> void:
+	if _arcs.is_empty():
 		return
-	var front := life * (1.0 + ARC_FADE_SOFT) - ARC_FADE_SOFT
-	var vis := PackedFloat32Array()
-	for i in n:
-		var gu := lerpf(u0, u1, float(i) / float(n - 1))   # this vertex's position along the WHOLE chain
-		vis.append(clampf((gu - front) / ARC_FADE_SOFT, 0.0, 1.0))
-	# Soft outer glow (ARC_COL).
-	var widths := [20.0, 11.0]
-	var alphas := [0.16, 0.35]
-	for li in widths.size():
-		var cols := PackedColorArray()
-		for i in n:
-			cols.append(Color(ARC_COL.r, ARC_COL.g, ARC_COL.b, float(alphas[li]) * vis[i]))
-		draw_polyline_colors(pts, cols, float(widths[li]) * wscale)
-	# Light-blue edge, then white-hot core on top → white centre with a light-blue rim.
-	var edge := PackedColorArray()
-	var core := PackedColorArray()
-	for i in n:
-		edge.append(Color(ARC_EDGE_COL.r, ARC_EDGE_COL.g, ARC_EDGE_COL.b, 0.9 * vis[i]))
-		core.append(Color(1, 1, 1, 0.95 * vis[i]))
-	draw_polyline_colors(pts, edge, 5.5 * wscale)
-	draw_polyline_colors(pts, core, 2.8 * wscale)
+	var p := CPUParticles2D.new()
+	p.position = pos
+	p.amount = ARC_SPARK_COUNT
+	p.lifetime = 0.2
+	p.one_shot = true
+	p.explosiveness = 1.0
+	p.local_coords = false
+	p.direction = Vector2.RIGHT
+	p.spread = 180.0
+	p.gravity = Vector2.ZERO
+	p.initial_velocity_min = 320.0
+	p.initial_velocity_max = 700.0
+	p.particle_flag_align_y = true
+	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE_SURFACE
+	p.emission_sphere_radius = 16.0
+	p.texture = _arc_spark_tex
+	var c_fade := ARC_SPARK_COL
+	c_fade.a = 0.0
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.6, 1.0])
+	grad.colors = PackedColorArray([ARC_SPARK_COL, ARC_SPARK_COL, c_fade])
+	p.color_ramp = grad
+	var taper := Curve.new()
+	taper.add_point(Vector2(0.0, 0.6))
+	taper.add_point(Vector2(0.15, 1.0))
+	taper.add_point(Vector2(1.0, 0.0))
+	p.scale_amount_curve = taper
+	var cm := CanvasItemMaterial.new()
+	cm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	p.material = cm
+	p.z_index = ARC_BOLT_Z
+	add_child(p)
+	(_arcs[_arcs.size() - 1]["fx"] as Array).append(p)
+
+## Single bright flare flash at a strike point (CPUParticles2D, additive HDR, small→big→small).
+func _spawn_arc_flare(pos: Vector2) -> void:
+	if _arcs.is_empty():
+		return
+	var p := CPUParticles2D.new()
+	p.position = pos
+	p.amount = 1
+	p.lifetime = 0.18
+	p.one_shot = true
+	p.explosiveness = 1.0
+	p.local_coords = false
+	p.gravity = Vector2.ZERO
+	p.initial_velocity_min = 0.0
+	p.initial_velocity_max = 0.0
+	p.scale_amount_min = 26.0
+	p.scale_amount_max = 30.0
+	var sc := Curve.new()
+	sc.add_point(Vector2(0.0, 0.1))
+	sc.add_point(Vector2(0.4, 1.0))
+	sc.add_point(Vector2(1.0, 0.0))
+	p.scale_amount_curve = sc
+	p.texture = _arc_glow_tex
+	p.color = ARC_FLARE_COL
+	var cm := CanvasItemMaterial.new()
+	cm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	p.material = cm
+	p.z_index = ARC_BOLT_Z
+	add_child(p)
+	(_arcs[_arcs.size() - 1]["fx"] as Array).append(p)
+
+## Procedural TILEABLE thunder texture: a jagged glowing horizontal band (red channel = brightness). Built from
+## integer-harmonic sines so the left/right edges wrap seamlessly; gaps + brightness variation make it spiky.
+func _make_thunder_tex() -> ImageTexture:
+	var w := 256
+	var h := 32
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	var midy := float(h) * 0.5
+	for x in w:
+		var fx := float(x) / float(w) * TAU
+		var cy := midy + sin(fx) * 4.0 + sin(fx * 3.0 + 1.3) * 2.5 + sin(fx * 7.0 + 0.5) * 1.5 + sin(fx * 13.0) * 0.8
+		var bright := 0.78 + 0.22 * (sin(fx * 9.0 + 2.0) * 0.5 + 0.5)   # gentle variation, never a full gap
+		for y in h:
+			var dy := absf(float(y) - cy)
+			var core := pow(clampf(1.0 - dy / 3.6, 0.0, 1.0), 1.2)            # bright white-hot core
+			var glow := pow(clampf(1.0 - dy / midy, 0.0, 1.0), 1.6) * 0.8     # brighter, wider soft glow halo
+			var v := clampf((core + glow) * bright, 0.0, 1.0)
+			img.set_pixel(x, y, Color(v, v, v, v))
+	return ImageTexture.create_from_image(img)
+
+## Small vertical streak for sparks (align_y stretches it along the velocity).
+func _make_arc_spark_tex() -> ImageTexture:
+	var w := 8
+	var h := 28
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	var cx := float(w) * 0.5
+	var cy := float(h) * 0.5
+	for y in h:
+		for x in w:
+			var fxr := absf(float(x) - cx) / cx
+			var fyr := absf(float(y) - cy) / cy
+			var v := pow(clampf(1.0 - fxr, 0.0, 1.0), 2.0) * pow(clampf(1.0 - fyr, 0.0, 1.0), 1.2)
+			img.set_pixel(x, y, Color(v, v, v, v))
+	return ImageTexture.create_from_image(img)
+
+## Round soft glow for the strike flare.
+func _make_arc_glow_tex() -> ImageTexture:
+	var s := 64
+	var img := Image.create(s, s, false, Image.FORMAT_RGBA8)
+	var c := float(s) * 0.5
+	for y in s:
+		for x in s:
+			var dx := (float(x) - c) / c
+			var dy := (float(y) - c) / c
+			var v := pow(clampf(1.0 - sqrt(dx * dx + dy * dy), 0.0, 1.0), 2.2)
+			img.set_pixel(x, y, Color(v, v, v, v))
+	return ImageTexture.create_from_image(img)
 
 ## Called by the Arc pickup on collection — adds chain lightning to the active loadout (accumulates).
 func activate_arc() -> void:
@@ -1908,27 +2017,53 @@ func _tick_nuke(delta: float, enemy_on_screen: bool) -> void:
 	if _nuke_cd <= 0.0 and enemy_on_screen:
 		_nuke_cd = NUKE_COOLDOWN / _rate_mult
 		_fire_nuke()
+	# While the explosion plays, keep the hitbox live: anything caught in it takes damage ONCE (this also
+	# catches enemies that drift into the blast mid-animation).
+	if _nuke_blast_on:
+		_nuke_blast_t += delta
+		_damage_nuke_blast()
+		if _nuke_blast_t >= _nuke_blast_dur:
+			_nuke_blast_on = false
 
-func _fire_nuke() -> void:
-	var center := _player.global_position
-	var reach := _aoe_radius(NUKE_RADIUS)
-	# Single big blast — knockback is automatic in take_damage (pushed away from the player). No lingering zone.
+## Damage every enemy/ruin within the live blast that hasn't been hit yet this detonation (one hit each).
+func _damage_nuke_blast() -> void:
 	for en in get_tree().get_nodes_in_group("arena_enemy"):
 		if not is_instance_valid(en):
 			continue
-		var ep := (en as Node2D).global_position
-		if center.distance_to(ep) <= reach:
+		var eid := en.get_instance_id()
+		if _nuke_hit.has(eid):
+			continue
+		var en2 := en as Node2D
+		var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0
+		if _nuke_blast_pos.distance_to(en2.global_position) <= _nuke_blast_reach + enr:
+			_nuke_hit[eid] = true
 			if en.has_method("take_damage"):
 				var r := _roll_damage(NUKE_DAMAGE, "nuke")
 				en.take_damage(float(r["dmg"]), NUKE_BLAST_STAGGER)
 				if bool(r["is_crit"]):
-					_spawn_crit_number(ep, float(r["dmg"]))
+					_spawn_crit_number(en2.global_position, float(r["dmg"]))
 	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
 		if not is_instance_valid(ruin):
 			continue
-		if center.distance_to((ruin as Node2D).global_position) <= reach:
+		var rid := ruin.get_instance_id()
+		if _nuke_hit.has(rid):
+			continue
+		var rr: float = _nuke_blast_reach + (float(ruin.get("hit_radius")) if ruin.get("hit_radius") != null else 0.0)
+		if _nuke_blast_pos.distance_to((ruin as Node2D).global_position) <= rr:
+			_nuke_hit[rid] = true
 			if ruin.has_method("take_damage"):
 				ruin.take_damage(NUKE_DAMAGE * _dmg_mult * _lvl_mult("nuke"))
+
+func _fire_nuke() -> void:
+	var center := _player.global_position
+	var reach := _aoe_radius(NUKE_RADIUS)
+	# Open a fixed-point damage hitbox for the explosion's duration (knockback is automatic in take_damage).
+	_nuke_blast_pos = center
+	_nuke_blast_reach = reach
+	_nuke_blast_t = 0.0
+	_nuke_hit.clear()
+	_nuke_blast_on = true
+	_damage_nuke_blast()   # hit everything already inside on the detonation frame
 	# Composite blast VFX, sized to the blast radius. Overrides (set before add_child so _ready picks them up):
 	#  • time_scale ÷3        → the whole explosion lasts 3× longer (every frame + every stagger gap ×3)
 	#  • shockwave radius ×3  → the ripple travels 3× further
@@ -1937,8 +2072,19 @@ func _fire_nuke() -> void:
 	ex.time_scale = ex.time_scale / 3.0
 	ex.shockwave_max_radius = ex.shockwave_max_radius * 3.0
 	ex.shockwave_travel = ex.shockwave_travel * 2.0
+	# Tame the blinding white CENTRE so the ship (drawn on top, z=100) reads through the blast instead of being
+	# washed white by the HDR core + bloom. The orange/red fireball ring stays full-strength.
+	ex.glow = 1.4                        # less HDR → smaller bloom halo over the ship
+	ex.core_size = 0.5                   # smaller hot-white centre → doesn't blanket the ship
+	ex.core_hot = Color(3.0, 2.3, 1.6)   # warm-bright instead of a blinding pure-white point
+	# Damage only while the FIRE is burning (core + fireball), NOT during the lingering smoke tail.
+	_nuke_blast_dur = maxf(ex.core_life, ex.fireball_delay + ex.fireball_lifetime) / maxf(0.05, ex.time_scale)
 	get_parent().add_child(ex)
 	ex.call("setup", center, reach)
+	# Impact feedback: a heavy screen shake on detonation + a vibration buzz 0.5s later.
+	var cam := get_tree().get_first_node_in_group("camera_shake")
+	if cam != null and cam.has_method("nuke_impact"):
+		cam.call("nuke_impact")
 
 # ── Sonic Wave ──────────────────────────────────────────────────────────────────────
 func activate_sonic() -> void:
@@ -1975,11 +2121,13 @@ func _tick_sonic(delta: float, enemy_on_screen: bool) -> void:
 		var r := maxr * (age / SONIC_EXPAND_TIME)
 		var center: Vector2 = ring["center"]
 		var hit: Array = ring["hit"]
+		var aim: float = ring["aim"]
 		for en in get_tree().get_nodes_in_group("arena_enemy"):
 			if not is_instance_valid(en) or en in hit:
 				continue
-			var d := center.distance_to((en as Node2D).global_position)
-			if absf(d - r) <= SONIC_BAND:
+			var off := (en as Node2D).global_position - center
+			# Hit only enemies the arc front sweeps AND that lie within the forward cone.
+			if absf(off.length() - r) <= SONIC_BAND and absf(wrapf(off.angle() - aim, -PI, PI)) <= SONIC_CONE_HALF:
 				if en.has_method("take_damage"):
 					var rr := _roll_damage(SONIC_DAMAGE, "sonic")
 					en.take_damage(float(rr["dmg"]), 0.0)
@@ -1989,7 +2137,8 @@ func _tick_sonic(delta: float, enemy_on_screen: bool) -> void:
 		i -= 1
 
 func _spawn_sonic_ring() -> void:
-	_sonic_rings.append({"center": _player.global_position, "age": 0.0, "hit": [], "maxr": _aoe_radius(SONIC_MAX_RADIUS)})
+	# Capture the aim direction at spawn so the cone fires where the ship was pointing (a forward fan).
+	_sonic_rings.append({"center": _player.global_position, "aim": _forward().angle(), "age": 0.0, "hit": [], "maxr": _aoe_radius(SONIC_MAX_RADIUS)})
 
 # ── Z-Sword ──────────────────────────────────────────────────────────────────────
 func activate_zsword() -> void:
@@ -2066,8 +2215,11 @@ func _draw_sonic_ring(ring: Dictionary) -> void:
 	var r := maxr * (age / SONIC_EXPAND_TIME)
 	var a := 1.0 - (age / SONIC_EXPAND_TIME)
 	var c: Vector2 = ring["center"]
-	draw_arc(c, r, 0.0, TAU, 72, Color(SONIC_COL.r, SONIC_COL.g, SONIC_COL.b, 0.85 * a), 5.0, true)
-	draw_arc(c, r, 0.0, TAU, 72, Color(SONIC_COL.r, SONIC_COL.g, SONIC_COL.b, 0.30 * a), 12.0, true)
+	var aim: float = ring["aim"]
+	# Forward crescent arc (not a full ring) — the cone the wave fans into.
+	var seg := maxi(8, int(SONIC_CONE_HALF / PI * 72.0))
+	draw_arc(c, r, aim - SONIC_CONE_HALF, aim + SONIC_CONE_HALF, seg, Color(SONIC_COL.r, SONIC_COL.g, SONIC_COL.b, 0.85 * a), 5.0, true)
+	draw_arc(c, r, aim - SONIC_CONE_HALF, aim + SONIC_CONE_HALF, seg, Color(SONIC_COL.r, SONIC_COL.g, SONIC_COL.b, 0.30 * a), 12.0, true)
 
 func _draw_zsword() -> void:
 	var blade_ang := _zsword_start + TAU * (_zsword_t / ZSWORD_SWEEP_TIME)
@@ -2360,9 +2512,8 @@ func _draw() -> void:
 	_draw_sparks()
 	for b: Dictionary in _bullets:
 		_draw_tracer(b["pos"], b["vel"])
-	# Arc chain lightning — each stored bolt fades from the outside in over its lifetime.
-	for a: Dictionary in _arcs:
-		_draw_arc(a)
+	# Arc chain lightning is now rendered by per-link Line2D bolts (arc_lightning.gdshader) + spark/flare
+	# particles spawned in _fire_arc — no immediate-mode draw here.
 	if _orbital_active:
 		_draw_orbital()
 	for sring: Dictionary in _sonic_rings:

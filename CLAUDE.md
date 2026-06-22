@@ -1318,6 +1318,22 @@ const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 - `_spawn_crit_number(world_pos: Vector2, amount: float)` — spawns a floating Label in a CanvasLayer (layer 12) at screen-space coords via `get_viewport().get_canvas_transform() * world_pos`. Style: red fill `Color(1.0, 0.15, 0.10)`, white outline (size 7), font `Gameplay.ttf` at 22px, scale ×1.6. Tweens: rise 48px over 0.8s, fade out, then `queue_free()`.
 - All three weapons (Gatling, Arc, Lasgun) call `_spawn_crit_number()` when `is_crit == true`.
 
+### `arena_weapons.gd` — Arc lightning (textured, from the 2D-lightning tutorial)
+
+The Arc (chain lightning) **visual** is textured `Line2D` bolts, NOT immediate-mode polylines (the old
+`_draw_arc`/`_draw_bolt`/`_build_arc_paths` were removed). `_fire_arc`'s damage/chain logic is unchanged; only
+the rendering changed. Per chain link, `_spawn_arc_bolt(a, b, delay)` creates a `Line2D` (gently-bowed
+centreline from `_arc_line_points`; the texture supplies the crackle) with `scripts/gameplay/fx/arc_lightning.gdshader`:
+a **procedural tileable thunder texture** (`_make_thunder_tex` — a continuous jagged glowing band, red channel =
+brightness, integer-harmonic sines so it wraps seamlessly) is **scrolled** along the bolt (`UV.x*tiling + TIME*
+scroll_speed`) so it flickers, with a `smoothstep(vanishing_value)` dissolve (`COLOR = color*t*keep` keeps the
+soft glow halo) and **additive HDR** `color` so it **blooms** under the arena `WorldEnvironment`. Each strike
+point also spawns `_spawn_arc_sparks` (velocity-aligned CPUParticles2D streaks, additive HDR) + `_spawn_arc_flare`
+(one big additive glow). `_tick_arcs` animates each bolt's `vanishing_value` (with a per-link `delay` → outward
+sweep), frees the spark/flare nodes after `fx_ttl`, and `queue_free`s the `Line2D` at `ARC_LIFE`. `get_lights()`
+still reads each link's `tip` for the dust illumination. Tunables: `ARC_BOLT_WIDTH/Z`, `ARC_THUNDER_UNIT`
+(crackle density), `ARC_HDR_COL`/`ARC_SPARK_COL`/`ARC_FLARE_COL`, `ARC_SPARK_COUNT`.
+
 ### `arena_weapons.gd` — SFX
 
 | Const | File | Trigger |
