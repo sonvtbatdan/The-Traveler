@@ -41,6 +41,7 @@ const SHIP_SPRITE     := "res://assets/screen/Spaceship.png"
 const CAM_ZOOM        := Vector2(1.0, 1.0)   # >1 zooms in, <1 zooms out
 const PLAYER_SIZE_PX  := 48.0                 # ship drawn this many px on its longest side (scaled from the texture)
 const PLAYER_RADIUS   := 16.0                 # collision circle radius (for later)
+const SHIP_Z          := 100                  # ship draws ABOVE all world effects (weapon FX ≤6, explosions, enemies) so it's never hidden
 const MOVE_SPEED      := 320.0                # px/s
 const TURN_INSTANT    := false               # true = snap to face mouse; false = eased turn
 const TURN_SPEED      := 12.0                 # eased turn rate (higher = snappier)
@@ -214,6 +215,7 @@ func _build_player() -> void:
 	var longest := maxf(float(tex.get_width()), float(tex.get_height())) if tex != null else 1.0
 	var s := PLAYER_SIZE_PX / maxf(1.0, longest)
 	spr.scale = Vector2(s, s)
+	spr.z_index = SHIP_Z   # keep the ship on top of every weapon/explosion effect — always visible
 	# The ship art points UP (forward = −Y); Sprite2D rotation 0 keeps it upright.
 	_ship_spr = spr
 	_player.add_child(spr)

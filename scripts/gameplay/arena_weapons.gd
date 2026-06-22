@@ -70,13 +70,7 @@ const WEAPON_INFO := {
 const NUKE_COOLDOWN      := 7.0
 const NUKE_DAMAGE        := 200.0
 const NUKE_RADIUS        := 360.0
-const NUKE_BLAST_STAGGER := 0.6      # initial-blast freeze
-const NUKE_FLASH_TIME    := 0.45     # expanding shockwave-ring visual duration
-const NUKE_ZONE_DURATION := 4.0
-const NUKE_ZONE_TICK     := 0.3
-const NUKE_ZONE_DMG      := 8.0
-const NUKE_ZONE_STAGGER  := 0.35     # re-applied each tick → enemies inside stay slowed/frozen
-const NUKE_COL           := Color(1.0, 0.75, 0.35)
+const NUKE_BLAST_STAGGER := 0.6      # blast freeze on hit
 # Sonic Wave (Energy) — 3 expanding rings; each ring damages every enemy its front passes, once.
 const SONIC_COOLDOWN     := 3.0
 const SONIC_RINGS        := 3
@@ -101,16 +95,18 @@ const IONIZE_DAMAGE := 10.0
 const IONIZE_COL    := Color(0.6, 0.9, 1.0)
 
 # ── TUNABLES: Batch-2 weapons (Boomerang / Parasite Cloud / Moroboshi-M1 / Swarm Host / Space Snake) ──
-# Boomerang (Kinetic) — spinning blades thrown out that curve back to the ship; contact damage.
-const BOOM_COOLDOWN   := 2.2
-const BOOM_COUNT      := 2          # blades per throw (body)
-const BOOM_SPREAD_DEG := 24.0
-const BOOM_RANGE      := 360.0      # outward travel before it returns
-const BOOM_SPEED      := 620.0
+# Boomerang (Kinetic) — a single PERPETUAL blade flying a 3-petal "trinity"/rose path around the ship: it loops
+# out into a petal, sweeps back through the centre, out the next petal — forever (rose r = SIZE·cos(3θ)). The
+# pattern centre LAGS the ship, so flying drags the whole flower along behind you. Never thrown, never despawns.
+const BOOM_COUNT      := 1          # blades in flight
+const BOOM_SIZE       := 330.0      # petal reach (flight-pattern radius) — 150% of the previous 220
+const BOOM_ROSE_SPEED := 1.2        # how fast the blade travels the petals (θ rad/s) — 60% of the previous 2.0
+const BOOM_CENTER_LAG := 6.0        # how fast the flower centre catches up to the ship (lower = more trailing drag)
+const BOOM_BLADE      := 45.0       # blade visual half-length (+150% of the old 18px)
 const BOOM_DAMAGE     := 28.0
-const BOOM_HIT_RADIUS := 34.0
-const BOOM_HIT_CD     := 0.25       # per-enemy re-hit interval (a blade can hit the same enemy repeatedly)
-const BOOM_SPIN       := 18.0       # visual spin rad/s
+const BOOM_HIT_RADIUS := 48.0       # enlarged to match the bigger blade
+const BOOM_HIT_CD     := 0.25       # per-enemy re-hit interval (a blade sweeps the same enemy repeatedly)
+const BOOM_SPIN       := 7.0        # visual self-spin rad/s (slowed from 18)
 const BOOM_COL        := Color(0.95, 0.85, 0.5)
 # Parasite Cloud (Biological) — fast blob that decelerates into a lingering damage cloud.
 const PARA_COOLDOWN   := 2.6
@@ -306,6 +302,7 @@ const PickupScript := preload("res://scripts/gameplay/arena_weapon_pickup.gd")
 const OrbChargeScript := preload("res://scripts/gameplay/arena_orb_charge_fx.gd")
 const GatMuzzleScript := preload("res://scripts/gameplay/arena_gatling_muzzle.gd")
 const GaussExplFX  := preload("res://scripts/gameplay/gauss_explosion_fx.gd")
+const ExplosionFX  := preload("res://scripts/gameplay/fx/explosion.gd")   # composite blast used by the Nuke
 
 # ── Gatling tracer bolt look (copied from weapon_system.gd — visuals only) ────
 const GAT_TRACER_LEN   := 16.0
@@ -507,11 +504,6 @@ var _void_node: ColorRect = null   # the swirling-vortex visual
 # ── Batch-1 weapons (Nuke / Sonic Wave / Z-Sword / Ionizing Field) ──
 var _nuke_active: bool = false
 var _nuke_cd: float = 0.0
-var _nuke_zone_on: bool = false
-var _nuke_pos: Vector2 = Vector2.ZERO
-var _nuke_zone_age: float = 0.0
-var _nuke_zone_tick: float = 0.0
-var _nuke_radius_cur: float = 0.0      # actual radius (incl. mech bonus) for the active blast/zone
 var _sonic_active: bool = false
 var _sonic_cd: float = 0.0
 var _sonic_queue: float = 0.0          # stagger timer for the remaining rings of a volley
@@ -528,8 +520,9 @@ var _ionize_tick: float = 0.0
 var _ionize_clock: float = 0.0         # always-advancing clock for the aura pulse visual
 # ── Batch-2 weapons (Boomerang / Parasite Cloud / Moroboshi-M1 / Swarm Host / Space Snake) ──
 var _boom_active: bool = false
-var _boom_cd: float = 0.0
-var _booms: Array = []                 # live blades: {pos, vel, out, traveled, spin, age, hits:{}}
+var _boom_init: bool = false
+var _boom_center: Vector2 = Vector2.ZERO   # trailing centre of the rose pattern (lags the ship)
+var _booms: Array = []                 # perpetual blades: {theta, spin, age, pos, hits:{}}
 var _para_active: bool = false
 var _para_cd: float = 0.0
 var _para_clouds: Array = []           # {pos, vel, age, tick}
@@ -665,8 +658,6 @@ func get_lights() -> Array:
 		lights.append({"pos": _void_pos, "value": 6.0, "color": VOID_COL})
 	if _ionize_active and _player != null and is_instance_valid(_player):
 		lights.append({"pos": _player.global_position, "value": 4.0, "color": IONIZE_COL})
-	if _nuke_zone_on:
-		lights.append({"pos": _nuke_pos, "value": 6.0, "color": NUKE_COL})
 	for boom: Dictionary in _booms:
 		lights.append({"pos": boom["pos"], "value": 2.0, "color": BOOM_COL})
 	for pc: Dictionary in _para_clouds:
@@ -1519,7 +1510,7 @@ func _activate_kind(kind: String) -> void:
 func weapon_cooldown_frac(kind: String) -> float:
 	var rate := maxf(0.01, _rate_mult)
 	match kind:
-		"gatling", "orbital", "chemtrail", "ionize", "moroboshi", "swarm", "snake":
+		"gatling", "orbital", "chemtrail", "ionize", "moroboshi", "swarm", "snake", "boomerang":
 			return 1.0   # continuous stream / always-on passive or familiar → never masked
 		"gauss":
 			return clampf(_gauss_charge / maxf(0.01, GAUSS_CHARGE_TIME / rate), 0.0, 1.0)
@@ -1552,10 +1543,6 @@ func weapon_cooldown_frac(kind: String) -> float:
 			if _zsword_cd <= 0.0:
 				return 1.0
 			return clampf(1.0 - _zsword_cd / maxf(0.01, ZSWORD_COOLDOWN / rate), 0.0, 1.0)
-		"boomerang":
-			if _boom_cd <= 0.0:
-				return 1.0
-			return clampf(1.0 - _boom_cd / maxf(0.01, BOOM_COOLDOWN / rate), 0.0, 1.0)
 		"parasite":
 			if _para_cd <= 0.0:
 				return 1.0
@@ -1911,37 +1898,20 @@ func activate_nuke() -> void:
 	_nuke_cd = 0.0   # detonate as soon as an enemy is visible
 
 func _tick_nuke(delta: float, enemy_on_screen: bool) -> void:
-	if not _nuke_zone_on:
-		_nuke_cd -= delta
-		if _nuke_cd <= 0.0 and enemy_on_screen:
-			_nuke_cd = NUKE_COOLDOWN / _rate_mult
-			_fire_nuke()
-		return
-	# Radiation zone: re-apply a small DoT + stagger so enemies inside stay slowed/frozen.
-	_nuke_zone_age += delta
-	_nuke_zone_tick += delta
-	while _nuke_zone_tick >= NUKE_ZONE_TICK:
-		_nuke_zone_tick -= NUKE_ZONE_TICK
-		for en in get_tree().get_nodes_in_group("arena_enemy"):
-			if not is_instance_valid(en):
-				continue
-			if _nuke_pos.distance_to((en as Node2D).global_position) <= _nuke_radius_cur:
-				if en.has_method("take_damage"):
-					var r := _roll_damage(NUKE_ZONE_DMG, "nuke")
-					en.take_damage(float(r["dmg"]), NUKE_ZONE_STAGGER)
-	if _nuke_zone_age >= NUKE_ZONE_DURATION:
-		_nuke_zone_on = false
+	_nuke_cd -= delta
+	if _nuke_cd <= 0.0 and enemy_on_screen:
+		_nuke_cd = NUKE_COOLDOWN / _rate_mult
+		_fire_nuke()
 
 func _fire_nuke() -> void:
 	var center := _player.global_position
-	_nuke_pos = center
-	_nuke_radius_cur = _aoe_radius(NUKE_RADIUS)
-	# Single big blast — knockback is automatic in take_damage (pushed away from the player).
+	var reach := _aoe_radius(NUKE_RADIUS)
+	# Single big blast — knockback is automatic in take_damage (pushed away from the player). No lingering zone.
 	for en in get_tree().get_nodes_in_group("arena_enemy"):
 		if not is_instance_valid(en):
 			continue
 		var ep := (en as Node2D).global_position
-		if center.distance_to(ep) <= _nuke_radius_cur:
+		if center.distance_to(ep) <= reach:
 			if en.has_method("take_damage"):
 				var r := _roll_damage(NUKE_DAMAGE, "nuke")
 				en.take_damage(float(r["dmg"]), NUKE_BLAST_STAGGER)
@@ -1950,13 +1920,19 @@ func _fire_nuke() -> void:
 	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
 		if not is_instance_valid(ruin):
 			continue
-		if center.distance_to((ruin as Node2D).global_position) <= _nuke_radius_cur:
+		if center.distance_to((ruin as Node2D).global_position) <= reach:
 			if ruin.has_method("take_damage"):
 				ruin.take_damage(NUKE_DAMAGE * _dmg_mult * _lvl_mult("nuke"))
-	# Open the lingering radiation zone.
-	_nuke_zone_on = true
-	_nuke_zone_age = 0.0
-	_nuke_zone_tick = 0.0
+	# Composite blast VFX, sized to the blast radius. Overrides (set before add_child so _ready picks them up):
+	#  • time_scale ÷3        → the whole explosion lasts 3× longer (every frame + every stagger gap ×3)
+	#  • shockwave radius ×3  → the ripple travels 3× further
+	#  • shockwave travel ×2  → net HALF the expansion speed (×3 distance ÷ ×6 time, given the 3× global slow-mo)
+	var ex := ExplosionFX.new()
+	ex.time_scale = ex.time_scale / 3.0
+	ex.shockwave_max_radius = ex.shockwave_max_radius * 3.0
+	ex.shockwave_travel = ex.shockwave_travel * 2.0
+	get_parent().add_child(ex)
+	ex.call("setup", center, reach)
 
 # ── Sonic Wave ──────────────────────────────────────────────────────────────────────
 func activate_sonic() -> void:
@@ -2078,16 +2054,6 @@ func _tick_ionize(delta: float) -> void:
 				ruin.take_damage(IONIZE_DAMAGE * _dmg_mult * _lvl_mult("ionize"))
 
 # ── Batch-1 draw helpers (this Node2D draws in world space) ─────────────────────────
-func _draw_nuke_zone() -> void:
-	var f := clampf(_nuke_zone_age / maxf(0.01, NUKE_ZONE_DURATION), 0.0, 1.0)
-	var pulse := 0.5 + 0.5 * sin(_nuke_zone_age * 6.0)
-	var disc_a := (0.10 + 0.06 * pulse) * (1.0 - f)
-	draw_circle(_nuke_pos, _nuke_radius_cur, Color(NUKE_COL.r, NUKE_COL.g, NUKE_COL.b, disc_a))
-	draw_arc(_nuke_pos, _nuke_radius_cur, 0.0, TAU, 64, Color(NUKE_COL.r, NUKE_COL.g, NUKE_COL.b, 0.5 * (1.0 - f)), 2.0, true)
-	if _nuke_zone_age < NUKE_FLASH_TIME:
-		var sf := _nuke_zone_age / NUKE_FLASH_TIME
-		draw_arc(_nuke_pos, _nuke_radius_cur * sf, 0.0, TAU, 64, Color(1.0, 0.95, 0.7, 0.9 * (1.0 - sf)), 6.0, true)
-
 func _draw_sonic_ring(ring: Dictionary) -> void:
 	var age := float(ring["age"])
 	var maxr: float = ring["maxr"]
@@ -2125,41 +2091,29 @@ func _approach_angle(cur: float, target: float, max_step: float) -> float:
 # ── Boomerang ──────────────────────────────────────────────────────────────────────
 func activate_boomerang() -> void:
 	_boom_active = true
-	_boom_cd = 0.0
 
-func _throw_boomerangs() -> void:
-	var fwd := _forward()
+## Spawn the perpetual blade(s) once, phase-offset so multiple blades (if BOOM_COUNT > 1) spread across the rose.
+func _spawn_boomerangs() -> void:
+	_boom_center = _player.global_position
 	for k in BOOM_COUNT:
-		var t := 0.0 if BOOM_COUNT <= 1 else (float(k) / float(BOOM_COUNT - 1) - 0.5)
-		var dir := fwd.rotated(deg_to_rad(BOOM_SPREAD_DEG) * t)
-		_booms.append({"pos": _muzzle(), "vel": dir * BOOM_SPEED, "out": true, "traveled": 0.0, "spin": 0.0, "age": 0.0, "hits": {}})
+		_booms.append({"theta": TAU * float(k) / float(maxi(1, BOOM_COUNT)), "spin": 0.0, "age": 0.0, "pos": _boom_center, "hits": {}})
 
-func _tick_boom(delta: float, enemy_on_screen: bool) -> void:
-	_boom_cd -= delta
-	if _boom_cd <= 0.0 and enemy_on_screen:
-		_boom_cd = BOOM_COOLDOWN / _rate_mult
-		_throw_boomerangs()
-	var center := _player.global_position
-	var reach := _aoe_radius(BOOM_RANGE)
-	var i := _booms.size() - 1
-	while i >= 0:
-		var b: Dictionary = _booms[i]
+func _tick_boom(delta: float, _enemy_on_screen: bool) -> void:
+	if not _boom_init:
+		_spawn_boomerangs()
+		_boom_init = true
+	# The pattern centre trails the ship → flying drags the flower behind you.
+	_boom_center = _boom_center.lerp(_player.global_position, clampf(BOOM_CENTER_LAG * delta, 0.0, 1.0))
+	for b: Dictionary in _booms:
 		b["spin"] = float(b["spin"]) + BOOM_SPIN * delta
-		b["age"] = float(b["age"]) + delta
-		var pos: Vector2 = b["pos"]
-		if bool(b["out"]):
-			pos += (b["vel"] as Vector2) * delta
-			b["traveled"] = float(b["traveled"]) + BOOM_SPEED * delta
-			if float(b["traveled"]) >= reach:
-				b["out"] = false
-		else:
-			var to_player := center - pos
-			if to_player.length() <= 24.0:
-				_booms.remove_at(i)
-				i -= 1
-				continue
-			b["vel"] = to_player.normalized() * BOOM_SPEED
-			pos += (b["vel"] as Vector2) * delta
+		var prev_age := float(b["age"])
+		b["age"] = prev_age + delta
+		b["theta"] = float(b["theta"]) + BOOM_ROSE_SPEED * delta
+		var th := float(b["theta"])
+		# 3-petal rose: r = SIZE·cos(3θ). Negative r flips to the opposite side → the blade loops out into a
+		# petal, back through the centre, out the next petal, tracing the trinity/triquetra flower forever.
+		var rr := BOOM_SIZE * cos(3.0 * th)
+		var pos := _boom_center + Vector2(cos(th), sin(th)) * rr
 		b["pos"] = pos
 		var hits: Dictionary = b["hits"]
 		for en in get_tree().get_nodes_in_group("arena_enemy"):
@@ -2176,7 +2130,12 @@ func _tick_boom(delta: float, enemy_on_screen: bool) -> void:
 						en.take_damage(float(r["dmg"]), 0.0)
 						if bool(r["is_crit"]):
 							_spawn_crit_number(en2.global_position, float(r["dmg"]))
-		i -= 1
+		# Once per second, drop stale hit-timestamps so the dict doesn't grow over a long run.
+		if int(b["age"]) != int(prev_age):
+			var cutoff := float(b["age"]) - BOOM_HIT_CD
+			for key in hits.keys():
+				if float(hits[key]) < cutoff:
+					hits.erase(key)
 
 # ── Parasite Cloud ──────────────────────────────────────────────────────────────────
 func activate_parasite() -> void:
@@ -2352,9 +2311,9 @@ func _draw_boomerang(b: Dictionary) -> void:
 	var s := float(b["spin"])
 	for off: float in [0.0, PI * 0.5]:
 		var a := s + off
-		var d := Vector2(cos(a), sin(a)) * 18.0
-		draw_line(p - d, p + d, Color(BOOM_COL.r, BOOM_COL.g, BOOM_COL.b, 0.9), 4.0, true)
-	draw_circle(p, 5.0, Color(1, 1, 1, 0.8))
+		var d := Vector2(cos(a), sin(a)) * BOOM_BLADE
+		draw_line(p - d, p + d, Color(BOOM_COL.r, BOOM_COL.g, BOOM_COL.b, 0.9), 5.0, true)
+	draw_circle(p, BOOM_BLADE * 0.18, Color(1, 1, 1, 0.85))
 
 func _draw_para_cloud(c: Dictionary) -> void:
 	var p: Vector2 = c["pos"]
@@ -2400,8 +2359,6 @@ func _draw() -> void:
 		_draw_arc(a)
 	if _orbital_active:
 		_draw_orbital()
-	if _nuke_zone_on:
-		_draw_nuke_zone()
 	for sring: Dictionary in _sonic_rings:
 		_draw_sonic_ring(sring)
 	if _zsword_sweeping:

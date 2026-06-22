@@ -949,6 +949,87 @@ Anything else that outputs >1 (e.g. the sun shader) will also bloom — raise th
 
 ---
 
+## Explosion (2D composite: core + fireball + smoke + distortion shockwave + debris)
+
+A 2D adaptation of two tutorials (a 3-part explosion + a shockwave-distortion shader), built **entirely from
+primitives this repo already has**. Reference impl: `scripts/gameplay/fx/explosion.gd` + `explosion.gdshader`
+(fireball mottle) + `explosion_smoke.gdshader` (smoke) + `explosion_shockwave.gdshader` (screen distortion) +
+optional `explosion_streak.gdshader`. **Standalone primitive** — does NOT modify `arena_explosion.gd` (the
+sprite-sheet impact) or any death/impact caller. 2nd `GPUParticles2D` user in the repo, after Dynamic Fire.
+Preview: `scenes/test_explosion.tscn` (F6 → auto-replays + Space; draws a **white grid** so the distortion shows).
+
+**The idea:** model real explosion ANATOMY — a HOT WHITE point that visibly expands and reddens, throwing
+debris, raising smoke from the whole area, and punching a refraction shockwave through the background. One
+`Explosion` Node2D parents the layers (back→front), driven by a single elapsed-`_t` timer in `_process` (no
+AnimationPlayer), then `queue_free()`s. Every iteration was tuned against **rendered frames, not guesses** — the
+hard-won rules are baked in below.
+
+**Layers (back→front):**
+1. **Streaks / debris** (`CPUParticles2D`, additive, z 0) — 360° radial (`spread=180`), `particle_flag_align_y`
+   (stretch along velocity → spike), procedural taper-bar texture. 4-cell-random trick is **opt-in**
+   (`streak_use_4cell` → `hue_variation` feeds `explosion_streak.gdshader`).
+2. **Smoke** (`GPUParticles2D`, **MIX/alpha blend**, z 1) — **RULE: smoke must be alpha-blended, NOT additive**
+   (dark additive smoke over a dark scene is invisible). `explosion_smoke.gdshader` is plain `canvas_item` (mix);
+   `alpha_curve` 0→peak→0 peaking ~45% of life so it billows in after the fire and lingers; **large
+   `smoke_spawn_radius`** so smoke rises from the WHOLE blast area, not just the centre; coarse/soft noise so it
+   reads as cloud not speckle. Runs at a **low `smoke_sim_fps` (≈16) vs the fire's 30** → stepped/slowed
+   dissipation (animation-tutorial lesson: smoke drawn on twos/threes while the fire is on ones).
+3. **Fireball puffs** (`GPUParticles2D`, additive HDR, z 2) — red/orange volume. **RULE: the fireball shader only
+   MOTTLES brightness (a multiply), it must NOT punch holes** — the earlier dynamic_fire-style erosion
+   (`smoothstep` cutout on `COLOR.a`) produced the stippled "sparkle" embers the user rejected. `color_ramp`
+   orange→red→burn (kept RED, not yellow); tiny spawn radius + `explosiveness≈0.75` so the fire blooms out FROM
+   the core rather than pre-scattered.
+4. **Core** (`Sprite2D`, additive HDR, z 3) — the readable **hot-white starting point**. Driven in `_process`:
+   grows from a near-zero point to `core_size` with **smoothstep easing** (ease-in-out → the growth is spread
+   out and VISIBLE, unlike ease-out which snaps to full in 2 frames), shifting white→orange→red, then fades.
+   **RULE: delay the fire** (`fireball_delay≈0.08s`, puffs held `emitting=false` then `restart()`ed) so the bare
+   core expands ALONE first — otherwise the instant puff burst hides the growth and it reads as pre-scattered
+   blobs. This is what makes it "start at a point, explode out." It then **shrinks back inward** as it fades
+   (`smoothstep(core_grow, core_life)` → `core_size*0.32`) — the hot spot condensing into the smoke
+   (animation-tutorial lesson).
+5. **Shockwave** (`explosion_shockwave.gdshader` on a fullscreen `ColorRect` / `CanvasLayer`) — the tutorial's
+   **screen-space DISTORTION**, now **multi-wave**: reads `hint_screen_texture`, displaces UVs outward inside
+   several thin donut rings (aspect-corrected, with chromatic aberration). NOT a sprite — it **refracts the
+   background**, so it's only visible where there's detail behind it (stars/nebula in game, the grid in the
+   test). Up to 4 ripples (shader takes `radii[4]`/`amps[4]` arrays); driven in `_process`: each wave i is born
+   at `i*stagger`, travels (mild ease-out) out to `shockwave_max_radius` (in **screen-height units** so it
+   reaches the edge regardless of explosion size), and fades — **later waves use a steeper fade exponent so they
+   disappear faster**. Pure refraction (no colour tint — a fiery red-orange ring glow was tried and reverted).
+   `center` tracks the explosion's screen-UV (`viewport.get_canvas_transform() * global_position / vp_size`).
+   Caveat: a near-zero `dist` would make `normalize` NaN — the shader guards it.
+
+**Defaults are tuned bright + wide + slow** (glow/intensity, particle amounts, velocities, sizes and spawn radii
+scaled up ~60%; `time_scale = 0.667` runs the whole effect at 2/3 speed = ~50% slower / ~2.2s). **`time_scale`
+is true slow-mo, not a size change**: it sets `speed_scale` on every particle emitter AND advances the code
+timeline `_t += delta * time_scale`, so the spatial look is identical, just stretched in time (`_max_life` is in
+this scaled-time, so it auto-matches). `size_px` scales the footprint; drop `glow`/`intensity`/amounts for a
+subtler blast. **Animation-craft lessons applied** (from the frame-by-frame 2D-explosion tutorial): timing
+contrast (snappy fire on "ones" via high sim-fps + ease-out, slow smoke on "threes" via low sim-fps); the hot
+spot shrinks inward into the smoke as it cools. Not yet applied but easy hooks: a pre-burst **energy charge-up**
+(particles spiralling inward before release = anticipation), and **sparkle/firework trails** for a magical feel.
+
+**Bloom:** HDR (>1) layers (core/fireball/streaks) bloom under the arena `WorldEnvironment`
+(`arena.gd._make_glow_world_env`, `glow_hdr_threshold=1.0`); the LDR mix smoke + the distortion pass do not.
+Outside the arena (no HDR-2D env) the hot layers degrade to a flat additive flash — expected. The distortion
+shockwave works regardless (it only needs background detail), but its `CanvasLayer` (`shockwave_layer`, default
+80) sits above gameplay — note it will also ripple anything drawn below that layer.
+
+**Duration:** the whole effect runs ~1.5s — the long tail is the smoke (`smoke_lifetime≈1.45`) and the shockwave
+ripples (last wave finishes ~`3*stagger + travel`); the fire itself is short (~0.7s). `_max_life` = the longest
+of all layer lifetimes (+0.05) and gates the `queue_free`.
+
+**API / usage** — `setup(world_pos, size_px)` (API-compatible with `arena_explosion`); `size_px` scales every
+layer via `_scale_f = size_px/100`; all knobs `@export`ed; auto-frees when `_t` passes `_max_life`. Caller
+pattern (mirrors `arena_ruin._spawn_explosion`):
+```gdscript
+const Explosion := preload("res://scripts/gameplay/fx/explosion.gd")
+var ex: Node2D = Explosion.new()
+get_parent().add_child(ex)        # _ready() builds the layers
+ex.call("setup", global_position, size_px)   # rescales + replays the burst; auto-frees when done
+```
+
+---
+
 ## Risky Areas
 
 - Removing autoloads without updating `main.gd` references causes load failure
