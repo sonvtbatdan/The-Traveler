@@ -12,6 +12,8 @@ const WEAPONS := [
 	{"kind": "gauss",   "def_id": "gauss_cannon", "label": "Gauss"},
 	{"kind": "orbital", "def_id": "orbitals",     "label": "Orbital"},
 	{"kind": "void",    "def_id": "rift_maker",   "label": "Void"},
+	{"kind": "red_x",   "def_id": "red_x",        "label": "Red X"},
+	{"kind": "chemtrail", "def_id": "chemtrail",  "label": "Chemtrail"},
 ]
 
 const THUMB := Vector2(56, 56)

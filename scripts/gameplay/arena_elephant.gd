@@ -14,6 +14,7 @@ extends Node2D
 const GifLoader        := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const ArenaExplosion   := preload("res://scripts/gameplay/arena_explosion.gd")
 const FlameRingReveal  := preload("res://scripts/gameplay/flame_ring_reveal.gd")
+const DynamicFireFX    := preload("res://scripts/gameplay/fx/dynamic_fire.gd")
 const SFX_DASH := preload("res://assets/audio/sfx/dash.wav")
 const SFX_M1 := preload("res://assets/audio/sfx/blob.wav")
 const SFX_M2      := preload("res://assets/audio/sfx/fire.mp3")
@@ -176,7 +177,8 @@ var _anim_frame: int = 0
 var _tex: Texture2D = null
 var _draw_size: Vector2 = Vector2.ZERO
 var _fp_dir: Array[float] = [0.0, 0.0, 0.0]   # authored dir_angle per FP (FP1, FP2, FP3)
-var _m2_ring: Node2D = null                    # FlameRingReveal for M2 fire breath visual
+var _m2_ring: Node2D = null                    # FlameRingReveal — now damage-only (invisible), drives contact dmg
+var _m2_fire: Node2D = null                    # DynamicFire — the new GPU-particle fire-ring VISUAL
 var _m2_sfx: AudioStreamPlayer = null          # looping fire sound for M2
 # legacy projectile sprite frames (chasing bomb + fire vortex)
 var _blob_frames: Array = []
@@ -499,6 +501,8 @@ func _start_fire_breath() -> void:
 	# Flame ribbon visual — centered at FP1 world pos, ring grows from the locked aim direction.
 	if is_instance_valid(_m2_ring):
 		_m2_ring.queue_free()
+	if is_instance_valid(_m2_fire):
+		_m2_fire.queue_free()
 	var ring := FlameRingReveal.new()
 	ring.top_level    = true
 	ring.z_index      = 1
@@ -507,6 +511,7 @@ func _start_fire_breath() -> void:
 	ring.ring_start_angle   = _fire_aim.angle()
 	ring.ring_radius        = FIRE_RING_RADIUS
 	ring.jet_duration       = 0.3
+	ring.jet_persists       = false   # jet stops once the ring forms (matches the DynamicFire visual; no lingering invisible jet hazard)
 	ring.draw_duration      = RING_FORM_TIME
 	ring.hold_duration      = RING_HOLD_TIME
 	ring.burnout_duration   = 1.5
@@ -514,9 +519,34 @@ func _start_fire_breath() -> void:
 	ring.tint_color         = Color(1.0, 0.45, 0.08, 1.0)
 	ring.intensity          = 1.3
 	ring.contact_damage     = 20
+	ring.visible            = false   # damage-only now (contact dmg + coil projectiles); visual = DynamicFire below
 	_m2_ring = ring
 	add_child(ring)
 	ring.global_position = _fire_center
+	# New dynamic-fire VISUAL (GPU particles + erosion) — same ring geometry + draw/hold/burnout timing.
+	var fire := DynamicFireFX.new()
+	fire.top_level         = true
+	fire.z_index           = 1
+	fire.shape             = "ring"
+	fire.ring_center_offset = Vector2.ZERO
+	fire.ring_start_angle  = _fire_aim.angle()
+	fire.ring_radius       = FIRE_RING_RADIUS
+	fire.ring_clockwise    = true
+	fire.ring_bidirectional = true  # ring forms from BOTH directions, meeting at the far side
+	fire.jet_length        = 0.0   # auto = radius (seamless spoke)
+	fire.draw_duration     = RING_FORM_TIME
+	fire.hold_duration     = RING_HOLD_TIME
+	fire.burnout_duration  = 1.5
+	fire.particle_amount   = 975    # +50% density
+	fire.particle_size_min = 50.0
+	fire.particle_size_max = 110.0
+	fire.intensity         = 0.5    # each particle LDR (<1) → only the dense core blooms
+	fire.glow              = 0.25   # small HDR boost → contained bloom
+	fire.loop              = false
+	fire.free_on_done      = true
+	_m2_fire = fire
+	add_child(fire)
+	fire.global_position = _fire_center
 
 func _spawn_coil() -> void:
 	# Split into two: one winds each way around the circle so together they close the ring.

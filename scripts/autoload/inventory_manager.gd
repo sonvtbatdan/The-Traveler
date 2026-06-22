@@ -138,6 +138,48 @@ const ITEM_DEFS: Dictionary = {
 			"weight": 4,
 		},
 	},
+	"red_x": {
+		"name": "Red X",
+		"icon": "",   # "" → runtime placeholder; drop a PNG path here later for art
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",   # pulses every cooldown_sec (~once/sec)
+		"fire_type": "cross",    # X-shaped AoE detonation centered on the ship
+		"rarity": "uncommon",
+		"req": 0,                # no equip gate (so the F12 grant always equips) — set a real req when balancing
+		"group": "explosive",
+		"damage_kind": ["kinetic", "fire"],   # a fiery X detonation
+		"desc": "A blazing X-shaped detonation centered on your ship. Hits everything along the four diagonal arms.",
+		"stats": {
+			"cooldown_sec": 1.0,    # ~once per second; scales via _cooldown (fire-rate passives/affixes)
+			"ammo_cost": 8,
+			"damage": 30,           # per detonation hit; scales via _shot_damage
+			"radius_px": 160,       # arm LENGTH (reach of each X arm); scales via _mech("radius")
+			"arm_half_deg": 14,     # half-width of each arm in degrees (X-arm thickness)
+			"weight": 5,
+		},
+	},
+	"chemtrail": {
+		"name": "Chemtrail",
+		"icon": "",   # "" → runtime placeholder; drop a PNG path here later for art
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "trail",    # continuous breadcrumb emit (handled in arena_weapons System 2; doc-only here)
+		"fire_type": "trail",
+		"rarity": "uncommon",
+		"group": "area_dot",
+		"damage_kind": ["bio"],
+		"desc": "Leaves a lingering toxic cloud trail in your wake. Enemies caught in it take damage over time.",
+		"stats": {              # reference values — the live numbers are CHEMTRAIL_* consts in arena_weapons.gd
+			"tick_damage": 6,
+			"tick_interval_sec": 0.25,
+			"puff_radius": 70,
+			"puff_lifetime_sec": 3.0,
+			"trail_offset_px": 300,
+			"puff_spacing_px": 60,
+			"weight": 5,
+		},
+	},
 	"ionizing_field": {
 		"name": "Ionizing Field",
 		"icon": "res://assets/inventory/Ionizing-Field.png",

@@ -25,6 +25,8 @@ const RUIN_GROUP       := "arena_ruin"
 
 # Default fallbacks per stat key (used when a def omits one).
 const DEF_COOLDOWN := 0.4
+const CROSS_DEBUG_DRAW := false   # debug: draw the 4 X-arm wedge edges to verify the hitbox (visual is DynamicFire)
+const LOADOUT_ENABLED := false    # System 1 (inventory-equipped weapon firing) disabled for now — see inventory_ui
 
 var _player: Node2D = null
 var _bullets: Array = []      # {pos, vel, life, start, dmg, crit, radius, col, pierce, hit, ricochet, rico_range, splash, splash_dmg, homing, max_life, max_dist}
@@ -35,6 +37,7 @@ var _enemy_mgr: Node = null   # arena_enemy_manager (for the defend drone's bull
 var _repair_acc: float = 0.0  # fractional HP accumulator for repair drones
 var _crit_layer: CanvasLayer = null
 var _crit_host: Control = null
+var _cross_fx: DynamicFire = null   # pooled Red X fire-flash (recycled per shot to avoid recreating GPU particles)
 
 func _ready() -> void:
 	add_to_group("arena_loadout")
@@ -58,6 +61,8 @@ func _ready() -> void:
 
 ## True when this engine is driving the primary slot (so arena_weapons.gd can stand down its default gun).
 func has_primary_weapon() -> bool:
+	if not LOADOUT_ENABLED:
+		return false   # dormant → don't make arena_weapons stand down its default Gatling
 	return not WeaponStats.resolve_def("primary_weapon").is_empty()
 
 func _process(delta: float) -> void:
@@ -65,6 +70,8 @@ func _process(delta: float) -> void:
 		_player = get_tree().get_first_node_in_group("player")
 		if _player == null:
 			return
+	if not LOADOUT_ENABLED:
+		return   # System 1 firing disabled — HUD-slot weapons (arena_weapons.gd) are the live system
 	var enemy_visible := _has_enemy_on_screen()
 	for slot: String in _slots.keys():
 		var def := WeaponStats.resolve_def(slot)
@@ -201,6 +208,7 @@ func _fire_by_type(def: Dictionary, power: float) -> void:
 		"splash_melee": _fire_splash_melee(def)
 		"parasite_blob": _fire_projectile(def, 1.0)   # Phase 1: blob = splash bolt (parasite DoT later)
 		"acid_cloud":  _fire_radial(def)              # Phase 1: settle as a one-shot pulse (cloud DoT later)
+		"cross":       _fire_cross(def)               # X-shaped detonation (Red X)
 		_:            _fire_projectile(def, power)
 
 # ── Projectiles (projectile / homing / parasite_blob; pierce / ricochet / splash aware) ──
@@ -287,6 +295,60 @@ func _fire_radial(def: Dictionary) -> void:
 			var r := _shot_damage(def, dmg_key, 20.0)
 			_damage_node(en, float(r["dmg"]), 0.1, bool(r["crit"]), (en as Node2D).global_position)
 	_chains.append({"ring": true, "pos": center, "r": radius, "age": 0.0, "max_age": 0.32, "col": _kind_color(def)})
+
+## Periodic X-shaped detonation centered on the ship (Red X): damages enemies near the 4 diagonal arms.
+## Mirrors _fire_radial (player-centered, _mech("radius") reach, _shot_damage→_damage_node) but swaps the
+## circular test for a 4-fold diagonal-arm test so only enemies along the X take damage.
+func _fire_cross(def: Dictionary) -> void:
+	var reach := WeaponStats.raw_stat(def, "radius_px", 160.0) + _mech("radius")
+	var arm_half := deg_to_rad(WeaponStats.raw_stat(def, "arm_half_deg", 14.0))
+	var center := _player.global_position
+	var dmg_key := "damage"
+	if not (def.get("stats", {}) as Dictionary).has("damage"):
+		dmg_key = "tick_damage"
+	for en in _enemies():
+		if not is_instance_valid(en):
+			continue
+		var ep := (en as Node2D).global_position
+		var off := ep - center
+		var dist := off.length()
+		if dist > reach + _node_radius(en):
+			continue                                   # outside arm reach
+		# Fold the angle into 4-fold symmetry, then measure nearness to the nearest 45° diagonal.
+		var a := fposmod(off.angle(), PI / 2.0)        # 0..PI/2
+		var d_to_diag := absf(a - PI / 4.0)            # 0 on a diagonal, PI/4 on an axis
+		if d_to_diag <= arm_half or dist <= 28.0:      # small center disc always hits
+			var r := _shot_damage(def, dmg_key, 20.0)
+			_damage_node(en, float(r["dmg"]), 0.1, bool(r["crit"]), ep)
+	_spawn_cross_fire(center, reach)
+	if CROSS_DEBUG_DRAW:
+		_chains.append({"cross": true, "pos": center, "r": reach, "arm": arm_half, "age": 0.0, "max_age": 0.25, "col": _kind_color(def)})
+
+## Red X fire VISUAL: a short X-shaped flash (DynamicFire shape="cross"). Pooled + retriggered per shot so
+## we don't rebuild the GPU particle system / textures every second.
+func _spawn_cross_fire(center: Vector2, reach: float) -> void:
+	if _cross_fx == null or not is_instance_valid(_cross_fx):
+		_cross_fx = DynamicFire.new()
+		_cross_fx.shape             = "cross"
+		_cross_fx.arm_count         = 4
+		_cross_fx.ring_start_angle  = PI / 4.0      # X diagonals (matches the ±45° hit test)
+		_cross_fx.z_index           = 6
+		_cross_fx.particle_lifetime = 0.35          # short → a flash of fire
+		_cross_fx.draw_duration     = 0.12          # arms shoot out fast
+		_cross_fx.draw_ease         = 1.0
+		_cross_fx.hold_duration     = 0.05
+		_cross_fx.burnout_duration  = 0.20
+		_cross_fx.particle_amount   = 400
+		_cross_fx.particle_size_min = 34.0
+		_cross_fx.particle_size_max = 78.0
+		_cross_fx.loop              = false
+		_cross_fx.free_on_done      = false         # pooled: kept alive and reused
+		_cross_fx.arm_length        = reach
+		add_child(_cross_fx)
+		_cross_fx.global_position = center
+	else:
+		_cross_fx.arm_length = reach
+		_cross_fx.retrigger(center)
 
 ## Short-range arc swing in front of the ship: damages enemies within range_px and ±arc_deg of facing.
 func _fire_splash_melee(def: Dictionary) -> void:
@@ -690,6 +752,16 @@ func _draw_effect(c: Dictionary) -> void:
 		var dir: Vector2 = c["dir"]
 		var a0 := dir.angle() - float(c["arc"])
 		draw_arc(c["pos"], float(c["r"]), a0, a0 + 2.0 * float(c["arc"]), 24, Color(col.r, col.g, col.b, 0.8 * t), 6.0, true)
+	elif bool(c.get("cross", false)):
+		# Stage 1 debug: each of the 4 diagonals → bright center line + faint wedge-edge lines (the hit test).
+		var center: Vector2 = c["pos"]
+		var reach := float(c["r"])
+		var arm := float(c.get("arm", deg_to_rad(14.0)))
+		for k in 4:
+			var da := PI / 4.0 + float(k) * (PI / 2.0)   # 45° / 135° / 225° / 315°
+			draw_line(center, center + Vector2.from_angle(da) * reach, Color(col.r, col.g, col.b, 0.75 * t), 3.0)
+			draw_line(center, center + Vector2.from_angle(da - arm) * reach, Color(col.r, col.g, col.b, 0.3 * t), 1.0)
+			draw_line(center, center + Vector2.from_angle(da + arm) * reach, Color(col.r, col.g, col.b, 0.3 * t), 1.0)
 	else:
 		var pts: PackedVector2Array = c["pts"]
 		if pts.size() >= 2:

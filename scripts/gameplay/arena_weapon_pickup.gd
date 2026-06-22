@@ -52,9 +52,10 @@ func _style() -> Dictionary:
 
 func _collect() -> void:
 	var weapons := get_tree().get_first_node_in_group("arena_weapons")
-	var method := "activate_" + _kind
-	if weapons != null and weapons.has_method(method):
-		weapons.call(method)
+	if weapons != null and weapons.has_method("acquire_weapon"):
+		weapons.call("acquire_weapon", _kind)   # fills a slot (cap-respecting) + activates the weapon
+	elif weapons != null and weapons.has_method("activate_" + _kind):
+		weapons.call("activate_" + _kind)        # fallback
 	_popping = true
 	_pop_t = 0.0
 

@@ -82,7 +82,7 @@ func xp_for_asteroid(width: float) -> int:
 func add_xp(amount: int) -> void:
 	if amount <= 0 or player_level >= MAX_LEVEL:
 		return
-	player_xp += amount
+	player_xp += int(round(float(amount) * upg_xp_gain_mult))   # Data Harvester aux item scales XP gain
 	var leveled := false
 	while player_level < MAX_LEVEL and player_xp >= xp_to_next(player_level):
 		player_xp -= xp_to_next(player_level)
@@ -555,6 +555,10 @@ var upg_momentum_mult:  float = 1.0       # knockback (+ future weapon scaling) 
 var upg_pickup_mult:    float = 1.0       # pickup-radius ×
 var upg_crit_chance:    float = 0.0       # crit probability 0..1 (0 = no crits → non-destructive at base)
 var upg_crit_damage:    float = 1.5       # crit damage multiplier (a crit deals damage × this)
+# Auxiliary-item run stats (arena_aux.gd). Base values are no-ops; aux items stack onto them per level.
+var upg_xp_gain_mult:    float = 1.0      # Data Harvester: XP gained × (applied in add_xp)
+var upg_spawn_rate_mult: float = 1.0      # Beacon: enemy spawn cadence/cap × (read by arena_wave_director)
+var upg_retaliation:     float = 0.0      # Barbed Wire: flat damage dealt back to nearby enemies when hit
 # Per-weapon-group and per-damage-kind run multipliers — populated by the group-scoped level-up cards
 # (Phase 4). Empty = every group/kind at ×1.0 (no-op at base). The shared firing engines read these via
 # group_damage_mult() / kind_damage_mult() so a "boost the energy group" card lifts every energy weapon.
@@ -631,6 +635,12 @@ func add_hp_regen(f: float) -> void:    upg_hp_regen += f;            player_sta
 func add_pickup_radius(p: float) -> void: upg_pickup_mult += p;       player_stats_changed.emit()
 func add_crit_chance(p: float) -> void: upg_crit_chance += p;         player_stats_changed.emit()
 func add_crit_damage(p: float) -> void: upg_crit_damage += p;         player_stats_changed.emit()
+# ── Auxiliary-item setters (additive stacking) ──
+func add_xp_gain(p: float) -> void:     upg_xp_gain_mult += p;        player_stats_changed.emit()
+func add_spawn_rate(p: float) -> void:  upg_spawn_rate_mult += p;     player_stats_changed.emit()
+func add_retaliation(f: float) -> void: upg_retaliation += f;         player_stats_changed.emit()
+func add_coin_mult(p: float) -> void:   run_coin_mult += p;           player_stats_changed.emit()
+func add_rebirth(n: int) -> void:       rebirth_charges += n;         player_stats_changed.emit()
 
 ## Heal the player by `amount` HP, capped at max HP. Safe to call from loot drops.
 func heal(amount: int) -> void:
@@ -661,6 +671,9 @@ func reset_run() -> void:
 	upg_pickup_mult = 1.0
 	upg_crit_chance = 0.0
 	upg_crit_damage = 1.5
+	upg_xp_gain_mult = 1.0
+	upg_spawn_rate_mult = 1.0
+	upg_retaliation = 0.0
 	upg_group_dmg = {}
 	upg_kind_dmg = {}
 	upg_mech = {}

@@ -11,7 +11,7 @@ const TestTemplateScript := preload("res://scripts/gameplay/test_template.gd")
 const WaveEditorScript   := preload("res://scripts/ui/hud/arena_wave_editor.gd")
 const USE_TEST_SPAWNER   := false   # true → use test_template.gd (spawn one enemy every 5s) instead of the timeline
 const ArenaWeaponsScript := preload("res://scripts/gameplay/arena_weapons.gd")
-const ArenaLoadoutScript := preload("res://scripts/gameplay/arena_loadout.gd")   # fires EQUIPPED inventory weapons
+const ArenaAuxScript     := preload("res://scripts/gameplay/arena_aux.gd")           # auxiliary (passive) item data layer
 const ArenaNebulaScript  := preload("res://scripts/gameplay/arena_nebula.gd")
 const ArenaDustScript    := preload("res://scripts/gameplay/arena_dust.gd")
 const ArenaPlanetsScript := preload("res://scripts/gameplay/arena_planets.gd")
@@ -27,6 +27,9 @@ const PerfOverlayScript  := preload("res://scripts/ui/hud/perf_overlay.gd")
 const LevelUpUIScript    := preload("res://scripts/ui/hud/arena_levelup_ui.gd")
 const InventoryUIScript  := preload("res://scripts/ui/inventory/inventory_ui.gd")   # equip screen (I key)
 const DropUIScript       := preload("res://scripts/ui/hud/arena_drop_ui.gd")          # boss-defeated salvage choice
+const WeaponChestScript  := preload("res://scripts/ui/hud/arena_weapon_chest_ui.gd")  # start-of-run pick-1-of-3 chest
+const WeaponSlotsScript  := preload("res://scripts/ui/hud/arena_weapon_slots.gd")     # 5-slot weapon HUD + cooldown pies
+const AuxSlotsScript     := preload("res://scripts/ui/hud/arena_aux_slots.gd")         # 5-slot aux-item HUD (row below weapons)
 const ArenaRuinLayerScript := preload("res://scripts/gameplay/arena_ruin_layer.gd")
 const ArenaHudButtonsScript := preload("res://scripts/ui/hud/arena_hud_buttons.gd")
 const BossEditScript        := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
@@ -74,6 +77,7 @@ var _edge_vignette_mat: ShaderMaterial = null   # boundary "edge of system" cue
 var _enemy_mgr: Node = null   # arena_enemy_manager (smart/defend thruster bullet queries)
 var _boss_edit:  Node = null
 var _creep_edit: Node = null
+var _weapon_chest: Node = null   # start-of-run weapon chest UI
 
 func _ready() -> void:
 	randomize()                          # fresh RNG each launch → random spawn spot (below)
@@ -122,21 +126,52 @@ func _ready() -> void:
 	_build_player()
 	_build_ui()
 	_build_boundary_vignette()
+	add_child(_make_glow_world_env())    # screen glow/bloom (HDR-2D): makes the >1 fire (M2, Red X) bloom
 	add_child(PerfOverlayScript.new())   # always-on FPS/frame-ms readout (top-right) for tuning
 	add_child(LevelUpUIScript.new())     # VS choose-1-of-3 on level-up (pauses the game)
-	add_child(InventoryUIScript.new())   # equip/loadout screen (toggle with the I key) — drives arena_loadout
+	add_child(InventoryUIScript.new())   # equip/loadout screen (toggle with the I key)
 	add_child(DropUIScript.new())        # boss-defeated salvage: equip (run) vs disassemble (blueprint)
+	_weapon_chest = WeaponChestScript.new()   # start-of-run pick-1-of-3 weapon chest (opened deferred below)
+	add_child(_weapon_chest)
 	add_child(ArenaEnemyMgrScript.new())  # world-space enemy services (bullets, explosions, ship pos)
 	if USE_TEST_SPAWNER:
 		add_child(TestTemplateScript.new())   # quick test: one enemy every 5s
 	else:
 		add_child(WaveDirectorScript.new())   # authored-timeline wave spawner
 		add_child(WaveEditorScript.new())     # F7 in-game wave editor (add/edit/remove waves live)
-	add_child(ArenaWeaponsScript.new())   # default/pickup weapons (fallback when nothing is equipped)
-	add_child(ArenaLoadoutScript.new())   # fires the player's EQUIPPED inventory loadout (primary + secondary)
+	add_child(ArenaWeaponsScript.new())   # bespoke 5-slot weapons (chest + F12 pickups) — the ONLY arena combat path
+	add_child(ArenaAuxScript.new())       # auxiliary passive-item store (level-up offers; group "arena_aux")
+	# arena_loadout (fires EQUIPPED inventory weapons) is intentionally NOT instantiated: combat is driven solely by
+	# the bespoke 5-slot system, so equipped starter/inventory weapons no longer auto-fire in the arena.
 	add_child(ArenaRuinLayerScript.new()) # periodic ruin ships (every 5–15s): ship → box → loot drop
 	call_deferred("_setup_boss_edit")
 	call_deferred("_setup_creep_edit")
+	call_deferred("_open_start_chest")   # fresh run → present the pick-1-of-3 weapon chest (ship starts unarmed)
+
+## Canvas glow/bloom for the arena. With hdr_2d on (project.godot) + glow_hdr_threshold 1.0, only HDR (>1)
+## pixels bloom — i.e. the DynamicFire effects that set glow>0 (Elephant M2, Red X). LDR content is untouched.
+func _make_glow_world_env() -> WorldEnvironment:
+	var env := Environment.new()
+	env.background_mode = Environment.BG_CANVAS
+	env.glow_enabled = true
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
+	# (bicubic upscale is the project setting rendering/environment/glow/upscale_mode in Godot 4, not an Env property)
+	env.glow_hdr_threshold = 1.0    # only pixels brighter than 1.0 (HDR fire) bloom
+	env.glow_intensity = 1.0
+	env.glow_strength = 1.0
+	env.glow_bloom = 0.1
+	env.set_glow_level(1, 1.0)
+	env.set_glow_level(2, 1.0)
+	env.set_glow_level(3, 1.0)
+	env.set_glow_level(4, 0.5)
+	var we := WorldEnvironment.new()
+	we.environment = env
+	return we
+
+## Present the start-of-run weapon chest. Deferred from _ready so the HUD/player exist first.
+func _open_start_chest() -> void:
+	if _weapon_chest != null and is_instance_valid(_weapon_chest) and _weapon_chest.has_method("show_chest"):
+		_weapon_chest.show_chest()
 
 ## Full-screen "edge of system" vignette; its intensity is driven by player→boundary proximity each frame.
 func _build_boundary_vignette() -> void:
@@ -161,6 +196,8 @@ func _build_ui() -> void:
 	var hp := HudHpDisplayScript.new()
 	hp.arena_mode = true   # re-pin the HP cluster to the top-left corner (legacy keeps its layout pos)
 	ui.add_child(hp)
+	ui.add_child(WeaponSlotsScript.new())   # 5 weapon slots + cooldown pies, just below the HP cluster
+	ui.add_child(AuxSlotsScript.new())      # 5 aux-item slots in a second row below the weapon slots
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 func _build_player() -> void:

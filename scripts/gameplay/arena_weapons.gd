@@ -39,6 +39,23 @@ const GAUSS_LIFETIME    := 8.0      # s before despawn (generous backstop; damag
 
 const MUZZLE_OFFSET     := 22.0     # how far ahead of the ship centre shots spawn (px)
 
+# ── Weapon acquisition (chest + pickups → up to 5 unique weapons; backs the 5-slot HUD) ──
+const MAX_WEAPONS := 5                                  # HUD slot count / acquisition cap
+const MAX_WEAPON_LEVEL := 5                             # per-weapon level cap (level-up upgrades)
+const WEAPON_DMG_PER_LEVEL := 0.20                      # +20% damage for THIS weapon per level above 1
+const CHEST_POOL  := ["gatling", "lasgun", "arc", "gauss"]   # the 4 "F12" weapons the start-of-run chest rolls from
+# kind → inventory def_id (icon) + display label. Canonical map shared by the chest + slot HUD.
+const WEAPON_INFO := {
+	"gatling": {"def_id": "gatling_gun",  "label": "Gatling"},
+	"lasgun":  {"def_id": "lasgun",       "label": "Lasgun"},
+	"arc":     {"def_id": "arc",          "label": "Arc"},
+	"gauss":   {"def_id": "gauss_cannon", "label": "Gauss"},
+	"orbital": {"def_id": "orbitals",     "label": "Orbital"},
+	"void":    {"def_id": "rift_maker",   "label": "Void"},
+	"red_x":   {"def_id": "red_x",        "label": "Red X"},
+	"chemtrail": {"def_id": "chemtrail",  "label": "Chemtrail"},
+}
+
 # ── TUNABLES: Orbitals (spiky energy orbs circling the ship, contact damage — ported from weapon_system.gd) ──
 const ORBITAL_BALLS        := 3       # number of orbiting balls (evenly spaced)
 const ORBITAL_RADIUS       := 350.0   # orbit radius around the ship (px)
@@ -146,6 +163,31 @@ const LASGUN_CHARGE   := 1.5     # charge telegraph (s) before each burst — th
 const ARC_ENABLED_DEFAULT := false   # off until the Arc pickup activates it
 const ARC_DAMAGE   := 20.0     # damage per link
 const ARC_COOLDOWN := 1.0      # s between bursts (before fire-rate mult)
+
+# ── Red X (X-shaped fire detonation centered on the ship; data-driven Red X ported into System 2) ──
+const RED_X_DAMAGE       := 60.0   # per-hit damage (× damage-mult + crit)
+const RED_X_INTERVAL     := 2.0    # s between detonations — must exceed the full flash (~1.4s) so the recede
+								   # completes before the next shot's retrigger clears particles (no sudden tip pop)
+const RED_X_REACH        := 320.0  # arm length / hit reach (px) — twice as big
+const RED_X_INNER        := 44.0   # ship-exclusion radius: fire starts on the OUTER edge of the ship area
+const RED_X_ARM_HALF_DEG := 14.0   # half-width of each X arm in degrees
+
+# ── Chemtrail (Biological): breadcrumb DoT puff-pool dropped behind the moving ship ──
+const CHEMTRAIL_TICK_DAMAGE   := 6.0    # DoT per tick (× damage-mult + crit)
+const CHEMTRAIL_TICK_INTERVAL := 0.25   # s between DoT ticks per puff
+const CHEMTRAIL_PUFF_RADIUS   := 140.0  # DoT + visual radius of each puff (2× wider trail)
+const CHEMTRAIL_PUFF_LIFETIME := 3.0    # s before a puff vanishes
+const CHEMTRAIL_SHOOT_SPEED   := 100.0  # px/s the exhaust shoots out the back of the ship
+const CHEMTRAIL_SPAWN_OFFSET  := 36.0   # spawn just BEHIND the ship (not at the centre / not in front)
+const CHEMTRAIL_EMIT_INTERVAL := 0.06   # s between emitted puffs → a continuous stream
+const CHEMTRAIL_MAX_PUFFS     := 60     # pool cap — leak guard (covers ~3s × the emit rate)
+const CHEMTRAIL_DEBUG_DRAW    := false  # debug: draw a filled disc per puff (off once the fire visual is live)
+# Toxic hue — sickly dark green → murky → purple, much darker/lower-value than Red X's bright fire (tunable).
+const CHEMTRAIL_COL_HOT   := Color(0.55, 0.85, 0.30)   # sickly green core (additive needs some brightness to read)
+const CHEMTRAIL_COL_MID   := Color(0.38, 0.48, 0.26)   # murky green transition
+const CHEMTRAIL_COL_END   := Color(0.42, 0.15, 0.50)   # sickly purple
+const CHEMTRAIL_INTENSITY := 0.2                        # -80% brightness/intensity → murky, dim
+const CHEMTRAIL_PARTICLES := 280                        # -80% density → thin, sparse haze
 const ARC_JUMPS    := 4        # extra targets the bolt chains to after the first
 const ARC_ACQUIRE_RANGE := 400.0  # max px to acquire the FIRST target (chains then extend further via ARC_RANGE)
 const ARC_RANGE    := 200.0    # max px between consecutive chain links
@@ -156,7 +198,7 @@ const ARC_COL      := Color(0.75, 0.9, 1.0)   # cold electric blue-white (soft o
 const ARC_EDGE_COL := Color(0.45, 0.75, 1.0)  # light-blue rim drawn just outside the white-hot core
 const ARC_LIGHT    := 4.0      # dust-light value per lit segment endpoint
 
-const BeamScript   := preload("res://scripts/gameplay/lasgun_ani_3.gd")   # lasgun_ani_3 (sprite muzzle); ani_1 + ani_2 kept as backups
+const BeamScript   := preload("res://scripts/gameplay/lasgun_ani_1.gd")   # lasgun_ani_1: Isaac-model body (no backward extension) + anchored, non-spinning, beam-aligned impact flipbook from the impact spritesheet; ani_2/ani_3 kept as backups
 const SFX_BOLT_HIT: Array[AudioStream] = [
 	preload("res://assets/audio/sfx/railgun.wav"),
 	preload("res://assets/audio/sfx/railgun2.wav"),
@@ -169,6 +211,7 @@ const SFX_LASGUN_BEAM: AudioStream = preload("res://assets/audio/sfx/AstroMenace
 const PickupScript := preload("res://scripts/gameplay/arena_weapon_pickup.gd")
 const OrbChargeScript := preload("res://scripts/gameplay/arena_orb_charge_fx.gd")
 const GatMuzzleScript := preload("res://scripts/gameplay/arena_gatling_muzzle.gd")
+const GaussExplFX  := preload("res://scripts/gameplay/gauss_explosion_fx.gd")
 
 # ── Gatling tracer bolt look (copied from weapon_system.gd — visuals only) ────
 const GAT_TRACER_LEN   := 16.0
@@ -211,6 +254,30 @@ const GAUSS_ORB_DIR     := "res://assets/beam references/Gauss_orb_files_2/"   #
 const GAUSS_FRAME_COUNT := 24
 const GAUSS_ORB_FPS     := 24.0    # plasma-loop playback speed (fps)
 const GAUSS_ORB_DRAW    := 38.0    # on-screen orb diameter incl. transparent margin (px); full uncropped frame
+
+# ── Gauss explosion on impact (AoE plasma burst — 3 cosmetic variants, 12 frames each) ────────
+# Non-uniform animation: fast intro → long 6-7-8 peak loop → fast outro. Damage radius is FIXED at the
+# peak size for the whole DURATION (see _tick_explosions / _explosion_frame_index).
+const GAUSS_EXPL_DURATION     := 2.0
+const GAUSS_EXPL_INTRO_TIME   := 0.30          # time for frames 1->5
+const GAUSS_EXPL_OUTRO_TIME   := 0.30          # time for frames 9->12
+# peak loop time = DURATION - INTRO - OUTRO (~1.40s looping frames 6,7,8)
+const GAUSS_EXPL_PEAK_FRAMES  := [5, 6, 7]     # 0-indexed frames 6,7,8 (the dwell)
+const GAUSS_EXPL_INTRO_FRAMES := [0, 1, 2, 3, 4]
+const GAUSS_EXPL_OUTRO_FRAMES := [8, 9, 10, 11]
+const GAUSS_EXPL_PEAK_FPS     := 12.0          # loop speed of the 6-7-8 peak
+const GAUSS_TICK_INTERVAL     := 0.1           # s between DoT ticks (Stage 2)
+const GAUSS_TICK_DAMAGE       := 5.0           # base dmg/tick; scaled by _dmg_mult + crit (Stage 2)
+const GAUSS_EXPL_RADIUS       := 72.0          # FIXED damage radius (~2.4× orb hit radius 30) — tune in Stage 3
+const GAUSS_EXPL_SCALE        := 0.45          # sprite scale: 336px frame → ~150px on-screen burst — tune in Stage 3
+const GAUSS_EXPL_HIT_PAD      := 14.0          # enemy half-size pad added to the radius test (Stage 2)
+const GAUSS_EXPL_DIR          := "res://assets/fx/gauss_explosion/"   # vN/00..11.png (transparent, glow-baked)
+const GAUSS_EXPL_VARIANTS     := 3
+const GAUSS_EXPL_FRAME_COUNT  := 12
+const GAUSS_EXPL_FRAME_W      := 336.0
+const GAUSS_EXPL_FRAME_H      := 336.0
+const GAUSS_EXPL_ANCHOR       := Vector2(168.0, 168.0)   # burst-core pixel (frame center) in each frame
+const GAUSS_EXPL_DEBUG_DRAW   := false         # true → draw the damage radius (+ enemy-center cutoff) to tune it
 
 # ── Gauss charge-up rings converging onto the ship (copied — visuals only) ────
 const GC_START_RADIUS   := 150.0
@@ -303,8 +370,15 @@ var _orb_shader: Shader = null
 var _gauss_frames: Array = []      # 12-frame plasma-orb flipbook (cropped from the reference sheet)
 var _gauss_fb_t: float = 0.0
 var _gauss_fb_idx: int = 0
-# Runtime weapon-enable flags (start from the compile-time defaults; pickups flip them on → accumulate, VS-style).
-var _gat_active: bool = GAT_ENABLED
+var _glow_tex: ImageTexture = null  # soft radial-gradient sprite for smooth glows (lazily built)
+var _expl_frames: Array = []       # [variant][frame] → ImageTexture; 3 variants × 12 frames (Gauss explosion)
+var _explosions: Array = []        # live Gauss explosions: {pos, age, variant, node, tick_acc}
+# Runtime weapon-enable flags. The ship now starts UNARMED — every weapon is acquired via the start-of-run
+# chest or a world/F12 pickup (acquire_weapon → activate_<kind>), so all flags start false.
+var _gat_active: bool = false
+var _acquired: Array = []   # ordered list of acquired weapon kinds (max MAX_WEAPONS, unique) — backs the slot HUD
+var _levels: Dictionary = {}   # kind → level (1..MAX_WEAPON_LEVEL); set on acquire, raised by level_up_weapon
+var _enemy_visible: bool = false   # set each _process from _has_enemy_on_screen(); read by weapon_is_firing()
 var _gauss_active: bool = GAUSS_ENABLED
 var _engine_hum: AudioStreamPlayer = null
 var _gauss_fire_player: AudioStreamPlayer = null
@@ -313,6 +387,14 @@ var _las_charge_player: AudioStreamPlayer = null
 var _las_beam_player: AudioStreamPlayer = null
 var _las_beam_playing: bool = false
 var _arc_active: bool = ARC_ENABLED_DEFAULT   # turned on by the Arc pickup
+var _red_x_active: bool = false    # turned on by the Red X pickup
+var _red_x_cd: float = 0.0         # Red X detonation cooldown
+var _red_x_fx: DynamicFire = null  # pooled X-flash visual (reused per shot)
+var _chemtrail_active: bool = false   # turned on by the Chemtrail pickup
+var _chemtrail_puffs: Array = []      # breadcrumb DoT puffs: {pos, age, max_age, radius}
+var _chemtrail_tick_acc: float = 0.0  # weapon-level DoT tick (single damage per enemy per tick = no-stack)
+var _chemtrail_emit_acc: float = 0.0  # emit-rate accumulator (puffs shot out the back at a steady cadence)
+var _chemtrail_fx: DynamicFire = null # ONE recolored toxic-fire emitter spanning all puff centres
 var _arc_cd: float = 0.0           # Arc burst cooldown
 var _arcs: Array = []              # live lightning segments: {a, b, age, max_age}
 var _orbital_active: bool = false  # turned on by the Orbital pickup
@@ -354,6 +436,7 @@ func _ready() -> void:
 	_gat_muzzle_fx = GatMuzzleScript.new()
 	add_child(_gat_muzzle_fx)
 	_load_gauss_frames()
+	_load_gauss_explosion_frames()
 	_bolt_hit_player = AudioStreamPlayer.new()
 	_bolt_hit_player.bus = "SFX"
 	add_child(_bolt_hit_player)
@@ -403,6 +486,22 @@ func _load_gauss_frames() -> void:
 			push_warning("arena_weapons: could not load Gauss orb frame %s" % path)
 			continue
 		_gauss_frames.append(ImageTexture.create_from_image(img))
+
+## Load the 3 explosion variants (12 transparent frames each) into _expl_frames[variant][frame].
+## CPU Image.load (no import dependency), same approach as the orb flipbook.
+func _load_gauss_explosion_frames() -> void:
+	_expl_frames.clear()
+	for v in range(1, GAUSS_EXPL_VARIANTS + 1):
+		var frames: Array = []
+		for i in GAUSS_EXPL_FRAME_COUNT:
+			var path := "%sv%d/%02d.png" % [GAUSS_EXPL_DIR, v, i]
+			var img := Image.new()
+			if img.load(path) != OK:
+				push_warning("arena_weapons: could not load Gauss explosion frame %s" % path)
+				continue
+			frames.append(ImageTexture.create_from_image(img))
+		if not frames.is_empty():
+			_expl_frames.append(frames)
 
 ## Light sources this weapon currently emits, for the dust field: one per live projectile/beam.
 ## Each: {pos: world Vector2, value: float (light strength), color: Color}.
@@ -463,6 +562,7 @@ func _process(delta: float) -> void:
 	_crit_chance = BASE_CRIT_CHANCE + (GameManager.get_crit_chance() if GameManager.has_method("get_crit_chance") else 0.0)
 	_crit_damage = GameManager.get_crit_damage() if GameManager.has_method("get_crit_damage") else 1.5
 	var enemy_on_screen := _has_enemy_on_screen()
+	_enemy_visible = enemy_on_screen   # cached for the slot HUD's firing-pulse query
 	# Stand down the default Gatling when the player has an inventory weapon equipped — the loadout
 	# engine (arena_loadout.gd) drives firing then, so the two don't stack.
 	if _gat_active and not _loadout_has_primary():
@@ -480,6 +580,13 @@ func _process(delta: float) -> void:
 			_fire_gauss()
 	if _arc_active and enemy_on_screen:
 		_fire_arc(delta)
+	if _red_x_active:
+		_red_x_cd -= delta
+		if _red_x_cd <= 0.0 and enemy_on_screen:
+			_red_x_cd = RED_X_INTERVAL / _rate_mult
+			_fire_red_x()
+	if _chemtrail_active:
+		_tick_chemtrail(delta)
 	if _orbital_active:
 		_tick_orbital(delta)
 	if _void_active:
@@ -499,6 +606,7 @@ func _process(delta: float) -> void:
 		_beam.set_beam(Vector2.ZERO, Vector2.ZERO, false, false)
 	_tick_bullets(delta)
 	_tick_orbs(delta)
+	_tick_explosions(delta)
 	_tick_arcs(delta)
 	_update_charge_rings(delta)
 	_update_sparks(delta)
@@ -528,8 +636,8 @@ func _muzzle() -> Vector2:
 	return _player.global_position + _forward() * MUZZLE_OFFSET
 
 ## Base damage × the Damage-card multiplier, then a crit roll. Returns {dmg, is_crit}.
-func _roll_damage(base: float) -> Dictionary:
-	var dmg := base * _dmg_mult
+func _roll_damage(base: float, kind := "") -> Dictionary:
+	var dmg := base * _dmg_mult * _lvl_mult(kind)
 	var is_crit := false
 	if _crit_chance > 0.0 and randf() < _crit_chance:
 		dmg *= _crit_damage
@@ -642,7 +750,7 @@ func _fire_lasgun(delta: float) -> void:
 	_beam_cd -= delta
 	if _beam_cd <= 0.0:
 		if hit and best.has_method("take_damage"):
-			var _las_r := _roll_damage(LASGUN_DAMAGE)
+			var _las_r := _roll_damage(LASGUN_DAMAGE, "lasgun")
 			best.take_damage(float(_las_r["dmg"]), LASGUN_STAGGER)
 			if bool(_las_r["is_crit"]):
 				_spawn_crit_number((best as Node2D).global_position, float(_las_r["dmg"]))
@@ -681,7 +789,7 @@ func _fire_arc(delta: float) -> void:
 			break
 		var c: Vector2 = (cur as Node2D).global_position
 		if cur.has_method("take_damage"):
-			var _arc_r := _roll_damage(ARC_DAMAGE)
+			var _arc_r := _roll_damage(ARC_DAMAGE, "arc")
 			cur.take_damage(float(_arc_r["dmg"]), ARC_STAGGER)
 			if bool(_arc_r["is_crit"]):
 				_spawn_crit_number(c, float(_arc_r["dmg"]))
@@ -816,6 +924,168 @@ func activate_arc() -> void:
 	_arc_active = true
 	_arc_cd = 0.0   # fire on the next frame
 
+## Called by the Red X pickup — turn on the X-shaped fire detonation.
+func activate_red_x() -> void:
+	_red_x_active = true
+	_red_x_cd = 0.0   # fire as soon as an enemy is visible
+
+## One Red X detonation: damage everything along the 4 diagonal arms (ported from arena_loadout._fire_cross,
+## using System-2 _roll_damage), then play the pooled X fire-flash.
+func _fire_red_x() -> void:
+	var center := _player.global_position
+	var arm_half := deg_to_rad(RED_X_ARM_HALF_DEG)
+	for en in get_tree().get_nodes_in_group("arena_enemy"):
+		if not is_instance_valid(en):
+			continue
+		var ep := (en as Node2D).global_position
+		var off := ep - center
+		var dist := off.length()
+		var _en_r = en.get("hit_radius")
+		if dist > RED_X_REACH + (float(_en_r) if _en_r != null else 0.0):
+			continue
+		if dist < RED_X_INNER:
+			continue                                   # leave the ship area empty (no centre damage)
+		var a := fposmod(off.angle(), PI / 2.0)        # fold into 4-fold symmetry
+		var d_to_diag := absf(a - PI / 4.0)            # 0 on a diagonal, PI/4 on an axis
+		if d_to_diag <= arm_half:
+			if en.has_method("take_damage"):
+				var r := _roll_damage(RED_X_DAMAGE, "red_x")
+				en.take_damage(float(r["dmg"]), 0.0)
+				if bool(r["is_crit"]):
+					_spawn_crit_number(ep, float(r["dmg"]))
+	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+		if not is_instance_valid(ruin):
+			continue
+		if center.distance_to((ruin as Node2D).global_position) <= RED_X_REACH:
+			if ruin.has_method("take_damage"):
+				ruin.take_damage(RED_X_DAMAGE * _dmg_mult * _lvl_mult("red_x"))
+	_spawn_red_x_fire(center, RED_X_REACH)
+
+## Pooled DynamicFire X-flash (recycled per shot to avoid rebuilding the GPU particle system each time).
+func _spawn_red_x_fire(center: Vector2, reach: float) -> void:
+	if _red_x_fx == null or not is_instance_valid(_red_x_fx):
+		_red_x_fx = DynamicFire.new()
+		_red_x_fx.shape             = "cross"
+		_red_x_fx.arm_count         = 4
+		_red_x_fx.ring_start_angle  = PI / 4.0      # X diagonals (matches the hit test)
+		_red_x_fx.z_index           = 6
+		_red_x_fx.particle_lifetime = 0.35
+		_red_x_fx.draw_duration     = 0.50          # 0.5s to travel from the ship's edge to the endpoint
+		_red_x_fx.draw_ease         = 1.0
+		_red_x_fx.hold_duration     = 0.06          # brief full-X moment at peak
+		_red_x_fx.burnout_duration  = 0.50          # 0.5s to recede back from ship → endpoint
+		_red_x_fx.recede_burnout    = true          # disappear directionally (inner→outer), not a uniform fade
+		_red_x_fx.particle_amount   = 330           # +50% density
+		_red_x_fx.particle_size_min = 40.0
+		_red_x_fx.particle_size_max = 92.0
+		_red_x_fx.intensity         = 0.5           # each particle LDR (<1) → only the dense core blooms
+		_red_x_fx.glow              = 0.25          # small HDR boost → contained bloom (not a screen-wide halo)
+		_red_x_fx.loop              = false
+		_red_x_fx.free_on_done      = false         # pooled: kept alive and reused
+		_red_x_fx.arm_inner         = RED_X_INNER   # fire starts on the outer edge of the ship area
+		_red_x_fx.arm_length        = reach
+		add_child(_red_x_fx)
+		_red_x_fx.global_position = center
+	else:
+		_red_x_fx.arm_length = reach
+		_red_x_fx.retrigger(center)
+
+## Called by the Chemtrail pickup — turn on the toxic breadcrumb trail.
+func activate_chemtrail() -> void:
+	_chemtrail_active = true
+
+## Per-frame: drop a puff 300px behind the ship (no-stack via spacing), then age + expire the pool.
+## Stage 1: emit + lifetime only (debug circles in _draw). DoT = Stage 2, recolored fire visual = Stage 3.
+func _tick_chemtrail(delta: float) -> void:
+	# Emit: the ship continuously shoots puffs out the back at a steady cadence. Each puff spawns just BEHIND
+	# the ship and travels outward (opposite facing) at CHEMTRAIL_SHOOT_SPEED, vanishing after its lifetime.
+	var back := -_forward()
+	_chemtrail_emit_acc += delta
+	while _chemtrail_emit_acc >= CHEMTRAIL_EMIT_INTERVAL:
+		_chemtrail_emit_acc -= CHEMTRAIL_EMIT_INTERVAL
+		# No cap for now (the lifetime bounds the pool on its own).
+		_chemtrail_puffs.append({
+			"pos": _player.global_position + back * CHEMTRAIL_SPAWN_OFFSET,
+			"vel": back * CHEMTRAIL_SHOOT_SPEED,   # captured at spawn → keeps its world-space heading
+			"age": 0.0, "max_age": CHEMTRAIL_PUFF_LIFETIME,
+			"radius": CHEMTRAIL_PUFF_RADIUS + _mech_radius(),
+		})
+	# Move + age + expire.
+	var i := _chemtrail_puffs.size() - 1
+	while i >= 0:
+		var puff: Dictionary = _chemtrail_puffs[i]
+		puff["pos"] = (puff["pos"] as Vector2) + (puff["vel"] as Vector2) * delta
+		puff["age"] = float(puff["age"]) + delta
+		if float(puff["age"]) >= float(puff["max_age"]):
+			_chemtrail_puffs.remove_at(i)
+		i -= 1
+	# DoT: one weapon-level tick → each enemy inside ANY puff takes damage once (no double-dip on overlap).
+	_chemtrail_tick_acc += delta
+	while _chemtrail_tick_acc >= CHEMTRAIL_TICK_INTERVAL:
+		_chemtrail_tick_acc -= CHEMTRAIL_TICK_INTERVAL
+		_chemtrail_dot_tick()
+	# Visual: feed all live puff centres to the single recolored toxic-fire emitter.
+	_update_chemtrail_fx()
+
+## One DoT tick: every enemy inside ANY puff takes CHEMTRAIL_TICK_DAMAGE once (single coverage check → no
+## stacking on overlap). Scales via _roll_damage (damage-mult + crit) like the other System-2 weapons.
+func _chemtrail_dot_tick() -> void:
+	if _chemtrail_puffs.is_empty():
+		return
+	for en in get_tree().get_nodes_in_group("arena_enemy"):
+		if not is_instance_valid(en):
+			continue
+		var ep := (en as Node2D).global_position
+		if _chemtrail_covers(ep) and en.has_method("take_damage"):
+			var r := _roll_damage(CHEMTRAIL_TICK_DAMAGE, "chemtrail")
+			en.take_damage(float(r["dmg"]), 0.0)
+			if bool(r["is_crit"]):
+				_spawn_crit_number(ep, float(r["dmg"]))
+	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+		if not is_instance_valid(ruin):
+			continue
+		if _chemtrail_covers((ruin as Node2D).global_position) and ruin.has_method("take_damage"):
+			ruin.take_damage(CHEMTRAIL_TICK_DAMAGE * _dmg_mult * _lvl_mult("chemtrail"))
+
+## True if world point `p` is inside ANY live puff (used for single-damage-per-tick coverage).
+func _chemtrail_covers(p: Vector2) -> bool:
+	for puff: Dictionary in _chemtrail_puffs:
+		if p.distance_to(puff["pos"]) <= float(puff["radius"]):
+			return true
+	return false
+
+## Drive the single toxic-fire emitter: lazily create it (recolored, dim, sparse) and feed the live puff
+## centres as its emission points each frame. Expired puffs drop out → their particles die → the tail fades.
+func _update_chemtrail_fx() -> void:
+	if _chemtrail_fx == null or not is_instance_valid(_chemtrail_fx):
+		_chemtrail_fx = DynamicFire.new()
+		_chemtrail_fx.free_form         = true
+		_chemtrail_fx.z_index           = 6
+		_chemtrail_fx.color_start       = CHEMTRAIL_COL_HOT
+		_chemtrail_fx.color_mid         = CHEMTRAIL_COL_MID
+		_chemtrail_fx.color_end         = CHEMTRAIL_COL_END
+		_chemtrail_fx.intensity         = CHEMTRAIL_INTENSITY
+		_chemtrail_fx.particle_amount   = CHEMTRAIL_PARTICLES
+		_chemtrail_fx.particle_size_min = 72.0
+		_chemtrail_fx.particle_size_max = 160.0
+		_chemtrail_fx.velocity_min      = 16.0
+		_chemtrail_fx.velocity_max      = 50.0
+		_chemtrail_fx.particle_lifetime = 0.8
+		add_child(_chemtrail_fx)
+	# The emitter must sit ON the player (on-screen) or GPUParticles2D culls the whole system. Feed puff
+	# positions as OFFSETS from the player; local_coords=false → particles still spawn at the world puff
+	# positions and linger there as the player moves. (Same pattern as the Red X fire node.)
+	var center := _player.global_position
+	_chemtrail_fx.global_position = center
+	var centers: Array = []
+	for puff: Dictionary in _chemtrail_puffs:
+		centers.append((puff["pos"] as Vector2) - center)
+	_chemtrail_fx.set_points(centers)
+
+## System 2 has no _mech() — radius cards live in arena_loadout. Returns 0 here (hook for future parity).
+func _mech_radius() -> float:
+	return 0.0
+
 ## Called by the Orbital pickup — adds the orbiting balls to the active loadout (accumulates).
 func activate_orbital() -> void:
 	_orbital_active = true
@@ -855,7 +1125,7 @@ func _tick_void(delta: float) -> void:
 	_void_tick += delta
 	while _void_tick >= VOID_TICK:
 		_void_tick -= VOID_TICK
-		var per_tick := lerpf(VOID_DAMAGE_MIN, VOID_DAMAGE_MAX, f) * VOID_TICK * _dmg_mult
+		var per_tick := lerpf(VOID_DAMAGE_MIN, VOID_DAMAGE_MAX, f) * VOID_TICK * _dmg_mult * _lvl_mult("void")
 		for en in get_tree().get_nodes_in_group("arena_enemy"):
 			if not is_instance_valid(en):
 				continue
@@ -909,7 +1179,7 @@ func _tick_orbital(delta: float) -> void:
 				continue
 			if bpos.distance_to((en as Node2D).global_position) <= hit_r:
 				if en.has_method("take_damage"):
-					var _orb_r := _roll_damage(_orbital_damage)
+					var _orb_r := _roll_damage(_orbital_damage, "orbital")
 					en.take_damage(float(_orb_r["dmg"]), ORBITAL_STAGGER)
 					if bool(_orb_r["is_crit"]):
 						_spawn_crit_number((en as Node2D).global_position, float(_orb_r["dmg"]))
@@ -922,7 +1192,7 @@ func _tick_orbital(delta: float) -> void:
 				var rr: float = (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0) + ORBITAL_BALL_RADIUS
 				if bpos.distance_to((ruin as Node2D).global_position) <= rr:
 					if ruin.has_method("take_damage"):
-						ruin.take_damage(_orbital_damage * _dmg_mult)
+						ruin.take_damage(_orbital_damage * _dmg_mult * _lvl_mult("orbital"))
 					struck = true
 					break
 		if struck:
@@ -1014,6 +1284,100 @@ func activate_gatling() -> void:
 func activate_gauss() -> void:
 	_gauss_active = true
 
+# ── Weapon acquisition (chest + pickups → the 5-slot HUD) ────────────────────────────────
+## Acquire a weapon `kind`: add it to the ordered slot list (if new and below the cap) and turn it on.
+## Returns true when a NEW slot was filled (false if a duplicate or the cap is already reached).
+func acquire_weapon(kind: String) -> bool:
+	var newly := false
+	if not (kind in _acquired):
+		if _acquired.size() >= MAX_WEAPONS:
+			return false   # all slots full — ignore (unique-only; level-up system comes later)
+		_acquired.append(kind)
+		_levels[kind] = 1
+		newly = true
+	_activate_kind(kind)   # idempotent: also re-arms a kind already owned
+	return newly
+
+## Ordered copy of the acquired weapon kinds — read by the slot HUD.
+func acquired_weapons() -> Array:
+	return _acquired.duplicate()
+
+# ── Weapon levels (level-up upgrades) ────────────────────────────────────────────
+## Raise an owned weapon's level by one (capped). No-op for un-owned weapons.
+func level_up_weapon(kind: String) -> void:
+	if kind in _acquired:
+		_levels[kind] = mini(MAX_WEAPON_LEVEL, int(_levels.get(kind, 1)) + 1)
+
+func weapon_level(kind: String) -> int:
+	return int(_levels.get(kind, 1)) if kind in _acquired else 0
+
+func weapon_can_upgrade(kind: String) -> bool:
+	return kind in _acquired and int(_levels.get(kind, 1)) < MAX_WEAPON_LEVEL
+
+func weapons_full() -> bool:
+	return _acquired.size() >= MAX_WEAPONS
+
+## Per-weapon damage multiplier from its level (+WEAPON_DMG_PER_LEVEL per level above 1).
+func _lvl_mult(kind: String) -> float:
+	if kind == "" or not (kind in _acquired):
+		return 1.0
+	return 1.0 + float(int(_levels.get(kind, 1)) - 1) * WEAPON_DMG_PER_LEVEL
+
+## Route a kind to its existing activate_<kind>() entry point.
+func _activate_kind(kind: String) -> void:
+	match kind:
+		"gatling": activate_gatling()
+		"lasgun":  activate_lasgun()
+		"arc":     activate_arc()
+		"gauss":   activate_gauss()
+		"orbital": activate_orbital()
+		"void":    activate_void()
+		"red_x":   activate_red_x()
+		"chemtrail": activate_chemtrail()
+
+## Cooldown/charge readiness for the slot HUD: 1.0 = ready (no mask), 0..1 = recovering (mask covers 1-frac).
+func weapon_cooldown_frac(kind: String) -> float:
+	var rate := maxf(0.01, _rate_mult)
+	match kind:
+		"gatling", "orbital", "chemtrail":
+			return 1.0   # continuous stream / always-on passive → never masked
+		"gauss":
+			return clampf(_gauss_charge / maxf(0.01, GAUSS_CHARGE_TIME / rate), 0.0, 1.0)
+		"arc":
+			if _arc_cd <= 0.0:
+				return 1.0
+			return clampf(1.0 - _arc_cd / maxf(0.01, ARC_COOLDOWN / rate), 0.0, 1.0)
+		"red_x":
+			if _red_x_cd <= 0.0:
+				return 1.0
+			return clampf(1.0 - _red_x_cd / maxf(0.01, RED_X_INTERVAL / rate), 0.0, 1.0)
+		"void":
+			if _void_cd <= 0.0:
+				return 1.0
+			return clampf(1.0 - _void_cd / maxf(0.01, VOID_COOLDOWN / rate), 0.0, 1.0)
+		"lasgun":
+			var phase := fmod(_las_t, LASGUN_CYCLE)
+			if phase < LASGUN_DURATION:
+				return 1.0   # firing window → ready
+			return clampf((phase - LASGUN_DURATION) / maxf(0.01, LASGUN_CYCLE - LASGUN_DURATION), 0.0, 1.0)
+	return 1.0
+
+## True while `kind` is actively engaging this frame (acquired/active + an enemy on screen). The slot HUD
+## uses this to give the firing weapon a slight in-place pulse. Lasgun only counts during its burst window.
+func weapon_is_firing(kind: String) -> bool:
+	if not _enemy_visible:
+		return false
+	match kind:
+		"gatling": return _gat_active
+		"gauss":   return _gauss_active
+		"arc":     return _arc_active
+		"red_x":   return _red_x_active
+		"chemtrail": return _chemtrail_active
+		"void":    return _void_active
+		"orbital": return _orbital_active
+		"lasgun":  return _lasgun_active and fmod(_las_t, LASGUN_CYCLE) < LASGUN_DURATION
+	return false
+
 ## Generic pickup drop used by the F12 weapon palette: spawn a `kind` pickup at a world position.
 func spawn_weapon_pickup(kind: String, world_pos: Vector2) -> void:
 	var p := PickupScript.new()
@@ -1043,7 +1407,7 @@ func _tick_bullets(delta: float) -> void:
 				var _hit_r: float = float(_en_r) if _en_r != null else GAT_HIT_RADIUS
 				if p.distance_to((en as Node2D).global_position) <= _hit_r:
 					if en.has_method("take_damage"):
-						var _gat_r := _roll_damage(GAT_DAMAGE)
+						var _gat_r := _roll_damage(GAT_DAMAGE, "gatling")
 						en.take_damage(float(_gat_r["dmg"]), GAT_STAGGER)
 						if bool(_gat_r["is_crit"]):
 							_spawn_crit_number(p, float(_gat_r["dmg"]))
@@ -1058,7 +1422,7 @@ func _tick_bullets(delta: float) -> void:
 					var ruin_r: float = ruin.get("hit_radius") if ruin.get("hit_radius") != null else GAT_HIT_RADIUS
 					if p.distance_to((ruin as Node2D).global_position) <= ruin_r:
 						if ruin.has_method("take_damage"):
-							ruin.take_damage(GAT_DAMAGE * _dmg_mult)
+							ruin.take_damage(GAT_DAMAGE * _dmg_mult * _lvl_mult("gatling"))
 						dead = true
 						if _bolt_hit_player != null:
 							_bolt_hit_player.stream = SFX_BOLT_HIT[randi() % SFX_BOLT_HIT.size()]
@@ -1075,7 +1439,7 @@ func _fire_gauss() -> void:
 	var dir := _forward()
 	var start := _muzzle()
 	var orb := _make_orb()
-	var budget := GAUSS_DAMAGE * _dmg_mult   # the orb carries this much damage; size ∝ sqrt(dmg/dmg_ref)
+	var budget := GAUSS_DAMAGE * _dmg_mult * _lvl_mult("gauss")   # the orb carries this much damage; size ∝ sqrt(dmg/dmg_ref)
 	var o := {
 		"pos": start, "vel": dir * GAUSS_SPEED, "life": 0.0, "start": start,
 		"orb_node": orb, "trail": [], "spark_acc": 0.0, "dmg": budget, "dmg_ref": budget, "hit": [],
@@ -1111,45 +1475,28 @@ func _tick_orbs(delta: float) -> void:
 		# Cull when the budget is spent, the orb drifts too far from the player, or the lifetime backstop.
 		var far := _player != null and is_instance_valid(_player) and p.distance_to(_player.global_position) > GAUSS_CULL_DIST
 		var dead := dmg <= GAUSS_MIN_DMG or float(o["life"]) >= GAUSS_LIFETIME or far
-		# Damage-budget pierce: hit each target once, spend min(dmg, target.hp); overkill carries on.
+		# Consume-on-first-hit: the orb dies the instant it touches ANY enemy or ruin and spawns a Gauss
+		# explosion at the impact point. All damage now comes from the explosion DoT (_tick_explosions);
+		# the orb itself no longer deals direct damage.
 		if not dead:
-			var frac := clampf(dmg / maxf(1.0, float(o["dmg_ref"])), 0.0, 1.0)
-			var r := GAUSS_RADIUS * sqrt(frac) + 8.0   # hit radius shrinks ∝ sqrt(damage)
-			var hit: Array = o["hit"]
 			for en in enemies:
-				if not is_instance_valid(en) or (en as Node2D).get_instance_id() in hit:
+				if not is_instance_valid(en):
 					continue
-				var id := (en as Node2D).get_instance_id()
-				if id in hit:
-					continue
-				var _en_r2 = en.get("hit_radius")
-				var _hit_r2: float = (float(_en_r2) if _en_r2 != null else GAUSS_RADIUS) + 8.0
-				if p.distance_to((en as Node2D).global_position) <= _hit_r2:
-					var ehp: float = float(en.hp) if en.get("hp") != null else dmg
-					var en_absorbed: float = minf(dmg, maxf(0.0, ehp))
-					if en.has_method("take_damage"):
-						en.take_damage(en_absorbed, GAUSS_STAGGER)
-					_gauss_impact_player.play()
-					hit.append(id)
-					dmg -= en_absorbed
-					if dmg <= GAUSS_MIN_DMG:
-						dead = true
-						break
+				var _en_r = en.get("hit_radius")
+				var _hit_r: float = (float(_en_r) if _en_r != null else GAUSS_RADIUS) + 8.0
+				if p.distance_to((en as Node2D).global_position) <= _hit_r:
+					_spawn_gauss_explosion(p)
+					dead = true
+					break
 			if not dead:
 				for ruin in ruins:
-					if not is_instance_valid(ruin) or (ruin as Node2D).get_instance_id() in hit:
+					if not is_instance_valid(ruin):
 						continue
 					var ruin_r: float = (ruin.get("hit_radius") if ruin.get("hit_radius") != null else GAUSS_RADIUS) + 8.0
 					if p.distance_to((ruin as Node2D).global_position) <= ruin_r:
-						var rhp: float = float(ruin.hp) if ruin.get("hp") != null else dmg
-						var absorbed: float = minf(dmg, maxf(0.0, rhp))
-						ruin.take_damage(absorbed)
-						dmg -= absorbed
-						hit.append((ruin as Node2D).get_instance_id())
-						if dmg <= GAUSS_MIN_DMG:
-							dead = true
-							break
-			o["dmg"] = dmg
+						_spawn_gauss_explosion(p)
+						dead = true
+						break
 		if dead:
 			_free_orb(o)
 			_orbs.remove_at(i)
@@ -1191,6 +1538,101 @@ func _free_orb(o: Dictionary) -> void:
 	if tr != null and is_instance_valid(tr):
 		tr.queue_free()
 	o["orb_node"] = null
+
+# ── Gauss explosion (AoE plasma burst spawned on orb impact) ──────────────────
+## Spawn a self-expiring explosion at world `pos`. Picks one of the 3 cosmetic variants at random
+## (same timing/radius for all). Each explosion owns its own draw node + timers → fully independent.
+func _spawn_gauss_explosion(pos: Vector2) -> void:
+	var variant := 0
+	if not _expl_frames.is_empty():
+		variant = randi() % _expl_frames.size()
+	# Dedicated additive draw node: draw_texture_rect scales the full frame into draw_rect (no
+	# EXPAND_IGNORE_SIZE clip → no square). Core pixel (173,183) lands on the impact point.
+	var fx := GaussExplFX.new()
+	fx.global_position = pos
+	fx.draw_rect = Rect2(-GAUSS_EXPL_ANCHOR * GAUSS_EXPL_SCALE,
+		Vector2(GAUSS_EXPL_FRAME_W, GAUSS_EXPL_FRAME_H) * GAUSS_EXPL_SCALE)
+	add_child(fx)
+	# tick_acc seeded to one full interval so the first DoT tick lands on the spawn frame (damage field
+	# is active "the instant the explosion spawns" per spec).
+	var e := {"pos": pos, "age": 0.0, "variant": variant, "node": fx, "tick_acc": GAUSS_TICK_INTERVAL}
+	_explosions.append(e)
+	_gauss_impact_player.play()
+	_update_explosion_node(e)
+
+## Drive every live explosion: advance its age, update the (non-uniform) animation frame, run the DoT
+## field every GAUSS_TICK_INTERVAL at a FIXED radius, despawn at DURATION.
+func _tick_explosions(delta: float) -> void:
+	var i := _explosions.size() - 1
+	while i >= 0:
+		var e: Dictionary = _explosions[i]
+		e["age"] = float(e["age"]) + delta
+		if float(e["age"]) >= GAUSS_EXPL_DURATION:
+			var n := e.get("node") as Node2D
+			if n != null and is_instance_valid(n):
+				n.queue_free()
+			_explosions.remove_at(i)
+			i -= 1
+			continue
+		_update_explosion_node(e)
+		# DoT: damage everything within GAUSS_EXPL_RADIUS (fixed for the whole 2s — no per-frame scaling),
+		# once per enemy per tick. Each explosion has its own tick_acc → independent fields.
+		e["tick_acc"] = float(e["tick_acc"]) + delta
+		while float(e["tick_acc"]) >= GAUSS_TICK_INTERVAL:
+			e["tick_acc"] = float(e["tick_acc"]) - GAUSS_TICK_INTERVAL
+			_gauss_explosion_tick(e["pos"])
+		i -= 1
+
+## One DoT tick: GAUSS_TICK_DAMAGE scaled by the damage stat (+ crit) to every enemy in radius, plus ruins.
+## Same enumeration + damage call + crit-number path as the orbital/void AoE weapons.
+func _gauss_explosion_tick(center: Vector2) -> void:
+	for en in get_tree().get_nodes_in_group("arena_enemy"):
+		if not is_instance_valid(en):
+			continue
+		if center.distance_to((en as Node2D).global_position) <= GAUSS_EXPL_RADIUS + GAUSS_EXPL_HIT_PAD:
+			if en.has_method("take_damage"):
+				var r := _roll_damage(GAUSS_TICK_DAMAGE, "gauss")
+				en.take_damage(float(r["dmg"]), 0.0)
+				if bool(r["is_crit"]):
+					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+		if not is_instance_valid(ruin):
+			continue
+		var ruin_r: float = GAUSS_EXPL_RADIUS + (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0)
+		if center.distance_to((ruin as Node2D).global_position) <= ruin_r:
+			if ruin.has_method("take_damage"):
+				ruin.take_damage(GAUSS_TICK_DAMAGE * _dmg_mult * _lvl_mult("gauss"))
+
+## Feed the visual node its scheduled frame (position/scale were fixed on spawn → only the frame changes).
+func _update_explosion_node(e: Dictionary) -> void:
+	var fx: Node2D = e.get("node")
+	if fx == null or not is_instance_valid(fx):
+		return
+	var variant: int = e["variant"]
+	if variant < 0 or variant >= _expl_frames.size():
+		return
+	var frames: Array = _expl_frames[variant]
+	if frames.is_empty():
+		return
+	var fi := clampi(_explosion_frame_index(float(e["age"])), 0, frames.size() - 1)
+	fx.set_frame(frames[fi])
+
+## Non-uniform schedule → 0-indexed frame:
+##   intro frames spread over INTRO_TIME → loop PEAK_FRAMES at PEAK_FPS until (DURATION-OUTRO_TIME)
+##   → outro frames spread over OUTRO_TIME.
+func _explosion_frame_index(age: float) -> int:
+	if age < GAUSS_EXPL_INTRO_TIME:
+		var ni := GAUSS_EXPL_INTRO_FRAMES.size()
+		var ki := int(age / maxf(0.001, GAUSS_EXPL_INTRO_TIME) * float(ni))
+		return GAUSS_EXPL_INTRO_FRAMES[clampi(ki, 0, ni - 1)]
+	var peak_end := GAUSS_EXPL_DURATION - GAUSS_EXPL_OUTRO_TIME
+	if age < peak_end:
+		var np := GAUSS_EXPL_PEAK_FRAMES.size()
+		var kp := int((age - GAUSS_EXPL_INTRO_TIME) * GAUSS_EXPL_PEAK_FPS) % np
+		return GAUSS_EXPL_PEAK_FRAMES[kp]
+	var no := GAUSS_EXPL_OUTRO_FRAMES.size()
+	var ko := int((age - peak_end) / maxf(0.001, GAUSS_EXPL_OUTRO_TIME) * float(no))
+	return GAUSS_EXPL_OUTRO_FRAMES[clampi(ko, 0, no - 1)]
 
 func _shed_sparks(o: Dictionary, delta: float) -> void:
 	var v: Vector2 = o["vel"]
@@ -1262,6 +1704,18 @@ func _draw() -> void:
 	if _orbital_active:
 		_draw_orbital()
 	_draw_flashes()
+	if GAUSS_EXPL_DEBUG_DRAW:
+		for e: Dictionary in _explosions:
+			var c: Vector2 = e["pos"]
+			# Solid = GAUSS_EXPL_RADIUS (tune to the visible 6-8 plasma edge); faint = the enemy-center
+			# cutoff actually used in the hit test (radius + GAUSS_EXPL_HIT_PAD).
+			draw_arc(c, GAUSS_EXPL_RADIUS, 0.0, TAU, 56, Color(1.0, 0.3, 0.1, 0.9), 2.0, true)
+			draw_arc(c, GAUSS_EXPL_RADIUS + GAUSS_EXPL_HIT_PAD, 0.0, TAU, 56, Color(1.0, 0.8, 0.2, 0.35), 1.0, true)
+	if CHEMTRAIL_DEBUG_DRAW:
+		for puff: Dictionary in _chemtrail_puffs:
+			var pt := clampf(1.0 - float(puff["age"]) / maxf(0.01, float(puff["max_age"])), 0.0, 1.0)
+			# Filled low-alpha disc → overlapping puffs blend into one continuous green band.
+			draw_circle(puff["pos"], float(puff["radius"]), Color(0.35, 0.85, 0.3, 0.12 + 0.12 * pt))
 
 func _draw_tracer(p: Vector2, vel: Vector2) -> void:
 	var dir := (vel as Vector2).normalized() if (vel as Vector2).length() > 0.01 else Vector2.UP
@@ -1295,6 +1749,23 @@ func _oblong(c: Vector2, rx: float, ry: float, ca: float, sa: float, segs: int) 
 		pts[i] = c + Vector2(x * ca - y * sa, x * sa + y * ca)
 	return pts
 
+## Soft radial glow: one smooth-falloff gradient sprite, modulated by `col`, centred at `pos`. Replaces
+## stacked hard draw_circle layers so glows blend out smoothly. Lazily builds the gradient texture once.
+func _draw_glow(pos: Vector2, radius: float, col: Color) -> void:
+	if _glow_tex == null:
+		var size := 64
+		var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+		var ctr := float(size) * 0.5
+		for y in size:
+			for x in size:
+				var dx := (float(x) - ctr) / ctr
+				var dy := (float(y) - ctr) / ctr
+				var d := sqrt(dx * dx + dy * dy)
+				var a := pow(clampf(1.0 - d, 0.0, 1.0), 2.0)   # smooth radial falloff → no hard edge
+				img.set_pixel(x, y, Color(1.0, 1.0, 1.0, a))
+		_glow_tex = ImageTexture.create_from_image(img)
+	draw_texture_rect(_glow_tex, Rect2(pos - Vector2(radius, radius), Vector2(radius * 2.0, radius * 2.0)), false, col)
+
 func _draw_gauss_trail(o: Dictionary) -> void:
 	var trail: Array = o.get("trail", [])
 	var n := trail.size()
@@ -1309,11 +1780,9 @@ func _draw_gauss_trail(o: Dictionary) -> void:
 		if w < 0.5:
 			continue
 		var pa: Vector2 = trail[i]
-		draw_circle(pa, w * 2.6, Color(c.r, c.g, c.b, GAUSS_TRAIL_ALPHA * 0.05 * fade), true, -1.0, true)
-		draw_circle(pa, w * 1.8, Color(c.r, c.g, c.b, GAUSS_TRAIL_ALPHA * 0.12 * fade), true, -1.0, true)
-		draw_circle(pa, w * 1.2, Color(c.r, c.g, c.b, GAUSS_TRAIL_ALPHA * 0.28 * fade), true, -1.0, true)
-		draw_circle(pa, w, Color(c.r, c.g, c.b, GAUSS_TRAIL_ALPHA * 0.50 * fade), true, -1.0, true)
-		draw_circle(pa, w * 0.45, Color(1.0, 0.88, 0.9, GAUSS_TRAIL_ALPHA * 0.7 * fade), true, -1.0, true)
+		# Soft radial-gradient glow (smooth falloff) instead of stacked hard circles → blends out cleanly.
+		_draw_glow(pa, w * 2.6, Color(c.r, c.g, c.b, GAUSS_TRAIL_ALPHA * 0.55 * fade))   # wide colored halo
+		_draw_glow(pa, w * 0.9, Color(1.0, 0.9, 0.92, GAUSS_TRAIL_ALPHA * 0.6 * fade))    # bright hot core
 
 func _draw_sparks() -> void:
 	var c := GAUSS_SPARK_COL

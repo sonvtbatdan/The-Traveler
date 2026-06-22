@@ -893,6 +893,62 @@ tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 
 ---
 
+## Dynamic Fire (GPU particles + erosion shader)
+
+Technique for lively, organic fire VFX. Reference impl: `scripts/gameplay/fx/dynamic_fire.gd` +
+`dynamic_fire.gdshader` (first used to replace the Elephant M2 fire). **Note:** the rest of the repo uses
+`CPUParticles2D` exclusively — this is the only `GPUParticles2D` pattern, required because the effect needs
+the process material's per-particle alpha curve to reach the draw shader.
+
+**The idea:** a `GPUParticles2D` whose **per-particle `COLOR.a` (an alpha curve animating 0→1 over life)
+drives a `smoothstep` edge** in the draw shader, so seamless noise progressively **erodes a SOFT flame
+texture** as each particle ages → every particle dissolves independently while shifting yellow→red.
+
+**Build steps:**
+1. **Soft flame texture** — must be soft/blurry + transparent (hard cel art looks messy — the tutorial's
+   explicit lesson). Generate procedurally if no soft art exists (`_make_soft_flame`: pale core → transparent
+   rim radial falloff). The repo's `assets/Flame sprite.png` is a HARD cel ANIMATION (opaque) — not usable here.
+2. **`ParticleProcessMaterial`** drives motion + **colour/alpha over lifetime** (NOT the shader): `color_ramp`
+   GradientTexture1D (yellow→red), `alpha_curve` CurveTexture (0→1 = the erosion driver). Typical: amount ~60,
+   `fixed_fps=60`, gravity 0, `particle_flag_disable_z=true`, scale 0.3–0.75 (× texture size), velocity 80–180,
+   `inherit_velocity_ratio` 0.2, `angle_min/max` ±90°, spread 180°.
+3. **Seamless noise** — reuse `arena_nebula._make_noise_tex` (FastNoiseLite + NoiseTexture2D, `seamless=true`).
+4. **Erosion draw shader** (`canvas_item, unshaded`, set as `GPUParticles2D.material`):
+   ```glsl
+   vec4 particle = COLOR;                 // ramp rgb + alpha-curve a (per particle)
+   float n = texture(noise_tex, UV * noise_scale).r;
+   float mask = smoothstep(particle.a - softness, particle.a + softness, n);
+   vec4 flame = texture(TEXTURE, UV);     // the soft flame sprite
+   COLOR = vec4(flame.rgb * particle.rgb, flame.a * mask);
+   ```
+   **Crux:** the erosion edge MUST be `COLOR.a` (per-particle), never a constant. Output alpha = `flame.a *
+   mask` — do NOT multiply by `COLOR.a` (that inverts the dissolve: invisible at birth, opaque at death).
+5. **Growth-from-a-point / trails:** set `local_coords = false` and move the emitter node along a path
+   (straight jet → around a circle) while emitting — the trail of particles reads as fire drawn out from the
+   muzzle. Pure particles shimmer/breathe rather than forming a crisp outline (the chosen lively look).
+6. **Variants:** sparks = same shader, tiny spark texture, amount ~12, sphere spawn, lifetime ~0.3. Additive
+   look via a `CanvasItemMaterial` blend_add; collisions via ParticleProcessMaterial Collision = rigid +
+   `LightOccluder2D`.
+
+### Glow / bloom (HDR-2D + WorldEnvironment)
+Real bloom on the fire (the "glow" tutorial). Godot has **no per-node 2D glow** — it's a screen post-process,
+so the trick is to make it bloom *only* the HDR fire:
+1. **`rendering/viewport/hdr_2d = true`** in `project.godot` (lets 2D colours exceed 1.0; LDR art unaffected).
+2. A **`WorldEnvironment`** in the scene with an `Environment`: `background_mode = BG_CANVAS`,
+   `glow_enabled = true`, `glow_blend_mode = GLOW_BLEND_MODE_SCREEN`,
+   **`glow_hdr_threshold = 1.0`** (only pixels >1 bloom → targets the HDR fire, leaves LDR content alone).
+   See `arena.gd._make_glow_world_env()`. Glow is arena-scoped (the env lives in the arena tree).
+   (Godot 4: bicubic upscale is NOT an Environment property — it's the project setting
+   `rendering/environment/glow/upscale_mode=1`.)
+3. **Make the fire output HDR (>1):** `DynamicFire.glow` (export → `glow` uniform); the shader outputs
+   `particle.rgb * (intensity + glow)`, so `glow>0` pushes the hot core above 1.0 → it blooms. Red X
+   (`arena_weapons._spawn_red_x_fire`) and Elephant M2 (`arena_elephant`) set `glow ≈ 1.6`; Chemtrail leaves
+   `glow = 0` (stays murky, no bloom).
+Tuning: `glow_hdr_threshold`/`glow_strength`/`glow_bloom` on the env, and per-effect `glow` on the fire.
+Anything else that outputs >1 (e.g. the sun shader) will also bloom — raise the threshold or keep other art LDR.
+
+---
+
 ## Risky Areas
 
 - Removing autoloads without updating `main.gd` references causes load failure

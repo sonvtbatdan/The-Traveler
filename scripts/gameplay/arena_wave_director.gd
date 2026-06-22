@@ -206,7 +206,10 @@ func _pattern_positions(pattern: String, count: int) -> Array:
 
 # ══ Spawn ══════════════════════════════════════════════════════════════════════
 func _spawn(type_id: String, pos: Vector2, is_boss: bool) -> void:
-	if not is_boss and get_tree().get_nodes_in_group("arena_enemy").size() >= MAX_ALIVE:
+	# Beacon aux item lifts the alive-cap so more enemies crowd the field (base mult 1.0 = no change).
+	var spawn_mult: float = GameManager.upg_spawn_rate_mult if "upg_spawn_rate_mult" in GameManager else 1.0
+	var cap := int(round(float(MAX_ALIVE) * spawn_mult))
+	if not is_boss and get_tree().get_nodes_in_group("arena_enemy").size() >= cap:
 		return
 	var src: Dictionary = ENEMY_DEFS.get(type_id, {})
 	if src.is_empty():

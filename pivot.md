@@ -1,83 +1,261 @@
-# Combat & weapons
-⚠️ Full weapon engine (weapon_system.gd) — fire modes repeat/charge/beam/channel/aura; missiles, homing, cone-spread, chain, orbitals, bat swarm, Laser hitscan, Plasma-Drill tether, Rift-Maker vortex, crit numbers. Arena has only 2 hardcoded visual ports.
-✅ Legacy mount auto-fire + ship float/collision (gun_system.gd)
-✅ Lasgun beam FX helper (lasgun_beam.gd)
-✅ WeaponManager autoload — canvas-driven weapon catalog, tiers, material costs
-# Asteroids & economy (idle layer)
-✅ Asteroid system (asteroid_layer.gd) — drifting asteroids, click/shoot to harvest
-✅ MaterialManager — metal/nonmetal/organic/liquid currencies + material_panel HUD
-✅ UpgradeManager — 8 passive idle-production upgrades + upgrade list/shelf UI
-✅ DefenseManager + defense panel + on-ship defense_visual (0–8 track)
-✅ EquipmentManager — ship power-core modules
-# Items & inventory
-✅ InventoryManager — D2 grid backpack + 10 equip slots + item catalog
-✅ AffixManager — ~40 affixes, weapon/hull pools, tier-band rolling
-✅ Inventory UI — inventory_ui, backpack_grid, equip_slot, item_widget (tooltip), character_sheet
-✅ Item drops / loot
-# Enemies & waves
-⚠️ Enemy framework (enemy_manager, enemy_base) — real HP/armor/textures/flash. Arena has one placeholder diamond chaser.
-✅ All enemy types — centipede, dragonfly, octopus, spider, diver, shooter, sentinel, bomb, bombing-wanderer, beamer, missile-launcher, dummy
-✅ Flock systems — bee, bug, flies, swarm (orchestrator + member)
-⚠️ Spawning — arena has a uniform ring spawner only; old game has the Wave Director, Choreography Registry/Base + ~13 choreographies, Level Recipe, and Level Design Panel (F7)
-# Bosses
-✅ Boss coordinator (boss_fight.gd) + Elephant / Chromeleon / Metalfly / Nautilus
-✅ Boss support — boss_death_fx, boss_warning, boss_music, intro/wander flow, boss HP bar
-Ship systems
-✅ Hull skin swap + pose system (idle/lean/dash) — gun_system HULL_SKIN_MAP
-✅ Boost / AUTO-DRIVE (boost_button) and AUTO-FIRE toggle (auto_fire_button)
-⚠️ Shield / armor mechanics — HUD shows shield, but no shield/armor is wired into arena damage
-✅ Auto-clicker overlay
-# Meta / progression
-⚠️ GameManager is present but the arena only uses HP/shield — Level/XP system (curve, per-kill/boss XP) and the 4-attribute system (Marksmanship/Engineering/Biotech/Maneuverability, points/level) are not active
-✅ Money currency, boss-armor, boss-state machine
-UI / HUD
-✅ Material panel, Boss HP bar, Enemy spawn panel (6-tab), Stat panel (MUTE/SETTING/QUIT + settings overlay: resolution/volume/material cheats/resets), Upgrade shelf, coord grid, audio monitor
-✅ HUD Edit Mode (F6) — drag/resize widgets → hud_layout.cfg
-(Arena keeps only hud_hp_display + perf_overlay.)
-Edit modes & tooling
-✅ Edit Mode (F4) — edit_mode, editable_object, transform_panel, object_list_panel
-✅ Boss Edit Mode (F5) + grid overlay
-✅ Asset pipeline — gif_loader, png_sprite_loader (GIF→sprite-sheet)
-# Audio & streamer widgets
-✅ AudioManager (music/SFX), boss music
-✅ UserPanel — TodoList, MusicPlayer (+ music_server mpv bridge), WeatherClock/chatbot
-Background (old, replaced)
-✅ Scrolling background + overlay (scrolling_background.gd, overlay.gd) — replaced by the new nebula/parallax
-Persistence
-✅ The whole save layer — save.cfg (6-manager sections), materials.cfg, settings.cfg, hud_layout.cfg, user_panel.cfg, music_player.cfg, todo.cfg, session.cfg, default_layout.cfg/preset_layout.cfg/boss_layout.cfg. Arena does no saving.
+# Level up item spawn logic
+Level up allows you to level up current items or pick new ones. Here is the generic logic, with all game-specific references removed.
 
-That's very useful context. Your legacy system was actually built on exactly the VS/HoT pattern — but it was also more complex than what you need now (difficulty ramps, hybrid wave advancement, a whole choreography registry, the F6/F7 editor tooling). You chose "fresh and simple," which is right: that complexity was tied to the fixed-screen edges (top/bottom/left/right) and won't translate to an arena where the player is always centered and enemies come from all directions.
-Here's what carries over and what changes:
-Reuse the concepts: timed entries, named enemy types, the EnemyManager spawning idea. Your real enemy roster is diver, shooter, sentinel, bombing_wanderer, swarm (plus beamer, missile_launcher; dummy/bomb were test types) and bosses elephant, chromeleon, metalfly.
-Change for the arena: edges → radial spawning (enemies appear in a ring around the player, off-screen, since the player is always centered). The old top/bottom/left/right edge concept is gone.
-One important note tied to your earlier phases: this prompt assumes the world-space arena_enemy.gd with the take_damage() contract from the enemy phase exists. If you haven't actually built that yet (we discussed it but you went into background polish), the timeline has nothing to spawn. So the prompt starts by checking that and, if needed, builds a minimal version first.
-Here's the prompt:
+Level-up item selection logic
 
-Copy into Claude Code:
+When the player levels up, the game should generate a small list of item choices. These choices can be either:
 
-Build a fresh, simple authored-timeline wave spawner for the arena, modeled on how Vampire Survivors / Halls of Torment work: a hand-authored, time-keyed data table that spawns enemy types using reusable spawn-pattern functions. Deterministic and learnable — same timeline every run. Do not salvage the legacy wave_director/level_recipe/choreography system; it's tied to the old fixed-screen edges and is more complex than we want. Read and report a plan before editing.
-STEP 0 — check the foundation exists. Confirm there's a world-space enemy in the arena (e.g. arena_enemy.gd, a CharacterBody2D/Area2D) that pursues the player and exposes take_damage(amount). If it does NOT exist yet, first build a minimal version: tunable max_hp/move_speed, moves toward the player each frame, take_damage() frees it at 0, deals contact damage to the player via GameManager. Report which case we're in before continuing.
-Architecture — three clean layers:
-1. Enemy definition table. A simple data map of enemy type ID → stats (hp, speed, scene/script, scale/tint for now). Use the real roster as IDs:. Placeholder visuals are fine — real enemy art/behavior ports later. Boss IDs: elephant, chromeleon, metalfly (stub bosses as big high-HP enemies for now).
-2. Reusable spawn-pattern functions. Because the player is always centered in the arena, enemies spawn radially around the player, just off-screen (not from screen edges). Write a few patterns:
+A new item the player does not have yet
+An upgrade to an item the player already owns
 
-ring — N enemies evenly in a circle around the player at spawn radius.
-arc — N enemies in a partial arc from a random direction.
-stream — enemies emitted one-by-one from a single random direction over a duration.
-scatter — N at random angles/distances around the player.
+The system is not fully random. It should be weighted random with priority rules.
 
-Each takes the player position + a tunable spawn radius (just beyond the visible screen).
+1. Build the eligible item pool
 
-3. The authored timeline (the spine). A hardcoded, ordered data array of timed entries, each like:
+Before showing level-up choices, the game creates a list of valid options.
 
-{ time: 0.0, type: "diver", count: 5, pattern: "ring" },
+An item is eligible if:
 
-{ time: 30.0, type: "swarm", count: 12, pattern: "stream", duration: 8.0 },
+It has been unlocked
+It is not banned/removed from the current run
+It is not already max level
+The player has room for it, if it is a new item
+The player already owns it, if it is an upgrade
 
-{ time: 120.0, type: "elephant", count: 1, pattern: "ring", is_boss: true } …
+So the pool can contain:
 
-A wave_director.gd node keeps an elapsed-time clock and fires each entry when its time is reached (entries with duration spread their spawns over that window). Author a starter timeline of ~3–5 minutes that escalates: easy single-type early, mixed types and higher counts later, a mid boss and an end boss. This is the part I'll tune, so keep the timeline as a clearly-readable data block at the top of the file, easy to edit without touching logic.
-Tunables at top: spawn radius, global count multiplier, global HP/speed multipliers (for quick difficulty tuning), max-alive cap, and the timeline array itself.
-Keep it deterministic: same timeline plays the same every run (randomness only in spawn angles/positions, not in composition). No difficulty editor, no choreography registry — just timeline + patterns + enemy table.
-Then STOP and let me test. I want to watch the authored timeline play out: enemies spawning in rings/streams around me from off-screen, escalating over time, bosses at the authored beats, and my placeholder auto-fire killing them. Report the timeline entries and tunables so I can start editing the schedule.
+Owned items that can still be upgraded
++
+New items that can still be picked
 
+If the player’s item slots are full, then new items are removed from the pool, and only upgrades can appear.
+
+2. Give owned items priority
+
+The game should try to offer upgrades for already-owned items first.
+
+Example logic:
+
+For each level-up choice slot:
+    Roll chance to offer an owned item upgrade.
+    
+    If successful:
+        Pick one upgradeable owned item.
+    Else:
+        Pick from the general eligible item pool.
+
+This makes the system feel better because once the player chooses an item, they are more likely to see upgrades for it later.
+
+Without this rule, the player may pick an item and then not see its upgrade for too long, which feels bad.
+
+3. Use weighted randomness
+
+Each item should have a spawn weight.
+
+Example:
+
+Common item: weight 100
+Uncommon item: weight 50
+Rare item: weight 20
+Very rare item: weight 5
+Legendary item: weight 1
+
+Chance of seeing an item:
+
+item weight / total weight of all eligible items
+
+Example:
+
+Item A weight = 100
+Item B weight = 50
+Item C weight = 25
+
+Total weight = 175
+
+Item A chance = 100 / 175 = 57.1%
+Item B chance = 50 / 175 = 28.6%
+Item C chance = 25 / 175 = 14.3%
+
+So it is random, but not equally random.
+
+4. Prevent duplicate choices in the same level-up
+
+The same item should not appear twice in one level-up screen.
+
+Bad:
+
+Upgrade Cannon
+Upgrade Cannon
+Pick Shield
+
+Good:
+
+Upgrade Cannon
+Upgrade Engine
+Pick Shield
+
+After an item is selected for one choice slot, temporarily remove it from the pool for the remaining slots.
+
+5. New items vs current item upgrades
+
+A good generic rule is:
+
+If the player owns upgradeable items:
+    Give upgrades a higher chance to appear.
+
+If the player has empty item slots:
+    Allow new items to appear.
+
+If the player has full item slots:
+    Only show upgrades.
+
+Example probability:
+
+70% chance: show upgrade to owned item
+30% chance: show new item
+
+This does not have to be fixed. You can change it based on game design.
+
+For example:
+
+Early game
+50% upgrade
+50% new item
+
+This helps the player build their loadout.
+
+Mid game
+70% upgrade
+30% new item
+
+This helps the player strengthen their chosen build.
+
+Late game
+90% upgrade
+10% new item
+
+Or, if item slots are full:
+
+100% upgrade
+0% new item
+6. Level-up choice algorithm
+
+A simple version:
+
+function generateLevelUpChoices(player, choiceCount):
+    choices = []
+
+    ownedPool = getOwnedUpgradeableItems(player)
+    newPool = getNewAvailableItems(player)
+    generalPool = ownedPool + newPool
+
+    repeat until choices has choiceCount items:
+        remove items already in choices from all pools
+
+        if ownedPool is not empty and randomChance(ownedUpgradePriority):
+            item = weightedRandom(ownedPool)
+        else:
+            item = weightedRandom(generalPool)
+
+        add item to choices
+
+    return choices
+7. Cleaner version with fallback logic
+function generateLevelUpChoices(player, choiceCount):
+    choices = []
+
+    while choices.count < choiceCount:
+        ownedPool = getOwnedUpgradeableItems(player)
+        newPool = getNewAvailableItems(player)
+
+        remove choices from ownedPool
+        remove choices from newPool
+
+        if player.itemSlotsAreFull:
+            candidatePool = ownedPool
+        else:
+            if ownedPool is not empty and roll(ownedUpgradeChance):
+                candidatePool = ownedPool
+            else:
+                candidatePool = ownedPool + newPool
+
+        if candidatePool is empty:
+            break
+
+        selectedItem = weightedRandom(candidatePool)
+        choices.add(selectedItem)
+
+    return choices
+8. Example behavior
+
+Suppose the player has:
+
+Owned items:
+- Cannon, level 2 / 5
+- Shield, level 1 / 5
+- Engine, max level
+
+Available new items:
+- Drone
+- Missile
+- Armor
+- Reactor
+
+The eligible pool becomes:
+
+Cannon upgrade
+Shield upgrade
+Drone
+Missile
+Armor
+Reactor
+
+The maxed item is excluded:
+
+Engine is removed because it cannot be upgraded anymore.
+
+If the system prioritizes owned upgrades, the player is more likely to see:
+
+Cannon upgrade
+Shield upgrade
+Missile
+
+Instead of:
+
+Drone
+Missile
+Armor
+
+This helps the player complete their build instead of being flooded with new options.
+
+9. Item spawn summary
+
+A strong item spawn system should use:
+
+Eligibility rules
++ Spawn weights
++ Owned-item priority
++ No duplicate choices
++ Slot limits
++ Fallback behavior
+
+The result feels random, but controlled.
+
+The player still gets surprises, but the game does not feel unfair. Early choices matter because once an item is picked, it becomes part of the upgrade pool and will appear more often later.
+
+Also add in these items that could drop at random as well. They are also items that could be picked up. These items slots will be similar to the weapons but in a lower row. No images for them right now so just generate some color for place holder | Effect       | Auxiliary Item Name      |
+| ------------ | ------------------------ |
+| +HP          | **Reinforcement plate**          |
+| +Regen       | **Nanobots**       |
+| +Armor       | **Exoskeleton** |
+| +Speed       | **Fins**        |
+| +Damage      | **Accelerated muzzle**        |
+| +Fire Rate   | **Auto-Loader**          |
+| +Pierce %    | **Penetrator Rounds**    |
+| +AOE         | **Explosivo**      |
+| +Pick Up     | **Magnet**       |
+| +EXP         | **Data Harvester**       |
+| +Enemy Spawn | **Beacon**        |
+|+ Retaliation (return flat damage on taking damage) | Barbed wire
+| +Revival     | **Backup image**       |
+| +Coin        | **Credit Extractor**     |

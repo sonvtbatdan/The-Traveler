@@ -1,75 +1,39 @@
 extends CanvasLayer
-## Vampire-Survivors level-up flow. When GameManager emits `leveled_up`, pause the game and show 3 random
-## upgrade cards; picking one applies a PlayerStats bonus (GameManager.add_*) and resumes. Multiple level-ups
-## from one XP gain queue up (shown one after another). CanvasLayer layer 100 + PROCESS_MODE_ALWAYS so it
-## runs while the tree is paused. Reuses GameManager's XP/level + stat store — no parallel progression.
+## Vampire-Survivors level-up flow (item-based). When GameManager emits `leveled_up`, pause the game and show
+## CHOICES item cards; each card is either a NEW item (weapon or aux) or an UPGRADE to an owned one. Picking a
+## card acquires/levels the item and resumes. Multiple level-ups from one XP gain queue up (shown one after
+## another). CanvasLayer layer 100 + PROCESS_MODE_ALWAYS so it runs while the tree is paused.
+##
+## Selection follows the roguelite pivot spec: weighted random with owned-item priority, no duplicate cards in
+## one screen, slot limits (full slots → only upgrades), and graceful fallback (fewer cards when the pool dries up).
+## Replaces the old global-stat-card pool — weapons (arena_weapons.gd) + aux items (arena_aux.gd) ARE the upgrades now.
+
+const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")
+const ArenaAux     := preload("res://scripts/gameplay/arena_aux.gd")
 
 const TEX_FRAME := preload("res://assets/hud/lvupframe.png")
 const TEX_GREEN := preload("res://assets/hud/lvgreen.png")
 const TEX_RED   := preload("res://assets/hud/lvred.png")
 const TEX_BLUE  := preload("res://assets/hud/lvblue.png")
 
-# ── UPGRADE POOL (magnitudes — balance here) ────────────────────────────────────
-const UPGRADES := [
-	{"id": "hp",         "name": "Max HP",        "mag": 20.0},   # flat +HP (and heal)
-	{"id": "defense",    "name": "Armor\nPlating", "mag": 2.0},    # flat damage reduction
-	{"id": "fire_rate",  "name": "Fire\nRate",    "mag": 0.08},   # +%
-	{"id": "move_speed", "name": "Thrusters",     "mag": 0.06},   # +%
-	{"id": "damage",     "name": "Damage",        "mag": 0.10},   # +%
-	{"id": "momentum",   "name": "Momentum",      "mag": 0.10},   # +%
-	{"id": "hp_regen",    "name": "Repair\nDrones",   "mag": 0.5},   # +HP/sec
-	{"id": "pickup",      "name": "Magnet",          "mag": 0.15},  # +% pickup radius
-	{"id": "crit_chance", "name": "Critical\nStrike", "mag": 0.05},  # +5% crit chance
-	{"id": "crit_damage", "name": "Lethality",       "mag": 0.25},  # +25% crit damage multiplier
-	# ── Group damage cards (cross-buff a whole weapon group) ──
-	{"id": "grp_ballistic", "name": "Ballistics",   "mag": 0.25, "type": "group", "group": "ballistic"},
-	{"id": "grp_energy",    "name": "Energy\nFlux",  "mag": 0.25, "type": "group", "group": "energy"},
-	{"id": "grp_hybrid",    "name": "Hybrid\nCore",  "mag": 0.25, "type": "group", "group": "hybrid"},
-	{"id": "grp_explosive", "name": "Ordnance",      "mag": 0.25, "type": "group", "group": "explosive"},
-	{"id": "grp_area",      "name": "Saturation",    "mag": 0.25, "type": "group", "group": "area_dot"},
-	{"id": "grp_summon",    "name": "Legion",        "mag": 0.25, "type": "group", "group": "summon"},
-	# ── Damage-kind cards (buff a damage element across groups) ──
-	{"id": "kind_fire",     "name": "Incendiary",    "mag": 0.30, "type": "kind", "kind": "fire"},
-	{"id": "kind_light",    "name": "Radiance",      "mag": 0.30, "type": "kind", "kind": "light"},
-	{"id": "kind_kinetic",  "name": "Impact",        "mag": 0.30, "type": "kind", "kind": "kinetic"},
-	{"id": "kind_energy",   "name": "Ionize",        "mag": 0.30, "type": "kind", "kind": "energy"},
-	{"id": "kind_explosive","name": "Detonation",    "mag": 0.30, "type": "kind", "kind": "explosive"},
-	# ── Mechanic cards (modify firing behaviour) ──
-	{"id": "mech_chain",      "name": "Conductor",      "mag": 2,  "type": "mech", "mech": "chain_jumps"},
-	{"id": "mech_ricochet",   "name": "Ricochet",       "mag": 1,  "type": "mech", "mech": "ricochet"},
-	{"id": "mech_pierce",     "name": "Piercing\nRounds","mag": 1, "type": "mech", "mech": "pierce"},
-	{"id": "mech_splash",     "name": "Overpressure",   "mag": 30, "type": "mech", "mech": "splash_radius"},
-	{"id": "mech_radius",     "name": "Resonance",      "mag": 25, "type": "mech", "mech": "radius"},
-	{"id": "mech_rico_range", "name": "Rebound",        "mag": 80, "type": "mech", "mech": "ricochet_range"},
-	# ── Combo cards (group damage + a mechanic at once) ──
-	{"id": "combo_overcharge", "name": "Overcharge", "type": "combo",
-		"effects": [{"kind": "group", "key": "energy", "mag": 0.15}, {"kind": "mech", "key": "chain_jumps", "mag": 1}]},
-	{"id": "combo_demolition", "name": "Demolition", "type": "combo",
-		"effects": [{"kind": "group", "key": "explosive", "mag": 0.15}, {"kind": "mech", "key": "splash_radius", "mag": 25}]},
-	{"id": "combo_velocity", "name": "Velocity", "type": "combo",
-		"effects": [{"kind": "group", "key": "ballistic", "mag": 0.15}, {"kind": "mech", "key": "ricochet", "mag": 1}]},
-	{"id": "combo_momentum", "name": "Momentum\nDrive", "type": "combo",
-		"effects": [{"kind": "group", "key": "energy", "mag": 0.15}, {"kind": "mech", "key": "ricochet_range", "mag": 60}]},
-]
 const CHOICES := 3
+# Chance a given card slot rolls from the owned-upgrade pool (vs the full new+owned pool). Higher = the player
+# sees upgrades for what they already own more often, so picked items keep showing up. (Pivot §5 suggests this
+# could scale with player_level — early lower, late higher; kept a flat tunable for now.)
+const OWNED_UPGRADE_CHANCE := 0.65
 
-# Which background texture each upgrade uses.
-const CARD_BG := {
-	"hp":         "green",
-	"hp_regen":   "green",
-	"pickup":     "green",
-	"fire_rate":  "red",
-	"damage":     "red",
-	"defense":    "blue",
-	"move_speed": "blue",
-	"momentum":   "blue",
+# Weapon spawn weights for the NEW-weapon roll (rarer/special weapons → lower weight). Upgrade weight reuses these.
+const WEAPON_WEIGHTS := {
+	"gatling": 100, "lasgun": 80, "arc": 80, "gauss": 70,
+	"orbital": 50, "void": 40, "red_x": 30, "chemtrail": 40,
 }
+const WEAPON_FALLBACK_COLOR := Color(0.55, 0.62, 0.72)   # placeholder swatch if a weapon icon fails to load
 
 var _pending: int = 0
 var _showing: bool = false
 var _root: Control = null
 var _cards_box: Control = null
-var _current: Array = []   # the 3 upgrade dicts currently offered
+var _current: Array = []   # the choice dicts currently offered
 
 func _ready() -> void:
 	layer = 100
@@ -90,17 +54,105 @@ func _begin() -> void:
 	_show_cards()
 
 func _show_cards() -> void:
-	var pool := UPGRADES.duplicate()
-	pool.shuffle()
-	_current = pool.slice(0, CHOICES)
+	_current = _generate_choices(CHOICES)
 	for c in _cards_box.get_children():
 		if is_instance_valid(c):
 			c.free()   # free immediately so _position_cards() only counts the new cards
+	if _current.is_empty():
+		# Nothing left to offer (everything owned + maxed) — silently skip this level-up.
+		_pending -= 1
+		if _pending > 0:
+			_show_cards()
+		else:
+			_finish()
+		return
 	for i in _current.size():
 		_cards_box.add_child(_make_card(_current[i], i))
 	_position_cards()
 	_root.show()
 	_play_sfx("res://assets/audio/sfx/uialert.wav")
+
+# ── Choice generation (weighted, owned-priority, no-dup, slot-limited, fallback) ──────────────
+func _generate_choices(n: int) -> Array:
+	var aw := get_tree().get_first_node_in_group("arena_weapons")
+	var ax := get_tree().get_first_node_in_group("arena_aux")
+	var choices: Array = []
+	var chosen := {}   # ckey → true (prevents duplicate cards this screen)
+	var weapons_full: bool = aw == null or bool(aw.call("weapons_full"))
+	var aux_full: bool = ax == null or bool(ax.call("aux_slots_full"))
+	while choices.size() < n:
+		var owned_pool: Array = []
+		var new_pool: Array = []
+		# Owned, still-upgradeable weapons + aux → the upgrade pool.
+		if aw != null:
+			for k: String in aw.call("acquired_weapons"):
+				if bool(aw.call("weapon_can_upgrade", k)) and not chosen.has("w:" + k):
+					owned_pool.append(_weapon_choice(aw, k, "upgrade"))
+		if ax != null:
+			for id: String in ax.call("owned_aux"):
+				if bool(ax.call("aux_can_upgrade", id)) and not chosen.has("a:" + id):
+					owned_pool.append(_aux_choice(ax, id, "upgrade"))
+		# Un-owned items → the new pool (only while there is a free slot of that kind).
+		if aw != null and not weapons_full:
+			var owned_w: Array = aw.call("acquired_weapons")
+			for k: String in ArenaWeapons.WEAPON_INFO.keys():
+				if not (k in owned_w) and not chosen.has("w:" + k):
+					new_pool.append(_weapon_choice(aw, k, "new"))
+		if ax != null and not aux_full:
+			var owned_a: Array = ax.call("owned_aux")
+			for d: Dictionary in ArenaAux.AUX_DEFS:
+				var id := String(d["id"])
+				if not (id in owned_a) and not chosen.has("a:" + id):
+					new_pool.append(_aux_choice(ax, id, "new"))
+		# Candidate pool for THIS slot (pivot §7).
+		var candidates: Array
+		if weapons_full and aux_full:
+			candidates = owned_pool                      # all slots full → upgrades only
+		elif owned_pool.size() > 0 and randf() < OWNED_UPGRADE_CHANCE:
+			candidates = owned_pool                      # owned-item priority
+		else:
+			candidates = owned_pool + new_pool
+		if candidates.is_empty():
+			break                                        # fallback: stop early (fewer than n cards)
+		var pick := _weighted_pick(candidates)
+		choices.append(pick)
+		chosen[String(pick["ckey"])] = true
+	return choices
+
+func _weighted_pick(pool: Array) -> Dictionary:
+	var total := 0.0
+	for c: Dictionary in pool:
+		total += float(c.get("weight", 1))
+	var r := randf() * total
+	for c: Dictionary in pool:
+		r -= float(c.get("weight", 1))
+		if r <= 0.0:
+			return c
+	return pool[pool.size() - 1]
+
+func _weapon_choice(aw: Node, kind: String, action: String) -> Dictionary:
+	var info: Dictionary = (ArenaWeapons.WEAPON_INFO as Dictionary).get(kind, {})
+	return {
+		"cat": "weapon", "key": kind, "action": action, "ckey": "w:" + kind,
+		"name": String(info.get("label", kind)),
+		"def_id": String(info.get("def_id", "")),
+		"weight": WEAPON_WEIGHTS.get(kind, 50),
+		"color": WEAPON_FALLBACK_COLOR,
+		"level": int(aw.call("weapon_level", kind)),
+		"effect": "+%d%% Damage" % int(round(ArenaWeapons.WEAPON_DMG_PER_LEVEL * 100.0)),
+	}
+
+func _aux_choice(ax: Node, id: String, action: String) -> Dictionary:
+	var d: Dictionary = ax.call("def_for", id)
+	return {
+		"cat": "aux", "key": id, "action": action, "ckey": "a:" + id,
+		"name": String(d.get("name", id)),
+		"def_id": "",
+		"weight": d.get("weight", 50),
+		"color": d.get("color", Color.GRAY),
+		"level": int(ax.call("aux_level", id)),
+		"effect": String(d.get("effect", "")),
+	}
 
 # Card layout constants — keep in sync with custom_minimum_size in _make_card().
 const _CW    := 160.0   # card width
@@ -127,88 +179,58 @@ func _position_cards() -> void:
 		c.size         = Vector2(_CW, _CH)
 		c.pivot_offset = Vector2(_CW * 0.5, _CH * 0.5)   # scale from center on hover
 
-func _bg_tex(id: String) -> Texture2D:
-	match CARD_BG.get(id, "blue"):
-		"green": return TEX_GREEN
-		"red":   return TEX_RED
-		_:       return TEX_BLUE
+func _bg_tex(cat: String) -> Texture2D:
+	# Weapons use the red frame; aux items the green. (Blue kept for any future third class.)
+	match cat:
+		"weapon": return TEX_RED
+		"aux":    return TEX_GREEN
+		_:        return TEX_BLUE
 
-func _make_card(u: Dictionary, idx: int) -> Control:
-	# Fixed size matching lvgreen/red/blue aspect ratio (~910×1185 native → 160×208 display, 80% of full)
+func _make_card(c: Dictionary, idx: int) -> Control:
 	var card := Control.new()
 	card.custom_minimum_size = Vector2(160, 208)
 
 	# Background texture (fills entire card)
 	var bg := TextureRect.new()
-	bg.texture = _bg_tex(String(u["id"]))
+	bg.texture = _bg_tex(String(c["cat"]))
 	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	bg.stretch_mode = TextureRect.STRETCH_SCALE
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	card.add_child(bg)
 
-	# Icon — upper portion of the square area (9%–54%)
-	var icon_path := "res://assets/hud/%s.png" % String(u["id"])
-	if ResourceLoader.exists(icon_path):
-		var icon_tex := TextureRect.new()
-		icon_tex.texture = load(icon_path)
-		icon_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		icon_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		icon_tex.anchor_left   = 0.255
-		icon_tex.anchor_right  = 0.745
-		icon_tex.anchor_top    = 0.158
-		icon_tex.anchor_bottom = 0.473
-		card.add_child(icon_tex)
-		card.set_meta("icon_tex", icon_tex)
+	# Icon — weapons load their inventory icon; aux items show a placeholder colour swatch (no art yet).
+	var icon_node := _make_icon(c)
+	icon_node.anchor_left   = 0.255
+	icon_node.anchor_right  = 0.745
+	icon_node.anchor_top    = 0.158
+	icon_node.anchor_bottom = 0.473
+	card.add_child(icon_node)
+	card.set_meta("icon_tex", icon_node)
 
-	# Name label — moved up 20px (≈0.096 in anchor space), hidden by default
-	var lbl_name := Label.new()
-	lbl_name.text = String(u["name"])
-	lbl_name.add_theme_font_size_override("font_size", 15)
-	lbl_name.add_theme_font_override("font", load("res://assets/fonts/Good Old DOS.ttf"))
-	lbl_name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl_name.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	# Name label — always visible (items have no recognisable art, so the name carries the card).
+	var lbl_name := _styled_label(String(c["name"]), 15)
 	lbl_name.anchor_left   = 0.05
 	lbl_name.anchor_right  = 0.95
-	if String(u["name"]).contains("\n"):
-		lbl_name.anchor_top    = 0.252
-		lbl_name.anchor_bottom = 0.342
-	else:
-		lbl_name.anchor_top    = 0.276
-		lbl_name.anchor_bottom = 0.366
-	lbl_name.visible = false
+	lbl_name.anchor_top    = 0.50
+	lbl_name.anchor_bottom = 0.62
 	card.add_child(lbl_name)
-	card.set_meta("lbl_name", lbl_name)
 
-	# Effect label — first text box (68%–81%)
-	var lbl_effect := Label.new()
-	lbl_effect.text = _effect_text(u)
-	lbl_effect.add_theme_font_override("font", load("res://assets/fonts/Good Old DOS.ttf"))
-	lbl_effect.add_theme_font_size_override("font_size", 14)
-	lbl_effect.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl_effect.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	# Effect label — action + effect by default (e.g. "NEW\n+20 Max HP" or "Lv 2 → 3\n+10% Damage").
+	var lbl_effect := _styled_label(_default_text(c), 14)
 	lbl_effect.anchor_left   = 0.05
 	lbl_effect.anchor_right  = 0.95
-	lbl_effect.anchor_top    = 0.728
-	lbl_effect.anchor_bottom = 0.858
+	lbl_effect.anchor_top    = 0.70
+	lbl_effect.anchor_bottom = 0.92
 	card.add_child(lbl_effect)
 	card.set_meta("lbl_effect", lbl_effect)
 
-	# Current value label — second text box (83%–96%)
-	var lbl_current := Label.new()
-	lbl_current.text = _current_text(u)
-	lbl_current.add_theme_font_override("font", load("res://assets/fonts/Good Old DOS.ttf"))
-	lbl_current.add_theme_font_size_override("font_size", 14)
-	lbl_current.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl_current.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	# Current-status label — shown on hover (e.g. "Owned Lv 2" / "Not owned yet").
+	var lbl_current := _styled_label(_current_text(c), 14)
 	lbl_current.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
 	lbl_current.anchor_left   = 0.05
 	lbl_current.anchor_right  = 0.95
-	if String(u["id"]) in ["crit_damage", "crit_chance"]:
-		lbl_current.anchor_top    = 0.714
-		lbl_current.anchor_bottom = 0.844
-	else:
-		lbl_current.anchor_top    = 0.728
-		lbl_current.anchor_bottom = 0.858
+	lbl_current.anchor_top    = 0.70
+	lbl_current.anchor_bottom = 0.92
 	lbl_current.visible = false
 	card.add_child(lbl_current)
 	card.set_meta("lbl_current", lbl_current)
@@ -227,6 +249,31 @@ func _make_card(u: Dictionary, idx: int) -> Control:
 	card.add_child(btn)
 
 	return card
+
+func _make_icon(c: Dictionary) -> Control:
+	if String(c["cat"]) == "weapon":
+		var def_id := String(c.get("def_id", ""))
+		var tex: Texture2D = InventoryManager.get_icon(def_id) if def_id != "" else null
+		if tex != null:
+			var icon_tex := TextureRect.new()
+			icon_tex.texture = tex
+			icon_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			icon_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			return icon_tex
+	# Aux item (or missing weapon icon) → coloured placeholder swatch.
+	var swatch := ColorRect.new()
+	swatch.color = c.get("color", Color.GRAY)
+	return swatch
+
+func _styled_label(text: String, size: int) -> Label:
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.add_theme_font_size_override("font_size", size)
+	lbl.add_theme_font_override("font", load("res://assets/fonts/Good Old DOS.ttf"))
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	return lbl
 
 func _pick(idx: int) -> void:
 	if idx < 0 or idx >= _current.size():
@@ -254,93 +301,41 @@ func _input(event: InputEvent) -> void:
 			KEY_2: _pick(1)
 			KEY_3: _pick(2)
 
-# ── Apply + display ─────────────────────────────────────────────────────────────
-func _apply(u: Dictionary) -> void:
-	var t := String(u.get("type", ""))
-	if t != "":
-		match t:
-			"group": GameManager.add_group_dmg(String(u["group"]), float(u["mag"]))
-			"kind":  GameManager.add_kind_dmg(String(u["kind"]), float(u["mag"]))
-			"mech":  GameManager.add_mech(String(u["mech"]), float(u["mag"]))
-			"combo":
-				for e: Dictionary in u.get("effects", []):
-					match String(e["kind"]):
-						"group": GameManager.add_group_dmg(String(e["key"]), float(e["mag"]))
-						"kind":  GameManager.add_kind_dmg(String(e["key"]), float(e["mag"]))
-						"mech":  GameManager.add_mech(String(e["key"]), float(e["mag"]))
-		return
-	var mag: float = u["mag"]
-	match String(u["id"]):
-		"hp":         GameManager.add_max_hp(int(mag))
-		"defense":    GameManager.add_base_defense(int(mag))
-		"fire_rate":  GameManager.add_fire_rate(mag)
-		"move_speed": GameManager.add_move_speed(mag)
-		"damage":     GameManager.add_damage(mag)
-		"momentum":   GameManager.add_momentum(mag)
-		"hp_regen":   GameManager.add_hp_regen(mag)
-		"pickup":     GameManager.add_pickup_radius(mag)
-		"crit_chance": GameManager.add_crit_chance(mag)
-		"crit_damage": GameManager.add_crit_damage(mag)
+# ── Apply ─────────────────────────────────────────────────────────────────────────
+func _apply(c: Dictionary) -> void:
+	match String(c["cat"]):
+		"weapon":
+			var aw := get_tree().get_first_node_in_group("arena_weapons")
+			if aw == null:
+				return
+			if String(c["action"]) == "new":
+				aw.call("acquire_weapon", String(c["key"]))
+			else:
+				aw.call("level_up_weapon", String(c["key"]))
+		"aux":
+			var ax := get_tree().get_first_node_in_group("arena_aux")
+			if ax == null:
+				return
+			if String(c["action"]) == "new":
+				ax.call("acquire_aux", String(c["key"]))
+			else:
+				ax.call("level_up_aux", String(c["key"]))
 
-const GROUP_LABEL := {"ballistic": "Ballistic", "energy": "Energy", "hybrid": "Hybrid", "explosive": "Explosive", "area_dot": "Area", "summon": "Summon"}
-const KIND_LABEL  := {"fire": "Fire", "light": "Light", "kinetic": "Kinetic", "energy": "Energy", "explosive": "Blast"}
+# ── Display text ────────────────────────────────────────────────────────────────────
+func _default_text(c: Dictionary) -> String:
+	var lvl := int(c.get("level", 0))
+	if String(c["action"]) == "new":
+		# A new weapon is conveyed by its icon + name; aux items also show what the passive grants.
+		if String(c["cat"]) == "weapon":
+			return "NEW WEAPON"
+		return "NEW\n%s" % String(c.get("effect", ""))
+	return "Lv %d → %d\n%s" % [lvl, lvl + 1, String(c.get("effect", ""))]
 
-func _mech_effect_text(key: String, mag: float) -> String:
-	match key:
-		"chain_jumps":    return "+%d Chain" % int(mag)
-		"ricochet":       return "+%d Ricochet" % int(mag)
-		"pierce":         return "+%d Pierce" % int(mag)
-		"splash_radius":  return "+%d Splash" % int(mag)
-		"radius":         return "+%d AoE" % int(mag)
-		"ricochet_range": return "+%d Bounce" % int(mag)
-	return "+%d" % int(mag)
-
-func _label_for(kind_type: String, key: String) -> String:
-	if kind_type == "group":
-		return String(GROUP_LABEL.get(key, key))
-	return String(KIND_LABEL.get(key, key))
-
-func _effect_text(u: Dictionary) -> String:
-	match String(u.get("type", "")):
-		"group": return "+%d%% %s" % [int(round(float(u["mag"]) * 100.0)), String(GROUP_LABEL.get(String(u["group"]), u["group"]))]
-		"kind":  return "+%d%% %s" % [int(round(float(u["mag"]) * 100.0)), String(KIND_LABEL.get(String(u["kind"]), u["kind"]))]
-		"mech":  return _mech_effect_text(String(u["mech"]), float(u["mag"]))
-		"combo":
-			var parts: Array = []
-			for e: Dictionary in u.get("effects", []):
-				if String(e["kind"]) == "mech":
-					parts.append(_mech_effect_text(String(e["key"]), float(e["mag"])))
-				else:
-					parts.append("+%d%% %s" % [int(round(float(e["mag"]) * 100.0)), _label_for(String(e["kind"]), String(e["key"]))])
-			return "\n".join(PackedStringArray(parts))
-	var mag: float = u["mag"]
-	match String(u["id"]):
-		"hp":          return "+%d Max HP" % int(mag)
-		"defense":     return "+%d Defense" % int(mag)
-		"hp_regen":    return "+%0.1f HP/s" % mag
-		"move_speed":  return "+%d%% Speed" % int(round(mag * 100.0))
-		"crit_chance": return "+%d%% Crit\nChance" % int(round(mag * 100.0))
-		"crit_damage": return "+%d%% Crit\nDamage" % int(round(mag * 100.0))
-		_:             return "+%d%%" % int(round(mag * 100.0))
-
-func _current_text(u: Dictionary) -> String:
-	match String(u.get("type", "")):
-		"group": return "Now +%d%%" % int(round((GameManager.group_damage_mult(String(u["group"])) - 1.0) * 100.0))
-		"kind":  return "Now +%d%%" % int(round((GameManager.kind_damage_mult([String(u["kind"])]) - 1.0) * 100.0))
-		"mech":  return "Now +%d" % int(GameManager.mech_bonus(String(u["mech"])))
-		"combo": return ""
-	match String(u["id"]):
-		"hp":         return "Now +%d" % GameManager.upg_max_hp_bonus
-		"defense":    return "Now +%d" % GameManager.upg_base_defense
-		"fire_rate":  return "Now +%d%%" % int(round((GameManager.upg_fire_rate_mult - 1.0) * 100.0))
-		"move_speed": return "Now +%d%%" % int(round((GameManager.upg_move_speed_mult - 1.0) * 100.0))
-		"damage":     return "Now +%d%%" % int(round((GameManager.upg_damage_mult - 1.0) * 100.0))
-		"momentum":   return "Now +%d%%" % int(round((GameManager.upg_momentum_mult - 1.0) * 100.0))
-		"hp_regen":   return "Now +%0.1f/s" % GameManager.upg_hp_regen
-		"pickup":     return "Now +%d%%" % int(round((GameManager.upg_pickup_mult - 1.0) * 100.0))
-		"crit_chance": return "Now %d%%" % int(round(GameManager.get_crit_chance() * 100.0))
-		"crit_damage": return "Now %d%% dmg" % int(round(GameManager.upg_crit_damage * 100.0))
-	return ""
+func _current_text(c: Dictionary) -> String:
+	var lvl := int(c.get("level", 0))
+	if lvl <= 0:
+		return "Not owned yet"
+	return "Owned  Lv %d" % lvl
 
 # ── Hover effects ───────────────────────────────────────────────────────────────
 func _on_card_hover(card: Control) -> void:
@@ -348,9 +343,7 @@ func _on_card_hover(card: Control) -> void:
 	card.modulate = Color(1.03, 1.03, 1.03)
 	_play_sfx("res://assets/audio/sfx/uiclick.wav")
 	if card.has_meta("icon_tex"):
-		(card.get_meta("icon_tex") as CanvasItem).modulate.a = 0.2
-	if card.has_meta("lbl_name"):
-		(card.get_meta("lbl_name") as CanvasItem).visible = true
+		(card.get_meta("icon_tex") as CanvasItem).modulate.a = 0.35
 	if card.has_meta("lbl_effect"):
 		(card.get_meta("lbl_effect") as CanvasItem).visible = false
 	if card.has_meta("lbl_current"):
@@ -361,8 +354,6 @@ func _on_card_unhover(card: Control) -> void:
 	card.modulate = Color.WHITE
 	if card.has_meta("icon_tex"):
 		(card.get_meta("icon_tex") as CanvasItem).modulate.a = 1.0
-	if card.has_meta("lbl_name"):
-		(card.get_meta("lbl_name") as CanvasItem).visible = false
 	if card.has_meta("lbl_effect"):
 		(card.get_meta("lbl_effect") as CanvasItem).visible = true
 	if card.has_meta("lbl_current"):
@@ -416,7 +407,7 @@ func _build_ui() -> void:
 
 	# Title label — inside the teal bar slot at the top of lvupframe (~12%–88% wide, 3.5%–15% tall)
 	var title := Label.new()
-	title.text = "LEVEL UP — choose an upgrade"
+	title.text = "LEVEL UP — choose an item"
 	title.add_theme_font_size_override("font_size", 22)
 	title.add_theme_font_override("font", load("res://assets/fonts/Good Old DOS.ttf"))
 	title.add_theme_color_override("font_color", Color("#E5792A"))

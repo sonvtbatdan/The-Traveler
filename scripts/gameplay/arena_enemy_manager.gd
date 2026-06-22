@@ -224,11 +224,22 @@ func spawn_bee() -> void:
 		e.position = pp + Vector2(cos(a), sin(a)) * 500.0
 		get_parent().add_child(e)
 
+const RETALIATION_RADIUS := 220.0   # Barbed Wire aux: enemies within this of the player take the return hit
+
 func _play_hit() -> void:
 	if _hit_player != null:
 		_hit_player.stop()
 		_hit_player.play()
 	_hit_flash_t = HIT_FLASH_DUR
+	# Barbed Wire aux item: return flat damage to nearby enemies whenever the player is hit.
+	var retal: float = GameManager.upg_retaliation if "upg_retaliation" in GameManager else 0.0
+	if retal > 0.0:
+		var center := ship_center()
+		for en in get_tree().get_nodes_in_group("arena_enemy"):
+			if not is_instance_valid(en):
+				continue
+			if (en as Node2D).global_position.distance_to(center) <= RETALIATION_RADIUS and en.has_method("take_damage"):
+				en.take_damage(retal)
 
 # ── Draw bullets + explosion rings (world space) ───────────────────────────────
 func _draw() -> void:
