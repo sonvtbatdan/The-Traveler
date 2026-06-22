@@ -69,8 +69,9 @@ const WEAPON_INFO := {
 # Nuke (Kinetic) — long-cooldown player-centred blast + auto knockback + lingering radiation slow zone.
 const NUKE_COOLDOWN      := 7.0
 const NUKE_DAMAGE        := 200.0
-const NUKE_RADIUS        := 360.0
+const NUKE_RADIUS        := 540.0    # AoE (was 360, +50%) — also sizes the explosion visual
 const NUKE_BLAST_STAGGER := 0.6      # blast freeze on hit
+const NUKE_DURATION      := 6.0      # the hitbox stays live this long (≈ the explosion animation) — each enemy hit once
 # Sonic Wave (Energy) — 3 expanding rings; each ring damages every enemy its front passes, once.
 const SONIC_COOLDOWN     := 3.0
 const SONIC_RINGS        := 3
@@ -504,6 +505,11 @@ var _void_node: ColorRect = null   # the swirling-vortex visual
 # ── Batch-1 weapons (Nuke / Sonic Wave / Z-Sword / Ionizing Field) ──
 var _nuke_active: bool = false
 var _nuke_cd: float = 0.0
+var _nuke_blast_on: bool = false        # a detonation's damage hitbox is live (for NUKE_DURATION)
+var _nuke_blast_t: float = 0.0
+var _nuke_blast_pos: Vector2 = Vector2.ZERO   # fixed detonation centre (matches the explosion FX)
+var _nuke_blast_reach: float = 0.0
+var _nuke_hit: Dictionary = {}          # instance_id → true: each enemy/ruin damaged at most once per detonation
 var _sonic_active: bool = false
 var _sonic_cd: float = 0.0
 var _sonic_queue: float = 0.0          # stagger timer for the remaining rings of a volley
