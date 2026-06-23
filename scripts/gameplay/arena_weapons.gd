@@ -29,7 +29,7 @@ const GAT_MUZZLE_DECAY  := 0.08     # s the muzzle-fire flash decays over (refre
 const GAUSS_ENABLED     := false    # disabled for now
 const GAUSS_STAGGER     := 0.35     # s the enemy is staggered per Gauss hit (heavier weapon = more)
 const GAUSS_LIGHT       := 5.0      # dust-light "value" per Gauss orb (heavy → big bright light)
-const GAUSS_CHARGE_TIME := 1.4      # s to fully charge between shots (charge rings ramp up over this)
+const GAUSS_CHARGE_TIME := 1.4      # s to fully charge between shots (drives the charge-meter fraction)
 const GAUSS_SPEED       := 520.0    # px/s (heavy + slow so you watch it plough through)
 const GAUSS_DAMAGE      := 55.0     # per-shot DAMAGE BUDGET the orb carries (× damage-mult at fire)
 const GAUSS_RADIUS      := 30.0     # FULL hit radius (at full budget); shrinks ∝ sqrt(damage)
@@ -89,7 +89,7 @@ const ZSWORD_LENGTH      := 220.0
 const ZSWORD_ARC_HALF    := 0.314159 # ~18° half-arc hit tolerance
 const ZSWORD_DAMAGE      := 45.0
 const ZSWORD_STAGGER     := 0.1
-const ZSWORD_COL         := Color(0.7, 1.0, 0.85)
+# (slash visuals live in scripts/gameplay/fx/z_slash.gd; colours are ZSlash.LEAD_COL/LEAD_HOT there)
 # Ionizing Field (Energy) — always-on aura DoT around the ship.
 const IONIZE_TICK   := 0.3
 const IONIZE_RADIUS := 170.0
@@ -108,8 +108,17 @@ const BOOM_BLADE      := 45.0       # blade visual half-length (+150% of the old
 const BOOM_DAMAGE     := 28.0
 const BOOM_HIT_RADIUS := 48.0       # enlarged to match the bigger blade
 const BOOM_HIT_CD     := 0.25       # per-enemy re-hit interval (a blade sweeps the same enemy repeatedly)
-const BOOM_SPIN       := 7.0        # visual self-spin rad/s (slowed from 18)
+const BOOM_SPIN       := 28.0       # visual self-spin rad/s (+300% of the previous 7.0)
 const BOOM_COL        := Color(0.95, 0.85, 0.5)
+const BOOM_DRAW       := 130.0      # on-screen boomerang sprite width (px); height aspect-locked per texture
+# Fired-projectile sprite variants. Switch with `sprite_version_boomerang` (1, 2, or 3).
+const BOOM_TEX_VERSIONS: Array[Texture2D] = [
+	preload("res://assets/Boomerang.png"),     # 1 — chrome V
+	preload("res://assets/Boomerang 2.png"),   # 2 — saw blade
+	preload("res://assets/Boomerang 3.png"),   # 3 — sci-fi tech boomerang
+]
+## TUNABLE — which boomerang sprite is used when firing: 1, 2, or 3. Change this to swap the look.
+var sprite_version_boomerang: int = 3
 # Parasite Cloud (Biological) — fast blob that decelerates into a lingering damage cloud.
 const PARA_COOLDOWN   := 2.6
 const PARA_SPEED      := 520.0
@@ -295,7 +304,6 @@ const ARC_BOLT_Z      := 7      # render above enemies
 const ARC_THUNDER_UNIT := 90.0  # px of bolt per one thunder-texture tile (sets crackle density)
 const ARC_HDR_COL     := Color(1.5, 2.4, 3.4)   # HDR electric blue-white for the bolt (blooms)
 const ARC_SPARK_COL   := Color(1.8, 2.6, 3.6)   # HDR sparks
-const ARC_FLARE_COL   := Color(2.2, 2.6, 3.4)   # HDR strike flare
 const ARC_SPARK_COUNT := 12
 
 const BeamScript   := preload("res://scripts/gameplay/lasgun_ani_1.gd")   # lasgun_ani_1: Isaac-model body (no backward extension) + anchored, non-spinning, beam-aligned impact flipbook from the impact spritesheet; ani_2/ani_3 kept as backups
@@ -313,6 +321,7 @@ const OrbChargeScript := preload("res://scripts/gameplay/arena_orb_charge_fx.gd"
 const GatMuzzleScript := preload("res://scripts/gameplay/arena_gatling_muzzle.gd")
 const GaussExplFX  := preload("res://scripts/gameplay/gauss_explosion_fx.gd")
 const ExplosionFX  := preload("res://scripts/gameplay/fx/explosion.gd")   # composite blast used by the Nuke
+const ZSlashScript := preload("res://scripts/gameplay/fx/z_slash.gd")     # sweeping energy-slash crescent VFX
 
 # ── Gatling tracer bolt look (copied from weapon_system.gd — visuals only) ────
 const GAT_TRACER_LEN   := 16.0
@@ -380,19 +389,7 @@ const GAUSS_EXPL_FRAME_H      := 336.0
 const GAUSS_EXPL_ANCHOR       := Vector2(168.0, 168.0)   # burst-core pixel (frame center) in each frame
 const GAUSS_EXPL_DEBUG_DRAW   := false         # true → draw the damage radius (+ enemy-center cutoff) to tune it
 
-# ── Gauss charge-up rings converging onto the ship (copied — visuals only) ────
-const GC_START_RADIUS   := 150.0
-const GC_RING_SIZE      := 13.0
-const GC_COL_OUT        := Color(1.0, 0.30, 0.45)
-const GC_COL_IN         := Color(1.0, 1.0, 0.95)
-const GC_SPEED_EMPTY    := 130.0
-const GC_SPEED_FULL     := 340.0
-const GC_INTERVAL_EMPTY := 0.5
-const GC_INTERVAL_FULL  := 0.05
-const GC_RAMP_CURVE     := 1.6
-const GC_SPAWN_COUNT    := 1
-const GC_BRIGHT         := 0.9
-const GC_FLASH_R        := 7.0
+# ── Gauss shot release flash (the converging charge-up rings were removed) ────
 const GC_RELEASE_FLASH  := 60.0
 
 const GAUSS_ORB_SHADER := """
@@ -464,8 +461,6 @@ var _crit_damage: float = 1.5 # GameManager.get_crit_damage() (Lethality cards)
 var _bullets: Array = []         # Gatling: {pos, vel, life, start}
 var _orbs: Array = []            # Gauss: {pos, vel, life, start, orb_node, trail, spark_acc, dmg, dmg_ref, hit}
 var _sparks: Array = []          # Gauss tail sparks: {pos, vel, life, ttl}
-var _charge_rings: Array = []    # {ang, r}
-var _charge_spawn_acc: float = 0.0
 var _flashes: Array = []         # {pos, age, max_age, radius}
 var _orb_shader: Shader = null
 var _gauss_frames: Array = []      # 12-frame plasma-orb flipbook (cropped from the reference sheet)
@@ -500,7 +495,6 @@ var _arc_cd: float = 0.0           # Arc burst cooldown
 var _arcs: Array = []              # live lightning links: {ln, mat, tip, age, max_age, fx, fx_ttl, fx_freed}
 var _arc_thunder_tex: ImageTexture = null   # procedural tileable thunder texture (cached)
 var _arc_spark_tex: ImageTexture = null     # small stretched spark streak (cached)
-var _arc_glow_tex: ImageTexture = null      # round soft glow for the strike flare (cached)
 var _orbital_active: bool = false  # turned on by the Orbital pickup
 var _orbital_angle: float = 0.0    # current orbit angle (deg)
 var _orbital_t: float = 0.0        # time accumulator for the electric-arc crackle
@@ -531,6 +525,7 @@ var _sonic_rings: Array = []           # live rings: {center, age, hit:Array, ma
 var _zsword_active: bool = false
 var _zsword_cd: float = 0.0
 var _zsword_sweeping: bool = false
+var _zslash: Node2D = null         # sweeping energy-slash crescent VFX node (ZSlash; additive HDR → blooms)
 var _zsword_t: float = 0.0
 var _zsword_start: float = 0.0
 var _zsword_hit: Array = []
@@ -584,6 +579,8 @@ func _ready() -> void:
 	add_child(_charge_fx)
 	_gat_muzzle_fx = GatMuzzleScript.new()
 	add_child(_gat_muzzle_fx)
+	_zslash = ZSlashScript.new()
+	add_child(_zslash)
 	_load_gauss_frames()
 	_load_gauss_explosion_frames()
 	_bolt_hit_player = AudioStreamPlayer.new()
@@ -788,7 +785,6 @@ func _process(delta: float) -> void:
 	_tick_orbs(delta)
 	_tick_explosions(delta)
 	_tick_arcs(delta)
-	_update_charge_rings(delta)
 	_update_sparks(delta)
 	_update_flashes(delta)
 	_update_gat_muzzle(delta)
@@ -986,7 +982,6 @@ func _fire_arc(delta: float) -> void:
 		var delay := float(i) * ARC_STAGGER * 0.4   # later links dissolve slightly later → outward sweep
 		_spawn_arc_bolt(chain[i], chain[i + 1], delay)
 		_spawn_arc_sparks(chain[i + 1])
-		_spawn_arc_flare(chain[i + 1])
 
 ## Nearest live arena_enemy to `from` within `max_dist`, skipping any in `exclude`.
 func _nearest_enemy(from: Vector2, max_dist: float, exclude: Array) -> Node:
@@ -1031,14 +1026,12 @@ func _tick_arcs(delta: float) -> void:
 			_arcs[i] = a
 		i -= 1
 
-## Build/cache the procedural textures the textured-lightning visuals need (thunder bolt, spark streak, glow).
+## Build/cache the procedural textures the textured-lightning visuals need (thunder bolt + spark streak).
 func _ensure_arc_textures() -> void:
 	if _arc_thunder_tex == null:
 		_arc_thunder_tex = _make_thunder_tex()
 	if _arc_spark_tex == null:
 		_arc_spark_tex = _make_arc_spark_tex()
-	if _arc_glow_tex == null:
-		_arc_glow_tex = _make_arc_glow_tex()
 
 ## One chain link as a Line2D bolt with the scrolling thunder shader (additive HDR → blooms). `delay` staggers
 ## the dissolve so outer links linger. Each bolt gets its OWN shader material (per-bolt scroll/tiling/phase).
@@ -1118,36 +1111,6 @@ func _spawn_arc_sparks(pos: Vector2) -> void:
 	add_child(p)
 	(_arcs[_arcs.size() - 1]["fx"] as Array).append(p)
 
-## Single bright flare flash at a strike point (CPUParticles2D, additive HDR, small→big→small).
-func _spawn_arc_flare(pos: Vector2) -> void:
-	if _arcs.is_empty():
-		return
-	var p := CPUParticles2D.new()
-	p.position = pos
-	p.amount = 1
-	p.lifetime = 0.18
-	p.one_shot = true
-	p.explosiveness = 1.0
-	p.local_coords = false
-	p.gravity = Vector2.ZERO
-	p.initial_velocity_min = 0.0
-	p.initial_velocity_max = 0.0
-	p.scale_amount_min = 26.0
-	p.scale_amount_max = 30.0
-	var sc := Curve.new()
-	sc.add_point(Vector2(0.0, 0.1))
-	sc.add_point(Vector2(0.4, 1.0))
-	sc.add_point(Vector2(1.0, 0.0))
-	p.scale_amount_curve = sc
-	p.texture = _arc_glow_tex
-	p.color = ARC_FLARE_COL
-	var cm := CanvasItemMaterial.new()
-	cm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-	p.material = cm
-	p.z_index = ARC_BOLT_Z
-	add_child(p)
-	(_arcs[_arcs.size() - 1]["fx"] as Array).append(p)
-
 ## Procedural TILEABLE thunder texture: a jagged glowing horizontal band (red channel = brightness). Built from
 ## integer-harmonic sines so the left/right edges wrap seamlessly; gaps + brightness variation make it spiky.
 func _make_thunder_tex() -> ImageTexture:
@@ -1179,19 +1142,6 @@ func _make_arc_spark_tex() -> ImageTexture:
 			var fxr := absf(float(x) - cx) / cx
 			var fyr := absf(float(y) - cy) / cy
 			var v := pow(clampf(1.0 - fxr, 0.0, 1.0), 2.0) * pow(clampf(1.0 - fyr, 0.0, 1.0), 1.2)
-			img.set_pixel(x, y, Color(v, v, v, v))
-	return ImageTexture.create_from_image(img)
-
-## Round soft glow for the strike flare.
-func _make_arc_glow_tex() -> ImageTexture:
-	var s := 64
-	var img := Image.create(s, s, false, Image.FORMAT_RGBA8)
-	var c := float(s) * 0.5
-	for y in s:
-		for x in s:
-			var dx := (float(x) - c) / c
-			var dy := (float(y) - c) / c
-			var v := pow(clampf(1.0 - sqrt(dx * dx + dy * dy), 0.0, 1.0), 2.2)
 			img.set_pixel(x, y, Color(v, v, v, v))
 	return ImageTexture.create_from_image(img)
 
@@ -1758,9 +1708,7 @@ func _fire_gauss() -> void:
 	_orbs.append(o)
 	_update_orb_node(o)
 	_flashes.append({"pos": start, "age": 0.0, "max_age": 0.30, "radius": GAUSS_LAUNCH_FLASH})
-	# Clear the converging rings and pop the release flash (charge cycle restarts).
-	_charge_rings.clear()
-	_charge_spawn_acc = 0.0
+	# Pop the release flash (the shot's muzzle flash).
 	if GC_RELEASE_FLASH > 0.0:
 		_flashes.append({"pos": _muzzle(), "age": 0.0, "max_age": 0.30, "radius": GC_RELEASE_FLASH})
 
@@ -1969,28 +1917,6 @@ func _update_sparks(delta: float) -> void:
 			s["pos"] = (s["pos"] as Vector2) + (s["vel"] as Vector2) * delta
 		i -= 1
 
-# ── Gauss charge rings (auto-charge: charging is always true between shots) ────
-func _update_charge_rings(delta: float) -> void:
-	if not _gauss_active:
-		return
-	var frac := clampf(_gauss_charge / maxf(0.01, GAUSS_CHARGE_TIME), 0.0, 1.0)
-	var focal := _muzzle()
-	var interval := lerpf(GC_INTERVAL_EMPTY, GC_INTERVAL_FULL, pow(frac, GC_RAMP_CURVE))
-	_charge_spawn_acc += delta
-	while _charge_spawn_acc >= interval:
-		_charge_spawn_acc -= interval
-		for _k in GC_SPAWN_COUNT:
-			_charge_rings.append({"ang": randf() * TAU, "r": GC_START_RADIUS * randf_range(0.85, 1.12)})
-	var spd := lerpf(GC_SPEED_EMPTY, GC_SPEED_FULL, frac)
-	var i := _charge_rings.size() - 1
-	while i >= 0:
-		var ring: Dictionary = _charge_rings[i]
-		ring["r"] = float(ring["r"]) - spd * delta
-		if float(ring["r"]) <= GC_FLASH_R:
-			_flashes.append({"pos": focal, "age": 0.0, "max_age": 0.16, "radius": GC_FLASH_R * 2.2})
-			_charge_rings.remove_at(i)
-		i -= 1
-
 func _update_flashes(delta: float) -> void:
 	var i := _flashes.size() - 1
 	while i >= 0:
@@ -2158,10 +2084,14 @@ func _tick_zsword(delta: float, enemy_on_screen: bool) -> void:
 	_zsword_t += delta
 	if _zsword_t >= ZSWORD_SWEEP_TIME:
 		_zsword_sweeping = false
+		if _zslash != null:
+			_zslash.fade_out()       # quick fade of the crescent when the sweep ends
 		return
 	var blade_ang := _zsword_start + TAU * (_zsword_t / ZSWORD_SWEEP_TIME)
 	var reach := _aoe_radius(ZSWORD_LENGTH)
 	var center := _player.global_position
+	if _zslash != null:
+		_zslash.set_sweep(center, reach, _zsword_start, blade_ang)   # crescent trails the leading edge
 	for en in get_tree().get_nodes_in_group("arena_enemy"):
 		if not is_instance_valid(en) or en in _zsword_hit:
 			continue
@@ -2174,6 +2104,8 @@ func _tick_zsword(delta: float, enemy_on_screen: bool) -> void:
 				en.take_damage(float(r["dmg"]), ZSWORD_STAGGER)
 				if bool(r["is_crit"]):
 					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+			if _zslash != null:
+				_zslash.add_spark((en as Node2D).global_position)   # impact sparks (tutorial: sparks come last)
 			_zsword_hit.append(en)
 
 # ── Ionizing Field ────────────────────────────────────────────────────────────────
@@ -2220,16 +2152,6 @@ func _draw_sonic_ring(ring: Dictionary) -> void:
 	var seg := maxi(8, int(SONIC_CONE_HALF / PI * 72.0))
 	draw_arc(c, r, aim - SONIC_CONE_HALF, aim + SONIC_CONE_HALF, seg, Color(SONIC_COL.r, SONIC_COL.g, SONIC_COL.b, 0.85 * a), 5.0, true)
 	draw_arc(c, r, aim - SONIC_CONE_HALF, aim + SONIC_CONE_HALF, seg, Color(SONIC_COL.r, SONIC_COL.g, SONIC_COL.b, 0.30 * a), 12.0, true)
-
-func _draw_zsword() -> void:
-	var blade_ang := _zsword_start + TAU * (_zsword_t / ZSWORD_SWEEP_TIME)
-	var reach := _aoe_radius(ZSWORD_LENGTH)
-	var center := _player.global_position
-	var tip := center + Vector2(cos(blade_ang), sin(blade_ang)) * reach
-	draw_line(center, tip, Color(ZSWORD_COL.r, ZSWORD_COL.g, ZSWORD_COL.b, 0.25), 14.0, true)
-	draw_line(center, tip, Color(ZSWORD_COL.r, ZSWORD_COL.g, ZSWORD_COL.b, 0.6), 6.0, true)
-	draw_line(center, tip, Color(1, 1, 1, 0.9), 2.0, true)
-	draw_arc(center, reach, blade_ang - 0.5, blade_ang, 16, Color(ZSWORD_COL.r, ZSWORD_COL.g, ZSWORD_COL.b, 0.18), 4.0, true)
 
 func _draw_ionize() -> void:
 	if _player == null or not is_instance_valid(_player):
@@ -2467,6 +2389,17 @@ func _tick_snake(delta: float) -> void:
 func _draw_boomerang(b: Dictionary) -> void:
 	var p: Vector2 = b["pos"]
 	var s := float(b["spin"])
+	var ver := clampi(sprite_version_boomerang, 1, BOOM_TEX_VERSIONS.size()) - 1
+	var tex: Texture2D = BOOM_TEX_VERSIONS[ver]
+	if tex != null:
+		# Spin the boomerang sprite about its centre at the projectile position (aspect-locked, never stretched).
+		var ts := tex.get_size()
+		var sz := Vector2(BOOM_DRAW, BOOM_DRAW * ts.y / ts.x if ts.x > 0.0 else BOOM_DRAW)
+		draw_set_transform(p, s, Vector2.ONE)
+		draw_texture_rect(tex, Rect2(-sz * 0.5, sz), false)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		return
+	# Procedural fallback (if the sprite is missing).
 	for off: float in [0.0, PI * 0.5]:
 		var a := s + off
 		var d := Vector2(cos(a), sin(a)) * BOOM_BLADE
@@ -2505,8 +2438,7 @@ func _draw_snake() -> void:
 	draw_circle(_snake_pts[0], 9.0, Color(1.0, 0.85, 0.5, 0.95))
 
 func _draw() -> void:
-	# Charge rings + comet trails + sparks draw UNDER the orb ColorRect children.
-	_draw_charge_rings()
+	# Comet trails + sparks draw UNDER the orb ColorRect children.
 	for o: Dictionary in _orbs:
 		_draw_gauss_trail(o)
 	_draw_sparks()
@@ -2518,8 +2450,7 @@ func _draw() -> void:
 		_draw_orbital()
 	for sring: Dictionary in _sonic_rings:
 		_draw_sonic_ring(sring)
-	if _zsword_sweeping:
-		_draw_zsword()
+	# Z-Sword slash is rendered by the additive ZSlash crescent node (driven in _tick_zsword) — no draw here.
 	if _ionize_active:
 		_draw_ionize()
 	for boom: Dictionary in _booms:
@@ -2622,23 +2553,6 @@ func _draw_sparks() -> void:
 		var tail := p - (v.normalized() * GAUSS_SPARK_LEN if v.length() > 0.01 else Vector2.ZERO)
 		draw_line(tail, p, Color(c.r, c.g, c.b, GAUSS_SPARK_ALPHA * t), 2.0)
 		draw_circle(p, 1.6 * t + 0.5, Color(1.0, 1.0, 1.0, GAUSS_SPARK_ALPHA * t))
-
-func _draw_charge_rings() -> void:
-	if _charge_rings.is_empty():
-		return
-	var focal := _muzzle()
-	for ring: Dictionary in _charge_rings:
-		var r: float = ring["r"]
-		var t := clampf(1.0 - r / GC_START_RADIUS, 0.0, 1.0)
-		var pos := focal + Vector2(cos(float(ring["ang"])), sin(float(ring["ang"]))) * r
-		var col := GC_COL_OUT.lerp(GC_COL_IN, t)
-		var a := GC_BRIGHT * (0.12 + 0.88 * t)
-		var rs := GC_RING_SIZE * (0.3 + 0.7 * (1.0 - t))
-		draw_arc(pos, rs * 2.4, 0.0, TAU, 16, Color(col.r, col.g, col.b, a * 0.05), 3.0, true)
-		draw_arc(pos, rs * 1.7, 0.0, TAU, 16, Color(col.r, col.g, col.b, a * 0.14), 2.5, true)
-		draw_arc(pos, rs * 1.2, 0.0, TAU, 16, Color(col.r, col.g, col.b, a * 0.28), 2.0, true)
-		draw_arc(pos, rs, 0.0, TAU, 16, Color(col.r, col.g, col.b, a), 2.0, true)
-		draw_circle(pos, rs * 0.35, Color(col.r, col.g, col.b, a * 0.5))
 
 func _draw_flashes() -> void:
 	for f: Dictionary in _flashes:

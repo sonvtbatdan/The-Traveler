@@ -1328,11 +1328,50 @@ a **procedural tileable thunder texture** (`_make_thunder_tex` — a continuous 
 brightness, integer-harmonic sines so it wraps seamlessly) is **scrolled** along the bolt (`UV.x*tiling + TIME*
 scroll_speed`) so it flickers, with a `smoothstep(vanishing_value)` dissolve (`COLOR = color*t*keep` keeps the
 soft glow halo) and **additive HDR** `color` so it **blooms** under the arena `WorldEnvironment`. Each strike
-point also spawns `_spawn_arc_sparks` (velocity-aligned CPUParticles2D streaks, additive HDR) + `_spawn_arc_flare`
-(one big additive glow). `_tick_arcs` animates each bolt's `vanishing_value` (with a per-link `delay` → outward
-sweep), frees the spark/flare nodes after `fx_ttl`, and `queue_free`s the `Line2D` at `ARC_LIFE`. `get_lights()`
-still reads each link's `tip` for the dust illumination. Tunables: `ARC_BOLT_WIDTH/Z`, `ARC_THUNDER_UNIT`
-(crackle density), `ARC_HDR_COL`/`ARC_SPARK_COL`/`ARC_FLARE_COL`, `ARC_SPARK_COUNT`.
+point also spawns `_spawn_arc_sparks` (velocity-aligned CPUParticles2D streaks, additive HDR). `_tick_arcs`
+animates each bolt's `vanishing_value` (with a per-link `delay` → outward sweep), frees the spark nodes after
+`fx_ttl`, and `queue_free`s the `Line2D` at `ARC_LIFE`. `get_lights()` still reads each link's `tip` for the dust
+illumination. (A per-link strike *flare* was removed — its `CPUParticles2D.scale_amount 26` on a 64px glow tex
+was a ~1700px screenwide flash; same `scale_amount`-is-a-multiplier footgun as the slash.) Tunables:
+`ARC_BOLT_WIDTH/Z`, `ARC_THUNDER_UNIT` (crackle density), `ARC_HDR_COL`/`ARC_SPARK_COL`, `ARC_SPARK_COUNT`.
+
+### `arena_weapons.gd` — Z-Sword slash (layered, "VFX Anatomy: Slash")
+
+The Z-Sword **visual** is a sweeping energy-slash CRESCENT, not the old radial line (`_draw_zsword` removed).
+`scripts/gameplay/fx/z_slash.gd` (`class_name ZSlash`) is an additive Node2D child of `arena_weapons` (created
+in `_ready`, typed `Node2D` and called dynamically — do NOT type by `ZSlash` or a fresh-class-name boot fails).
+`_tick_zsword` drives it: each frame `set_sweep(center, reach, _zsword_start, blade_ang)`; on each enemy hit
+`add_spark(pos)`; on sweep end `fade_out()`. Preview: `scenes/test_slash.tscn` (F6 → plays a sweep, replays on
+Space; draws a glow env + white grid so the bloom and the distortion layer are visible). The whole thing is
+**additive HDR** (`CanvasItemMaterial` ADD) so it blooms under the arena WorldEnvironment.
+
+**Reworked to a blue-white CRESCENT BLADE** after a detailed crit (the prior green version read as a uniform
+"neon tube"). Palette is **white core → cyan body → blue glow → faint violet** (no green). Layers (`_draw`,
+back→front):
+- **Width curve** `_w(p)= peak·pow(4p(1-p),0.55)` — the crescent is thin at both ends and thick in the MIDDLE,
+  tapering to a SHARP point at the leading tip (not a constant-width tube). `BODY_PEAK 46` (big, per "scale").
+- **Blue bloom aura** — a wide soft crescent (`BLOOM_PEAK`, `GLOW_COL`, low alpha), strongest toward the lead.
+- **Cyan body** — translucent crescent (`BODY_COL`, `BODY_ALPHA 0.5`) — you see the background through it.
+- **Ghost streaks** (`_draw_ghosts`) — `GHOST_COUNT` thin polylines at different radial offsets, parallel to the
+  arc, broken into fragments (sine gaps), white-blue, lead-bright = speed lines (not curly rainbow noise).
+- **Hard cutting edge** (`_draw_cutting_edge`) — a thin near-overexposed line riding the crescent's OUTER
+  boundary (`radius + _w(p)`), `EDGE_COL`→`CORE_COL` toward the lead = the bright sharp blade edge.
+- **Lead bloom** (`_draw_lead_bloom`) — concentric blue→violet→cyan→white circles at the leading edge (impact mass).
+- **Origin wisp** (`_draw_origin_wisp`) — a faint thin tapered quad + small flash from the ship → keeps it
+  attached WITHOUT the old rigid bright tube ("hide the emitter" crit).
+- **Shards** (`_emit_shard`/`_draw_shards`) — drawn (not particle nodes) white-blue fragments stretched along
+  their velocity, trailed off the leading edge during the sweep (direction cue) + a burst per hit (`add_spark`);
+  they outlive the body fade. No `CPUParticles2D` here → no scale_amount footgun.
+- **Distortion (layer 4)** — `z_slash_distort.gdshader` on a fullscreen `CanvasLayer` (`DISTORT_LAYER 79`),
+  `_update_distort` feeds it the arc band (PIXEL space, aspect-correct) from the world centre/radius/`_lead`/span;
+  low `aberration` (0.2) to avoid rainbow. Caveat (like the explosion shockwave): invisible on a flat background
+  and the CanvasLayer ripples everything below it.
+Tunables: `SPAN`/`BODY_PEAK`/`BLOOM_PEAK`/`GHOST_COUNT`/`EDGE_W`/`SHARD_*`, palette `CORE_/EDGE_/BODY_/GLOW_/
+GHOST_/SHARD_/VIOLET_COL`. **Lessons:** `CPUParticles2D.scale_amount` is a texture-size MULTIPLIER (~0.8 on a
+64px tex; 24 = a ~1500px blob); **don't redefine `PI`/`TAU` in a shader** (built-in → compile error); and for a
+sword slash, build a varying-width CRESCENT (thin→thick→sharp) in blue-white, NOT a uniform tube — a constant
+half-width additive band reads as a glowing noodle. The scythe HIT's expanding *veil* is still an unbuilt upgrade
+in the `slash-technique` memory note.
 
 ### `arena_weapons.gd` — SFX
 
