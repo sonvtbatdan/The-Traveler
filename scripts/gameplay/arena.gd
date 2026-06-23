@@ -12,6 +12,7 @@ const WaveEditorScript   := preload("res://scripts/ui/hud/arena_wave_editor.gd")
 const USE_TEST_SPAWNER   := false   # true → use test_template.gd (spawn one enemy every 5s) instead of the timeline
 const ArenaWeaponsScript := preload("res://scripts/gameplay/arena_weapons.gd")
 const ArenaAuxScript     := preload("res://scripts/gameplay/arena_aux.gd")           # auxiliary (passive) item data layer
+const CamShakeScript     := preload("res://scripts/gameplay/arena_camera_shake.gd")  # follow camera + screen-shake
 const ArenaNebulaScript  := preload("res://scripts/gameplay/arena_nebula.gd")
 const ArenaDustScript    := preload("res://scripts/gameplay/arena_dust.gd")
 const ArenaPlanetsScript := preload("res://scripts/gameplay/arena_planets.gd")
@@ -41,6 +42,7 @@ const SHIP_SPRITE     := "res://assets/screen/Spaceship.png"
 const CAM_ZOOM        := Vector2(1.0, 1.0)   # >1 zooms in, <1 zooms out
 const PLAYER_SIZE_PX  := 48.0                 # ship drawn this many px on its longest side (scaled from the texture)
 const PLAYER_RADIUS   := 16.0                 # collision circle radius (for later)
+const SHIP_Z          := 100                  # ship draws ABOVE all world effects (weapon FX ≤6, explosions, enemies) so it's never hidden
 const MOVE_SPEED      := 320.0                # px/s
 const TURN_INSTANT    := false               # true = snap to face mouse; false = eased turn
 const TURN_SPEED      := 12.0                 # eased turn rate (higher = snappier)
@@ -214,6 +216,7 @@ func _build_player() -> void:
 	var longest := maxf(float(tex.get_width()), float(tex.get_height())) if tex != null else 1.0
 	var s := PLAYER_SIZE_PX / maxf(1.0, longest)
 	spr.scale = Vector2(s, s)
+	spr.z_index = SHIP_Z   # keep the ship on top of every weapon/explosion effect — always visible
 	# The ship art points UP (forward = −Y); Sprite2D rotation 0 keeps it upright.
 	_ship_spr = spr
 	_player.add_child(spr)
@@ -224,7 +227,7 @@ func _build_player() -> void:
 	col.shape = shape
 	_player.add_child(col)
 
-	var cam := Camera2D.new()
+	var cam := CamShakeScript.new()   # Camera2D + screen-shake (group "camera_shake")
 	cam.zoom = CAM_ZOOM
 	cam.enabled = true
 	_player.add_child(cam)

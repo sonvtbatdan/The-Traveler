@@ -14,6 +14,15 @@ const WEAPONS := [
 	{"kind": "void",    "def_id": "rift_maker",   "label": "Void"},
 	{"kind": "red_x",   "def_id": "red_x",        "label": "Red X"},
 	{"kind": "chemtrail", "def_id": "chemtrail",  "label": "Chemtrail"},
+	{"kind": "nuke",      "def_id": "nuke",          "label": "Nuke"},
+	{"kind": "sonic",     "def_id": "sonic_wave",    "label": "Sonic Wave"},
+	{"kind": "zsword",    "def_id": "z_sword",       "label": "Z-Sword"},
+	{"kind": "ionize",    "def_id": "ionizing_field","label": "Ionizing Field"},
+	{"kind": "boomerang", "def_id": "boomerang",     "label": "Boomerang"},
+	{"kind": "parasite",  "def_id": "parasite_cloud","label": "Parasite Cloud"},
+	{"kind": "moroboshi", "def_id": "moroboshi",     "label": "Moroboshi-M1"},
+	{"kind": "swarm",     "def_id": "swarm_host",    "label": "Swarm Host"},
+	{"kind": "snake",     "def_id": "space_snake",   "label": "Space Snake"},
 ]
 
 const THUMB := Vector2(56, 56)

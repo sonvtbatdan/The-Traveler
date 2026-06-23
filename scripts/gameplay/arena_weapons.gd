@@ -29,7 +29,7 @@ const GAT_MUZZLE_DECAY  := 0.08     # s the muzzle-fire flash decays over (refre
 const GAUSS_ENABLED     := false    # disabled for now
 const GAUSS_STAGGER     := 0.35     # s the enemy is staggered per Gauss hit (heavier weapon = more)
 const GAUSS_LIGHT       := 5.0      # dust-light "value" per Gauss orb (heavy → big bright light)
-const GAUSS_CHARGE_TIME := 1.4      # s to fully charge between shots (charge rings ramp up over this)
+const GAUSS_CHARGE_TIME := 1.4      # s to fully charge between shots (drives the charge-meter fraction)
 const GAUSS_SPEED       := 520.0    # px/s (heavy + slow so you watch it plough through)
 const GAUSS_DAMAGE      := 55.0     # per-shot DAMAGE BUDGET the orb carries (× damage-mult at fire)
 const GAUSS_RADIUS      := 30.0     # FULL hit radius (at full budget); shrinks ∝ sqrt(damage)
@@ -42,7 +42,7 @@ const MUZZLE_OFFSET     := 22.0     # how far ahead of the ship centre shots spa
 # ── Weapon acquisition (chest + pickups → up to 5 unique weapons; backs the 5-slot HUD) ──
 const MAX_WEAPONS := 5                                  # HUD slot count / acquisition cap
 const MAX_WEAPON_LEVEL := 5                             # per-weapon level cap (level-up upgrades)
-const WEAPON_DMG_PER_LEVEL := 0.20                      # +20% damage for THIS weapon per level above 1
+const WEAPON_DMG_PER_LEVEL := 0.30                      # +30% damage per level, COMPOUNDING (×1.30^(level-1))
 const CHEST_POOL  := ["gatling", "lasgun", "arc", "gauss"]   # the 4 "F12" weapons the start-of-run chest rolls from
 # kind → inventory def_id (icon) + display label. Canonical map shared by the chest + slot HUD.
 const WEAPON_INFO := {
@@ -54,7 +54,108 @@ const WEAPON_INFO := {
 	"void":    {"def_id": "rift_maker",   "label": "Void"},
 	"red_x":   {"def_id": "red_x",        "label": "Red X"},
 	"chemtrail": {"def_id": "chemtrail",  "label": "Chemtrail"},
+	"nuke":    {"def_id": "nuke",          "label": "Nuke"},
+	"sonic":   {"def_id": "sonic_wave",    "label": "Sonic Wave"},
+	"zsword":  {"def_id": "z_sword",       "label": "Z-Sword"},
+	"ionize":  {"def_id": "ionizing_field","label": "Ionizing Field"},
+	"boomerang": {"def_id": "boomerang",     "label": "Boomerang"},
+	"parasite":  {"def_id": "parasite_cloud","label": "Parasite Cloud"},
+	"moroboshi": {"def_id": "moroboshi",     "label": "Moroboshi-M1"},
+	"swarm":     {"def_id": "swarm_host",    "label": "Swarm Host"},
+	"snake":     {"def_id": "space_snake",   "label": "Space Snake"},
 }
+
+# ── TUNABLES: Batch-1 weapons (Nuke / Sonic Wave / Z-Sword / Ionizing Field) ──────
+# Nuke (Kinetic) — long-cooldown player-centred blast + auto knockback + lingering radiation slow zone.
+const NUKE_COOLDOWN      := 15.0
+const NUKE_DAMAGE        := 200.0
+const NUKE_RADIUS        := 540.0    # AoE (was 360, +50%) — also sizes the explosion visual
+const NUKE_BLAST_STAGGER := 0.6      # blast freeze on hit
+# (the damage window is set per detonation to the explosion's FIRE phase — see _fire_nuke / _nuke_blast_dur)
+# Sonic Wave (Energy) — 3 expanding rings; each ring damages every enemy its front passes, once.
+const SONIC_COOLDOWN     := 3.0
+const SONIC_RINGS        := 3
+const SONIC_RING_STAGGER := 0.18     # delay between successive rings of one volley
+const SONIC_MAX_RADIUS   := 320.0
+const SONIC_EXPAND_TIME  := 0.7
+const SONIC_DAMAGE       := 30.0
+const SONIC_BAND         := 24.0     # ring-front thickness for the hit test
+const SONIC_CONE_HALF    := 1.05     # half-angle of the forward cone the arcs fan into (~120° total)
+const SONIC_COL          := Color(0.55, 0.85, 1.0)
+# Z-Sword (Energy) — energy blade extends from the ship and sweeps a full circle.
+const ZSWORD_COOLDOWN    := 4.0
+const ZSWORD_SWEEP_TIME  := 0.6
+const ZSWORD_LENGTH      := 220.0
+const ZSWORD_ARC_HALF    := 0.314159 # ~18° half-arc hit tolerance
+const ZSWORD_DAMAGE      := 45.0
+const ZSWORD_STAGGER     := 0.1
+# (slash visuals live in scripts/gameplay/fx/z_slash.gd; colours are ZSlash.LEAD_COL/LEAD_HOT there)
+# Ionizing Field (Energy) — always-on aura DoT around the ship.
+const IONIZE_TICK   := 0.3
+const IONIZE_RADIUS := 170.0
+const IONIZE_DAMAGE := 10.0
+const IONIZE_COL    := Color(0.6, 0.9, 1.0)
+
+# ── TUNABLES: Batch-2 weapons (Boomerang / Parasite Cloud / Moroboshi-M1 / Swarm Host / Space Snake) ──
+# Boomerang (Kinetic) — a single PERPETUAL blade flying a 3-petal "trinity"/rose path around the ship: it loops
+# out into a petal, sweeps back through the centre, out the next petal — forever (rose r = SIZE·cos(3θ)). The
+# pattern centre LAGS the ship, so flying drags the whole flower along behind you. Never thrown, never despawns.
+const BOOM_COUNT      := 1          # blades in flight
+const BOOM_SIZE       := 330.0      # petal reach (flight-pattern radius) — 150% of the previous 220
+const BOOM_ROSE_SPEED := 1.2        # how fast the blade travels the petals (θ rad/s) — 60% of the previous 2.0
+const BOOM_CENTER_LAG := 6.0        # how fast the flower centre catches up to the ship (lower = more trailing drag)
+const BOOM_BLADE      := 45.0       # blade visual half-length (+150% of the old 18px)
+const BOOM_DAMAGE     := 28.0
+const BOOM_HIT_RADIUS := 48.0       # enlarged to match the bigger blade
+const BOOM_HIT_CD     := 0.25       # per-enemy re-hit interval (a blade sweeps the same enemy repeatedly)
+const BOOM_SPIN       := 28.0       # visual self-spin rad/s (+300% of the previous 7.0)
+const BOOM_COL        := Color(0.95, 0.85, 0.5)
+const BOOM_DRAW       := 130.0      # on-screen boomerang sprite width (px); height aspect-locked per texture
+# Fired-projectile sprite variants. Switch with `sprite_version_boomerang` (1, 2, or 3).
+const BOOM_TEX_VERSIONS: Array[Texture2D] = [
+	preload("res://assets/Boomerang.png"),     # 1 — chrome V
+	preload("res://assets/Boomerang 2.png"),   # 2 — saw blade
+	preload("res://assets/Boomerang 3.png"),   # 3 — sci-fi tech boomerang
+]
+## TUNABLE — which boomerang sprite is used when firing: 1, 2, or 3. Change this to swap the look.
+var sprite_version_boomerang: int = 3
+# Parasite Cloud (Biological) — fast blob that decelerates into a lingering damage cloud.
+const PARA_COOLDOWN   := 2.6
+const PARA_SPEED      := 520.0
+const PARA_DRAG       := 2.2        # exponential deceleration toward a hover
+const PARA_LIFETIME   := 3.2
+const PARA_RADIUS     := 90.0
+const PARA_TICK       := 0.25
+const PARA_DAMAGE     := 10.0       # per tick to everything inside
+const PARA_COL        := Color(0.6, 0.95, 0.45)
+# Moroboshi-M1 (Biological) — winged-golem familiar that chases enemies and punches (AoE + stagger).
+const MORO_FOLLOW_DIST := 90.0      # rests this far behind the ship when idle
+const MORO_MOVE_SPEED  := 240.0
+const MORO_AGGRO       := 520.0     # seeks enemies within this of itself
+const MORO_ATTACK_CD   := 0.9
+const MORO_ATTACK_RANGE:= 80.0
+const MORO_AOE         := 90.0
+const MORO_DAMAGE      := 40.0
+const MORO_STAGGER     := 0.3
+const MORO_COL         := Color(0.8, 0.7, 1.0)
+# Swarm Host (Biological) — familiars that dart to enemies, deal damage, return and heal the player.
+const SWARM_COUNT      := 2         # familiar count (body)
+const SWARM_SPEED      := 420.0
+const SWARM_AGGRO      := 560.0
+const SWARM_DAMAGE     := 22.0
+const SWARM_HIT_RADIUS := 26.0
+const SWARM_HEAL_FRAC  := 0.25      # heal the player for this fraction of damage dealt, on return
+const SWARM_IDLE_R     := 70.0      # orbit radius near the ship when idle
+const SWARM_COL        := Color(0.95, 0.6, 0.85)
+# Space Snake (Biological) — fire-snake familiar; head chases enemies, body trails, contact DoT.
+const SNAKE_SEGMENTS   := 10
+const SNAKE_SPACING    := 18.0
+const SNAKE_SPEED      := 300.0
+const SNAKE_TURN       := 3.0       # max turn rad/s (head minimises turn angle)
+const SNAKE_TICK       := 0.2
+const SNAKE_DAMAGE     := 8.0       # per tick per enemy in contact with any segment
+const SNAKE_HIT_RADIUS := 22.0
+const SNAKE_COL        := Color(1.0, 0.6, 0.3)
 
 # ── TUNABLES: Orbitals (spiky energy orbs circling the ship, contact damage — ported from weapon_system.gd) ──
 const ORBITAL_BALLS        := 3       # number of orbiting balls (evenly spaced)
@@ -191,12 +292,19 @@ const CHEMTRAIL_PARTICLES := 280                        # -80% density → thin,
 const ARC_JUMPS    := 4        # extra targets the bolt chains to after the first
 const ARC_ACQUIRE_RANGE := 400.0  # max px to acquire the FIRST target (chains then extend further via ARC_RANGE)
 const ARC_RANGE    := 200.0    # max px between consecutive chain links
-const ARC_LIFE     := 0.60     # s each lightning segment stays visible (dissolves start→end over this)
-const ARC_FADE_SOFT := 0.35    # softness of the dissolve front sweeping from the muzzle to the strike point
+const ARC_LIFE     := 0.60     # s each lightning bolt stays visible (dissolves via the shader vanishing_value)
 const ARC_STAGGER  := 0.12     # s stagger per link
-const ARC_COL      := Color(0.75, 0.9, 1.0)   # cold electric blue-white (soft outer glow)
-const ARC_EDGE_COL := Color(0.45, 0.75, 1.0)  # light-blue rim drawn just outside the white-hot core
+const ARC_COL      := Color(0.75, 0.9, 1.0)   # cold electric blue-white (used for the dust light tint)
 const ARC_LIGHT    := 4.0      # dust-light value per lit segment endpoint
+# Textured-lightning visuals (2D-lightning tutorial): each chain link is a Line2D with arc_lightning.gdshader
+# (scrolling thunder texture + smoothstep vanish + additive HDR), plus a CPUParticles2D spark burst + flare.
+const ARC_BOLT_SHADER := "res://scripts/gameplay/fx/arc_lightning.gdshader"
+const ARC_BOLT_WIDTH  := 26.0   # Line2D width (px) — the thunder texture's vertical shake fills this
+const ARC_BOLT_Z      := 7      # render above enemies
+const ARC_THUNDER_UNIT := 90.0  # px of bolt per one thunder-texture tile (sets crackle density)
+const ARC_HDR_COL     := Color(1.5, 2.4, 3.4)   # HDR electric blue-white for the bolt (blooms)
+const ARC_SPARK_COL   := Color(1.8, 2.6, 3.6)   # HDR sparks
+const ARC_SPARK_COUNT := 12
 
 const BeamScript   := preload("res://scripts/gameplay/lasgun_ani_1.gd")   # lasgun_ani_1: Isaac-model body (no backward extension) + anchored, non-spinning, beam-aligned impact flipbook from the impact spritesheet; ani_2/ani_3 kept as backups
 const SFX_BOLT_HIT: Array[AudioStream] = [
@@ -212,6 +320,8 @@ const PickupScript := preload("res://scripts/gameplay/arena_weapon_pickup.gd")
 const OrbChargeScript := preload("res://scripts/gameplay/arena_orb_charge_fx.gd")
 const GatMuzzleScript := preload("res://scripts/gameplay/arena_gatling_muzzle.gd")
 const GaussExplFX  := preload("res://scripts/gameplay/gauss_explosion_fx.gd")
+const ExplosionFX  := preload("res://scripts/gameplay/fx/explosion.gd")   # composite blast used by the Nuke
+const ZSlashScript := preload("res://scripts/gameplay/fx/z_slash.gd")     # sweeping energy-slash crescent VFX
 
 # ── Gatling tracer bolt look (copied from weapon_system.gd — visuals only) ────
 const GAT_TRACER_LEN   := 16.0
@@ -279,19 +389,7 @@ const GAUSS_EXPL_FRAME_H      := 336.0
 const GAUSS_EXPL_ANCHOR       := Vector2(168.0, 168.0)   # burst-core pixel (frame center) in each frame
 const GAUSS_EXPL_DEBUG_DRAW   := false         # true → draw the damage radius (+ enemy-center cutoff) to tune it
 
-# ── Gauss charge-up rings converging onto the ship (copied — visuals only) ────
-const GC_START_RADIUS   := 150.0
-const GC_RING_SIZE      := 13.0
-const GC_COL_OUT        := Color(1.0, 0.30, 0.45)
-const GC_COL_IN         := Color(1.0, 1.0, 0.95)
-const GC_SPEED_EMPTY    := 130.0
-const GC_SPEED_FULL     := 340.0
-const GC_INTERVAL_EMPTY := 0.5
-const GC_INTERVAL_FULL  := 0.05
-const GC_RAMP_CURVE     := 1.6
-const GC_SPAWN_COUNT    := 1
-const GC_BRIGHT         := 0.9
-const GC_FLASH_R        := 7.0
+# ── Gauss shot release flash (the converging charge-up rings were removed) ────
 const GC_RELEASE_FLASH  := 60.0
 
 const GAUSS_ORB_SHADER := """
@@ -363,8 +461,6 @@ var _crit_damage: float = 1.5 # GameManager.get_crit_damage() (Lethality cards)
 var _bullets: Array = []         # Gatling: {pos, vel, life, start}
 var _orbs: Array = []            # Gauss: {pos, vel, life, start, orb_node, trail, spark_acc, dmg, dmg_ref, hit}
 var _sparks: Array = []          # Gauss tail sparks: {pos, vel, life, ttl}
-var _charge_rings: Array = []    # {ang, r}
-var _charge_spawn_acc: float = 0.0
 var _flashes: Array = []         # {pos, age, max_age, radius}
 var _orb_shader: Shader = null
 var _gauss_frames: Array = []      # 12-frame plasma-orb flipbook (cropped from the reference sheet)
@@ -396,7 +492,9 @@ var _chemtrail_tick_acc: float = 0.0  # weapon-level DoT tick (single damage per
 var _chemtrail_emit_acc: float = 0.0  # emit-rate accumulator (puffs shot out the back at a steady cadence)
 var _chemtrail_fx: DynamicFire = null # ONE recolored toxic-fire emitter spanning all puff centres
 var _arc_cd: float = 0.0           # Arc burst cooldown
-var _arcs: Array = []              # live lightning segments: {a, b, age, max_age}
+var _arcs: Array = []              # live lightning links: {ln, mat, tip, age, max_age, fx, fx_ttl, fx_freed}
+var _arc_thunder_tex: ImageTexture = null   # procedural tileable thunder texture (cached)
+var _arc_spark_tex: ImageTexture = null     # small stretched spark streak (cached)
 var _orbital_active: bool = false  # turned on by the Orbital pickup
 var _orbital_angle: float = 0.0    # current orbit angle (deg)
 var _orbital_t: float = 0.0        # time accumulator for the electric-arc crackle
@@ -410,6 +508,52 @@ var _void_pos: Vector2 = Vector2.ZERO
 var _void_age: float = 0.0         # 0 → VOID_DURATION
 var _void_tick: float = 0.0        # damage-tick accumulator
 var _void_node: ColorRect = null   # the swirling-vortex visual
+# ── Batch-1 weapons (Nuke / Sonic Wave / Z-Sword / Ionizing Field) ──
+var _nuke_active: bool = false
+var _nuke_cd: float = 0.0
+var _nuke_blast_on: bool = false        # a detonation's damage hitbox is live (for NUKE_DURATION)
+var _nuke_blast_t: float = 0.0
+var _nuke_blast_pos: Vector2 = Vector2.ZERO   # fixed detonation centre (matches the explosion FX)
+var _nuke_blast_reach: float = 0.0
+var _nuke_hit: Dictionary = {}          # instance_id → true: each enemy/ruin damaged at most once per detonation
+var _nuke_blast_dur: float = 0.0        # damage window = the explosion's FIRE phase only (excludes the smoke tail)
+var _sonic_active: bool = false
+var _sonic_cd: float = 0.0
+var _sonic_queue: float = 0.0          # stagger timer for the remaining rings of a volley
+var _sonic_left: int = 0               # rings still to spawn in the current volley
+var _sonic_rings: Array = []           # live rings: {center, age, hit:Array, maxr}
+var _zsword_active: bool = false
+var _zsword_cd: float = 0.0
+var _zsword_sweeping: bool = false
+var _zslash: Node2D = null         # sweeping energy-slash crescent VFX node (ZSlash; additive HDR → blooms)
+var _zsword_t: float = 0.0
+var _zsword_start: float = 0.0
+var _zsword_hit: Array = []
+var _ionize_active: bool = false
+var _ionize_tick: float = 0.0
+var _ionize_clock: float = 0.0         # always-advancing clock for the aura pulse visual
+# ── Batch-2 weapons (Boomerang / Parasite Cloud / Moroboshi-M1 / Swarm Host / Space Snake) ──
+var _boom_active: bool = false
+var _boom_init: bool = false
+var _boom_center: Vector2 = Vector2.ZERO   # trailing centre of the rose pattern (lags the ship)
+var _booms: Array = []                 # perpetual blades: {theta, spin, age, pos, hits:{}}
+var _para_active: bool = false
+var _para_cd: float = 0.0
+var _para_clouds: Array = []           # {pos, vel, age, tick}
+var _moro_active: bool = false
+var _moro_init: bool = false
+var _moro_pos: Vector2 = Vector2.ZERO
+var _moro_cd: float = 0.0
+var _moro_punch_t: float = 0.0
+var _moro_punch_pos: Vector2 = Vector2.ZERO
+var _swarm_active: bool = false
+var _swarm_init: bool = false
+var _swarm_units: Array = []           # {pos, state, target, dmg, ang}
+var _snake_active: bool = false
+var _snake_init: bool = false
+var _snake_pts: Array = []             # head-first list of segment positions (Vector2)
+var _snake_dir: float = 0.0
+var _snake_tick: float = 0.0
 var _lasgun_active: bool = false   # turned on by the Lasgun pickup (auto-equip, accumulates with the Gatling)
 var _beam_cd: float = 0.0          # Lasgun damage-tick cooldown
 var _beam: Node2D = null           # additive beam VFX child (gameplay plane → sharp)
@@ -435,6 +579,8 @@ func _ready() -> void:
 	add_child(_charge_fx)
 	_gat_muzzle_fx = GatMuzzleScript.new()
 	add_child(_gat_muzzle_fx)
+	_zslash = ZSlashScript.new()
+	add_child(_zslash)
 	_load_gauss_frames()
 	_load_gauss_explosion_frames()
 	_bolt_hit_player = AudioStreamPlayer.new()
@@ -526,6 +672,19 @@ func get_lights() -> Array:
 			lights.append({"pos": c, "value": ORBITAL_LIGHT, "color": ORBITAL_COL})
 	if _void_on:
 		lights.append({"pos": _void_pos, "value": 6.0, "color": VOID_COL})
+	if _ionize_active and _player != null and is_instance_valid(_player):
+		lights.append({"pos": _player.global_position, "value": 4.0, "color": IONIZE_COL})
+	for boom: Dictionary in _booms:
+		lights.append({"pos": boom["pos"], "value": 2.0, "color": BOOM_COL})
+	for pc: Dictionary in _para_clouds:
+		lights.append({"pos": pc["pos"], "value": 3.0, "color": PARA_COL})
+	if _moro_active and _moro_init:
+		lights.append({"pos": _moro_pos, "value": 3.0, "color": MORO_COL})
+	if _swarm_active:
+		for u: Dictionary in _swarm_units:
+			lights.append({"pos": u["pos"], "value": 2.0, "color": SWARM_COL})
+	if _snake_active and not _snake_pts.is_empty():
+		lights.append({"pos": _snake_pts[0], "value": 3.0, "color": SNAKE_COL})
 	return lights
 
 ## True when the equipment-driven loadout engine has a primary weapon equipped (so this default
@@ -591,6 +750,24 @@ func _process(delta: float) -> void:
 		_tick_orbital(delta)
 	if _void_active:
 		_tick_void(delta)
+	if _nuke_active:
+		_tick_nuke(delta, enemy_on_screen)
+	if _sonic_active:
+		_tick_sonic(delta, enemy_on_screen)
+	if _zsword_active:
+		_tick_zsword(delta, enemy_on_screen)
+	if _ionize_active:
+		_tick_ionize(delta)
+	if _boom_active:
+		_tick_boom(delta, enemy_on_screen)
+	if _para_active:
+		_tick_para(delta, enemy_on_screen)
+	if _moro_active:
+		_tick_moro(delta)
+	if _swarm_active:
+		_tick_swarm(delta)
+	if _snake_active:
+		_tick_snake(delta)
 	if _lasgun_active:
 		if enemy_on_screen:
 			_fire_lasgun(delta)
@@ -608,7 +785,6 @@ func _process(delta: float) -> void:
 	_tick_orbs(delta)
 	_tick_explosions(delta)
 	_tick_arcs(delta)
-	_update_charge_rings(delta)
 	_update_sparks(delta)
 	_update_flashes(delta)
 	_update_gat_muzzle(delta)
@@ -777,6 +953,7 @@ func _fire_arc(delta: float) -> void:
 	if _arc_cd > 0.0:
 		return
 	_arc_cd = ARC_COOLDOWN / _rate_mult
+	_ensure_arc_textures()
 	var muzzle := _muzzle()
 	var hit_set: Array = []                 # enemies already struck this burst (no double-hits)
 	var cur := _nearest_enemy(_player.global_position, ARC_ACQUIRE_RANGE, hit_set)
@@ -798,23 +975,13 @@ func _fire_arc(delta: float) -> void:
 		cur = _nearest_enemy(c, ARC_RANGE, hit_set)
 	if chain.size() < 2:
 		return
-	# Pass 2: each link stores its span [u0,u1] of the TOTAL chain length, so a single dissolve front sweeps
-	# the whole bolt from the ORIGINAL muzzle outward — it does not restart the fade at each bounce point.
-	var seglen := PackedFloat32Array()
-	var total := 0.0
+	# Pass 2 (textured-lightning rewrite): each link is a Line2D bolt with the scrolling thunder shader, plus a
+	# spark burst + flare at its strike point. A small per-link delay (outer links linger) keeps the muzzle-first
+	# dissolve feel. Damage/chaining above is unchanged.
 	for i in range(chain.size() - 1):
-		var l := chain[i].distance_to(chain[i + 1])
-		seglen.append(l)
-		total += l
-	total = maxf(0.001, total)
-	var acc := 0.0
-	for i in range(chain.size() - 1):
-		var u0 := acc / total
-		acc += seglen[i]
-		var u1 := acc / total
-		var paths := _build_arc_paths(chain[i], chain[i + 1])   # shapes fixed once → no per-frame fluctuation
-		_arcs.append({"pts": paths[0], "pts2": paths[1], "pts3": paths[2], "tip": chain[i + 1],
-			"u0": u0, "u1": u1, "age": 0.0, "max_age": ARC_LIFE})
+		var delay := float(i) * ARC_STAGGER * 0.4   # later links dissolve slightly later → outward sweep
+		_spawn_arc_bolt(chain[i], chain[i + 1], delay)
+		_spawn_arc_sparks(chain[i + 1])
 
 ## Nearest live arena_enemy to `from` within `max_dist`, skipping any in `exclude`.
 func _nearest_enemy(from: Vector2, max_dist: float, exclude: Array) -> Node:
@@ -829,95 +996,154 @@ func _nearest_enemy(from: Vector2, max_dist: float, exclude: Array) -> Node:
 			best = en
 	return best
 
-## Age out lightning segments; alpha is computed at draw time from age/max_age.
+## Advance each live bolt: animate its shader `vanishing_value` (dissolve), free the spark/flare FX once they've
+## played, and free the Line2D when its life ends. (Bolts are Line2D children, not immediate-mode draws.)
 func _tick_arcs(delta: float) -> void:
 	var i := _arcs.size() - 1
 	while i >= 0:
 		var a: Dictionary = _arcs[i]
-		a["age"] = float(a["age"]) + delta
-		if float(a["age"]) >= float(a["max_age"]):
+		var age := float(a["age"]) + delta
+		a["age"] = age
+		var ln: Line2D = a["ln"]
+		var mat: ShaderMaterial = a["mat"]
+		var delay: float = a["delay"]
+		var life := clampf((age - delay) / maxf(0.01, float(a["max_age"]) - delay), 0.0, 1.0)
+		if is_instance_valid(mat):
+			mat.set_shader_parameter("vanishing_value", life)   # 0→1 dissolves the thunder texture away
+		if not bool(a["fx_freed"]) and age >= float(a["fx_ttl"]):
+			a["fx_freed"] = true
+			for fx in a["fx"]:
+				if is_instance_valid(fx):
+					(fx as Node).queue_free()
+		if age >= float(a["max_age"]):
+			if is_instance_valid(ln):
+				ln.queue_free()
+			for fx in a["fx"]:
+				if is_instance_valid(fx):
+					(fx as Node).queue_free()
 			_arcs.remove_at(i)
 		else:
 			_arcs[i] = a
 		i -= 1
 
-## Build the (fixed) bolt geometry for a→b: a single gentle bow toward the target plus a small FIXED ripple,
-## so the bolt "arcs slightly" but never fluctuates frame-to-frame. Returns [main_path, companion_path].
-func _build_arc_paths(a: Vector2, b: Vector2) -> Array:
-	var segs := 12
+## Build/cache the procedural textures the textured-lightning visuals need (thunder bolt + spark streak).
+func _ensure_arc_textures() -> void:
+	if _arc_thunder_tex == null:
+		_arc_thunder_tex = _make_thunder_tex()
+	if _arc_spark_tex == null:
+		_arc_spark_tex = _make_arc_spark_tex()
+
+## One chain link as a Line2D bolt with the scrolling thunder shader (additive HDR → blooms). `delay` staggers
+## the dissolve so outer links linger. Each bolt gets its OWN shader material (per-bolt scroll/tiling/phase).
+func _spawn_arc_bolt(a: Vector2, b: Vector2, delay: float) -> void:
+	var ln := Line2D.new()
+	ln.points = _arc_line_points(a, b)
+	ln.width = ARC_BOLT_WIDTH
+	ln.texture = _arc_thunder_tex
+	ln.texture_mode = Line2D.LINE_TEXTURE_STRETCH
+	ln.joint_mode = Line2D.LINE_JOINT_ROUND
+	ln.begin_cap_mode = Line2D.LINE_CAP_NONE
+	ln.end_cap_mode = Line2D.LINE_CAP_NONE
+	ln.z_index = ARC_BOLT_Z
+	var mat := ShaderMaterial.new()
+	mat.shader = load(ARC_BOLT_SHADER)
+	mat.set_shader_parameter("basic_texture", _arc_thunder_tex)
+	mat.set_shader_parameter("color", ARC_HDR_COL)
+	mat.set_shader_parameter("scroll_speed", randf_range(-3.5, -1.5) * (1.0 if randf() < 0.5 else -1.0))
+	mat.set_shader_parameter("tiling_x", maxf(1.0, a.distance_to(b) / ARC_THUNDER_UNIT))
+	mat.set_shader_parameter("vanishing_value", 0.0)
+	ln.material = mat
+	add_child(ln)
+	_arcs.append({"ln": ln, "mat": mat, "tip": b, "age": 0.0, "max_age": ARC_LIFE,
+		"delay": delay, "fx": [], "fx_ttl": 0.3, "fx_freed": false})
+
+## A gently-bowed centreline a→b (texture supplies the crackle, so only a soft bow is needed here).
+func _arc_line_points(a: Vector2, b: Vector2) -> PackedVector2Array:
+	var segs := 6
 	var seg := b - a
 	var dist := seg.length()
 	var perp := seg.normalized().rotated(PI * 0.5) if dist > 0.01 else Vector2.UP
-	var bow := perp * randf_range(-1.0, 1.0) * clampf(dist * 0.07, 6.0, 28.0)   # gentle shared arc, chosen once
-	var zig := clampf(dist * 0.02, 1.5, 5.0) * 1.4     # main zigzag amplitude (40% rougher than before)
-	var zig_c := zig * 0.6                              # secondary-strand zigzag — smaller (not too much)
-	var off := perp * 4.0                               # companion sits a little to one side of the main line
-	var off3 := perp * -4.0                             # third strand to the other side
+	var bow := perp * randf_range(-1.0, 1.0) * clampf(dist * 0.06, 4.0, 22.0)
 	var pts := PackedVector2Array()
-	var pts2 := PackedVector2Array()
-	var pts3 := PackedVector2Array()
 	for i in range(segs + 1):
 		var u := float(i) / float(segs)
-		var arc := a.lerp(b, u) + bow * sin(u * PI)     # shared bow → all strands track the same direction
-		# Main: rough zigzag = a tighter sine ripple + a random kink (both FIXED at spawn → no fluctuation).
-		var pm := arc + perp * sin(u * PI * 4.0) * zig + perp * randf_range(-1.0, 1.0) * zig * 0.6
-		pts.append(pm)
-		# Companion: same general direction, kept near the main line, but with its OWN modest random noise.
-		var pc := arc + off + perp * sin(u * PI * 5.0) * zig_c * 0.5 + perp * randf_range(-1.0, 1.0) * zig_c
-		pts2.append(pc)
-		# Third strand: same idea (similar math), other side, its own noise.
-		var pc3 := arc + off3 + perp * sin(u * PI * 6.0) * zig_c * 0.4 + perp * randf_range(-1.0, 1.0) * zig_c * 0.9
-		pts3.append(pc3)
-	# Anchor every strand's endpoints exactly to muzzle/target for a clean attach (no floating ends).
-	pts[0] = a; pts[pts.size() - 1] = b
-	pts2[0] = a; pts2[pts2.size() - 1] = b
-	pts3[0] = a; pts3[pts3.size() - 1] = b
-	return [pts, pts2, pts3]
+		pts.append(a.lerp(b, u) + bow * sin(u * PI))
+	pts[0] = a
+	pts[pts.size() - 1] = b
+	return pts
 
-## Draw one stored chain link. All three strands dissolve along the SAME global front that sweeps the whole
-## bolt from the original muzzle (each link maps its vertices into its [u0,u1] span of the chain).
-func _draw_arc(d: Dictionary) -> void:
-	var life: float = clampf(float(d["age"]) / float(d["max_age"]), 0.0, 1.0)
-	var u0: float = d["u0"]
-	var u1: float = d["u1"]
-	_draw_bolt(d["pts"], 1.0, life, u0, u1)            # main line
-	_draw_bolt(d["pts2"], 0.3, life, u0, u1)           # companion (0.3× width)
-	_draw_bolt(d["pts3"], 1.0 / 6.0, life, u0, u1)     # third strand (1/6× width)
-	# Strike-point burst — fades when the global dissolve front reaches this link's end (u1).
-	var front := life * (1.0 + ARC_FADE_SOFT) - ARC_FADE_SOFT
-	var tipv := clampf((u1 - front) / ARC_FADE_SOFT, 0.0, 1.0)
-	var tip: Vector2 = d["tip"]
-	draw_circle(tip, 9.0, Color(ARC_COL.r, ARC_COL.g, ARC_COL.b, 0.30 * tipv))
-	draw_circle(tip, 4.0, Color(1, 1, 1, 0.85 * tipv))
-
-## A thick, glowing bolt along `pts`, widths × `wscale`: soft outer glow → light-blue edge → white-hot core.
-## Per-vertex alpha dissolves along the GLOBAL chain parameter (vertex u mapped into [u0,u1]) so the muzzle
-## end fades first and the front sweeps toward the far tip — "first spawned, first faded".
-func _draw_bolt(pts: PackedVector2Array, wscale: float, life: float, u0: float, u1: float) -> void:
-	var n := pts.size()
-	if n < 2:
+## Stretched spark burst at a strike point (CPUParticles2D, additive HDR, velocity-aligned). Tracked + freed
+## by the owning bolt in _tick_arcs (see fx/fx_ttl).
+func _spawn_arc_sparks(pos: Vector2) -> void:
+	if _arcs.is_empty():
 		return
-	var front := life * (1.0 + ARC_FADE_SOFT) - ARC_FADE_SOFT
-	var vis := PackedFloat32Array()
-	for i in n:
-		var gu := lerpf(u0, u1, float(i) / float(n - 1))   # this vertex's position along the WHOLE chain
-		vis.append(clampf((gu - front) / ARC_FADE_SOFT, 0.0, 1.0))
-	# Soft outer glow (ARC_COL).
-	var widths := [20.0, 11.0]
-	var alphas := [0.16, 0.35]
-	for li in widths.size():
-		var cols := PackedColorArray()
-		for i in n:
-			cols.append(Color(ARC_COL.r, ARC_COL.g, ARC_COL.b, float(alphas[li]) * vis[i]))
-		draw_polyline_colors(pts, cols, float(widths[li]) * wscale)
-	# Light-blue edge, then white-hot core on top → white centre with a light-blue rim.
-	var edge := PackedColorArray()
-	var core := PackedColorArray()
-	for i in n:
-		edge.append(Color(ARC_EDGE_COL.r, ARC_EDGE_COL.g, ARC_EDGE_COL.b, 0.9 * vis[i]))
-		core.append(Color(1, 1, 1, 0.95 * vis[i]))
-	draw_polyline_colors(pts, edge, 5.5 * wscale)
-	draw_polyline_colors(pts, core, 2.8 * wscale)
+	var p := CPUParticles2D.new()
+	p.position = pos
+	p.amount = ARC_SPARK_COUNT
+	p.lifetime = 0.2
+	p.one_shot = true
+	p.explosiveness = 1.0
+	p.local_coords = false
+	p.direction = Vector2.RIGHT
+	p.spread = 180.0
+	p.gravity = Vector2.ZERO
+	p.initial_velocity_min = 320.0
+	p.initial_velocity_max = 700.0
+	p.particle_flag_align_y = true
+	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE_SURFACE
+	p.emission_sphere_radius = 16.0
+	p.texture = _arc_spark_tex
+	var c_fade := ARC_SPARK_COL
+	c_fade.a = 0.0
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.6, 1.0])
+	grad.colors = PackedColorArray([ARC_SPARK_COL, ARC_SPARK_COL, c_fade])
+	p.color_ramp = grad
+	var taper := Curve.new()
+	taper.add_point(Vector2(0.0, 0.6))
+	taper.add_point(Vector2(0.15, 1.0))
+	taper.add_point(Vector2(1.0, 0.0))
+	p.scale_amount_curve = taper
+	var cm := CanvasItemMaterial.new()
+	cm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	p.material = cm
+	p.z_index = ARC_BOLT_Z
+	add_child(p)
+	(_arcs[_arcs.size() - 1]["fx"] as Array).append(p)
+
+## Procedural TILEABLE thunder texture: a jagged glowing horizontal band (red channel = brightness). Built from
+## integer-harmonic sines so the left/right edges wrap seamlessly; gaps + brightness variation make it spiky.
+func _make_thunder_tex() -> ImageTexture:
+	var w := 256
+	var h := 32
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	var midy := float(h) * 0.5
+	for x in w:
+		var fx := float(x) / float(w) * TAU
+		var cy := midy + sin(fx) * 4.0 + sin(fx * 3.0 + 1.3) * 2.5 + sin(fx * 7.0 + 0.5) * 1.5 + sin(fx * 13.0) * 0.8
+		var bright := 0.78 + 0.22 * (sin(fx * 9.0 + 2.0) * 0.5 + 0.5)   # gentle variation, never a full gap
+		for y in h:
+			var dy := absf(float(y) - cy)
+			var core := pow(clampf(1.0 - dy / 3.6, 0.0, 1.0), 1.2)            # bright white-hot core
+			var glow := pow(clampf(1.0 - dy / midy, 0.0, 1.0), 1.6) * 0.8     # brighter, wider soft glow halo
+			var v := clampf((core + glow) * bright, 0.0, 1.0)
+			img.set_pixel(x, y, Color(v, v, v, v))
+	return ImageTexture.create_from_image(img)
+
+## Small vertical streak for sparks (align_y stretches it along the velocity).
+func _make_arc_spark_tex() -> ImageTexture:
+	var w := 8
+	var h := 28
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	var cx := float(w) * 0.5
+	var cy := float(h) * 0.5
+	for y in h:
+		for x in w:
+			var fxr := absf(float(x) - cx) / cx
+			var fyr := absf(float(y) - cy) / cy
+			var v := pow(clampf(1.0 - fxr, 0.0, 1.0), 2.0) * pow(clampf(1.0 - fyr, 0.0, 1.0), 1.2)
+			img.set_pixel(x, y, Color(v, v, v, v))
+	return ImageTexture.create_from_image(img)
 
 ## Called by the Arc pickup on collection — adds chain lightning to the active loadout (accumulates).
 func activate_arc() -> void:
@@ -1317,11 +1543,12 @@ func weapon_can_upgrade(kind: String) -> bool:
 func weapons_full() -> bool:
 	return _acquired.size() >= MAX_WEAPONS
 
-## Per-weapon damage multiplier from its level (+WEAPON_DMG_PER_LEVEL per level above 1).
+## Per-weapon damage multiplier from its level — COMPOUNDING: (1+WEAPON_DMG_PER_LEVEL)^(level-1).
+## L1 ×1.0, L2 ×1.30, L3 ×1.69, L4 ×2.20, L5 ×2.86.
 func _lvl_mult(kind: String) -> float:
 	if kind == "" or not (kind in _acquired):
 		return 1.0
-	return 1.0 + float(int(_levels.get(kind, 1)) - 1) * WEAPON_DMG_PER_LEVEL
+	return pow(1.0 + WEAPON_DMG_PER_LEVEL, float(int(_levels.get(kind, 1)) - 1))
 
 ## Route a kind to its existing activate_<kind>() entry point.
 func _activate_kind(kind: String) -> void:
@@ -1334,13 +1561,22 @@ func _activate_kind(kind: String) -> void:
 		"void":    activate_void()
 		"red_x":   activate_red_x()
 		"chemtrail": activate_chemtrail()
+		"nuke":    activate_nuke()
+		"sonic":   activate_sonic()
+		"zsword":  activate_zsword()
+		"ionize":  activate_ionize()
+		"boomerang": activate_boomerang()
+		"parasite":  activate_parasite()
+		"moroboshi": activate_moroboshi()
+		"swarm":     activate_swarm()
+		"snake":     activate_snake()
 
 ## Cooldown/charge readiness for the slot HUD: 1.0 = ready (no mask), 0..1 = recovering (mask covers 1-frac).
 func weapon_cooldown_frac(kind: String) -> float:
 	var rate := maxf(0.01, _rate_mult)
 	match kind:
-		"gatling", "orbital", "chemtrail":
-			return 1.0   # continuous stream / always-on passive → never masked
+		"gatling", "orbital", "chemtrail", "ionize", "moroboshi", "swarm", "snake", "boomerang":
+			return 1.0   # continuous stream / always-on passive or familiar → never masked
 		"gauss":
 			return clampf(_gauss_charge / maxf(0.01, GAUSS_CHARGE_TIME / rate), 0.0, 1.0)
 		"arc":
@@ -1360,6 +1596,22 @@ func weapon_cooldown_frac(kind: String) -> float:
 			if phase < LASGUN_DURATION:
 				return 1.0   # firing window → ready
 			return clampf((phase - LASGUN_DURATION) / maxf(0.01, LASGUN_CYCLE - LASGUN_DURATION), 0.0, 1.0)
+		"nuke":
+			if _nuke_cd <= 0.0:
+				return 1.0
+			return clampf(1.0 - _nuke_cd / maxf(0.01, NUKE_COOLDOWN / rate), 0.0, 1.0)
+		"sonic":
+			if _sonic_cd <= 0.0:
+				return 1.0
+			return clampf(1.0 - _sonic_cd / maxf(0.01, SONIC_COOLDOWN / rate), 0.0, 1.0)
+		"zsword":
+			if _zsword_cd <= 0.0:
+				return 1.0
+			return clampf(1.0 - _zsword_cd / maxf(0.01, ZSWORD_COOLDOWN / rate), 0.0, 1.0)
+		"parasite":
+			if _para_cd <= 0.0:
+				return 1.0
+			return clampf(1.0 - _para_cd / maxf(0.01, PARA_COOLDOWN / rate), 0.0, 1.0)
 	return 1.0
 
 ## True while `kind` is actively engaging this frame (acquired/active + an enemy on screen). The slot HUD
@@ -1376,6 +1628,15 @@ func weapon_is_firing(kind: String) -> bool:
 		"void":    return _void_active
 		"orbital": return _orbital_active
 		"lasgun":  return _lasgun_active and fmod(_las_t, LASGUN_CYCLE) < LASGUN_DURATION
+		"nuke":    return _nuke_active
+		"sonic":   return _sonic_active
+		"zsword":  return _zsword_active and _zsword_sweeping
+		"ionize":  return _ionize_active
+		"boomerang": return _boom_active
+		"parasite":  return _para_active
+		"moroboshi": return _moro_active
+		"swarm":     return _swarm_active
+		"snake":     return _snake_active
 	return false
 
 ## Generic pickup drop used by the F12 weapon palette: spawn a `kind` pickup at a world position.
@@ -1447,9 +1708,7 @@ func _fire_gauss() -> void:
 	_orbs.append(o)
 	_update_orb_node(o)
 	_flashes.append({"pos": start, "age": 0.0, "max_age": 0.30, "radius": GAUSS_LAUNCH_FLASH})
-	# Clear the converging rings and pop the release flash (charge cycle restarts).
-	_charge_rings.clear()
-	_charge_spawn_acc = 0.0
+	# Pop the release flash (the shot's muzzle flash).
 	if GC_RELEASE_FLASH > 0.0:
 		_flashes.append({"pos": _muzzle(), "age": 0.0, "max_age": 0.30, "radius": GC_RELEASE_FLASH})
 
@@ -1658,28 +1917,6 @@ func _update_sparks(delta: float) -> void:
 			s["pos"] = (s["pos"] as Vector2) + (s["vel"] as Vector2) * delta
 		i -= 1
 
-# ── Gauss charge rings (auto-charge: charging is always true between shots) ────
-func _update_charge_rings(delta: float) -> void:
-	if not _gauss_active:
-		return
-	var frac := clampf(_gauss_charge / maxf(0.01, GAUSS_CHARGE_TIME), 0.0, 1.0)
-	var focal := _muzzle()
-	var interval := lerpf(GC_INTERVAL_EMPTY, GC_INTERVAL_FULL, pow(frac, GC_RAMP_CURVE))
-	_charge_spawn_acc += delta
-	while _charge_spawn_acc >= interval:
-		_charge_spawn_acc -= interval
-		for _k in GC_SPAWN_COUNT:
-			_charge_rings.append({"ang": randf() * TAU, "r": GC_START_RADIUS * randf_range(0.85, 1.12)})
-	var spd := lerpf(GC_SPEED_EMPTY, GC_SPEED_FULL, frac)
-	var i := _charge_rings.size() - 1
-	while i >= 0:
-		var ring: Dictionary = _charge_rings[i]
-		ring["r"] = float(ring["r"]) - spd * delta
-		if float(ring["r"]) <= GC_FLASH_R:
-			_flashes.append({"pos": focal, "age": 0.0, "max_age": 0.16, "radius": GC_FLASH_R * 2.2})
-			_charge_rings.remove_at(i)
-		i -= 1
-
 func _update_flashes(delta: float) -> void:
 	var i := _flashes.size() - 1
 	while i >= 0:
@@ -1690,19 +1927,542 @@ func _update_flashes(delta: float) -> void:
 		i -= 1
 
 # ── Drawing (world-space; this node sits at the origin) ────────────────────────
+# ══ Batch-1 weapons: Nuke / Sonic Wave / Z-Sword / Ionizing Field ══════════════════
+## Effective AoE radius for a weapon: base + the Explosivo aux item's "radius" mech bonus.
+func _aoe_radius(base: float) -> float:
+	var bonus: float = GameManager.mech_bonus("radius") if GameManager.has_method("mech_bonus") else 0.0
+	return base + bonus
+
+# ── Nuke ──────────────────────────────────────────────────────────────────────────
+func activate_nuke() -> void:
+	_nuke_active = true
+	_nuke_cd = 0.0   # detonate as soon as an enemy is visible
+
+func _tick_nuke(delta: float, enemy_on_screen: bool) -> void:
+	_nuke_cd -= delta
+	if _nuke_cd <= 0.0 and enemy_on_screen:
+		_nuke_cd = NUKE_COOLDOWN / _rate_mult
+		_fire_nuke()
+	# While the explosion plays, keep the hitbox live: anything caught in it takes damage ONCE (this also
+	# catches enemies that drift into the blast mid-animation).
+	if _nuke_blast_on:
+		_nuke_blast_t += delta
+		_damage_nuke_blast()
+		if _nuke_blast_t >= _nuke_blast_dur:
+			_nuke_blast_on = false
+
+## Damage every enemy/ruin within the live blast that hasn't been hit yet this detonation (one hit each).
+func _damage_nuke_blast() -> void:
+	for en in get_tree().get_nodes_in_group("arena_enemy"):
+		if not is_instance_valid(en):
+			continue
+		var eid := en.get_instance_id()
+		if _nuke_hit.has(eid):
+			continue
+		var en2 := en as Node2D
+		var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0
+		if _nuke_blast_pos.distance_to(en2.global_position) <= _nuke_blast_reach + enr:
+			_nuke_hit[eid] = true
+			if en.has_method("take_damage"):
+				var r := _roll_damage(NUKE_DAMAGE, "nuke")
+				en.take_damage(float(r["dmg"]), NUKE_BLAST_STAGGER)
+				if bool(r["is_crit"]):
+					_spawn_crit_number(en2.global_position, float(r["dmg"]))
+	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+		if not is_instance_valid(ruin):
+			continue
+		var rid := ruin.get_instance_id()
+		if _nuke_hit.has(rid):
+			continue
+		var rr: float = _nuke_blast_reach + (float(ruin.get("hit_radius")) if ruin.get("hit_radius") != null else 0.0)
+		if _nuke_blast_pos.distance_to((ruin as Node2D).global_position) <= rr:
+			_nuke_hit[rid] = true
+			if ruin.has_method("take_damage"):
+				ruin.take_damage(NUKE_DAMAGE * _dmg_mult * _lvl_mult("nuke"))
+
+func _fire_nuke() -> void:
+	var center := _player.global_position
+	var reach := _aoe_radius(NUKE_RADIUS)
+	# Open a fixed-point damage hitbox for the explosion's duration (knockback is automatic in take_damage).
+	_nuke_blast_pos = center
+	_nuke_blast_reach = reach
+	_nuke_blast_t = 0.0
+	_nuke_hit.clear()
+	_nuke_blast_on = true
+	_damage_nuke_blast()   # hit everything already inside on the detonation frame
+	# Composite blast VFX, sized to the blast radius. Overrides (set before add_child so _ready picks them up):
+	#  • time_scale ÷3        → the whole explosion lasts 3× longer (every frame + every stagger gap ×3)
+	#  • shockwave radius ×3  → the ripple travels 3× further
+	#  • shockwave travel ×2  → net HALF the expansion speed (×3 distance ÷ ×6 time, given the 3× global slow-mo)
+	var ex := ExplosionFX.new()
+	ex.time_scale = ex.time_scale / 3.0
+	ex.shockwave_max_radius = ex.shockwave_max_radius * 3.0
+	ex.shockwave_travel = ex.shockwave_travel * 2.0
+	# Tame the blinding white CENTRE so the ship (drawn on top, z=100) reads through the blast instead of being
+	# washed white by the HDR core + bloom. The orange/red fireball ring stays full-strength.
+	ex.glow = 1.4                        # less HDR → smaller bloom halo over the ship
+	ex.core_size = 0.5                   # smaller hot-white centre → doesn't blanket the ship
+	ex.core_hot = Color(3.0, 2.3, 1.6)   # warm-bright instead of a blinding pure-white point
+	# Damage only while the FIRE is burning (core + fireball), NOT during the lingering smoke tail.
+	_nuke_blast_dur = maxf(ex.core_life, ex.fireball_delay + ex.fireball_lifetime) / maxf(0.05, ex.time_scale)
+	get_parent().add_child(ex)
+	ex.call("setup", center, reach)
+	# Impact feedback: a heavy screen shake on detonation + a vibration buzz 0.5s later.
+	var cam := get_tree().get_first_node_in_group("camera_shake")
+	if cam != null and cam.has_method("nuke_impact"):
+		cam.call("nuke_impact")
+
+# ── Sonic Wave ──────────────────────────────────────────────────────────────────────
+func activate_sonic() -> void:
+	_sonic_active = true
+	_sonic_cd = 0.0
+
+func _tick_sonic(delta: float, enemy_on_screen: bool) -> void:
+	# Fire a fresh volley on cooldown; spawn the rest of the volley on a stagger.
+	if _sonic_left <= 0:
+		_sonic_cd -= delta
+		if _sonic_cd <= 0.0 and enemy_on_screen:
+			_sonic_cd = SONIC_COOLDOWN / _rate_mult
+			_sonic_left = SONIC_RINGS
+			_sonic_queue = 0.0
+			_spawn_sonic_ring()
+			_sonic_left -= 1
+	else:
+		_sonic_queue -= delta
+		if _sonic_queue <= 0.0:
+			_sonic_queue = SONIC_RING_STAGGER
+			_spawn_sonic_ring()
+			_sonic_left -= 1
+	# Age + damage every live ring (each enemy hit once per ring as its front passes).
+	var i := _sonic_rings.size() - 1
+	while i >= 0:
+		var ring: Dictionary = _sonic_rings[i]
+		ring["age"] = float(ring["age"]) + delta
+		var age := float(ring["age"])
+		if age >= SONIC_EXPAND_TIME:
+			_sonic_rings.remove_at(i)
+			i -= 1
+			continue
+		var maxr: float = ring["maxr"]
+		var r := maxr * (age / SONIC_EXPAND_TIME)
+		var center: Vector2 = ring["center"]
+		var hit: Array = ring["hit"]
+		var aim: float = ring["aim"]
+		for en in get_tree().get_nodes_in_group("arena_enemy"):
+			if not is_instance_valid(en) or en in hit:
+				continue
+			var off := (en as Node2D).global_position - center
+			# Hit only enemies the arc front sweeps AND that lie within the forward cone.
+			if absf(off.length() - r) <= SONIC_BAND and absf(wrapf(off.angle() - aim, -PI, PI)) <= SONIC_CONE_HALF:
+				if en.has_method("take_damage"):
+					var rr := _roll_damage(SONIC_DAMAGE, "sonic")
+					en.take_damage(float(rr["dmg"]), 0.0)
+					if bool(rr["is_crit"]):
+						_spawn_crit_number((en as Node2D).global_position, float(rr["dmg"]))
+				hit.append(en)
+		i -= 1
+
+func _spawn_sonic_ring() -> void:
+	# Capture the aim direction at spawn so the cone fires where the ship was pointing (a forward fan).
+	_sonic_rings.append({"center": _player.global_position, "aim": _forward().angle(), "age": 0.0, "hit": [], "maxr": _aoe_radius(SONIC_MAX_RADIUS)})
+
+# ── Z-Sword ──────────────────────────────────────────────────────────────────────
+func activate_zsword() -> void:
+	_zsword_active = true
+	_zsword_cd = 0.0
+
+func _tick_zsword(delta: float, enemy_on_screen: bool) -> void:
+	if not _zsword_sweeping:
+		_zsword_cd -= delta
+		if _zsword_cd <= 0.0 and enemy_on_screen:
+			_zsword_cd = ZSWORD_COOLDOWN / _rate_mult
+			_zsword_sweeping = true
+			_zsword_t = 0.0
+			_zsword_start = _forward().angle()   # begin the sweep from the current aim
+			_zsword_hit = []
+		return
+	_zsword_t += delta
+	if _zsword_t >= ZSWORD_SWEEP_TIME:
+		_zsword_sweeping = false
+		if _zslash != null:
+			_zslash.fade_out()       # quick fade of the crescent when the sweep ends
+		return
+	var blade_ang := _zsword_start + TAU * (_zsword_t / ZSWORD_SWEEP_TIME)
+	var reach := _aoe_radius(ZSWORD_LENGTH)
+	var center := _player.global_position
+	if _zslash != null:
+		_zslash.set_sweep(center, reach, _zsword_start, blade_ang)   # crescent trails the leading edge
+	for en in get_tree().get_nodes_in_group("arena_enemy"):
+		if not is_instance_valid(en) or en in _zsword_hit:
+			continue
+		var off := (en as Node2D).global_position - center
+		if off.length() > reach:
+			continue
+		if absf(wrapf(off.angle() - blade_ang, -PI, PI)) <= ZSWORD_ARC_HALF:
+			if en.has_method("take_damage"):
+				var r := _roll_damage(ZSWORD_DAMAGE, "zsword")
+				en.take_damage(float(r["dmg"]), ZSWORD_STAGGER)
+				if bool(r["is_crit"]):
+					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+			if _zslash != null:
+				_zslash.add_spark((en as Node2D).global_position)   # impact sparks (tutorial: sparks come last)
+			_zsword_hit.append(en)
+
+# ── Ionizing Field ────────────────────────────────────────────────────────────────
+func activate_ionize() -> void:
+	_ionize_active = true
+	_ionize_tick = 0.0
+
+func _tick_ionize(delta: float) -> void:
+	_ionize_clock += delta
+	_ionize_tick += delta
+	if _ionize_tick < IONIZE_TICK:
+		return
+	_ionize_tick -= IONIZE_TICK
+	if not _enemy_visible:
+		return
+	var center := _player.global_position
+	var reach := _aoe_radius(IONIZE_RADIUS)
+	for en in get_tree().get_nodes_in_group("arena_enemy"):
+		if not is_instance_valid(en):
+			continue
+		if center.distance_to((en as Node2D).global_position) <= reach:
+			if en.has_method("take_damage"):
+				var r := _roll_damage(IONIZE_DAMAGE, "ionize")
+				en.take_damage(float(r["dmg"]), 0.0)
+				if bool(r["is_crit"]):
+					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+		if not is_instance_valid(ruin):
+			continue
+		var rr: float = reach + (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0)
+		if center.distance_to((ruin as Node2D).global_position) <= rr:
+			if ruin.has_method("take_damage"):
+				ruin.take_damage(IONIZE_DAMAGE * _dmg_mult * _lvl_mult("ionize"))
+
+# ── Batch-1 draw helpers (this Node2D draws in world space) ─────────────────────────
+func _draw_sonic_ring(ring: Dictionary) -> void:
+	var age := float(ring["age"])
+	var maxr: float = ring["maxr"]
+	var r := maxr * (age / SONIC_EXPAND_TIME)
+	var a := 1.0 - (age / SONIC_EXPAND_TIME)
+	var c: Vector2 = ring["center"]
+	var aim: float = ring["aim"]
+	# Forward crescent arc (not a full ring) — the cone the wave fans into.
+	var seg := maxi(8, int(SONIC_CONE_HALF / PI * 72.0))
+	draw_arc(c, r, aim - SONIC_CONE_HALF, aim + SONIC_CONE_HALF, seg, Color(SONIC_COL.r, SONIC_COL.g, SONIC_COL.b, 0.85 * a), 5.0, true)
+	draw_arc(c, r, aim - SONIC_CONE_HALF, aim + SONIC_CONE_HALF, seg, Color(SONIC_COL.r, SONIC_COL.g, SONIC_COL.b, 0.30 * a), 12.0, true)
+
+func _draw_ionize() -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	var center := _player.global_position
+	var reach := _aoe_radius(IONIZE_RADIUS)
+	var pulse := 0.5 + 0.5 * sin(_ionize_clock * 4.0)
+	draw_circle(center, reach, Color(IONIZE_COL.r, IONIZE_COL.g, IONIZE_COL.b, 0.06 + 0.04 * pulse))
+	draw_arc(center, reach, 0.0, TAU, 64, Color(IONIZE_COL.r, IONIZE_COL.g, IONIZE_COL.b, 0.3 + 0.2 * pulse), 2.0, true)
+
+# ══ Batch-2 weapons: Boomerang / Parasite Cloud / Moroboshi-M1 / Swarm Host / Space Snake ══════════
+## Max turn toward a target angle, capped per call (used by the snake head to minimise turn angle).
+func _approach_angle(cur: float, target: float, max_step: float) -> float:
+	var diff := wrapf(target - cur, -PI, PI)
+	return cur + clampf(diff, -max_step, max_step)
+
+# ── Boomerang ──────────────────────────────────────────────────────────────────────
+func activate_boomerang() -> void:
+	_boom_active = true
+
+## Spawn the perpetual blade(s) once, phase-offset so multiple blades (if BOOM_COUNT > 1) spread across the rose.
+func _spawn_boomerangs() -> void:
+	_boom_center = _player.global_position
+	for k in BOOM_COUNT:
+		_booms.append({"theta": TAU * float(k) / float(maxi(1, BOOM_COUNT)), "spin": 0.0, "age": 0.0, "pos": _boom_center, "hits": {}})
+
+func _tick_boom(delta: float, _enemy_on_screen: bool) -> void:
+	if not _boom_init:
+		_spawn_boomerangs()
+		_boom_init = true
+	# The pattern centre trails the ship → flying drags the flower behind you.
+	_boom_center = _boom_center.lerp(_player.global_position, clampf(BOOM_CENTER_LAG * delta, 0.0, 1.0))
+	for b: Dictionary in _booms:
+		b["spin"] = float(b["spin"]) + BOOM_SPIN * delta
+		var prev_age := float(b["age"])
+		b["age"] = prev_age + delta
+		b["theta"] = float(b["theta"]) + BOOM_ROSE_SPEED * delta
+		var th := float(b["theta"])
+		# 3-petal rose: r = SIZE·cos(3θ). Negative r flips to the opposite side → the blade loops out into a
+		# petal, back through the centre, out the next petal, tracing the trinity/triquetra flower forever.
+		var rr := BOOM_SIZE * cos(3.0 * th)
+		var pos := _boom_center + Vector2(cos(th), sin(th)) * rr
+		b["pos"] = pos
+		var hits: Dictionary = b["hits"]
+		for en in get_tree().get_nodes_in_group("arena_enemy"):
+			if not is_instance_valid(en):
+				continue
+			var en2 := en as Node2D
+			var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0
+			if pos.distance_to(en2.global_position) <= BOOM_HIT_RADIUS + enr:
+				var eid := en.get_instance_id()
+				if float(b["age"]) - float(hits.get(eid, -999.0)) >= BOOM_HIT_CD:
+					hits[eid] = float(b["age"])
+					if en.has_method("take_damage"):
+						var r := _roll_damage(BOOM_DAMAGE, "boomerang")
+						en.take_damage(float(r["dmg"]), 0.0)
+						if bool(r["is_crit"]):
+							_spawn_crit_number(en2.global_position, float(r["dmg"]))
+		# Once per second, drop stale hit-timestamps so the dict doesn't grow over a long run.
+		if int(b["age"]) != int(prev_age):
+			var cutoff := float(b["age"]) - BOOM_HIT_CD
+			for key in hits.keys():
+				if float(hits[key]) < cutoff:
+					hits.erase(key)
+
+# ── Parasite Cloud ──────────────────────────────────────────────────────────────────
+func activate_parasite() -> void:
+	_para_active = true
+	_para_cd = 0.0
+
+func _tick_para(delta: float, enemy_on_screen: bool) -> void:
+	_para_cd -= delta
+	if _para_cd <= 0.0 and enemy_on_screen:
+		_para_cd = PARA_COOLDOWN / _rate_mult
+		var dir := _forward()
+		var tgt := _nearest_enemy(_player.global_position, INF, [])
+		if tgt != null:
+			dir = ((tgt as Node2D).global_position - _muzzle()).normalized()
+		_para_clouds.append({"pos": _muzzle(), "vel": dir * PARA_SPEED, "age": 0.0, "tick": 0.0})
+	var reach := _aoe_radius(PARA_RADIUS)
+	var i := _para_clouds.size() - 1
+	while i >= 0:
+		var c: Dictionary = _para_clouds[i]
+		c["age"] = float(c["age"]) + delta
+		if float(c["age"]) >= PARA_LIFETIME:
+			_para_clouds.remove_at(i)
+			i -= 1
+			continue
+		c["vel"] = (c["vel"] as Vector2).lerp(Vector2.ZERO, clampf(PARA_DRAG * delta, 0.0, 1.0))
+		c["pos"] = (c["pos"] as Vector2) + (c["vel"] as Vector2) * delta
+		c["tick"] = float(c["tick"]) + delta
+		while float(c["tick"]) >= PARA_TICK:
+			c["tick"] = float(c["tick"]) - PARA_TICK
+			var cp: Vector2 = c["pos"]
+			for en in get_tree().get_nodes_in_group("arena_enemy"):
+				if not is_instance_valid(en):
+					continue
+				if cp.distance_to((en as Node2D).global_position) <= reach:
+					if en.has_method("take_damage"):
+						var r := _roll_damage(PARA_DAMAGE, "parasite")
+						en.take_damage(float(r["dmg"]), 0.0)
+		i -= 1
+
+# ── Moroboshi-M1 (golem familiar) ───────────────────────────────────────────────────
+func activate_moroboshi() -> void:
+	_moro_active = true
+	_moro_cd = 0.0
+
+func _tick_moro(delta: float) -> void:
+	if not _moro_init:
+		_moro_pos = _player.global_position
+		_moro_init = true
+	var center := _player.global_position
+	var tgt := _nearest_enemy(_moro_pos, MORO_AGGRO, [])
+	var dest: Vector2
+	if tgt != null:
+		dest = (tgt as Node2D).global_position
+	else:
+		dest = center + Vector2(0.0, MORO_FOLLOW_DIST).rotated(_player.rotation)   # rest behind the ship
+	_moro_pos = _moro_pos.move_toward(dest, MORO_MOVE_SPEED * delta)
+	_moro_cd -= delta
+	_moro_punch_t = maxf(0.0, _moro_punch_t - delta)
+	if tgt != null and _moro_cd <= 0.0:
+		var tp := (tgt as Node2D).global_position
+		if _moro_pos.distance_to(tp) <= MORO_ATTACK_RANGE:
+			_moro_cd = MORO_ATTACK_CD / _rate_mult
+			_moro_punch_t = 0.18
+			_moro_punch_pos = tp
+			var reach := _aoe_radius(MORO_AOE)
+			for en in get_tree().get_nodes_in_group("arena_enemy"):
+				if not is_instance_valid(en):
+					continue
+				if tp.distance_to((en as Node2D).global_position) <= reach:
+					if en.has_method("take_damage"):
+						var r := _roll_damage(MORO_DAMAGE, "moroboshi")
+						en.take_damage(float(r["dmg"]), MORO_STAGGER)
+						if bool(r["is_crit"]):
+							_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+
+# ── Swarm Host (darting familiars that heal on return) ──────────────────────────────
+func activate_swarm() -> void:
+	_swarm_active = true
+
+func _tick_swarm(delta: float) -> void:
+	if not _swarm_init:
+		_swarm_units.clear()
+		for k in SWARM_COUNT:
+			_swarm_units.append({"pos": _player.global_position, "state": "idle", "target": null, "dmg": 0.0, "ang": TAU * float(k) / float(maxi(1, SWARM_COUNT))})
+		_swarm_init = true
+	var center := _player.global_position
+	for u: Dictionary in _swarm_units:
+		u["ang"] = float(u["ang"]) + delta * 2.0
+		var pos: Vector2 = u["pos"]
+		match String(u["state"]):
+			"idle":
+				var orbit := center + Vector2(SWARM_IDLE_R, 0.0).rotated(float(u["ang"]))
+				pos = pos.move_toward(orbit, SWARM_SPEED * delta)
+				var tgt := _nearest_enemy(pos, SWARM_AGGRO, [])
+				if tgt != null:
+					u["target"] = tgt
+					u["dmg"] = 0.0
+					u["state"] = "attack"
+			"attack":
+				var t = u["target"]
+				if t == null or not is_instance_valid(t):
+					u["state"] = "return"
+				else:
+					var tp := (t as Node2D).global_position
+					pos = pos.move_toward(tp, SWARM_SPEED * delta)
+					var tr: float = float(t.get("hit_radius")) if t.get("hit_radius") != null else 0.0
+					if pos.distance_to(tp) <= SWARM_HIT_RADIUS + tr:
+						if t.has_method("take_damage"):
+							var r := _roll_damage(SWARM_DAMAGE, "swarm")
+							t.take_damage(float(r["dmg"]), 0.0)
+							if bool(r["is_crit"]):
+								_spawn_crit_number(tp, float(r["dmg"]))
+							u["dmg"] = float(u["dmg"]) + float(r["dmg"])
+						u["state"] = "return"
+			"return":
+				pos = pos.move_toward(center, SWARM_SPEED * delta)
+				if pos.distance_to(center) <= SWARM_IDLE_R + 8.0:
+					if float(u["dmg"]) > 0.0 and GameManager.has_method("heal"):
+						GameManager.heal(int(round(float(u["dmg"]) * SWARM_HEAL_FRAC)))
+					u["dmg"] = 0.0
+					u["state"] = "idle"
+		u["pos"] = pos
+
+# ── Space Snake (segmented fire familiar) ───────────────────────────────────────────
+func activate_snake() -> void:
+	_snake_active = true
+
+func _tick_snake(delta: float) -> void:
+	if not _snake_init:
+		_snake_pts.clear()
+		var base := _player.global_position
+		for k in SNAKE_SEGMENTS:
+			_snake_pts.append(base - Vector2(SNAKE_SPACING * float(k), 0.0))
+		_snake_dir = 0.0
+		_snake_init = true
+	if _snake_pts.is_empty():
+		return
+	var head: Vector2 = _snake_pts[0]
+	var tgt := _nearest_enemy(head, INF, [])
+	var desired := _snake_dir
+	if tgt != null:
+		desired = ((tgt as Node2D).global_position - head).angle()
+	else:
+		desired = (head - _player.global_position).angle() + PI * 0.5   # idle: circle the ship
+	_snake_dir = _approach_angle(_snake_dir, desired, SNAKE_TURN * delta)
+	head += Vector2(cos(_snake_dir), sin(_snake_dir)) * SNAKE_SPEED * delta
+	_snake_pts[0] = head
+	for k in range(1, _snake_pts.size()):
+		var prev: Vector2 = _snake_pts[k - 1]
+		var cur: Vector2 = _snake_pts[k]
+		var d := prev - cur
+		if d.length() > SNAKE_SPACING:
+			cur = prev - d.normalized() * SNAKE_SPACING
+		_snake_pts[k] = cur
+	_snake_tick += delta
+	while _snake_tick >= SNAKE_TICK:
+		_snake_tick -= SNAKE_TICK
+		for en in get_tree().get_nodes_in_group("arena_enemy"):
+			if not is_instance_valid(en):
+				continue
+			var ep := (en as Node2D).global_position
+			var er: float = SNAKE_HIT_RADIUS + (float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0)
+			for seg: Vector2 in _snake_pts:
+				if seg.distance_to(ep) <= er:
+					if en.has_method("take_damage"):
+						var r := _roll_damage(SNAKE_DAMAGE, "snake")
+						en.take_damage(float(r["dmg"]), 0.0)
+					break
+
+# ── Batch-2 draw helpers ────────────────────────────────────────────────────────────
+func _draw_boomerang(b: Dictionary) -> void:
+	var p: Vector2 = b["pos"]
+	var s := float(b["spin"])
+	var ver := clampi(sprite_version_boomerang, 1, BOOM_TEX_VERSIONS.size()) - 1
+	var tex: Texture2D = BOOM_TEX_VERSIONS[ver]
+	if tex != null:
+		# Spin the boomerang sprite about its centre at the projectile position (aspect-locked, never stretched).
+		var ts := tex.get_size()
+		var sz := Vector2(BOOM_DRAW, BOOM_DRAW * ts.y / ts.x if ts.x > 0.0 else BOOM_DRAW)
+		draw_set_transform(p, s, Vector2.ONE)
+		draw_texture_rect(tex, Rect2(-sz * 0.5, sz), false)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		return
+	# Procedural fallback (if the sprite is missing).
+	for off: float in [0.0, PI * 0.5]:
+		var a := s + off
+		var d := Vector2(cos(a), sin(a)) * BOOM_BLADE
+		draw_line(p - d, p + d, Color(BOOM_COL.r, BOOM_COL.g, BOOM_COL.b, 0.9), 5.0, true)
+	draw_circle(p, BOOM_BLADE * 0.18, Color(1, 1, 1, 0.85))
+
+func _draw_para_cloud(c: Dictionary) -> void:
+	var p: Vector2 = c["pos"]
+	var a := clampf(1.0 - float(c["age"]) / PARA_LIFETIME, 0.0, 1.0)
+	var reach := _aoe_radius(PARA_RADIUS)
+	draw_circle(p, reach, Color(PARA_COL.r, PARA_COL.g, PARA_COL.b, 0.10 + 0.10 * a))
+	draw_arc(p, reach, 0.0, TAU, 48, Color(PARA_COL.r, PARA_COL.g, PARA_COL.b, 0.3 * a), 2.0, true)
+
+func _draw_moro() -> void:
+	draw_circle(_moro_pos, 18.0, Color(MORO_COL.r, MORO_COL.g, MORO_COL.b, 0.25))
+	draw_circle(_moro_pos, 13.0, Color(MORO_COL.r, MORO_COL.g, MORO_COL.b, 0.95))
+	if _moro_punch_t > 0.0:
+		var pf := _moro_punch_t / 0.18
+		draw_arc(_moro_punch_pos, _aoe_radius(MORO_AOE) * (1.0 - pf), 0.0, TAU, 32, Color(1, 1, 1, 0.6 * pf), 3.0, true)
+
+func _draw_swarm() -> void:
+	for u: Dictionary in _swarm_units:
+		var p: Vector2 = u["pos"]
+		draw_circle(p, 12.0, Color(SWARM_COL.r, SWARM_COL.g, SWARM_COL.b, 0.25))
+		draw_circle(p, 7.0, Color(SWARM_COL.r, SWARM_COL.g, SWARM_COL.b, 0.95))
+
+func _draw_snake() -> void:
+	if _snake_pts.size() < 2:
+		return
+	var n := _snake_pts.size()
+	for k in range(n - 1):
+		var a: Vector2 = _snake_pts[k]
+		var b2: Vector2 = _snake_pts[k + 1]
+		var f := 1.0 - float(k) / float(n)
+		draw_line(a, b2, Color(SNAKE_COL.r, SNAKE_COL.g * f, SNAKE_COL.b * 0.5, 0.9), lerpf(4.0, 12.0, f), true)
+	draw_circle(_snake_pts[0], 9.0, Color(1.0, 0.85, 0.5, 0.95))
+
 func _draw() -> void:
-	# Charge rings + comet trails + sparks draw UNDER the orb ColorRect children.
-	_draw_charge_rings()
+	# Comet trails + sparks draw UNDER the orb ColorRect children.
 	for o: Dictionary in _orbs:
 		_draw_gauss_trail(o)
 	_draw_sparks()
 	for b: Dictionary in _bullets:
 		_draw_tracer(b["pos"], b["vel"])
-	# Arc chain lightning — each stored bolt fades from the outside in over its lifetime.
-	for a: Dictionary in _arcs:
-		_draw_arc(a)
+	# Arc chain lightning is now rendered by per-link Line2D bolts (arc_lightning.gdshader) + spark/flare
+	# particles spawned in _fire_arc — no immediate-mode draw here.
 	if _orbital_active:
 		_draw_orbital()
+	for sring: Dictionary in _sonic_rings:
+		_draw_sonic_ring(sring)
+	# Z-Sword slash is rendered by the additive ZSlash crescent node (driven in _tick_zsword) — no draw here.
+	if _ionize_active:
+		_draw_ionize()
+	for boom: Dictionary in _booms:
+		_draw_boomerang(boom)
+	for pc: Dictionary in _para_clouds:
+		_draw_para_cloud(pc)
+	if _moro_active and _moro_init:
+		_draw_moro()
+	if _swarm_active:
+		_draw_swarm()
+	if _snake_active:
+		_draw_snake()
 	_draw_flashes()
 	if GAUSS_EXPL_DEBUG_DRAW:
 		for e: Dictionary in _explosions:
@@ -1793,23 +2553,6 @@ func _draw_sparks() -> void:
 		var tail := p - (v.normalized() * GAUSS_SPARK_LEN if v.length() > 0.01 else Vector2.ZERO)
 		draw_line(tail, p, Color(c.r, c.g, c.b, GAUSS_SPARK_ALPHA * t), 2.0)
 		draw_circle(p, 1.6 * t + 0.5, Color(1.0, 1.0, 1.0, GAUSS_SPARK_ALPHA * t))
-
-func _draw_charge_rings() -> void:
-	if _charge_rings.is_empty():
-		return
-	var focal := _muzzle()
-	for ring: Dictionary in _charge_rings:
-		var r: float = ring["r"]
-		var t := clampf(1.0 - r / GC_START_RADIUS, 0.0, 1.0)
-		var pos := focal + Vector2(cos(float(ring["ang"])), sin(float(ring["ang"]))) * r
-		var col := GC_COL_OUT.lerp(GC_COL_IN, t)
-		var a := GC_BRIGHT * (0.12 + 0.88 * t)
-		var rs := GC_RING_SIZE * (0.3 + 0.7 * (1.0 - t))
-		draw_arc(pos, rs * 2.4, 0.0, TAU, 16, Color(col.r, col.g, col.b, a * 0.05), 3.0, true)
-		draw_arc(pos, rs * 1.7, 0.0, TAU, 16, Color(col.r, col.g, col.b, a * 0.14), 2.5, true)
-		draw_arc(pos, rs * 1.2, 0.0, TAU, 16, Color(col.r, col.g, col.b, a * 0.28), 2.0, true)
-		draw_arc(pos, rs, 0.0, TAU, 16, Color(col.r, col.g, col.b, a), 2.0, true)
-		draw_circle(pos, rs * 0.35, Color(col.r, col.g, col.b, a * 0.5))
 
 func _draw_flashes() -> void:
 	for f: Dictionary in _flashes:

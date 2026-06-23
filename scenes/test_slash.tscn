@@ -1,0 +1,8 @@
+[gd_scene format=3 uid="uid://werg786yeflx"]
+
+[ext_resource type="Script" uid="uid://c28uuunexqqyc" path="res://scripts/gameplay/fx/test_slash.gd" id="1"]
+
+[node name="TestSlash" type="Node2D" unique_id=1705757582]
+script = ExtResource("1")
+
+[node name="Camera2D" type="Camera2D" parent="." unique_id=27996547]

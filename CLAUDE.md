@@ -949,6 +949,87 @@ Anything else that outputs >1 (e.g. the sun shader) will also bloom — raise th
 
 ---
 
+## Explosion (2D composite: core + fireball + smoke + distortion shockwave + debris)
+
+A 2D adaptation of two tutorials (a 3-part explosion + a shockwave-distortion shader), built **entirely from
+primitives this repo already has**. Reference impl: `scripts/gameplay/fx/explosion.gd` + `explosion.gdshader`
+(fireball mottle) + `explosion_smoke.gdshader` (smoke) + `explosion_shockwave.gdshader` (screen distortion) +
+optional `explosion_streak.gdshader`. **Standalone primitive** — does NOT modify `arena_explosion.gd` (the
+sprite-sheet impact) or any death/impact caller. 2nd `GPUParticles2D` user in the repo, after Dynamic Fire.
+Preview: `scenes/test_explosion.tscn` (F6 → auto-replays + Space; draws a **white grid** so the distortion shows).
+
+**The idea:** model real explosion ANATOMY — a HOT WHITE point that visibly expands and reddens, throwing
+debris, raising smoke from the whole area, and punching a refraction shockwave through the background. One
+`Explosion` Node2D parents the layers (back→front), driven by a single elapsed-`_t` timer in `_process` (no
+AnimationPlayer), then `queue_free()`s. Every iteration was tuned against **rendered frames, not guesses** — the
+hard-won rules are baked in below.
+
+**Layers (back→front):**
+1. **Streaks / debris** (`CPUParticles2D`, additive, z 0) — 360° radial (`spread=180`), `particle_flag_align_y`
+   (stretch along velocity → spike), procedural taper-bar texture. 4-cell-random trick is **opt-in**
+   (`streak_use_4cell` → `hue_variation` feeds `explosion_streak.gdshader`).
+2. **Smoke** (`GPUParticles2D`, **MIX/alpha blend**, z 1) — **RULE: smoke must be alpha-blended, NOT additive**
+   (dark additive smoke over a dark scene is invisible). `explosion_smoke.gdshader` is plain `canvas_item` (mix);
+   `alpha_curve` 0→peak→0 peaking ~45% of life so it billows in after the fire and lingers; **large
+   `smoke_spawn_radius`** so smoke rises from the WHOLE blast area, not just the centre; coarse/soft noise so it
+   reads as cloud not speckle. Runs at a **low `smoke_sim_fps` (≈16) vs the fire's 30** → stepped/slowed
+   dissipation (animation-tutorial lesson: smoke drawn on twos/threes while the fire is on ones).
+3. **Fireball puffs** (`GPUParticles2D`, additive HDR, z 2) — red/orange volume. **RULE: the fireball shader only
+   MOTTLES brightness (a multiply), it must NOT punch holes** — the earlier dynamic_fire-style erosion
+   (`smoothstep` cutout on `COLOR.a`) produced the stippled "sparkle" embers the user rejected. `color_ramp`
+   orange→red→burn (kept RED, not yellow); tiny spawn radius + `explosiveness≈0.75` so the fire blooms out FROM
+   the core rather than pre-scattered.
+4. **Core** (`Sprite2D`, additive HDR, z 3) — the readable **hot-white starting point**. Driven in `_process`:
+   grows from a near-zero point to `core_size` with **smoothstep easing** (ease-in-out → the growth is spread
+   out and VISIBLE, unlike ease-out which snaps to full in 2 frames), shifting white→orange→red, then fades.
+   **RULE: delay the fire** (`fireball_delay≈0.08s`, puffs held `emitting=false` then `restart()`ed) so the bare
+   core expands ALONE first — otherwise the instant puff burst hides the growth and it reads as pre-scattered
+   blobs. This is what makes it "start at a point, explode out." It then **shrinks back inward** as it fades
+   (`smoothstep(core_grow, core_life)` → `core_size*0.32`) — the hot spot condensing into the smoke
+   (animation-tutorial lesson).
+5. **Shockwave** (`explosion_shockwave.gdshader` on a fullscreen `ColorRect` / `CanvasLayer`) — the tutorial's
+   **screen-space DISTORTION**, now **multi-wave**: reads `hint_screen_texture`, displaces UVs outward inside
+   several thin donut rings (aspect-corrected, with chromatic aberration). NOT a sprite — it **refracts the
+   background**, so it's only visible where there's detail behind it (stars/nebula in game, the grid in the
+   test). Up to 4 ripples (shader takes `radii[4]`/`amps[4]` arrays); driven in `_process`: each wave i is born
+   at `i*stagger`, travels (mild ease-out) out to `shockwave_max_radius` (in **screen-height units** so it
+   reaches the edge regardless of explosion size), and fades — **later waves use a steeper fade exponent so they
+   disappear faster**. Pure refraction (no colour tint — a fiery red-orange ring glow was tried and reverted).
+   `center` tracks the explosion's screen-UV (`viewport.get_canvas_transform() * global_position / vp_size`).
+   Caveat: a near-zero `dist` would make `normalize` NaN — the shader guards it.
+
+**Defaults are tuned bright + wide + slow** (glow/intensity, particle amounts, velocities, sizes and spawn radii
+scaled up ~60%; `time_scale = 0.667` runs the whole effect at 2/3 speed = ~50% slower / ~2.2s). **`time_scale`
+is true slow-mo, not a size change**: it sets `speed_scale` on every particle emitter AND advances the code
+timeline `_t += delta * time_scale`, so the spatial look is identical, just stretched in time (`_max_life` is in
+this scaled-time, so it auto-matches). `size_px` scales the footprint; drop `glow`/`intensity`/amounts for a
+subtler blast. **Animation-craft lessons applied** (from the frame-by-frame 2D-explosion tutorial): timing
+contrast (snappy fire on "ones" via high sim-fps + ease-out, slow smoke on "threes" via low sim-fps); the hot
+spot shrinks inward into the smoke as it cools. Not yet applied but easy hooks: a pre-burst **energy charge-up**
+(particles spiralling inward before release = anticipation), and **sparkle/firework trails** for a magical feel.
+
+**Bloom:** HDR (>1) layers (core/fireball/streaks) bloom under the arena `WorldEnvironment`
+(`arena.gd._make_glow_world_env`, `glow_hdr_threshold=1.0`); the LDR mix smoke + the distortion pass do not.
+Outside the arena (no HDR-2D env) the hot layers degrade to a flat additive flash — expected. The distortion
+shockwave works regardless (it only needs background detail), but its `CanvasLayer` (`shockwave_layer`, default
+80) sits above gameplay — note it will also ripple anything drawn below that layer.
+
+**Duration:** the whole effect runs ~1.5s — the long tail is the smoke (`smoke_lifetime≈1.45`) and the shockwave
+ripples (last wave finishes ~`3*stagger + travel`); the fire itself is short (~0.7s). `_max_life` = the longest
+of all layer lifetimes (+0.05) and gates the `queue_free`.
+
+**API / usage** — `setup(world_pos, size_px)` (API-compatible with `arena_explosion`); `size_px` scales every
+layer via `_scale_f = size_px/100`; all knobs `@export`ed; auto-frees when `_t` passes `_max_life`. Caller
+pattern (mirrors `arena_ruin._spawn_explosion`):
+```gdscript
+const Explosion := preload("res://scripts/gameplay/fx/explosion.gd")
+var ex: Node2D = Explosion.new()
+get_parent().add_child(ex)        # _ready() builds the layers
+ex.call("setup", global_position, size_px)   # rescales + replays the burst; auto-frees when done
+```
+
+---
+
 ## Risky Areas
 
 - Removing autoloads without updating `main.gd` references causes load failure
@@ -1236,6 +1317,61 @@ const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 - `_roll_damage(base: float) -> Dictionary` returns `{"dmg": float, "is_crit": bool}` (changed from plain `float`).
 - `_spawn_crit_number(world_pos: Vector2, amount: float)` — spawns a floating Label in a CanvasLayer (layer 12) at screen-space coords via `get_viewport().get_canvas_transform() * world_pos`. Style: red fill `Color(1.0, 0.15, 0.10)`, white outline (size 7), font `Gameplay.ttf` at 22px, scale ×1.6. Tweens: rise 48px over 0.8s, fade out, then `queue_free()`.
 - All three weapons (Gatling, Arc, Lasgun) call `_spawn_crit_number()` when `is_crit == true`.
+
+### `arena_weapons.gd` — Arc lightning (textured, from the 2D-lightning tutorial)
+
+The Arc (chain lightning) **visual** is textured `Line2D` bolts, NOT immediate-mode polylines (the old
+`_draw_arc`/`_draw_bolt`/`_build_arc_paths` were removed). `_fire_arc`'s damage/chain logic is unchanged; only
+the rendering changed. Per chain link, `_spawn_arc_bolt(a, b, delay)` creates a `Line2D` (gently-bowed
+centreline from `_arc_line_points`; the texture supplies the crackle) with `scripts/gameplay/fx/arc_lightning.gdshader`:
+a **procedural tileable thunder texture** (`_make_thunder_tex` — a continuous jagged glowing band, red channel =
+brightness, integer-harmonic sines so it wraps seamlessly) is **scrolled** along the bolt (`UV.x*tiling + TIME*
+scroll_speed`) so it flickers, with a `smoothstep(vanishing_value)` dissolve (`COLOR = color*t*keep` keeps the
+soft glow halo) and **additive HDR** `color` so it **blooms** under the arena `WorldEnvironment`. Each strike
+point also spawns `_spawn_arc_sparks` (velocity-aligned CPUParticles2D streaks, additive HDR). `_tick_arcs`
+animates each bolt's `vanishing_value` (with a per-link `delay` → outward sweep), frees the spark nodes after
+`fx_ttl`, and `queue_free`s the `Line2D` at `ARC_LIFE`. `get_lights()` still reads each link's `tip` for the dust
+illumination. (A per-link strike *flare* was removed — its `CPUParticles2D.scale_amount 26` on a 64px glow tex
+was a ~1700px screenwide flash; same `scale_amount`-is-a-multiplier footgun as the slash.) Tunables:
+`ARC_BOLT_WIDTH/Z`, `ARC_THUNDER_UNIT` (crackle density), `ARC_HDR_COL`/`ARC_SPARK_COL`, `ARC_SPARK_COUNT`.
+
+### `arena_weapons.gd` — Z-Sword slash (layered, "VFX Anatomy: Slash")
+
+The Z-Sword **visual** is a sweeping energy-slash CRESCENT, not the old radial line (`_draw_zsword` removed).
+`scripts/gameplay/fx/z_slash.gd` (`class_name ZSlash`) is an additive Node2D child of `arena_weapons` (created
+in `_ready`, typed `Node2D` and called dynamically — do NOT type by `ZSlash` or a fresh-class-name boot fails).
+`_tick_zsword` drives it: each frame `set_sweep(center, reach, _zsword_start, blade_ang)`; on each enemy hit
+`add_spark(pos)`; on sweep end `fade_out()`. Preview: `scenes/test_slash.tscn` (F6 → plays a sweep, replays on
+Space; draws a glow env + white grid so the bloom and the distortion layer are visible). The whole thing is
+**additive HDR** (`CanvasItemMaterial` ADD) so it blooms under the arena WorldEnvironment.
+
+**Reworked to a blue-white CRESCENT BLADE** after a detailed crit (the prior green version read as a uniform
+"neon tube"). Palette is **white core → cyan body → blue glow → faint violet** (no green). Layers (`_draw`,
+back→front):
+- **Width curve** `_w(p)= peak·pow(4p(1-p),0.55)` — the crescent is thin at both ends and thick in the MIDDLE,
+  tapering to a SHARP point at the leading tip (not a constant-width tube). `BODY_PEAK 46` (big, per "scale").
+- **Blue bloom aura** — a wide soft crescent (`BLOOM_PEAK`, `GLOW_COL`, low alpha), strongest toward the lead.
+- **Cyan body** — translucent crescent (`BODY_COL`, `BODY_ALPHA 0.5`) — you see the background through it.
+- **Ghost streaks** (`_draw_ghosts`) — `GHOST_COUNT` thin polylines at different radial offsets, parallel to the
+  arc, broken into fragments (sine gaps), white-blue, lead-bright = speed lines (not curly rainbow noise).
+- **Hard cutting edge** (`_draw_cutting_edge`) — a thin near-overexposed line riding the crescent's OUTER
+  boundary (`radius + _w(p)`), `EDGE_COL`→`CORE_COL` toward the lead = the bright sharp blade edge.
+- **Lead bloom** (`_draw_lead_bloom`) — concentric blue→violet→cyan→white circles at the leading edge (impact mass).
+- **Origin wisp** (`_draw_origin_wisp`) — a faint thin tapered quad + small flash from the ship → keeps it
+  attached WITHOUT the old rigid bright tube ("hide the emitter" crit).
+- **Shards** (`_emit_shard`/`_draw_shards`) — drawn (not particle nodes) white-blue fragments stretched along
+  their velocity, trailed off the leading edge during the sweep (direction cue) + a burst per hit (`add_spark`);
+  they outlive the body fade. No `CPUParticles2D` here → no scale_amount footgun.
+- **Distortion (layer 4)** — `z_slash_distort.gdshader` on a fullscreen `CanvasLayer` (`DISTORT_LAYER 79`),
+  `_update_distort` feeds it the arc band (PIXEL space, aspect-correct) from the world centre/radius/`_lead`/span;
+  low `aberration` (0.2) to avoid rainbow. Caveat (like the explosion shockwave): invisible on a flat background
+  and the CanvasLayer ripples everything below it.
+Tunables: `SPAN`/`BODY_PEAK`/`BLOOM_PEAK`/`GHOST_COUNT`/`EDGE_W`/`SHARD_*`, palette `CORE_/EDGE_/BODY_/GLOW_/
+GHOST_/SHARD_/VIOLET_COL`. **Lessons:** `CPUParticles2D.scale_amount` is a texture-size MULTIPLIER (~0.8 on a
+64px tex; 24 = a ~1500px blob); **don't redefine `PI`/`TAU` in a shader** (built-in → compile error); and for a
+sword slash, build a varying-width CRESCENT (thin→thick→sharp) in blue-white, NOT a uniform tube — a constant
+half-width additive band reads as a glowing noodle. The scythe HIT's expanding *veil* is still an unbuilt upgrade
+in the `slash-technique` memory note.
 
 ### `arena_weapons.gd` — SFX
 
