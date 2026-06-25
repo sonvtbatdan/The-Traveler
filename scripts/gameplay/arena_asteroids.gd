@@ -15,9 +15,13 @@ const ASTEROID_Z      := -10        # just behind gameplay (player/enemies/proje
 const FIELD_SPREAD    := Vector2(120.0, 320.0)   # scatter radius of a field
 const PER_CLUSTER     := Vector2i(6, 16)         # asteroids per field
 const FIELD_DRIFT     := Vector2(6.0, 18.0)      # slow constant drift px/s (so clusters move even when idle)
+const AST_LIGHT_REACH := 140.0                   # px reach per light "value" (rocks catch passing fire)
+const SHIP_LIGHT_VALUE := 2.6                    # the ship is an always-on soft light → rocks glow as you fly past
+const SHIP_LIGHT_COL   := Color(0.80, 0.86, 1.0)
 
 var _fields: Dictionary = {}   # Vector2i cell → field Node2D
 var _rng := RandomNumberGenerator.new()
+var _lights: Array = []         # this frame's weapon lights [{pos, reach, col, val}] — shared with every rock
 
 func _ready() -> void:
 	add_to_group("arena_asteroids")
@@ -29,6 +33,7 @@ func _process(delta: float) -> void:
 	if cam == null:
 		return
 	position = cam.global_position * (1.0 - ASTEROID_FACTOR)
+	_lights = _gather_lights()   # gathered ONCE/frame; each rock reads current_lights() to self-shade (no N× rebuild)
 	# Drift every field (parallax + drift + per-rock spin = lively motion even when the player is still).
 	for f in get_children():
 		var fn := f as Node2D
@@ -72,6 +77,7 @@ func _make_field(local_centre: Vector2, rng: RandomNumberGenerator, debug: bool)
 		var a := AsteroidScript.new()
 		field.add_child(a)
 		a.setup(rng)
+		a.set_layer(self)   # so each rock can read the shared weapon-light list and reflect it
 		a.position = Vector2(rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0)) * spread
 	var ds := rng.randf_range(FIELD_DRIFT.x, FIELD_DRIFT.y)
 	field.set_meta("drift", Vector2(rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0)).normalized() * ds)
@@ -83,6 +89,25 @@ func _make_field(local_centre: Vector2, rng: RandomNumberGenerator, debug: bool)
 func spawn_field_near(world_centre: Vector2) -> int:
 	var field := _make_field(to_local(world_centre), _rng, true)
 	return field.get_child_count()
+
+## Weapon lights this frame (world pos + reach + colour), shared with every rock for self-shading.
+func current_lights() -> Array:
+	return _lights
+
+func _gather_lights() -> Array:
+	var out: Array = []
+	# The ship is an always-on light so rocks visibly glow as you fly near/through a field.
+	var p := get_tree().get_first_node_in_group("player")
+	if p != null and is_instance_valid(p):
+		out.append({"pos": (p as Node2D).global_position, "reach": SHIP_LIGHT_VALUE * AST_LIGHT_REACH, "col": SHIP_LIGHT_COL, "val": SHIP_LIGHT_VALUE})
+	var w := get_tree().get_first_node_in_group("arena_weapons")
+	if w != null and is_instance_valid(w) and w.has_method("get_lights"):
+		for l: Dictionary in w.call("get_lights"):
+			var val := float(l.get("value", 0.0))
+			if val <= 0.0:
+				continue
+			out.append({"pos": l["pos"], "reach": val * AST_LIGHT_REACH, "col": l["color"], "val": val})
+	return out
 
 func clear_debug() -> void:
 	for n in get_tree().get_nodes_in_group("debug_asteroid"):

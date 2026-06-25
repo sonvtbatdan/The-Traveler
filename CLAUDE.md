@@ -954,8 +954,18 @@ Anything else that outputs >1 (e.g. the sun shader) will also bloom — raise th
 A 2D adaptation of two tutorials (a 3-part explosion + a shockwave-distortion shader), built **entirely from
 primitives this repo already has**. Reference impl: `scripts/gameplay/fx/explosion.gd` + `explosion.gdshader`
 (fireball mottle) + `explosion_smoke.gdshader` (smoke) + `explosion_shockwave.gdshader` (screen distortion) +
-optional `explosion_streak.gdshader`. **Standalone primitive** — does NOT modify `arena_explosion.gd` (the
-sprite-sheet impact) or any death/impact caller. 2nd `GPUParticles2D` user in the repo, after Dynamic Fire.
+optional `explosion_streak.gdshader`. Self-contained primitive (`class_name Explosion`, `setup(world_pos,
+size_px)`, auto-frees). 2nd `GPUParticles2D` user in the repo, after Dynamic Fire. Used at full weight by the Nuke
+(`arena_weapons`). **ARENA ENEMY DEATHS no longer run the live composite** — even a lightweight preset (~4 particle
+systems/death) tanked the frame rate when a whole wave died at once (FPS ~49, peak 133ms). Instead the composite was
+**BAKED to a sprite-sheet flipbook** (`tools/bake_death_explosion.gd`, a one-shot — renders the burst into a
+SubViewport with the glow env on black, captures 18 frames → `assets/fx/death_explosion/death_explosion.png` + `.json`),
+played back by `scripts/gameplay/arena_death_fx.gd` (`extends Node2D`, `setup(world_pos, size_px)`): an **ADDITIVE
+`CanvasItemMaterial`** flipbook (1 node + 1 draw call/frame, `draw_texture_rect_region`), random rotation per death,
+scaled to the enemy via its own `DISPLAY_SCALE 1.6` (frame display = enemy size × 1.6; the burst fills the frame
+centre so the visible blast ≈ enemy diameter). Sheet/metadata cached in static vars (loaded once). The bake set smoke
+OFF + shockwave OFF + velocity-limited streaks (contained in-frame) so the flipbook is a clean fiery pop on black —
+add it additive and only the bright pixels show. The older sprite-sheet `arena_explosion.gd` is still used by ruins.
 Preview: `scenes/test_explosion.tscn` (F6 → auto-replays + Space; draws a **white grid** so the distortion shows).
 
 **The idea:** model real explosion ANATOMY — a HOT WHITE point that visibly expands and reddens, throwing
@@ -1320,20 +1330,28 @@ const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 
 ### `arena_weapons.gd` — Arc lightning (textured, from the 2D-lightning tutorial)
 
-The Arc (chain lightning) **visual** is textured `Line2D` bolts, NOT immediate-mode polylines (the old
-`_draw_arc`/`_draw_bolt`/`_build_arc_paths` were removed). `_fire_arc`'s damage/chain logic is unchanged; only
-the rendering changed. Per chain link, `_spawn_arc_bolt(a, b, delay)` creates a `Line2D` (gently-bowed
-centreline from `_arc_line_points`; the texture supplies the crackle) with `scripts/gameplay/fx/arc_lightning.gdshader`:
-a **procedural tileable thunder texture** (`_make_thunder_tex` — a continuous jagged glowing band, red channel =
-brightness, integer-harmonic sines so it wraps seamlessly) is **scrolled** along the bolt (`UV.x*tiling + TIME*
-scroll_speed`) so it flickers, with a `smoothstep(vanishing_value)` dissolve (`COLOR = color*t*keep` keeps the
-soft glow halo) and **additive HDR** `color` so it **blooms** under the arena `WorldEnvironment`. Each strike
-point also spawns `_spawn_arc_sparks` (velocity-aligned CPUParticles2D streaks, additive HDR). `_tick_arcs`
-animates each bolt's `vanishing_value` (with a per-link `delay` → outward sweep), frees the spark nodes after
-`fx_ttl`, and `queue_free`s the `Line2D` at `ARC_LIFE`. `get_lights()` still reads each link's `tip` for the dust
-illumination. (A per-link strike *flare* was removed — its `CPUParticles2D.scale_amount 26` on a 64px glow tex
-was a ~1700px screenwide flash; same `scale_amount`-is-a-multiplier footgun as the slash.) Tunables:
-`ARC_BOLT_WIDTH/Z`, `ARC_THUNDER_UNIT` (crackle density), `ARC_HDR_COL`/`ARC_SPARK_COL`, `ARC_SPARK_COUNT`.
+The Arc (chain lightning) **visual** is textured `Line2D` bolts (the 2D-lightning-tutorial technique), NOT
+immediate-mode polylines. `_fire_arc`'s damage/chain logic is unchanged; only the rendering. Per chain link,
+`_spawn_arc_bolt(a, b, delay)` builds a small `bolts` list via `_make_bolt_line` (each `{ln, mat}`): a **main**
+strand + a thin **secondary** companion (`ARC_SECONDARY_FRAC` 0.4, same jagged path nudged `±ARC_STRAND_GAP` perp
+via `_offset_points`, + a texture `phase` offset so it crackles out of phase). `_arc_line_points` = a jagged path
+(random perp kinks per point, `amp = dist*0.1`). Each bolt is a `Line2D` (width `ARC_BOLT_WIDTH`, `STRETCH`) with
+`scripts/gameplay/fx/arc_lightning.gdshader` + a **procedural tileable thunder texture** (`_make_thunder_tex` — a
+CONTINUOUS bright jagged centreline that always peaks at 1.0 along its length + a soft glow halo; **h=64 so the
+bright band is well-resolved**).
+**The CONTINUITY rule (hard-won):** the white core is `pow(t, ARC_CORE_SHARP)` — a SMOOTH continuous function of
+the texture brightness, NOT `smoothstep(threshold, …)`. A threshold is on/off, and combined with a sub-pixel-thin
+bright band it only lit where the jittering centreline landed on a texel row → the core broke into DASHES. A
+`pow` core fades smoothly from the bright centreline → an unbroken line. So: body = `color * t*keep` (soft blue
+`ARC_HDR_COL`), core = `core_color * pow(t,core_sharp) * keep` (HDR white-blue `ARC_CORE_COL`), additive, blooms.
+`scroll_speed = 0` (static, generated once per shot). `_tick_arcs` animates each bolt's `vanishing_value`
+(per-link `delay` → outward sweep) and frees the `Line2D`s at `ARC_LIFE`; `_fire_arc` calls `_clear_arcs()` on a
+new burst so shots REPLACE the old arc (no stacking). Each strike point spawns `_spawn_arc_sparks`. `get_lights()`
+reads each link's `tip` for dust illumination. Tunables: `ARC_BOLT_WIDTH`, `ARC_THUNDER_UNIT`,
+`ARC_SECONDARY_FRAC`/`ARC_STRAND_GAP`, `ARC_CORE_SHARP` (core thinness), `ARC_HDR_COL`/`ARC_CORE_COL`/`ARC_LIGHT`.
+RULE: never bake a thin bright feature sub-pixel into a low-res texture, and prefer a smooth `pow` over a
+threshold for a continuous core. (History: was briefly widened to a 216px branched/forked beam — reverted to this
+clean continuous single-bolt-per-link on request.)
 
 ### `arena_weapons.gd` — Z-Sword slash (layered, "VFX Anatomy: Slash")
 

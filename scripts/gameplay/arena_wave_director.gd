@@ -16,6 +16,7 @@ const COUNT_MULT    := 1.0     # global multiplier on every entry's count
 const HP_MULT       := 1.0     # global enemy-HP multiplier (quick difficulty knob)
 const SPEED_MULT    := 1.0     # global enemy-speed multiplier
 const MAX_ALIVE     := 120     # hard cap on living enemies (bosses still spawn over the cap)
+const BLOB_SPAWN_R  := 90.0    # cluster radius for "blob" enemies (e.g. the 50-strong swarm)
 
 # ══ 1. ENEMY DEFINITION TABLE ══════════════════════════════════════════════════
 # id → { behavior, hp, speed, size, contact, xp, shape, tint, (explodes), (armor) }
@@ -24,11 +25,12 @@ const ENEMY_DEFS := {
 	"centipede":{"behavior": "centipede", "hp": 180.0, "speed": 100.0, "size": 20.0, "contact": 20, "xp": 24, "armor": 1.0, "icon": "res://assets/enemies/animalcentipede.png"},
 	"dragonfly":{"behavior": "orbit",     "hp": 90.0,  "speed": 130.0, "size": 16.0, "contact": 10, "explodes": true, "xp": 10, "icon": "res://assets/enemies/animaldragonfly.png"},
 	"octopus":  {"behavior": "jump",      "hp": 180.0, "speed": 130.0, "size": 22.0, "contact": 20, "explodes": true, "xp": 24, "icon": "res://assets/enemies/animaloctopus.png"},
-	"spider":   {"behavior": "jump_diag", "hp": 60.0,  "speed": 130.0, "size": 16.0, "contact": 8,  "explodes": true, "xp": 8,  "icon": "res://assets/enemies/animalspider.png"},
-	"bee":      {"behavior": "swarm_dive","hp": 20.0,  "speed": 150.0, "size": 12.0, "contact": 8,  "explodes": true, "xp": 3,  "icon": "res://assets/enemies/animalbee.png"},
-	"bug":      {"behavior": "chase",     "hp": 100.0, "speed": 100.0, "size": 11.0, "contact": 5,  "explodes": true, "xp": 3,  "icon": "res://assets/enemies/animalbug.png", "eye": {"icon": "res://assets/enemies/animalbug_eye.png", "socket": Vector2(0.5265, 0.3551), "range": Vector2(0.0754, 0.0507), "size": Vector2(0.1701, 0.1957)}},
-	"swarm":    {"behavior": "swarm_dive","hp": 20.0,  "speed": 160.0, "size": 12.0, "contact": 10, "explodes": true, "xp": 4,  "icon": "res://assets/enemies/swarm.png"},
-	"fly":      {"behavior": "scatter",   "hp": 10.0,  "speed": 120.0, "size": 9.0,  "contact": 5,  "explodes": true, "xp": 2,  "icon": "res://assets/enemies/animalflies.png"},
+	# ── GROUP 1: INSECTS (temporary uniform behavior = slow chase; levels 1→3; XP = HP/10) ──
+	"swarm":    {"behavior": "swarm", "group": "insects", "level": 1, "blob": 50, "hp": 10.0,  "speed": 200.0, "size": 12.0, "contact": 1, "explodes": true, "xp": 1,  "icon": "res://assets/enemies/swarm.png"},
+	"fly":      {"behavior": "chase", "group": "insects", "level": 1, "hp": 20.0,  "speed": 80.0, "size": 9.0,  "contact": 2, "explodes": true, "xp": 2,  "icon": "res://assets/enemies/animalflies.png"},
+	"bug":      {"behavior": "chase", "group": "insects", "level": 2, "hp": 100.0, "speed": 80.0, "size": 11.0, "contact": 3, "explodes": true, "xp": 10, "icon": "res://assets/enemies/animalbug.png", "eye": {"icon": "res://assets/enemies/animalbug_eye.png", "socket": Vector2(0.5265, 0.3551), "range": Vector2(0.0754, 0.0507), "size": Vector2(0.1701, 0.1957)}},
+	"bee":      {"behavior": "chase", "group": "insects", "level": 2, "hp": 40.0,  "speed": 80.0, "size": 12.0, "contact": 3, "explodes": true, "xp": 4,  "icon": "res://assets/enemies/animalbee.png"},
+	"spider":   {"behavior": "chase", "group": "insects", "level": 3, "hp": 500.0, "speed": 80.0, "size": 16.0, "contact": 8, "explodes": true, "xp": 50, "icon": "res://assets/enemies/animalspider.png"},
 	"shooter":  {"behavior": "shooter",   "hp": 50.0,  "speed": 110.0, "size": 16.0, "contact": 0,  "xp": 10, "icon": "res://assets/enemies/jetfighter.png"},
 	"sentinel": {"behavior": "sentinel",  "hp": 420.0, "speed": 90.0,  "size": 22.0, "contact": 0,  "xp": 14, "icon": "res://assets/enemies/sentinel.png"},
 	"beamer":   {"behavior": "beamer",    "hp": 60.0,  "speed": 90.0,  "size": 18.0, "contact": 0,  "xp": 12, "icon": "res://assets/enemies/beamer.png"},
@@ -67,7 +69,7 @@ const DEFAULT_TIMELINE := [
 	{"time": 140.0, "type": "beamer",    "count": 3,  "pattern": "ring"},
 	{"time": 150.0, "type": "bug",       "count": 22, "pattern": "ring"},
 	{"time": 162.0, "type": "bomber",    "count": 2,  "pattern": "arc"},
-	{"time": 172.0, "type": "swarm",     "count": 16, "pattern": "stream", "duration": 6.0},
+	{"time": 172.0, "type": "swarm",     "count": 1,  "pattern": "ring"},   # one 50-strong blob
 	{"time": 186.0, "type": "missile",   "count": 2,  "pattern": "scatter"},
 	{"time": 196.0, "type": "dragonfly", "count": 8,  "pattern": "ring"},
 	{"time": 206.0, "type": "octopus",   "count": 5,  "pattern": "scatter"},
@@ -81,7 +83,7 @@ const DEFAULT_TIMELINE := [
 	{"time": 300.0, "type": "elephant",  "count": 1,  "pattern": "ring", "is_boss": true},
 	{"time": 305.0, "type": "diver",     "count": 12, "pattern": "stream", "duration": 12.0},
 	{"time": 320.0, "type": "missile",   "count": 3,  "pattern": "scatter"},
-	{"time": 335.0, "type": "swarm",     "count": 16, "pattern": "ring"},
+	{"time": 335.0, "type": "swarm",     "count": 1,  "pattern": "ring"},   # one 50-strong blob
 ]
 
 # ══ DEBUG ══════════════════════════════════════════════════════════════════════
@@ -217,6 +219,20 @@ func _spawn(type_id: String, pos: Vector2, is_boss: bool) -> void:
 	var def := src.duplicate()
 	def["hp"] = float(def.get("hp", 30.0)) * HP_MULT
 	def["speed"] = float(def.get("speed", 95.0)) * SPEED_MULT
+	# Blob enemies (e.g. the 50-strong swarm) spawn as a tight cluster that shares ONE behavior mode, so the
+	# whole blob travels together (all zoom across, or all chase).
+	var blob := int(def.get("blob", 1))
+	if blob > 1 and not is_boss:
+		var mode := "zoom" if randf() < 0.5 else "chase"
+		var room := maxi(0, cap - get_tree().get_nodes_in_group("arena_enemy").size())
+		for k in mini(blob, room):
+			var d := def.duplicate()
+			d["swarm_mode"] = mode
+			var u := EnemyScript.new()
+			u.configure(type_id, _mgr, d)
+			u.position = pos + Vector2(cos(randf() * TAU), sin(randf() * TAU)) * randf_range(0.0, BLOB_SPAWN_R)
+			get_parent().add_child(u)
+		return
 	# Bosses with a dedicated class (e.g. the Elephant moveset) instantiate that instead of the generic enemy.
 	var e: Node
 	if def.has("boss_script"):

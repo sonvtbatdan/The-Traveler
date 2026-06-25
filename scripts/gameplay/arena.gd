@@ -13,6 +13,8 @@ const USE_TEST_SPAWNER   := false   # true → use test_template.gd (spawn one e
 const ArenaWeaponsScript := preload("res://scripts/gameplay/arena_weapons.gd")
 const ArenaAuxScript     := preload("res://scripts/gameplay/arena_aux.gd")           # auxiliary (passive) item data layer
 const CamShakeScript     := preload("res://scripts/gameplay/arena_camera_shake.gd")  # follow camera + screen-shake
+const ChestScript        := preload("res://scripts/gameplay/arena_chest.gd")          # far reward chest (level-up reward, no level)
+const ChestPointerScript := preload("res://scripts/ui/hud/arena_chest_pointer.gd")    # edge-of-screen spinning arrow + distance
 const ArenaNebulaScript  := preload("res://scripts/gameplay/arena_nebula.gd")
 const ArenaDustScript    := preload("res://scripts/gameplay/arena_dust.gd")
 const ArenaPlanetsScript := preload("res://scripts/gameplay/arena_planets.gd")
@@ -26,6 +28,7 @@ const DebugSpawnScript   := preload("res://scripts/gameplay/arena_debug_spawn.gd
 const WeaponPaletteScript := preload("res://scripts/gameplay/arena_weapon_palette.gd")
 const PerfOverlayScript  := preload("res://scripts/ui/hud/perf_overlay.gd")
 const LevelUpUIScript    := preload("res://scripts/ui/hud/arena_levelup_ui.gd")
+const FusionCutsceneScript := preload("res://scripts/gameplay/arena_fusion_cutscene.gd")  # weapon-fusion cutscene
 const InventoryUIScript  := preload("res://scripts/ui/inventory/inventory_ui.gd")   # equip screen (I key)
 const DropUIScript       := preload("res://scripts/ui/hud/arena_drop_ui.gd")          # boss-defeated salvage choice
 const WeaponChestScript  := preload("res://scripts/ui/hud/arena_weapon_chest_ui.gd")  # start-of-run pick-1-of-3 chest
@@ -36,6 +39,8 @@ const ArenaHudButtonsScript := preload("res://scripts/ui/hud/arena_hud_buttons.g
 const BossEditScript        := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
 const CreepEditScript       := preload("res://scripts/ui/boss_edit/creep_edit_mode.gd")
 const RESET_RUN_ON_START := true   # each arena run starts a fresh VS climb (level 1, no upgrades). Flip off to keep saved level.
+const WEAPON_TEST_MODE := true     # TEST: skip the hub launch page + start-of-run weapon-pick chest; boot straight into
+								   # the arena, then auto-pause and open the F12 weapon palette. Flip off to restore normal flow.
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
 const SHIP_SPRITE     := "res://assets/screen/Spaceship.png"
@@ -63,7 +68,9 @@ const STAR_LAYERS := [
 # Solar-system start + soft boundary (world space; the player flies the world, the system orbits origin).
 const PLAYER_START   := Vector2(0.0, -1100.0)   # offset from origin so the player doesn't spawn on the sun
 const SOFT_BOUNDARY  := 9000.0                   # past Neptune's reach; gentle inward drift begins here
-const HARD_BOUNDARY  := 10500.0                  # absolute clamp (player can't pass)
+const HARD_BOUNDARY  := 10500.0                  # absolute clamp (player can't pass) — IGNORED when LIMITLESS
+const LIMITLESS      := true                     # true = no map edge (fly forever); false = bounded disc (soft drift + hard clamp)
+const CHEST_DIST     := 10000.0                  # reward chest spawns this far from the player's start
 const BOUNDARY_PULL  := 2.2                      # inward drift past the soft edge (per second × overshoot px)
 const VIGNETTE_FADE  := 2200.0                   # distance the edge vignette fades in over, before SOFT
 const BOUNDARY_VIGNETTE_SHADER := "res://assets/shaders/boundary_vignette.gdshader"
@@ -128,9 +135,11 @@ func _ready() -> void:
 	_build_player()
 	_build_ui()
 	_build_boundary_vignette()
+	_spawn_reward_chest()                # far reward chest + edge-of-screen pointer
 	add_child(_make_glow_world_env())    # screen glow/bloom (HDR-2D): makes the >1 fire (M2, Red X) bloom
 	add_child(PerfOverlayScript.new())   # always-on FPS/frame-ms readout (top-right) for tuning
 	add_child(LevelUpUIScript.new())     # VS choose-1-of-3 on level-up (pauses the game)
+	add_child(FusionCutsceneScript.new())  # weapon-fusion cutscene (group "arena_fusion_cutscene"; awaited by level-up UI)
 	add_child(InventoryUIScript.new())   # equip/loadout screen (toggle with the I key)
 	add_child(DropUIScript.new())        # boss-defeated salvage: equip (run) vs disassemble (blueprint)
 	_weapon_chest = WeaponChestScript.new()   # start-of-run pick-1-of-3 weapon chest (opened deferred below)
@@ -148,7 +157,10 @@ func _ready() -> void:
 	add_child(ArenaRuinLayerScript.new()) # periodic ruin ships (every 5–15s): ship → box → loot drop
 	call_deferred("_setup_boss_edit")
 	call_deferred("_setup_creep_edit")
-	call_deferred("_open_start_chest")   # fresh run → present the pick-1-of-3 weapon chest (ship starts unarmed)
+	if WEAPON_TEST_MODE:
+		call_deferred("_open_weapon_test")   # skip the weapon-pick chest → auto-pause + open the F12 palette
+	else:
+		call_deferred("_open_start_chest")   # fresh run → present the pick-1-of-3 weapon chest (ship starts unarmed)
 
 ## Canvas glow/bloom for the arena. With hdr_2d on (project.godot) + glow_hdr_threshold 1.0, only HDR (>1)
 ## pixels bloom — i.e. the DynamicFire effects that set glow>0 (Elephant M2, Red X). LDR content is untouched.
@@ -174,6 +186,12 @@ func _make_glow_world_env() -> WorldEnvironment:
 func _open_start_chest() -> void:
 	if _weapon_chest != null and is_instance_valid(_weapon_chest) and _weapon_chest.has_method("show_chest"):
 		_weapon_chest.show_chest()
+
+## WEAPON_TEST_MODE boot: no weapon-pick chest — auto-pause and open the F12 weapon palette instead.
+func _open_weapon_test() -> void:
+	var palette := get_tree().get_first_node_in_group("arena_weapon_palette")
+	if palette != null and palette.has_method("open"):
+		palette.open()
 
 ## Full-screen "edge of system" vignette; its intensity is driven by player→boundary proximity each frame.
 func _build_boundary_vignette() -> void:
@@ -235,6 +253,23 @@ func _build_player() -> void:
 	add_child(_player)
 	_player.add_to_group("player")   # enemies/spawner find the player via this group
 	cam.make_current()
+
+## Spawn one reward chest ~CHEST_DIST from the player's start (random direction, clamped inside the playable
+## disc so it's reachable), plus the edge-of-screen pointer arrow that guides the player to it.
+func _spawn_reward_chest() -> void:
+	var ang := randf() * TAU
+	var pos := PLAYER_START + Vector2(cos(ang), sin(ang)) * CHEST_DIST
+	if not LIMITLESS:
+		var max_r := HARD_BOUNDARY - 250.0
+		if pos.length() > max_r:
+			pos = pos.normalized() * max_r   # bounded map: keep the chest reachable inside the edge
+	var chest := ChestScript.new()
+	add_child(chest)
+	chest.global_position = pos
+	var ptr_layer := CanvasLayer.new()
+	ptr_layer.layer = 55             # above gameplay, below settings/overlays
+	add_child(ptr_layer)
+	ptr_layer.add_child(ChestPointerScript.new())
 
 func _build_parallax(parent: Node) -> void:
 	var i := 0
@@ -305,6 +340,10 @@ func _physics_process(delta: float) -> void:
 ## Soft outer edge: past SOFT_BOUNDARY the player drifts gently back inward (stronger the further out), and is
 ## hard-clamped at HARD_BOUNDARY. A screen vignette fades in as the edge nears. Not a wall — a current.
 func _apply_boundary(delta: float) -> void:
+	if LIMITLESS:
+		if _edge_vignette_mat != null:
+			_edge_vignette_mat.set_shader_parameter("intensity", 0.0)
+		return   # no edge — the world is unbounded
 	var pos := _player.global_position
 	var d := pos.length()
 	if d > SOFT_BOUNDARY and d > 0.0:

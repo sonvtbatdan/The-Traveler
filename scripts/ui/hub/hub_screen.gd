@@ -8,6 +8,7 @@ extends Control
 ## + GameManager (coins). UI is built in code, matching the project's conventions.
 
 const ARENA_SCENE := "res://scenes/arena.tscn"
+const ArenaScript := preload("res://scripts/gameplay/arena.gd")   # for the WEAPON_TEST_MODE flag (skip this launch page)
 const InventoryUIScript := preload("res://scripts/ui/inventory/inventory_ui.gd")   # equip screen (I key)
 const FONT_TITLE := "res://assets/fonts/Good Old DOS.ttf"
 const FONT_BODY  := "res://assets/fonts/Gameplay.ttf"
@@ -23,7 +24,15 @@ var _content: VBoxContainer = null
 var _tab_buttons: Dictionary = {}
 
 func _ready() -> void:
+	if ArenaScript.WEAPON_TEST_MODE:
+		# Weapon-test mode: don't show the launch page — boot straight into the arena (which auto-opens F12).
+		call_deferred("_goto_arena")
+		return
 	_build_ui()
+
+## Forward directly into the arena (weapon-test mode skips the hub UI entirely).
+func _goto_arena() -> void:
+	get_tree().change_scene_to_file(ARENA_SCENE)
 	add_child(InventoryUIScript.new())   # equip what you buy before launching (toggle with the I key)
 	if GameManager.has_signal("money_changed"):
 		GameManager.money_changed.connect(func(_m: int) -> void: _refresh())

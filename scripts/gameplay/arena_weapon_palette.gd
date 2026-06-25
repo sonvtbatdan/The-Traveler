@@ -11,7 +11,7 @@ const WEAPONS := [
 	{"kind": "arc",     "def_id": "arc",          "label": "Arc"},
 	{"kind": "gauss",   "def_id": "gauss_cannon", "label": "Gauss"},
 	{"kind": "orbital", "def_id": "orbitals",     "label": "Orbital"},
-	{"kind": "void",    "def_id": "rift_maker",   "label": "Void"},
+	{"kind": "void",    "def_id": "rift_maker",   "label": "Rift Maker"},
 	{"kind": "red_x",   "def_id": "red_x",        "label": "Red X"},
 	{"kind": "chemtrail", "def_id": "chemtrail",  "label": "Chemtrail"},
 	{"kind": "nuke",      "def_id": "nuke",          "label": "Nuke"},
@@ -23,12 +23,24 @@ const WEAPONS := [
 	{"kind": "moroboshi", "def_id": "moroboshi",     "label": "Moroboshi-M1"},
 	{"kind": "swarm",     "def_id": "swarm_host",    "label": "Swarm Host"},
 	{"kind": "snake",     "def_id": "space_snake",   "label": "Space Snake"},
+	{"kind": "homing",    "def_id": "homing_missile","label": "Homing Missile"},
 ]
 
 const THUMB := Vector2(56, 56)
 
+const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")  # for FUSION_DEFS (fused weapons auto-listed)
+
 var _open := false
 var _panel: Panel = null
+
+## The base weapons plus every fused weapon (from FUSION_DEFS) — so any fusion auto-appears in F12 for testing.
+## Spawning a fusion kind directly grants it via acquire_weapon (skips the combine cutscene).
+func _palette_entries() -> Array:
+	var entries := WEAPONS.duplicate()
+	for fid: String in (ArenaWeapons.FUSION_DEFS as Dictionary).keys():
+		var rec: Dictionary = ArenaWeapons.FUSION_DEFS[fid]
+		entries.append({"kind": fid, "def_id": String(rec.get("def_id", "")), "label": String(rec.get("label", fid))})
+	return entries
 
 func _ready() -> void:
 	layer = 101                                   # above the debug fire-rate UI
@@ -45,15 +57,19 @@ func _build_ui() -> void:
 	zone.spawn_cb = Callable(self, "_spawn_weapon")
 	add_child(zone)
 
-	# Top-centre panel with the weapon thumbnails.
+	# Top-centre panel with the weapon thumbnails — laid out in 2 rows so the (17 base + fused) list fits on screen.
+	var entries := _palette_entries()
+	var cols := int(ceil(entries.size() / 2.0))
+	var panel_w := float(cols) * (THUMB.x + 14.0) + 28.0
+	var panel_h := 232.0
 	_panel = Panel.new()
-	_panel.custom_minimum_size = Vector2(WEAPONS.size() * (THUMB.x + 14) + 28, 132)
+	_panel.custom_minimum_size = Vector2(panel_w, panel_h)
 	_panel.anchor_left = 0.5
 	_panel.anchor_right = 0.5
-	_panel.offset_left = -_panel.custom_minimum_size.x * 0.5
-	_panel.offset_right = _panel.custom_minimum_size.x * 0.5
+	_panel.offset_left = -panel_w * 0.5
+	_panel.offset_right = panel_w * 0.5
 	_panel.offset_top = 18
-	_panel.offset_bottom = 18 + 132
+	_panel.offset_bottom = 18 + panel_h
 	var ps := StyleBoxFlat.new()
 	ps.bg_color = Color(0.08, 0.09, 0.13, 0.96)
 	ps.set_border_width_all(1)
@@ -73,11 +89,13 @@ func _build_ui() -> void:
 	title.add_theme_color_override("font_color", Color(0.8, 0.88, 1.0))
 	vb.add_child(title)
 
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 14)
-	vb.add_child(row)
-	for w: Dictionary in WEAPONS:
-		row.add_child(_make_thumb(w))
+	var grid := GridContainer.new()
+	grid.columns = cols   # 2 rows (ceil(count/2) per row)
+	grid.add_theme_constant_override("h_separation", 14)
+	grid.add_theme_constant_override("v_separation", 8)
+	vb.add_child(grid)
+	for w: Dictionary in entries:
+		grid.add_child(_make_thumb(w))
 
 	var bottom := HBoxContainer.new()
 	vb.add_child(bottom)
@@ -175,6 +193,11 @@ func _clear_pickups() -> void:
 	for n in get_tree().get_nodes_in_group("debug_weapon_pickup"):
 		if is_instance_valid(n):
 			n.queue_free()
+
+## Open the palette (pauses the game). Public entry for weapon-test mode (arena.gd auto-opens it on boot).
+func open() -> void:
+	if not _open:
+		_toggle()
 
 func _toggle() -> void:
 	_open = not _open
