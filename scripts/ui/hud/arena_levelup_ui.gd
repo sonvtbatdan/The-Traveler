@@ -94,12 +94,8 @@ func _generate_choices(n: int) -> Array:
 			for id: String in ax.call("owned_aux"):
 				if bool(ax.call("aux_can_upgrade", id)) and not chosen.has("a:" + id):
 					owned_pool.append(_aux_choice(ax, id, "upgrade"))
-		# Un-owned items → the new pool (only while there is a free slot of that kind).
-		if aw != null and not weapons_full:
-			var owned_w: Array = aw.call("acquired_weapons")
-			for k: String in ArenaWeapons.WEAPON_INFO.keys():
-				if not (k in owned_w) and not chosen.has("w:" + k):
-					new_pool.append(_weapon_choice(aw, k, "new"))
+		# Un-owned items → the new pool. Weapons are acquired via arena pickups only;
+		# only aux items are offered as "new" in the level-up screen.
 		if ax != null and not aux_full:
 			var owned_a: Array = ax.call("owned_aux")
 			for d: Dictionary in ArenaAux.AUX_DEFS:
@@ -213,8 +209,8 @@ func _make_card(c: Dictionary, idx: int) -> Control:
 	var lbl_name := _styled_label(String(c["name"]), 15)
 	lbl_name.anchor_left   = 0.05
 	lbl_name.anchor_right  = 0.95
-	lbl_name.anchor_top    = 0.50
-	lbl_name.anchor_bottom = 0.62
+	lbl_name.anchor_top    = 0.26
+	lbl_name.anchor_bottom = 0.38
 	card.add_child(lbl_name)
 
 	# Effect label — action + effect by default (e.g. "NEW\n+20 Max HP" or "Lv 2 → 3\n+10% Damage").
@@ -336,7 +332,7 @@ func _default_text(c: Dictionary) -> String:
 func _current_text(c: Dictionary) -> String:
 	var lvl := int(c.get("level", 0))
 	if lvl <= 0:
-		return "Not owned yet"
+		return "Not own\nyet"
 	return "Owned  Lv %d" % lvl
 
 # ── Hover effects ───────────────────────────────────────────────────────────────

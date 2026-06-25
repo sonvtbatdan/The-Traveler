@@ -11,6 +11,8 @@ var fire_points:      Array   = []   # Array[Dictionary {pos:Vector2, id:int, di
 var selected_fp_idx:  int     = -1
 var thrust_points:    Array   = []   # Array[Dictionary {pos:Vector2, id:int, dir_angle:float}]
 var selected_tp_idx:  int     = -1
+var tentacle_points:   Array  = []   # Array[Dictionary {pos:Vector2, id:int, dir_angle:float}]
+var selected_tenp_idx: int    = -1
 var zoom:             float   = 1.0
 var canvas_offset:    Vector2 = Vector2.ZERO
 
@@ -25,6 +27,7 @@ func _draw() -> void:
 		_draw_mouse_coords()
 	_draw_fire_points()
 	_draw_thrust_points()
+	_draw_tentacle_points()
 
 # ── Grid ──────────────────────────────────────────────────────────────────────
 
@@ -165,3 +168,38 @@ func _draw_thrust_points() -> void:
 			"TP%d" % tp_id, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0, 0, 0, 0.7))
 		draw_string(ThemeDB.fallback_font, lbl_pos,
 			"TP%d" % tp_id, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
+
+# ── Tentacle point markers ────────────────────────────────────────────────────
+
+func _draw_tentacle_points() -> void:
+	for i: int in tentacle_points.size():
+		var tn:     Dictionary = tentacle_points[i]
+		var vp_pos: Vector2    = _to_vp(tn["pos"] as Vector2)
+		var is_sel: bool       = (i == selected_tenp_idx)
+		var col := Color(0.95, 0.55, 1.0, 0.98) if is_sel \
+				 else Color(0.70, 0.30, 0.95, 0.90)
+		# Hexagon marker (distinct from FP crosshair / TP diamond)
+		var pts := PackedVector2Array()
+		for h in 6:
+			pts.append(vp_pos + Vector2.RIGHT.rotated(TAU * float(h) / 6.0 + PI / 6.0) * 8.0)
+		for h in 6:
+			draw_line(pts[h], pts[(h + 1) % 6], col, 2.0)
+		# Direction arrow — longer, since it shows the tentacle's outward direction
+		var dir_angle: float = float(tn.get("dir_angle", 0.0))
+		var dir_vec   := Vector2.RIGHT.rotated(dir_angle) * 42.0
+		var tip       := vp_pos + dir_vec
+		var arr_col   := Color(1.0, 0.65, 1.0, 0.98) if is_sel else Color(0.85, 0.45, 1.0, 0.85)
+		draw_line(vp_pos, tip, arr_col, 2.5)
+		var back := -dir_vec.normalized() * 9.0
+		draw_line(tip, tip + back.rotated(0.5),  arr_col, 2.5)
+		draw_line(tip, tip + back.rotated(-0.5), arr_col, 2.5)
+		draw_string(ThemeDB.fallback_font, tip + Vector2(4.0, -2.0),
+			"%d°" % int(round(rad_to_deg(dir_angle))),
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, arr_col)
+		# Label with shadow
+		var tn_id: int = tn.get("id", i + 1)
+		var lbl_pos := vp_pos + Vector2(11.0, -3.0)
+		draw_string(ThemeDB.fallback_font, lbl_pos + Vector2(1, 1),
+			"Tn%d" % tn_id, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0, 0, 0, 0.7))
+		draw_string(ThemeDB.fallback_font, lbl_pos,
+			"Tn%d" % tn_id, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)

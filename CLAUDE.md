@@ -765,6 +765,44 @@ const WARNING_DELAY   := 5.0   # seconds of warning before boss spawns
 
 ---
 
+## Main Menu (`scenes/main_menu.tscn`)
+
+The game's **entry scene** (`run/main_scene`) and the return target when the player presses **Quit inside the Arena** (`arena_hud_buttons._on_quit` → `change_scene_to_file("res://scenes/main_menu.tscn")`). Built entirely in code by `scripts/ui/mainmenu/main_menu.gd`.
+
+**Flow:** launch → Main Menu. **Resume** → `arena.tscn`; Arena **Quit** button → Main Menu; Arena run-over still → `hub.tscn` (Dock).
+
+### Layers ARE EditableObjectNodes (edit in place with F4)
+
+The menu visuals (background, space, Logo) and the four buttons (resume/setting/codex/quit) are `EditableObjectNode`s placed by `main_menu_edit_mode.gd` into a shared ObjectsContainer (CanvasLayer 9). They are the **live menu** in gameplay AND **editable with F4** — the editor only drops a dim overlay over them; the objects stay in place so you resize/move them live. Layout persists to `res://mainmenu_layout.cfg`, plume styles to `res://mainmenu_plume_styles.cfg`. Assets scanned from `assets/hud/mainmenu/`.
+
+**`main_menu_edit_mode.gd`** (adapted from `creep_edit_mode.gd`): OBJECTS table (scanned layers), TRANSFORM **X/Y** (position) + **W/H** (aspect-locked to source ratio) + **Z**, scroll-wheel zoom (no slider), grid, undo, **Thrust Points + per-TP plume editor** (plumes also render live on the menu). Per-layer default geometry in `DEFAULT_GEOM` (kept in sync with `main_menu.gd`). Z order: background 0, space 1, bullets 2, enemies/missiles 3, Logo 5, buttons 10.
+
+### Buttons — manual hit-test (NOT Control picking)
+
+Button hover/click is driven by `main_menu._input()` via direct rect hit-test (`_edit.live_button_at(pos)` / `_edit.set_button_hover(base, on)`). The full-rect IGNORE container + Node2D enemy backdrop made normal Control input unreliable, so in gameplay **all layer EOs are `MOUSE_FILTER_IGNORE`** and main_menu owns input. Hover → brighten + grow 3% + `uiclick.wav`. Clicks: Resume → `start.mp3` + arena; **Setting → opens the Settings panel** (below); Codex → `uialert.wav` + toast; Quit → `gameover.wav` (awaited) → save all managers → `quit()`. UI sounds use `AudioManager.play_sfx` (autoload — survives the Resume scene change). Toast Label is `MOUSE_FILTER_IGNORE`. Menu input + F4 are gated off while the Settings panel is open.
+
+### Enemy backdrop (`menu_enemy_spawner.gd`)
+
+Decorative flying enemies reusing the REAL arena AI (`arena_enemy.gd` + `arena_enemy_manager.gd`) so attackers fire normally. Added into the same ObjectsContainer (z 2–3, under the UI), `PROCESS_MODE_PAUSABLE` so they freeze under the F4 editor.
+- **No bosses** (`behavior == "boss_stub"`) and no test `dummy`. **≤ 2 of each type, ≤ 10 total.** Enter from the top, descend toward an off-screen dummy `"player"` target, culled at the bottom.
+- **Spider rationed:** ≤ 1 on screen, 5 s life, then 5 s cooldown.
+- Drawn at **50 %** (node `scale`); brightness/contrast grade via per-CanvasItem shader (`_grade_mat` mix / `_grade_add_mat` additive for missiles) — menu-only.
+- **Never corrupts the save:** `GameManager.activate_shield(2.0)` re-armed each frame zeroes all damage (arena `reset_run()` clears it on entry); `xp = 0` so no orbs.
+- **Distant-echo audio:** a runtime bus `"MenuEnemySFX"` (low-pass 1500 Hz + reverb + **−17 dB**); enemies routed there via `arena_enemy.sfx_bus`.
+
+### `arena_enemy.gd` attack SFX (applies to arena AND menu)
+
+`var sfx_bus := "SFX"` + `_play_sfx()` (one-shot). Spider (`jump_diag`) leap → `dash.wav`; octopus (`jump`) leap → `chargeby.wav`; beamer beam start → `laserbeam.wav` (once, no loop); shooter/sentinel fire → `zap1.wav`. `_play_boom` also routes through `sfx_bus`.
+
+## Settings panel (`scripts/ui/settings/settings_panel.gd`)
+
+Shared modal opened from the **Setting** button in BOTH the Arena (`arena_hud_buttons._on_setting`) and the Main Menu (`main_menu._on_menu_button("setting")`). CanvasLayer 100, `PROCESS_MODE_ALWAYS`; `open()` pauses the tree (snapshots the prior pause state and restores it on close).
+
+- **Volume** slider (0–100%) → the **`"Master"` audio bus** (`AudioServer.set_bus_volume_db` / `set_bus_mute`) = the WHOLE game's audio (music + all SFX) in every scene incl. the Main Menu. Live preview.
+- **Graphic** Windowed / Fullscreen → `DisplayServer.window_set_mode`, applied live; active button highlighted.
+- **Save** → persist to `user://settings.cfg` (`[audio] sfx_volume`, `[display] fullscreen`) + close. **Reset** → defaults (Volume 100%, Windowed) live (only persisted if you then Save). **Cancel** → revert to the on-open snapshot + close (no save). Buttons are image `TextureButton`s from `assets/hud/mainmenu/{save,reset,cancel}.png`.
+- **Startup:** `SettingsPanel.apply_saved()` (static) reads the cfg and applies SFX volume + window mode — called from `main_menu._ready` and `arena_hud_buttons._ready` (AudioManager is locked, so it can't load settings itself).
+
 ## LOCKED MODULES — DO NOT MODIFY WITHOUT EXPLICIT USER PERMISSION
 
 The following files are considered **stable and complete**. Claude must **not edit them** in any session unless the user explicitly says "bạn được phép sửa [tên file]" hoặc tương đương rõ ràng. Nếu có bug liên quan, hãy **báo cáo** thay vì tự ý sửa.
@@ -1387,11 +1425,52 @@ in the `slash-technique` memory note.
 
 **Asset folder note:** `AstroMenace-SFX/` nằm ở `assets/audio/sfx/AstroMenace-SFX/` (không phải `sfx/Scifi/AstroMenace-SFX/`).
 
+### `arena_weapons.gd` — Weapon tuning constants (as of 2026-06-25)
+
+| Const | Value | Notes |
+|-------|-------|-------|
+| `BOOM_SPIN` | `12.566` rad/s | Aliwa self-spin = 120 RPM (4π) |
+| `SNAKE_SPACING` | `25.2` px | = `BODY_SEG_PX` → zero gap between body segments |
+| `YARI_TURN_RATE` | `120/60 × TAU` rad/s | 120 RPM — shared by both Yari Jaeger and Yari (moroboshi) |
+| `MORO turn` | uses `YARI_TURN_RATE` | `_moro_facing` clamped by `angle_difference + clampf` instead of instant snap |
+
 ### `arena_weapons.gd` — Gauss orb visuals
 
 - `GAUSS_ORB_DRAW = 38.0` px — kích thước hiển thị trên screen (TextureRect 38×38). Frame nguồn là ~421px nhưng được scale về 38px.
 - `GAUSS_TRAIL_WIDTH = 0.75` — hệ số nhân bán kính trail circle (`base_w = GAUSS_RADIUS × GAUSS_TRAIL_WIDTH`). Giảm để trail nhỏ hơn, bớt "vòng sáng" quanh orb.
 - **Trail và charge rings dùng gradient layers** — mỗi vị trí trail vẽ 4 circle lồng nhau (outer soft → inner bright) với `antialiased=true`. Charge rings tương tự 4 arc layers. Đây là cách mô phỏng soft/glow edge trong Godot 4 CanvasItem `_draw()` (không có built-in blur).
+
+### `arena_weapons.gd` — Generic Plume Registry (2026-06-25)
+
+Replaces 9 per-weapon load/update functions (~390 lines) with a single generic system (~90 lines).
+
+**API:**
+```gdscript
+var _plume_registry: Array = []   # [{cfg_key, count, ds, provider, anchors}]
+
+func _register_plume(cfg_key: String, count: int, ds: Vector2, provider: Callable) -> void
+func _load_all_plumes() -> void   # call once in _ready() after all registrations
+func _update_all_plumes() -> void # call once per frame in _process()
+```
+
+**How it works:**
+- `_register_plume()` adds a weapon entry with a `provider` Callable that returns `Array[{pos, rot, visible}]`
+- `_load_all_plumes()` reads `weapon_layout.cfg` [thrustpoints] and `weapon_plume_styles.cfg` [styles] in ONE pass for all registered weapons. Creates `count` anchor Node2Ds each with CPUParticles2D children at TP frac offsets.
+- `_update_all_plumes()` calls each provider, moves anchors to returned world positions + rotations.
+
+**Adding a new weapon plume:** add TPs in `weapon_layout.cfg` + styles in `weapon_plume_styles.cfg`, then one `_register_plume()` call in `_ready()`. No new functions needed.
+
+**Kept separate (too complex for generic pattern):**
+- Snake (`_load_snake_plume` / `_update_snake_plumes`) — multi-segment chain physics
+- Para cloud (`_load_para_plume_data` / `_make_para_cloud_plume`) — dynamic lifecycle (created/freed per cloud)
+
+**`local_coords = false` in `_make_orbital_plume()`:** All plumes use world-space particles. When a weapon rotates or changes direction, previously emitted particles continue on their old trajectory (inertia) while new particles emit in the new direction — physically correct curving trail. Setting this to `true` makes plumes rigidly rotate with the weapon (wrong).
+
+### `arena_weapons.gd` — Spore (Parasite Cloud) Mechanics (2026-06-25)
+
+**Gas cloud VFX on expire:** When a spore's `age >= PARA_LIFETIME`, instead of disappearing silently it spawns `PARA_GAS_PUFF_N = 7` DynamicFire puffs (1 centre + 6 on ring at `PARA_RADIUS × 0.55`) at its final position. These live for `PARA_GAS_LIFETIME = 4.0s` and render via `_para_gas_fx: DynamicFire` (green→purple, `intensity=0.15`). The circle drawn by `_draw_para_cloud()` has `alpha=0.0` — players see only the gas cloud, not the circle.
+
+**Facing freeze fix:** Cloud dict has `"ang"` key (initialized to launch direction angle). Updated each tick only when `vel.length_squared() > 1.0` — freezes on last valid velocity direction instead of snapping to `angle=0.0` when decelerated. `_draw_para_cloud()` uses `c.get("ang", 0.0)` for sprite rotation.
 
 ### `arena_weapons.gd` — Auto-fire logic
 

@@ -5,7 +5,7 @@ extends CanvasLayer
 ## Rebuilds itself from the data layer whenever `inventory_changed` fires, so the
 ## display is always in sync and invalid drags simply snap back.
 
-const SYSTEM1_ENABLED := false   # inventory weapon-slot system disabled for now (HUD slots are the live system)
+const SYSTEM1_ENABLED := true
 const CELL := 46
 const PANEL_SIZE := Vector2(1100, 760)
 const SLOT_PAD := 10   # px of padding around an item inside its slot
@@ -89,10 +89,9 @@ func _ready() -> void:
 	_build_toggle_button()
 	_build_panel()
 	close()
+	_toggle_btn.hide()   # HUD button (arena_hud_buttons) is the entry point; text button stays hidden
 	InventoryManager.inventory_changed.connect(_rebuild)
 	_rebuild()
-	if not SYSTEM1_ENABLED:
-		visible = false   # hide the whole inventory UI (panel + INVENTORY button) while System 1 is disabled
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 
@@ -269,8 +268,6 @@ func _rebuild() -> void:
 var _was_paused: bool = false   # restore the prior pause state on close (plays nice w/ level-up overlays)
 
 func open() -> void:
-	if not SYSTEM1_ENABLED:
-		return   # System 1 disabled — I/C key and the INVENTORY button are inert
 	_backdrop.show()
 	_panel.show()
 	if _sheet != null:
@@ -284,7 +281,6 @@ func close() -> void:
 	_panel.hide()
 	if _sheet != null:
 		_sheet.hide()
-	_toggle_btn.show()
 	if not _was_paused:
 		get_tree().paused = false   # only unpause if WE paused it
 
