@@ -6,9 +6,14 @@ const BTN_SIZE        := 60.0
 const BTN_SEP         :=  6.0
 const MARGIN          :=  8.0
 const SIMPLIFIED_X    := -2.0    # MARGIN(8) − 10px left
-const SIMPLIFIED_Y    := 83.0   # HP bar bottom(74) + gap(4) + 5
+const SIMPLIFIED_Y    := 183.0  # moved down 100px (was 83) to clear room below the HP bar
 
 const ArenaEnemy := preload("res://scripts/gameplay/arena_enemy.gd")
+const SettingsScript := preload("res://scripts/ui/settings/settings_panel.gd")
+const SFX_UICLICK := preload("res://assets/audio/sfx/uiclick.wav")
+
+var _settings: Node = null
+var _click_player: AudioStreamPlayer = null   # uiclick — local + ALWAYS so it sounds while dev:on pauses the tree
 
 var _dev_mode:    bool  = false
 var _game_paused: bool  = false   # tracks the pause state managed by this HUD
@@ -19,6 +24,10 @@ var _pause_btn:      TextureButton = null
 var _boss_edit_btn:  TextureButton = null
 var _creep_edit_btn: TextureButton = null
 var _simplified_btn: TextureButton = null
+var _creep_btn:      TextureButton = null
+var _weapon_btn:     TextureButton = null
+var _hotkey_btn:     TextureButton = null
+var _inv_btn:        Button = null
 var _vb:             VBoxContainer = null
 
 # Textures
@@ -29,6 +38,9 @@ var _tex_boss_edit:     Texture2D = null
 var _tex_creep_edit:    Texture2D = null
 var _tex_simplified:    Texture2D = null
 var _tex_simplifiedon:  Texture2D = null
+var _tex_creep:         Texture2D = null
+var _tex_weapon:        Texture2D = null
+var _tex_hotkey:        Texture2D = null
 
 # Total height without dev-edit buttons (for VBox repositioning)
 var _base_total_h: float = 0.0
@@ -43,7 +55,17 @@ func _ready() -> void:
 	_tex_creep_edit    = _load_img("res://assets/hud/Creep_edit.png")
 	_tex_simplified    = _load_img("res://assets/hud/Simplified.png")
 	_tex_simplifiedon  = _load_img("res://assets/hud/Simplifiedon.png")
+	_tex_creep         = _load_img("res://assets/hud/creep.png")
+	_tex_weapon        = _load_img("res://assets/hud/weapon.png")
+	_tex_hotkey        = _load_img("res://assets/hud/hotkey.png")
 	_build_ui()
+	SettingsScript.apply_saved()       # apply saved SFX volume + window mode (covers arena-direct launch)
+	_settings = SettingsScript.new()
+	add_child(_settings)
+	_click_player = AudioStreamPlayer.new()
+	_click_player.stream = SFX_UICLICK
+	_click_player.bus = "SFX"
+	add_child(_click_player)
 
 func _load_img(res_path: String) -> Texture2D:
 	var abs_path := ProjectSettings.globalize_path(res_path)
@@ -72,8 +94,8 @@ func _build_ui() -> void:
 	var boss_edit_h  := _btn_h(_tex_boss_edit)
 	var creep_edit_h := _btn_h(_tex_creep_edit)
 
-	# VBox: Pause + Codex + Setting + Devon + Quit (5 buttons, 4 gaps) — no dev buttons here
-	_base_total_h = pause_h + codex_h + BTN_SIZE * 3.0 + BTN_SEP * 4.0
+	# VBox: Pause + Codex + Inventory + Setting + Devon + Quit (6 buttons, 5 gaps) — no dev buttons here
+	_base_total_h = pause_h + codex_h + BTN_SIZE * 4.0 + BTN_SEP * 5.0
 
 	_vb = VBoxContainer.new()
 	_vb.add_theme_constant_override("separation", int(BTN_SEP))
@@ -96,6 +118,11 @@ func _build_ui() -> void:
 	var btn_codex := _make_btn(tex_codex, codex_h)
 	btn_codex.pressed.connect(_on_codex)
 	_vb.add_child(btn_codex)
+
+	# Inventory
+	_inv_btn = _make_label_btn("INV")
+	_inv_btn.pressed.connect(_on_inventory)
+	_vb.add_child(_inv_btn)
 
 	# Setting
 	var btn_setting := _make_btn(tex_setting, BTN_SIZE)
@@ -133,6 +160,53 @@ func _build_ui() -> void:
 	_creep_edit_btn.pressed.connect(_on_creep_edit)
 	root.add_child(_creep_edit_btn)
 
+	# Panel-toggle buttons below the edit cluster: creep / weapon / hotkey (dev:on only).
+	var y_panels := SIMPLIFIED_Y + s_h + BTN_SEP + boss_edit_h + BTN_SEP + creep_edit_h + BTN_SEP
+	var creep_h := _btn_h(_tex_creep)
+	_creep_btn = _make_btn(_tex_creep, creep_h)
+	_creep_btn.position = Vector2(SIMPLIFIED_X, y_panels)
+	_creep_btn.visible = false
+	_creep_btn.pressed.connect(_on_creep_panel)
+	root.add_child(_creep_btn)
+
+	var weapon_h := _btn_h(_tex_weapon)
+	_weapon_btn = _make_btn(_tex_weapon, weapon_h)
+	_weapon_btn.position = Vector2(SIMPLIFIED_X, y_panels + creep_h + BTN_SEP)
+	_weapon_btn.visible = false
+	_weapon_btn.pressed.connect(_on_weapon_panel)
+	root.add_child(_weapon_btn)
+
+	var hotkey_h := _btn_h(_tex_hotkey)
+	_hotkey_btn = _make_btn(_tex_hotkey, hotkey_h)
+	_hotkey_btn.position = Vector2(SIMPLIFIED_X, y_panels + creep_h + BTN_SEP + weapon_h + BTN_SEP)
+	_hotkey_btn.visible = false
+	_hotkey_btn.pressed.connect(_on_hotkey_panel)
+	root.add_child(_hotkey_btn)
+
+func _make_label_btn(label: String) -> Button:
+	var btn := Button.new()
+	btn.text = label
+	btn.custom_minimum_size = Vector2(BTN_SIZE, BTN_SIZE)
+	var s := StyleBoxFlat.new()
+	s.bg_color = Color(0.10, 0.12, 0.16, 0.85)
+	s.border_color = Color(0.35, 0.45, 0.60)
+	s.set_border_width_all(1)
+	s.corner_radius_top_left = 3; s.corner_radius_top_right = 3
+	s.corner_radius_bottom_left = 3; s.corner_radius_bottom_right = 3
+	btn.add_theme_stylebox_override("normal", s)
+	var sh := s.duplicate() as StyleBoxFlat
+	sh.bg_color = Color(0.18, 0.22, 0.32, 0.95)
+	btn.add_theme_stylebox_override("hover", sh)
+	var sp := s.duplicate() as StyleBoxFlat
+	sp.bg_color = Color(0.25, 0.35, 0.55, 1.0)
+	btn.add_theme_stylebox_override("pressed", sp)
+	var font := load("res://assets/fonts/Gameplay.ttf") as Font
+	if font:
+		btn.add_theme_font_override("font", font)
+	btn.add_theme_font_size_override("font_size", 11)
+	btn.add_theme_color_override("font_color", Color(0.85, 0.90, 1.0))
+	return btn
+
 func _make_btn(tex: Texture2D, h: float) -> TextureButton:
 	var btn := TextureButton.new()
 	btn.texture_normal = tex
@@ -150,8 +224,15 @@ func _on_pause() -> void:
 func _on_codex() -> void:
 	pass   # placeholder
 
+func _on_inventory() -> void:
+	_click_sfx()
+	var inv := get_tree().get_first_node_in_group("inventory_ui")
+	if inv != null and inv.has_method("toggle"):
+		inv.call("toggle")
+
 func _on_setting() -> void:
-	pass   # placeholder
+	if _settings != null:
+		_settings.open()
 
 func _on_devon() -> void:
 	_dev_mode = !_dev_mode
@@ -173,21 +254,48 @@ func _on_devon() -> void:
 	_simplified_btn.visible = _dev_mode
 	_boss_edit_btn.visible  = _dev_mode
 	_creep_edit_btn.visible = _dev_mode
+	_creep_btn.visible      = _dev_mode
+	_weapon_btn.visible     = _dev_mode
+	_hotkey_btn.visible     = _dev_mode
 
 	# Update Devon button texture
 	_devon_btn.texture_normal = _tex_devon if _dev_mode else _tex_devoff
 
+func _click_sfx() -> void:
+	if _click_player != null:
+		_click_player.play()
+
+func _toggle_ds_panel(method: String) -> void:
+	var ds := get_tree().get_first_node_in_group("arena_debug_spawn")
+	if ds != null and ds.has_method(method):
+		ds.call(method)
+
+func _on_creep_panel() -> void:
+	_click_sfx()
+	_toggle_ds_panel("toggle_creep_panel")
+
+func _on_weapon_panel() -> void:
+	_click_sfx()
+	_toggle_ds_panel("toggle_weapon_panel")
+
+func _on_hotkey_panel() -> void:
+	_click_sfx()
+	_toggle_ds_panel("toggle_hotkey_panel")
+
 func _on_boss_edit() -> void:
+	_click_sfx()
 	var bem := get_tree().get_first_node_in_group("boss_edit")
 	if bem != null and bem.has_method("toggle"):
 		bem.toggle()
 
 func _on_creep_edit() -> void:
+	_click_sfx()
 	var cem := get_tree().get_first_node_in_group("creep_edit")
 	if cem != null and cem.has_method("toggle"):
 		cem.toggle()
 
 func _on_simplified() -> void:
+	_click_sfx()
 	ArenaEnemy.simplified_mode = !ArenaEnemy.simplified_mode
 	_simplified_btn.texture_normal = _tex_simplifiedon if ArenaEnemy.simplified_mode else _tex_simplified
 
@@ -209,4 +317,6 @@ func _on_simplified() -> void:
 			enemy.apply_simplified(ArenaEnemy.simplified_mode, simplified_files)
 
 func _on_quit() -> void:
-	get_tree().quit()
+	# Return to the Main Menu (the menu also persists state via its own Quit button).
+	get_tree().paused = false
+	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")

@@ -37,6 +37,7 @@ const ENEMY_DEFS := {
 	"bomber":   {"behavior": "bomber",    "hp": 190.0, "speed": 100.0, "size": 20.0, "contact": 0,  "xp": 24, "icon": "res://assets/enemies/bombing.gif"},
 	"missile":  {"behavior": "missile",   "hp": 520.0, "speed": 90.0,  "size": 22.0, "contact": 0,  "xp": 18, "icon": "res://assets/enemies/missilelauncher.png"},
 	"dummy":    {"behavior": "dummy",     "hp": 200.0, "speed": 0.0,   "size": 18.0, "contact": 0,  "xp": 0,  "invincible": true, "icon": "res://assets/enemies/dummy.png"},
+	"squid":    {"behavior": "squid",     "hp": 160.0, "speed": 105.0, "size": 18.0, "contact": 0,  "xp": 16, "icon": "res://assets/enemies/Squid-body.png"},
 	# bosses — big high-HP stubs (real movesets later)
 	"elephant":  {"behavior": "boss_stub", "hp": 5500.0, "speed": 110.0, "size": 70.0, "contact": 40, "xp": 500, "shape": "circle",   "tint": Color(0.75, 0.70, 0.65), "icon": "res://assets/bosses/elephant/elephant.sheet.png", "boss_script": "res://scripts/gameplay/arena_elephant.gd"},
 	"chromeleon":{"behavior": "boss_stub", "hp": 4200.0, "speed": 70.0, "size": 60.0, "contact": 35, "xp": 400, "shape": "diamond",  "tint": Color(0.45, 0.90, 0.65), "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},

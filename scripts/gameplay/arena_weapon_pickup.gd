@@ -27,9 +27,10 @@ const KIND_STYLE := {
 	"ionize":  {"color": Color(0.6, 0.9, 1.0),    "ring": Color(0.8, 0.97, 1.0), "emblem": "bolt"},
 	"boomerang": {"color": Color(0.95, 0.85, 0.5),"ring": Color(1.0, 0.95, 0.7), "emblem": "tracer"},
 	"parasite":  {"color": Color(0.6, 0.95, 0.45),"ring": Color(0.8, 1.0, 0.6),  "emblem": "orb"},
-	"moroboshi": {"color": Color(0.8, 0.7, 1.0),  "ring": Color(0.9, 0.85, 1.0), "emblem": "orb"},
-	"swarm":   {"color": Color(0.95, 0.6, 0.85),  "ring": Color(1.0, 0.8, 0.95), "emblem": "tracer"},
-	"snake":   {"color": Color(1.0, 0.6, 0.3),    "ring": Color(1.0, 0.8, 0.5),  "emblem": "beam"},
+	"moroboshi":   {"color": Color(0.8, 0.7, 1.0),  "ring": Color(0.9, 0.85, 1.0), "emblem": "orb"},
+	"yari_jaeger": {"color": Color(0.9, 0.65, 1.0), "ring": Color(0.95, 0.8, 1.0), "emblem": "beam"},
+	"swarm":       {"color": Color(0.95, 0.6, 0.85), "ring": Color(1.0, 0.8, 0.95), "emblem": "tracer"},
+	"snake":       {"color": Color(1.0, 0.6, 0.3),   "ring": Color(1.0, 0.8, 0.5),  "emblem": "beam"},
 }
 const DEFAULT_STYLE := {"color": Color(0.8, 0.8, 0.8), "ring": Color(0.95, 0.95, 0.95), "emblem": "beam"}
 

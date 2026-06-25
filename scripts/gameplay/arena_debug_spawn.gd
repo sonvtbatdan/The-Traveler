@@ -10,23 +10,45 @@ extends CanvasLayer
 ##   F9        Comet near player                Shift+F9  = clear
 ##   F10       Planet + moons near player       Shift+F10 = clear
 ##   F11       Space structure (cycles types)   Shift+F11 = clear
-##   F12       Lasgun weapon pickup             Shift+F12 = clear
+##   F12       (removed — use Dev:on → Weapon panel)
 ##   [−]/[+]   Fire rate mult
 ##   [+Level]  Force level-up
 
 const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const WaveDir   := preload("res://scripts/gameplay/arena_wave_director.gd")
 const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
+const WEAPONS := [
+	{"kind": "gatling",   "def_id": "gatling_gun",    "label": "Kinetic AutoCannon"},
+	{"kind": "lasgun",    "def_id": "lasgun",          "label": "Solid-State Laser"},
+	{"kind": "arc",       "def_id": "arc",             "label": "Fulgurite Chain"},
+	{"kind": "gauss",     "def_id": "gauss_cannon",   "label": "Gauss"},
+	{"kind": "orbital",   "def_id": "orbitals",        "label": "Orbital Impact Defense"},
+	{"kind": "void",      "def_id": "rift_maker",      "label": "Vacuum Decoupler"},
+	{"kind": "red_x",     "def_id": "red_x",           "label": "Thermitic Discharger"},
+	{"kind": "chemtrail", "def_id": "chemtrail",       "label": "Biocide Vaporizer"},
+	{"kind": "nuke",      "def_id": "nuke",            "label": "PERSES"},
+	{"kind": "sonic",     "def_id": "sonic_wave",      "label": "Gravitational Pulser"},
+	{"kind": "zsword",    "def_id": "z_sword",         "label": "Schockwelle"},
+	{"kind": "ionize",    "def_id": "ionizing_field",  "label": "Tachyon Displacer"},
+	{"kind": "boomerang", "def_id": "boomerang",       "label": "Aliwa"},
+	{"kind": "parasite",  "def_id": "parasite_cloud",  "label": "Bio-Corrosive Spore Launcher"},
+	{"kind": "moroboshi", "def_id": "moroboshi",       "label": "Yari"},
+	{"kind": "swarm",     "def_id": "swarm_host",      "label": "Orbital Impact Offense"},
+	{"kind": "snake",     "def_id": "space_snake",     "label": "Red Viper"},
+	{"kind": "yari_jaeger", "def_id": "yari_jaeger",   "label": "Yari Jaeger"},
+]
+const SFX_UICLICK := preload("res://assets/audio/sfx/uiclick.wav")
 
 # Enemy order in the quick-spawn grid — normals first, bosses last.
 const QUICK_SPAWN_ORDER: Array[String] = [
 	"fly", "bee", "bug", "swarm",
 	"diver", "dragonfly", "octopus", "spider",
 	"centipede", "shooter", "sentinel", "beamer",
-	"bomber", "missile", "dummy",
+	"bomber", "missile", "dummy", "squid",
 	"elephant", "chromeleon", "metalfly",
 ]
 const QUICK_BOSS_IDS: Array[String] = ["elephant", "chromeleon", "metalfly"]
+
 
 # Set true to show the hotkey panel + fire-rate controls at startup.
 const DEV_MODE := false
@@ -39,6 +61,10 @@ var _rng := RandomNumberGenerator.new()
 var _struct_cycle: int = 0   # F11 steps through the four structure types
 var _fr_label: Label = null
 var _dev_ui_root: Control = null
+var _creep_panel:  Panel = null   # Quick Spawn (creep) — button-toggled, default hidden
+var _weapon_panel: Panel = null   # Spawn Weapon — button-toggled, default hidden
+var _hotkey_panel: Panel = null   # Hotkey help (right side) — button-toggled, default hidden
+var _click_player: AudioStreamPlayer = null   # uiclick — local + ALWAYS so it sounds while paused
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -47,12 +73,51 @@ func _ready() -> void:
 	_build_fire_rate_ui()
 	_build_hotkey_panel()
 	_build_quick_spawn_panel()
+	_build_weapon_spawn_panel()
+	_click_player = AudioStreamPlayer.new()
+	_click_player.stream = SFX_UICLICK
+	_click_player.bus = "SFX"
+	add_child(_click_player)
 	if _dev_ui_root != null:
 		_dev_ui_root.visible = DEV_MODE
+
+func _click() -> void:
+	if _click_player != null:
+		_click_player.play()
+
+## Open/close the Weapon Edit mode (FP/TP editor for weapon sprites).
+func _on_clear_weapons() -> void:
+	_click()
+	var weapons := get_tree().get_first_node_in_group("arena_weapons")
+	if weapons != null and weapons.has_method("clear_all_weapons"):
+		weapons.clear_all_weapons()
+
+func _on_edit_weapon() -> void:
+	_click()
+	var we := get_tree().get_first_node_in_group("weapon_edit")
+	if we != null and we.has_method("toggle"):
+		we.toggle()
 
 func set_dev_ui_visible(v: bool) -> void:
 	if _dev_ui_root != null:
 		_dev_ui_root.visible = v
+	if not v:
+		# The creep/weapon/hotkey panels are button-toggled — reset them hidden when dev turns off.
+		if _creep_panel != null:  _creep_panel.visible = false
+		if _weapon_panel != null: _weapon_panel.visible = false
+		if _hotkey_panel != null: _hotkey_panel.visible = false
+
+func toggle_creep_panel() -> void:
+	if _creep_panel != null:
+		_creep_panel.visible = not _creep_panel.visible
+
+func toggle_weapon_panel() -> void:
+	if _weapon_panel != null:
+		_weapon_panel.visible = not _weapon_panel.visible
+
+func toggle_hotkey_panel() -> void:
+	if _hotkey_panel != null:
+		_hotkey_panel.visible = not _hotkey_panel.visible
 
 func _build_fire_rate_ui() -> void:
 	var root := Control.new()
@@ -219,6 +284,8 @@ func _build_quick_spawn_panel() -> void:
 	panel.offset_right  = 8.0 + W
 	panel.offset_top    = -(HDR_H + GRID_H + 8)
 	panel.offset_bottom = -8.0
+	panel.visible = false               # button-toggled (default hidden even when dev:on)
+	_creep_panel = panel
 	_dev_ui_root.add_child(panel)
 
 	var vbox := VBoxContainer.new()
@@ -355,12 +422,139 @@ func _clear_quick_spawn() -> void:
 		if is_instance_valid(e):
 			e.queue_free()
 
+# ── Weapon Spawn panel ──────────────────────────────────────────────────────────
+
+func _build_weapon_spawn_panel() -> void:
+	if _dev_ui_root == null:
+		return
+	const CELL  := 48
+	const COLS  := 4
+	const HDR_H := 50
+	const W     := COLS * CELL
+	var rows: int = int(ceil(WEAPONS.size() / float(COLS)))
+	var grid_h: int = CELL * rows
+
+	var panel := Panel.new()
+	var ps := StyleBoxFlat.new()
+	ps.bg_color = Color(0.04, 0.05, 0.08, 0.90)
+	ps.set_corner_radius_all(4)
+	ps.border_width_left = 1; ps.border_width_right  = 1
+	ps.border_width_top  = 1; ps.border_width_bottom = 1
+	ps.border_color = Color(0.30, 0.40, 0.60, 0.65)
+	panel.add_theme_stylebox_override("panel", ps)
+	# Bottom-left, just to the RIGHT of the creep panel so both can be open together.
+	panel.anchor_left   = 0.0; panel.anchor_right  = 0.0
+	panel.anchor_top    = 1.0; panel.anchor_bottom = 1.0
+	panel.offset_left   = 8.0 + W + 8.0
+	panel.offset_right  = 8.0 + W + 8.0 + W
+	panel.offset_top    = -(HDR_H + grid_h + 8)
+	panel.offset_bottom = -8.0
+	panel.visible = false
+	_weapon_panel = panel
+	_dev_ui_root.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vbox.add_theme_constant_override("separation", 0)
+	panel.add_child(vbox)
+
+	var hdr := HBoxContainer.new()
+	hdr.custom_minimum_size = Vector2(0.0, float(HDR_H))
+	hdr.add_theme_constant_override("separation", 0)
+	vbox.add_child(hdr)
+
+	var lbl_title := Label.new()
+	lbl_title.text = "Spawn Weapon"
+	lbl_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl_title.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	lbl_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lbl_title.add_theme_font_size_override("font_size", 11)
+	lbl_title.add_theme_color_override("font_color", Color(0.75, 0.87, 1.00))
+	hdr.add_child(lbl_title)
+
+	var btn_clear := Button.new()
+	btn_clear.text = "CLEAR"
+	btn_clear.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_clear.add_theme_font_size_override("font_size", 10)
+	btn_clear.tooltip_text = "Remove all equipped weapons"
+	btn_clear.pressed.connect(_on_clear_weapons)
+	hdr.add_child(btn_clear)
+
+	var btn_edit := Button.new()
+	btn_edit.text = "EDIT"
+	btn_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_edit.add_theme_font_size_override("font_size", 10)
+	btn_edit.tooltip_text = "Open the Weapon Edit mode (place FP / TP on weapon sprites)"
+	btn_edit.pressed.connect(_on_edit_weapon)
+	hdr.add_child(btn_edit)
+
+	vbox.add_child(HSeparator.new())
+
+	var grid := GridContainer.new()
+	grid.columns = COLS
+	grid.add_theme_constant_override("h_separation", 0)
+	grid.add_theme_constant_override("v_separation", 0)
+	vbox.add_child(grid)
+	for w: Dictionary in WEAPONS:
+		grid.add_child(_make_weapon_cell(w, CELL))
+
+func _make_weapon_cell(w: Dictionary, cell_size: int) -> Control:
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(cell_size, cell_size)
+	btn.focus_mode    = Control.FOCUS_NONE
+	btn.tooltip_text  = String(w["label"])
+	btn.clip_contents = true
+
+	var mk := func(bg: Color, border: Color) -> StyleBoxFlat:
+		var s := StyleBoxFlat.new()
+		s.bg_color = bg
+		s.set_corner_radius_all(2)
+		s.border_width_left = 1; s.border_width_right  = 1
+		s.border_width_top  = 1; s.border_width_bottom = 1
+		s.border_color = border
+		return s
+	btn.add_theme_stylebox_override("normal",  mk.call(Color(0.08, 0.10, 0.15, 0.82), Color(0.25, 0.30, 0.48, 0.55)))
+	btn.add_theme_stylebox_override("hover",   mk.call(Color(0.14, 0.18, 0.26, 0.92), Color(0.50, 0.65, 1.00, 0.90)))
+	btn.add_theme_stylebox_override("pressed", mk.call(Color(0.05, 0.07, 0.10, 0.95), Color(0.25, 0.30, 0.48, 0.55)))
+	btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+
+	var tex: Texture2D = InventoryManager.get_icon(String(w["def_id"]))
+	if tex != null:
+		var tr := TextureRect.new()
+		tr.texture = tex
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tr.set_anchors_preset(Control.PRESET_FULL_RECT)
+		tr.offset_left = 3; tr.offset_right  = -3
+		tr.offset_top  = 3; tr.offset_bottom = -3
+		btn.add_child(tr)
+
+	btn.pressed.connect(_spawn_weapon_pickup.bind(String(w["kind"])))
+	return btn
+
+## Drop a weapon pickup right next to the player (walk over it to collect + activate).
+func _spawn_weapon_pickup(kind: String) -> void:
+	var weapons := get_tree().get_first_node_in_group("arena_weapons")
+	if weapons == null or not weapons.has_method("spawn_weapon_pickup"):
+		return
+	var player := get_tree().get_first_node_in_group("player")
+	var base: Vector2 = (player as Node2D).global_position if player != null else Vector2.ZERO
+	var pos := base + Vector2(_rng.randf_range(-80.0, 80.0), _rng.randf_range(-80.0, 80.0))
+	weapons.spawn_weapon_pickup(kind, pos)
+
 func _build_hotkey_panel() -> void:
 	if _dev_ui_root == null:
 		return
 	var panel := Panel.new()
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.position = Vector2(8.0, 208.0)
+	# Anchored to the RIGHT edge (was top-left); button-toggled, default hidden.
+	panel.anchor_left = 1.0; panel.anchor_right = 1.0
+	panel.anchor_top  = 0.0; panel.anchor_bottom = 0.0
+	panel.offset_left   = -312.0
+	panel.offset_right  = -8.0
+	panel.offset_top    = 8.0
+	panel.offset_bottom = 8.0 + 232.0
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.04, 0.04, 0.08, 0.72)
 	sb.set_corner_radius_all(4)
@@ -369,10 +563,15 @@ func _build_hotkey_panel() -> void:
 	sb.content_margin_top    = 7.0
 	sb.content_margin_bottom = 7.0
 	panel.add_theme_stylebox_override("panel", sb)
+	panel.visible = false
+	_hotkey_panel = panel
 	_dev_ui_root.add_child(panel)
 
 	var vbox := VBoxContainer.new()
 	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vbox.offset_left = 10.0; vbox.offset_top = 7.0
+	vbox.offset_right = -10.0; vbox.offset_bottom = -7.0
 	vbox.add_theme_constant_override("separation", 2)
 	panel.add_child(vbox)
 

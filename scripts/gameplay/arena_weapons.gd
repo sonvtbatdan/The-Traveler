@@ -62,60 +62,25 @@ const WEAPON_DMG_PER_LEVEL := 0.30                      # +30% damage per level,
 const CHEST_POOL  := ["gatling", "lasgun", "arc", "gauss"]   # the 4 "F12" weapons the start-of-run chest rolls from
 # kind → inventory def_id (icon) + display label. Canonical map shared by the chest + slot HUD.
 const WEAPON_INFO := {
-	"gatling": {"def_id": "gatling_gun",  "label": "Gatling"},
-	"lasgun":  {"def_id": "lasgun",       "label": "Lasgun"},
-	"arc":     {"def_id": "arc",          "label": "Arc"},
+	"gatling": {"def_id": "gatling_gun",  "label": "Kinetic AutoCannon"},
+	"lasgun":  {"def_id": "lasgun",       "label": "Solid-State Laser"},
+	"arc":     {"def_id": "arc",          "label": "Fulgurite Chain"},
 	"gauss":   {"def_id": "gauss_cannon", "label": "Gauss"},
-	"orbital": {"def_id": "orbitals",     "label": "Orbital"},
-	"void":    {"def_id": "rift_maker",   "label": "Rift Maker"},
-	"red_x":   {"def_id": "red_x",        "label": "Red X"},
-	"chemtrail": {"def_id": "chemtrail",  "label": "Chemtrail"},
-	"nuke":    {"def_id": "nuke",          "label": "Nuke"},
-	"sonic":   {"def_id": "sonic_wave",    "label": "Sonic Wave"},
-	"zsword":  {"def_id": "z_sword",       "label": "Z-Sword"},
-	"ionize":  {"def_id": "ionizing_field","label": "Ionizing Field"},
-	"boomerang": {"def_id": "boomerang",     "label": "Boomerang"},
-	"parasite":  {"def_id": "parasite_cloud","label": "Parasite Cloud"},
-	"moroboshi": {"def_id": "moroboshi",     "label": "Moroboshi-M1"},
-	"swarm":     {"def_id": "swarm_host",    "label": "Swarm Host"},
-	"snake":     {"def_id": "space_snake",   "label": "Space Snake"},
-	"homing":    {"def_id": "homing_missile","label": "Homing Missile"},
-	# ── Fused weapons (created via fuse(); NOT offered in the normal new-weapon roll — see is_fusion_kind) ──
-	"carnage":      {"def_id": "carnage",      "label": "Carnage"},
-	"vampire_host": {"def_id": "vampire_host", "label": "Vampire Host"},
-	"overcharger":  {"def_id": "overcharger",  "label": "Overcharger"},
-	"predator":     {"def_id": "predator",     "label": "The Predator"},
-	"toxic_ballistic": {"def_id": "toxic_ballistic", "label": "Toxic Ballistic"},
-	"singularities": {"def_id": "singularities", "label": "Singularities"},
+	"orbital": {"def_id": "orbitals",     "label": "Orbital Impact Defense"},
+	"void":    {"def_id": "rift_maker",   "label": "Vacuum Decoupler"},
+	"red_x":   {"def_id": "red_x",        "label": "Thermitic Discharger"},
+	"chemtrail": {"def_id": "chemtrail",  "label": "Biocide Vaporizer"},
+	"nuke":    {"def_id": "nuke",          "label": "PERSES"},
+	"sonic":   {"def_id": "sonic_wave",    "label": "Gravitational Pulser"},
+	"zsword":  {"def_id": "z_sword",       "label": "Schockwelle"},
+	"ionize":  {"def_id": "ionizing_field","label": "Tachyon Displacer"},
+	"boomerang": {"def_id": "boomerang",     "label": "Aliwa"},
+	"parasite":  {"def_id": "parasite_cloud","label": "Bio-Corrosive Spore Launcher"},
+	"moroboshi":   {"def_id": "moroboshi",     "label": "Yari"},
+	"yari_jaeger": {"def_id": "yari_jaeger",  "label": "Yari Jaeger"},
+	"swarm":       {"def_id": "swarm_host",    "label": "Orbital Impact Offense"},
+	"snake":       {"def_id": "space_snake",   "label": "Red Viper"},
 }
-
-# ── Weapon FUSION (two maxed weapons → one fused weapon with FUSION_BONUS_LEVELS extra levels) ──
-# When BOTH components of a recipe are owned at MAX_WEAPON_LEVEL, the level-up UI offers a guaranteed
-# fusion card (arena_levelup_ui._fusion_choice). fuse() removes both components and grants the fused kind,
-# which carries the maxed state (starts at MAX_WEAPON_LEVEL) and can climb FUSION_BONUS_LEVELS further.
-# Each fused-weapon level bumps BOTH component damages together (they share one _lvl_mult via the fusion kind).
-const FUSION_BONUS_LEVELS := 5
-const FUSION_DEFS := {
-	"carnage":      {"a": "gatling", "b": "red_x", "label": "Carnage",      "def_id": "carnage"},
-	"vampire_host": {"a": "swarm",   "b": "sonic", "label": "Vampire Host", "def_id": "vampire_host"},
-	"overcharger":  {"a": "gauss",   "b": "arc",   "label": "Overcharger",  "def_id": "overcharger"},
-	"predator":     {"a": "lasgun",  "b": "snake", "label": "The Predator",  "def_id": "predator"},
-	"toxic_ballistic": {"a": "homing", "b": "chemtrail", "label": "Toxic Ballistic", "def_id": "toxic_ballistic"},
-	"singularities": {"a": "orbital", "b": "void", "label": "Singularities", "def_id": "singularities"},
-	# Added later: moroboshi_m2 (moroboshi+zsword), deadzone (boomerang+ionize).
-}
-
-# ── TUNABLES: Carnage fusion (gatling + red_x → constant Red X fire + Gatling in 4 directions) ──
-# Gatling fires in 4 directions: the main one (toward the mouse/ship facing) plus the 3 at 90° increments.
-# The Red X cross-detonation re-fires on a SHORT cadence with a SHORT-lived flash → a constant fire stream.
-const CARNAGE_REDX_TICK      := 0.25   # Red X DAMAGE tick — per-tick damage is scaled so sustained DPS ≈ base Red X
-const CARNAGE_FIRE_DRAW      := 0.30   # one-time reach-out of the persistent X-fire arms (then HOLD continuously)
-const CARNAGE_FIRE_LIFETIME  := 0.40   # particle life of the continuous X-fire
-
-# ── TUNABLES: Vampire Host fusion (swarm + sonic → familiars fire small sonic waves, heal on hit) ──
-const VAMPIRE_DMG_FRAC  := 1.0 / 3.0   # each wave deals 1/3 of SONIC_DAMAGE
-const VAMPIRE_HEAL_FRAC := 0.25        # heal the player this fraction of damage dealt
-const VAMPIRE_RING_MAXR := 150.0       # smaller than SONIC_MAX_RADIUS (320)
 
 # ── TUNABLES: Batch-1 weapons (Nuke / Sonic Wave / Z-Sword / Ionizing Field) ──────
 # Nuke (Kinetic) — long-cooldown player-centred blast + auto knockback + lingering radiation slow zone.
@@ -160,17 +125,10 @@ const BOOM_BLADE      := 45.0       # blade visual half-length (+150% of the old
 const BOOM_DAMAGE     := 28.0
 const BOOM_HIT_RADIUS := 48.0       # enlarged to match the bigger blade
 const BOOM_HIT_CD     := 0.25       # per-enemy re-hit interval (a blade sweeps the same enemy repeatedly)
-const BOOM_SPIN       := 28.0       # visual self-spin rad/s (+300% of the previous 7.0)
+const BOOM_SPIN       := 12.566     # visual self-spin rad/s (120 RPM = 4π)
 const BOOM_COL        := Color(0.95, 0.85, 0.5)
-const BOOM_DRAW       := 130.0      # on-screen boomerang sprite width (px); height aspect-locked per texture
-# Fired-projectile sprite variants. Switch with `sprite_version_boomerang` (1, 2, or 3).
-const BOOM_TEX_VERSIONS: Array[Texture2D] = [
-	preload("res://assets/Boomerang.png"),     # 1 — chrome V
-	preload("res://assets/Boomerang 2.png"),   # 2 — saw blade
-	preload("res://assets/Boomerang 3.png"),   # 3 — sci-fi tech boomerang
-]
-## TUNABLE — which boomerang sprite is used when firing: 1, 2, or 3. Change this to swap the look.
-var sprite_version_boomerang: int = 2
+const BOOM_DRAW       := 19.5       # on-screen boomerang sprite width (px); height aspect-locked per texture
+const BOOM_TEX: Texture2D = preload("res://assets/weaponry/ND-Aliwa-Bmr.png")
 # Parasite Cloud (Biological) — fast blob that decelerates into a lingering damage cloud.
 const PARA_COOLDOWN   := 2.6
 const PARA_SPEED      := 520.0
@@ -180,6 +138,8 @@ const PARA_RADIUS     := 90.0
 const PARA_TICK       := 0.25
 const PARA_DAMAGE     := 10.0       # per tick to everything inside
 const PARA_COL        := Color(0.6, 0.95, 0.45)
+const PARA_GAS_LIFETIME := 4.0   # seconds gas cloud lingers after spore expires
+const PARA_GAS_PUFF_N   := 7     # puffs per expired spore (1 centre + 6 ring)
 # Moroboshi-M1 (Biological) — winged-golem familiar that chases enemies and punches (AoE + stagger).
 const MORO_FOLLOW_DIST := 90.0      # rests this far behind the ship when idle
 const MORO_MOVE_SPEED  := 240.0
@@ -190,6 +150,21 @@ const MORO_AOE         := 90.0
 const MORO_DAMAGE      := 40.0
 const MORO_STAGGER     := 0.3
 const MORO_COL         := Color(0.8, 0.7, 1.0)
+# Yari Jaeger (Energy) — blade familiar: seeks nearest enemy like Moroboshi, then arc-sweeps like Z-Sword mini.
+const YARI_ORBIT_R     := 200.0     # idle orbit radius around player (no targets)
+const YARI_ORBIT_SPEED := 1.0       # rad/s — tangential speed = 200 px/s < YARI_MOVE_SPEED
+const YARI_MOVE_SPEED  := 260.0     # flight speed toward enemy
+const YARI_AGGRO       := 520.0     # engage enemies within this range of Yari
+const YARI_ATTACK_RANGE:= 80.0      # trigger slash when this close to target
+const YARI_ATTACK_CD   := 1.5       # seconds between slashes
+const YARI_SWEEP_TIME  := 0.4       # full arc completes in this many seconds (5 frames × 0.08 s)
+const YARI_LENGTH      := 110.0     # slash arc radius centred on Yari
+const YARI_ARC_HALF    := 0.314159  # hit half-arc (~18°) — same tolerance as Z-Sword
+const YARI_DAMAGE      := 55.0
+const YARI_STAGGER     := 0.25
+const YARI_FRAME_DELAY := 0.08      # seconds per GIF frame during the slash animation
+const YARI_TURN_RATE   := 120.0 / 60.0 * TAU      # 120 RPM → rad/s (≈ 12.57 rad/s)
+const YARI_COL         := Color(0.9, 0.65, 1.0)   # light violet glow
 # Swarm Host (Biological) — familiars that dart to enemies, deal damage, return and heal the player.
 const SWARM_COUNT      := 2         # familiar count (body)
 const SWARM_SPEED      := 420.0
@@ -200,8 +175,8 @@ const SWARM_HEAL_FRAC  := 0.25      # heal the player for this fraction of damag
 const SWARM_IDLE_R     := 70.0      # orbit radius near the ship when idle
 const SWARM_COL        := Color(0.95, 0.6, 0.85)
 # Space Snake (Biological) — fire-snake familiar; head chases enemies, body trails, contact DoT.
-const SNAKE_SEGMENTS   := 10
-const SNAKE_SPACING    := 18.0
+const SNAKE_SEGMENTS   := 9        # 1 head + 7 body + 1 tail
+const SNAKE_SPACING    := 25.2     # px between centres = body segment size (zero gap)
 const SNAKE_SPEED      := 300.0
 const SNAKE_TURN       := 3.0       # max turn rad/s (head minimises turn angle)
 const PREDATOR_TURN    := 2.0       # The Predator's head turns slower → its beam must be aimed by turning the head
@@ -231,17 +206,22 @@ const MISSILE_MAX_LIFE     := 4.0     # backstop: explode after this long
 
 # ── TUNABLES: Orbitals (spiky energy orbs circling the ship, contact damage — ported from weapon_system.gd) ──
 const ORBITAL_BALLS        := 3       # number of orbiting balls (evenly spaced)
-const ORBITAL_RADIUS       := 350.0   # orbit radius around the ship (px)
-const ORBITAL_SPIN         := 90.0   # deg/sec (one loop every 3s); always-on passive (no overcharge in arena)
-const ORBITAL_BALL_RADIUS  := 9.0     # procedural-fallback ball radius (px)
+const ORBITAL_RADIUS       := 175.0   # orbit radius around the ship (px)
+const ORBITAL_SPIN         := 108.0   # deg/sec orbit around the ship (+20%)
+const ORBITAL_SELF_RPM     := 40.0    # sprite self-rotation (RPM); 40 RPM = 240 deg/sec
+const ORBITAL_BALL_RADIUS  := 4.5     # procedural-fallback ball radius (px) — 50% of original 9
 const ORBITAL_HIT_PAD      := 16.0    # (fallback) added to the ball radius for the contact test
 const ORBITAL_DAMAGE       := 25.0    # damage per ball collision (× damage-mult, crit-rollable); also fallback if the item def is missing
 const ORBITAL_HIT_COOLDOWN := 0.12    # per-ball seconds before it can hit again (~1 hit per pass)
 const ORBITAL_STAGGER      := 0.1     # s stagger per orbital hit
 const ORBITAL_LIGHT        := 2.5     # dust-light value per ball
 const ORBITAL_COL          := Color(0.6, 0.85, 1.0)   # electric arc tint (fallback draw + dust light)
-const ORBITAL_SPRITE       := "res://assets/beam references/Sprite_orbital_2.png"   # spiky energy orb art (white bg keyed out)
-const ORBITAL_DRAW         := 45.0    # on-screen orb diameter (px)
+const ORBITAL_SPRITE       := "res://assets/weaponry/ND-OID-F.png"
+const SWARM_SPRITE         := "res://assets/weaponry/ND-OIO-F.png"
+const SWARM_DRAW           := 24.0
+const PARA_SPRITE          := "res://assets/weaponry/BC-SL-Spore.png"
+const PARA_DRAW            := 18.0
+const ORBITAL_DRAW         := 22.5    # on-screen orb reference size (px) — 50% of original 45
 const ORBITAL_KEY_THR      := 240     # white-key threshold (0-255): border-connected pixels ≥ this → transparent
 const ORBITAL_HIT_FRAC     := 0.45    # collision radius = ORBITAL_DRAW * 0.5 * this (matches the sprite body)
 # Motion blur (afterimage ghosts + tangent streak glow). Orbit speed is fixed → blur is a constant knob.
@@ -250,7 +230,7 @@ const trail_ghosts         := 5       # afterimage copies behind the body
 const trail_arc_step       := 0.06    # rad between ghosts, stepping BACK along the orbit (curved trail; tighter spacing)
 const trail_alpha_falloff  := 0.55    # each older ghost = prev * this
 const trail_scale_falloff  := 0.97    # each older ghost slightly smaller
-const trail_tint           := Color(0.6, 0.85, 1.0)   # cool tint pushed into ghosts (energy streak, not clones)
+const trail_tint           := Color(1.0, 0.52, 0.10)   # orange trail tint
 const streak_enabled       := true
 const streak_len_min       := 8.0     # tangent streak length at low blur (px)
 const streak_len_max       := 60.0    # streak length at full blur (px)
@@ -436,6 +416,7 @@ const SFX_BOLT_HIT: Array[AudioStream] = [
 const SFX_ENGINE_HUM: AudioStream = preload("res://assets/audio/sfx/Scifi/scifi-background-noise.wav")
 const SFX_GAUSS_FIRE: AudioStream = preload("res://assets/audio/sfx/hitimpact.wav")
 const SFX_GAUSS_IMPACT: AudioStream = preload("res://assets/audio/sfx/AstroMenace-SFX/weaponfire6.wav")
+const SFX_ORBITAL_IMPACT: AudioStream = preload("res://assets/audio/sfx/AstroMenace-SFX/weaponfire6.wav")
 const SFX_LASGUN_CHARGE: AudioStream = preload("res://assets/audio/sfx/Scifi/blg_beam_01.wav")
 const SFX_LASGUN_BEAM: AudioStream = preload("res://assets/audio/sfx/AstroMenace-SFX/weaponfire14.wav")
 const PickupScript := preload("res://scripts/gameplay/arena_weapon_pickup.gd")
@@ -607,6 +588,7 @@ var _gauss_active: bool = GAUSS_ENABLED
 var _engine_hum: AudioStreamPlayer = null
 var _gauss_fire_player: AudioStreamPlayer = null
 var _gauss_impact_player: AudioStreamPlayer = null
+var _orbital_impact_player: AudioStreamPlayer = null
 var _las_charge_player: AudioStreamPlayer = null
 var _las_beam_player: AudioStreamPlayer = null
 var _las_beam_playing: bool = false
@@ -625,10 +607,13 @@ var _arc_thunder_tex: ImageTexture = null   # procedural tileable thunder textur
 var _arc_spark_tex: ImageTexture = null     # small stretched spark streak (cached)
 var _orbital_active: bool = false  # turned on by the Orbital pickup
 var _orbital_angle: float = 0.0    # current orbit angle (deg)
+var _orbital_self_angle: float = 0.0  # sprite self-rotation angle (deg), driven by ORBITAL_SELF_RPM
 var _orbital_t: float = 0.0        # time accumulator for the electric-arc crackle
 var _orbital_cd: Array = []        # per-ball hit cooldown timers
-var _orbital_tex: Texture2D = null # orb sprite (white background keyed out); null → procedural fallback
-var _orbital_damage: float = ORBITAL_DAMAGE   # per-collision damage, ported from the "orbitals" item def at _ready
+var _orbital_tex: Texture2D = null # orb sprite; null → procedural fallback
+var _orbital_tex_size: Vector2 = Vector2.ZERO  # native pixel size of the orb sprite (for ratio-correct draw)
+var _orbital_damage: float = ORBITAL_DAMAGE
+var _plume_registry: Array = []    # [{cfg_key, count, ds, provider, anchors}] — generic plume system
 var _void_active: bool = false     # turned on by the Void pickup
 var _void_cd: float = 0.0          # cast cooldown (ready when <= 0)
 var _void_on: bool = false         # a void is currently open
@@ -668,16 +653,38 @@ var _boom_center: Vector2 = Vector2.ZERO   # trailing centre of the rose pattern
 var _booms: Array = []                 # perpetual blades: {theta, spin, age, pos, hits:{}}
 var _para_active: bool = false
 var _para_cd: float = 0.0
-var _para_clouds: Array = []           # {pos, vel, age, tick}
+var _para_clouds: Array = []           # {pos, vel, age, tick, plume}
+var _para_gas_puffs: Array = []        # [{pos, age, max_age}] — DynamicFire puffs from expired spores
+var _para_gas_fx: DynamicFire = null   # recolored toxic-fire emitter for gas clouds
+var _para_tex: Texture2D = null
+var _para_plume_data: Dictionary = {}  # cached fracs+styles for fast per-cloud plume creation
 var _moro_active: bool = false
 var _moro_init: bool = false
 var _moro_pos: Vector2 = Vector2.ZERO
+var _moro_facing: float = -PI * 0.5
+var _moro_frames: Array[Texture2D] = []
 var _moro_cd: float = 0.0
 var _moro_punch_t: float = 0.0
 var _moro_punch_pos: Vector2 = Vector2.ZERO
+# ── Yari Jaeger ──
+var _yari_active: bool = false
+var _yari_init: bool = false
+var _yari_pos: Vector2 = Vector2.ZERO
+var _yari_cd: float = 0.0
+var _yari_sweeping: bool = false
+var _yari_sweep_t: float = 0.0
+var _yari_sweep_start: float = 0.0
+var _yari_hit: Array = []
+var _yari_slash: Node2D = null
+var _yari_frames: Array[Texture2D] = []
+var _yari_frame_acc: float = 0.0
+var _yari_frame_idx: int = 0
+var _yari_facing: float = -PI * 0.5   # world angle the sprite faces; default = up (sprite's natural axis)
+var _yari_orbit_ang: float = 0.0      # current orbit angle when idling (no targets)
 var _swarm_active: bool = false
 var _swarm_init: bool = false
 var _swarm_units: Array = []           # {pos, state, target, dmg, ang}
+var _swarm_tex: Texture2D = null
 var _snake_active: bool = false
 var _snake_init: bool = false
 var _snake_pts: Array = []             # head-first list of segment positions (Vector2)
@@ -706,6 +713,12 @@ var _predator_active: bool = false     # fusion: the Space Snake also fires a La
 var _predator_beam: Node2D = null      # the snake-head Lasgun beam visual (separate from the main _beam)
 var _predator_beam_cd: float = 0.0     # beam damage-tick cooldown
 var _predator_aim: Vector2 = Vector2.RIGHT   # current beam direction (recomputed each tick to maximise hits)
+var _snake_head_top_tex: Texture2D = null
+var _snake_body_tex:     Texture2D = null
+var _snake_tail_tex:      Texture2D = null
+var _snake_head_plume_anchor:  Node2D = null
+var _snake_tail_plume_anchor:  Node2D = null
+var _snake_body_plume_anchors: Array  = []   # one Node2D per body segment (k=1..n-2)
 var _lasgun_active: bool = false   # turned on by the Lasgun pickup (auto-equip, accumulates with the Gatling)
 var _beam_cd: float = 0.0          # Lasgun damage-tick cooldown
 var _beam: Node2D = null           # additive beam VFX child (gameplay plane → sharp)
@@ -734,8 +747,49 @@ func _ready() -> void:
 	add_child(_gat_muzzle_fx)
 	_zslash = ZSlashScript.new()
 	add_child(_zslash)
+	_yari_slash = ZSlashScript.new()
+	add_child(_yari_slash)
+	_load_yari_frames()
+	_load_moro_frames()
+	_load_snake_tex()
 	_load_gauss_frames()
 	_load_gauss_explosion_frames()
+	_load_orbital_tex()
+	_load_swarm_tex()
+	_load_para_tex()
+	_load_para_plume_data()
+	# ── Generic plume registry ────────────────────────────────────────────────────
+	_register_plume("Yari-Jeager", 1,
+		Vector2(32.0, 32.0 * 500.0 / 282.0),
+		func():
+			if not _yari_active or not _yari_init: return []
+			return [{"pos": _yari_pos, "rot": _yari_facing + PI * 0.5}])
+	var _mo_dw := 32.0
+	var _mo_dh := _mo_dw
+	if not _moro_frames.is_empty():
+		_mo_dh = _mo_dw * float(_moro_frames[0].get_height()) / maxf(float(_moro_frames[0].get_width()), 1.0)
+	_register_plume("Yari", 1, Vector2(_mo_dw, _mo_dh),
+		func():
+			if not _moro_active: return []
+			return [{"pos": _moro_pos, "rot": _moro_facing + PI * 0.5}])
+	_register_plume("ND-Aliwa-Bmr", 1,
+		Vector2(BOOM_DRAW, BOOM_DRAW * float(BOOM_TEX.get_height()) / maxf(float(BOOM_TEX.get_width()), 1.0)),
+		func():
+			if not _boom_active or _booms.is_empty(): return []
+			return [{"pos": _booms[0]["pos"], "rot": _booms[0]["spin"]}])
+	_register_plume("ND-OID-F", ORBITAL_BALLS, _orbital_draw_size(),
+		func():
+			if not _orbital_active or _player == null or not is_instance_valid(_player): return []
+			var _rad := deg_to_rad(_orbital_self_angle)
+			return _orbital_positions().map(func(p): return {"pos": p, "rot": _rad}))
+	var _sw_ds := Vector2(SWARM_DRAW, SWARM_DRAW)
+	if _swarm_tex != null:
+		_sw_ds.y = SWARM_DRAW * float(_swarm_tex.get_height()) / maxf(float(_swarm_tex.get_width()), 1.0)
+	_register_plume("ND-OIO-F", SWARM_COUNT, _sw_ds,
+		func():
+			if not _swarm_active: return []
+			return _swarm_units.map(func(u): return {"pos": u["pos"], "rot": u["ang"]}))
+	_load_all_plumes()
 	_bolt_hit_player = AudioStreamPlayer.new()
 	_bolt_hit_player.bus = "SFX"
 	add_child(_bolt_hit_player)
@@ -746,6 +800,10 @@ func _ready() -> void:
 	_gauss_impact_player.stream = SFX_GAUSS_IMPACT
 	_gauss_impact_player.bus = "SFX"
 	add_child(_gauss_impact_player)
+	_orbital_impact_player = AudioStreamPlayer.new()
+	_orbital_impact_player.stream = SFX_ORBITAL_IMPACT
+	_orbital_impact_player.bus = "SFX"
+	add_child(_orbital_impact_player)
 	_las_charge_player = AudioStreamPlayer.new()
 	_las_charge_player.stream = SFX_LASGUN_CHARGE
 	_las_charge_player.bus = "SFX"
@@ -802,6 +860,23 @@ func _load_gauss_explosion_frames() -> void:
 		if not frames.is_empty():
 			_expl_frames.append(frames)
 
+## Load the orbital sprite from ORBITAL_SPRITE. If the image has a white background (ORBITAL_KEY_THR),
+## key it out so only the orb silhouette remains.
+func _load_orbital_tex() -> void:
+	var abs_path := ProjectSettings.globalize_path(ORBITAL_SPRITE)
+	var img := Image.load_from_file(abs_path)
+	if img == null:
+		push_warning("arena_weapons: orbital sprite not found at " + ORBITAL_SPRITE)
+		return
+	img.convert(Image.FORMAT_RGBA8)
+	for y in img.get_height():
+		for x in img.get_width():
+			var px := img.get_pixel(x, y)
+			if px.r8 >= ORBITAL_KEY_THR and px.g8 >= ORBITAL_KEY_THR and px.b8 >= ORBITAL_KEY_THR:
+				img.set_pixel(x, y, Color(px.r, px.g, px.b, 0.0))
+	_orbital_tex = ImageTexture.create_from_image(img)
+	_orbital_tex_size = Vector2(img.get_width(), img.get_height())
+
 ## Light sources this weapon currently emits, for the dust field: one per live projectile/beam.
 ## Each: {pos: world Vector2, value: float (light strength), color: Color}.
 func get_lights() -> Array:
@@ -836,6 +911,8 @@ func get_lights() -> Array:
 		lights.append({"pos": pc["pos"], "value": 3.0, "color": PARA_COL})
 	if _moro_active and _moro_init:
 		lights.append({"pos": _moro_pos, "value": 3.0, "color": MORO_COL})
+	if _yari_active and _yari_init:
+		lights.append({"pos": _yari_pos, "value": 3.5, "color": YARI_COL})
 	if _swarm_active:
 		for u: Dictionary in _swarm_units:
 			lights.append({"pos": u["pos"], "value": 2.0, "color": SWARM_COL})
@@ -922,8 +999,12 @@ func _process(delta: float) -> void:
 		_tick_boom(delta, enemy_on_screen)
 	if _para_active:
 		_tick_para(delta, enemy_on_screen)
+	if _para_active or not _para_gas_puffs.is_empty():
+		_update_para_gas_fx(delta)
 	if _moro_active:
 		_tick_moro(delta)
+	if _yari_active:
+		_tick_yari(delta)
 	if _swarm_active:
 		_tick_swarm(delta)
 	if _snake_active:
@@ -962,6 +1043,7 @@ func _process(delta: float) -> void:
 	_update_sparks(delta)
 	_update_flashes(delta)
 	_update_gat_muzzle(delta)
+	_update_all_plumes()
 	queue_redraw()
 
 ## Decay the Gatling muzzle-fire flash and feed the FX child the two wing-muzzle positions + aim each frame.
@@ -1481,32 +1563,33 @@ func _red_x_damage(kind: String, scale: float, base_angle := PI / 4.0) -> void:
 				ruin.take_damage(base * _dmg_mult * _lvl_mult(kind))
 
 ## Pooled DynamicFire X-flash (recycled per shot to avoid rebuilding the GPU particle system each time).
-func _spawn_red_x_fire(center: Vector2, reach: float) -> void:
+func _spawn_red_x_fire(center: Vector2, reach: float, ship_rot: float) -> void:
 	if _red_x_fx == null or not is_instance_valid(_red_x_fx):
 		_red_x_fx = DynamicFire.new()
 		_red_x_fx.shape             = "cross"
 		_red_x_fx.arm_count         = 4
-		_red_x_fx.ring_start_angle  = PI / 4.0      # X diagonals (matches the hit test)
+		_red_x_fx.ring_start_angle  = PI / 4.0 + ship_rot   # X diagonals aligned to ship facing
 		_red_x_fx.z_index           = 6
 		_red_x_fx.particle_lifetime = 0.35
-		_red_x_fx.draw_duration     = 0.50          # 0.5s to travel from the ship's edge to the endpoint
+		_red_x_fx.draw_duration     = 0.50
 		_red_x_fx.draw_ease         = 1.0
-		_red_x_fx.hold_duration     = 0.06          # brief full-X moment at peak
-		_red_x_fx.burnout_duration  = 0.50          # 0.5s to recede back from ship → endpoint
-		_red_x_fx.recede_burnout    = true          # disappear directionally (inner→outer), not a uniform fade
-		_red_x_fx.particle_amount   = 330           # +50% density
-		_red_x_fx.particle_size_min = 40.0
-		_red_x_fx.particle_size_max = 92.0
-		_red_x_fx.intensity         = 0.5           # each particle LDR (<1) → only the dense core blooms
-		_red_x_fx.glow              = 0.25          # small HDR boost → contained bloom (not a screen-wide halo)
+		_red_x_fx.hold_duration     = 2.0
+		_red_x_fx.burnout_duration  = 1.0
+		_red_x_fx.recede_burnout    = true
+		_red_x_fx.particle_amount   = 495          # +50% particles for +50% arm length
+		_red_x_fx.particle_size_min = 20.0
+		_red_x_fx.particle_size_max = 46.0
+		_red_x_fx.intensity         = 0.5
+		_red_x_fx.glow              = 0.25
 		_red_x_fx.loop              = false
-		_red_x_fx.free_on_done      = false         # pooled: kept alive and reused
-		_red_x_fx.arm_inner         = RED_X_INNER   # fire starts on the outer edge of the ship area
-		_red_x_fx.arm_length        = reach
+		_red_x_fx.free_on_done      = false
+		_red_x_fx.arm_inner         = RED_X_INNER * 0.5
+		_red_x_fx.arm_length        = reach * 0.75
 		add_child(_red_x_fx)
 		_red_x_fx.global_position = center
 	else:
-		_red_x_fx.arm_length = reach
+		_red_x_fx.ring_start_angle = PI / 4.0 + ship_rot   # update rotation each shot
+		_red_x_fx.arm_length = reach * 0.75
 		_red_x_fx.retrigger(center)
 
 ## Called by the Chemtrail pickup — turn on the toxic breadcrumb trail.
@@ -1615,7 +1698,6 @@ func activate_orbital() -> void:
 	_orbital_cd.resize(ORBITAL_BALLS)
 	for k in ORBITAL_BALLS:
 		_orbital_cd[k] = 0.0
-
 # ── Singularities fusion (orbital + void): the orbiting balls keep the orbital movement + damage, but are
 # re-skinned as void vortices (same swirling-rift shader as the Void weapon). ──
 func activate_singularity() -> void:
@@ -1866,13 +1948,16 @@ func _tick_orbital(delta: float) -> void:
 ## fusion reuses this with kind "singularities" so the orbit's contact damage scales with the fused level).
 func _run_orbital(delta: float, kind: String) -> void:
 	_orbital_t += delta
-	_orbital_angle = fmod(_orbital_angle + ORBITAL_SPIN * delta, 360.0)
+	_orbital_angle      = fmod(_orbital_angle      + ORBITAL_SPIN              * delta, 360.0)
+	_orbital_self_angle = fmod(_orbital_self_angle + ORBITAL_SELF_RPM * 6.0    * delta, 360.0)
 	if _orbital_cd.size() < ORBITAL_BALLS:
 		_orbital_cd.resize(ORBITAL_BALLS)
 	var enemies := get_tree().get_nodes_in_group("arena_enemy")
 	var ruins   := get_tree().get_nodes_in_group("arena_ruin")
 	var balls := _orbital_positions()
-	var hit_r := ORBITAL_DRAW * 0.5 * ORBITAL_HIT_FRAC if _orbital_tex != null else ORBITAL_BALL_RADIUS + ORBITAL_HIT_PAD
+	# hit radius = half the visual size + enemy-catchment pad (ORBITAL_HIT_PAD), same regardless of texture
+	var orb_r := ORBITAL_DRAW * 0.5 if _orbital_tex != null else ORBITAL_BALL_RADIUS
+	var hit_r := orb_r + ORBITAL_HIT_PAD
 	for k in ORBITAL_BALLS:
 		_orbital_cd[k] = maxf(0.0, float(_orbital_cd[k]) - delta)
 		if float(_orbital_cd[k]) > 0.0:
@@ -1888,6 +1973,8 @@ func _run_orbital(delta: float, kind: String) -> void:
 					en.take_damage(float(_orb_r["dmg"]), ORBITAL_STAGGER)
 					if bool(_orb_r["is_crit"]):
 						_spawn_crit_number((en as Node2D).global_position, float(_orb_r["dmg"]))
+				if _orbital_impact_player != null and not _orbital_impact_player.playing:
+					_orbital_impact_player.play()
 				struck = true
 				break
 		if not struck:
@@ -1902,6 +1989,110 @@ func _run_orbital(delta: float, kind: String) -> void:
 					break
 		if struck:
 			_orbital_cd[k] = ORBITAL_HIT_COOLDOWN
+
+## Load thrust-point fracs + plume styles from weapon_layout.cfg / weapon_plume_styles.cfg,
+## then spawn CPUParticles2D children — ORBITAL_BALLS × num_TPs nodes total.
+func _register_plume(cfg_key: String, count: int, ds: Vector2, provider: Callable) -> void:
+	_plume_registry.append({"cfg_key": cfg_key, "count": count, "ds": ds, "provider": provider, "anchors": []})
+
+func _load_all_plumes() -> void:
+	const SCREEN_ORIGIN := Vector2(15.0, 8.0)
+	var cfg := ConfigFile.new()
+	if cfg.load("res://weapon_layout.cfg") != OK:
+		return
+	var scfg := ConfigFile.new()
+	scfg.load("res://weapon_plume_styles.cfg")
+	for entry: Dictionary in _plume_registry:
+		var key: String = entry["cfg_key"]
+		var tps: Array = cfg.get_value("thrustpoints", key, [])
+		if tps.is_empty():
+			continue
+		var eo: Dictionary = cfg.get_value("creeps", key, {})
+		if eo.is_empty():
+			continue
+		var eo_pos:  Vector2 = eo.get("pos",  Vector2(480.0, 380.0))
+		var eo_size: Vector2 = eo.get("size", Vector2(60.0,  60.0))
+		if eo_size.x <= 0.0 or eo_size.y <= 0.0:
+			continue
+		var all_styles: Dictionary = scfg.get_value("styles", key, {})
+		var ds: Vector2 = entry["ds"]
+		var anchors: Array = []
+		for _k in int(entry["count"]):
+			var anchor := Node2D.new()
+			anchor.visible = false
+			add_child(anchor)
+			anchors.append(anchor)
+			for tp: Dictionary in tps:
+				var tp_oc: Vector2 = (tp["pos"] as Vector2) + SCREEN_ORIGIN
+				var frac := (tp_oc - eo_pos) / eo_size
+				var tp_id: int = int(tp.get("id", 1))
+				var style: Dictionary = all_styles.get("tp_%d" % tp_id, {})
+				var p := _make_orbital_plume(frac, float(tp.get("dir_angle", PI * 0.5)), style, ds)
+				p.z_index = -1
+				anchor.add_child(p)
+		entry["anchors"] = anchors
+
+func _update_all_plumes() -> void:
+	for entry: Dictionary in _plume_registry:
+		var anchors: Array = entry.get("anchors", [])
+		if anchors.is_empty():
+			continue
+		var states: Array = (entry["provider"] as Callable).call()
+		for i in anchors.size():
+			var anchor: Node2D = anchors[i]
+			if not is_instance_valid(anchor):
+				continue
+			if i >= states.size():
+				anchor.visible = false
+				continue
+			var st: Dictionary = states[i]
+			anchor.global_position = st.get("pos", Vector2.ZERO)
+			anchor.rotation = st.get("rot", 0.0)
+			anchor.visible = st.get("visible", true)
+
+func _make_orbital_plume(frac: Vector2, dir_angle: float, style: Dictionary, ds: Vector2) -> CPUParticles2D:
+	var p := CPUParticles2D.new()
+	p.position    = (frac - Vector2(0.5, 0.5)) * ds
+	p.amount      = maxi(1, int(ds.x / 5.0))
+	p.lifetime             = float(style.get("lifetime", 0.30))
+	p.emitting    = true
+	p.local_coords = false
+	p.process_mode = Node.PROCESS_MODE_ALWAYS
+	p.z_as_relative = true
+	p.z_index     = 1
+	p.gravity     = Vector2.ZERO
+	p.direction   = Vector2.RIGHT.rotated(dir_angle)
+	p.spread               = float(style.get("spread",   12.0))
+	p.initial_velocity_min = float(style.get("vel_min",  60.0))
+	p.initial_velocity_max = float(style.get("vel_max",  100.0))
+	p.scale_amount_min     = float(style.get("sc_min",   0.6))
+	p.scale_amount_max     = float(style.get("sc_max",   1.5))
+	var taper := Curve.new()
+	taper.add_point(Vector2(0.0, 1.0))
+	taper.add_point(Vector2(1.0, 0.05))
+	p.scale_amount_curve = taper
+	p.set_meta("base_pos", p.position)
+	p.set_meta("base_dir", p.direction)
+	var img := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+	var ctr := Vector2(16, 16) * 0.5
+	for iy in 16:
+		for ix in 16:
+			var dist: float = Vector2(ix + 0.5, iy + 0.5).distance_to(ctr) / 8.0
+			var a: float = clampf(1.0 - dist, 0.0, 1.0)
+			img.set_pixel(ix, iy, Color(1.0, 1.0, 1.0, a * a))
+	p.texture = ImageTexture.create_from_image(img)
+	var col_core:  Color = style.get("col_core",  Color(0.7, 0.9, 1.0, 1.0))
+	var col_flame: Color = style.get("col_flame", Color(0.4, 0.7, 1.0, 1.0))
+	var col_cool:  Color = style.get("col_cool",  Color(0.2, 0.5, 1.0, 0.8))
+	var col_fade := col_cool; col_fade.a = 0.0
+	var grad := Gradient.new()
+	grad.offsets = PackedFloat32Array([0.0, 0.3, 0.65, 1.0])
+	grad.colors  = PackedColorArray([col_core, col_flame, col_cool, col_fade])
+	p.color_ramp = grad
+	var cm := CanvasItemMaterial.new()
+	cm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	p.material = cm
+	return p
 
 ## Per ball, drawn BACK→FRONT: tangent streak glow → afterimage ghosts → crisp body. The orbit is
 ## deterministic, so past ghost positions are just θ stepped back along the arc (no history buffer).
@@ -1925,13 +2116,18 @@ func _draw_orbital_ghosts(ship: Vector2, th: float, blur: float) -> void:
 	if _orbital_tex == null:
 		return
 	var n := maxi(1, int(round(float(trail_ghosts) * blur)))
+	var ds0 := _orbital_draw_size()
 	for j in range(1, n + 1):
-		var gth := th - trail_arc_step * float(j)   # back along the arc (spin is +θ)
+		var gth := th - trail_arc_step * float(j)
 		var gc := ship + Vector2(cos(gth), sin(gth)) * ORBITAL_RADIUS
-		var d := ORBITAL_DRAW * pow(trail_scale_falloff, float(j))
+		var sf := pow(trail_scale_falloff, float(j))
+		var ds := ds0 * sf
 		var a := pow(trail_alpha_falloff, float(j)) * blur
-		draw_texture_rect(_orbital_tex, Rect2(gc.x - d * 0.5, gc.y - d * 0.5, d, d), false,
+		var ghost_ang := _orbital_self_angle - ORBITAL_SELF_RPM * 6.0 * trail_arc_step * float(j) / maxf(0.001, ORBITAL_SPIN * deg_to_rad(1.0))
+		draw_set_transform(gc, deg_to_rad(ghost_ang))
+		draw_texture_rect(_orbital_tex, Rect2(-ds.x * 0.5, -ds.y * 0.5, ds.x, ds.y), false,
 			Color(trail_tint.r, trail_tint.g, trail_tint.b, a))
+		draw_set_transform(Vector2.ZERO, 0.0)
 
 ## Soft tangent streak glow: stacked low-alpha circles sampled along the arc behind the orbital → a smooth
 ## speed smear, brightest at the body and fading backward (soft mix-blend glow, no hard shape).
@@ -1947,11 +2143,18 @@ func _draw_orbital_streak(ship: Vector2, th: float, blur: float) -> void:
 		var rad := streak_width * 0.5 * (1.0 - f * 0.4)
 		draw_circle(sc, rad, Color(trail_tint.r, trail_tint.g, trail_tint.b, a))
 
+func _orbital_draw_size() -> Vector2:
+	if _orbital_tex != null and _orbital_tex_size.x > 0.0 and _orbital_tex_size.y > 0.0:
+		var max_dim := maxf(_orbital_tex_size.x, _orbital_tex_size.y)
+		return _orbital_tex_size * (ORBITAL_DRAW / max_dim)
+	return Vector2(ORBITAL_DRAW, ORBITAL_DRAW)
+
 func _draw_orbital_ball(c: Vector2) -> void:
-	# Sprite path: draw the keyed orb art (crisp, NO self-rotation — orbit-only). It carries its own energy.
 	if _orbital_tex != null:
-		var d := ORBITAL_DRAW
-		draw_texture_rect(_orbital_tex, Rect2(c.x - d * 0.5, c.y - d * 0.5, d, d), false)
+		var ds := _orbital_draw_size()
+		draw_set_transform(c, deg_to_rad(_orbital_self_angle))
+		draw_texture_rect(_orbital_tex, Rect2(-ds.x * 0.5, -ds.y * 0.5, ds.x, ds.y), false)
+		draw_set_transform(Vector2.ZERO, 0.0)
 		return
 	# Procedural fallback (no sprite): soft glow + crackling arcs + a 3-layer metal sphere.
 	var r := ORBITAL_BALL_RADIUS
@@ -2006,6 +2209,39 @@ func acquire_weapon(kind: String) -> bool:
 ## Ordered copy of the acquired weapon kinds — read by the slot HUD.
 func acquired_weapons() -> Array:
 	return _acquired.duplicate()
+
+## Debug: instantly disarm every weapon and reset all active state.
+func clear_all_weapons() -> void:
+	_acquired.clear()
+	_levels.clear()
+	_gat_active     = false
+	_lasgun_active  = false
+	_arc_active     = false
+	_gauss_active   = false
+	_orbital_active = false
+	_void_active     = false
+	_red_x_active    = false
+	_chemtrail_active = false
+	_nuke_active     = false
+	_sonic_active    = false
+	_zsword_active   = false
+	_ionize_active   = false
+	_boom_active     = false;  _boom_init = false;  _booms.clear()
+	for c: Dictionary in _para_clouds:
+		var _pa: Node2D = c.get("plume")
+		if _pa != null and is_instance_valid(_pa):
+			_pa.queue_free()
+	_para_active = false;  _para_clouds.clear();  _para_gas_puffs.clear()
+	if _para_gas_fx != null and is_instance_valid(_para_gas_fx):
+		_para_gas_fx.visible = false
+	_moro_active     = false;  _moro_init = false
+	_yari_active     = false;  _yari_init = false
+	_swarm_active    = false;  _swarm_init = false;  _swarm_units.clear()
+	for entry: Dictionary in _plume_registry:
+		for anchor: Node2D in (entry.get("anchors", []) as Array):
+			if is_instance_valid(anchor):
+				anchor.visible = false
+	_snake_active    = false;  _snake_init = false;  _snake_pts.clear()
 
 # ── Weapon levels (level-up upgrades) ────────────────────────────────────────────
 ## Per-kind level cap — fused weapons get FUSION_BONUS_LEVELS extra levels above MAX_WEAPON_LEVEL.
@@ -2080,8 +2316,9 @@ func _activate_kind(kind: String) -> void:
 		"ionize":  activate_ionize()
 		"boomerang": activate_boomerang()
 		"parasite":  activate_parasite()
-		"moroboshi": activate_moroboshi()
-		"swarm":     activate_swarm()
+		"moroboshi":   activate_moroboshi()
+		"yari_jaeger": activate_yari()
+		"swarm":       activate_swarm()
 		"snake":     activate_snake()
 		"homing":    activate_homing()
 		"carnage":      activate_carnage()
@@ -2151,7 +2388,7 @@ func _deactivate_kind(kind: String) -> void:
 func weapon_cooldown_frac(kind: String) -> float:
 	var rate := maxf(0.01, _rate_mult)
 	match kind:
-		"gatling", "orbital", "chemtrail", "ionize", "moroboshi", "swarm", "snake", "boomerang", "carnage", "vampire_host", "predator", "homing", "toxic_ballistic", "singularities":
+		"gatling", "orbital", "chemtrail", "ionize", "moroboshi", "yari_jaeger", "swarm", "snake", "boomerang":
 			return 1.0   # continuous stream / always-on passive or familiar → never masked
 		"gauss":
 			return clampf(_gauss_charge / maxf(0.01, GAUSS_CHARGE_TIME / rate), 0.0, 1.0)
@@ -2210,8 +2447,9 @@ func weapon_is_firing(kind: String) -> bool:
 		"ionize":  return _ionize_active
 		"boomerang": return _boom_active
 		"parasite":  return _para_active
-		"moroboshi": return _moro_active
-		"swarm":     return _swarm_active
+		"moroboshi":   return _moro_active
+		"yari_jaeger": return _yari_active and _yari_sweeping
+		"swarm":       return _swarm_active
 		"snake":     return _snake_active
 	return false
 
@@ -2876,18 +3114,36 @@ func _tick_para(delta: float, enemy_on_screen: bool) -> void:
 		var tgt := _nearest_enemy(_player.global_position, INF, [])
 		if tgt != null:
 			dir = ((tgt as Node2D).global_position - _muzzle()).normalized()
-		_para_clouds.append({"pos": _muzzle(), "vel": dir * PARA_SPEED, "age": 0.0, "tick": 0.0})
+		_para_clouds.append({"pos": _muzzle(), "vel": dir * PARA_SPEED, "age": 0.0, "tick": 0.0,
+				"ang": dir.angle(), "plume": _make_para_cloud_plume()})
 	var reach := _aoe_radius(PARA_RADIUS)
 	var i := _para_clouds.size() - 1
 	while i >= 0:
 		var c: Dictionary = _para_clouds[i]
 		c["age"] = float(c["age"]) + delta
 		if float(c["age"]) >= PARA_LIFETIME:
+			var _pa: Node2D = c.get("plume")
+			if _pa != null and is_instance_valid(_pa):
+				_pa.queue_free()
+			var _gp: Vector2 = c["pos"]
+			_para_gas_puffs.append({"pos": _gp, "age": 0.0, "max_age": PARA_GAS_LIFETIME})
+			for _gi in 6:
+				var _ga := TAU * float(_gi) / 6.0
+				var _gr := _aoe_radius(PARA_RADIUS) * 0.55
+				_para_gas_puffs.append({"pos": _gp + Vector2(cos(_ga), sin(_ga)) * _gr,
+						"age": 0.0, "max_age": PARA_GAS_LIFETIME})
 			_para_clouds.remove_at(i)
 			i -= 1
 			continue
 		c["vel"] = (c["vel"] as Vector2).lerp(Vector2.ZERO, clampf(PARA_DRAG * delta, 0.0, 1.0))
 		c["pos"] = (c["pos"] as Vector2) + (c["vel"] as Vector2) * delta
+		var _vel: Vector2 = c["vel"]
+		if _vel.length_squared() > 1.0:
+			c["ang"] = _vel.angle()
+		var _pa: Node2D = c.get("plume")
+		if _pa != null and is_instance_valid(_pa):
+			_pa.global_position = c["pos"]
+			_pa.rotation = float(c["ang"])
 		c["tick"] = float(c["tick"]) + delta
 		while float(c["tick"]) >= PARA_TICK:
 			c["tick"] = float(c["tick"]) - PARA_TICK
@@ -2900,6 +3156,41 @@ func _tick_para(delta: float, enemy_on_screen: bool) -> void:
 						var r := _roll_damage(PARA_DAMAGE, "parasite")
 						en.take_damage(float(r["dmg"]), 0.0)
 		i -= 1
+
+func _update_para_gas_fx(delta: float) -> void:
+	var idx := _para_gas_puffs.size() - 1
+	while idx >= 0:
+		var puff: Dictionary = _para_gas_puffs[idx]
+		puff["age"] = float(puff["age"]) + delta
+		if float(puff["age"]) >= float(puff["max_age"]):
+			_para_gas_puffs.remove_at(idx)
+		idx -= 1
+	if _para_gas_puffs.is_empty():
+		if _para_gas_fx != null and is_instance_valid(_para_gas_fx):
+			_para_gas_fx.visible = false
+		return
+	if _para_gas_fx == null or not is_instance_valid(_para_gas_fx):
+		_para_gas_fx = DynamicFire.new()
+		_para_gas_fx.free_form         = true
+		_para_gas_fx.z_index           = 6
+		_para_gas_fx.color_start       = Color(0.45, 0.88, 0.28)
+		_para_gas_fx.color_mid         = Color(0.32, 0.52, 0.18)
+		_para_gas_fx.color_end         = Color(0.28, 0.12, 0.38)
+		_para_gas_fx.intensity         = 0.15
+		_para_gas_fx.particle_amount   = 200
+		_para_gas_fx.particle_size_min = 60.0
+		_para_gas_fx.particle_size_max = 130.0
+		_para_gas_fx.velocity_min      = 8.0
+		_para_gas_fx.velocity_max      = 28.0
+		_para_gas_fx.particle_lifetime = 1.0
+		add_child(_para_gas_fx)
+	_para_gas_fx.visible = true
+	var center := _player.global_position
+	_para_gas_fx.global_position = center
+	var pts: Array = []
+	for puff: Dictionary in _para_gas_puffs:
+		pts.append((puff["pos"] as Vector2) - center)
+	_para_gas_fx.set_points(pts)
 
 # ── Moroboshi-M1 (golem familiar) ───────────────────────────────────────────────────
 func activate_moroboshi() -> void:
@@ -2917,7 +3208,15 @@ func _tick_moro(delta: float) -> void:
 		dest = (tgt as Node2D).global_position
 	else:
 		dest = center + Vector2(0.0, MORO_FOLLOW_DIST).rotated(_player.rotation)   # rest behind the ship
+	var prev_pos := _moro_pos
 	_moro_pos = _moro_pos.move_toward(dest, MORO_MOVE_SPEED * delta)
+	var _moro_dp := _moro_pos - center
+	if _moro_dp.length() > 1000.0:
+		_moro_pos = center + _moro_dp.normalized() * 1000.0
+	if _moro_pos.distance_squared_to(prev_pos) > 0.01:
+		var _moro_desired := (dest - prev_pos).angle()
+		var _moro_diff := angle_difference(_moro_facing, _moro_desired)
+		_moro_facing += clampf(_moro_diff, -YARI_TURN_RATE * delta, YARI_TURN_RATE * delta)
 	_moro_cd -= delta
 	_moro_punch_t = maxf(0.0, _moro_punch_t - delta)
 	if tgt != null and _moro_cd <= 0.0:
@@ -2936,6 +3235,171 @@ func _tick_moro(delta: float) -> void:
 						en.take_damage(float(r["dmg"]), MORO_STAGGER)
 						if bool(r["is_crit"]):
 							_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+
+# ── Yari Jaeger (homing blade familiar — arc slash on contact) ─────────────────────
+func activate_yari() -> void:
+	_yari_active = true
+	_yari_cd = 0.0
+
+func _load_yari_frames() -> void:
+	# GifLoader: tries sheet.png+sheet.json first (fast), falls back to LZW decode + auto-converts for next run.
+	var tex := GifLoader.load_gif("res://assets/weaponry/Yari-Jeager.gif")
+	if tex == null:
+		return
+	_yari_frames.clear()
+	if tex.has_meta("gif_frames"):
+		for f: Texture2D in (tex.get_meta("gif_frames") as Array):
+			_yari_frames.append(f)
+	else:
+		_yari_frames.append(tex)   # single-frame GIF
+
+func _load_moro_frames() -> void:
+	var tex := GifLoader.load_gif("res://assets/weaponry/Yari.gif")
+	if tex == null:
+		return
+	_moro_frames.clear()
+	if tex.has_meta("gif_frames"):
+		for f: Texture2D in (tex.get_meta("gif_frames") as Array):
+			_moro_frames.append(f)
+	else:
+		_moro_frames.append(tex)
+
+func _load_swarm_tex() -> void:
+	var img := Image.load_from_file(ProjectSettings.globalize_path(SWARM_SPRITE))
+	if img == null:
+		return
+	img.convert(Image.FORMAT_RGBA8)
+	_swarm_tex = ImageTexture.create_from_image(img)
+
+func _load_para_tex() -> void:
+	var img := Image.load_from_file(ProjectSettings.globalize_path(PARA_SPRITE))
+	if img == null:
+		return
+	img.convert(Image.FORMAT_RGBA8)
+	_para_tex = ImageTexture.create_from_image(img)
+
+func _load_para_plume_data() -> void:
+	const SCREEN_ORIGIN := Vector2(15.0, 8.0)
+	var cfg := ConfigFile.new()
+	if cfg.load("res://weapon_layout.cfg") != OK:
+		return
+	var eo: Dictionary = cfg.get_value("creeps", "BC-SL-Spore", {})
+	if eo.is_empty():
+		return
+	var eo_pos:  Vector2 = eo.get("pos",  Vector2(480.0, 380.0))
+	var eo_size: Vector2 = eo.get("size", Vector2(60.0, 68.7))
+	var tps: Array = cfg.get_value("thrustpoints", "BC-SL-Spore", [])
+	if tps.is_empty():
+		return
+	var scfg := ConfigFile.new()
+	var all_styles: Dictionary = {}
+	if scfg.load("res://weapon_plume_styles.cfg") == OK:
+		all_styles = scfg.get_value("styles", "BC-SL-Spore", {})
+	var pw := PARA_DRAW
+	var ph := pw
+	if _para_tex != null:
+		ph = pw * float(_para_tex.get_height()) / maxf(float(_para_tex.get_width()), 1.0)
+	var fracs: Array = []
+	for tp: Dictionary in tps:
+		var tp_oc: Vector2 = (tp["pos"] as Vector2) + SCREEN_ORIGIN
+		var frac := (tp_oc - eo_pos) / eo_size
+		var tp_id: int = int(tp.get("id", 1))
+		fracs.append({"frac": frac, "dir_angle": float(tp.get("dir_angle", PI * 0.5)),
+				"style": all_styles.get("tp_%d" % tp_id, {})})
+	_para_plume_data = {"fracs": fracs, "ds": Vector2(pw, ph)}
+
+func _make_para_cloud_plume() -> Node2D:
+	var anchor := Node2D.new()
+	add_child(anchor)
+	if _para_plume_data.is_empty():
+		return anchor
+	var ds: Vector2 = _para_plume_data.get("ds", Vector2(PARA_DRAW, PARA_DRAW))
+	for fd: Dictionary in (_para_plume_data.get("fracs", []) as Array):
+		var p := _make_orbital_plume(fd["frac"] as Vector2, float(fd["dir_angle"]),
+				fd["style"] as Dictionary, ds)
+		p.z_index = -1
+		anchor.add_child(p)
+	return anchor
+
+func _tick_yari(delta: float) -> void:
+	if not _yari_init:
+		_yari_pos = _player.global_position
+		_yari_init = true
+	_yari_cd -= delta
+	if not _yari_sweeping:
+		_yari_frame_idx = 0
+		_yari_frame_acc = 0.0
+		var center := _player.global_position
+		var tgt := _nearest_enemy(_yari_pos, YARI_AGGRO, [])
+		var dest: Vector2
+		if tgt != null:
+			dest = (tgt as Node2D).global_position
+		else:
+			# Advance orbit point and chase it — Yari spirals naturally into the orbit circle.
+			_yari_orbit_ang += YARI_ORBIT_SPEED * delta
+			dest = center + Vector2(cos(_yari_orbit_ang), sin(_yari_orbit_ang)) * YARI_ORBIT_R
+		# Only fly toward enemy; stop when within attack range
+		var old_pos := _yari_pos
+		if tgt == null or _yari_pos.distance_to((tgt as Node2D).global_position) > YARI_ATTACK_RANGE:
+			_yari_pos = _yari_pos.move_toward(dest, YARI_MOVE_SPEED * delta)
+		var _yari_dp := _yari_pos - center
+		if _yari_dp.length() > 1000.0:
+			_yari_pos = center + _yari_dp.normalized() * 1000.0
+		# Facing: rotate toward desired direction at YARI_TURN_RATE (120 RPM) — no instant snap.
+		var desired_facing: float
+		if _yari_pos.distance_to(old_pos) > 0.5:
+			desired_facing = (_yari_pos - old_pos).angle()
+		elif tgt != null:
+			desired_facing = ((tgt as Node2D).global_position - _yari_pos).angle()
+		else:
+			desired_facing = _yari_facing
+		var diff := wrapf(desired_facing - _yari_facing, -PI, PI)
+		_yari_facing += clampf(diff, -YARI_TURN_RATE * delta, YARI_TURN_RATE * delta)
+		if tgt != null and _yari_cd <= 0.0 and _yari_pos.distance_to((tgt as Node2D).global_position) <= YARI_ATTACK_RANGE:
+			_yari_cd = YARI_ATTACK_CD / _rate_mult
+			_yari_sweeping = true
+			_yari_sweep_t = 0.0
+			# CCW sweep: start +90° ahead of target direction, blade_ang decreases each frame
+			_yari_facing = ((tgt as Node2D).global_position - _yari_pos).angle()
+			_yari_sweep_start = _yari_facing + PI * 0.5
+			_yari_hit = []
+	else:
+		_yari_sweep_t += delta
+		# Advance GIF frame
+		_yari_frame_acc += delta
+		if _yari_frame_acc >= YARI_FRAME_DELAY and not _yari_frames.is_empty():
+			_yari_frame_acc -= YARI_FRAME_DELAY
+			_yari_frame_idx = mini(_yari_frame_idx + 1, _yari_frames.size() - 1)
+		if _yari_sweep_t >= YARI_SWEEP_TIME:
+			_yari_sweeping = false
+			if _yari_slash != null:
+				_yari_slash.fade_out()
+			# Sync orbit angle to current bearing so idle orbit continues smoothly.
+			_yari_orbit_ang = (_yari_pos - _player.global_position).angle()
+			queue_redraw()
+			return
+		# CCW: blade_ang decreases. ZSlash requires lead > start (swept>0), so pass:
+		#   lead = blade_ang, start = blade_ang - swept_so_far
+		# → swept = TAU*t_frac > 0; ZSlash clamps to its internal SPAN.
+		var t_frac  := _yari_sweep_t / YARI_SWEEP_TIME
+		var blade_ang := _yari_sweep_start - TAU * t_frac
+		var reach := _aoe_radius(YARI_LENGTH)
+		if _yari_slash != null:
+			_yari_slash.set_sweep(_yari_pos, reach, blade_ang - TAU * t_frac, blade_ang)
+		for en in get_tree().get_nodes_in_group("arena_enemy"):
+			if not is_instance_valid(en) or en in _yari_hit:
+				continue
+			var off := (en as Node2D).global_position - _yari_pos
+			if off.length() <= reach and absf(wrapf(off.angle() - blade_ang, -PI, PI)) <= YARI_ARC_HALF:
+				if en.has_method("take_damage"):
+					var r := _roll_damage(YARI_DAMAGE, "yari_jaeger")
+					en.take_damage(float(r["dmg"]), YARI_STAGGER)
+					if bool(r["is_crit"]):
+						_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+				if _yari_slash != null:
+					_yari_slash.add_spark((en as Node2D).global_position)
+				_yari_hit.append(en)
+	queue_redraw()
 
 # ── Swarm Host (darting familiars that heal on return) ──────────────────────────────
 func activate_swarm() -> void:
@@ -2989,6 +3453,95 @@ func _tick_swarm(delta: float) -> void:
 func activate_snake() -> void:
 	_snake_active = true
 
+func _load_snake_tex() -> void:
+	var load_img := func(res_path: String) -> Texture2D:
+		var img := Image.load_from_file(ProjectSettings.globalize_path(res_path))
+		return ImageTexture.create_from_image(img) if img != null else null
+	_snake_head_top_tex = load_img.call("res://assets/weaponry/VIPER head top.png")
+	_snake_body_tex     = load_img.call("res://assets/weaponry/VIPER body.png")
+	_snake_tail_tex      = load_img.call("res://assets/weaponry/VIPER Tail.png")
+	_load_snake_plume()
+
+func _load_snake_plume() -> void:
+	const SCREEN_ORIGIN := Vector2(15.0, 8.0)
+	const SEG_PX        := 44.0
+	var cfg := ConfigFile.new()
+	if cfg.load("res://weapon_layout.cfg") != OK:
+		return
+	var scfg := ConfigFile.new()
+	scfg.load("res://weapon_plume_styles.cfg")
+
+	# --- Head ---
+	if _snake_head_top_tex != null:
+		var eh: Dictionary  = cfg.get_value("creeps",       "VIPER head top", {})
+		var head_tps: Array = cfg.get_value("thrustpoints", "VIPER head top", [])
+		if not eh.is_empty() and not head_tps.is_empty():
+			var eh_pos:  Vector2 = eh.get("pos",  Vector2(480.0, 380.0))
+			var eh_size: Vector2 = eh.get("size", Vector2(60.0,  101.5))
+			var styles: Dictionary = scfg.get_value("styles", "VIPER head top", {})
+			var htw := float(_snake_head_top_tex.get_width())
+			var hth := float(_snake_head_top_tex.get_height())
+			var ds := Vector2(SEG_PX * htw / maxf(hth, 1.0), SEG_PX)
+			_snake_head_plume_anchor = Node2D.new()
+			_snake_head_plume_anchor.visible = false
+			add_child(_snake_head_plume_anchor)
+			for tp: Dictionary in head_tps:
+				var tp_oc := (tp["pos"] as Vector2) + SCREEN_ORIGIN
+				var frac  := (tp_oc - eh_pos) / eh_size
+				var style: Dictionary = styles.get("tp_%d" % int(tp.get("id", 1)), {})
+				var p := _make_orbital_plume(frac, float(tp.get("dir_angle", -PI * 0.5)), style, ds)
+				p.z_index = -1   # below the sprite drawn by the parent node's _draw()
+				_snake_head_plume_anchor.add_child(p)
+
+	# --- Tail ---
+	if _snake_tail_tex != null:
+		var et: Dictionary  = cfg.get_value("creeps",       "VIPER Tail", {})
+		var tail_tps: Array = cfg.get_value("thrustpoints", "VIPER Tail", [])
+		if not et.is_empty() and not tail_tps.is_empty():
+			var et_pos:  Vector2 = et.get("pos",  Vector2(480.0, 380.0))
+			var et_size: Vector2 = et.get("size", Vector2(60.0,  59.5))
+			var styles: Dictionary = scfg.get_value("styles", "VIPER Tail", {})
+			var ttw := float(_snake_tail_tex.get_width())
+			var tth := float(_snake_tail_tex.get_height())
+			var ds := Vector2(SEG_PX * ttw / maxf(tth, 1.0), SEG_PX)
+			_snake_tail_plume_anchor = Node2D.new()
+			_snake_tail_plume_anchor.visible = false
+			add_child(_snake_tail_plume_anchor)
+			for tp: Dictionary in tail_tps:
+				var tp_oc := (tp["pos"] as Vector2) + SCREEN_ORIGIN
+				var frac  := (tp_oc - et_pos) / et_size
+				var style: Dictionary = styles.get("tp_%d" % int(tp.get("id", 1)), {})
+				var p := _make_orbital_plume(frac, float(tp.get("dir_angle", PI * 0.5)), style, ds)
+				p.z_index = -1   # below the sprite drawn by the parent node's _draw()
+				_snake_tail_plume_anchor.add_child(p)
+
+	# --- Body (one anchor per segment, k = 1..SNAKE_SEGMENTS-2) ---
+	if _snake_body_tex != null:
+		var eb: Dictionary  = cfg.get_value("creeps",       "VIPER body", {})
+		var body_tps: Array = cfg.get_value("thrustpoints", "VIPER body", [])
+		if not eb.is_empty() and not body_tps.is_empty():
+			var eb_pos:  Vector2 = eb.get("pos",  Vector2(480.0, 380.0))
+			var eb_size: Vector2 = eb.get("size", Vector2(60.0,  50.0))
+			var styles: Dictionary = scfg.get_value("styles", "VIPER body", {})
+			const BODY_SEG_PX := 25.2
+			var btw := float(_snake_body_tex.get_width())
+			var bth := float(_snake_body_tex.get_height())
+			# Body is landscape: travel = dw (local +x), cross-section = dh (local +y).
+			# Anchor rotation = ang with no +PI/2, matching draw_set_transform in _draw_snake_seg.
+			var ds := Vector2(BODY_SEG_PX, BODY_SEG_PX * bth / maxf(btw, 1.0))
+			for _k in range(SNAKE_SEGMENTS - 2):
+				var anchor := Node2D.new()
+				anchor.visible = false
+				add_child(anchor)
+				_snake_body_plume_anchors.append(anchor)
+				for tp: Dictionary in body_tps:
+					var tp_oc := (tp["pos"] as Vector2) + SCREEN_ORIGIN
+					var frac  := (tp_oc - eb_pos) / eb_size
+					var style: Dictionary = styles.get("tp_%d" % int(tp.get("id", 1)), {})
+					var p := _make_orbital_plume(frac, float(tp.get("dir_angle", PI * 0.5)), style, ds)
+					p.z_index = -1
+					anchor.add_child(p)
+
 func _tick_snake(delta: float) -> void:
 	_run_snake(delta, "snake")
 
@@ -3016,6 +3569,9 @@ func _run_snake(delta: float, kind: String, turn_rate := SNAKE_TURN, aim_angle :
 			desired = (head - _player.global_position).angle() + PI * 0.5   # idle: circle the ship
 	_snake_dir = _approach_angle(_snake_dir, desired, turn_rate * delta)
 	head += Vector2(cos(_snake_dir), sin(_snake_dir)) * SNAKE_SPEED * delta
+	var _head_dp := head - _player.global_position
+	if _head_dp.length() > 1000.0:
+		head = _player.global_position + _head_dp.normalized() * 1000.0
 	_snake_pts[0] = head
 	for k in range(1, _snake_pts.size()):
 		var prev: Vector2 = _snake_pts[k - 1]
@@ -3038,6 +3594,40 @@ func _run_snake(delta: float, kind: String, turn_rate := SNAKE_TURN, aim_angle :
 						var r := _roll_damage(SNAKE_DAMAGE, kind)
 						en.take_damage(float(r["dmg"]), 0.0)
 					break
+	_update_snake_plumes()
+
+func _update_snake_plumes() -> void:
+	if _snake_pts.is_empty():
+		return
+	if _snake_head_plume_anchor != null:
+		var head_pos: Vector2 = _snake_pts[0]
+		var fwd := Vector2(cos(_snake_dir), sin(_snake_dir))
+		_snake_head_plume_anchor.global_position = head_pos + fwd * ((44.0 + 36.0) * 0.5 - SNAKE_SPACING)
+		_snake_head_plume_anchor.rotation = _snake_dir + PI * 0.5
+		var near := _nearest_enemy(head_pos, INF, [])
+		var touching := false
+		if near != null:
+			var er: float = SNAKE_HIT_RADIUS + (float(near.get("hit_radius")) if near.get("hit_radius") != null else 0.0)
+			touching = head_pos.distance_to((near as Node2D).global_position) <= er
+		_snake_head_plume_anchor.visible = _snake_init and touching
+	var n := _snake_pts.size()
+	if _snake_tail_plume_anchor != null:
+		var tail_pos: Vector2 = _snake_pts[n - 1]
+		var tail_ang := ((_snake_pts[n - 2] as Vector2) - tail_pos).angle() if n >= 2 else _snake_dir
+		_snake_tail_plume_anchor.global_position = tail_pos
+		_snake_tail_plume_anchor.rotation = tail_ang + PI * 0.5
+		_snake_tail_plume_anchor.visible  = _snake_init
+	for bi in _snake_body_plume_anchors.size():
+		var anchor: Node2D = _snake_body_plume_anchors[bi]
+		var k := bi + 1   # body segments are _snake_pts[1..n-2]
+		if k >= n - 1:
+			anchor.visible = false
+			continue
+		var seg_pos: Vector2 = _snake_pts[k]
+		var ang := ((_snake_pts[k - 1] as Vector2) - (_snake_pts[k + 1] as Vector2)).angle()
+		anchor.global_position = seg_pos
+		anchor.rotation = ang   # body uses ang directly, no +PI/2
+		anchor.visible  = _snake_init
 
 # ── Batch-2 draw helpers ────────────────────────────────────────────────────────────
 ## The Predator fusion (lasgun + snake): the Space Snake also fires a Lasgun beam from its head, re-aimed each
@@ -3334,8 +3924,7 @@ func _draw_missiles() -> void:
 func _draw_boomerang(b: Dictionary) -> void:
 	var p: Vector2 = b["pos"]
 	var s := float(b["spin"])
-	var ver := clampi(sprite_version_boomerang, 1, BOOM_TEX_VERSIONS.size()) - 1
-	var tex: Texture2D = BOOM_TEX_VERSIONS[ver]
+	var tex: Texture2D = BOOM_TEX
 	if tex != null:
 		# Spin the boomerang sprite about its centre at the projectile position (aspect-locked, never stretched).
 		var ts := tex.get_size()
@@ -3355,32 +3944,127 @@ func _draw_para_cloud(c: Dictionary) -> void:
 	var p: Vector2 = c["pos"]
 	var a := clampf(1.0 - float(c["age"]) / PARA_LIFETIME, 0.0, 1.0)
 	var reach := _aoe_radius(PARA_RADIUS)
-	draw_circle(p, reach, Color(PARA_COL.r, PARA_COL.g, PARA_COL.b, 0.10 + 0.10 * a))
-	draw_arc(p, reach, 0.0, TAU, 48, Color(PARA_COL.r, PARA_COL.g, PARA_COL.b, 0.3 * a), 2.0, true)
+	draw_circle(p, reach, Color(PARA_COL.r, PARA_COL.g, PARA_COL.b, 0.0))
+	draw_arc(p, reach, 0.0, TAU, 48, Color(PARA_COL.r, PARA_COL.g, PARA_COL.b, 0.0), 2.0, true)
+	if _para_tex != null:
+		var ts := _para_tex.get_size()
+		var pw := PARA_DRAW
+		var ph := pw * ts.y / ts.x if ts.x > 0.0 else pw
+		draw_set_transform(p, float(c.get("ang", 0.0)), Vector2.ONE)
+		draw_texture_rect(_para_tex, Rect2(Vector2(-pw * 0.5, -ph * 0.5), Vector2(pw, ph)), false)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _draw_moro() -> void:
-	draw_circle(_moro_pos, 18.0, Color(MORO_COL.r, MORO_COL.g, MORO_COL.b, 0.25))
-	draw_circle(_moro_pos, 13.0, Color(MORO_COL.r, MORO_COL.g, MORO_COL.b, 0.95))
+	const DISPLAY_W := 32.0
+	var frame_idx := 1 if (_moro_punch_t > 0.0 and _moro_frames.size() > 1) else 0
+	if not _moro_frames.is_empty():
+		var tex := _moro_frames[mini(frame_idx, _moro_frames.size() - 1)]
+		var tw := float(tex.get_width())
+		var th := float(tex.get_height())
+		var dh := DISPLAY_W * (th / maxf(tw, 1.0))
+		draw_set_transform(_moro_pos, _moro_facing + PI * 0.5, Vector2.ONE)
+		draw_texture_rect(tex, Rect2(Vector2(-DISPLAY_W * 0.5, -dh * 0.5), Vector2(DISPLAY_W, dh)), false)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	else:
+		draw_circle(_moro_pos, 18.0, Color(MORO_COL.r, MORO_COL.g, MORO_COL.b, 0.25))
+		draw_circle(_moro_pos, 13.0, Color(MORO_COL.r, MORO_COL.g, MORO_COL.b, 0.95))
 	if _moro_punch_t > 0.0:
 		var pf := _moro_punch_t / 0.18
 		draw_arc(_moro_punch_pos, _aoe_radius(MORO_AOE) * (1.0 - pf), 0.0, TAU, 32, Color(1, 1, 1, 0.6 * pf), 3.0, true)
 
+func _draw_yari() -> void:
+	const DISPLAY_W := 32.0
+	# Sprite's natural axis is UP (-PI/2). Add PI/2 to align "up" → "facing direction".
+	draw_set_transform(_yari_pos, _yari_facing + PI * 0.5, Vector2.ONE)
+	if not _yari_frames.is_empty():
+		var tex := _yari_frames[_yari_frame_idx]
+		var tw := float(tex.get_width())
+		var th := float(tex.get_height())
+		# Height derived from actual texture ratio — never independent X/Y scaling.
+		var dh := DISPLAY_W * (th / maxf(tw, 1.0))
+		draw_texture_rect(tex, Rect2(Vector2(-DISPLAY_W * 0.5, -dh * 0.5), Vector2(DISPLAY_W, dh)), false)
+	else:
+		draw_circle(Vector2.ZERO, 18.0, Color(YARI_COL.r, YARI_COL.g, YARI_COL.b, 0.25))
+		draw_circle(Vector2.ZERO, 13.0, Color(YARI_COL.r, YARI_COL.g, YARI_COL.b, 0.95))
+	if _yari_sweeping:
+		var t := _yari_sweep_t / YARI_SWEEP_TIME
+		draw_arc(Vector2.ZERO, 22.0 * (1.0 + 0.4 * t), 0.0, TAU, 24,
+				Color(YARI_COL.r, YARI_COL.g, YARI_COL.b, 0.45 * (1.0 - t)), 2.0, true)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # restore transform for subsequent draws
+
 func _draw_swarm() -> void:
 	for u: Dictionary in _swarm_units:
 		var p: Vector2 = u["pos"]
-		draw_circle(p, 12.0, Color(SWARM_COL.r, SWARM_COL.g, SWARM_COL.b, 0.25))
-		draw_circle(p, 7.0, Color(SWARM_COL.r, SWARM_COL.g, SWARM_COL.b, 0.95))
+		if _swarm_tex != null:
+			var ts := _swarm_tex.get_size()
+			var sw := SWARM_DRAW
+			var sh := sw * ts.y / ts.x if ts.x > 0.0 else sw
+			draw_set_transform(p, float(u["ang"]), Vector2.ONE)
+			draw_texture_rect(_swarm_tex, Rect2(Vector2(-sw * 0.5, -sh * 0.5), Vector2(sw, sh)), false)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		else:
+			draw_circle(p, 12.0, Color(SWARM_COL.r, SWARM_COL.g, SWARM_COL.b, 0.25))
+			draw_circle(p, 7.0, Color(SWARM_COL.r, SWARM_COL.g, SWARM_COL.b, 0.95))
 
 func _draw_snake() -> void:
-	if _snake_pts.size() < 2:
-		return
 	var n := _snake_pts.size()
-	for k in range(n - 1):
-		var a: Vector2 = _snake_pts[k]
-		var b2: Vector2 = _snake_pts[k + 1]
-		var f := 1.0 - float(k) / float(n)
-		draw_line(a, b2, Color(SNAKE_COL.r, SNAKE_COL.g * f, SNAKE_COL.b * 0.5, 0.9), lerpf(4.0, 12.0, f), true)
-	draw_circle(_snake_pts[0], 9.0, Color(1.0, 0.85, 0.5, 0.95))
+	if n < 2:
+		return
+	# Draw tail → head so head renders on top.
+	for k in range(n - 1, -1, -1):
+		var pos: Vector2 = _snake_pts[k]
+		# Angle = direction from this segment toward the one closer to head (travel direction).
+		var ang: float
+		if k == 0:
+			ang = _snake_dir
+		elif k == n - 1:
+			ang = ((_snake_pts[k - 1] as Vector2) - pos).angle()
+		else:
+			ang = ((_snake_pts[k - 1] as Vector2) - (_snake_pts[k + 1] as Vector2)).angle()  # smoothed bisector
+		if k == 0:
+			_draw_snake_head(pos, ang)
+		elif k == n - 1:
+			_draw_snake_seg(pos, ang, _snake_tail_tex, 44.0, true)
+		else:
+			_draw_snake_seg(pos, ang, _snake_body_tex, 25.2, false)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+func _draw_snake_head(pos: Vector2, ang: float) -> void:
+	const HEAD_PX     := 44.0
+	const BODY_SEG_PX := 25.2  # must match body seg_px in _draw_snake
+	var tex := _snake_head_top_tex
+	if tex == null:
+		draw_circle(pos, 9.0, Color(1.0, 0.85, 0.5, 0.95))
+		return
+	# Shift centre forward so neck is flush with body-segment front (eliminates 4 px overlap).
+	var fwd      := Vector2(cos(ang), sin(ang))
+	var draw_pos := pos + fwd * ((HEAD_PX + BODY_SEG_PX) * 0.5 - SNAKE_SPACING)
+	var tw := float(tex.get_width())   # 390
+	var th := float(tex.get_height())  # 660 = travel axis (portrait, front at top)
+	var dh := HEAD_PX
+	var dw := dh * tw / maxf(th, 1.0)
+	draw_set_transform(draw_pos, ang + PI * 0.5, Vector2.ONE)
+	draw_texture_rect(tex, Rect2(Vector2(-dw * 0.5, -dh * 0.5), Vector2(dw, dh)), false)
+
+# Draws one body OR tail segment.  is_tail = true → portrait-UP sprite (rotation + PI/2).
+func _draw_snake_seg(pos: Vector2, ang: float, tex: Texture2D, seg_px: float, is_tail: bool) -> void:
+	if tex == null:
+		return
+	var tw := float(tex.get_width())
+	var th := float(tex.get_height())
+	var dw: float
+	var dh: float
+	if is_tail:
+		# Tail (498×494, nearly square, connection at TOP = travel axis = HEIGHT).
+		dh = seg_px
+		dw = dh * tw / maxf(th, 1.0)
+		draw_set_transform(pos, ang + PI * 0.5, Vector2.ONE)
+	else:
+		# Body (449×376, landscape, travel axis = WIDTH).
+		dw = seg_px
+		dh = dw * th / maxf(tw, 1.0)
+		draw_set_transform(pos, ang, Vector2.ONE)
+	draw_texture_rect(tex, Rect2(Vector2(-dw * 0.5, -dh * 0.5), Vector2(dw, dh)), false)
 
 # ── Carnage fusion (gatling + red_x): constant Red X fire + Gatling firing in 4 directions ─────────
 func activate_carnage() -> void:
@@ -3574,6 +4258,8 @@ func _draw() -> void:
 		_draw_para_cloud(pc)
 	if _moro_active and _moro_init:
 		_draw_moro()
+	if _yari_active and _yari_init:
+		_draw_yari()
 	if _swarm_active:
 		_draw_swarm()
 	if _snake_active or _predator_active:

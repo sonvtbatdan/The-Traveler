@@ -5,10 +5,22 @@ extends Node2D
 ## Lives on the gameplay plane (sharp, not blurred). Persists until collected (survival-friendly).
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
-const ORB_SIZE_PER_XP     := 1.0   # radius px = value × this (8 XP → 8 px)
-const BIG_ORB_THRESHOLD   := 100   # xp > this → red orb with xp/BIG_ORB_DIV size
-const BIG_ORB_DIV         := 5.0   # big orb radius = xp / this (500 xp → 100 px)
 const COLLECT_RADIUS      := 16.0
+
+# ── XP orb tiers (threshold = max xp for that tier, inclusive) ────────────────
+const TIER_GREEN_MAX  :=  50     # 0–50   xp:  radius = xp × 1.0   (green)
+const TIER_YELLOW_MAX := 100     # 51–100 xp:  radius = xp × 0.5   (yellow)
+const TIER_RED_MAX    := 500     # 101–500 xp: radius = xp × 0.2   (red)
+#                                  501+    xp:  radius = xp × 0.1   (purple)
+const TIER_GREEN_MULT  := 1.0
+const TIER_YELLOW_MULT := 0.5
+const TIER_RED_MULT    := 0.2
+const TIER_PURPLE_MULT := 0.1
+# Visual cap per tier so no orb overwhelms the screen (outer glow = cap × 1.8)
+const TIER_GREEN_CAP  :=  8.0   # → max outer glow ≈ 29 px diam
+const TIER_YELLOW_CAP := 14.0   # → max outer glow ≈ 50 px diam
+const TIER_RED_CAP    := 22.0   # → max outer glow ≈ 79 px diam
+const TIER_PURPLE_CAP := 32.0   # → max outer glow ≈ 115 px diam
 const MAGNET_SPEED        := 120.0    # starting fly speed once magnetized naturally (px/s)
 const MAGNET_ACCEL        := 900.0    # acceleration when magnetized naturally (px/s²)
 const MAGNET_MAX          := 1400.0   # speed cap for natural magnetization
@@ -16,10 +28,14 @@ const FORCE_MAGNET_ACCEL  := 600.0    # acceleration when pulled by magnetic ite
 const FORCE_MAGNET_MAX    := 1200.0   # speed cap for forced magnetization
 const BOB_AMP        := 2.5
 const BOB_SPEED      := 3.0
-const CORE_COLOR     := Color(0.45, 1.0, 0.7)
-const GLOW_COLOR     := Color(0.30, 0.95, 0.85)
-const BIG_CORE_COLOR := Color(1.0, 0.18, 0.08)
-const BIG_GLOW_COLOR := Color(1.0, 0.05, 0.0)
+const GREEN_CORE  := Color(0.45, 1.0,  0.7)
+const GREEN_GLOW  := Color(0.30, 0.95, 0.85)
+const YELLOW_CORE := Color(1.0,  0.95, 0.2)
+const YELLOW_GLOW := Color(0.95, 0.85, 0.0)
+const RED_CORE    := Color(1.0,  0.18, 0.08)
+const RED_GLOW    := Color(1.0,  0.05, 0.0)
+const PURPLE_CORE := Color(0.75, 0.2,  1.0)
+const PURPLE_GLOW := Color(0.55, 0.0,  0.9)
 
 var _value: int = 1
 var _vel := Vector2.ZERO
@@ -86,16 +102,30 @@ func force_magnetize() -> void:
 func collect() -> void:
 	_collect()
 
+func _tier_params() -> Array:
+	var sz: float
+	var cc: Color
+	var gc: Color
+	if _value <= TIER_GREEN_MAX:
+		sz = minf(float(_value) * TIER_GREEN_MULT,  TIER_GREEN_CAP);  cc = GREEN_CORE;  gc = GREEN_GLOW
+	elif _value <= TIER_YELLOW_MAX:
+		sz = minf(float(_value) * TIER_YELLOW_MULT, TIER_YELLOW_CAP); cc = YELLOW_CORE; gc = YELLOW_GLOW
+	elif _value <= TIER_RED_MAX:
+		sz = minf(float(_value) * TIER_RED_MULT,    TIER_RED_CAP);    cc = RED_CORE;    gc = RED_GLOW
+	else:
+		sz = minf(float(_value) * TIER_PURPLE_MULT, TIER_PURPLE_CAP); cc = PURPLE_CORE; gc = PURPLE_GLOW
+	return [sz, cc, gc]
+
 func _draw() -> void:
-	var big := _value > BIG_ORB_THRESHOLD
-	var sz := (float(_value) / BIG_ORB_DIV) if big else (float(_value) * ORB_SIZE_PER_XP)
-	var core_col := BIG_CORE_COLOR if big else CORE_COLOR
-	var glow_col := BIG_GLOW_COLOR if big else GLOW_COLOR
+	var params := _tier_params()
+	var sz: float     = params[0]
+	var core_col: Color = params[1]
+	var glow_col: Color = params[2]
 	var bob := sin(_t * BOB_SPEED) * BOB_AMP
 	var c := Vector2(0.0, bob)
 	var pulse := 0.85 + 0.15 * sin(_t * BOB_SPEED * 1.7)
 	# Soft outer glow → bright core → white centre.
-	draw_circle(c, sz * 2.4 * pulse, Color(glow_col.r, glow_col.g, glow_col.b, 0.18))
-	draw_circle(c, sz * 1.5 * pulse, Color(glow_col.r, glow_col.g, glow_col.b, 0.35))
-	draw_circle(c, sz * pulse, core_col)
-	draw_circle(c, sz * 0.45, Color(1, 1, 1, 0.9))
+	draw_circle(c, sz * 1.8 * pulse, Color(glow_col.r, glow_col.g, glow_col.b, 0.15))
+	draw_circle(c, sz * 1.1 * pulse, Color(glow_col.r, glow_col.g, glow_col.b, 0.30))
+	draw_circle(c, sz * 0.7 * pulse, core_col)
+	draw_circle(c, sz * 0.30, Color(1, 1, 1, 0.88))

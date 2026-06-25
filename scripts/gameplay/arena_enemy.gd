@@ -11,7 +11,12 @@ extends CharacterBody2D
 ##   falling back to placeholder shapes.
 
 const GifLoader        := preload("res://scripts/ui/edit_mode/gif_loader.gd")
-const DeathFX          := preload("res://scripts/gameplay/arena_death_fx.gd")  # baked flipbook blast for deaths
+const ArenaExplosion   := preload("res://scripts/gameplay/arena_explosion.gd")
+# Per-enemy attack SFX (one-shot; played from a lazily-created AudioStreamPlayer on bus "SFX").
+const SFX_SPIDER_JUMP  := preload("res://assets/audio/sfx/dash.wav")      # spider (jump_diag) leap
+const SFX_OCTOPUS_JUMP := preload("res://assets/audio/sfx/chargeby.wav")  # octopus (jump) leap
+const SFX_BEAM         := preload("res://assets/audio/sfx/laserbeam.wav") # beamer beam fire (once, no loop)
+const SFX_ZAP          := preload("res://assets/audio/sfx/zap1.wav")      # shooter / sentinel fire
 
 static var simplified_mode: bool = false
 const ICON_DRAW_SCALE := 2.6   # drawn sprite width = _radius × this (sprites read a bit bigger than the hit circle)
@@ -109,6 +114,35 @@ var _eye_range: Vector2 = Vector2.ZERO         # max eye displacement, fraction 
 var _eye_size_frac: Vector2 = Vector2.ZERO     # eye sprite size, fraction of draw size
 var _eye_off: Vector2 = Vector2.ZERO           # current eye offset (local px from socket center, smoothed)
 
+# ── Tentacles (active undulation; the chain root is rigidly anchored to the body) ──
+# The child creeps (parent == this body's creep name, e.g. squid-1 … squid-8) define ONE template:
+# an ordered chain of segment sprites with rest angles & gaps. Each [tentaclepoints] entry in
+# creep_layout.cfg then spawns an INSTANCE of that template at the point's body-relative position, rotated
+# by the point's Dir vector — so the squid can have many tentacles fanning out. If no tentacle points are
+# defined, one instance is placed at the template's own native position (backward compatible).
+# Each instance: root pinned to the body; the rest placed by forward kinematics = rest angle + traveling
+# sine wave (always undulates like a swimming limb) + a lag trailing behind the body's motion.
+const TENT_WAVE_FREQ := 5.0     # rad/s — temporal speed of the undulation
+const TENT_WAVE_K    := 1.3     # phase shift per segment → the wave travels root → tip (S-curve)
+const TENT_WAVE_AMP  := 0.42    # rad — per-joint sway amplitude
+const TENT_DRAG_GAIN := 0.55    # how strongly a tentacle trails behind body motion
+const TENT_DRAG_REF  := 140.0   # body speed (px/s) at which trailing drag reaches full strength
+var _tent_template: Array = []  # root→tip: [{tex:Texture2D, size:Vector2, gap:float, rest_ang:float}]
+var _tents:         Array = []  # instances: [{base_off:Vector2, dir:float, phase:float, pts:Array}]
+var _tent_init:     bool    = false
+var _tent_phase:    float   = 0.0           # advancing wave clock shared by all instances
+var _tent_prev_pos: Vector2 = Vector2.ZERO  # body position last frame (for velocity-driven drag)
+var _tent_vel:      Vector2 = Vector2.ZERO  # smoothed body velocity
+var _tent_front_ang: float  = 0.0           # local angle of the tentacle side (squid aims this at the player)
+var _tent_attach:    float  = 0.0           # 0→1 wrap blend: how much the tentacles curl around the ship
+
+# ── Squid behaviour: chase led by the tentacles, then cling to the ship & slow it (no contact damage) ──
+const SQUID_ATTACH_RANGE := 28.0   # tentacle reach beyond the body radius at which the squid latches on
+const SQUID_WRAP_Z       := 101    # while clinging the squid draws ABOVE the ship (SHIP_Z = 100) so tentacles wrap over it
+const SQUID_BASE_Z       := 1      # normal enemy draw layer (restored on detach)
+var _squid_attached:   bool    = false
+var _squid_attach_off: Vector2 = Vector2.ZERO   # held offset from the player while clinging
+
 var _mgr: Node = null
 var _target: Node2D = null
 var _flash: float = 0.0
@@ -131,6 +165,8 @@ var _beam_origin: Vector2 = Vector2.ZERO   # local-space offset to muzzle (for d
 var _burst_shots: int = 0   # shooter burst: bullets remaining in current burst
 var _burst_t: float = 0.0   # shooter burst: countdown to next shot
 var _missile_volley: Node = null   # missile: in-flight plasma volley (self-frees when done)
+var _sfx: AudioStreamPlayer = null  # lazily-created one-shot SFX player (jump / fire / beam)
+var sfx_bus: String = "SFX"          # audio bus for this enemy's sounds (menu reroutes to a "distant" bus)
 var _jump_interval: float = 1.0   # jump_diag (spider): randomized per jump (±0.5 s)
 # "alive" motion state
 var _facing: float = 0.0
@@ -159,7 +195,7 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	hp               = hp_max
 	armor            = float(d.get("armor", 0.0))
 	speed            = float(d.get("speed", 95.0))
-	_radius          = float(d.get("size", 16.0))
+	_radius          = float(d.get("size", 16.0)) * 1.05
 	contact_damage   = int(d.get("contact", 6))
 	contact_explodes = bool(d.get("explodes", false))
 	xp               = int(d.get("xp", 5))
@@ -211,6 +247,7 @@ func _ready() -> void:
 	mat.shader = _flash_shader
 	material = mat
 	_load_icon()
+	_load_tentacle()
 	_setup_plumes()
 	_setup_fire_points()
 	# Per-enemy "alive" variation so the crowd reads as individuals, not synced clones.
@@ -219,12 +256,24 @@ func _ready() -> void:
 	_scale_var = randf_range(1.0 - SCALE_VAR, 1.0 + SCALE_VAR)
 	_prev_pos = global_position
 
+## Prefer a high-res sprite from assets/enemiesHD/; fall back to the standard assets/enemies/ path.
+## Only the texture SOURCE changes — draw size still comes from creep_layout.cfg, so the in-game scale/ratio is unchanged.
+static func _resolve_sprite(path: String) -> String:
+	const STD := "res://assets/enemies/"
+	const HD  := "res://assets/enemiesHD/"
+	if path.begins_with(STD):
+		var hd := HD + path.substr(STD.length())
+		if FileAccess.file_exists(hd) or ResourceLoader.exists(hd):
+			return hd
+	return path
+
 ## Load the sprite (PNG, animated GIF, or sprite-sheet PNG+JSON) and compute draw size.
 func _load_icon() -> void:
 	if _icon == "":
 		return
+	var src := _resolve_sprite(_icon)   # HD if available, else the standard path
 	if _icon.ends_with(".gif"):
-		var g := GifLoader.load_gif(_icon)
+		var g := GifLoader.load_gif(src)
 		if g != null and g.has_meta("gif_frames"):
 			_frames = g.get_meta("gif_frames")
 			_delays = g.get_meta("gif_delays") if g.has_meta("gif_delays") else []
@@ -232,23 +281,33 @@ func _load_icon() -> void:
 		else:
 			_tex = g
 	elif _icon.ends_with(".sheet.png"):
-		_load_sheet_frames(_icon)
+		_load_sheet_frames(src)
 	else:
-		_tex = load(_icon) as Texture2D
+		_tex = load(src) as Texture2D
+		if _tex == null and src != _icon:
+			_tex = load(_icon) as Texture2D   # HD failed to load (e.g. not imported) → standard sprite
 	if _tex != null:
 		var ts := _tex.get_size()
 		var w := _radius * ICON_DRAW_SCALE
 		var h := w * (ts.y / ts.x) if ts.x > 0.0 else w
 		_draw_size = Vector2(w, h)
 		var cname := _icon.get_file().get_basename().to_lower()
+		var raw_name := _icon.get_file().get_basename()   # editor keeps the file's original case (e.g. "Squid-body")
 		var eo_cfg := ConfigFile.new()
 		if eo_cfg.load("res://creep_layout.cfg") == OK:
-			var eo: Dictionary = eo_cfg.get_value("creeps", cname, {})
+			var eo: Dictionary = eo_cfg.get_value("creeps", raw_name, eo_cfg.get_value("creeps", cname, {}))
 			var eo_sz: Vector2 = eo.get("size", Vector2.ZERO)
 			if eo_sz.x > 0.0 and eo_sz.y > 0.0:
 				_draw_size = eo_sz
+				# Self-heal a stale saved aspect (e.g. source art rotated after placement):
+				# keep the configured width but lock height to the texture true aspect -> never stretches.
+				if ts.x > 0.0:
+					_draw_size.y = eo_sz.x * (ts.y / ts.x)
 	if _has_eye and _eye_icon != "" and _eye_tex == null:
-		_eye_tex = load(_eye_icon) as Texture2D
+		var eye_src := _resolve_sprite(_eye_icon)
+		_eye_tex = load(eye_src) as Texture2D
+		if _eye_tex == null and eye_src != _eye_icon:
+			_eye_tex = load(_eye_icon) as Texture2D
 
 ## Parse <name>.sheet.json alongside the PNG to slice frames into AtlasTexture objects.
 ## JSON format: { "cols": 1, "w": <px>, "h": <px>, "delays": [<sec>, ...] }
@@ -485,6 +544,8 @@ func _update_plumes() -> void:
 			_apply_plume_full_mult(3.0 if _phase == 1 else 1.0)
 		"jump_diag":
 			_apply_plume_full_mult(3.0 if _phase == 1 else 1.0)
+		"squid":
+			_apply_plume_full_mult(2.0 if _phase == 1 else 1.0)   # vel / scale / life ×2 during a leap
 
 # ── Universal damage contract ──────────────────────────────────────────────────
 func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0) -> void:
@@ -515,6 +576,8 @@ func _die() -> void:
 	if _dead:
 		return
 	_dead = true
+	if _squid_attached:
+		_squid_detach()   # stop slowing the ship the instant this squid dies
 	# Drop a collectible XP orb (the player magnetizes + collects it) instead of granting XP instantly.
 	if xp > 0:
 		if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("spawn_xp_orb"):
@@ -545,17 +608,53 @@ func _play_boom() -> void:
 		return
 	var p := AudioStreamPlayer.new()
 	p.stream = stream
-	p.bus = "SFX"
+	p.bus = sfx_bus
 	p.volume_db = linear_to_db(0.7)
 	get_parent().add_child(p)
 	p.play()
 	p.finished.connect(p.queue_free)
+
+## Play a one-shot attack sound (lazily creates the player on first use). Plays once — no loop.
+func _play_sfx(stream: AudioStream) -> void:
+	if stream == null:
+		return
+	if _sfx == null:
+		_sfx = AudioStreamPlayer.new()
+		_sfx.bus = sfx_bus
+		add_child(_sfx)
+	_sfx.stream = stream
+	_sfx.play()
 
 func _player_pos() -> Vector2:
 	if _target != null and is_instance_valid(_target):
 		return _target.global_position
 	_target = get_tree().get_first_node_in_group("player")
 	return _target.global_position if _target != null else global_position
+
+# ── Squid: orient so the tentacle side faces the player (tentacles lead the approach / wrap on contact). ──
+func _face_squid(pp: Vector2, delta: float) -> void:
+	var to := pp - global_position
+	if to.length() <= 0.5:
+		return
+	var desired := to.angle() - _tent_front_ang   # rotate body so local front-angle aims at the player
+	_facing = lerp_angle(_facing, desired, clampf(TURN_RATE * delta, 0.0, 1.0))
+
+func _squid_attach(pp: Vector2) -> void:
+	_squid_attached = true
+	_squid_attach_off = global_position - pp
+	var max_off := _radius + SQUID_ATTACH_RANGE
+	if _squid_attach_off.length() > max_off:
+		_squid_attach_off = _squid_attach_off.normalized() * max_off
+	z_index = SQUID_WRAP_Z   # draw above the ship so the wrapping tentacles render over the hull
+	if not is_in_group("squid_clinging"):
+		add_to_group("squid_clinging")   # arena.gd counts this group to slow the ship
+
+func _squid_detach() -> void:
+	_squid_attached = false
+	z_index = SQUID_BASE_Z   # back below the ship
+	_phase = 0; _timer = 0.0   # restart the jump cycle cleanly (wait → leap)
+	if is_in_group("squid_clinging"):
+		remove_from_group("squid_clinging")
 
 # ── Per-frame ───────────────────────────────────────────────────────────────────
 func _physics_process(delta: float) -> void:
@@ -594,7 +693,7 @@ func _physics_process(delta: float) -> void:
 	_hit_squash = lerpf(_hit_squash, 0.0, clampf(HIT_SQUASH_DECAY * delta, 0.0, 1.0))
 	# Face the intended movement direction only — knockback must NOT rotate the enemy (centipede keeps spin).
 	var intended := pos_pre_knockback - _prev_pos
-	if behavior != "centipede" and intended.length() > 0.5:
+	if behavior != "centipede" and behavior != "squid" and intended.length() > 0.5:
 		_facing = lerp_angle(_facing, intended.angle() + PI * 0.5, clampf(TURN_RATE * delta, 0.0, 1.0))
 	_prev_pos = global_position
 	if not _frames.is_empty():
@@ -617,6 +716,8 @@ func _physics_process(delta: float) -> void:
 				p.direction = (p.get_meta("base_dir") as Vector2).rotated(vrot)
 	if _has_eye:
 		_update_eye(delta)
+	if not _tent_template.is_empty():
+		_update_tentacle(delta)
 	queue_redraw()   # bob/squash/facing animate continuously
 
 ## Slide the tracking eye toward the player within its socket. _eye_off is in local (pre-rotation) px,
@@ -631,6 +732,175 @@ func _update_eye(delta: float) -> void:
 		var dir_local := to_world.normalized().rotated(-rot)   # gaze direction in the sprite's local frame
 		target = Vector2(dir_local.x * _eye_range.x * _draw_size.x, dir_local.y * _eye_range.y * _draw_size.y)
 	_eye_off = _eye_off.lerp(target, clampf(EYE_TRACK_SPEED * delta, 0.0, 1.0))
+
+# ── Tentacles: build the segment template + one instance per [tentaclepoints] entry. ──
+func _load_tentacle() -> void:
+	_tent_template.clear()
+	_tents.clear()
+	_tent_init = false
+	if _icon.is_empty() or _draw_size == Vector2.ZERO:
+		return
+	var cfg := ConfigFile.new()
+	if cfg.load("res://creep_layout.cfg") != OK or not cfg.has_section("creeps"):
+		return
+	var body_name := _icon.get_file().get_basename()
+	var keys := cfg.get_section_keys("creeps")
+	# Resolve the body's actual creep key (case-insensitive — editor keys keep the file's case).
+	var body_key := ""
+	for k: String in keys:
+		if k.to_lower() == body_name.to_lower():
+			body_key = k
+			break
+	if body_key == "":
+		return
+	var body_eo: Dictionary = cfg.get_value("creeps", body_key, {})
+	var body_pos: Vector2  = body_eo.get("pos",  Vector2(480.0, 380.0))
+	var body_size: Vector2 = body_eo.get("size", Vector2(60.0, 60.0))
+	if body_size.x <= 0.0:
+		return
+	var body_center := body_pos + body_size * 0.5
+	# Config-space → in-game scale, so the tentacle tracks whatever size the body is drawn at.
+	var s := _draw_size.x / body_size.x
+	# Collect children parented to the body, ordered by name (squid-1, squid-2, … = root → tip).
+	var child_keys: Array = []
+	for k: String in keys:
+		var eo: Dictionary = cfg.get_value("creeps", k, {})
+		if String(eo.get("parent", "")).to_lower() == body_key.to_lower():
+			child_keys.append(k)
+	if child_keys.is_empty():
+		return
+	child_keys.sort()
+	# ── Template: per-segment rest angle (body-local 0° frame) + gap, relative to the anchor (seg 0). ──
+	var anchor_center := Vector2.ZERO
+	var prev_center := Vector2.ZERO
+	for i: int in child_keys.size():
+		var eo: Dictionary = cfg.get_value("creeps", child_keys[i], {})
+		var seg_path := String(eo.get("path", ""))
+		var seg_src := _resolve_sprite(seg_path)   # HD segment if available
+		var tex := load(seg_src) as Texture2D
+		if tex == null and seg_src != seg_path:
+			tex = load(seg_path) as Texture2D       # HD failed → standard segment
+		if tex == null:
+			continue
+		var pos: Vector2 = eo.get("pos",  body_pos)
+		var sz: Vector2  = eo.get("size", Vector2(10.0, 10.0))
+		var center := pos + sz * 0.5
+		var gap := 0.0
+		var rest_ang := 0.0
+		if _tent_template.is_empty():
+			anchor_center = center   # seg 0 is the anchor
+		else:
+			var d := center - prev_center
+			gap = maxf(d.length() * s, 0.5)
+			rest_ang = d.angle()    # joint direction in the body-local frame (template's 0°)
+		_tent_template.append({"tex": tex, "size": sz * s, "gap": gap, "rest_ang": rest_ang})
+		prev_center = center
+	if _tent_template.is_empty():
+		return
+	# ── Instances: one per tentacle point; fall back to the template's native placement if none. ──
+	var tps: Array = cfg.get_value("tentaclepoints", body_key, [])
+	const SS_ORIGIN := Vector2(15.0, 8.0)
+	if not tps.is_empty():
+		for ti: int in tps.size():
+			var tn: Dictionary = tps[ti]
+			var tn_oc: Vector2 = (tn.get("pos", Vector2.ZERO) as Vector2) + SS_ORIGIN
+			_tents.append({
+				"base_off": (tn_oc - body_center) * s,
+				"dir":      float(tn.get("dir_angle", 0.0)),
+				"phase":    randf() * TAU,
+				"wrap":     1.0 if ti % 2 == 0 else -1.0,   # alternate curl direction → tentacles grasp from both sides
+				"pts":      [],
+			})
+	else:
+		_tents.append({
+			"base_off": (anchor_center - body_center) * s,   # native single tentacle at the placed anchor
+			"dir":      0.0,
+			"phase":    randf() * TAU,
+			"wrap":     1.0,
+			"pts":      [],
+		})
+	# Local angle of the tentacle side (centroid of the instance anchors) — the squid aims this at the player.
+	var sum := Vector2.ZERO
+	for inst: Dictionary in _tents:
+		sum += inst["base_off"] as Vector2
+	if not _tents.is_empty():
+		sum /= float(_tents.size())
+	_tent_front_ang = sum.angle() if sum.length() > 0.5 else 0.0
+
+# ── Tentacles: forward kinematics per instance. Root pinned; joint = rest angle + traveling wave + drag. ──
+func _update_tentacle(delta: float) -> void:
+	if _tent_template.is_empty() or _tents.is_empty():
+		return
+	var n := _tent_template.size()
+	var rot := _facing
+	if not _tent_init:
+		_tent_prev_pos = global_position
+		_tent_vel = Vector2.ZERO
+		_tent_phase = 0.0
+		_tent_init = true
+	_tent_phase += delta
+	# Smoothed body velocity drives the trailing drag (computed here — _prev_pos was already updated upstream).
+	var vel := (global_position - _tent_prev_pos) / maxf(delta, 0.0001)
+	_tent_prev_pos = global_position
+	_tent_vel = _tent_vel.lerp(vel, clampf(8.0 * delta, 0.0, 1.0))
+	var speed := _tent_vel.length()
+	var drag_strength := TENT_DRAG_GAIN * clampf(speed / TENT_DRAG_REF, 0.0, 1.0)
+	var trail_ang := (-_tent_vel).angle() if speed > 1.0 else 0.0
+	# Wrap blend: when the squid is clinging, the tentacles curl around the ship instead of trailing.
+	var wrapping := behavior == "squid" and _squid_attached
+	_tent_attach = lerpf(_tent_attach, 1.0 if wrapping else 0.0, clampf(4.0 * delta, 0.0, 1.0))
+	var ship := _player_pos() if _tent_attach > 0.001 else Vector2.ZERO
+	for inst: Dictionary in _tents:
+		var pts: Array = inst["pts"]
+		if pts.size() != n:
+			pts.resize(n)
+			inst["pts"] = pts
+		var base_rot: float = rot + float(inst["dir"])   # whole chain rotates by the point's Dir
+		var inst_phase: float = float(inst["phase"])
+		var wrap_sign: float = float(inst.get("wrap", 1.0))
+		# Root segment — rigidly anchored at the point's body-relative position (rotates with facing).
+		pts[0] = global_position + (inst["base_off"] as Vector2).rotated(rot)
+		for k in range(1, n):
+			var base_a: float = float(_tent_template[k]["rest_ang"]) + base_rot
+			var taper := 0.3 + 0.7 * float(k) / float(n - 1)   # root stiff, tip floppy
+			var wave := TENT_WAVE_AMP * taper * sin(_tent_phase * TENT_WAVE_FREQ + inst_phase - float(k) * TENT_WAVE_K)
+			var drag := angle_difference(base_a, trail_ang) * drag_strength * taper if speed > 1.0 else 0.0
+			var a := base_a + (wave + drag) * (1.0 - 0.7 * _tent_attach)
+			if _tent_attach > 0.001:
+				# Curl around the ship: head tangentially around it (perpendicular to the radius), biased
+				# slightly inward so the tentacle hugs the hull rather than orbiting at a fixed distance.
+				var r := ship - (pts[k - 1] as Vector2)
+				var wrap_a := r.angle() + wrap_sign * (PI * 0.5 - 0.35)
+				a = lerp_angle(a, wrap_a, _tent_attach * taper)
+			pts[k] = (pts[k - 1] as Vector2) + Vector2(cos(a), sin(a)) * float(_tent_template[k]["gap"])
+
+# ── Tentacles: draw every instance, tip → root, so the root paints last (just under the body). ──
+func _draw_tentacle(alpha: float) -> void:
+	var n := _tent_template.size()
+	if n == 0:
+		return
+	for inst: Dictionary in _tents:
+		var pts: Array = inst["pts"]
+		if pts.size() < n:
+			continue
+		for idx in range(n - 1, -1, -1):
+			var seg: Dictionary = _tent_template[idx]
+			var tex: Texture2D = seg["tex"]
+			var sz: Vector2 = seg["size"]
+			var p: Vector2 = pts[idx]
+			# Tangent along the tentacle, root → tip (sprite's +x axis points outward toward the tip).
+			var ang: float
+			if n == 1:
+				ang = (p - global_position).angle()
+			elif idx == 0:
+				ang = ((pts[1] as Vector2) - p).angle()
+			elif idx == n - 1:
+				ang = (p - (pts[idx - 1] as Vector2)).angle()
+			else:
+				ang = ((pts[idx + 1] as Vector2) - (pts[idx - 1] as Vector2)).angle()
+			draw_set_transform(p - global_position, ang, Vector2.ONE)
+			draw_texture_rect(tex, Rect2(-sz * 0.5, sz), false, Color(1, 1, 1, alpha))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _init_behavior() -> void:
 	var to := _player_pos() - global_position
@@ -731,6 +1001,7 @@ func _tick_behavior(delta: float) -> void:
 			if _burst_shots == 0 and _fire_ready(1.0):
 				_burst_shots = sh_total
 				_burst_t = 0.0
+				_play_sfx(SFX_ZAP)
 			if _burst_shots > 0:
 				_burst_t -= delta
 				if _burst_t <= 0.0:
@@ -742,6 +1013,7 @@ func _tick_behavior(delta: float) -> void:
 		"sentinel":   # hold, fire a fan TOWARD the player from FP 0
 			_standoff(dist, dir, 420.0)
 			if _fire_ready(2.0):
+				_play_sfx(SFX_ZAP)
 				var muzzle := _muzzle(0)
 				var base := dir.angle()
 				for k in 5:
@@ -793,6 +1065,7 @@ func _jump_tick(delta: float, dir: Vector2, diagonal: bool) -> void:
 		if _timer >= interval:
 			_timer = 0.0
 			_phase = 1
+			_play_sfx(SFX_SPIDER_JUMP if diagonal else SFX_OCTOPUS_JUMP)
 			if diagonal:
 				_jump_interval = randf_range(0.5, 1.5)   # randomize next wait
 			var d := dir
@@ -840,6 +1113,7 @@ func _beamer_tick(delta: float, dir: Vector2) -> void:
 				_beam_dir = dir
 				_beam_origin = _muzzle(0) - global_position   # local offset to FP
 				_beam_on = true
+				_play_sfx(SFX_BEAM)
 		2:
 			if _timer >= 3.0:
 				_phase = 3
@@ -916,6 +1190,9 @@ func _draw() -> void:
 	if mat != null:
 		mat.set_shader_parameter("flash", flash_s)
 		mat.set_shader_parameter("flash_color", _flash_color)
+	# Tentacles first (world-space chains) so they sit behind the body sprite; root paints last → just under body.
+	if not _tent_template.is_empty():
+		_draw_tentacle(alpha)
 	draw_set_transform(Vector2.ZERO, rot, scale_vec)
 	if _tex != null:
 		draw_texture_rect(_tex, Rect2(-_draw_size * 0.5, _draw_size), false, Color(1, 1, 1, alpha))

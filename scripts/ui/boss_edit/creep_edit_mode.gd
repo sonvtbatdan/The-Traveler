@@ -20,18 +20,24 @@ var _all_creep_names:  Array[String] = []
 var _placed:           Dictionary = {}  # creep_name -> EditableObjectNode (one per creep)
 var _selected_obj:     EditableObjectNode = null
 var _creep_buttons:    Dictionary = {}  # creep_name -> Button
+var _creep_parents:    Dictionary = {}  # child_name -> parent_name (empty string = root/no parent)
 var _objects_container: Control = null
 
-# Point state — Fire Points (FP) and Thrust Points (TP)
-var _adding_firepoint:   bool = false
-var _adding_thrustpoint: bool = false
+# Point state — Fire Points (FP), Thrust Points (TP), Tentacle Points (TenP)
+var _adding_firepoint:    bool = false
+var _adding_thrustpoint:  bool = false
+var _adding_tentaclepoint: bool = false
 var _fire_points:        Dictionary = {}  # creep_name -> Array[{pos, id, dir_angle}]
 var _thrust_points:      Dictionary = {}  # creep_name -> Array[{pos, id, dir_angle}]
+var _tentacle_points:    Dictionary = {}  # creep_name -> Array[{pos, id, dir_angle}] — each spawns a tentacle
 var _fp_id_counter:      Dictionary = {}  # creep_name -> int
 var _tp_id_counter:      Dictionary = {}  # creep_name -> int
+var _tenp_id_counter:    Dictionary = {}  # creep_name -> int
 var _selected_fp_idx:     int        = -1
 var _selected_tp_idx:     int        = -1   # primary (last clicked) — used for angle UI + plume editor
 var _selected_tp_indices: Array[int] = []   # full multi-selection set
+var _selected_tenp_idx:   int        = -1
+var _layers_collapsed:    bool       = true   # LAYERS panel: hide child rows by default (declutter once placed)
 
 # ── UI ─────────────────────────────────────────────────────────────────────────
 var _dim_overlay:    ColorRect     = null
@@ -50,13 +56,19 @@ var _delete_btn:     Button        = null
 var _grid_btn:       Button        = null
 var _add_fp_btn:     Button        = null
 var _add_tp_btn:     Button        = null
+var _add_tenp_btn:   Button        = null
 var _toast_label:    Label         = null
 var _grid_overlay:   Control       = null
 var _fp_angle_row:   Control       = null
 var _fp_angle_spin:  SpinBox       = null
 var _tp_angle_row:   Control       = null
 var _tp_angle_spin:  SpinBox       = null
+var _tenp_vbox:      VBoxContainer = null
+var _tenp_angle_row: Control       = null
+var _tenp_angle_spin: SpinBox      = null
 var _save_confirm_dlg: ConfirmationDialog = null
+var _pos_x_spin:       SpinBox           = null
+var _pos_y_spin:       SpinBox           = null
 
 # Plume editor UI
 var _plume_vel_min_spin:  SpinBox           = null
@@ -96,7 +108,7 @@ const ZOOM_RATIO := 1.15
 func _ready() -> void:
 	layer = 12
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	add_to_group("creep_edit")
+	add_to_group(_edit_group())
 	_scan_creeps()
 	_build_ui()
 	_build_creep_buttons()
@@ -115,7 +127,7 @@ func is_open() -> bool:
 
 func _scan_creeps() -> void:
 	_all_creep_names.clear()
-	var dir := DirAccess.open(ENEMIES_FOLDER)
+	var dir := DirAccess.open(_folder())
 	if dir == null:
 		return
 	dir.list_dir_begin()
@@ -125,7 +137,8 @@ func _scan_creeps() -> void:
 			var ext := entry.get_extension().to_lower()
 			if ext in ["png", "jpg", "jpeg", "gif"]:
 				var name := entry.get_basename()
-				_all_creep_names.append(name)
+				if _accept_file(name):
+					_all_creep_names.append(name)
 		entry = dir.get_next()
 	dir.list_dir_end()
 	_all_creep_names.sort()
@@ -162,20 +175,22 @@ func _build_ui() -> void:
 
 func _build_asset_panel() -> void:
 	_asset_panel = Panel.new()
-	_asset_panel.size     = Vector2(ASSET_PANEL_W, 890.0)
+	# Clamp height to the screen so the panel never runs off the bottom; content below scrolls.
+	var vp_h: float = get_viewport().get_visible_rect().size.y
+	_asset_panel.size     = Vector2(ASSET_PANEL_W, minf(890.0, vp_h - 56.0))
 	_asset_panel.position = Vector2(20.0, 44.0)
 	add_child(_asset_panel)
 
-	var root := VBoxContainer.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.add_theme_constant_override("separation", 4)
-	_asset_panel.add_child(root)
+	var outer := VBoxContainer.new()
+	outer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	outer.add_theme_constant_override("separation", 4)
+	_asset_panel.add_child(outer)
 
-	# LAYERS section
+	# LAYERS title / drag handle — stays pinned above the scrollable content
 	var title_bar := Panel.new()
 	title_bar.custom_minimum_size = Vector2(0.0, 32.0)
 	title_bar.gui_input.connect(_on_asset_title_input)
-	root.add_child(title_bar)
+	outer.add_child(title_bar)
 	var tl := Label.new()
 	tl.text = "LAYERS"
 	tl.add_theme_font_size_override("font_size", 12)
@@ -184,8 +199,19 @@ func _build_asset_panel() -> void:
 	tl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	title_bar.add_child(tl)
 
+	# Scrollable content area — sections taller than the panel get a vertical scrollbar.
+	var content_scroll := ScrollContainer.new()
+	content_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	outer.add_child(content_scroll)
+
+	var root := VBoxContainer.new()
+	root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root.add_theme_constant_override("separation", 4)
+	content_scroll.add_child(root)
+
 	var layers_scroll := ScrollContainer.new()
-	layers_scroll.custom_minimum_size = Vector2(0.0, 60.0)
+	layers_scroll.custom_minimum_size = Vector2(0.0, 120.0)
 	layers_scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	root.add_child(layers_scroll)
 	_asset_vbox = VBoxContainer.new()
@@ -265,51 +291,41 @@ func _build_asset_panel() -> void:
 	_tp_angle_spin.value_changed.connect(func(_v: float) -> void: _on_tp_angle_changed())
 	_tp_angle_row.add_child(_tp_angle_spin)
 
-	# ── TRANSFORM section (W, H, Z + zoom slider) ──
+	# TENTACLE POINTS section — each point spawns a tentacle (the child-segment chain), aimed by its Dir vector
 	root.add_child(HSeparator.new())
-	var xf_hdr := Label.new()
-	xf_hdr.text = "TRANSFORM"
-	xf_hdr.add_theme_font_size_override("font_size", 10)
-	xf_hdr.modulate = Color(0.60, 0.63, 0.76)
-	root.add_child(xf_hdr)
+	var tn_hdr := Label.new()
+	tn_hdr.text = "TENTACLE POINTS"
+	tn_hdr.add_theme_font_size_override("font_size", 11)
+	tn_hdr.modulate = Color(0.80, 0.45, 1.0)
+	root.add_child(tn_hdr)
 
-	var sz_row := HBoxContainer.new()
-	sz_row.add_theme_constant_override("separation", 3)
-	root.add_child(sz_row)
-	_sz_w_spin = _small_spin(sz_row, "W", 1.0, 2000.0, _on_w_spin_changed)
-	_sz_h_spin = _small_spin(sz_row, "H", 1.0, 2000.0, _on_h_spin_changed)
+	var tn_scroll := ScrollContainer.new()
+	tn_scroll.custom_minimum_size = Vector2(0.0, 110.0)
+	tn_scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	root.add_child(tn_scroll)
+	_tenp_vbox = VBoxContainer.new()
+	_tenp_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_tenp_vbox.add_theme_constant_override("separation", 2)
+	tn_scroll.add_child(_tenp_vbox)
 
-	var z_row := HBoxContainer.new()
-	z_row.add_theme_constant_override("separation", 3)
-	root.add_child(z_row)
-	_z_spin = _small_spin(z_row, "Z", -500.0, 500.0)
-	var z_spacer := Control.new()
-	z_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	z_row.add_child(z_spacer)
-
-	# Zoom slider 50%–200%
-	var zoom_row := HBoxContainer.new()
-	zoom_row.add_theme_constant_override("separation", 4)
-	root.add_child(zoom_row)
-	var zoom_lbl := Label.new()
-	zoom_lbl.text = "Zoom:"
-	zoom_lbl.add_theme_font_size_override("font_size", 10)
-	zoom_lbl.custom_minimum_size = Vector2(34.0, 0.0)
-	zoom_row.add_child(zoom_lbl)
-	_zoom_slider = HSlider.new()
-	_zoom_slider.min_value = 50.0
-	_zoom_slider.max_value = 200.0
-	_zoom_slider.step      = 1.0
-	_zoom_slider.value     = 100.0
-	_zoom_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_zoom_slider.value_changed.connect(_on_zoom_slider_changed)
-	zoom_row.add_child(_zoom_slider)
-	_zoom_pct_lbl = Label.new()
-	_zoom_pct_lbl.text = "100%"
-	_zoom_pct_lbl.add_theme_font_size_override("font_size", 10)
-	_zoom_pct_lbl.custom_minimum_size = Vector2(36.0, 0.0)
-	_zoom_pct_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	zoom_row.add_child(_zoom_pct_lbl)
+	# TenP angle row
+	_tenp_angle_row = HBoxContainer.new()
+	_tenp_angle_row.visible = false
+	_tenp_angle_row.add_theme_constant_override("separation", 4)
+	root.add_child(_tenp_angle_row)
+	var tnal := Label.new()
+	tnal.text = "Dir:"
+	tnal.add_theme_font_size_override("font_size", 10)
+	tnal.custom_minimum_size = Vector2(24.0, 0.0)
+	_tenp_angle_row.add_child(tnal)
+	_tenp_angle_spin = SpinBox.new()
+	_tenp_angle_spin.min_value = -180.0
+	_tenp_angle_spin.max_value = 180.0
+	_tenp_angle_spin.step = 1.0
+	_tenp_angle_spin.suffix = "°"
+	_tenp_angle_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_tenp_angle_spin.value_changed.connect(func(_v: float) -> void: _on_tenp_angle_changed())
+	_tenp_angle_row.add_child(_tenp_angle_spin)
 
 	# ── PLUME STYLE section ──
 	root.add_child(HSeparator.new())
@@ -405,7 +421,7 @@ func _build_ctrl_panel() -> void:
 	title_bar.gui_input.connect(_on_ctrl_title_input)
 	root.add_child(title_bar)
 	var tl := Label.new()
-	tl.text = "CREEP EDIT"
+	tl.text = _title()
 	tl.add_theme_font_size_override("font_size", 13)
 	tl.set_anchors_preset(Control.PRESET_FULL_RECT)
 	tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -431,6 +447,7 @@ func _build_ctrl_panel() -> void:
 	_grid_btn = Button.new()
 	_grid_btn.text = "Grid"
 	_grid_btn.toggle_mode = true
+	_grid_btn.add_theme_font_size_override("font_size", 12)
 	_grid_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_grid_btn.pressed.connect(_toggle_grid_mode)
 	mode_row.add_child(_grid_btn)
@@ -438,6 +455,7 @@ func _build_ctrl_panel() -> void:
 	_add_fp_btn = Button.new()
 	_add_fp_btn.text = "Add FP"
 	_add_fp_btn.toggle_mode = true
+	_add_fp_btn.add_theme_font_size_override("font_size", 12)
 	_add_fp_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_add_fp_btn.pressed.connect(_toggle_adding_firepoint)
 	mode_row.add_child(_add_fp_btn)
@@ -445,9 +463,18 @@ func _build_ctrl_panel() -> void:
 	_add_tp_btn = Button.new()
 	_add_tp_btn.text = "Add TP"
 	_add_tp_btn.toggle_mode = true
+	_add_tp_btn.add_theme_font_size_override("font_size", 12)
 	_add_tp_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_add_tp_btn.pressed.connect(_toggle_adding_thrustpoint)
 	mode_row.add_child(_add_tp_btn)
+
+	_add_tenp_btn = Button.new()
+	_add_tenp_btn.text = "Add TenP"
+	_add_tenp_btn.toggle_mode = true
+	_add_tenp_btn.add_theme_font_size_override("font_size", 12)
+	_add_tenp_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_add_tenp_btn.pressed.connect(_toggle_adding_tentaclepoint)
+	mode_row.add_child(_add_tenp_btn)
 
 	root.add_child(HSeparator.new())
 
@@ -457,12 +484,14 @@ func _build_ctrl_panel() -> void:
 
 	var save_btn := Button.new()
 	save_btn.text = "Save"
+	save_btn.add_theme_font_size_override("font_size", 12)
 	save_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	save_btn.pressed.connect(_save_layout)
 	btn_row.add_child(save_btn)
 
 	_delete_btn = Button.new()
 	_delete_btn.text = "Delete"
+	_delete_btn.add_theme_font_size_override("font_size", 12)
 	_delete_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_delete_btn.disabled = true
 	_delete_btn.pressed.connect(_delete_selected)
@@ -470,8 +499,61 @@ func _build_ctrl_panel() -> void:
 
 	var close_btn := Button.new()
 	close_btn.text = "Close"
+	close_btn.add_theme_font_size_override("font_size", 12)
 	close_btn.pressed.connect(_request_close)
 	root.add_child(close_btn)
+
+	# ── TRANSFORM section (X, Y, W, H, Z + zoom slider) ──
+	root.add_child(HSeparator.new())
+	var xf_hdr := Label.new()
+	xf_hdr.text = "TRANSFORM"
+	xf_hdr.add_theme_font_size_override("font_size", 10)
+	xf_hdr.modulate = Color(0.60, 0.63, 0.76)
+	root.add_child(xf_hdr)
+
+	var pos_row := HBoxContainer.new()
+	pos_row.add_theme_constant_override("separation", 3)
+	root.add_child(pos_row)
+	_pos_x_spin = _small_spin(pos_row, "X", -4000.0, 4000.0, _on_pos_spin_changed)
+	_pos_y_spin = _small_spin(pos_row, "Y", -4000.0, 4000.0, _on_pos_spin_changed)
+
+	var sz_row := HBoxContainer.new()
+	sz_row.add_theme_constant_override("separation", 3)
+	root.add_child(sz_row)
+	_sz_w_spin = _small_spin(sz_row, "W", 1.0, 2000.0, _on_w_spin_changed)
+	_sz_h_spin = _small_spin(sz_row, "H", 1.0, 2000.0, _on_h_spin_changed)
+
+	var z_row := HBoxContainer.new()
+	z_row.add_theme_constant_override("separation", 3)
+	root.add_child(z_row)
+	_z_spin = _small_spin(z_row, "Z", -500.0, 500.0)
+	var z_spacer := Control.new()
+	z_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	z_row.add_child(z_spacer)
+
+	# Zoom slider 50%–200%
+	var zoom_row := HBoxContainer.new()
+	zoom_row.add_theme_constant_override("separation", 4)
+	root.add_child(zoom_row)
+	var zoom_lbl := Label.new()
+	zoom_lbl.text = "Zoom:"
+	zoom_lbl.add_theme_font_size_override("font_size", 10)
+	zoom_lbl.custom_minimum_size = Vector2(34.0, 0.0)
+	zoom_row.add_child(zoom_lbl)
+	_zoom_slider = HSlider.new()
+	_zoom_slider.min_value = 50.0
+	_zoom_slider.max_value = 200.0
+	_zoom_slider.step      = 1.0
+	_zoom_slider.value     = 100.0
+	_zoom_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_zoom_slider.value_changed.connect(_on_zoom_slider_changed)
+	zoom_row.add_child(_zoom_slider)
+	_zoom_pct_lbl = Label.new()
+	_zoom_pct_lbl.text = "100%"
+	_zoom_pct_lbl.add_theme_font_size_override("font_size", 10)
+	_zoom_pct_lbl.custom_minimum_size = Vector2(36.0, 0.0)
+	_zoom_pct_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	zoom_row.add_child(_zoom_pct_lbl)
 
 func _add_section(parent: VBoxContainer, text: String) -> void:
 	var lbl := Label.new()
@@ -526,19 +608,42 @@ func _build_creep_buttons() -> void:
 		_creep_btn_vbox.add_child(btn)
 		_creep_buttons[creep_name] = btn
 
+# ── Parent / child grouping ────────────────────────────────────────────────────
+
 # ── Layer list (left panel) ────────────────────────────────────────────────────
 
 func _refresh_layer_list() -> void:
 	for child in _asset_vbox.get_children():
 		child.queue_free()
-	var eo: EditableObjectNode = _placed.get(_active_creep, null)
-	if eo != null and is_instance_valid(eo):
-		_asset_vbox.add_child(_make_layer_row(eo))
+	if _active_creep.is_empty():
+		return
+	# Find the group root (active or its parent)
+	var root_name: String = _active_creep
+	var par: String = _creep_parents.get(_active_creep, "")
+	if not par.is_empty():
+		root_name = par
+	# Does this group have children? (controls whether the collapse toggle shows)
+	var has_children := false
+	for cname: String in _all_creep_names:
+		if _creep_parents.get(cname, "") == root_name:
+			has_children = true
+			break
+	# Root row first
+	var root_eo: EditableObjectNode = _placed.get(root_name, null)
+	if root_eo != null and is_instance_valid(root_eo):
+		_asset_vbox.add_child(_make_layer_row(root_name, root_eo, false, has_children))
+	# Children rows (indented) — hidden when collapsed
+	if has_children and not _layers_collapsed:
+		for cname: String in _all_creep_names:
+			if _creep_parents.get(cname, "") == root_name:
+				var eo: EditableObjectNode = _placed.get(cname, null)
+				if eo != null and is_instance_valid(eo):
+					_asset_vbox.add_child(_make_layer_row(cname, eo, true, false))
 
-func _make_layer_row(eo: EditableObjectNode) -> Control:
-	var is_selected: bool = (eo == _selected_obj)
+func _make_layer_row(cname: String, eo: EditableObjectNode, is_child: bool, has_children: bool = false) -> Control:
+	var is_selected: bool = (cname == _active_creep)
 	var row := Panel.new()
-	row.custom_minimum_size = Vector2(0.0, 46.0)
+	row.custom_minimum_size = Vector2(0.0, 38.0)
 	row.mouse_filter = Control.MOUSE_FILTER_STOP
 
 	var style := StyleBoxFlat.new()
@@ -549,29 +654,48 @@ func _make_layer_row(eo: EditableObjectNode) -> Control:
 
 	var hbox := HBoxContainer.new()
 	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)
-	hbox.add_theme_constant_override("separation", 5)
+	hbox.add_theme_constant_override("separation", 4)
 	row.add_child(hbox)
 
+	if is_child:
+		var indent := Control.new()
+		indent.custom_minimum_size = Vector2(12.0, 0.0)
+		hbox.add_child(indent)
+	elif has_children:
+		# Collapse / expand toggle for the group's child parts
+		var caret := Button.new()
+		caret.text = "▾" if not _layers_collapsed else "▸"
+		caret.add_theme_font_size_override("font_size", 11)
+		caret.custom_minimum_size = Vector2(18.0, 0.0)
+		caret.focus_mode = Control.FOCUS_NONE
+		caret.flat = true
+		caret.pressed.connect(func() -> void:
+			_layers_collapsed = not _layers_collapsed
+			_refresh_layer_list()
+		)
+		hbox.add_child(caret)
+
 	var icon := TextureRect.new()
-	icon.custom_minimum_size = Vector2(40.0, 40.0)
+	icon.custom_minimum_size = Vector2(32.0, 32.0)
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon.expand_mode  = TextureRect.EXPAND_IGNORE_SIZE
 	icon.texture = _get_eo_thumbnail(eo)
 	hbox.add_child(icon)
 
 	var name_lbl := Label.new()
-	name_lbl.text = eo.source_path.get_file().get_basename()
-	name_lbl.add_theme_font_size_override("font_size", 11)
+	name_lbl.text = cname
+	name_lbl.add_theme_font_size_override("font_size", 10)
 	name_lbl.clip_text = true
 	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_lbl.modulate = Color(0.85, 0.85, 0.85) if is_child else Color(1.0, 1.0, 1.0)
 	hbox.add_child(name_lbl)
 
-	var cap_eo := eo
+	var cap_name := cname
 	row.gui_input.connect(func(e: InputEvent) -> void:
 		if e is InputEventMouseButton \
 				and (e as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT \
 				and (e as InputEventMouseButton).pressed:
-			_select_obj(cap_eo)
+			_set_active_creep(cap_name)
 	)
 	return row
 
@@ -610,14 +734,17 @@ func _close() -> void:
 	_grid_mode = false
 	_adding_firepoint  = false
 	_adding_thrustpoint = false
+	_adding_tentaclepoint = false
 	_grid_btn.button_pressed  = false
 	_add_fp_btn.button_pressed = false
 	_add_tp_btn.button_pressed = false
+	_add_tenp_btn.button_pressed = false
 	_grid_overlay.show_grid    = false
 	_grid_overlay.is_edit_open = false
 	_reset_zoom()
 	_select_fp(-1)
 	_select_tp(-1)
+	_select_tenp(-1)
 	_set_ui_visible(false)
 	_select_obj(null)
 	_update_all_creep_interactivity()
@@ -645,24 +772,38 @@ func _set_active_creep(creep_name: String) -> void:
 	_active_creep = creep_name
 	if not _placed.has(creep_name) or not is_instance_valid(_placed.get(creep_name, null)):
 		_load_or_create_creep(creep_name)
+	# Pre-load the whole group so the layer list and canvas show all members
+	var group_root: String = _creep_parents.get(creep_name, "")
+	if group_root.is_empty():
+		group_root = creep_name  # active is the root
+	else:
+		_load_or_create_creep(group_root)  # ensure parent is loaded
+	for cname: String in _all_creep_names:
+		if _creep_parents.get(cname, "") == group_root:
+			_load_or_create_creep(cname)
 	if not _fire_points.has(creep_name):
 		_fire_points[creep_name] = []
 	if not _thrust_points.has(creep_name):
 		_thrust_points[creep_name] = []
-	_select_obj(null)
+	if not _tentacle_points.has(creep_name):
+		_tentacle_points[creep_name] = []
 	_selected_fp_idx = -1
 	_selected_tp_idx = -1
 	_selected_tp_indices.clear()
+	_selected_tenp_idx = -1
 	_eo_drag_undo_pushed = false
 	_update_all_creep_interactivity()
 	_update_grid_overlay()
 	_refresh_fp_list()
 	_refresh_tp_list()
+	_refresh_tenp_list()
 	_refresh_fp_angle_ui()
 	_refresh_tp_angle_ui()
-	_refresh_layer_list()
-	_refresh_transform_panel()
+	_refresh_tenp_angle_ui()
 	_refresh_plume_editor()
+	# Auto-select the active creep's sprite so it can be dragged / nudged immediately
+	var active_eo: EditableObjectNode = _placed.get(creep_name, null)
+	_select_obj(active_eo if is_instance_valid(active_eo) else null)
 	for name: String in _creep_buttons:
 		(_creep_buttons[name] as Button).button_pressed = (name == creep_name)
 
@@ -671,7 +812,7 @@ func _load_or_create_creep(creep_name: String) -> void:
 		return
 	# Try to find the file (png or gif)
 	for ext: String in ["png", "gif", "jpg", "jpeg"]:
-		var path: String = ENEMIES_FOLDER + creep_name + "." + ext
+		var path: String = _folder() + creep_name + "." + ext
 		var tex := _load_full_tex(path)
 		if tex == null:
 			continue
@@ -718,10 +859,28 @@ func _refresh_transform_panel() -> void:
 		_sz_w_spin.value = eo.size.x
 		_sz_h_spin.value = eo.size.y
 		_z_spin.value    = eo.z_index
+		# X,Y: relative to parent if child, read-only if root
+		var parent_name: String = _creep_parents.get(_active_creep, "")
+		var has_parent: bool = not parent_name.is_empty()
+		_pos_x_spin.editable = has_parent
+		_pos_y_spin.editable = has_parent
+		if has_parent:
+			var peo: EditableObjectNode = _placed.get(parent_name, null)
+			if peo != null and is_instance_valid(peo):
+				var rel := eo.position - peo.position
+				_pos_x_spin.value = snappedf(rel.x, 1.0)
+				_pos_y_spin.value = snappedf(rel.y, 1.0)
+		else:
+			_pos_x_spin.value = snappedf(eo.position.x, 1.0)
+			_pos_y_spin.value = snappedf(eo.position.y, 1.0)
 	else:
 		_sz_w_spin.value = 0.0
 		_sz_h_spin.value = 0.0
 		_z_spin.value    = 0.0
+		_pos_x_spin.value = 0.0
+		_pos_y_spin.value = 0.0
+		_pos_x_spin.editable = false
+		_pos_y_spin.editable = false
 	_updating_spin = false
 
 func _on_spin_changed() -> void:
@@ -759,6 +918,21 @@ func _apply_spin_to_selected() -> void:
 	eo._sync_rect_size()
 	_dirty = true
 
+func _on_pos_spin_changed() -> void:
+	if _updating_spin or _active_creep.is_empty():
+		return
+	var parent_name: String = _creep_parents.get(_active_creep, "")
+	if parent_name.is_empty():
+		return  # root sprite: X,Y not editable
+	var eo: EditableObjectNode = _placed.get(_active_creep, null)
+	var peo: EditableObjectNode = _placed.get(parent_name, null)
+	if eo == null or not is_instance_valid(eo) or peo == null or not is_instance_valid(peo):
+		return
+	_push_undo_transform(eo)
+	eo.position = peo.position + Vector2(_pos_x_spin.value, _pos_y_spin.value)
+	eo._sync_rect_size()
+	_dirty = true
+
 func _on_transform_ended(_obj: Control) -> void:
 	_eo_drag_undo_pushed = false
 	_refresh_transform_panel()
@@ -780,11 +954,14 @@ func _toggle_grid_mode() -> void:
 	if _grid_mode:
 		_adding_firepoint   = false
 		_adding_thrustpoint = false
+		_adding_tentaclepoint = false
 		_add_fp_btn.button_pressed = false
 		_add_tp_btn.button_pressed = false
+		_add_tenp_btn.button_pressed = false
 		_select_obj(null)
 		_select_fp(-1)
 		_select_tp(-1)
+		_select_tenp(-1)
 	_update_all_creep_interactivity()
 	_grid_overlay.show_grid    = _grid_mode
 	_grid_overlay.is_edit_open = _is_open
@@ -793,24 +970,30 @@ func _toggle_adding_firepoint() -> void:
 	_adding_firepoint = _add_fp_btn.button_pressed
 	if _adding_firepoint:
 		_adding_thrustpoint = false
+		_adding_tentaclepoint = false
 		_add_tp_btn.button_pressed = false
+		_add_tenp_btn.button_pressed = false
 		_grid_mode = false
 		_grid_btn.button_pressed = false
 		_select_obj(null)
 		_select_fp(-1)
 		_select_tp(-1)
+		_select_tenp(-1)
 	_update_all_creep_interactivity()
 
 func _toggle_adding_thrustpoint() -> void:
 	_adding_thrustpoint = _add_tp_btn.button_pressed
 	if _adding_thrustpoint:
 		_adding_firepoint = false
+		_adding_tentaclepoint = false
 		_add_fp_btn.button_pressed = false
+		_add_tenp_btn.button_pressed = false
 		_grid_mode = false
 		_grid_btn.button_pressed = false
 		_select_obj(null)
 		_select_fp(-1)
 		_select_tp(-1)
+		_select_tenp(-1)
 	_update_all_creep_interactivity()
 
 # ── Fire Points ────────────────────────────────────────────────────────────────
@@ -977,6 +1160,127 @@ func _refresh_tp_list() -> void:
 	for i: int in tps.size():
 		_tp_vbox.add_child(_make_point_row(tps[i], i, false))
 
+# ── Tentacle Points ──────────────────────────────────────────────────────────
+# Each tentacle point spawns one tentacle (the child-segment chain) at its position, aimed by Dir.
+func _toggle_adding_tentaclepoint() -> void:
+	_adding_tentaclepoint = _add_tenp_btn.button_pressed
+	if _adding_tentaclepoint:
+		_adding_firepoint = false
+		_adding_thrustpoint = false
+		_add_fp_btn.button_pressed = false
+		_add_tp_btn.button_pressed = false
+		_grid_mode = false
+		_grid_btn.button_pressed = false
+		_select_obj(null)
+		_select_fp(-1)
+		_select_tp(-1)
+		_select_tenp(-1)
+	_update_all_creep_interactivity()
+
+func _add_tentaclepoint_at(viewport_pos: Vector2) -> void:
+	if _active_creep.is_empty():
+		return
+	var oc_pos: Vector2 = _objects_container.position if (_objects_container != null and is_instance_valid(_objects_container)) else Vector2.ZERO
+	var ss_pos := (viewport_pos - oc_pos) / _zoom - SCREEN_ORIGIN
+	if not _tentacle_points.has(_active_creep):
+		_tentacle_points[_active_creep] = []
+		_tenp_id_counter[_active_creep] = 1
+	var tn_id: int = _tenp_id_counter.get(_active_creep, 1)
+	_tentacle_points[_active_creep].append({"pos": ss_pos, "id": tn_id, "dir_angle": PI * 0.5})
+	_tenp_id_counter[_active_creep] = tn_id + 1
+	_dirty = true
+	_refresh_tenp_list()
+	_update_grid_overlay()
+
+func _select_tenp(idx: int) -> void:
+	_selected_tenp_idx = idx
+	if idx >= 0:
+		_select_obj(null)
+		_selected_fp_idx = -1
+		_selected_tp_idx = -1
+		_selected_tp_indices.clear()
+	_refresh_tenp_list()
+	_update_grid_overlay()
+	_refresh_tenp_angle_ui()
+
+func _delete_selected_tenp() -> void:
+	var tns: Array = _tentacle_points.get(_active_creep, [])
+	if _selected_tenp_idx < 0 or _selected_tenp_idx >= tns.size():
+		return
+	tns.remove_at(_selected_tenp_idx)
+	_tentacle_points[_active_creep] = tns
+	_selected_tenp_idx = -1
+	_dirty = true
+	_refresh_tenp_list()
+	_update_grid_overlay()
+
+func _refresh_tenp_angle_ui() -> void:
+	var show := _selected_tenp_idx >= 0
+	_tenp_angle_row.visible = show
+	if not show:
+		return
+	var tns: Array = _tentacle_points.get(_active_creep, [])
+	if _selected_tenp_idx >= tns.size():
+		return
+	_updating_spin = true
+	_tenp_angle_spin.value = snappedf(rad_to_deg(float(tns[_selected_tenp_idx].get("dir_angle", 0.0))), 1.0)
+	_updating_spin = false
+
+func _on_tenp_angle_changed() -> void:
+	if _updating_spin or _selected_tenp_idx < 0:
+		return
+	var tns: Array = _tentacle_points.get(_active_creep, [])
+	if _selected_tenp_idx >= tns.size():
+		return
+	tns[_selected_tenp_idx]["dir_angle"] = deg_to_rad(_tenp_angle_spin.value)
+	_tentacle_points[_active_creep] = tns
+	_dirty = true
+	_update_grid_overlay()
+
+func _refresh_tenp_list() -> void:
+	for child in _tenp_vbox.get_children():
+		child.queue_free()
+	var tns: Array = _tentacle_points.get(_active_creep, [])
+	for i: int in tns.size():
+		_tenp_vbox.add_child(_make_tenp_row(tns[i], i))
+
+func _make_tenp_row(pt: Dictionary, idx: int) -> Control:
+	var is_sel: bool = (idx == _selected_tenp_idx)
+	var row := Panel.new()
+	row.custom_minimum_size = Vector2(0.0, 30.0)
+	row.mouse_filter = Control.MOUSE_FILTER_STOP
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.70, 0.30, 0.95, 0.38) if is_sel else Color(0.0, 0.0, 0.0, 0.0)
+	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
+	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
+	row.add_theme_stylebox_override("panel", style)
+	var hbox := HBoxContainer.new()
+	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hbox.add_theme_constant_override("separation", 5)
+	row.add_child(hbox)
+	var pt_id: int   = pt.get("id",  idx + 1)
+	var pos: Vector2 = pt.get("pos", Vector2.ZERO)
+	var angle_deg    := int(round(rad_to_deg(float(pt.get("dir_angle", 0.0)))))
+	var id_lbl := Label.new()
+	id_lbl.text = "Tn%d" % pt_id
+	id_lbl.add_theme_font_size_override("font_size", 11)
+	id_lbl.custom_minimum_size = Vector2(30.0, 0.0)
+	id_lbl.modulate = Color(0.95, 0.55, 1.0) if is_sel else Color(0.70, 0.40, 0.90)
+	hbox.add_child(id_lbl)
+	var pos_lbl := Label.new()
+	pos_lbl.text = "(%d,%d) %d°" % [int(pos.x), int(pos.y), angle_deg]
+	pos_lbl.add_theme_font_size_override("font_size", 10)
+	pos_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_child(pos_lbl)
+	var cap_idx := idx
+	row.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton \
+				and (e as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT \
+				and (e as InputEventMouseButton).pressed:
+			_select_tenp(cap_idx)
+	)
+	return row
+
 func _make_point_row(pt: Dictionary, idx: int, is_fp: bool) -> Control:
 	var is_sel: bool = (idx == _selected_fp_idx) if is_fp else _selected_tp_indices.has(idx)
 	var col_sel  := Color(0.25, 0.85, 1.0, 0.38) if is_fp else Color(0.10, 0.80, 0.55, 0.38)
@@ -1077,6 +1381,8 @@ func _update_grid_overlay() -> void:
 	_grid_overlay.selected_fp_idx = _selected_fp_idx
 	_grid_overlay.thrust_points   = _thrust_points.get(_active_creep, [])
 	_grid_overlay.selected_tp_idx = _selected_tp_idx
+	_grid_overlay.tentacle_points   = _tentacle_points.get(_active_creep, [])
+	_grid_overlay.selected_tenp_idx = _selected_tenp_idx
 	if _objects_container != null and is_instance_valid(_objects_container):
 		_grid_overlay.zoom          = _zoom
 		_grid_overlay.canvas_offset = _objects_container.position
@@ -1146,25 +1452,44 @@ func _make_preview_plume(oc_pos: Vector2, dir_angle: float, style: Dictionary = 
 # ── Interactivity ──────────────────────────────────────────────────────────────
 
 func _update_all_creep_interactivity() -> void:
-	var allow_select: bool = not _grid_mode and not _adding_firepoint and not _adding_thrustpoint
+	var allow_select: bool = not _grid_mode and not _adding_firepoint and not _adding_thrustpoint and not _adding_tentaclepoint
+	# Build the set of sprites that should be visible: the whole group (root + all its children).
+	# Whether the active member is the root or a child, the entire assembly stays visible.
+	var visible_set: Dictionary = {}
+	if _is_open and not _active_creep.is_empty():
+		var group_root: String = _creep_parents.get(_active_creep, "")
+		if group_root.is_empty():
+			group_root = _active_creep  # active is the root itself
+		visible_set[group_root] = true
+		for cname: String in _all_creep_names:
+			if _creep_parents.get(cname, "") == group_root:
+				visible_set[cname] = true
 	for creep_name: String in _all_creep_names:
 		var eo: EditableObjectNode = _placed.get(creep_name, null)
 		if eo == null or not is_instance_valid(eo):
 			continue
-		var is_active: bool = _is_open and creep_name == _active_creep
+		var is_active:    bool = _is_open and creep_name == _active_creep
+		var is_companion: bool = _is_open and (not is_active) and visible_set.has(creep_name)
 		eo.set_gameplay_mode(not _is_open)
-		eo.visible = is_active if _is_open else false
+		eo.visible = visible_set.has(creep_name) if _is_open else false
 		if _is_open:
 			eo.gif_paused = true
 			eo.reset_gif()
 		else:
 			eo.gif_paused = false
+		# Companions (children/parent) are also clickable so user can click-to-switch-active
 		eo.mouse_filter = Control.MOUSE_FILTER_STOP \
-			if (is_active and _is_open and allow_select) else Control.MOUSE_FILTER_IGNORE
+			if ((is_active or is_companion) and _is_open and allow_select) \
+			else Control.MOUSE_FILTER_IGNORE
 
 func _on_canvas_object_clicked(obj: EditableObjectNode) -> void:
 	if not _is_open or _grid_mode:
 		return
+	# If the clicked object belongs to a different creep, switch active to it
+	for cname: String in _placed:
+		if _placed[cname] == obj and cname != _active_creep:
+			_set_active_creep(cname)
+			return
 	_select_obj(obj)
 
 func _update_gameplay_visibility() -> void:
@@ -1190,6 +1515,7 @@ func _input(event: InputEvent) -> void:
 				dir *= 10.0
 			var fps: Array = _fire_points.get(_active_creep, [])
 			var tps: Array = _thrust_points.get(_active_creep, [])
+			var tns: Array = _tentacle_points.get(_active_creep, [])
 			if _selected_fp_idx >= 0 and _selected_fp_idx < fps.size():
 				fps[_selected_fp_idx]["pos"] = (fps[_selected_fp_idx]["pos"] as Vector2) + dir
 				_fire_points[_active_creep] = fps
@@ -1205,6 +1531,14 @@ func _input(event: InputEvent) -> void:
 				_thrust_points[_active_creep] = tps
 				_dirty = true
 				_refresh_tp_list()
+				_update_grid_overlay()
+				get_viewport().set_input_as_handled()
+				return
+			elif _selected_tenp_idx >= 0 and _selected_tenp_idx < tns.size():
+				tns[_selected_tenp_idx]["pos"] = (tns[_selected_tenp_idx]["pos"] as Vector2) + dir
+				_tentacle_points[_active_creep] = tns
+				_dirty = true
+				_refresh_tenp_list()
 				_update_grid_overlay()
 				get_viewport().set_input_as_handled()
 				return
@@ -1261,6 +1595,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_delete_selected_fp()
 			elif _selected_tp_idx >= 0:
 				_delete_selected_tp()
+			elif _selected_tenp_idx >= 0:
+				_delete_selected_tenp()
 			elif is_instance_valid(_selected_obj):
 				_delete_selected()
 			get_viewport().set_input_as_handled()
@@ -1275,6 +1611,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			if _adding_thrustpoint:
 				_adding_thrustpoint = false
 				_add_tp_btn.button_pressed = false
+				_update_all_creep_interactivity()
+				get_viewport().set_input_as_handled()
+				return
+			if _adding_tentaclepoint:
+				_adding_tentaclepoint = false
+				_add_tenp_btn.button_pressed = false
 				_update_all_creep_interactivity()
 				get_viewport().set_input_as_handled()
 				return
@@ -1310,6 +1652,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				_add_thrustpoint_at(mb.position)
 				get_viewport().set_input_as_handled()
 				return
+			if _adding_tentaclepoint:
+				_add_tentaclepoint_at(mb.position)
+				get_viewport().set_input_as_handled()
+				return
 		if mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed and not in_panels:
 			if _adding_firepoint:
 				_adding_firepoint = false
@@ -1318,6 +1664,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			elif _adding_thrustpoint:
 				_adding_thrustpoint = false
 				_add_tp_btn.button_pressed = false
+				_update_all_creep_interactivity()
+			elif _adding_tentaclepoint:
+				_adding_tentaclepoint = false
+				_add_tenp_btn.button_pressed = false
 				_update_all_creep_interactivity()
 			elif _grid_mode:
 				_grid_mode = false
@@ -1328,6 +1678,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_select_obj(null)
 				_select_fp(-1)
 				_select_tp(-1)
+				_select_tenp(-1)
 			get_viewport().set_input_as_handled()
 
 func _on_asset_title_input(event: InputEvent) -> void:
@@ -1397,7 +1748,7 @@ func _undo() -> void:
 
 func _save_layout() -> void:
 	var cfg := ConfigFile.new()
-	cfg.load(LAYOUT_PATH)
+	cfg.load(_layout_path())
 	cfg.set_value("meta", "version", 1)
 	for creep_name: String in _all_creep_names:
 		var eo: EditableObjectNode = _placed.get(creep_name, null)
@@ -1407,6 +1758,7 @@ func _save_layout() -> void:
 				"pos":     eo.position,
 				"size":    eo.size,
 				"z_index": eo.z_index,
+				"parent":  _creep_parents.get(creep_name, ""),
 			})
 		# Fire points
 		var fp_data: Array[Dictionary] = []
@@ -1418,16 +1770,21 @@ func _save_layout() -> void:
 		for tp: Dictionary in _thrust_points.get(creep_name, []):
 			tp_data.append({"pos": tp["pos"], "id": tp.get("id", 0), "dir_angle": tp.get("dir_angle", 0.0)})
 		cfg.set_value("thrustpoints", creep_name, tp_data)
-	cfg.save(LAYOUT_PATH)
+		# Tentacle points
+		var tn_data: Array[Dictionary] = []
+		for tn: Dictionary in _tentacle_points.get(creep_name, []):
+			tn_data.append({"pos": tn["pos"], "id": tn.get("id", 0), "dir_angle": tn.get("dir_angle", 0.0)})
+		cfg.set_value("tentaclepoints", creep_name, tn_data)
+	cfg.save(_layout_path())
 	_save_plume_styles()
 	_dirty = false
-	show_toast("Saved creep_layout.cfg")
+	show_toast("Saved " + _layout_path().get_file())
 
 func _load_layout() -> void:
 	if _objects_container == null:
 		return
 	var cfg := ConfigFile.new()
-	if cfg.load(LAYOUT_PATH) != OK:
+	if cfg.load(_layout_path()) != OK:
 		return
 	for creep_name: String in _all_creep_names:
 		# EO
@@ -1442,6 +1799,9 @@ func _load_layout() -> void:
 						entry.get("size", Vector2(60.0, 60.0)))
 					if eo != null:
 						eo.z_index = entry.get("z_index", 115)
+				var par: String = entry.get("parent", "")
+				if not par.is_empty():
+					_creep_parents[creep_name] = par
 		# Fire points
 		_fire_points[creep_name] = []
 		var max_fp_id := 0
@@ -1458,6 +1818,14 @@ func _load_layout() -> void:
 			_thrust_points[creep_name].append({"pos": tp.get("pos", Vector2.ZERO), "id": tp_id, "dir_angle": tp.get("dir_angle", 0.0)})
 			max_tp_id = maxi(max_tp_id, tp_id)
 		_tp_id_counter[creep_name] = max_tp_id + 1
+		# Tentacle points
+		_tentacle_points[creep_name] = []
+		var max_tn_id := 0
+		for tn: Dictionary in cfg.get_value("tentaclepoints", creep_name, []):
+			var tn_id: int = tn.get("id", max_tn_id + 1)
+			_tentacle_points[creep_name].append({"pos": tn.get("pos", Vector2.ZERO), "id": tn_id, "dir_angle": tn.get("dir_angle", 0.0)})
+			max_tn_id = maxi(max_tn_id, tn_id)
+		_tenp_id_counter[creep_name] = max_tn_id + 1
 
 # ── Asset loading ──────────────────────────────────────────────────────────────
 
@@ -1622,7 +1990,7 @@ func _reset_plume_style() -> void:
 
 func _load_plume_styles() -> void:
 	var cfg := ConfigFile.new()
-	if cfg.load(PLUME_STYLES_PATH) != OK:
+	if cfg.load(_plume_path()) != OK:
 		return
 	if not cfg.has_section("styles"):
 		return
@@ -1631,10 +1999,18 @@ func _load_plume_styles() -> void:
 
 func _save_plume_styles() -> void:
 	var cfg := ConfigFile.new()
-	cfg.load(PLUME_STYLES_PATH)
+	cfg.load(_plume_path())
 	for cname: String in _plume_styles:
 		cfg.set_value("styles", cname, _plume_styles[cname])
-	cfg.save(PLUME_STYLES_PATH)
+	cfg.save(_plume_path())
+
+# ── Overridable config (weapon_edit_mode.gd overrides these for the weapon editor) ──
+func _edit_group() -> String: return "creep_edit"
+func _folder() -> String: return ENEMIES_FOLDER
+func _layout_path() -> String: return LAYOUT_PATH
+func _plume_path() -> String: return PLUME_STYLES_PATH
+func _title() -> String: return "CREEP EDIT"
+func _accept_file(_fname: String) -> bool: return true
 
 # ── Toast ──────────────────────────────────────────────────────────────────────
 

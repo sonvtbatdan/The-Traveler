@@ -254,8 +254,8 @@ func _make_card(c: Dictionary, idx: int) -> Control:
 	var lbl_name := _styled_label(String(c["name"]), 15)
 	lbl_name.anchor_left   = 0.05
 	lbl_name.anchor_right  = 0.95
-	lbl_name.anchor_top    = 0.50
-	lbl_name.anchor_bottom = 0.62
+	lbl_name.anchor_top    = 0.26
+	lbl_name.anchor_bottom = 0.38
 	card.add_child(lbl_name)
 
 	# Effect label — action + effect by default (e.g. "NEW\n+20 Max HP" or "Lv 2 → 3\n+10% Damage").
@@ -439,7 +439,7 @@ func _current_text(c: Dictionary) -> String:
 		return "Both at MAX"
 	var lvl := int(c.get("level", 0))
 	if lvl <= 0:
-		return "Not owned yet"
+		return "Not own\nyet"
 	return "Owned  Lv %d" % lvl
 
 # ── Hover effects ───────────────────────────────────────────────────────────────

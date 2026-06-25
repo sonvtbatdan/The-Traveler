@@ -25,7 +25,6 @@ const ArenaSolarSystemScript := preload("res://scripts/gameplay/arena_solar_syst
 const ArenaDofScript     := preload("res://scripts/gameplay/arena_dof.gd")
 const PlanetMenuScript   := preload("res://scripts/ui/hud/arena_planet_menu.gd")
 const DebugSpawnScript   := preload("res://scripts/gameplay/arena_debug_spawn.gd")
-const WeaponPaletteScript := preload("res://scripts/gameplay/arena_weapon_palette.gd")
 const PerfOverlayScript  := preload("res://scripts/ui/hud/perf_overlay.gd")
 const LevelUpUIScript    := preload("res://scripts/ui/hud/arena_levelup_ui.gd")
 const FusionCutsceneScript := preload("res://scripts/gameplay/arena_fusion_cutscene.gd")  # weapon-fusion cutscene
@@ -38,6 +37,7 @@ const ArenaRuinLayerScript := preload("res://scripts/gameplay/arena_ruin_layer.g
 const ArenaHudButtonsScript := preload("res://scripts/ui/hud/arena_hud_buttons.gd")
 const BossEditScript        := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
 const CreepEditScript       := preload("res://scripts/ui/boss_edit/creep_edit_mode.gd")
+const WeaponEditScript      := preload("res://scripts/ui/boss_edit/weapon_edit_mode.gd")
 const RESET_RUN_ON_START := true   # each arena run starts a fresh VS climb (level 1, no upgrades). Flip off to keep saved level.
 const WEAPON_TEST_MODE := true     # TEST: skip the hub launch page + start-of-run weapon-pick chest; boot straight into
 								   # the arena, then auto-pause and open the F12 weapon palette. Flip off to restore normal flow.
@@ -49,6 +49,7 @@ const PLAYER_SIZE_PX  := 48.0                 # ship drawn this many px on its l
 const PLAYER_RADIUS   := 16.0                 # collision circle radius (for later)
 const SHIP_Z          := 100                  # ship draws ABOVE all world effects (weapon FX ≤6, explosions, enemies) so it's never hidden
 const MOVE_SPEED      := 320.0                # px/s
+const SQUID_CLING_SLOW_FLOOR := 0.10          # clinging squids can't drag move speed below this (keeps the ship mobile)
 const TURN_INSTANT    := false               # true = snap to face mouse; false = eased turn
 const TURN_SPEED      := 12.0                 # eased turn rate (higher = snappier)
 const FIRE_INTERVAL   := 0.25                 # s between auto-fire shots
@@ -86,6 +87,7 @@ var _edge_vignette_mat: ShaderMaterial = null   # boundary "edge of system" cue
 var _enemy_mgr: Node = null   # arena_enemy_manager (smart/defend thruster bullet queries)
 var _boss_edit:  Node = null
 var _creep_edit: Node = null
+var _weapon_edit: Node = null
 var _weapon_chest: Node = null   # start-of-run weapon chest UI
 
 func _ready() -> void:
@@ -129,7 +131,6 @@ func _ready() -> void:
 	bg.add_child(solar)
 	add_child(PlanetMenuScript.new())    # F6 menu: inspect/drag-spawn planets (input stays in the main viewport)
 	add_child(DebugSpawnScript.new())    # F5 asteroids / F9 comet / F10 planet+moons (Shift = clear)
-	add_child(WeaponPaletteScript.new()) # F12 weapon palette: drag Gatling/Lasgun/Arc/Gauss onto the ground
 	add_child(ArenaHudButtonsScript.new())  # bottom-right HUD: Setting / Devon / Quit
 	_build_parallax(bg)
 	_build_player()
@@ -157,10 +158,8 @@ func _ready() -> void:
 	add_child(ArenaRuinLayerScript.new()) # periodic ruin ships (every 5–15s): ship → box → loot drop
 	call_deferred("_setup_boss_edit")
 	call_deferred("_setup_creep_edit")
-	if WEAPON_TEST_MODE:
-		call_deferred("_open_weapon_test")   # skip the weapon-pick chest → auto-pause + open the F12 palette
-	else:
-		call_deferred("_open_start_chest")   # fresh run → present the pick-1-of-3 weapon chest (ship starts unarmed)
+	call_deferred("_setup_weapon_edit")
+	call_deferred("_open_start_chest")   # fresh run → present the pick-1-of-3 weapon chest (ship starts unarmed)
 
 ## Canvas glow/bloom for the arena. With hdr_2d on (project.godot) + glow_hdr_threshold 1.0, only HDR (>1)
 ## pixels bloom — i.e. the DynamicFire effects that set glow>0 (Elephant M2, Red X). LDR content is untouched.
@@ -318,6 +317,10 @@ func _physics_process(delta: float) -> void:
 	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	var speed_mult: float = GameManager.get_move_speed_mult() if GameManager.has_method("get_move_speed_mult") else 1.0
 	var spd := MOVE_SPEED * speed_mult
+	# Each clinging squid drags the ship: −20% move speed, stacking (2 squids = −40%, …).
+	var cling := get_tree().get_nodes_in_group("squid_clinging").size()
+	if cling > 0:
+		spd *= maxf(1.0 - 0.20 * float(cling), SQUID_CLING_SLOW_FLOOR)
 	# Equipped thruster behaviour (Phase 5): strong=raw speed, reverse=faster backpedal,
 	# smart=auto-dodge incoming fire, defend=shove enemy fire away from the hull.
 	var tstats: Dictionary = _thruster_def().get("stats", {})
@@ -493,6 +496,19 @@ func _setup_creep_edit() -> void:
 	add_child(cem)
 	_creep_edit = cem
 	cem.setup(oc)
+
+func _setup_weapon_edit() -> void:
+	var cl := CanvasLayer.new()
+	cl.layer = 9
+	add_child(cl)
+	var oc := Control.new()
+	oc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	oc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cl.add_child(oc)
+	var wem := WeaponEditScript.new()
+	add_child(wem)
+	_weapon_edit = wem
+	wem.setup(oc)
 
 # ── Run end (death → hub) ───────────────────────────────────────────────────────
 var _run_over_shown: bool = false
