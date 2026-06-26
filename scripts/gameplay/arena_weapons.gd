@@ -2958,10 +2958,13 @@ func _spawn_mortar_explosion(pos: Vector2, size_px: float, speed_mult: float = 1
 	ex.core_size = 0.5
 	ex.core_hot = Color(3.0, 2.3, 1.6)
 	if lite:
-		# Small fast Mortar puff — KEEP the shockwave (just at NORMAL scale, not the giant ×3) + trim particles a bit.
+		# Small fast Mortar puff — KEEP the shockwave but cap its ring radius to ~250px (was fullscreen) + trim particles.
 		ex.fireball_amount = 28
 		ex.smoke_amount = 45
 		ex.streak_amount = 24
+		var vp_h := get_viewport_rect().size.y   # shockwave_max_radius is in screen-height units → px / height
+		if vp_h > 1.0:
+			ex.shockwave_max_radius = 250.0 / vp_h
 	else:
 		# Giant Fat Boy blast — exaggerate the shockwave to sweep the whole screen.
 		ex.shockwave_max_radius = ex.shockwave_max_radius * 3.0
