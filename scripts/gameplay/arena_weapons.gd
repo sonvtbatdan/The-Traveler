@@ -71,7 +71,7 @@ const WEAPON_INFO := {
 	"red_x":   {"def_id": "red_x",        "label": "Thermitic Discharger"},
 	"chemtrail": {"def_id": "chemtrail",  "label": "Biocide Vaporizer"},
 	"nuke":    {"def_id": "nuke",          "label": "PERSES"},
-	"sonic":   {"def_id": "sonic_wave",    "label": "Gravitational Pulser"},
+	"sonic":   {"def_id": "sonic_wave",    "label": "Sonic"},
 	"zsword":  {"def_id": "z_sword",       "label": "Schockwelle"},
 	"ionize":  {"def_id": "ionizing_field","label": "Tachyon Displacer"},
 	"boomerang": {"def_id": "boomerang",     "label": "Aliwa"},

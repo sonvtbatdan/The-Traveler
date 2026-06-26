@@ -861,8 +861,8 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "weight": 6 },
 	},
 	"sonic_wave": {
-		"name": "Gravitational Pulser",
-		"icon": "res://assets/inventory/HV-G-PULSER.png",
+		"name": "Sonic",
+		"icon": "res://assets/inventory/YongSan Sonic.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
 		"fire_mode": "repeat",

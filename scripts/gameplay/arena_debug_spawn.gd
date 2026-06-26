@@ -27,7 +27,7 @@ const WEAPONS := [
 	{"kind": "red_x",     "def_id": "red_x",           "label": "Thermitic Discharger"},
 	{"kind": "chemtrail", "def_id": "chemtrail",       "label": "Biocide Vaporizer"},
 	{"kind": "nuke",      "def_id": "nuke",            "label": "PERSES"},
-	{"kind": "sonic",     "def_id": "sonic_wave",      "label": "Gravitational Pulser"},
+	{"kind": "sonic",     "def_id": "sonic_wave",      "label": "Sonic"},
 	{"kind": "zsword",    "def_id": "z_sword",         "label": "Schockwelle"},
 	{"kind": "ionize",    "def_id": "ionizing_field",  "label": "Tachyon Displacer"},
 	{"kind": "boomerang", "def_id": "boomerang",       "label": "Aliwa"},
