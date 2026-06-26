@@ -100,7 +100,7 @@ const LOOT_DENOM: int = 1000
 const ITEM_DEFS: Dictionary = {
 	"gauss_cannon": {
 		"name": "Gauss Cannon",
-		"icon": "res://assets/inventory/gausscanon.png",
+		"icon": "res://assets/inventory/Gauss.png",
 		"size": Vector2i(3, 2),
 		"tags": ["weapon"],
 		"fire_mode": "charge",   # hold to charge (up to cooldown_sec); damage scales with charge
