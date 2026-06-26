@@ -12,6 +12,7 @@ extends CharacterBody2D
 
 const GifLoader        := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const ArenaExplosion   := preload("res://scripts/gameplay/arena_explosion.gd")
+const DeathFX          := preload("res://scripts/gameplay/arena_death_fx.gd")
 # Per-enemy attack SFX (one-shot; played from a lazily-created AudioStreamPlayer on bus "SFX").
 const SFX_SPIDER_JUMP  := preload("res://assets/audio/sfx/dash.wav")      # spider (jump_diag) leap
 const SFX_OCTOPUS_JUMP := preload("res://assets/audio/sfx/chargeby.wav")  # octopus (jump) leap
