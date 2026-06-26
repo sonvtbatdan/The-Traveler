@@ -3909,24 +3909,7 @@ func _draw_missiles() -> void:
 		var mp: Vector2 = m["pos"]
 		var f := float(m["facing"])
 		var fwd := Vector2(cos(f), sin(f))
-		# Exhaust plume (white-hot → orange → blue tip → fade): 7 circles behind the nozzle.
-		var nozzle := mp - fwd * 20.0
-		var back := -fwd
-		for pi_ in range(7):
-			var t := float(pi_) / 6.0
-			var ppos := nozzle + back * (t * 28.0)
-			var psize := lerpf(4.5, 1.0, t)
-			var col: Color
-			if t < 0.30:
-				var rr := t / 0.30
-				col = Color(1.0, lerpf(0.95, 0.60, rr), lerpf(0.70, 0.20, rr), 1.0)
-			elif t < 0.65:
-				var rr := (t - 0.30) / 0.35
-				col = Color(lerpf(1.0, 0.45, rr), 0.6, lerpf(0.20, 1.0, rr), lerpf(1.0, 0.85, rr))
-			else:
-				var rr := (t - 0.65) / 0.35
-				col = Color(lerpf(0.45, 0.20, rr), lerpf(0.60, 0.45, rr), 1.0, lerpf(0.85, 0.0, rr))
-			draw_circle(ppos, psize, col)
+		# Exhaust plume removed — drive it via thrust points (weapon_layout.cfg) + the plume registry instead.
 		if _missile_tex != null:
 			# Keep missile.png's native aspect ratio: anchor the length, derive the width from the texture.
 			var mh := MISSILE_DRAW_LEN
