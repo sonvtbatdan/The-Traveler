@@ -82,6 +82,21 @@ const WEAPON_INFO := {
 	"snake":       {"def_id": "space_snake",   "label": "Red Viper"},
 }
 
+# ── Weapon FUSION recipes ─────────────────────────────────────────────────────────
+# Keyed by the FUSED kind (matches _activate_kind / activate_<fused>). `a`+`b` = the two component kinds, each
+# must be owned at MAX_WEAPON_LEVEL to fuse (see available_fusions). `def_id` = inventory icon shown in the F12
+# palette + fusion cutscene reveal (reuses a component's icon as placeholder until dedicated fusion art lands).
+# NOTE: values reconstructed from the fusion code (the const table was missing from the merged commit).
+const FUSION_DEFS := {
+	"carnage":         {"a": "gatling", "b": "red_x",     "def_id": "gatling_gun",   "label": "Carnage"},
+	"vampire_host":    {"a": "swarm",   "b": "sonic",     "def_id": "swarm_host",    "label": "Vampire Host"},
+	"overcharger":     {"a": "gauss",   "b": "arc",       "def_id": "gauss_cannon",  "label": "Overcharger"},
+	"predator":        {"a": "lasgun",  "b": "snake",     "def_id": "lasgun",        "label": "Predator"},
+	"toxic_ballistic": {"a": "homing",  "b": "chemtrail", "def_id": "homing_missile","label": "Toxic Ballistic"},
+	"singularities":   {"a": "orbital", "b": "void",      "def_id": "orbitals",      "label": "Singularities"},
+}
+const FUSION_BONUS_LEVELS := 4   # fused weapons can climb this many levels past MAX_WEAPON_LEVEL (6 → 10)
+
 # ── TUNABLES: Batch-1 weapons (Nuke / Sonic Wave / Z-Sword / Ionizing Field) ──────
 # Nuke (Kinetic) — long-cooldown player-centred blast + auto knockback + lingering radiation slow zone.
 const NUKE_COOLDOWN      := 15.0
@@ -1526,7 +1541,7 @@ func activate_red_x() -> void:
 ## One Red X detonation: damage everything along the 4 diagonal arms, then play the pooled X fire-flash.
 func _fire_red_x(kind := "red_x") -> void:
 	_red_x_damage(kind, 1.0)
-	_spawn_red_x_fire(_player.global_position, RED_X_REACH)
+	_spawn_red_x_fire(_player.global_position, RED_X_REACH, 0.0)   # normal Red X = fixed X diagonals (no ship-facing offset)
 
 ## Apply Red X arm damage once (ported from arena_loadout._fire_cross). `scale` multiplies RED_X_DAMAGE so the
 ## same geometry can be used for a single full detonation (scale 1.0) or smaller periodic DPS ticks (Carnage).
@@ -4067,6 +4082,10 @@ func _draw_snake_seg(pos: Vector2, ang: float, tex: Texture2D, seg_px: float, is
 	draw_texture_rect(tex, Rect2(Vector2(-dw * 0.5, -dh * 0.5), Vector2(dw, dh)), false)
 
 # ── Carnage fusion (gatling + red_x): constant Red X fire + Gatling firing in 4 directions ─────────
+# NOTE: const values reconstructed (missing from the merged commit).
+const CARNAGE_REDX_TICK    := 0.25   # s between Carnage Red-X damage ticks; per-tick dmg = RED_X_DAMAGE × (tick/RED_X_INTERVAL) so sustained DPS == one base Red X
+const CARNAGE_FIRE_DRAW    := 0.5    # DynamicFire draw-in time for the persistent X stream (matches the one-shot Red X)
+const CARNAGE_FIRE_LIFETIME := 0.35  # DynamicFire particle lifetime (matches the one-shot Red X)
 func activate_carnage() -> void:
 	_carnage_active = true
 	_carnage_gat_acc = 0.0
@@ -4135,6 +4154,10 @@ func activate_overcharger() -> void:
 	_arc_cd = 0.0   # fire on the next frame (shares the Arc burst cooldown)
 
 # ── Vampire Host fusion (swarm + sonic): familiars fire small sonic waves; player lifesteals on hit ──
+# NOTE: const values reconstructed (missing from the merged commit).
+const VAMPIRE_RING_MAXR := 160.0      # max radius of the familiars' mini sonic wave (smaller than the Sonic weapon's 320)
+const VAMPIRE_DMG_FRAC  := 1.0 / 3.0  # the mini sonic wave deals 1/3 of SONIC_DAMAGE (per the design comment)
+const VAMPIRE_HEAL_FRAC := 0.25       # player heals this fraction of damage dealt (matches SWARM_HEAL_FRAC)
 func activate_vampire() -> void:
 	_vampire_active = true
 
