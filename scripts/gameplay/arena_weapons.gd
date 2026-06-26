@@ -70,7 +70,7 @@ const WEAPON_INFO := {
 	"void":    {"def_id": "rift_maker",   "label": "Vacuum Decoupler"},
 	"red_x":   {"def_id": "red_x",        "label": "Thermitic Discharger"},
 	"chemtrail": {"def_id": "chemtrail",  "label": "Biocide Vaporizer"},
-	"nuke":    {"def_id": "nuke",          "label": "PERSES"},
+	"nuke":    {"def_id": "nuke",          "label": "Rosastro HE Mortar"},   # code name: Mortar
 	"sonic":   {"def_id": "sonic_wave",    "label": "Sonic"},
 	"zsword":  {"def_id": "z_sword",       "label": "Schockwelle"},
 	"ionize":  {"def_id": "ionizing_field","label": "Tachyon Displacer"},

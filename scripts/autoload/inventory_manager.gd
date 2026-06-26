@@ -837,7 +837,7 @@ const ITEM_DEFS: Dictionary = {
 		},
 	},
 	"nuke": {
-		"name": "PERSES",
+		"name": "Rosastro HE Mortar",
 		"icon": "res://assets/inventory/Mortar.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],

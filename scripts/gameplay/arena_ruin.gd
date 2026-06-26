@@ -79,7 +79,7 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 # ── Damage ────────────────────────────────────────────────────────────────────
-func take_damage(dmg: float, _stagger: float = 0.0) -> void:
+func take_damage(dmg: float, _stagger: float = 0.0, _knock: float = 0.0) -> void:
 	if _dead:
 		return
 	hp -= dmg
