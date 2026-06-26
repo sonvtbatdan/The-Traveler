@@ -21,7 +21,9 @@ const SFX_ZAP          := preload("res://assets/audio/sfx/zap1.wav")      # shoo
 static var simplified_mode: bool = false
 const ICON_DRAW_SCALE := 2.6   # drawn sprite width = _radius × this (sprites read a bit bigger than the hit circle)
 const ENEMY_LAYER := 2              # physics layer enemies live on (separate from the player on layer 1)
-const CORE_FRAC := 0.75             # collision-core radius = _radius × this (slightly smaller than the model)
+const CORE_FRAC := 0.70             # collision-core radius = _radius × this (enemies can't fully stack)
+const SWARM_ZOOM_SPEED := 400.0     # swarm "zoom" mode — fly straight through the player and keep going
+const SWARM_ZOOM_CULL  := 1200.0    # ...then silently despawn once this far from the player
 const RETURN_DIST := 900.0          # dive group re-aims at the player once it gets this far away (loops back)
 const SPIRAL_SHRINK := 75       # px/s the spiral radius tightens toward the player (diver)
 const SPIRAL_CENTER_SPEED := 80.0   # px/s the spiral center drifts toward the player — run faster to pull away
@@ -180,6 +182,7 @@ var _spawn_t: float = 0.0
 var _dying: bool = false
 var _death_t: float = 0.0
 var _stagger_t: float = 0.0   # while > 0, movement/attacks are frozen (per-weapon hit stagger)
+var _swarm_mode: String = "chase"   # swarm blob unit: "zoom" (fly through @400) or "chase" (slow @speed)
 var _flash_color: Color = HIT_FLASH_COLOR
 
 ## Configure from the director's enemy table (or a fallback). Call before add_child.
@@ -188,6 +191,7 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_mgr = mgr
 	var d: Dictionary = def if not def.is_empty() else FALLBACK.get(type_id, FALLBACK["chase"])
 	behavior         = String(d.get("behavior", "chase"))
+	_swarm_mode      = String(d.get("swarm_mode", "chase"))
 	hp_max           = float(d.get("hp", 30.0))
 	hp               = hp_max
 	armor            = float(d.get("armor", 0.0))
@@ -217,6 +221,8 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 func _ready() -> void:
 	add_to_group("arena_enemy")
 	add_to_group("normal_enemy")
+	if behavior == "boss_stub":
+		add_to_group("boss")   # weapons (e.g. the lasgun) treat bosses as beam-blockers
 	# Collision core: enemies collide with EACH OTHER (own layer) so they can't overlap, but not with the
 	# player (layer 1) — contact stays distance-based. `no_collide` types (projectiles/special) pass freely.
 	if _no_collide:
@@ -546,7 +552,7 @@ func _update_plumes() -> void:
 			_apply_plume_full_mult(2.0 if _phase == 1 else 1.0)   # vel / scale / life ×2 during a leap
 
 # ── Universal damage contract ──────────────────────────────────────────────────
-func take_damage(amount: float, stagger: float = 0.0) -> void:
+func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0) -> void:
 	if _dead:
 		return
 	if _invincible:
@@ -555,14 +561,17 @@ func take_damage(amount: float, stagger: float = 0.0) -> void:
 	if GameManager.has_method("armor_damage_reduction"):
 		dr = GameManager.armor_damage_reduction(armor)
 	hp -= amount * (1.0 - dr)
-	# Hit reaction: flash (red if this blow kills, else white) + squash pulse + knockback + brief stagger.
+	# Hit reaction: flash (red if this blow kills, else white) + squash pulse + (optional) knockback + stagger.
 	_flash_color = KILL_FLASH_COLOR if hp <= 0.0 else HIT_FLASH_COLOR
 	_stagger_t = maxf(_stagger_t, stagger)
 	_flash = HIT_FLASH_TIME
 	_hit_squash = HIT_SQUASH
-	var away := global_position - _player_pos()
-	var momentum: float = GameManager.get_momentum_mult() if GameManager.has_method("get_momentum_mult") else 1.0
-	_knockback = (away.normalized() if away.length() > 0.01 else Vector2.UP) * KNOCKBACK_SPEED * momentum
+	# Pushback ONLY when the hitting weapon asks for it (knock > 0). Most weapons no longer push — only the
+	# Nuke and Gatling pass knock=1.0.
+	if knock > 0.0:
+		var away := global_position - _player_pos()
+		var momentum: float = GameManager.get_momentum_mult() if GameManager.has_method("get_momentum_mult") else 1.0
+		_knockback = (away.normalized() if away.length() > 0.01 else Vector2.UP) * KNOCKBACK_SPEED * knock * momentum
 	queue_redraw()
 	if hp <= 0.0:
 		_die()
@@ -589,9 +598,12 @@ func _die() -> void:
 	collision_mask = 0
 
 func _spawn_explosion(size_px: float) -> void:
-	var ex: Node2D = ArenaExplosion.new()
+	# Baked flipbook blast (scripts/gameplay/arena_death_fx.gd) — a pre-rendered sprite sheet of the composite
+	# Explosion, played back ADDITIVE (1 node + 1 draw call). The live composite (~4 particle systems/death)
+	# tanked the frame rate when a whole wave died at once; the flipbook looks the same for ~zero cost. It scales
+	# itself to the enemy via its own DISPLAY_SCALE, so pass the enemy size straight through.
+	var ex: Node2D = DeathFX.new()
 	get_parent().add_child(ex)
-	(ex as Node2D).global_position = global_position
 	ex.call("setup", global_position, size_px)
 
 func _play_boom() -> void:
@@ -921,19 +933,15 @@ func _tick_behavior(delta: float) -> void:
 		"chase", "boss_stub":
 			velocity = dir * speed
 			move_and_slide()
-		"squid":
-			# Leap toward the player (octopus jump rhythm) led by the tentacles; latch on at reach, then cling.
-			_face_squid(pp, delta)
-			if _squid_attached:
-				var tgt := pp + _squid_attach_off
-				global_position = global_position.lerp(tgt, clampf(8.0 * delta, 0.0, 1.0))
-				velocity = Vector2.ZERO
-				if dist > (_radius + SQUID_ATTACH_RANGE) * 3.0:
-					_squid_detach()   # player got away (e.g. dashed off) — resume the chase
+		"swarm":   # blob unit: ZOOM straight through the player @400 (then despawn), or CHASE slowly @speed
+			if _swarm_mode == "zoom":
+				velocity = _aim * SWARM_ZOOM_SPEED
+				move_and_slide()
+				if dist > SWARM_ZOOM_CULL:
+					queue_free()   # flew off the far side — vanish (no XP/explosion; it wasn't killed)
 			else:
-				_jump_tick(delta, dir, false)   # octopus-style: wait, then leap at the player, repeat
-				if global_position.distance_to(pp) <= _radius + SQUID_ATTACH_RANGE:
-					_squid_attach(pp)
+				velocity = dir * speed
+				move_and_slide()
 		"centipede":
 			_spin += TAU / 3.0 * delta
 			velocity = dir * speed

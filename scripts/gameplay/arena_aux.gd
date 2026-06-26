@@ -9,7 +9,7 @@ extends Node
 ## starts clean.
 
 const MAX_AUX       := 5    # aux slot count (second HUD row) / acquisition cap
-const MAX_AUX_LEVEL := 5    # per-item level cap
+const MAX_AUX_LEVEL := 6    # per-item level cap (skill-point progression; max level 6)
 
 # ── AUX CATALOG ──────────────────────────────────────────────────────────────────
 # id        — unique key (also the effect dispatcher key in _apply_effect)
@@ -24,7 +24,9 @@ const AUX_DEFS := [
 	{"id": "speed",       "name": "Fins",                "color": Color(0.45, 0.75, 1.00), "weight": 90,  "effect": "+6% Speed"},
 	{"id": "damage",      "name": "Accelerated Muzzle",  "color": Color(1.00, 0.45, 0.35), "weight": 70,  "effect": "+10% Damage"},
 	{"id": "fire_rate",   "name": "Auto-Loader",         "color": Color(1.00, 0.65, 0.30), "weight": 70,  "effect": "+8% Fire Rate"},
-	{"id": "pierce",      "name": "Penetrator Rounds",   "color": Color(0.90, 0.80, 0.40), "weight": 40,  "effect": "+1 Pierce"},
+	{"id": "armor_pen",   "name": "Armor Penetration",   "color": Color(0.90, 0.80, 0.40), "weight": 40,  "effect": "Ignore 2 Armor"},
+	{"id": "crit",        "name": "Aim Assistor",        "color": Color(1.00, 0.35, 0.35), "weight": 50,  "effect": "+5% Crit Chance"},
+	{"id": "harmonizer",  "name": "Harmonizer",          "color": Color(0.70, 0.50, 1.00), "weight": 30,  "effect": "+Type Damage"},
 	{"id": "aoe",         "name": "Explosivo",           "color": Color(1.00, 0.55, 0.20), "weight": 40,  "effect": "+25 AoE"},
 	{"id": "pickup",      "name": "Magnet",              "color": Color(0.55, 0.85, 0.95), "weight": 90,  "effect": "+15% Pickup"},
 	{"id": "xp",          "name": "Data Harvester",      "color": Color(0.65, 0.55, 1.00), "weight": 60,  "effect": "+10% EXP"},
@@ -35,6 +37,7 @@ const AUX_DEFS := [
 ]
 
 var _owned: Dictionary = {}   # id → level (1..MAX_AUX_LEVEL)
+var _points: Dictionary = {}  # id → skill points invested toward the NEXT level (skill-point progression)
 var _order: Array = []        # acquisition order (stable slot order for the HUD)
 var _by_id: Dictionary = {}   # id → def dict (built in _ready)
 
@@ -71,6 +74,37 @@ func aux_level(id: String) -> int:
 func aux_can_upgrade(id: String) -> bool:
 	return id in _owned and int(_owned[id]) < MAX_AUX_LEVEL
 
+# ── Skill-point progression (mirrors arena_weapons): level N→N+1 costs N+1 points; first point acquires it ──
+func aux_points(id: String) -> int:
+	return int(_points.get(id, 0))
+
+## Points needed for the next level: current_level + 1. 0 when maxed.
+func aux_next_cost(id: String) -> int:
+	var lvl := aux_level(id)   # 0 if not owned
+	if lvl >= MAX_AUX_LEVEL:
+		return 0
+	return lvl + 1
+
+## Invest ONE skill point. Acquires the item (0→1) if unowned, else accumulates toward + auto-levels.
+## Returns true if a level was gained this point.
+func spend_aux_point(id: String) -> bool:
+	if not _by_id.has(id):
+		return false
+	var lvl := aux_level(id)
+	if lvl >= MAX_AUX_LEVEL:
+		return false
+	var pts := int(_points.get(id, 0)) + 1
+	var cost := lvl + 1
+	if pts >= cost:
+		_points[id] = 0
+		if lvl <= 0:
+			acquire_aux(id)      # 0→1 (first invested point acquires it)
+		else:
+			level_up_aux(id)     # L→L+1
+		return true
+	_points[id] = pts
+	return false
+
 func aux_slots_full() -> bool:
 	return _owned.size() >= MAX_AUX
 
@@ -92,7 +126,9 @@ func _apply_effect(id: String) -> void:
 		"speed":       GameManager.add_move_speed(0.06)
 		"damage":      GameManager.add_damage(0.10)
 		"fire_rate":   GameManager.add_fire_rate(0.08)
-		"pierce":      GameManager.add_mech("pierce", 1)
+		"armor_pen":   GameManager.add_mech("armor_pen", 2)   # ignore 2 enemy armour (enemy armour TBD)
+		"crit":        GameManager.add_crit_chance(0.05)
+		"harmonizer":  pass   # STUB: needs the weapon-type (kinetic/biological/energy) damage system — not built yet
 		"aoe":         GameManager.add_mech("radius", 25)
 		"pickup":      GameManager.add_pickup_radius(0.15)
 		"xp":          GameManager.add_xp_gain(0.10)

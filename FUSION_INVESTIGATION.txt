@@ -1,0 +1,169 @@
+﻿# Arena Weapons System Investigation — Comprehensive Report
+
+## File Location
+C:\Users\minhv\Documents\The-Stream\scripts\gameplay\arena_weapons.gd (2621 lines)
+
+---
+
+## 1. WEAPON ACQUISITION & SLOTS
+
+### Data Structures (lines 479-481)
+```gdscript
+var _gat_active: bool = false
+var _acquired: Array = []   # ordered list of acquired weapon kinds (max MAX_WEAPONS, unique) — backs the slot HUD
+var _levels: Dictionary = {}   # kind → level (1..MAX_WEAPON_LEVEL); set on acquire, raised by level_up_weapon
+```
+
+### Key Constants (lines 42-46)
+```gdscript
+const MAX_WEAPONS := 5                                  # HUD slot count / acquisition cap
+const MAX_WEAPON_LEVEL := 5                             # per-weapon level cap (level-up upgrades)
+const WEAPON_DMG_PER_LEVEL := 0.30                      # +30% damage per level, COMPOUNDING
+const CHEST_POOL  := ["gatling", "lasgun", "arc", "gauss"]   # the 4 "F12" weapons the start-of-run chest rolls from
+```
+
+### Weapon Info Mapping (lines 48-66)
+Maps kind string → inventory def_id + display label for shop/HUD display
+
+### Acquisition Function (lines 1573-1582)
+```gdscript
+func acquire_weapon(kind: String) -> bool:
+    var newly := false
+    if not (kind in _acquired):
+        if _acquired.size() >= MAX_WEAPONS:
+            return false
+        _acquired.append(kind)
+        _levels[kind] = 1
+        newly = true
+    _activate_kind(kind)
+    return newly
+```
+
+Returns true if a NEW slot was filled, false if cap reached or duplicate.
+
+---
+
+## 2. PER-WEAPON LEVELING
+
+### Level Storage
+- `_levels: Dictionary` maps kind → level (1..MAX_WEAPON_LEVEL)
+- Set on acquire to 1, raised by level_up_weapon()
+- Max: 5 levels
+
+### Level Functions (lines 1590-1608)
+```gdscript
+func level_up_weapon(kind: String) -> void:
+    if kind in _acquired:
+        _levels[kind] = mini(MAX_WEAPON_LEVEL, int(_levels.get(kind, 1)) + 1)
+
+func weapon_level(kind: String) -> int:
+    return int(_levels.get(kind, 1)) if kind in _acquired else 0
+
+func weapon_can_upgrade(kind: String) -> bool:
+    return kind in _acquired and int(_levels.get(kind, 1)) < MAX_WEAPON_LEVEL
+
+func _lvl_mult(kind: String) -> float:
+    if kind == "" or not (kind in _acquired):
+        return 1.0
+    return pow(1.0 + WEAPON_DMG_PER_LEVEL, float(int(_levels.get(kind, 1)) - 1))
+```
+
+**Damage per level (COMPOUNDING ×1.30):**
+- L1: ×1.0, L2: ×1.30, L3: ×1.69, L4: ×2.20, L5: ×2.86
+
+---
+
+## 3. COMPLETE WEAPON REFERENCE TABLE
+
+| Kind | Activate Line | Tick/Fire Function | Passive/Active | Key Constants |
+|------|---|---|---|---|
+| gatling | 1564 | _fire_gatling() 854 | Active (manual) | 0.09s interval, 6.0 dmg, 900 px/s |
+| lasgun | 948 | _fire_lasgun(delta) 869 | Active (auto, 3s on/5s cycle) | 22.0 dmg/tick, 0.10s tick |
+| arc | 1206 | _fire_arc(delta) 963 | Active (cooldown) | 1.0s cd, 20.0 dmg, 4 jumps |
+| gauss | 1567 | (auto-charge) | Active (auto-charge) | 1.4s charge, 55.0 dmg |
+| orbital | 1373 | _tick_orbital(delta) 1445 | Passive | 3 balls, 25.0 dmg, 350px orbit |
+| void | 1380 | _tick_void(delta) 1385 | Passive | 5.0s cd, ramp 20-195 dmg/sec |
+| red_x | 1211 | _fire_red_x() 1217 | Active (cooldown) | 60.0 dmg, 2.0s interval |
+| chemtrail | 1277 | _tick_chemtrail(delta) 1282 | Passive | 6.0 dmg/tick, 140px radius |
+| nuke | 1994 | _tick_nuke(delta, ...) 1998 | Active (cooldown) | 200.0 dmg, 15.0s cd, 540px radius |
+| sonic | 2073 | _tick_sonic(delta, ...) 2077 | Active (cooldown) | 30.0 dmg, 3.0s cd, 3 rings |
+| zsword | 2127 | _tick_zsword(delta, ...) 2131 | Active (cooldown) | 45.0 dmg, 4.0s cd, 220px length |
+| ionize | 2169 | _tick_ionize(delta) 2173 | Passive (aura) | 10.0 dmg, 0.3s tick, 170px |
+| boomerang | 2229 | _tick_boom(delta, ...) 2238 | Passive (perpetual) | 28.0 dmg, 330px rose |
+| parasite | 2278 | _tick_para(delta, ...) 2282 | Active (cooldown) | 10.0 dmg/tick, 2.6s cd |
+| moroboshi | 2316 | _tick_moro(delta) 2320 | Passive (familiar) | 40.0 dmg, 0.9s attack cd |
+| swarm | 2352 | _tick_swarm(delta) 2355 | Passive (2 familiars) | 22.0 dmg, 0.25 lifesteal |
+| snake | 2400 | _tick_snake(delta) 2403 | Passive (familiar) | 8.0 dmg/tick, 0.2s tick |
+
+---
+
+## 4. DAMAGE MULTIPLIER SYSTEM
+
+### Damage Formula (lines 820-827)
+```gdscript
+func _roll_damage(base: float, kind := "") -> Dictionary:
+    var dmg := base * _dmg_mult * _lvl_mult(kind)
+    var is_crit := false
+    if _crit_chance > 0.0 and randf() < _crit_chance:
+        dmg *= _crit_damage
+        is_crit = true
+    return {"dmg": dmg, "is_crit": is_crit}
+```
+
+**Order of application:**
+1. Base damage (weapon const)
+2. × _dmg_mult (GameManager.get_damage_mult())
+3. × _lvl_mult(kind) (weapon level, compounding)
+4. If crit: × _crit_damage (default 1.5)
+
+### Global Stats (lines 724-728)
+```gdscript
+_dmg_mult = GameManager.get_damage_mult() if GameManager.has_method("get_damage_mult") else 1.0
+_rate_mult = maxf(0.01, GameManager.get_fire_rate_mult()) if GameManager.has_method("get_fire_rate_mult") else 1.0
+_crit_chance = BASE_CRIT_CHANCE + GameManager.get_crit_chance() if GameManager.has_method("get_crit_chance") else 0.0
+_crit_damage = GameManager.get_crit_damage() if GameManager.has_method("get_crit_damage") else 1.5
+```
+
+**Weapon uses same pattern everywhere:**
+```gdscript
+var r := _roll_damage(BASE_DAMAGE, "weapon_kind")
+en.take_damage(float(r["dmg"]), STAGGER)
+if bool(r["is_crit"]):
+    _spawn_crit_number(pos, float(r["dmg"]))
+```
+
+---
+
+## 5. PLAYER HEALING
+
+### GameManager.heal() (line 646 in game_manager.gd)
+```gdscript
+func heal(amount: int) -> void:
+    if ship_hp <= 0:
+        return
+    ship_hp = mini(ship_max_hp, ship_hp + amount)
+    ship_hp_changed.emit(ship_hp)
+```
+
+### Usage: Swarm Host (lines 2393-2394)
+```gdscript
+if float(u["dmg"]) > 0.0 and GameManager.has_method("heal"):
+    GameManager.heal(int(round(float(u["dmg"]) * SWARM_HEAL_FRAC)))
+```
+
+**Pattern:** Swarm tracks damage dealt per dart, heals 25% of damage on return.
+
+---
+
+## CRITICAL INTEGRATION POINTS FOR FUSION FEATURE
+
+1. **ADD KIND TO WEAPON_INFO** (lines 48-66)
+2. **CREATE activate_<kind>()** function
+3. **ADD TO _activate_kind()** match statement (1611-1629)
+4. **IMPLEMENT _tick_<kind>(delta)** or _fire_<kind>() for logic
+5. **USE _roll_damage(base, "kind_name")** for ALL damage
+6. **IMPLEMENT weapon_cooldown_frac()** case (1632-1672)
+7. **ADD _draw_<kind>()** in _draw() (2497+)
+8. **REGISTER in get_lights()** if emits light
+9. **CALL GameManager.heal()** if lifesteal needed (check has_method first)
+

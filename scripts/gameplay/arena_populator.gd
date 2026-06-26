@@ -18,6 +18,8 @@ enum { PLANET, COMET, STRUCTURE, ASTEROID }
 const GLOBAL_DENSITY := 1.0        # global multiplier on every type's spawn chance
 const BIOME_FREQ     := 0.00008    # biome noise frequency (low → regions span many screens)
 const BIOME_SEED     := 1337       # fixed → deterministic regional field
+const HOME_RADIUS    := 5000.0     # suppress ALL streamed bodies within this of the home (origin) — the curated
+                                   # authored solar system owns the start area; procedural content only appears beyond it
 
 # Per type: cell (px), weight (rarity = base per-cell chance), min_distance (px blue-noise spacing; 0 = off),
 # hash_a/hash_b (deterministic per-type cell hash), jitter (± fraction of a cell), biome_strength (0..1 how
@@ -74,6 +76,8 @@ static func place_in_cell(type: int, cell: Vector2i) -> Dictionary:
 	var c := _eval(type, cell, _scratch)
 	if not c["has"]:
 		return {}
+	if (c["pos"] as Vector2).length() < HOME_RADIUS:
+		return {}   # inside the home zone — leave it to the authored solar system
 	var cpos: Vector2 = c["pos"]
 	var cpri: float = c["pri"]
 	var cfg: Dictionary = CFG[type]

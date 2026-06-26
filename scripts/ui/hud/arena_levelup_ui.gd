@@ -28,6 +28,7 @@ const WEAPON_WEIGHTS := {
 	"orbital": 50, "void": 40, "red_x": 30, "chemtrail": 40,
 	"nuke": 20, "sonic": 60, "zsword": 50, "ionize": 70,
 	"boomerang": 50, "parasite": 50, "moroboshi": 30, "swarm": 40, "snake": 30,
+	"homing": 60,
 }
 const WEAPON_FALLBACK_COLOR := Color(0.55, 0.62, 0.72)   # placeholder swatch if a weapon icon fails to load
 
@@ -40,12 +41,19 @@ var _current: Array = []   # the choice dicts currently offered
 func _ready() -> void:
 	layer = 100
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	add_to_group("levelup_ui")   # reward chests find this to grant a choice without a real level-up
 	_build_ui()
 	_root.hide()
 	if GameManager.has_signal("leveled_up"):
 		GameManager.leveled_up.connect(_on_leveled_up)
 
 func _on_leveled_up(_level: int) -> void:
+	_pending += 1
+	if not _showing:
+		_begin()
+
+## Grant ONE level-up choice (the pick-1-of-3 card) WITHOUT changing the player's level/XP. Used by reward chests.
+func grant_reward() -> void:
 	_pending += 1
 	if not _showing:
 		_begin()
@@ -82,6 +90,16 @@ func _generate_choices(n: int) -> Array:
 	var chosen := {}   # ckey → true (prevents duplicate cards this screen)
 	var weapons_full: bool = aw == null or bool(aw.call("weapons_full"))
 	var aux_full: bool = ax == null or bool(ax.call("aux_slots_full"))
+	# Guaranteed FUSION cards: every ready recipe (both components owned + maxed) is always offered, filling up
+	# to all n slots, and keeps reappearing each level-up until picked.
+	if aw != null:
+		for fid: String in aw.call("available_fusions"):
+			if choices.size() >= n:
+				break
+			var fc := _fusion_choice(aw, fid)
+			if not chosen.has(String(fc["ckey"])):
+				choices.append(fc)
+				chosen[String(fc["ckey"])] = true
 	while choices.size() < n:
 		var owned_pool: Array = []
 		var new_pool: Array = []
@@ -94,8 +112,14 @@ func _generate_choices(n: int) -> Array:
 			for id: String in ax.call("owned_aux"):
 				if bool(ax.call("aux_can_upgrade", id)) and not chosen.has("a:" + id):
 					owned_pool.append(_aux_choice(ax, id, "upgrade"))
-		# Un-owned items → the new pool. Weapons are acquired via arena pickups only;
-		# only aux items are offered as "new" in the level-up screen.
+		# Un-owned items → the new pool (only while there is a free slot of that kind).
+		if aw != null and not weapons_full:
+			var owned_w: Array = aw.call("acquired_weapons")
+			for k: String in ArenaWeapons.WEAPON_INFO.keys():
+				if bool(aw.call("is_fusion_kind", k)):
+					continue   # fused weapons are only obtained via the fusion card, never the new-weapon roll
+				if not (k in owned_w) and not chosen.has("w:" + k):
+					new_pool.append(_weapon_choice(aw, k, "new"))
 		if ax != null and not aux_full:
 			var owned_a: Array = ax.call("owned_aux")
 			for d: Dictionary in ArenaAux.AUX_DEFS:
@@ -152,6 +176,26 @@ func _aux_choice(ax: Node, id: String, action: String) -> Dictionary:
 		"effect": String(d.get("effect", "")),
 	}
 
+## A guaranteed fusion card — combines two maxed weapons into one fused weapon. Carries the two source
+## def_ids so the cutscene + card icon can show what's being combined (the fused icon art comes later).
+func _fusion_choice(aw: Node, fid: String) -> Dictionary:
+	var rec: Dictionary = (ArenaWeapons.FUSION_DEFS as Dictionary).get(fid, {})
+	var a := String(rec.get("a", ""))
+	var b := String(rec.get("b", ""))
+	var ai: Dictionary = (ArenaWeapons.WEAPON_INFO as Dictionary).get(a, {})
+	var bi: Dictionary = (ArenaWeapons.WEAPON_INFO as Dictionary).get(b, {})
+	return {
+		"cat": "fusion", "key": fid, "action": "fuse", "ckey": "f:" + fid,
+		"name": String(rec.get("label", fid)),
+		"def_id": String(rec.get("def_id", "")),
+		"def_a": String(ai.get("def_id", "")),
+		"def_b": String(bi.get("def_id", "")),
+		"weight": 1,
+		"color": Color(1.0, 0.82, 0.30),
+		"level": 0,
+		"effect": "FUSE\n%s + %s" % [String(ai.get("label", a)), String(bi.get("label", b))],
+	}
+
 # Card layout constants — keep in sync with custom_minimum_size in _make_card().
 const _CW    := 160.0   # card width
 const _CH    := 208.0   # card height
@@ -182,6 +226,7 @@ func _bg_tex(cat: String) -> Texture2D:
 	match cat:
 		"weapon": return TEX_RED
 		"aux":    return TEX_GREEN
+		"fusion": return TEX_BLUE   # the (otherwise-unused) blue frame, gold-tinted + pulsed in _make_card
 		_:        return TEX_BLUE
 
 func _make_card(c: Dictionary, idx: int) -> Control:
@@ -246,9 +291,32 @@ func _make_card(c: Dictionary, idx: int) -> Control:
 	btn.mouse_exited.connect(_on_card_unhover.bind(card))
 	card.add_child(btn)
 
+	# FUSION cards look distinct + alive: gold tint on the blue frame, a special title, and a slow pulse.
+	if String(c["cat"]) == "fusion":
+		bg.modulate = Color(1.6, 1.25, 0.5)
+		lbl_name.text = "✦ %s ✦" % String(c["name"])
+		lbl_name.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
+		var pulse := card.create_tween().set_loops()
+		pulse.tween_property(bg, "modulate", Color(2.0, 1.6, 0.7), 0.6).set_trans(Tween.TRANS_SINE)
+		pulse.tween_property(bg, "modulate", Color(1.6, 1.25, 0.5), 0.6).set_trans(Tween.TRANS_SINE)
+
 	return card
 
 func _make_icon(c: Dictionary) -> Control:
+	# Fusion card: until the fused icon art lands, show the two source icons side-by-side with a "+".
+	if String(c["cat"]) == "fusion":
+		var box := HBoxContainer.new()
+		box.alignment = BoxContainer.ALIGNMENT_CENTER
+		box.add_theme_constant_override("separation", 2)
+		box.add_child(_icon_rect(String(c.get("def_a", ""))))
+		var plus := Label.new()
+		plus.text = "+"
+		plus.add_theme_font_override("font", load("res://assets/fonts/Good Old DOS.ttf"))
+		plus.add_theme_font_size_override("font_size", 20)
+		plus.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		box.add_child(plus)
+		box.add_child(_icon_rect(String(c.get("def_b", ""))))
+		return box
 	if String(c["cat"]) == "weapon":
 		var def_id := String(c.get("def_id", ""))
 		var tex: Texture2D = InventoryManager.get_icon(def_id) if def_id != "" else null
@@ -262,6 +330,21 @@ func _make_icon(c: Dictionary) -> Control:
 	var swatch := ColorRect.new()
 	swatch.color = c.get("color", Color.GRAY)
 	return swatch
+
+## A single weapon icon (used for the fusion card's two source icons). Falls back to a gold swatch.
+func _icon_rect(def_id: String) -> Control:
+	var tex: Texture2D = InventoryManager.get_icon(def_id) if def_id != "" else null
+	if tex != null:
+		var tr := TextureRect.new()
+		tr.texture = tex
+		tr.custom_minimum_size = Vector2(40, 40)
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		return tr
+	var sw := ColorRect.new()
+	sw.custom_minimum_size = Vector2(40, 40)
+	sw.color = Color(1.0, 0.82, 0.30)
+	return sw
 
 func _styled_label(text: String, size: int) -> Label:
 	var lbl := Label.new()
@@ -277,10 +360,30 @@ func _pick(idx: int) -> void:
 	if idx < 0 or idx >= _current.size():
 		return
 	_play_sfx("res://assets/audio/sfx/selectconfirm3.wav")
-	_apply(_current[idx])
+	var c: Dictionary = _current[idx]
+	if String(c.get("cat", "")) == "fusion":
+		_pick_fusion(c)
+		return
+	_apply(c)
 	_pending -= 1
 	if _pending > 0:
 		_show_cards()   # next queued level-up
+	else:
+		_finish()
+
+## Fusion pick: hide the cards (tree stays paused), play the Yu-Gi-Oh cutscene, THEN perform the fuse.
+func _pick_fusion(c: Dictionary) -> void:
+	_root.hide()
+	var cut := get_tree().get_first_node_in_group("arena_fusion_cutscene")
+	if cut != null and cut.has_method("play"):
+		cut.call("play", String(c.get("def_a", "")), String(c.get("def_b", "")), String(c.get("def_id", "")))
+		await cut.finished
+	var aw := get_tree().get_first_node_in_group("arena_weapons")
+	if aw != null:
+		aw.call("fuse", String(c["key"]))
+	_pending -= 1
+	if _pending > 0:
+		_show_cards()
 	else:
 		_finish()
 
@@ -322,6 +425,8 @@ func _apply(c: Dictionary) -> void:
 # ── Display text ────────────────────────────────────────────────────────────────────
 func _default_text(c: Dictionary) -> String:
 	var lvl := int(c.get("level", 0))
+	if String(c["action"]) == "fuse":
+		return String(c.get("effect", "FUSE"))
 	if String(c["action"]) == "new":
 		# A new weapon is conveyed by its icon + name; aux items also show what the passive grants.
 		if String(c["cat"]) == "weapon":
@@ -330,6 +435,8 @@ func _default_text(c: Dictionary) -> String:
 	return "Lv %d → %d\n%s" % [lvl, lvl + 1, String(c.get("effect", ""))]
 
 func _current_text(c: Dictionary) -> String:
+	if String(c.get("action", "")) == "fuse":
+		return "Both at MAX"
 	var lvl := int(c.get("level", 0))
 	if lvl <= 0:
 		return "Not own\nyet"
