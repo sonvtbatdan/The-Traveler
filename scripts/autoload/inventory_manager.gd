@@ -324,7 +324,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"rift_maker": {
 		"name": "Vacuum Decoupler",
-		"icon": "res://assets/inventory/HO-VD-S.png",
+		"icon": "res://assets/inventory/HZ-VD-S.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
 		"fire_mode": "channel",        # hold to sustain
@@ -838,7 +838,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"nuke": {
 		"name": "PERSES",
-		"icon": "res://assets/inventory/Perses RED.png",
+		"icon": "res://assets/inventory/Mortar.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
 		"fire_mode": "repeat",

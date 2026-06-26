@@ -47,12 +47,12 @@ const WEAPON_TABS := {
 		{"kind": "homing",    "def_id": "homing_missile","label": "Homing Missile"},   # temp impl (copied from enemy missile launcher) — not in the Corp doc
 	],
 	"evolve": [
-		{"kind": "",       "def_id": "",               "label": "Kinetic Induction Cannon", "from": "Kinetic Auto Cannon", "ph": true},
-		{"kind": "",       "def_id": "",               "label": "Isotope Laser",            "from": "Solid-State Laser",   "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Kinetic Induction Cannon", "from": "Kinetic Auto Cannon", "icon": "res://assets/inventory/VB-KIC-6.png",      "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Isotope Laser",            "from": "Solid-State Laser",   "icon": "res://assets/inventory/KM-QBM-200-alt.png", "ph": true},
 		{"kind": "ionize", "def_id": "ionizing_field", "label": "Tachyon Displacer",        "from": "Vacuum Decoupler"},
-		{"kind": "",       "def_id": "",               "label": "Mobile Vacuum",            "from": "Vacuum Decoupler",    "ph": true},
-		{"kind": "",       "def_id": "",               "label": "Thunder Strike",           "from": "Arc Lightning Chain", "icon": "res://assets/inventory/Zeus.png", "ph": true},
-		{"kind": "",       "def_id": "",               "label": "Rosastro Nuclear",         "from": "Rosastro HE Mortar",  "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Mobile Vacuum",            "from": "Vacuum Decoupler",    "icon": "res://assets/inventory/Blackship.png",     "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Thunder Strike",           "from": "Arc Lightning Chain", "icon": "res://assets/inventory/Zeus.png",          "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Rosastro Nuclear",         "from": "Rosastro HE Mortar",  "icon": "res://assets/inventory/Perses RED.png",    "ph": true},
 	],
 	"fusion": [
 		{"kind": "",            "def_id": "",              "label": "KM Quantum Beam Rifle",        "from": "Kinetic Auto Cannon × Solid-State Laser", "ph": true},
