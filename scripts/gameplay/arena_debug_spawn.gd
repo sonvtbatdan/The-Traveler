@@ -55,14 +55,14 @@ const WEAPON_TABS := {
 		{"kind": "",       "def_id": "",               "label": "Rosastro Nuclear",         "from": "Rosastro HE Mortar",  "icon": "res://assets/inventory/Perses RED.png",    "ph": true},
 	],
 	"fusion": [
-		{"kind": "",            "def_id": "",              "label": "KM Quantum Beam Rifle",        "from": "Kinetic Auto Cannon × Solid-State Laser", "ph": true},
-		{"kind": "",            "def_id": "",              "label": "Drone Cannon",                 "from": "Kinetic Auto Cannon × Orbital Impact Defense", "ph": true},
+		{"kind": "",            "def_id": "",              "label": "KM Quantum Beam Rifle",        "from": "Kinetic Auto Cannon × Solid-State Laser", "icon": "res://assets/inventory/KM-QBM-200-alt.png", "ph": true},
+		{"kind": "",            "def_id": "",              "label": "Drone Cannon",                 "from": "Kinetic Auto Cannon × Orbital Impact Defense", "icon": "res://assets/inventory/NC-DC-F.png", "ph": true},
 		{"kind": "",            "def_id": "",              "label": "Vampire Host",                 "from": "Sonic × Orbital Impact Offense", "icon": "res://assets/inventory/Vampire Host.png", "ph": true},
 		{"kind": "parasite",    "def_id": "parasite_cloud","label": "Bio-Corrosive Spore Launcher", "from": "Biocide Vaporizer × Swarm"},
-		{"kind": "overcharger", "def_id": "gauss_cannon",  "label": "Overcharger",                  "from": "Arc Lightning Chain × Gauss Pulser"},
+		{"kind": "overcharger", "def_id": "gauss_cannon",  "label": "Overcharger",                  "from": "Arc Lightning Chain × Gauss Pulser", "icon": "res://assets/inventory/Overcharger.png"},
 		{"kind": "yari_jaeger", "def_id": "yari_jaeger",   "label": "Yari Jeager",                  "from": "Yari × Jeager"},
 		{"kind": "carnage",     "def_id": "gatling_gun",   "label": "Thermitic Auto Cannon",        "from": "Thermitic Discharger × Kinetic Auto Cannon"},
-		{"kind": "",            "def_id": "",              "label": "Singularities",                "from": "Vacuum Decoupler × Gauss Pulser", "ph": true},
+		{"kind": "",            "def_id": "",              "label": "Singularities",                "from": "Vacuum Decoupler × Gauss Pulser", "icon": "res://assets/inventory/Singularities.png", "ph": true},
 		{"kind": "predator",    "def_id": "lasgun",        "label": "Predator",                     "from": "Viper × Solid-State Laser"},
 	],
 	"obsolete": [
