@@ -110,6 +110,7 @@ var _click_player: AudioStreamPlayer = null   # uiclick — local + ALWAYS so it
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	layer = 60   # all Dev:on panels above the mortar/fatboy blast distortion (shockwave layer 8) + the HUD; below modals (settings 100)
 	add_to_group("arena_debug_spawn")
 	_rng.randomize()
 	_build_fire_rate_ui()

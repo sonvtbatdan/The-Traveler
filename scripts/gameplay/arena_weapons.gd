@@ -228,6 +228,7 @@ const MISSILE_AOE_RADIUS   := 44.0    # explosion radius
 const TOXIC_PUFF_RADIUS    := 80.0    # Toxic Ballistic: width of the chemtrail each missile lays down the path
 const MISSILE_MAX_LIFE     := 4.0     # backstop: explode after this long
 const MISSILE_DRAW_LEN     := 46.0    # drawn missile length (px); width derived from missile.png's native ratio
+const PROJ_PLUME_MAX       := 16      # plume-anchor pool size for the (variable-count) missile + mortarbullet trails
 
 # ── TUNABLES: Orbitals (spiky energy orbs circling the ship, contact damage — ported from weapon_system.gd) ──
 const ORBITAL_BALLS        := 3       # number of orbiting balls (evenly spaced)
@@ -812,6 +813,14 @@ func _ready() -> void:
 		func():
 			if not _swarm_active: return []
 			return _swarm_units.map(func(u): return {"pos": u["pos"], "rot": u["ang"]}))
+	# Projectile trails: variable count → register a pool of PROJ_PLUME_MAX anchors; the provider returns only the
+	# live projectiles each frame (extras auto-hide). Plume offset/style come from the TPs placed on the sprites.
+	_register_plume("missile", PROJ_PLUME_MAX, Vector2(MISSILE_DRAW_LEN * 473.0 / 2007.0, MISSILE_DRAW_LEN),
+		func():
+			return _missiles.map(func(m): return {"pos": m["pos"], "rot": float(m["facing"]) + PI * 0.5}))
+	_register_plume("mortarbullet", PROJ_PLUME_MAX, Vector2(MORTAR_BULLET_LEN * 100.0 / 329.0, MORTAR_BULLET_LEN),
+		func():
+			return _mortar_bullets.map(func(b): return {"pos": b["pos"], "rot": (b["vel"] as Vector2).angle() + PI * 0.5}))
 	_load_all_plumes()
 	_bolt_hit_player = AudioStreamPlayer.new()
 	_bolt_hit_player.bus = "SFX"
@@ -2070,12 +2079,21 @@ func _update_all_plumes() -> void:
 			if not is_instance_valid(anchor):
 				continue
 			if i >= states.size():
-				anchor.visible = false
+				_set_plume_anchor_visible(anchor, false)
 				continue
 			var st: Dictionary = states[i]
 			anchor.global_position = st.get("pos", Vector2.ZERO)
 			anchor.rotation = st.get("rot", 0.0)
-			anchor.visible = st.get("visible", true)
+			_set_plume_anchor_visible(anchor, st.get("visible", true))
+
+## Toggle an anchor's visibility AND its child particles' emission (so idle pool slots don't keep emitting → save CPU).
+func _set_plume_anchor_visible(anchor: Node2D, vis: bool) -> void:
+	if anchor.visible == vis:
+		return
+	anchor.visible = vis
+	for ch in anchor.get_children():
+		if ch is CPUParticles2D:
+			(ch as CPUParticles2D).emitting = vis
 
 func _make_orbital_plume(frac: Vector2, dir_angle: float, style: Dictionary, ds: Vector2) -> CPUParticles2D:
 	var p := CPUParticles2D.new()
