@@ -218,6 +218,7 @@ const MISSILE_EXPLODE_DIST := 14.0    # "touched the target"
 const MISSILE_AOE_RADIUS   := 44.0    # explosion radius
 const TOXIC_PUFF_RADIUS    := 80.0    # Toxic Ballistic: width of the chemtrail each missile lays down the path
 const MISSILE_MAX_LIFE     := 4.0     # backstop: explode after this long
+const MISSILE_DRAW_LEN     := 46.0    # drawn missile length (px); width derived from missile.png's native ratio
 
 # ── TUNABLES: Orbitals (spiky energy orbs circling the ship, contact damage — ported from weapon_system.gd) ──
 const ORBITAL_BALLS        := 3       # number of orbiting balls (evenly spaced)
@@ -3927,8 +3928,15 @@ func _draw_missiles() -> void:
 				col = Color(lerpf(0.45, 0.20, rr), lerpf(0.60, 0.45, rr), 1.0, lerpf(0.85, 0.0, rr))
 			draw_circle(ppos, psize, col)
 		if _missile_tex != null:
+			# Keep missile.png's native aspect ratio: anchor the length, derive the width from the texture.
+			var mh := MISSILE_DRAW_LEN
+			var tw := float(_missile_tex.get_width())
+			var th := float(_missile_tex.get_height())
+			var mw := mh
+			if th > 0.0:
+				mw = mh * (tw / th)
 			draw_set_transform(mp, f + PI / 2.0, Vector2.ONE)
-			draw_texture_rect(_missile_tex, Rect2(-10.0, -23.0, 20.0, 46.0), false)
+			draw_texture_rect(_missile_tex, Rect2(-mw * 0.5, -mh * 0.5, mw, mh), false)
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		else:
 			var a := mp + fwd * 14.0
