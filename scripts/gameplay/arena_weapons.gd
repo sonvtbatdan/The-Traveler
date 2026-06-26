@@ -2953,16 +2953,18 @@ func _explode_mortar(pos: Vector2, kind: String) -> void:
 func _spawn_mortar_explosion(pos: Vector2, size_px: float, speed_mult: float = 1.0, lite: bool = false) -> void:
 	var ex := ExplosionFX.new()
 	ex.time_scale = (ex.time_scale / 3.0) * speed_mult
-	ex.shockwave_max_radius = ex.shockwave_max_radius * 3.0
-	ex.shockwave_travel = ex.shockwave_travel * 2.0
 	ex.glow = 1.4
 	ex.core_size = 0.5
 	ex.core_hot = Color(3.0, 2.3, 1.6)
 	if lite:
-		ex.shockwave_enabled = false   # skip the fullscreen screen-read distortion (the heavy GPU cost)
-		ex.fireball_amount = 14
-		ex.smoke_amount = 20
-		ex.streak_amount = 12
+		# Small fast Mortar puff — KEEP the shockwave (just at NORMAL scale, not the giant ×3) + trim particles a bit.
+		ex.fireball_amount = 28
+		ex.smoke_amount = 45
+		ex.streak_amount = 24
+	else:
+		# Giant Fat Boy blast — exaggerate the shockwave to sweep the whole screen.
+		ex.shockwave_max_radius = ex.shockwave_max_radius * 3.0
+		ex.shockwave_travel = ex.shockwave_travel * 2.0
 	get_parent().add_child(ex)
 	ex.call("setup", pos, size_px)
 	if not lite:
