@@ -110,7 +110,7 @@ const MORTAR_BULLET_LIFE   := 3.0     # s before an un-hit bullet is culled (no 
 const MORTAR_BULLET_LEN    := 28.0    # drawn bullet length (px); width derived from mortarbullet.png ratio
 const MORTAR_DAMAGE        := 20.0    # Mortar AoE damage
 const MORTAR_AOE           := 90.0    # Mortar blast radius (small)
-const MORTAR_VFX_SCALE     := 0.05    # Mortar explosion = 5% of the full (Fat Boy) explosion
+const MORTAR_VFX_SCALE     := 0.01    # Mortar explosion = 1% of the full (Fat Boy) explosion (lite mode, 1.5× faster)
 const FATBOY_DAMAGE        := 200.0   # Fat Boy AoE damage
 const FATBOY_AOE           := 540.0   # Fat Boy blast radius (= full)
 # Sonic Wave (Energy) — 3 expanding rings; each ring damages every enemy its front passes, once.
@@ -2873,7 +2873,11 @@ func _tick_mortar(delta: float, kind: String) -> void:
 	cd -= delta
 	if cd <= 0.0:
 		cd = MORTAR_FIRE_INTERVAL / _rate_mult
-		_fire_mortar(kind)
+		if kind == "fat_boy":
+			if _player != null:
+				_explode_mortar(_player.global_position, "fat_boy")   # detonate AT the ship — no projectile
+		else:
+			_fire_mortar(kind)
 	if kind == "nuke":
 		_nuke_cd = cd
 	else:
@@ -2936,24 +2940,35 @@ func _explode_mortar(pos: Vector2, kind: String) -> void:
 		if pos.distance_to((ruin as Node2D).global_position) <= rr:
 			if ruin.has_method("take_damage"):
 				ruin.take_damage(dmg * _dmg_mult * _lvl_mult(kind))
-	# Full-size base VFX size; Mortar shrinks it to MORTAR_VFX_SCALE (5%).
+	# Fat Boy = full-size blast; Mortar = a tiny (1%) LITE puff, 1.5× faster, no fullscreen shockwave.
 	var full_px := _aoe_radius(NUKE_RADIUS)
-	_spawn_mortar_explosion(pos, full_px if is_fat else full_px * MORTAR_VFX_SCALE)
+	if is_fat:
+		_spawn_mortar_explosion(pos, full_px, 1.0, false)
+	else:
+		_spawn_mortar_explosion(pos, full_px * MORTAR_VFX_SCALE, 1.5, true)
 
 ## Composite explosion VFX (extracted from the old Nuke detonation), sized by size_px.
-func _spawn_mortar_explosion(pos: Vector2, size_px: float) -> void:
+## speed_mult > 1 plays it faster; `lite` = a cheap small puff (no fullscreen shockwave, fewer particles, no shake)
+## for the tiny Mortar so it isn't GPU-heavy at 1 shot/sec.
+func _spawn_mortar_explosion(pos: Vector2, size_px: float, speed_mult: float = 1.0, lite: bool = false) -> void:
 	var ex := ExplosionFX.new()
-	ex.time_scale = ex.time_scale / 3.0
+	ex.time_scale = (ex.time_scale / 3.0) * speed_mult
 	ex.shockwave_max_radius = ex.shockwave_max_radius * 3.0
 	ex.shockwave_travel = ex.shockwave_travel * 2.0
 	ex.glow = 1.4
 	ex.core_size = 0.5
 	ex.core_hot = Color(3.0, 2.3, 1.6)
+	if lite:
+		ex.shockwave_enabled = false   # skip the fullscreen screen-read distortion (the heavy GPU cost)
+		ex.fireball_amount = 14
+		ex.smoke_amount = 20
+		ex.streak_amount = 12
 	get_parent().add_child(ex)
 	ex.call("setup", pos, size_px)
-	var cam := get_tree().get_first_node_in_group("camera_shake")
-	if cam != null and cam.has_method("nuke_impact"):
-		cam.call("nuke_impact")
+	if not lite:
+		var cam := get_tree().get_first_node_in_group("camera_shake")
+		if cam != null and cam.has_method("nuke_impact"):
+			cam.call("nuke_impact")
 
 ## Draw in-flight mortarbullets at native aspect ratio, nose pointing along velocity.
 func _draw_mortar_bullets() -> void:
