@@ -144,6 +144,7 @@ var _squid_attach_off: Vector2 = Vector2.ZERO   # held offset from the player wh
 var _mgr: Node = null
 var _target: Node2D = null
 var _flash: float = 0.0
+var _flash_mat: ShaderMaterial = null   # attached ONLY while flashing; otherwise material stays null (default pipeline)
 var _dead: bool = false
 # behavior state
 var _t: float = 0.0
@@ -234,12 +235,15 @@ func _ready() -> void:
 	_target = get_tree().get_first_node_in_group("player")
 	z_index = 1
 	# Per-instance flash material (shared compiled shader) — lerps the sprite toward white/red on hit.
+	# IMPORTANT: it is NOT assigned as the node's material by default. Under hdr_2d the custom canvas
+	# shader's manual TEXTURE sample renders the sprite darker than the engine-default pipeline, so the
+	# sprite would look dimmed at all times. We only attach it WHILE flashing (_physics_process), so the
+	# normal state uses the default pipeline (full brightness, matching the Creep Edit preview).
 	if _flash_shader == null:
 		_flash_shader = Shader.new()
 		_flash_shader.code = FLASH_SHADER_CODE
-	var mat := ShaderMaterial.new()
-	mat.shader = _flash_shader
-	material = mat
+	_flash_mat = ShaderMaterial.new()
+	_flash_mat.shader = _flash_shader
 	_load_icon()
 	_load_tentacle()
 	_setup_plumes()
@@ -693,6 +697,10 @@ func _physics_process(delta: float) -> void:
 			_tex = _frames[_anim_frame] as Texture2D
 	if _flash > 0.0:
 		_flash = maxf(0.0, _flash - delta)
+	# Attach the flash material only while flashing; otherwise leave material null (default = full brightness).
+	var _want_mat: ShaderMaterial = _flash_mat if _flash > 0.0 else null
+	if material != _want_mat:
+		material = _want_mat
 	_check_contact()
 	# Sync plume emitters to the visual rotation (draw_set_transform rotates the sprite but not node children).
 	_update_plumes()

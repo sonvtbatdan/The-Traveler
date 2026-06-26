@@ -57,7 +57,7 @@ const DEFAULT_TIMELINE := [
 	{"time": 55.0,  "type": "shooter",   "count": 3,  "pattern": "arc"},
 	# ── 1:00–2:00 — mixed, higher counts ──
 	{"time": 66.0,  "type": "bee",       "count": 16, "pattern": "ring"},
-	{"time": 78.0,  "type": "octopus",   "count": 3,  "pattern": "scatter"},
+	{"time": 78.0,  "type": "squid",     "count": 3,  "pattern": "scatter"},
 	{"time": 86.0,  "type": "diver",     "count": 8,  "pattern": "stream", "duration": 5.0},
 	{"time": 98.0,  "type": "sentinel",  "count": 2,  "pattern": "arc"},
 	{"time": 108.0, "type": "centipede", "count": 3,  "pattern": "scatter"},
@@ -71,7 +71,7 @@ const DEFAULT_TIMELINE := [
 	{"time": 172.0, "type": "swarm",     "count": 16, "pattern": "stream", "duration": 6.0},
 	{"time": 186.0, "type": "missile",   "count": 2,  "pattern": "scatter"},
 	{"time": 196.0, "type": "dragonfly", "count": 8,  "pattern": "ring"},
-	{"time": 206.0, "type": "octopus",   "count": 5,  "pattern": "scatter"},
+	{"time": 206.0, "type": "squid",     "count": 5,  "pattern": "scatter"},
 	# ── 3:30 — chromeleon + swarm ──
 	{"time": 210.0, "type": "chromeleon","count": 1,  "pattern": "ring", "is_boss": true},
 	{"time": 215.0, "type": "bee",       "count": 16, "pattern": "stream", "duration": 12.0},

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://d2c8hoa58t3xf"
-path="res://.godot/imported/animalbombing.sheet.png-4fd629c47f3f466189362dbc27597ee6.ctex"
+uid="uid://chco8hi5jenv0"
+path="res://.godot/imported/animalbombing.png-68d60c6d18d49a933dba5be76f7f08a1.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/enemies/animalbombing.sheet.png"
-dest_files=["res://.godot/imported/animalbombing.sheet.png-4fd629c47f3f466189362dbc27597ee6.ctex"]
+source_file="res://assets/enemies/animalbombing.png"
+dest_files=["res://.godot/imported/animalbombing.png-68d60c6d18d49a933dba5be76f7f08a1.ctex"]
 
 [params]
 

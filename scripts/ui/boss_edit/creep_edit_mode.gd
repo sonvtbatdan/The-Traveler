@@ -1829,7 +1829,24 @@ func _load_layout() -> void:
 
 # ── Asset loading ──────────────────────────────────────────────────────────────
 
+## Map an assets/enemies/ path to its assets/enemiesHD/ twin when that file exists (dev:on editor preview).
+func _hd_path(path: String) -> String:
+	const HD_FOLDER := "res://assets/enemiesHD/"
+	if path.begins_with(ENEMIES_FOLDER):
+		var hd := HD_FOLDER + path.substr(ENEMIES_FOLDER.length())
+		if FileAccess.file_exists(hd) or ResourceLoader.exists(hd):
+			return hd
+	return path
+
 func _load_full_tex(path: String) -> Texture2D:
+	# Prefer the HD sprite; fall back to the standard one if HD is missing or fails to load.
+	var src := _hd_path(path)
+	var tex := _load_tex_raw(src)
+	if tex == null and src != path:
+		tex = _load_tex_raw(path)
+	return tex
+
+func _load_tex_raw(path: String) -> Texture2D:
 	var ext := path.get_extension().to_lower()
 	if ext == "gif":
 		return GifLoader.load_gif(path)
