@@ -283,7 +283,7 @@ const ITEM_DEFS: Dictionary = {
 		},
 	},
 	"arc": {
-		"name": "Fulgurite Chain",
+		"name": "Arc Lightning Chain",
 		"icon": "res://assets/inventory/KM-FC-A-Alt.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],

@@ -17,26 +17,61 @@ extends CanvasLayer
 const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const WaveDir   := preload("res://scripts/gameplay/arena_wave_director.gd")
 const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
-const WEAPONS := [
-	{"kind": "gatling",   "def_id": "gatling_gun",    "label": "Kinetic AutoCannon"},
-	{"kind": "lasgun",    "def_id": "lasgun",          "label": "Solid-State Laser"},
-	{"kind": "arc",       "def_id": "arc",             "label": "Fulgurite Chain"},
-	{"kind": "gauss",     "def_id": "gauss_cannon",   "label": "Gauss"},
-	{"kind": "orbital",   "def_id": "orbitals",        "label": "Orbital Impact Defense"},
-	{"kind": "void",      "def_id": "rift_maker",      "label": "Vacuum Decoupler"},
-	{"kind": "red_x",     "def_id": "red_x",           "label": "Thermitic Discharger"},
-	{"kind": "chemtrail", "def_id": "chemtrail",       "label": "Biocide Vaporizer"},
-	{"kind": "nuke",      "def_id": "nuke",            "label": "PERSES"},
-	{"kind": "sonic",     "def_id": "sonic_wave",      "label": "Sonic"},
-	{"kind": "zsword",    "def_id": "z_sword",         "label": "Schockwelle"},
-	{"kind": "ionize",    "def_id": "ionizing_field",  "label": "Tachyon Displacer"},
-	{"kind": "boomerang", "def_id": "boomerang",       "label": "Aliwa"},
-	{"kind": "parasite",  "def_id": "parasite_cloud",  "label": "Bio-Corrosive Spore Launcher"},
-	{"kind": "moroboshi", "def_id": "moroboshi",       "label": "Yari"},
-	{"kind": "swarm",     "def_id": "swarm_host",      "label": "Orbital Impact Offense"},
-	{"kind": "snake",     "def_id": "space_snake",     "label": "Red Viper"},
-	{"kind": "yari_jaeger", "def_id": "yari_jaeger",   "label": "Yari Jaeger"},
-]
+# Weapon roster for the Dev → Weapon panel, classified per the Corp design doc into 4 tabs:
+#   drop     = obtained from drops               (Spawn = "Drop")
+#   evolve   = upgraded from ONE parent weapon   (Spawn names 1 weapon)  — evolve mechanic not coded yet
+#   fusion   = combined from TWO weapons         (Spawn names 2 weapons)
+#   obsolete = the 3 reworked/replaced code kinds (vampire_host / toxic_ballistic / singularities)
+# `kind` = arena_weapons code kind (spawnable on click). Entries with "ph": true are PLACEHOLDERS — the weapon
+# isn't implemented yet, so the cell renders dimmed + non-spawnable (a gray placeholder icon) until it lands.
+# `from` (optional) = the source recipe, shown in the tooltip. NOTE: a few PDF→code kind mappings are
+# best-guess (Jeager→zsword, Rosastro HE Mortar→nuke, Viper→snake) — relabel if wrong.
+const WEAPON_TABS := {
+	"drop": [
+		{"kind": "gatling",   "def_id": "gatling_gun",  "label": "Kinetic Auto Cannon"},
+		{"kind": "lasgun",    "def_id": "lasgun",        "label": "Solid-State Laser"},
+		{"kind": "orbital",   "def_id": "orbitals",      "label": "Orbital Impact Defense"},
+		{"kind": "swarm",     "def_id": "swarm_host",    "label": "Orbital Impact Offense"},
+		{"kind": "chemtrail", "def_id": "chemtrail",     "label": "Biocide Vaporizer"},
+		{"kind": "void",      "def_id": "rift_maker",    "label": "Vacuum Decoupler"},
+		{"kind": "arc",       "def_id": "arc",           "label": "Arc Lightning Chain"},
+		{"kind": "moroboshi", "def_id": "moroboshi",     "label": "Yari"},
+		{"kind": "zsword",    "def_id": "z_sword",       "label": "Jeager"},
+		{"kind": "nuke",      "def_id": "nuke",          "label": "Rosastro HE Mortar"},
+		{"kind": "red_x",     "def_id": "red_x",         "label": "Thermitic Discharger"},
+		{"kind": "boomerang", "def_id": "boomerang",     "label": "Aliwa"},
+		{"kind": "gauss",     "def_id": "gauss_cannon",  "label": "Gauss Pulser"},
+		{"kind": "snake",     "def_id": "space_snake",   "label": "Viper"},
+		{"kind": "",          "def_id": "",              "label": "Swarm", "ph": true},
+		{"kind": "sonic",     "def_id": "sonic_wave",    "label": "Sonic"},
+	],
+	"evolve": [
+		{"kind": "",       "def_id": "",               "label": "Kinetic Induction Cannon", "from": "Kinetic Auto Cannon", "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Isotope Laser",            "from": "Solid-State Laser",   "ph": true},
+		{"kind": "ionize", "def_id": "ionizing_field", "label": "Tachyon Displacer",        "from": "Vacuum Decoupler"},
+		{"kind": "",       "def_id": "",               "label": "Mobile Vacuum",            "from": "Vacuum Decoupler",    "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Thunder Strike",           "from": "Arc Lightning Chain", "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Rosastro Nuclear",         "from": "Rosastro HE Mortar",  "ph": true},
+	],
+	"fusion": [
+		{"kind": "",            "def_id": "",              "label": "KM Quantum Beam Rifle",        "from": "Kinetic Auto Cannon × Solid-State Laser", "ph": true},
+		{"kind": "",            "def_id": "",              "label": "Drone Cannon",                 "from": "Kinetic Auto Cannon × Orbital Impact Defense", "ph": true},
+		{"kind": "",            "def_id": "",              "label": "Vampire Host",                 "from": "Sonic × Orbital Impact Offense", "ph": true},
+		{"kind": "parasite",    "def_id": "parasite_cloud","label": "Bio-Corrosive Spore Launcher", "from": "Biocide Vaporizer × Swarm"},
+		{"kind": "overcharger", "def_id": "gauss_cannon",  "label": "Overcharger",                  "from": "Arc Lightning Chain × Gauss Pulser"},
+		{"kind": "yari_jaeger", "def_id": "yari_jaeger",   "label": "Yari Jeager",                  "from": "Yari × Jeager"},
+		{"kind": "carnage",     "def_id": "gatling_gun",   "label": "Thermitic Auto Cannon",        "from": "Thermitic Discharger × Kinetic Auto Cannon"},
+		{"kind": "",            "def_id": "",              "label": "Singularities",                "from": "Vacuum Decoupler × Gauss Pulser", "ph": true},
+		{"kind": "predator",    "def_id": "lasgun",        "label": "Predator",                     "from": "Viper × Solid-State Laser"},
+	],
+	"obsolete": [
+		{"kind": "vampire_host",    "def_id": "swarm_host",     "label": "Vampire Host (old)",  "from": "Swarm + Sonic — reworked"},
+		{"kind": "toxic_ballistic", "def_id": "homing_missile", "label": "Toxic Ballistic",     "from": "homing + chemtrail → Venomancer"},
+		{"kind": "singularities",   "def_id": "orbitals",       "label": "Singularities (old)", "from": "orbital + void — reworked"},
+	],
+}
+const WEAPON_TAB_ORDER: Array[String] = ["drop", "evolve", "fusion", "obsolete"]
+const WEAPON_TAB_LABELS := {"drop": "Drop", "evolve": "Evolve", "fusion": "Fusion", "obsolete": "Obsolete"}
 const SFX_UICLICK := preload("res://assets/audio/sfx/uiclick.wav")
 
 # Enemy order in the quick-spawn grid — normals first, bosses last.
@@ -63,6 +98,9 @@ var _fr_label: Label = null
 var _dev_ui_root: Control = null
 var _creep_panel:  Panel = null   # Quick Spawn (creep) — button-toggled, default hidden
 var _weapon_panel: Panel = null   # Spawn Weapon — button-toggled, default hidden
+var _weapon_grid: GridContainer = null         # current-tab cell grid (rebuilt on tab switch)
+var _weapon_tab: String = "drop"               # active weapon tab
+var _weapon_tab_btns: Dictionary = {}          # tab id → Button (for highlight)
 var _hotkey_panel: Panel = null   # Hotkey help (right side) — button-toggled, default hidden
 var _click_player: AudioStreamPlayer = null   # uiclick — local + ALWAYS so it sounds while paused
 
@@ -429,10 +467,11 @@ func _build_weapon_spawn_panel() -> void:
 		return
 	const CELL  := 48
 	const COLS  := 4
-	const HDR_H := 50
+	const HDR_H := 40
+	const TAB_H := 26
+	const ROWS  := 4                # fixed grid area (Drop tab is the tallest at 16 = 4 rows)
 	const W     := COLS * CELL
-	var rows: int = int(ceil(WEAPONS.size() / float(COLS)))
-	var grid_h: int = CELL * rows
+	var grid_h: int = CELL * ROWS
 
 	var panel := Panel.new()
 	var ps := StyleBoxFlat.new()
@@ -447,7 +486,7 @@ func _build_weapon_spawn_panel() -> void:
 	panel.anchor_top    = 1.0; panel.anchor_bottom = 1.0
 	panel.offset_left   = 8.0 + W + 8.0
 	panel.offset_right  = 8.0 + W + 8.0 + W
-	panel.offset_top    = -(HDR_H + grid_h + 8)
+	panel.offset_top    = -(HDR_H + TAB_H + grid_h + 18)
 	panel.offset_bottom = -8.0
 	panel.visible = false
 	_weapon_panel = panel
@@ -458,6 +497,7 @@ func _build_weapon_spawn_panel() -> void:
 	vbox.add_theme_constant_override("separation", 0)
 	panel.add_child(vbox)
 
+	# ── Header: title + CLEAR + EDIT ──
 	var hdr := HBoxContainer.new()
 	hdr.custom_minimum_size = Vector2(0.0, float(HDR_H))
 	hdr.add_theme_constant_override("separation", 0)
@@ -488,22 +528,65 @@ func _build_weapon_spawn_panel() -> void:
 	btn_edit.pressed.connect(_on_edit_weapon)
 	hdr.add_child(btn_edit)
 
+	# ── Tab row: Drop / Evolve / Fusion / Obsolete ──
+	var tabs := HBoxContainer.new()
+	tabs.custom_minimum_size = Vector2(0.0, float(TAB_H))
+	tabs.add_theme_constant_override("separation", 2)
+	vbox.add_child(tabs)
+	_weapon_tab_btns.clear()
+	for tab_id: String in WEAPON_TAB_ORDER:
+		var tb := Button.new()
+		tb.text = String(WEAPON_TAB_LABELS[tab_id])
+		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tb.focus_mode = Control.FOCUS_NONE
+		tb.add_theme_font_size_override("font_size", 10)
+		tb.pressed.connect(_select_weapon_tab.bind(tab_id))
+		tabs.add_child(tb)
+		_weapon_tab_btns[tab_id] = tb
+
 	vbox.add_child(HSeparator.new())
 
+	# ── Cell grid (rebuilt per active tab) ──
 	var grid := GridContainer.new()
 	grid.columns = COLS
+	grid.custom_minimum_size = Vector2(float(W), float(grid_h))
 	grid.add_theme_constant_override("h_separation", 0)
 	grid.add_theme_constant_override("v_separation", 0)
 	vbox.add_child(grid)
-	for w: Dictionary in WEAPONS:
-		grid.add_child(_make_weapon_cell(w, CELL))
+	_weapon_grid = grid
+	_select_weapon_tab(_weapon_tab)
+
+## Switch the Weapon panel to `tab_id`, highlight its button, and rebuild the cell grid.
+func _select_weapon_tab(tab_id: String) -> void:
+	if not WEAPON_TABS.has(tab_id):
+		return
+	_weapon_tab = tab_id
+	for id: String in _weapon_tab_btns.keys():
+		var active: bool = id == tab_id
+		(_weapon_tab_btns[id] as Button).modulate = Color(1, 1, 1, 1) if active else Color(0.62, 0.66, 0.78, 1)
+	_rebuild_weapon_grid()
+
+func _rebuild_weapon_grid() -> void:
+	if _weapon_grid == null:
+		return
+	for c in _weapon_grid.get_children():
+		c.queue_free()
+	for w: Dictionary in (WEAPON_TABS[_weapon_tab] as Array):
+		_weapon_grid.add_child(_make_weapon_cell(w, 48))
 
 func _make_weapon_cell(w: Dictionary, cell_size: int) -> Control:
+	var is_ph: bool = bool(w.get("ph", false))
 	var btn := Button.new()
 	btn.custom_minimum_size = Vector2(cell_size, cell_size)
 	btn.focus_mode    = Control.FOCUS_NONE
-	btn.tooltip_text  = String(w["label"])
+	var tip := String(w["label"])
+	if w.has("from"):
+		tip += "\n(" + String(w["from"]) + ")"
+	if is_ph:
+		tip += "\n[placeholder — chưa implement]"
+	btn.tooltip_text  = tip
 	btn.clip_contents = true
+	btn.disabled      = is_ph
 
 	var mk := func(bg: Color, border: Color) -> StyleBoxFlat:
 		var s := StyleBoxFlat.new()
@@ -513,9 +596,10 @@ func _make_weapon_cell(w: Dictionary, cell_size: int) -> Control:
 		s.border_width_top  = 1; s.border_width_bottom = 1
 		s.border_color = border
 		return s
-	btn.add_theme_stylebox_override("normal",  mk.call(Color(0.08, 0.10, 0.15, 0.82), Color(0.25, 0.30, 0.48, 0.55)))
-	btn.add_theme_stylebox_override("hover",   mk.call(Color(0.14, 0.18, 0.26, 0.92), Color(0.50, 0.65, 1.00, 0.90)))
-	btn.add_theme_stylebox_override("pressed", mk.call(Color(0.05, 0.07, 0.10, 0.95), Color(0.25, 0.30, 0.48, 0.55)))
+	btn.add_theme_stylebox_override("normal",   mk.call(Color(0.08, 0.10, 0.15, 0.82), Color(0.25, 0.30, 0.48, 0.55)))
+	btn.add_theme_stylebox_override("hover",    mk.call(Color(0.14, 0.18, 0.26, 0.92), Color(0.50, 0.65, 1.00, 0.90)))
+	btn.add_theme_stylebox_override("pressed",  mk.call(Color(0.05, 0.07, 0.10, 0.95), Color(0.25, 0.30, 0.48, 0.55)))
+	btn.add_theme_stylebox_override("disabled", mk.call(Color(0.07, 0.08, 0.11, 0.70), Color(0.22, 0.25, 0.34, 0.45)))
 	btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 
 	var tex: Texture2D = InventoryManager.get_icon(String(w["def_id"]))
@@ -528,9 +612,11 @@ func _make_weapon_cell(w: Dictionary, cell_size: int) -> Control:
 		tr.set_anchors_preset(Control.PRESET_FULL_RECT)
 		tr.offset_left = 3; tr.offset_right  = -3
 		tr.offset_top  = 3; tr.offset_bottom = -3
+		tr.modulate = Color(1, 1, 1, 0.35) if is_ph else Color(1, 1, 1, 1)   # dim placeholder icons
 		btn.add_child(tr)
 
-	btn.pressed.connect(_spawn_weapon_pickup.bind(String(w["kind"])))
+	if not is_ph:
+		btn.pressed.connect(_spawn_weapon_pickup.bind(String(w["kind"])))
 	return btn
 
 ## Drop a weapon pickup right next to the player (walk over it to collect + activate).

@@ -64,7 +64,7 @@ const CHEST_POOL  := ["gatling", "lasgun", "arc", "gauss"]   # the 4 "F12" weapo
 const WEAPON_INFO := {
 	"gatling": {"def_id": "gatling_gun",  "label": "Kinetic AutoCannon"},
 	"lasgun":  {"def_id": "lasgun",       "label": "Solid-State Laser"},
-	"arc":     {"def_id": "arc",          "label": "Fulgurite Chain"},
+	"arc":     {"def_id": "arc",          "label": "Arc Lightning Chain"},
 	"gauss":   {"def_id": "gauss_cannon", "label": "Gauss"},
 	"orbital": {"def_id": "orbitals",     "label": "Orbital Impact Defense"},
 	"void":    {"def_id": "rift_maker",   "label": "Vacuum Decoupler"},
