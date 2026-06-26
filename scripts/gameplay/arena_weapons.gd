@@ -71,6 +71,7 @@ const WEAPON_INFO := {
 	"red_x":   {"def_id": "red_x",        "label": "Thermitic Discharger"},
 	"chemtrail": {"def_id": "chemtrail",  "label": "Biocide Vaporizer"},
 	"nuke":    {"def_id": "nuke",          "label": "Rosastro HE Mortar"},   # code name: Mortar
+	"fat_boy": {"def_id": "rosastro_nuclear", "label": "Rosastro Nuclear"},  # code name: Fat Boy
 	"sonic":   {"def_id": "sonic_wave",    "label": "Sonic"},
 	"zsword":  {"def_id": "z_sword",       "label": "Schockwelle"},
 	"ionize":  {"def_id": "ionizing_field","label": "Tachyon Displacer"},
@@ -98,12 +99,20 @@ const FUSION_DEFS := {
 const FUSION_BONUS_LEVELS := 4   # fused weapons can climb this many levels past MAX_WEAPON_LEVEL (6 → 10)
 
 # ── TUNABLES: Batch-1 weapons (Nuke / Sonic Wave / Z-Sword / Ionizing Field) ──────
-# Nuke (Kinetic) — long-cooldown player-centred blast + auto knockback + lingering radiation slow zone.
-const NUKE_COOLDOWN      := 15.0
-const NUKE_DAMAGE        := 200.0
-const NUKE_RADIUS        := 540.0    # AoE (was 360, +50%) — also sizes the explosion visual
-const NUKE_BLAST_STAGGER := 0.6      # blast freeze on hit
-# (the damage window is set per detonation to the explosion's FIRE phase — see _fire_nuke / _nuke_blast_dur)
+# Mortar (Rosastro HE Mortar, code "Mortar") + Fat Boy (Rosastro Nuclear): a mouse-aimed mortarbullet that flies
+# straight and detonates an AoE explosion on the FIRST enemy it touches. Fat Boy = the full-size blast; Mortar
+# fires the same bullet but its explosion is a 5% mini version.
+const NUKE_RADIUS         := 540.0    # full explosion footprint (Fat Boy) + the full-VFX size_px base
+const NUKE_BLAST_STAGGER  := 0.6      # stagger applied to enemies caught in the blast
+const MORTAR_FIRE_INTERVAL := 1.0     # auto-fire cadence (1 bullet/sec, before fire-rate mult)
+const MORTAR_BULLET_SPEED  := 700.0   # px/s, straight toward the mouse
+const MORTAR_BULLET_LIFE   := 3.0     # s before an un-hit bullet is culled (no explosion on timeout)
+const MORTAR_BULLET_LEN    := 28.0    # drawn bullet length (px); width derived from mortarbullet.png ratio
+const MORTAR_DAMAGE        := 20.0    # Mortar AoE damage
+const MORTAR_AOE           := 90.0    # Mortar blast radius (small)
+const MORTAR_VFX_SCALE     := 0.05    # Mortar explosion = 5% of the full (Fat Boy) explosion
+const FATBOY_DAMAGE        := 200.0   # Fat Boy AoE damage
+const FATBOY_AOE           := 540.0   # Fat Boy blast radius (= full)
 # Sonic Wave (Energy) — 3 expanding rings; each ring damages every enemy its front passes, once.
 const SONIC_COOLDOWN     := 3.0
 const SONIC_RINGS        := 3
@@ -639,14 +648,12 @@ var _void_tick: float = 0.0        # damage-tick accumulator
 var _void_node: ColorRect = null   # the swirling-vortex visual
 var _void_distort: ColorRect = null   # gravitational-lens disc (screen-warp), drawn under the vortex
 # ── Batch-1 weapons (Nuke / Sonic Wave / Z-Sword / Ionizing Field) ──
-var _nuke_active: bool = false
-var _nuke_cd: float = 0.0
-var _nuke_blast_on: bool = false        # a detonation's damage hitbox is live (for NUKE_DURATION)
-var _nuke_blast_t: float = 0.0
-var _nuke_blast_pos: Vector2 = Vector2.ZERO   # fixed detonation centre (matches the explosion FX)
-var _nuke_blast_reach: float = 0.0
-var _nuke_hit: Dictionary = {}          # instance_id → true: each enemy/ruin damaged at most once per detonation
-var _nuke_blast_dur: float = 0.0        # damage window = the explosion's FIRE phase only (excludes the smoke tail)
+var _nuke_active: bool = false          # Mortar (Rosastro HE Mortar) — mortarbullet auto-fire
+var _nuke_cd: float = 0.0               # Mortar fire timer
+var _fat_boy_active: bool = false       # Fat Boy (Rosastro Nuclear) — same bullet, full-size blast
+var _fat_boy_cd: float = 0.0            # Fat Boy fire timer
+var _mortar_bullets: Array = []         # shared pool: {pos, vel, kind, life}
+var _mortarbullet_tex: Texture2D = null
 var _sonic_active: bool = false
 var _sonic_cd: float = 0.0
 var _sonic_queue: float = 0.0          # stagger timer for the remaining rings of a volley
@@ -1004,7 +1011,11 @@ func _process(delta: float) -> void:
 	if _void_active:
 		_tick_void(delta)
 	if _nuke_active:
-		_tick_nuke(delta, enemy_on_screen)
+		_tick_mortar(delta, "nuke")
+	if _fat_boy_active:
+		_tick_mortar(delta, "fat_boy")
+	if not _mortar_bullets.is_empty():
+		_tick_mortar_bullets(delta)
 	if _sonic_active:
 		_tick_sonic(delta, enemy_on_screen)
 	if _zsword_active:
@@ -2239,6 +2250,7 @@ func clear_all_weapons() -> void:
 	_red_x_active    = false
 	_chemtrail_active = false
 	_nuke_active     = false
+	_fat_boy_active  = false;  _mortar_bullets.clear()
 	_sonic_active    = false
 	_zsword_active   = false
 	_ionize_active   = false
@@ -2327,6 +2339,7 @@ func _activate_kind(kind: String) -> void:
 		"red_x":   activate_red_x()
 		"chemtrail": activate_chemtrail()
 		"nuke":    activate_nuke()
+		"fat_boy": activate_fat_boy()
 		"sonic":   activate_sonic()
 		"zsword":  activate_zsword()
 		"ionize":  activate_ionize()
@@ -2390,6 +2403,7 @@ func _deactivate_kind(kind: String) -> void:
 		"red_x":   _red_x_active = false; _red_x_cd = 0.0
 		"chemtrail": _chemtrail_active = false
 		"nuke":    _nuke_active = false
+		"fat_boy": _fat_boy_active = false
 		"sonic":   _sonic_active = false; _sonic_left = 0; _sonic_rings.clear()
 		"zsword":  _zsword_active = false
 		"ionize":  _ionize_active = false
@@ -2428,7 +2442,11 @@ func weapon_cooldown_frac(kind: String) -> float:
 		"nuke":
 			if _nuke_cd <= 0.0:
 				return 1.0
-			return clampf(1.0 - _nuke_cd / maxf(0.01, NUKE_COOLDOWN / rate), 0.0, 1.0)
+			return clampf(1.0 - _nuke_cd / maxf(0.01, MORTAR_FIRE_INTERVAL / rate), 0.0, 1.0)
+		"fat_boy":
+			if _fat_boy_cd <= 0.0:
+				return 1.0
+			return clampf(1.0 - _fat_boy_cd / maxf(0.01, MORTAR_FIRE_INTERVAL / rate), 0.0, 1.0)
 		"sonic":
 			if _sonic_cd <= 0.0:
 				return 1.0
@@ -2458,6 +2476,7 @@ func weapon_is_firing(kind: String) -> bool:
 		"orbital": return _orbital_active
 		"lasgun":  return _lasgun_active and fmod(_las_t, LASGUN_CYCLE) < LASGUN_DURATION
 		"nuke":    return _nuke_active
+		"fat_boy": return _fat_boy_active
 		"sonic":   return _sonic_active
 		"zsword":  return _zsword_active and _zsword_sweeping
 		"ionize":  return _ionize_active
@@ -2833,84 +2852,124 @@ func _aoe_radius(base: float) -> float:
 	var bonus: float = GameManager.mech_bonus("radius") if GameManager.has_method("mech_bonus") else 0.0
 	return base + bonus
 
-# ── Nuke ──────────────────────────────────────────────────────────────────────────
+# ── Mortar (Rosastro HE Mortar) + Fat Boy (Rosastro Nuclear) ──────────────────────────
 func activate_nuke() -> void:
 	_nuke_active = true
-	_nuke_cd = 0.0   # detonate as soon as an enemy is visible
+	_nuke_cd = 0.0
+	_ensure_mortar_tex()
 
-func _tick_nuke(delta: float, enemy_on_screen: bool) -> void:
-	_nuke_cd -= delta
-	if _nuke_cd <= 0.0 and enemy_on_screen:
-		_nuke_cd = NUKE_COOLDOWN / _rate_mult
-		_fire_nuke()
-	# While the explosion plays, keep the hitbox live: anything caught in it takes damage ONCE (this also
-	# catches enemies that drift into the blast mid-animation).
-	if _nuke_blast_on:
-		_nuke_blast_t += delta
-		_damage_nuke_blast()
-		if _nuke_blast_t >= _nuke_blast_dur:
-			_nuke_blast_on = false
+func activate_fat_boy() -> void:
+	_fat_boy_active = true
+	_fat_boy_cd = 0.0
+	_ensure_mortar_tex()
 
-## Damage every enemy/ruin within the live blast that hasn't been hit yet this detonation (one hit each).
-func _damage_nuke_blast() -> void:
+func _ensure_mortar_tex() -> void:
+	if _mortarbullet_tex == null:
+		_mortarbullet_tex = load("res://assets/weaponry/mortarbullet.png") as Texture2D
+
+## Mortar / Fat Boy share this: auto-fire one mortarbullet toward the mouse every MORTAR_FIRE_INTERVAL.
+func _tick_mortar(delta: float, kind: String) -> void:
+	var cd := _nuke_cd if kind == "nuke" else _fat_boy_cd
+	cd -= delta
+	if cd <= 0.0:
+		cd = MORTAR_FIRE_INTERVAL / _rate_mult
+		_fire_mortar(kind)
+	if kind == "nuke":
+		_nuke_cd = cd
+	else:
+		_fat_boy_cd = cd
+
+## Launch one mortarbullet from the ship straight toward the current mouse position.
+func _fire_mortar(kind: String) -> void:
+	if _player == null:
+		return
+	var origin := _player.global_position
+	var dir := get_global_mouse_position() - origin
+	dir = dir.normalized() if dir.length() > 0.01 else _forward()
+	_mortar_bullets.append({
+		"pos": origin + dir * MUZZLE_OFFSET, "vel": dir * MORTAR_BULLET_SPEED, "kind": kind, "life": 0.0,
+	})
+
+## Move bullets; the FIRST enemy a bullet touches → detonate (AoE damage + scaled explosion VFX). Cull on timeout.
+func _tick_mortar_bullets(delta: float) -> void:
+	var i := _mortar_bullets.size() - 1
+	while i >= 0:
+		var b: Dictionary = _mortar_bullets[i]
+		b["life"] = float(b["life"]) + delta
+		var pos: Vector2 = (b["pos"] as Vector2) + (b["vel"] as Vector2) * delta
+		b["pos"] = pos
+		var hit := false
+		for en in get_tree().get_nodes_in_group("arena_enemy"):
+			if not is_instance_valid(en):
+				continue
+			var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 12.0
+			if pos.distance_to((en as Node2D).global_position) <= enr:
+				hit = true
+				break
+		if hit:
+			_explode_mortar(pos, String(b["kind"]))
+			_mortar_bullets.remove_at(i)
+		elif float(b["life"]) >= MORTAR_BULLET_LIFE:
+			_mortar_bullets.remove_at(i)
+		i -= 1
+
+## AoE detonation at `pos`: damage every enemy/ruin in radius once + spawn the (scaled) explosion VFX.
+func _explode_mortar(pos: Vector2, kind: String) -> void:
+	var is_fat := kind == "fat_boy"
+	var dmg := FATBOY_DAMAGE if is_fat else MORTAR_DAMAGE
+	var aoe := _aoe_radius(FATBOY_AOE if is_fat else MORTAR_AOE)
 	for en in get_tree().get_nodes_in_group("arena_enemy"):
 		if not is_instance_valid(en):
 			continue
-		var eid := en.get_instance_id()
-		if _nuke_hit.has(eid):
-			continue
 		var en2 := en as Node2D
 		var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0
-		if _nuke_blast_pos.distance_to(en2.global_position) <= _nuke_blast_reach + enr:
-			_nuke_hit[eid] = true
+		if pos.distance_to(en2.global_position) <= aoe + enr:
 			if en.has_method("take_damage"):
-				var r := _roll_damage(NUKE_DAMAGE, "nuke")
-				en.take_damage(float(r["dmg"]), NUKE_BLAST_STAGGER, 1.0)   # Nuke keeps pushback
+				var r := _roll_damage(dmg, kind)
+				en.take_damage(float(r["dmg"]), NUKE_BLAST_STAGGER, 1.0)
 				if bool(r["is_crit"]):
 					_spawn_crit_number(en2.global_position, float(r["dmg"]))
 	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
 		if not is_instance_valid(ruin):
 			continue
-		var rid := ruin.get_instance_id()
-		if _nuke_hit.has(rid):
-			continue
-		var rr: float = _nuke_blast_reach + (float(ruin.get("hit_radius")) if ruin.get("hit_radius") != null else 0.0)
-		if _nuke_blast_pos.distance_to((ruin as Node2D).global_position) <= rr:
-			_nuke_hit[rid] = true
+		var rr: float = aoe + (float(ruin.get("hit_radius")) if ruin.get("hit_radius") != null else 0.0)
+		if pos.distance_to((ruin as Node2D).global_position) <= rr:
 			if ruin.has_method("take_damage"):
-				ruin.take_damage(NUKE_DAMAGE * _dmg_mult * _lvl_mult("nuke"))
+				ruin.take_damage(dmg * _dmg_mult * _lvl_mult(kind))
+	# Full-size base VFX size; Mortar shrinks it to MORTAR_VFX_SCALE (5%).
+	var full_px := _aoe_radius(NUKE_RADIUS)
+	_spawn_mortar_explosion(pos, full_px if is_fat else full_px * MORTAR_VFX_SCALE)
 
-func _fire_nuke() -> void:
-	var center := _player.global_position
-	var reach := _aoe_radius(NUKE_RADIUS)
-	# Open a fixed-point damage hitbox for the explosion's duration (knockback is automatic in take_damage).
-	_nuke_blast_pos = center
-	_nuke_blast_reach = reach
-	_nuke_blast_t = 0.0
-	_nuke_hit.clear()
-	_nuke_blast_on = true
-	_damage_nuke_blast()   # hit everything already inside on the detonation frame
-	# Composite blast VFX, sized to the blast radius. Overrides (set before add_child so _ready picks them up):
-	#  • time_scale ÷3        → the whole explosion lasts 3× longer (every frame + every stagger gap ×3)
-	#  • shockwave radius ×3  → the ripple travels 3× further
-	#  • shockwave travel ×2  → net HALF the expansion speed (×3 distance ÷ ×6 time, given the 3× global slow-mo)
+## Composite explosion VFX (extracted from the old Nuke detonation), sized by size_px.
+func _spawn_mortar_explosion(pos: Vector2, size_px: float) -> void:
 	var ex := ExplosionFX.new()
 	ex.time_scale = ex.time_scale / 3.0
 	ex.shockwave_max_radius = ex.shockwave_max_radius * 3.0
 	ex.shockwave_travel = ex.shockwave_travel * 2.0
-	# Tame the blinding white CENTRE so the ship (drawn on top, z=100) reads through the blast instead of being
-	# washed white by the HDR core + bloom. The orange/red fireball ring stays full-strength.
-	ex.glow = 1.4                        # less HDR → smaller bloom halo over the ship
-	ex.core_size = 0.5                   # smaller hot-white centre → doesn't blanket the ship
-	ex.core_hot = Color(3.0, 2.3, 1.6)   # warm-bright instead of a blinding pure-white point
-	# Damage only while the FIRE is burning (core + fireball), NOT during the lingering smoke tail.
-	_nuke_blast_dur = maxf(ex.core_life, ex.fireball_delay + ex.fireball_lifetime) / maxf(0.05, ex.time_scale)
+	ex.glow = 1.4
+	ex.core_size = 0.5
+	ex.core_hot = Color(3.0, 2.3, 1.6)
 	get_parent().add_child(ex)
-	ex.call("setup", center, reach)
-	# Impact feedback: a heavy screen shake on detonation + a vibration buzz 0.5s later.
+	ex.call("setup", pos, size_px)
 	var cam := get_tree().get_first_node_in_group("camera_shake")
 	if cam != null and cam.has_method("nuke_impact"):
 		cam.call("nuke_impact")
+
+## Draw in-flight mortarbullets at native aspect ratio, nose pointing along velocity.
+func _draw_mortar_bullets() -> void:
+	if _mortarbullet_tex == null:
+		return
+	var bl := MORTAR_BULLET_LEN
+	var tw := float(_mortarbullet_tex.get_width())
+	var th := float(_mortarbullet_tex.get_height())
+	var bw := bl
+	if th > 0.0:
+		bw = bl * (tw / th)
+	for b: Dictionary in _mortar_bullets:
+		var ang := (b["vel"] as Vector2).angle() + PI / 2.0
+		draw_set_transform(b["pos"], ang, Vector2.ONE)
+		draw_texture_rect(_mortarbullet_tex, Rect2(-bw * 0.5, -bl * 0.5, bw, bl), false)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 # ── Sonic Wave ──────────────────────────────────────────────────────────────────────
 func activate_sonic() -> void:
@@ -4280,6 +4339,8 @@ func _draw() -> void:
 		_draw_snake()
 	if not _missiles.is_empty():
 		_draw_missiles()
+	if not _mortar_bullets.is_empty():
+		_draw_mortar_bullets()
 	if _vampire_active:
 		_draw_vampire()
 	_draw_flashes()

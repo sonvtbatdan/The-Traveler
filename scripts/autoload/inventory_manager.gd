@@ -848,6 +848,18 @@ const ITEM_DEFS: Dictionary = {
 		"desc": "",
 		"stats": { "weight": 8 },
 	},
+	"rosastro_nuclear": {
+		"name": "Rosastro Nuclear",
+		"icon": "res://assets/inventory/Perses RED.png",
+		"size": Vector2i(2, 2),
+		"tags": ["weapon"],
+		"fire_mode": "repeat",
+		"rarity": "epic",
+		"group": "explosive",
+		"damage_kind": ["kinetic", "explosive"],
+		"desc": "",
+		"stats": { "weight": 10 },
+	},
 	"z_sword": {
 		"name": "Schockwelle",
 		"icon": "res://assets/inventory/EK-SW88-Alt.png",

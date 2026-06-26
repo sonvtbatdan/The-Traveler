@@ -52,7 +52,7 @@ const WEAPON_TABS := {
 		{"kind": "ionize", "def_id": "ionizing_field", "label": "Tachyon Displacer",        "from": "Vacuum Decoupler"},
 		{"kind": "",       "def_id": "",               "label": "Mobile Vacuum",            "from": "Vacuum Decoupler",    "icon": "res://assets/inventory/Blackship.png",     "ph": true},
 		{"kind": "",       "def_id": "",               "label": "Thunder Strike",           "from": "Arc Lightning Chain", "icon": "res://assets/inventory/Zeus.png",          "ph": true},
-		{"kind": "",       "def_id": "",               "label": "Rosastro Nuclear",         "from": "Rosastro HE Mortar",  "icon": "res://assets/inventory/Perses RED.png",    "ph": true},
+		{"kind": "fat_boy", "def_id": "rosastro_nuclear", "label": "Rosastro Nuclear",        "from": "Rosastro HE Mortar"},
 	],
 	"fusion": [
 		{"kind": "",            "def_id": "",              "label": "KM Quantum Beam Rifle",        "from": "Kinetic Auto Cannon × Solid-State Laser", "icon": "res://assets/inventory/KM-QBM-200-alt.png", "ph": true},
