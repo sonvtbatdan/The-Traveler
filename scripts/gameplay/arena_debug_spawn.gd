@@ -44,6 +44,7 @@ const WEAPON_TABS := {
 		{"kind": "snake",     "def_id": "space_snake",   "label": "Viper"},
 		{"kind": "",          "def_id": "",              "label": "Swarm", "ph": true},
 		{"kind": "sonic",     "def_id": "sonic_wave",    "label": "Sonic"},
+		{"kind": "homing",    "def_id": "homing_missile","label": "Homing Missile"},   # temp impl (copied from enemy missile launcher) — not in the Corp doc
 	],
 	"evolve": [
 		{"kind": "",       "def_id": "",               "label": "Kinetic Induction Cannon", "from": "Kinetic Auto Cannon", "ph": true},
@@ -469,7 +470,7 @@ func _build_weapon_spawn_panel() -> void:
 	const COLS  := 4
 	const HDR_H := 40
 	const TAB_H := 26
-	const ROWS  := 4                # fixed grid area (Drop tab is the tallest at 16 = 4 rows)
+	const ROWS  := 5                # fixed grid area (Drop tab is the tallest at 17 = 5 rows)
 	const W     := COLS * CELL
 	var grid_h: int = CELL * ROWS
 
