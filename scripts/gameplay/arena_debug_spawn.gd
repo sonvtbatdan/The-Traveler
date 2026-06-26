@@ -48,7 +48,7 @@ const WEAPON_TABS := {
 	],
 	"evolve": [
 		{"kind": "",       "def_id": "",               "label": "Kinetic Induction Cannon", "from": "Kinetic Auto Cannon", "icon": "res://assets/inventory/VB-KIC-6.png",      "ph": true},
-		{"kind": "",       "def_id": "",               "label": "Isotope Laser",            "from": "Solid-State Laser",   "icon": "res://assets/inventory/KM-QBM-200-alt.png", "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Isotope Laser",            "from": "Solid-State Laser",   "icon": "res://assets/inventory/KM-IL-100.png", "ph": true},
 		{"kind": "ionize", "def_id": "ionizing_field", "label": "Tachyon Displacer",        "from": "Vacuum Decoupler"},
 		{"kind": "",       "def_id": "",               "label": "Mobile Vacuum",            "from": "Vacuum Decoupler",    "icon": "res://assets/inventory/Blackship.png",     "ph": true},
 		{"kind": "",       "def_id": "",               "label": "Thunder Strike",           "from": "Arc Lightning Chain", "icon": "res://assets/inventory/Zeus.png",          "ph": true},
@@ -69,6 +69,9 @@ const WEAPON_TABS := {
 		{"kind": "vampire_host",    "def_id": "swarm_host",     "label": "Vampire Host (old)",  "from": "Swarm + Sonic — reworked"},
 		{"kind": "toxic_ballistic", "def_id": "homing_missile", "label": "Toxic Ballistic",     "from": "homing + chemtrail → Venomancer"},
 		{"kind": "singularities",   "def_id": "orbitals",       "label": "Singularities (old)", "from": "orbital + void — reworked"},
+		{"kind": "", "def_id": "plasma_drill",     "label": "Plasma Drill",     "from": "retired item", "ph": true},
+		{"kind": "", "def_id": "parasite_gun",     "label": "Parasite Gun",     "from": "retired item", "ph": true},
+		{"kind": "", "def_id": "shield_generator", "label": "Shield Generator", "from": "retired item", "ph": true},
 	],
 }
 const WEAPON_TAB_ORDER: Array[String] = ["drop", "evolve", "fusion", "obsolete"]
