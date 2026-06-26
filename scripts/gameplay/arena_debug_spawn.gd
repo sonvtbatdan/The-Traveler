@@ -42,7 +42,7 @@ const WEAPON_TABS := {
 		{"kind": "boomerang", "def_id": "boomerang",     "label": "Aliwa"},
 		{"kind": "gauss",     "def_id": "gauss_cannon",  "label": "Gauss Pulser"},
 		{"kind": "snake",     "def_id": "space_snake",   "label": "Viper"},
-		{"kind": "",          "def_id": "",              "label": "Swarm", "ph": true},
+		{"kind": "",          "def_id": "",              "label": "Swarm", "icon": "res://assets/inventory/Swarm.png", "ph": true},
 		{"kind": "sonic",     "def_id": "sonic_wave",    "label": "Sonic"},
 		{"kind": "homing",    "def_id": "homing_missile","label": "Homing Missile"},   # temp impl (copied from enemy missile launcher) — not in the Corp doc
 	],
@@ -51,13 +51,13 @@ const WEAPON_TABS := {
 		{"kind": "",       "def_id": "",               "label": "Isotope Laser",            "from": "Solid-State Laser",   "ph": true},
 		{"kind": "ionize", "def_id": "ionizing_field", "label": "Tachyon Displacer",        "from": "Vacuum Decoupler"},
 		{"kind": "",       "def_id": "",               "label": "Mobile Vacuum",            "from": "Vacuum Decoupler",    "ph": true},
-		{"kind": "",       "def_id": "",               "label": "Thunder Strike",           "from": "Arc Lightning Chain", "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Thunder Strike",           "from": "Arc Lightning Chain", "icon": "res://assets/inventory/Zeus.png", "ph": true},
 		{"kind": "",       "def_id": "",               "label": "Rosastro Nuclear",         "from": "Rosastro HE Mortar",  "ph": true},
 	],
 	"fusion": [
 		{"kind": "",            "def_id": "",              "label": "KM Quantum Beam Rifle",        "from": "Kinetic Auto Cannon × Solid-State Laser", "ph": true},
 		{"kind": "",            "def_id": "",              "label": "Drone Cannon",                 "from": "Kinetic Auto Cannon × Orbital Impact Defense", "ph": true},
-		{"kind": "",            "def_id": "",              "label": "Vampire Host",                 "from": "Sonic × Orbital Impact Offense", "ph": true},
+		{"kind": "",            "def_id": "",              "label": "Vampire Host",                 "from": "Sonic × Orbital Impact Offense", "icon": "res://assets/inventory/Vampire Host.png", "ph": true},
 		{"kind": "parasite",    "def_id": "parasite_cloud","label": "Bio-Corrosive Spore Launcher", "from": "Biocide Vaporizer × Swarm"},
 		{"kind": "overcharger", "def_id": "gauss_cannon",  "label": "Overcharger",                  "from": "Arc Lightning Chain × Gauss Pulser"},
 		{"kind": "yari_jaeger", "def_id": "yari_jaeger",   "label": "Yari Jeager",                  "from": "Yari × Jeager"},
@@ -603,7 +603,14 @@ func _make_weapon_cell(w: Dictionary, cell_size: int) -> Control:
 	btn.add_theme_stylebox_override("disabled", mk.call(Color(0.07, 0.08, 0.11, 0.70), Color(0.22, 0.25, 0.34, 0.45)))
 	btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 
-	var tex: Texture2D = InventoryManager.get_icon(String(w["def_id"]))
+	# Prefer an explicit `icon` path (used for placeholder weapons whose art exists but aren't in ITEM_DEFS yet);
+	# otherwise fall back to the inventory icon by def_id.
+	var tex: Texture2D = null
+	var icon_path := String(w.get("icon", ""))
+	if icon_path != "" and ResourceLoader.exists(icon_path):
+		tex = load(icon_path) as Texture2D
+	else:
+		tex = InventoryManager.get_icon(String(w["def_id"]))
 	if tex != null:
 		var tr := TextureRect.new()
 		tr.texture = tex
