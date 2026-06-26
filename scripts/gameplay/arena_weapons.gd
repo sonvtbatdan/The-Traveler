@@ -2953,6 +2953,7 @@ func _explode_mortar(pos: Vector2, kind: String) -> void:
 func _spawn_mortar_explosion(pos: Vector2, size_px: float, speed_mult: float = 1.0, lite: bool = false) -> void:
 	var ex := ExplosionFX.new()
 	ex.time_scale = (ex.time_scale / 3.0) * speed_mult
+	ex.shockwave_layer = 8   # above the world (0), below ALL HUD layers (UI 10, buttons 11, crit 12…) → ripple arena only, never the HUD
 	ex.glow = 1.4
 	ex.core_size = 0.5
 	ex.core_hot = Color(3.0, 2.3, 1.6)

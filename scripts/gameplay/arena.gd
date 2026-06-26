@@ -211,6 +211,7 @@ func _build_boundary_vignette() -> void:
 func _build_ui() -> void:
 	var ui := CanvasLayer.new()
 	ui.name = "UI"
+	ui.layer = 10   # explicit (was default 1): keep the HP/weapon/aux HUD ABOVE the mortar/fatboy shockwave (layer 8) so the blast distortion never ripples the HUD; still below buttons (11) / crit (12)
 	add_child(ui)
 	var hp := HudHpDisplayScript.new()
 	hp.arena_mode = true   # re-pin the HP cluster to the top-left corner (legacy keeps its layout pos)
