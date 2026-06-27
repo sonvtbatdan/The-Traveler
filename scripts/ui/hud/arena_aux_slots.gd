@@ -14,6 +14,17 @@ const PIP_COL    := Color(1.0, 1.0, 1.0, 0.95)
 const PIP_OFF    := Color(0.0, 0.0, 0.0, 0.45)
 
 var _aux: Node = null   # arena_aux node (group "arena_aux")
+var _icons: Dictionary = {}   # id → Texture2D (lazy cache; null = no art → fall back to the colour swatch)
+
+func _icon_for(id: String, d: Dictionary) -> Texture2D:
+	if _icons.has(id):
+		return _icons[id]
+	var tex: Texture2D = null
+	var path := String(d.get("icon", ""))
+	if path != "" and ResourceLoader.exists(path):
+		tex = load(path) as Texture2D
+	_icons[id] = tex
+	return tex
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -34,9 +45,12 @@ func _draw() -> void:
 		if i < owned.size():
 			var id := String(owned[i])
 			var d: Dictionary = _aux.call("def_for", id)
-			var col: Color = d.get("color", Color.GRAY)
-			# Colour swatch (inset like the weapon icon).
-			draw_rect(rect.grow(-rect.size.x * 0.18), col, true)
+			var tex := _icon_for(id, d)
+			if tex != null:
+				draw_texture_rect(tex, rect.grow(-rect.size.x * 0.09), false)   # HUD art when available
+			else:
+				var col: Color = d.get("color", Color.GRAY)
+				draw_rect(rect.grow(-rect.size.x * 0.18), col, true)             # colour swatch fallback
 			# Level pips along the bottom edge.
 			var lvl := int(_aux.call("aux_level", id))
 			_draw_level_pips(rect, lvl)

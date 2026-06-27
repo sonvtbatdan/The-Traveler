@@ -14,21 +14,22 @@ const MAX_AUX_LEVEL := 6    # per-item level cap (skill-point progression; max l
 # ── AUX CATALOG ──────────────────────────────────────────────────────────────────
 # id        — unique key (also the effect dispatcher key in _apply_effect)
 # name      — display name
-# color     — placeholder swatch (no art yet) for cards + slots
+# color     — placeholder swatch (drawn on cards + slots when no `icon` art is set)
+# icon      — optional HUD art (assets/hud) shown on the slot instead of the colour swatch
 # weight    — spawn weight in the level-up roll (rarer effects → lower weight)
 # effect    — short per-level description for the card
 const AUX_DEFS := [
-	{"id": "hp",          "name": "Reinforcement Plate", "color": Color(0.40, 0.85, 0.45), "weight": 100, "effect": "+20 Max HP"},
-	{"id": "regen",       "name": "Nanobots",            "color": Color(0.45, 0.90, 0.70), "weight": 80,  "effect": "+0.5 HP/s"},
-	{"id": "armor",       "name": "Exoskeleton",         "color": Color(0.55, 0.62, 0.70), "weight": 80,  "effect": "+2 Armor"},
-	{"id": "speed",       "name": "Fins",                "color": Color(0.45, 0.75, 1.00), "weight": 90,  "effect": "+6% Speed"},
-	{"id": "damage",      "name": "Accelerated Muzzle",  "color": Color(1.00, 0.45, 0.35), "weight": 70,  "effect": "+10% Damage"},
-	{"id": "fire_rate",   "name": "Auto-Loader",         "color": Color(1.00, 0.65, 0.30), "weight": 70,  "effect": "+8% Fire Rate"},
+	{"id": "hp",          "name": "Reinforcement Plate", "icon": "res://assets/hud/hp.png",          "color": Color(0.40, 0.85, 0.45), "weight": 100, "effect": "+20 Max HP"},
+	{"id": "regen",       "name": "Nanobots",            "icon": "res://assets/hud/hp_regen.png",    "color": Color(0.45, 0.90, 0.70), "weight": 80,  "effect": "+0.5 HP/s"},
+	{"id": "armor",       "name": "Exoskeleton",         "icon": "res://assets/hud/defense.png",     "color": Color(0.55, 0.62, 0.70), "weight": 80,  "effect": "+2 Armor"},
+	{"id": "speed",       "name": "Fins",                "icon": "res://assets/hud/move_speed.png",  "color": Color(0.45, 0.75, 1.00), "weight": 90,  "effect": "+6% Speed"},
+	{"id": "damage",      "name": "Accelerated Muzzle",  "icon": "res://assets/hud/damage.png",      "color": Color(1.00, 0.45, 0.35), "weight": 70,  "effect": "+10% Damage"},
+	{"id": "fire_rate",   "name": "Auto-Loader",         "icon": "res://assets/hud/fire_rate.png",   "color": Color(1.00, 0.65, 0.30), "weight": 70,  "effect": "+8% Fire Rate"},
 	{"id": "armor_pen",   "name": "Armor Penetration",   "color": Color(0.90, 0.80, 0.40), "weight": 40,  "effect": "Ignore 2 Armor"},
-	{"id": "crit",        "name": "Aim Assistor",        "color": Color(1.00, 0.35, 0.35), "weight": 50,  "effect": "+5% Crit Chance"},
+	{"id": "crit",        "name": "Aim Assistor",        "icon": "res://assets/hud/crit_chance.png", "color": Color(1.00, 0.35, 0.35), "weight": 50,  "effect": "+5% Crit Chance"},
 	{"id": "harmonizer",  "name": "Harmonizer",          "color": Color(0.70, 0.50, 1.00), "weight": 30,  "effect": "+Type Damage"},
 	{"id": "aoe",         "name": "Explosivo",           "color": Color(1.00, 0.55, 0.20), "weight": 40,  "effect": "+25 AoE"},
-	{"id": "pickup",      "name": "Magnet",              "color": Color(0.55, 0.85, 0.95), "weight": 90,  "effect": "+15% Pickup"},
+	{"id": "pickup",      "name": "Magnet",              "icon": "res://assets/hud/pickup.png",      "color": Color(0.55, 0.85, 0.95), "weight": 90,  "effect": "+15% Pickup"},
 	{"id": "xp",          "name": "Data Harvester",      "color": Color(0.65, 0.55, 1.00), "weight": 60,  "effect": "+10% EXP"},
 	{"id": "spawn",       "name": "Beacon",              "color": Color(0.85, 0.40, 0.55), "weight": 30,  "effect": "+15% Spawns"},
 	{"id": "retaliation", "name": "Barbed Wire",         "color": Color(0.80, 0.35, 0.30), "weight": 40,  "effect": "+5 Retaliation"},
