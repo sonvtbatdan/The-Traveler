@@ -99,7 +99,7 @@ const LOOT_DENOM: int = 1000
 # item's "icon" to its res:// path — no other code change needed.
 const ITEM_DEFS: Dictionary = {
 	"gauss_cannon": {
-		"name": "Gauss Cannon",
+		"name": "Gauss Pulser",
 		"icon": "res://assets/inventory/Gauss.png",
 		"size": Vector2i(3, 2),
 		"tags": ["weapon"],
@@ -108,7 +108,7 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "rare",
 		"group": "hybrid",
 		"damage_kind": ["kinetic", "energy"],
-		"desc": "Charge up, then fire a big chunk of metal at a target. Heavy single-target burst — slow cadence, big hit.",
+		"desc": "Bằng cách làm co giãn cục bộ không gian, G-Pulser tạo ra nội lực xé (Shear stress) ở cấp độ phân tử",
 		"stats": {
 			"damage": 110,
 			"cooldown_sec": 1.5,   # full charge time; damage scales linearly up to this
@@ -149,7 +149,7 @@ const ITEM_DEFS: Dictionary = {
 		"req": 0,                # no equip gate (so the F12 grant always equips) — set a real req when balancing
 		"group": "explosive",
 		"damage_kind": ["kinetic", "fire"],   # a fiery X detonation
-		"desc": "A blazing X-shaped detonation centered on your ship. Hits everything along the four diagonal arms.",
+		"desc": "Turret sở hữu 4 họng phun đối xứng 90 độ, đồng loạt bắn ra các chuỗi hạt Thermite lỏng gia tốc cao.",
 		"stats": {
 			"cooldown_sec": 1.0,    # ~once per second; scales via _cooldown (fire-rate passives/affixes)
 			"ammo_cost": 8,
@@ -169,7 +169,7 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "uncommon",
 		"group": "area_dot",
 		"damage_kind": ["bio"],
-		"desc": "Leaves a lingering toxic cloud trail in your wake. Enemies caught in it take damage over time.",
+		"desc": "Chuyển hóa hợp chất độc sinh học dạng lỏng thành các luồng khí hóa hơi (Biocide Vapor) có mật độ phân tử dày đặc, phun ra phía sau tàu",
 		"stats": {              # reference values — the live numbers are CHEMTRAIL_* consts in arena_weapons.gd
 			"tick_damage": 6,
 			"tick_interval_sec": 0.25,
@@ -182,7 +182,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"ionizing_field": {
 		"name": "Tachyon Displacer",
-		"icon": "res://assets/inventory/HO-TD-W.png",
+		"icon": "res://assets/inventory/HO-TD-W.png",   # Black Hole (evolve of Vacuum) per Corp.pdf
 		"size": Vector2i(2, 2),
 		"tags": ["weapon", "shield"],
 		"fire_mode": "aura",   # always-on while equipped; damages everything within radius_px each tick
@@ -190,7 +190,7 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "rare",
 		"group": "energy",
 		"damage_kind": ["energy"],
-		"desc": "An electric area-effect aura around the ship. Always-on while equipped; damages every enemy within a radius each tick.",
+		"desc": "Vũ khí thử nghiệm bẻ cong không gian tại các trạm trung chuyển, gây sát thương diện rộng.",
 		"stats": {
 			"damage_per_tick": 14,
 			"tick_interval_sec": 0.25,
@@ -200,7 +200,7 @@ const ITEM_DEFS: Dictionary = {
 		},
 	},
 	"gatling_gun": {
-		"name": "Kinetic AutoCannon",
+		"name": "Kinetic Auto Cannon",
 		"icon": "res://assets/inventory/VB-KA6.png",
 		"size": Vector2i(3, 1),
 		"tags": ["weapon"],
@@ -209,7 +209,7 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "common",
 		"group": "ballistic",
 		"damage_kind": ["kinetic"],
-		"desc": "Fires fast; hold to keep firing. The baseline rapid-fire weapon — light, cheap, reliable sustained fire.",
+		"desc": "Pháo tự động bắn đạn động năng tốc độ cao, tiêu chuẩn quân sự phổ biến toàn vũ trụ.",
 		"uses_ammo": true,
 		"stats": {
 			"damage": 8,
@@ -226,7 +226,7 @@ const ITEM_DEFS: Dictionary = {
 		"fire_mode": "repeat",   # auto-fires every cooldown_sec while held
 		"fire_type": "homing",   # picks the nearest target; missile curves toward it
 		"rarity": "uncommon",
-		"group": "explosive",
+		"group": "obsolete",
 		"damage_kind": ["explosive", "fire"],
 		"desc": "Launches out the back, loops around the ship, then streaks to the cursor and bursts in an explosion.",
 		"stats": {
@@ -271,7 +271,7 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "rare",
 		"group": "energy",
 		"damage_kind": ["energy", "light"],
-		"desc": "A continuous beam fired straight forward that burns the first target in its line. Hold to sustain.",
+		"desc": "Tia laser năng lượng cao",
 		"stats": {
 			"damage": 20,             # per tick (−70% from 66)
 			"tick_interval_sec": 0.15,
@@ -292,7 +292,7 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "uncommon",
 		"group": "ballistic",
 		"damage_kind": ["energy"],
-		"desc": "Lightning that strikes a target then chains to nearby ones.",
+		"desc": "Tia sét đánh nối tiếp vào đa mục tiêu",
 		"stats": {
 			"damage": 30,
 			"cooldown_sec": 0.5,
@@ -333,7 +333,7 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "rare",
 		"group": "area_dot",
 		"damage_kind": ["energy"],
-		"desc": "Hold to tear open a void at a spot. It grows wider and hits harder the longer you hold it, then collapses when released.",
+		"desc": "Vũ khí kích hoạt trạng thái Phân rã Chân không (Vacuum Decay) cục bộ.",
 		"stats": {
 			"damage_min": 20,          # damage/tick at placement (-50%)
 			"damage_max": 195,         # damage/tick at full ramp (-50%)
@@ -369,7 +369,7 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"swarm_host": {
 		"name": "Orbital Impact Offense",
-		"icon": "res://assets/inventory/ND-OIO-F.png",
+		"icon": "res://assets/inventory/ND-OIF-F.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
 		"fire_mode": "channel",        # hold to sustain the swarm
@@ -377,7 +377,7 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "uncommon",
 		"group": "summon",
 		"damage_kind": ["bio"],
-		"desc": "Hold to release a swarm of bats that chase down the nearest target and body-block incoming boss fire. Downed bats respawn while held.",
+		"desc": "UAV tự động tìm và đâm vào các mục tiêu tiếp cận tàu",
 		"stats": {
 			"damage": 5,               # per bat hit
 			"attack_interval_sec": 0.4,
@@ -399,7 +399,7 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "rare",
 		"group": "summon",
 		"damage_kind": ["kinetic", "energy"],
-		"desc": "Three crackling metal balls orbit your ship, smashing anything they touch — free, always on. Hold to overcharge: they spin up to 3× speed (more hits) while it drains your energy.",
+		"desc": "UAV tự động xoay và đâm vào các mục tiêu tiếp cận tàu",
 		"stats": {
 			"damage": 25,            # per collision (routed through get_weapon_stat)
 			"weight": 5,
@@ -820,7 +820,7 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "weight": 4 },
 	},
 	"yari_jaeger": {
-		"name": "Yari Jaeger",
+		"name": "Yari Jeager",
 		"icon": "res://assets/inventory/Yari-Jeager-idle.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
@@ -838,38 +838,38 @@ const ITEM_DEFS: Dictionary = {
 	},
 	"nuke": {
 		"name": "Rosastro HE Mortar",
-		"icon": "res://assets/inventory/Mortar.png",
+		"icon": "res://assets/inventory/R-HPM-IV.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
 		"fire_mode": "repeat",
 		"rarity": "rare",
 		"group": "explosive",
 		"damage_kind": ["kinetic", "explosive"],
-		"desc": "",
+		"desc": "Súng cối hạng nặng chuyên phá hủy lớp giáp dày và các công trình kiên cố.",
 		"stats": { "weight": 8 },
 	},
 	"rosastro_nuclear": {
 		"name": "Rosastro Nuclear",
-		"icon": "res://assets/inventory/Perses RED.png",
+		"icon": "res://assets/inventory/FatBoy.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
 		"fire_mode": "repeat",
 		"rarity": "epic",
 		"group": "explosive",
 		"damage_kind": ["kinetic", "explosive"],
-		"desc": "",
+		"desc": "Vũ khí hạt nhân tối thượng, sức hủy diệt vô hạn",
 		"stats": { "weight": 10 },
 	},
 	"z_sword": {
-		"name": "Schockwelle",
-		"icon": "res://assets/inventory/EK-SW88-Alt.png",
+		"name": "Jeager",
+		"icon": "res://assets/inventory/EK-SW88.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
 		"fire_mode": "repeat",
 		"rarity": "rare",
 		"group": "energy",
 		"damage_kind": ["energy"],
-		"desc": "",
+		"desc": "Vũ khí cận chiến, sử dụng cơ cấu truyền động răng cưa phức tạp, quét và đẩy ra sóng xung kích",
 		"stats": { "weight": 6 },
 	},
 	"sonic_wave": {
@@ -881,7 +881,7 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "uncommon",
 		"group": "energy",
 		"damage_kind": ["energy"],
-		"desc": "",
+		"desc": "Phóng ra sóng sonic",
 		"stats": { "weight": 5 },
 	},
 	"boomerang": {
@@ -893,11 +893,11 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "uncommon",
 		"group": "ballistic",
 		"damage_kind": ["kinetic"],
-		"desc": "",
+		"desc": "Ném boomerang",
 		"stats": { "weight": 5 },
 	},
 	"space_snake": {
-		"name": "Red Viper",
+		"name": "Viper",
 		"icon": "res://assets/inventory/VIPER.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
@@ -905,7 +905,7 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "rare",
 		"group": "summon",
 		"damage_kind": ["fire"],
-		"desc": "",
+		"desc": "V.I.P.E.R (Viral Infiltration & Penetration Exo-Rover): Thiết bị tự hành ngoại vi xâm nhập và thẩm thấu virus.",
 		"stats": { "weight": 5 },
 	},
 	"moroboshi": {
@@ -918,7 +918,7 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "rare",
 		"group": "summon",
 		"damage_kind": ["energy"],
-		"desc": "",
+		"desc": "Vũ khí cận chiến, sử dụng cơ cấu pin shot bắn cây thương nhọn vào địch",
 		"stats": { "weight": 5 },
 	},
 	"parasite_cloud": {
@@ -930,7 +930,7 @@ const ITEM_DEFS: Dictionary = {
 		"rarity": "rare",
 		"group": "summon",
 		"damage_kind": ["bio"],
-		"desc": "",
+		"desc": "Súng phóng bào tử sinh học biến đổi gen, ăn mòn các lớp hợp kim kim loại siêu bền của tàu địch.",
 		"stats": { "weight": 5 },
 	},
 }

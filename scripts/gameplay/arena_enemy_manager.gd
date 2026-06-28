@@ -215,7 +215,7 @@ func throw_bomb(pos: Vector2) -> void:
 ## Spawn a small flock of bee enemies near the player — used by the F12 debug palette to test plume VFX.
 func spawn_bee() -> void:
 	const BEE_DEF := {"behavior": "swarm_dive", "hp": 20.0, "speed": 150.0, "size": 12.0,
-		"contact": 8, "explodes": true, "xp": 3, "icon": "res://assets/enemies/animalbee.png"}
+		"contact": 8, "explodes": true, "xp": 3, "icon": "res://assets/enemiesHD/animalbee.png"}
 	var pp := ship_center()
 	for i in 6:
 		var e := ArenaEnemyScript.new()

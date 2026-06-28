@@ -19,6 +19,30 @@ The game features a **real-time combat / crafting and idle harvesting layer**: a
 
 `README.md` (setup), `design.md` (idle-economy design + tuning), `summary.md` (fuller architecture map — active vs legacy code), `inventory_redesign.md` + `minh_scope.md` (inventory/hull/affix task specs), `GRAPHICS_SPEC.md` (planned visual-polish tiers). `weapon_current.csv` + the `weapon_current.*.translation` files are **documentation only, not loaded by code** — hand-maintained from `ITEM_DEFS` in `inventory_manager.gd`.
 
+## Changelog — 2026-06-29 (Arena enemy roster + Fleet/Wave editors)
+
+Large session reworking the Arena enemy layer and its dev editors:
+
+- **enemiesHD migration:** `assets/enemies/` was deleted; all enemy art now lives in `assets/enemiesHD/`. Enemies with no HD sprite (old octopus, bomber, bug-eye) were dropped. `creep_layout.cfg` sprite paths were repointed to `enemiesHD` (fixes squid/dummy load errors). The Creep Edit roster now scans `enemiesHD`.
+
+- **Expanded `ENEMY_DEFS` roster** (`arena_wave_director.gd`): existing stats updated per the design table + ~60 new enemies across "races" — alien (teleport), bismuth, magma, stone, ghost, pirate / piratespear(+shield), pros (+prosmotherblank), fleet (+leader), Sentinel Fleet (sentinel1-4 + leader), animalhornet, dummy, squid. All added to `QUICK_SPAWN_ORDER`.
+  - **Level scaling:** a def flag marks HP/XP as per-player-level bases (multiplied by `GameManager.player_level` at spawn).
+  - **Two new behaviors** (`arena_enemy.gd`): `teleport` (blink toward the player + idle jigger + space-warp distortion VFX) and `patrol` (straight flyby).
+
+- **Per-def special mechanics** (`arena_enemy.gd`, all flag-driven): ghost transparency + evasion; pirate flee-when-low; stone → spawn its matching magma on death; alien5 → morph to alien4; magma → eject magma-fragment projectiles; bismuth anti-magnetic (reflects Gatling bullets back at the player + takes reduced damage from laser / lightning / vacuum); pros5 → fire orange Gauss orbs; fleet & Sentinel-Fleet "Strike Back" (patrol→chase the first time hit); new armor damage-reduction formula. `take_damage` gained an optional weapon-`kind` param (threaded from `arena_weapons.gd`). Fleet "backup summon" is deferred to the Fleet grouping.
+
+- **Centipede rework:** the single spinning sprite became a 3-part head/body/tail chain that follows like the Viper snake but chases the player.
+
+- **Plumes glued to the sprite** (`arena_enemy.gd`): plume emitters are re-anchored each frame to the live sprite transform (position + scale) so they track any enemy scaling. The Plume Style panel (`creep_edit_mode.gd`) gained Copy / Paste buttons.
+
+- **Fleet Edit** (new — `scripts/ui/boss_edit/fleet_edit_mode.gd`, group `fleet_edit`, dev:on button below Hotkey): authors named FLEETS. Fleet / Unit / Random tables + Enemies palette + Transform + Save. A fleet has up to 10 unit slots (single enemy or a random pool shown as "R"), each with a per-slot screen position + size. Saves to `res://fleet_layout.cfg`. (Editor only; spawn wiring lives in the wave director.)
+
+- **Wave Edit (F7)** (`arena_wave_editor.gd`): a dev:on `Wave_edit` button (below Fleet) toggles it. Column headers realigned (the Type control is now a fixed-width clip button instead of an OptionButton that stretched on long names). Clicking Type opens a 2-tab dropdown — **Unit** (5-column enemy icon grid) and **Fleet** (fleet list with a 500px hover formation preview). Picking a fleet stores the wave type as `fleet:<name>`; `arena_wave_director._deploy_fleet` then spawns the fleet's units at their placed positions (screen→world via the camera) when that wave fires.
+
+- **HUD focus while editing** (`arena.gd set_edit_focus`): opening Creep Edit or Fleet Edit hides the entire gameplay HUD (HP/XP, weapon/aux slots, both button clusters, debug panels), the player ship and all live enemies — leaving only the editor panels + the objects being edited; restored on close. Weapon Edit is excluded (it needs the ship visible). Fleet Edit polish: in-slot-sized drag preview centred on the cursor, arrow-key nudge of the selected slots, Shift multi-select in the Unit table, Enemies panel nudged left.
+
+> Verification was parse-check + headless arena boot (clean). UI interactions (drag-drop, context menus, hover previews) still need manual F5 confirmation. Per-slot fleet SIZE is not yet applied to spawned enemies (uses `ENEMY_DEFS` size).
+
 ## Theme Mapping (internal → display)
 
 | Internal variable | Display label |

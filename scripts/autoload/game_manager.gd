@@ -13,6 +13,7 @@ signal ship_ammo_changed(ammo: float)
 signal ship_shield_changed(shield: float)
 signal ship_destroyed
 signal money_changed(amount: int)   # green-$ player currency
+signal kills_changed(kills: int)    # enemies killed this run (arena HUD counter)
 
 # ── Character level / XP (Phases 1 & 2) ──────────────────────────────────────
 signal xp_changed(xp: int, xp_to_next: int)   # current XP toward the next level + the threshold
@@ -586,6 +587,12 @@ func add_mech(key: String, amt: float) -> void:
 var rebirth_charges: int = 0              # Phoenix Core: revive-on-death charges available THIS run
 var run_coin_mult:   float = 1.0          # Scavenger: multiplies in-run coin pickups (arena_loot reads this)
 var run_luck:        float = 0.0          # Lucky drone: additive luck this run (drop/fragment/coin chance)
+var run_kills:       int   = 0            # enemies killed this run (arena HUD; reset each run)
+
+## Tally one enemy kill for the run (arena HUD counter). Called from arena_enemy._die().
+func add_kill() -> void:
+	run_kills += 1
+	kills_changed.emit(run_kills)
 
 ## Grant `n` one-run revive charges (Phoenix Core passive). Consumed by the arena on ship death.
 func grant_rebirth(n: int) -> void:
@@ -680,10 +687,12 @@ func reset_run() -> void:
 	rebirth_charges = 0
 	run_coin_mult = 1.0
 	run_luck = 0.0
+	run_kills = 0
 	recompute_max_hp()
 	heal_to_full()
 	level_changed.emit(player_level)
 	xp_changed.emit(player_xp, xp_to_next(player_level))
+	kills_changed.emit(run_kills)
 	player_stats_changed.emit()
 
 func reset_stats() -> void:

@@ -17,6 +17,7 @@ extends CanvasLayer
 const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const WaveDir   := preload("res://scripts/gameplay/arena_wave_director.gd")
 const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
+const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")   # for WEAPON_INFO/FUSION_DEFS code names
 # Weapon roster for the Dev → Weapon panel, classified per the Corp design doc into 4 tabs:
 #   drop     = obtained from drops               (Spawn = "Drop")
 #   evolve   = upgraded from ONE parent weapon   (Spawn names 1 weapon)  — evolve mechanic not coded yet
@@ -31,7 +32,7 @@ const WEAPON_TABS := {
 		{"kind": "gatling",   "def_id": "gatling_gun",  "label": "Kinetic Auto Cannon"},
 		{"kind": "lasgun",    "def_id": "lasgun",        "label": "Solid-State Laser"},
 		{"kind": "orbital",   "def_id": "orbitals",      "label": "Orbital Impact Defense"},
-		{"kind": "swarm",     "def_id": "swarm_host",    "label": "Orbital Impact Offense"},
+		{"kind": "",          "def_id": "swarm_host",    "label": "Orbital Impact Offense", "code": "Striker", "ph": true},
 		{"kind": "chemtrail", "def_id": "chemtrail",     "label": "Biocide Vaporizer"},
 		{"kind": "void",      "def_id": "rift_maker",    "label": "Vacuum Decoupler"},
 		{"kind": "arc",       "def_id": "arc",           "label": "Arc Lightning Chain"},
@@ -42,21 +43,21 @@ const WEAPON_TABS := {
 		{"kind": "boomerang", "def_id": "boomerang",     "label": "Aliwa"},
 		{"kind": "gauss",     "def_id": "gauss_cannon",  "label": "Gauss Pulser"},
 		{"kind": "snake",     "def_id": "space_snake",   "label": "Viper"},
-		{"kind": "",          "def_id": "",              "label": "Swarm", "icon": "res://assets/inventory/Swarm.png", "ph": true},
+		{"kind": "swarm",     "def_id": "",              "label": "Swarm", "icon": "res://assets/inventory/Swarm.png"},
 		{"kind": "sonic",     "def_id": "sonic_wave",    "label": "Sonic"},
 		{"kind": "homing",    "def_id": "homing_missile","label": "Homing Missile"},   # temp impl (copied from enemy missile launcher) — not in the Corp doc
 	],
 	"evolve": [
-		{"kind": "",       "def_id": "",               "label": "Kinetic Induction Cannon", "from": "Kinetic Auto Cannon", "icon": "res://assets/inventory/VB-KIC-6.png",      "ph": true},
-		{"kind": "",       "def_id": "",               "label": "Isotope Laser",            "from": "Solid-State Laser",   "icon": "res://assets/inventory/KM-IL-100.png", "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Kinetic Induction Cannon", "code": "Big Gun",    "from": "Kinetic Auto Cannon", "icon": "res://assets/inventory/VB-KIC-6.png",      "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Isotope Laser",            "code": "Super Laser", "from": "Solid-State Laser",   "icon": "res://assets/inventory/KM-IL-200.png", "ph": true},
 		{"kind": "ionize", "def_id": "ionizing_field", "label": "Tachyon Displacer",        "from": "Vacuum Decoupler"},
-		{"kind": "",       "def_id": "",               "label": "Mobile Vacuum",            "from": "Vacuum Decoupler",    "icon": "res://assets/inventory/Blackship.png",     "ph": true},
-		{"kind": "",       "def_id": "",               "label": "Thunder Strike",           "from": "Arc Lightning Chain", "icon": "res://assets/inventory/Zeus.png",          "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Mobile Vacuum",            "code": "Black Ship", "from": "Vacuum Decoupler",    "icon": "res://assets/inventory/M-ST-17.png",     "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Thunder Strike",           "code": "Zeus",       "from": "Arc Lightning Chain", "icon": "res://assets/inventory/Zeus.png",          "ph": true},
 		{"kind": "fat_boy", "def_id": "rosastro_nuclear", "label": "Rosastro Nuclear",        "from": "Rosastro HE Mortar"},
 	],
 	"fusion": [
-		{"kind": "",            "def_id": "",              "label": "KM Quantum Beam Rifle",        "from": "Kinetic Auto Cannon × Solid-State Laser", "icon": "res://assets/inventory/KM-QBM-200-alt.png", "ph": true},
-		{"kind": "",            "def_id": "",              "label": "Drone Cannon",                 "from": "Kinetic Auto Cannon × Orbital Impact Defense", "icon": "res://assets/inventory/NC-DC-F.png", "ph": true},
+		{"kind": "",            "def_id": "",              "label": "KM Quantum Beam Rifle",        "code": "Jedi Laser",  "from": "Kinetic Auto Cannon × Solid-State Laser", "icon": "res://assets/inventory/KM-QBM-200.png", "ph": true},
+		{"kind": "",            "def_id": "",              "label": "Drone Cannon",                 "code": "Candy Crush", "from": "Kinetic Auto Cannon × Orbital Impact Defense", "icon": "res://assets/inventory/NC-DC-F.png", "ph": true},
 		{"kind": "",            "def_id": "",              "label": "Vampire Host",                 "from": "Sonic × Orbital Impact Offense", "icon": "res://assets/inventory/Vampire Host.png", "ph": true},
 		{"kind": "parasite",    "def_id": "parasite_cloud","label": "Bio-Corrosive Spore Launcher", "from": "Biocide Vaporizer × Swarm"},
 		{"kind": "overcharger", "def_id": "gauss_cannon",  "label": "Overcharger",                  "from": "Arc Lightning Chain × Gauss Pulser", "icon": "res://assets/inventory/Overcharger.png"},
@@ -81,9 +82,18 @@ const SFX_UICLICK := preload("res://assets/audio/sfx/uiclick.wav")
 # Enemy order in the quick-spawn grid — normals first, bosses last.
 const QUICK_SPAWN_ORDER: Array[String] = [
 	"fly", "bee", "bug", "swarm",
-	"diver", "dragonfly", "octopus", "spider",
-	"centipede", "shooter", "sentinel", "beamer",
-	"bomber", "missile", "dummy", "squid",
+	"diver", "dragonfly", "spider", "centipede",
+	"shooter", "beamer", "missile", "animalhornet", "squid",
+	"sentinel", "dummy",
+	"sentinel1", "sentinel2", "sentinel3", "sentinel4", "sentinelleader",
+	"alien1", "alien2", "alien3", "alien4", "alien5", "alien6", "alien7", "alien8",
+	"bismuth1", "bismuth2", "bismuth3", "bismuth4", "bismuth5", "bismuth6",
+	"fleet1", "fleet2", "fleet3", "fleet4", "fleetleader",
+	"ghost1", "ghost2", "ghost3", "ghost4", "ghost5",
+	"pirate1", "pirate2", "piratespear", "piratespearshield",
+	"magma1", "magma2", "magma3", "magma4", "magma5", "magma6", "magma7",
+	"stone1", "stone2", "stone3", "stone4", "stone5", "stone6", "stone7",
+	"pros1", "pros2", "pros3", "pros4", "pros5", "pros6", "pros7", "pros8", "prosmotherblank",
 	"elephant", "chromeleon", "metalfly",
 ]
 const QUICK_BOSS_IDS: Array[String] = ["elephant", "chromeleon", "metalfly"]
@@ -423,14 +433,18 @@ func _make_quick_cell(type_id: String, cell_size: int) -> Control:
 	return btn
 
 func _load_thumb(icon: String) -> Texture2D:
-	if icon.ends_with(".gif"):
-		var g := GifLoader.load_gif(icon)
+	var src: String = EnemyScript._resolve_sprite(icon)   # prefer assets/enemiesHD/, fall back to assets/enemies/
+	if src.ends_with(".gif"):
+		var g := GifLoader.load_gif(src)
 		if g != null and g.has_meta("gif_frames"):
 			var frames: Array = g.get_meta("gif_frames")
 			if not frames.is_empty():
 				return frames[0] as Texture2D
 		return null
-	return load(icon) as Texture2D
+	var t := load(src) as Texture2D
+	if t == null and src != icon:
+		t = load(icon) as Texture2D   # HD failed to load (e.g. not imported) → standard sprite
+	return t
 
 func _spawn_quick_enemy(type_id: String) -> void:
 	var src: Dictionary = WaveDir.ENEMY_DEFS.get(type_id, {})
@@ -579,12 +593,27 @@ func _rebuild_weapon_grid() -> void:
 	for w: Dictionary in (WEAPON_TABS[_weapon_tab] as Array):
 		_weapon_grid.add_child(_make_weapon_cell(w, 48))
 
+## The weapon's Code Name (short nickname, e.g. "Minigun"). Implemented weapons resolve it from the live
+## registry via their kind; placeholders carry an explicit "code"; everything else falls back to the full name.
+func _weapon_code_name(w: Dictionary) -> String:
+	var kind := String(w.get("kind", ""))
+	if kind != "":
+		var info: Dictionary = ArenaWeapons.WEAPON_INFO.get(kind, ArenaWeapons.FUSION_DEFS.get(kind, {}))
+		var lbl := String(info.get("label", ""))
+		if lbl != "":
+			return lbl
+	return String(w.get("code", w.get("label", "")))
+
 func _make_weapon_cell(w: Dictionary, cell_size: int) -> Control:
 	var is_ph: bool = bool(w.get("ph", false))
 	var btn := Button.new()
 	btn.custom_minimum_size = Vector2(cell_size, cell_size)
 	btn.focus_mode    = Control.FOCUS_NONE
-	var tip := String(w["label"])
+	var code := _weapon_code_name(w)
+	var full := String(w["label"])
+	var tip := code                          # Code Name first (e.g. "Minigun")
+	if full != code:
+		tip += "  —  " + full                # then the full name (e.g. "Kinetic Auto Cannon")
 	if w.has("from"):
 		tip += "\n(" + String(w["from"]) + ")"
 	if is_ph:

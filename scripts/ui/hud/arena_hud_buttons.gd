@@ -27,6 +27,8 @@ var _simplified_btn: TextureButton = null
 var _creep_btn:      TextureButton = null
 var _weapon_btn:     TextureButton = null
 var _hotkey_btn:     TextureButton = null
+var _fleet_edit_btn: TextureButton = null
+var _wave_edit_btn:  TextureButton = null
 var _inv_btn:        Button = null
 var _vb:             VBoxContainer = null
 
@@ -41,6 +43,8 @@ var _tex_simplifiedon:  Texture2D = null
 var _tex_creep:         Texture2D = null
 var _tex_weapon:        Texture2D = null
 var _tex_hotkey:        Texture2D = null
+var _tex_fleet_edit:    Texture2D = null
+var _tex_wave_edit:     Texture2D = null
 
 # Total height without dev-edit buttons (for VBox repositioning)
 var _base_total_h: float = 0.0
@@ -58,6 +62,8 @@ func _ready() -> void:
 	_tex_creep         = _load_img("res://assets/hud/creep.png")
 	_tex_weapon        = _load_img("res://assets/hud/weapon.png")
 	_tex_hotkey        = _load_img("res://assets/hud/hotkey.png")
+	_tex_fleet_edit    = _load_img("res://assets/hud/Fleet_edit.png")
+	_tex_wave_edit     = _load_img("res://assets/hud/Wave_edit.png")
 	_build_ui()
 	SettingsScript.apply_saved()       # apply saved SFX volume + window mode (covers arena-direct launch)
 	_settings = SettingsScript.new()
@@ -183,6 +189,23 @@ func _build_ui() -> void:
 	_hotkey_btn.pressed.connect(_on_hotkey_panel)
 	root.add_child(_hotkey_btn)
 
+	# Fleet Edit — below the hotkey button (dev:on only)
+	var fleet_h := _btn_h(_tex_fleet_edit)
+	var y_fleet := y_panels + creep_h + BTN_SEP + weapon_h + BTN_SEP + hotkey_h + BTN_SEP
+	_fleet_edit_btn = _make_btn(_tex_fleet_edit, fleet_h)
+	_fleet_edit_btn.position = Vector2(SIMPLIFIED_X, y_fleet)
+	_fleet_edit_btn.visible = false
+	_fleet_edit_btn.pressed.connect(_on_fleet_edit)
+	root.add_child(_fleet_edit_btn)
+
+	# Wave Edit (F7) — below the Fleet button (dev:on only)
+	var wave_h := _btn_h(_tex_wave_edit)
+	_wave_edit_btn = _make_btn(_tex_wave_edit, wave_h)
+	_wave_edit_btn.position = Vector2(SIMPLIFIED_X, y_fleet + fleet_h + BTN_SEP)
+	_wave_edit_btn.visible = false
+	_wave_edit_btn.pressed.connect(_on_wave_edit)
+	root.add_child(_wave_edit_btn)
+
 func _make_label_btn(label: String) -> Button:
 	var btn := Button.new()
 	btn.text = label
@@ -257,6 +280,8 @@ func _on_devon() -> void:
 	_creep_btn.visible      = _dev_mode
 	_weapon_btn.visible     = _dev_mode
 	_hotkey_btn.visible     = _dev_mode
+	_fleet_edit_btn.visible = _dev_mode
+	_wave_edit_btn.visible  = _dev_mode
 
 	# Update Devon button texture
 	_devon_btn.texture_normal = _tex_devon if _dev_mode else _tex_devoff
@@ -293,6 +318,18 @@ func _on_creep_edit() -> void:
 	var cem := get_tree().get_first_node_in_group("creep_edit")
 	if cem != null and cem.has_method("toggle"):
 		cem.toggle()
+
+func _on_fleet_edit() -> void:
+	_click_sfx()
+	var fem := get_tree().get_first_node_in_group("fleet_edit")
+	if fem != null and fem.has_method("toggle"):
+		fem.toggle()
+
+func _on_wave_edit() -> void:
+	_click_sfx()
+	var wem := get_tree().get_first_node_in_group("wave_editor")
+	if wem != null and wem.has_method("toggle"):
+		wem.toggle()
 
 func _on_simplified() -> void:
 	_click_sfx()

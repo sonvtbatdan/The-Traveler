@@ -40,6 +40,10 @@ const GAT_HEAL_ODDS    := 200      # Healing Round capstone: 1-in-N directly-fir
 const GAT_HEAL_AMOUNT  := 5        # HP healed (player + target) by a healing bullet
 const GAT_FOCUS_STEP   := 0.005    # Focus Fire capstone: +0.5% gatling dmg per consecutive hit on the same target
 const GAT_FOCUS_MAX    := 1.0      # … capped at +100%
+# Bismuth anti-magnetic: a gatling bullet hitting an anti-magnetic enemy may bounce back at the player.
+const GAT_REFLECT_FRAC := 0.5      # fraction of gatling bullets reflected (50%)
+const GAT_REFLECT_DMG  := 5        # damage a reflected bullet does to the player
+const GAT_REFLECT_PAD  := 12.0     # extra hit padding when a reflected bullet meets the player
 
 # ── TUNABLES: Gauss cannon (auto-charge → heavy piercing orb) ─────────────────
 const GAUSS_ENABLED     := false    # disabled for now
@@ -60,27 +64,33 @@ const MAX_WEAPONS := 5                                  # HUD slot count / acqui
 const MAX_WEAPON_LEVEL := 6                             # per-item level cap (skill-point progression; max level 6)
 const WEAPON_DMG_PER_LEVEL := 0.30                      # +30% damage per level, COMPOUNDING (×1.30^(level-1))
 const CHEST_POOL  := ["gatling", "lasgun", "arc", "gauss"]   # the 4 "F12" weapons the start-of-run chest rolls from
-# kind → inventory def_id (icon) + display label. Canonical map shared by the chest + slot HUD.
+# Canonical weapon registry shared by the chest + slot HUD + F12 palette. Per kind:
+#   def_id = inventory icon source · name = full official name (matches ITEM_DEFS.name) ·
+#   label = short in-game / spawn display name · mfr = manufacturer (lore "group").
+# kind keys are wired across the fire engine — DO NOT rename them; only this metadata is editable.
+# NOTE: ionize / parasite / homing / toxic_ballistic are NOT in the canonical design sheet yet (orphans) —
+# kept with placeholder names until the sheet assigns them. See trace log 2026-06-27.
 const WEAPON_INFO := {
-	"gatling": {"def_id": "gatling_gun",  "label": "Kinetic AutoCannon"},
-	"lasgun":  {"def_id": "lasgun",       "label": "Solid-State Laser"},
-	"arc":     {"def_id": "arc",          "label": "Arc Lightning Chain"},
-	"gauss":   {"def_id": "gauss_cannon", "label": "Gauss"},
-	"orbital": {"def_id": "orbitals",     "label": "Orbital Impact Defense"},
-	"void":    {"def_id": "rift_maker",   "label": "Vacuum Decoupler"},
-	"red_x":   {"def_id": "red_x",        "label": "Thermitic Discharger"},
-	"chemtrail": {"def_id": "chemtrail",  "label": "Biocide Vaporizer"},
-	"nuke":    {"def_id": "nuke",          "label": "Rosastro HE Mortar"},   # code name: Mortar
-	"fat_boy": {"def_id": "rosastro_nuclear", "label": "Rosastro Nuclear"},  # code name: Fat Boy
-	"sonic":   {"def_id": "sonic_wave",    "label": "Sonic"},
-	"zsword":  {"def_id": "z_sword",       "label": "Schockwelle"},
-	"ionize":  {"def_id": "ionizing_field","label": "Tachyon Displacer"},
-	"boomerang": {"def_id": "boomerang",     "label": "Aliwa"},
-	"parasite":  {"def_id": "parasite_cloud","label": "Bio-Corrosive Spore Launcher"},
-	"moroboshi":   {"def_id": "moroboshi",     "label": "Yari"},
-	"yari_jaeger": {"def_id": "yari_jaeger",  "label": "Yari Jaeger"},
-	"swarm":       {"def_id": "swarm_host",    "label": "Orbital Impact Offense"},
-	"snake":       {"def_id": "space_snake",   "label": "Red Viper"},
+	"gatling":     {"def_id": "gatling_gun",     "name": "Kinetic Auto Cannon",     "label": "Minigun",      "mfr": "Vanguard Ballistics"},
+	"lasgun":      {"def_id": "lasgun",          "name": "Solid-State Laser",       "label": "Laser",        "mfr": "Kwang Ming"},
+	"arc":         {"def_id": "arc",             "name": "Arc Lightning Chain",     "label": "Lightning",    "mfr": "Kwang Ming"},
+	"gauss":       {"def_id": "gauss_cannon",    "name": "Gauss Pulser",            "label": "Gauss",        "mfr": "Horizon Logistics x Vanguard Ballistics"},
+	"orbital":     {"def_id": "orbitals",        "name": "Orbital Impact Defense",  "label": "Defender",     "mfr": "Nebula Dynamics"},
+	"void":        {"def_id": "rift_maker",      "name": "Vacuum Decoupler",        "label": "Vacuum",       "mfr": "Horizon Logistics"},
+	"red_x":       {"def_id": "red_x",           "name": "Thermitic Discharger",    "label": "Red X",        "mfr": "Volney Elements"},
+	"chemtrail":   {"def_id": "chemtrail",       "name": "Biocide Vaporizer",       "label": "Stink Breath", "mfr": "Volney Elements"},
+	"nuke":        {"def_id": "nuke",            "name": "Rosastro HE Mortar",      "label": "Mortal",       "mfr": "Rosastro"},
+	"fat_boy":     {"def_id": "rosastro_nuclear","name": "Rosastro Nuclear",        "label": "Fat Boy",      "mfr": "Rosastro"},
+	"sonic":       {"def_id": "sonic_wave",      "name": "Sonic",                   "label": "Sonic",        "mfr": "Yongsan"},
+	"zsword":      {"def_id": "z_sword",         "name": "Jeager",                  "label": "Jeager",       "mfr": "Eisenkraft Kinematik"},
+	"ionize":      {"def_id": "ionizing_field",  "name": "Tachyon Displacer",            "label": "Black Hole",   "mfr": "Horizon Logistics"},
+	"boomerang":   {"def_id": "boomerang",       "name": "Aliwa",                        "label": "Aliwa",        "mfr": "Nebula Dynamics"},
+	"parasite":    {"def_id": "parasite_cloud",  "name": "Bio-Corrosive Spore Launcher", "label": "Venomancer",   "mfr": "Volney Elements x Chakra Bio-Synthetics"},
+	"moroboshi":   {"def_id": "moroboshi",       "name": "Yari",                    "label": "Yari",         "mfr": "Miyamoto"},
+	"yari_jaeger": {"def_id": "yari_jaeger",     "name": "Yari Jeager",             "label": "Yari Jeager",  "mfr": "Miyamoto x Eisenkraft Kinematik"},
+	"swarm":       {"def_id": "",                "icon": "res://assets/inventory/Swarm.png", "name": "Swarm", "label": "Swarm", "mfr": "Chakra Bio-Synthetics"},
+	"snake":       {"def_id": "space_snake",     "name": "Viper",                   "label": "VIPER",        "mfr": ""},
+	"homing":      {"def_id": "homing_missile",  "name": "Homing Missile",          "label": "Homing",       "mfr": "", "group": "obsolete"},
 }
 
 # ── Weapon FUSION recipes ─────────────────────────────────────────────────────────
@@ -88,13 +98,16 @@ const WEAPON_INFO := {
 # must be owned at MAX_WEAPON_LEVEL to fuse (see available_fusions). `def_id` = inventory icon shown in the F12
 # palette + fusion cutscene reveal (reuses a component's icon as placeholder until dedicated fusion art lands).
 # NOTE: values reconstructed from the fusion code (the const table was missing from the merged commit).
+# name = full official name · label = spawn display · mfr = manufacturer · a+b = component kinds (recipe).
+# def_id still reuses a component's icon as placeholder; dedicated fusion art (Overcharger/Singularities/
+# Vampire Host PNGs exist) is wired in a later phase once their ITEM_DEFS entries are added.
 const FUSION_DEFS := {
-	"carnage":         {"a": "gatling", "b": "red_x",     "def_id": "gatling_gun",   "label": "Carnage"},
-	"vampire_host":    {"a": "swarm",   "b": "sonic",     "def_id": "swarm_host",    "label": "Vampire Host"},
-	"overcharger":     {"a": "gauss",   "b": "arc",       "def_id": "gauss_cannon",  "label": "Overcharger"},
-	"predator":        {"a": "lasgun",  "b": "snake",     "def_id": "lasgun",        "label": "Predator"},
-	"toxic_ballistic": {"a": "homing",  "b": "chemtrail", "def_id": "homing_missile","label": "Toxic Ballistic"},
-	"singularities":   {"a": "orbital", "b": "void",      "def_id": "orbitals",      "label": "Singularities"},
+	"carnage":         {"a": "red_x",   "b": "gatling",   "def_id": "gatling_gun",   "name": "Thermitic Auto Cannon", "label": "Carnage",       "mfr": "Volney Elements x Vanguard Ballistics"},
+	"vampire_host":    {"a": "sonic",   "b": "swarm",     "def_id": "swarm_host",    "icon": "res://assets/inventory/Vampire Host.png", "name": "Vampire Host",          "label": "Vampire Host",  "mfr": "Nebula Dynamics x Yongsan"},
+	"overcharger":     {"a": "arc",     "b": "gauss",     "def_id": "gauss_cannon",  "icon": "res://assets/inventory/Overcharger.png",  "name": "Overcharger",           "label": "Overcharger",   "mfr": "Kwang Ming x Horizon Logistics"},
+	"predator":        {"a": "snake",   "b": "lasgun",    "def_id": "lasgun",        "name": "Predator",              "label": "Predator",      "mfr": ""},
+	"toxic_ballistic": {"a": "homing",  "b": "chemtrail", "def_id": "homing_missile","name": "Toxic Ballistic",       "label": "Toxic Ballistic","mfr": "", "group": "obsolete"},
+	"singularities":   {"a": "void",    "b": "gauss",     "def_id": "orbitals",      "icon": "res://assets/inventory/Singularities.png", "name": "Singularities",         "label": "Singularities", "mfr": "Horizon Logistics x Vanguard Ballistics"},
 }
 const FUSION_BONUS_LEVELS := 4   # fused weapons can climb this many levels past MAX_WEAPON_LEVEL (6 → 10)
 
@@ -209,6 +222,29 @@ const SNAKE_DAMAGE     := 8.0       # per tick per enemy in contact with any seg
 const SNAKE_HIT_RADIUS := 22.0
 const SNAKE_COL        := Color(1.0, 0.6, 0.3)
 
+# ── TUNABLES: Swarm (Chakra Bio-Synthetics) — 8 swarmballs launch out, loiter to acquire a target, then ram it
+# as swarmbots and explode. (The old dart+heal familiar mechanic now belongs to Vampire Host.) ──
+const DeathFX := preload("res://scripts/gameplay/arena_death_fx.gd")   # enemy-kill burst, reused (scaled) on swarmbot impact
+const SBALL_COUNT          := 8        # balls per volley
+const SBALL_SPRITE         := "res://assets/weaponry/Swarmball.png"
+const SBALL_BOT_SPRITE     := "res://assets/weaponry/Swarmbot.png"
+const SBALL_DRAW           := 20.0     # ball width (px); height keeps the texture ratio
+const SBALL_BOT_DRAW       := 24.0     # bot width (px) once it arms near the target
+const SBALL_LAUNCH_RADIUS  := 100.0    # spread-out / orbit radius around the player
+const SBALL_LAUNCH_SPEED   := 500.0    # px/s while flying out
+const SBALL_LOITER_SPEED   := 150.0    # px/s tangential speed while orbiting to pick a target
+const SBALL_LOITER_HIT_CD  := 0.3      # s between contact hits while orbiting (chip, ball NOT consumed)
+const SBALL_SPIN_RAD       := 40.0 / 60.0 * TAU   # ball self-spin: 40 RPM (rad/s), used for the Swarmball sprite
+const SBALL_LOITER_TIME    := 1.5      # s of loiter before locking a target
+const SBALL_CHARGE_SPEED   := 500.0    # px/s charging the target
+const SBALL_ARM_DIST       := 300.0    # within this of the target → swap to Swarmbot
+const SBALL_HIT_R          := 10.0     # ball collision radius (≈ half the draw width)
+const SBALL_DAMAGE         := 5.0      # per swarmbot on impact
+const SBALL_EXPLODE_SIZE   := 18.0     # DeathFX size_px (~50% of a normal enemy-kill burst)
+const SBALL_COOLDOWN       := 3.0      # s between volleys (after the previous one is spent)
+const SBALL_MAX_LIFE       := 9.0      # s backstop: a ball that never connects self-destructs
+const SBALL_COL            := Color(0.70, 0.95, 0.55)
+
 # ── TUNABLES: Homing Missile (ported from weapon_system.gd) — flies like the Space Snake: it is ALWAYS moving
 # and steers toward its target at a fixed turn rate (it can't pivot in place). Pops off the back, arcs around,
 # accelerates in, AoE explodes on contact. ──
@@ -243,7 +279,7 @@ const ORBITAL_STAGGER      := 0.1     # s stagger per orbital hit
 const ORBITAL_LIGHT        := 2.5     # dust-light value per ball
 const ORBITAL_COL          := Color(0.6, 0.85, 1.0)   # electric arc tint (fallback draw + dust light)
 const ORBITAL_SPRITE       := "res://assets/weaponry/ND-OID-F.png"
-const SWARM_SPRITE         := "res://assets/weaponry/ND-OIO-F.png"
+const SWARM_SPRITE         := "res://assets/weaponry/ND-OIF-F.png"
 const SWARM_DRAW           := 24.0
 const PARA_SPRITE          := "res://assets/weaponry/BC-SL-Spore.png"
 const PARA_DRAW            := 18.0
@@ -707,8 +743,11 @@ var _yari_facing: float = -PI * 0.5   # world angle the sprite faces; default = 
 var _yari_orbit_ang: float = 0.0      # current orbit angle when idling (no targets)
 var _swarm_active: bool = false
 var _swarm_init: bool = false
-var _swarm_units: Array = []           # {pos, state, target, dmg, ang}
-var _swarm_tex: Texture2D = null
+var _swarm_units: Array = []           # swarmball pool: {pos, vel, state, t, life, target, bot, ang, origin}
+var _swarm_tex: Texture2D = null       # = _swarmball_tex (kept for the plume-sizing reference)
+var _swarmball_tex: Texture2D = null
+var _swarmbot_tex: Texture2D = null
+var _swarm_cd: float = 0.0             # seconds until the next volley (counts down only when the pool is empty)
 var _snake_active: bool = false
 var _snake_init: bool = false
 var _snake_pts: Array = []             # head-first list of segment positions (Vector2)
@@ -806,13 +845,8 @@ func _ready() -> void:
 			if not _orbital_active or _player == null or not is_instance_valid(_player): return []
 			var _rad := deg_to_rad(_orbital_self_angle)
 			return _orbital_positions().map(func(p): return {"pos": p, "rot": _rad}))
-	var _sw_ds := Vector2(SWARM_DRAW, SWARM_DRAW)
-	if _swarm_tex != null:
-		_sw_ds.y = SWARM_DRAW * float(_swarm_tex.get_height()) / maxf(float(_swarm_tex.get_width()), 1.0)
-	_register_plume("ND-OIO-F", SWARM_COUNT, _sw_ds,
-		func():
-			if not _swarm_active: return []
-			return _swarm_units.map(func(u): return {"pos": u["pos"], "rot": u["ang"]}))
+	# (Swarm uses no plume here — ND-OIF-F is the Striker's sprite, unrelated to the swarmball weapon. The
+	# swarmball/swarmbot trails will come from TPs placed on Swarmball.png / Swarmbot.png in Weapon Edit.)
 	# Projectile trails: variable count → register a pool of PROJ_PLUME_MAX anchors; the provider returns only the
 	# live projectiles each frame (extras auto-hide). Plume offset/style come from the TPs placed on the sprites.
 	_register_plume("missile", PROJ_PLUME_MAX, Vector2(MISSILE_DRAW_LEN * 473.0 / 2007.0, MISSILE_DRAW_LEN),
@@ -821,6 +855,28 @@ func _ready() -> void:
 	_register_plume("mortarbullet", PROJ_PLUME_MAX, Vector2(MORTAR_BULLET_LEN * 100.0 / 329.0, MORTAR_BULLET_LEN),
 		func():
 			return _mortar_bullets.map(func(b): return {"pos": b["pos"], "rot": (b["vel"] as Vector2).angle() + PI * 0.5}))
+	# Swarm trails — one plume pool per form; the provider returns only the balls currently in that form, so a
+	# ball's trail switches Swarmball -> Swarmbot when it arms. TP offset/style come from Weapon Edit (per sprite).
+	var _sball_sz := Vector2(SBALL_DRAW, SBALL_DRAW)
+	if _swarmball_tex != null and _swarmball_tex.get_size().x > 0.0:
+		_sball_sz.y = SBALL_DRAW * _swarmball_tex.get_size().y / _swarmball_tex.get_size().x
+	var _sbot_sz := Vector2(SBALL_BOT_DRAW, SBALL_BOT_DRAW)
+	if _swarmbot_tex != null and _swarmbot_tex.get_size().x > 0.0:
+		_sbot_sz.y = SBALL_BOT_DRAW * _swarmbot_tex.get_size().y / _swarmbot_tex.get_size().x
+	_register_plume("Swarmball", SBALL_COUNT, _sball_sz,
+		func():
+			if not _swarm_active: return []
+			var out: Array = []
+			for b: Dictionary in _swarm_units:
+				if not bool(b["bot"]): out.append({"pos": b["pos"], "rot": float(b["ang"])})
+			return out)
+	_register_plume("Swarmbot", SBALL_COUNT, _sbot_sz,
+		func():
+			if not _swarm_active: return []
+			var out: Array = []
+			for b: Dictionary in _swarm_units:
+				if bool(b["bot"]): out.append({"pos": b["pos"], "rot": float(b["ang"])})
+			return out)
 	_load_all_plumes()
 	_bolt_hit_player = AudioStreamPlayer.new()
 	_bolt_hit_player.bus = "SFX"
@@ -1285,7 +1341,7 @@ func _fire_lasgun(delta: float) -> void:
 				continue
 			if en.has_method("take_damage"):
 				var _las_r := _roll_damage(LASGUN_DAMAGE, "lasgun")
-				en.take_damage(float(_las_r["dmg"]), LASGUN_STAGGER)
+				en.take_damage(float(_las_r["dmg"]), LASGUN_STAGGER, 0.0, "lasgun")
 				if bool(_las_r["is_crit"]):
 					_spawn_crit_number((en as Node2D).global_position, float(_las_r["dmg"]))
 
@@ -1324,7 +1380,7 @@ func _fire_arc(delta: float, kind := "arc", gauss_on_hit := false) -> void:
 		var c: Vector2 = (cur as Node2D).global_position
 		if cur.has_method("take_damage"):
 			var _arc_r := _roll_damage(ARC_DAMAGE, kind)
-			cur.take_damage(float(_arc_r["dmg"]), ARC_STAGGER)
+			cur.take_damage(float(_arc_r["dmg"]), ARC_STAGGER, 0.0, "arc")
 			if bool(_arc_r["is_crit"]):
 				_spawn_crit_number(c, float(_arc_r["dmg"]))
 		if gauss_on_hit:
@@ -1811,7 +1867,7 @@ func _tick_singularity(delta: float) -> void:
 					continue
 				if p.distance_to((en as Node2D).global_position) <= radius + VOID_HIT_PAD:
 					if en.has_method("take_damage"):
-						en.take_damage(per_tick, 0.0)
+						en.take_damage(per_tick, 0.0, 0.0, "void")
 			for ruin in ruins:
 				if not is_instance_valid(ruin):
 					continue
@@ -1949,7 +2005,7 @@ func _tick_void(delta: float) -> void:
 				continue
 			if _void_pos.distance_to((en as Node2D).global_position) <= radius + VOID_HIT_PAD:
 				if en.has_method("take_damage"):
-					en.take_damage(per_tick, 0.0)
+					en.take_damage(per_tick, 0.0, 0.0, "void")
 		for ruin in get_tree().get_nodes_in_group("arena_ruin"):
 			if not is_instance_valid(ruin):
 				continue
@@ -2527,7 +2583,13 @@ func _tick_bullets(delta: float) -> void:
 		b["life"] = float(b["life"]) + delta
 		var p: Vector2 = b["pos"]
 		var dead := float(b["life"]) >= GAT_LIFETIME or p.distance_to(b["start"]) >= GAT_MAX_DIST
-		if not dead:
+		if not dead and b.get("reflected", false):
+			# Bismuth-reflected gatling bullet → now flies back and hits the PLAYER (ignores enemies/ruins).
+			if _player != null and is_instance_valid(_player) and p.distance_to(_player.global_position) <= GAT_HIT_RADIUS + GAT_REFLECT_PAD:
+				if GameManager.has_method("ship_take_damage"):
+					GameManager.ship_take_damage(GAT_REFLECT_DMG)
+				dead = true
+		elif not dead:
 			var bk: String = b.get("kind", "gatling")   # Carnage/Red O fusion bullets tag their kind for level scaling
 			var is_gat := bk == "gatling"
 			var hits: Array = b.get("hits", [])
@@ -2539,6 +2601,10 @@ func _tick_bullets(delta: float) -> void:
 				var _en_r = en.get("hit_radius")
 				var _hit_r: float = float(_en_r) if _en_r != null else GAT_HIT_RADIUS
 				if p.distance_to((en as Node2D).global_position) <= _hit_r:
+					# Bismuth anti-magnetic: 50% of gatling bullets bounce back at the player instead of landing.
+					if is_gat and en.has_method("is_anti_magnetic") and en.is_anti_magnetic() and randf() < GAT_REFLECT_FRAC:
+						_reflect_bullet(b, (en as Node2D).global_position)
+						break   # bullet survives, now reflected
 					if en.has_method("take_damage"):
 						if is_gat:
 							_gat_hit_enemy(b, en, p)   # flat dmg + kinetic + focus + healing
@@ -2595,6 +2661,18 @@ func _gat_hit_enemy(b: Dictionary, en: Node, p: Vector2) -> void:
 		_spawn_crit_number(p, float(r["dmg"]))
 	if b.get("healing", false) and GameManager.has_method("heal"):
 		GameManager.heal(GAT_HEAL_AMOUNT)   # heals the player; "heal the target" (enemy) omitted — confirm intent
+
+## Bounce a gatling bullet back off an anti-magnetic (bismuth) enemy: reverse it into a 45° cone from the
+## impact and flag it so _tick_bullets sends it at the PLAYER instead of enemies.
+func _reflect_bullet(b: Dictionary, hit_pos: Vector2) -> void:
+	var vel: Vector2 = b["vel"]
+	var spd := vel.length()
+	var back := (-vel).normalized() if spd > 0.01 else Vector2.UP
+	var ang := back.angle() + randf_range(-deg_to_rad(22.5), deg_to_rad(22.5))   # ±22.5° → 45° cone
+	b["vel"] = Vector2(cos(ang), sin(ang)) * spd
+	b["reflected"] = true
+	b["start"] = hit_pos   # reset travel origin so it isn't instantly range-culled
+	b["life"] = 0.0        # reset lifetime so it can fly back across the screen
 
 ## On a Gatling bullet hit: maybe BOUNCE (redirect to a perpendicular nearby foe) or PIERCE (continue straight).
 ## Returns true if the bullet survives, false if it should die.
@@ -3379,11 +3457,16 @@ func _load_moro_frames() -> void:
 		_moro_frames.append(tex)
 
 func _load_swarm_tex() -> void:
-	var img := Image.load_from_file(ProjectSettings.globalize_path(SWARM_SPRITE))
+	_swarmball_tex = _load_sball_tex(SBALL_SPRITE)
+	_swarmbot_tex  = _load_sball_tex(SBALL_BOT_SPRITE)
+	_swarm_tex = _swarmball_tex   # plume-sizing reference
+
+func _load_sball_tex(res_path: String) -> Texture2D:
+	var img := Image.load_from_file(ProjectSettings.globalize_path(res_path))
 	if img == null:
-		return
+		return null
 	img.convert(Image.FORMAT_RGBA8)
-	_swarm_tex = ImageTexture.create_from_image(img)
+	return ImageTexture.create_from_image(img)
 
 func _load_para_tex() -> void:
 	var img := Image.load_from_file(ProjectSettings.globalize_path(PARA_SPRITE))
@@ -3515,53 +3598,189 @@ func _tick_yari(delta: float) -> void:
 				_yari_hit.append(en)
 	queue_redraw()
 
-# ── Swarm Host (darting familiars that heal on return) ──────────────────────────────
+# ── Swarm (Chakra) — volley of swarmballs: launch out → loiter → seek + ram as swarmbots → explode ──
 func activate_swarm() -> void:
 	_swarm_active = true
+	_swarm_cd = 0.0          # fire the first volley as soon as the player exists
+	_swarm_units.clear()
+
+## Fire one ring of SBALL_COUNT balls outward in evenly-spaced directions from the player.
+func _launch_swarm_volley() -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	var origin := _player.global_position
+	for k in SBALL_COUNT:
+		var dir := Vector2.RIGHT.rotated(TAU * float(k) / float(SBALL_COUNT))
+		# off = offset from the player; while launching/loitering the ball is ANCHORED to the player (pos = player + off).
+		_swarm_units.append({
+			"pos": origin, "off": Vector2.ZERO, "dir": dir, "idx": k, "state": "launch",
+			"t": 0.0, "life": 0.0, "target": null, "bot": false, "ang": dir.angle(),
+		})
 
 func _tick_swarm(delta: float) -> void:
-	if not _swarm_init:
-		_swarm_units.clear()
-		for k in SWARM_COUNT:
-			_swarm_units.append({"pos": _player.global_position, "state": "idle", "target": null, "dmg": 0.0, "ang": TAU * float(k) / float(maxi(1, SWARM_COUNT))})
-		_swarm_init = true
-	var center := _player.global_position
-	for u: Dictionary in _swarm_units:
-		u["ang"] = float(u["ang"]) + delta * 2.0
-		var pos: Vector2 = u["pos"]
-		match String(u["state"]):
-			"idle":
-				var orbit := center + Vector2(SWARM_IDLE_R, 0.0).rotated(float(u["ang"]))
-				pos = pos.move_toward(orbit, SWARM_SPEED * delta)
-				var tgt := _nearest_enemy(pos, SWARM_AGGRO, [])
-				if tgt != null:
-					u["target"] = tgt
-					u["dmg"] = 0.0
-					u["state"] = "attack"
-			"attack":
-				var t = u["target"]
-				if t == null or not is_instance_valid(t):
-					u["state"] = "return"
-				else:
+	if _player == null or not is_instance_valid(_player):
+		return
+	# Volley pacing: launch when the pool is empty and the cooldown has elapsed.
+	if _swarm_units.is_empty():
+		_swarm_cd -= delta
+		if _swarm_cd <= 0.0:
+			_launch_swarm_volley()
+		return
+	var i := _swarm_units.size() - 1
+	while i >= 0:
+		var b: Dictionary = _swarm_units[i]
+		b["t"] = float(b["t"]) + delta
+		b["life"] = float(b["life"]) + delta
+		var player_pos := _player.global_position
+		var old_pos: Vector2 = b["pos"]
+		var pos: Vector2 = old_pos
+		var removed := false
+		match String(b["state"]):
+			"launch":   # fly out to SBALL_LAUNCH_RADIUS but stay ANCHORED to the player (offset-based)
+				var off: Vector2 = b["off"]
+				off += (b["dir"] as Vector2) * SBALL_LAUNCH_SPEED * delta
+				if off.length() >= SBALL_LAUNCH_RADIUS:
+					off = off.normalized() * SBALL_LAUNCH_RADIUS
+					b["state"] = "loiter"; b["t"] = 0.0
+				b["off"] = off
+				pos = player_pos + off
+			"loiter":   # orbit the player (anchored) while waiting to lock a target; chips enemies it grazes
+				var off2: Vector2 = b["off"]
+				if off2.length() < 1.0:
+					off2 = (b["dir"] as Vector2) * SBALL_LAUNCH_RADIUS
+				off2 = off2.rotated((SBALL_LOITER_SPEED / maxf(off2.length(), 1.0)) * delta)
+				b["off"] = off2
+				pos = player_pos + off2
+				_swarm_loiter_contact(b, pos, delta)
+				if float(b["t"]) >= SBALL_LOITER_TIME:
+					b["target"] = _acquire_swarm_target()   # nearest measured from the PLAYER
+					b["state"] = "charge"; b["t"] = 0.0; b["life"] = 0.0
+			"reloiter":   # orbit the spot where the target just died, then re-acquire + charge again
+				var c: Vector2 = b["center"]
+				var off3: Vector2 = b["off"]
+				if off3.length() < 1.0:
+					off3 = Vector2.RIGHT * 60.0
+				off3 = off3.rotated((SBALL_LOITER_SPEED / maxf(off3.length(), 1.0)) * delta)
+				b["off"] = off3
+				pos = c + off3
+				_swarm_loiter_contact(b, pos, delta)
+				if float(b["t"]) >= SBALL_LOITER_TIME:
+					b["target"] = _acquire_swarm_target()
+					b["state"] = "charge"; b["t"] = 0.0; b["life"] = 0.0
+			"charge":
+				var t = b["target"]
+				if t != null and is_instance_valid(t):
 					var tp := (t as Node2D).global_position
-					pos = pos.move_toward(tp, SWARM_SPEED * delta)
+					b["last_tp"] = tp
+					var dist := pos.distance_to(tp)
+					pos = pos.move_toward(tp, SBALL_CHARGE_SPEED * delta)
+					if dist <= SBALL_ARM_DIST:
+						b["bot"] = true
 					var tr: float = float(t.get("hit_radius")) if t.get("hit_radius") != null else 0.0
-					if pos.distance_to(tp) <= SWARM_HIT_RADIUS + tr:
-						if t.has_method("take_damage"):
-							var r := _roll_damage(SWARM_DAMAGE, "swarm")
-							t.take_damage(float(r["dmg"]), 0.0)
-							if bool(r["is_crit"]):
-								_spawn_crit_number(tp, float(r["dmg"]))
-							u["dmg"] = float(u["dmg"]) + float(r["dmg"])
-						u["state"] = "return"
-			"return":
-				pos = pos.move_toward(center, SWARM_SPEED * delta)
-				if pos.distance_to(center) <= SWARM_IDLE_R + 8.0:
-					if float(u["dmg"]) > 0.0 and GameManager.has_method("heal"):
-						GameManager.heal(int(round(float(u["dmg"]) * SWARM_HEAL_FRAC)))
-					u["dmg"] = 0.0
-					u["state"] = "idle"
-		u["pos"] = pos
+					if dist <= tr + SBALL_HIT_R:
+						_swarm_impact(pos, t)
+						removed = true
+				elif b.get("last_tp") != null:
+					# target died mid-charge: re-loiter around the death spot — spaced evenly on the circle by slot
+					b["center"] = b["last_tp"]
+					var ang: float = TAU * float(b.get("idx", 0)) / float(SBALL_COUNT)
+					b["off"] = Vector2(SBALL_LAUNCH_RADIUS, 0.0).rotated(ang)
+					b["bot"] = false
+					b["last_tp"] = null
+					b["state"] = "reloiter"; b["t"] = 0.0
+				else:
+					b["target"] = _acquire_swarm_target()   # never had a target: find one, else drift
+					if b["target"] == null:
+						var d := pos - player_pos
+						pos += (d.normalized() if d.length() > 0.1 else Vector2.RIGHT) * SBALL_CHARGE_SPEED * delta
+				# Collide with ANY enemy along the way → detonate at the impact point.
+				if not removed and String(b["state"]) == "charge":
+					var en := _swarm_ball_hit_enemy(pos)
+					if en != null:
+						b["bot"] = true
+						_swarm_impact(pos, en)
+						removed = true
+		if not removed and float(b["life"]) >= SBALL_MAX_LIFE:
+			removed = true   # never connected — quietly expire
+		if removed:
+			_swarm_units.remove_at(i)
+			if _swarm_units.is_empty():
+				_swarm_cd = SBALL_COOLDOWN
+			i -= 1
+			continue
+		if bool(b["bot"]):
+			var moved := pos - old_pos      # bot faces its travel direction
+			if moved.length() > 0.1:
+				b["ang"] = moved.angle()
+		else:
+			b["ang"] = float(b["ang"]) + SBALL_SPIN_RAD * delta   # ball self-spins at 40 RPM
+		b["pos"] = pos
+		i -= 1
+
+## Nearest live arena_enemy whose body the ball is currently touching (mid-flight collision), or null.
+func _swarm_ball_hit_enemy(pos: Vector2) -> Node:
+	for en in get_tree().get_nodes_in_group("arena_enemy"):
+		if not is_instance_valid(en) or bool(en.get("_dead")):
+			continue
+		var tr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0
+		if pos.distance_to((en as Node2D).global_position) <= tr + SBALL_HIT_R:
+			return en
+	return null
+
+## While orbiting (loiter/reloiter): if the ball grazes an enemy, deal SBALL_DAMAGE + a burst, but DON'T
+## consume the ball. Rate-limited per ball by SBALL_LOITER_HIT_CD so an overlap doesn't tick every frame.
+func _swarm_loiter_contact(b: Dictionary, pos: Vector2, delta: float) -> void:
+	b["hit_cd"] = maxf(0.0, float(b.get("hit_cd", 0.0)) - delta)
+	if float(b["hit_cd"]) > 0.0:
+		return
+	var en := _swarm_ball_hit_enemy(pos)
+	if en != null:
+		_swarm_impact(pos, en)   # damage + explosion VFX; ball survives
+		b["hit_cd"] = SBALL_LOITER_HIT_CD
+
+## Target priority: enemies (highest HP, ties -> nearest) > ruins (nearest) > asteroids (nearest).
+## Distances are measured from the PLAYER (not the individual ball), so the whole volley agrees on a target.
+func _acquire_swarm_target() -> Node:
+	var ref := _player.global_position if (_player != null and is_instance_valid(_player)) else Vector2.ZERO
+	var best: Node = null
+	var best_hp := -1.0
+	var best_d := INF
+	for en in get_tree().get_nodes_in_group("arena_enemy"):
+		if not is_instance_valid(en) or bool(en.get("_dead")):
+			continue
+		var hp: float = float(en.get("hp")) if en.get("hp") != null else 0.0
+		var d := ref.distance_to((en as Node2D).global_position)
+		if hp > best_hp or (is_equal_approx(hp, best_hp) and d < best_d):
+			best_hp = hp; best_d = d; best = en
+	if best != null:
+		return best
+	best = _nearest_in_groups(ref, ["arena_ruin"])
+	if best != null:
+		return best
+	return _nearest_in_groups(ref, ["debug_asteroid", "arena_asteroids"])
+
+func _nearest_in_groups(pos: Vector2, groups: Array) -> Node:
+	var best: Node = null
+	var best_d := INF
+	for g: String in groups:
+		for n in get_tree().get_nodes_in_group(g):
+			if not is_instance_valid(n) or not (n is Node2D):
+				continue
+			var d := pos.distance_to((n as Node2D).global_position)
+			if d < best_d:
+				best_d = d; best = n
+	return best
+
+## Swarmbot impact: damage the target + a half-size enemy-kill explosion at the hit point.
+func _swarm_impact(pos: Vector2, target: Node) -> void:
+	if target != null and is_instance_valid(target) and target.has_method("take_damage"):
+		var r := _roll_damage(SBALL_DAMAGE, "swarm")
+		target.take_damage(float(r["dmg"]), 0.0)
+		if bool(r["is_crit"]):
+			_spawn_crit_number(pos, float(r["dmg"]))
+	var ex: Node2D = DeathFX.new()
+	get_parent().add_child(ex)
+	ex.call("setup", pos, SBALL_EXPLODE_SIZE)
 
 # ── Space Snake (segmented fire familiar) ───────────────────────────────────────────
 func activate_snake() -> void:
@@ -3808,7 +4027,7 @@ func _tick_predator(delta: float, enemy_on_screen: bool) -> void:
 				continue
 			if en.has_method("take_damage"):
 				var r := _roll_damage(LASGUN_DAMAGE, "predator")
-				en.take_damage(float(r["dmg"]), LASGUN_STAGGER)
+				en.take_damage(float(r["dmg"]), LASGUN_STAGGER, 0.0, "lasgun")
 				if bool(r["is_crit"]):
 					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
 
@@ -4097,18 +4316,19 @@ func _draw_yari() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # restore transform for subsequent draws
 
 func _draw_swarm() -> void:
-	for u: Dictionary in _swarm_units:
-		var p: Vector2 = u["pos"]
-		if _swarm_tex != null:
-			var ts := _swarm_tex.get_size()
-			var sw := SWARM_DRAW
-			var sh := sw * ts.y / ts.x if ts.x > 0.0 else sw
-			draw_set_transform(p, float(u["ang"]), Vector2.ONE)
-			draw_texture_rect(_swarm_tex, Rect2(Vector2(-sw * 0.5, -sh * 0.5), Vector2(sw, sh)), false)
+	for b: Dictionary in _swarm_units:
+		var p: Vector2 = b["pos"]
+		var is_bot: bool = bool(b["bot"])
+		var tex: Texture2D = _swarmbot_tex if is_bot else _swarmball_tex
+		var w: float = SBALL_BOT_DRAW if is_bot else SBALL_DRAW
+		if tex != null:
+			var ts := tex.get_size()
+			var h := w * ts.y / ts.x if ts.x > 0.0 else w
+			draw_set_transform(p, float(b["ang"]), Vector2.ONE)
+			draw_texture_rect(tex, Rect2(Vector2(-w * 0.5, -h * 0.5), Vector2(w, h)), false)
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		else:
-			draw_circle(p, 12.0, Color(SWARM_COL.r, SWARM_COL.g, SWARM_COL.b, 0.25))
-			draw_circle(p, 7.0, Color(SWARM_COL.r, SWARM_COL.g, SWARM_COL.b, 0.95))
+			draw_circle(p, w * 0.5, Color(SBALL_COL.r, SBALL_COL.g, SBALL_COL.b, 0.9))
 
 func _draw_snake() -> void:
 	var n := _snake_pts.size()

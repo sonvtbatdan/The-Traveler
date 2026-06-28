@@ -7,7 +7,7 @@ const GifLoader       := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const GridOverlay     := preload("res://scripts/ui/boss_edit/grid_overlay.gd")
 const LAYOUT_PATH       := "res://creep_layout.cfg"
 const PLUME_STYLES_PATH := "res://plume_styles.cfg"
-const ENEMIES_FOLDER    := "res://assets/enemies/"
+const ENEMIES_FOLDER    := "res://assets/enemiesHD/"
 const ASSET_PANEL_W     := 210.0
 const CTRL_PANEL_W      := 224.0
 const SCREEN_ORIGIN     := Vector2(15.0, 8.0)
@@ -83,6 +83,7 @@ var _plume_col_cool_btn:  ColorPickerButton = null
 var _plume_styles:        Dictionary        = {}  # cname → {"tp_N": style_dict}
 var _plume_tp_label:      Label             = null
 var _updating_plume:      bool              = false
+var _plume_clipboard:     Dictionary        = {}  # last Copy'd plume style; empty = nothing to Paste
 
 # Plume preview nodes (shown in edit mode so TPs can be verified visually)
 var _preview_plumes:    Array[CPUParticles2D] = []
@@ -338,6 +339,16 @@ func _build_asset_panel() -> void:
 	pe_lbl.modulate = Color(0.55, 0.90, 1.0)
 	pe_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pe_hdr_row.add_child(pe_lbl)
+	var pe_copy := Button.new()
+	pe_copy.text = "Copy"
+	pe_copy.add_theme_font_size_override("font_size", 9)
+	pe_copy.pressed.connect(_copy_plume_style)
+	pe_hdr_row.add_child(pe_copy)
+	var pe_paste := Button.new()
+	pe_paste.text = "Paste"
+	pe_paste.add_theme_font_size_override("font_size", 9)
+	pe_paste.pressed.connect(_paste_plume_style)
+	pe_hdr_row.add_child(pe_paste)
 	var pe_reset := Button.new()
 	pe_reset.text = "Reset"
 	pe_reset.add_theme_font_size_override("font_size", 9)
@@ -714,6 +725,7 @@ func toggle() -> void:
 		_is_open = true
 		_grid_overlay.is_edit_open = true
 		_set_ui_visible(true)
+		_arena_focus(true)
 		get_tree().paused = true
 		_reset_zoom()
 		_update_all_creep_interactivity()
@@ -746,10 +758,20 @@ func _close() -> void:
 	_select_tp(-1)
 	_select_tenp(-1)
 	_set_ui_visible(false)
+	_arena_focus(false)
 	_select_obj(null)
 	_update_all_creep_interactivity()
 	_update_gameplay_visibility()
 	get_tree().paused = false
+
+## Hide the arena HUD + gameplay while the CREEP editor is open (not the Weapon-edit subclass, which needs
+## the ship visible). The arena exposes set_edit_focus().
+func _arena_focus(on: bool) -> void:
+	if _edit_group() != "creep_edit":
+		return
+	var arena := get_tree().get_first_node_in_group("arena")
+	if arena != null and arena.has_method("set_edit_focus"):
+		arena.set_edit_focus(on)
 
 func _set_ui_visible(v: bool) -> void:
 	_dim_overlay.visible = v
@@ -1987,6 +2009,36 @@ func _on_plume_changed() -> void:
 		_plume_styles[_active_creep]["tp_%d" % tp_id] = s
 	_refresh_plume_preview()
 	_dirty = true
+
+## Copy the selected TP's full plume style (all params + colors) into the clipboard.
+func _copy_plume_style() -> void:
+	if _active_creep.is_empty() or _selected_tp_indices.is_empty():
+		return
+	var tp_id := _get_selected_tp_id()
+	if tp_id < 0:
+		return
+	_plume_clipboard = (_get_tp_plume_style(tp_id) as Dictionary).duplicate(true)
+	show_toast("Plume style copied")
+
+## Replace the selected TP(s)' plume style with the clipboard. No-op if nothing has been copied yet.
+func _paste_plume_style() -> void:
+	if _plume_clipboard.is_empty() or _active_creep.is_empty() or _selected_tp_indices.is_empty():
+		return
+	# Push the clipboard into the controls (guarded so the per-spin signals don't write piecemeal),
+	# then _on_plume_changed() writes the whole style into every selected TP at once.
+	_updating_plume = true
+	_plume_vel_min_spin.value  = float(_plume_clipboard.get("vel_min",  _plume_vel_min_spin.value))
+	_plume_vel_max_spin.value  = float(_plume_clipboard.get("vel_max",  _plume_vel_max_spin.value))
+	_plume_life_spin.value     = float(_plume_clipboard.get("lifetime", _plume_life_spin.value))
+	_plume_spread_spin.value   = float(_plume_clipboard.get("spread",   _plume_spread_spin.value))
+	_plume_sc_min_spin.value   = float(_plume_clipboard.get("sc_min",   _plume_sc_min_spin.value))
+	_plume_sc_max_spin.value   = float(_plume_clipboard.get("sc_max",   _plume_sc_max_spin.value))
+	_plume_col_core_btn.color  = _plume_clipboard.get("col_core",  _plume_col_core_btn.color)
+	_plume_col_flame_btn.color = _plume_clipboard.get("col_flame", _plume_col_flame_btn.color)
+	_plume_col_cool_btn.color  = _plume_clipboard.get("col_cool",  _plume_col_cool_btn.color)
+	_updating_plume = false
+	_on_plume_changed()
+	show_toast("Plume style pasted")
 
 func _reset_plume_style() -> void:
 	if _active_creep.is_empty() or _selected_tp_indices.is_empty():

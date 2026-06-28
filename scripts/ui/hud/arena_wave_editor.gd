@@ -23,8 +23,12 @@ var _rows: Array = []
 var _types: Array = []
 var _open: bool = false
 var _font: FontFile = null
+var _dropdown: Control = null          # the open Type 2-tab dropdown (Unit / Fleet)
+var _dropdown_row: Dictionary = {}     # the row whose type is being picked
+var _icon_cache: Dictionary = {}
 
 func _ready() -> void:
+	add_to_group("wave_editor")   # the dev:on Wave_edit button toggles us via this group
 	layer = 100
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_font = load(FONT_PATH) as FontFile
@@ -38,6 +42,9 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and (event as InputEventKey).keycode == KEY_F7:
 		_toggle()
 		get_viewport().set_input_as_handled()
+
+func toggle() -> void:   # public entry for the Wave_edit HUD button (same as F7)
+	_toggle()
 
 func _toggle() -> void:
 	_open = not _open
@@ -173,14 +180,14 @@ func _add_row(entry: Dictionary) -> void:
 	var time_sb := _mk_spin(0.0, 3600.0, 1.0, float(entry.get("time", 0.0)), 90)
 	hb.add_child(time_sb)
 
-	var type_ob := OptionButton.new()
-	type_ob.custom_minimum_size = Vector2(130, 0)
-	if _font: type_ob.add_theme_font_override("font", _font)
-	for i in _types.size():
-		type_ob.add_item(String(_types[i]), i)
-	var ti := _types.find(String(entry.get("type", "fly")))
-	type_ob.selected = ti if ti >= 0 else 0
-	hb.add_child(type_ob)
+	# Type — a fixed-width button (clips long names so columns stay aligned) that opens the 2-tab dropdown.
+	var type_val := String(entry.get("type", "fly"))
+	var type_btn := Button.new()
+	type_btn.custom_minimum_size = Vector2(130, 0)
+	type_btn.clip_text = true
+	type_btn.text = _type_label(type_val)
+	if _font: type_btn.add_theme_font_override("font", _font)
+	hb.add_child(type_btn)
 
 	var count_sb := _mk_spin(1.0, 200.0, 1.0, float(int(entry.get("count", 1))), 80)
 	hb.add_child(count_sb)
@@ -208,8 +215,10 @@ func _add_row(entry: Dictionary) -> void:
 	hb.add_child(del)
 
 	_rows_box.add_child(hb)
-	_rows.append({"hbox": hb, "time": time_sb, "type": type_ob, "count": count_sb,
-		"pattern": pat_ob, "dur": dur_sb, "boss": boss_cb})
+	var row := {"hbox": hb, "time": time_sb, "type_btn": type_btn, "type_value": type_val,
+		"count": count_sb, "pattern": pat_ob, "dur": dur_sb, "boss": boss_cb}
+	type_btn.pressed.connect(func() -> void: _open_type_dropdown(row, type_btn))
+	_rows.append(row)
 
 func _remove_row(hb: HBoxContainer) -> void:
 	for i in range(_rows.size() - 1, -1, -1):
@@ -225,7 +234,7 @@ func _collect() -> Array:
 		var pat: String = String(patterns[(r["pattern"] as OptionButton).selected])
 		var e := {
 			"time": (r["time"] as SpinBox).value,
-			"type": String(_types[(r["type"] as OptionButton).selected]),
+			"type": String(r["type_value"]),
 			"count": int((r["count"] as SpinBox).value),
 			"pattern": pat,
 		}
@@ -351,6 +360,202 @@ func _sanitize(s: String) -> String:
 	return out
 
 # ── Widget helpers ──────────────────────────────────────────────────────────────
+# ── Type dropdown (2 tabs: Unit grid + Fleet list with formation preview) ───────
+func _type_label(v: String) -> String:
+	return ("[F] " + v.substr(6)) if v.begins_with("fleet:") else v
+
+func _enemy_icon(id: String) -> Texture2D:
+	if _icon_cache.has(id):
+		return _icon_cache[id]
+	var tex: Texture2D = null
+	if _director != null:
+		var d: Dictionary = _director.ENEMY_DEFS.get(id, {})
+		var p := String(d.get("icon", ""))
+		if p != "":
+			tex = load(p) as Texture2D
+	_icon_cache[id] = tex
+	return tex
+
+func _load_fleets() -> Array:
+	var cfg := ConfigFile.new()
+	if cfg.load("res://fleet_layout.cfg") != OK:
+		return []
+	var data = cfg.get_value("fleets", "data", [])
+	return data if data is Array else []
+
+func _pick_type(v: String) -> void:
+	if not _dropdown_row.is_empty():
+		_dropdown_row["type_value"] = v
+		(_dropdown_row["type_btn"] as Button).text = _type_label(v)
+	_close_dropdown()
+
+func _close_dropdown() -> void:
+	if _dropdown != null and is_instance_valid(_dropdown):
+		_dropdown.queue_free()
+	_dropdown = null
+	_dropdown_row = {}
+
+func _open_type_dropdown(row: Dictionary, btn: Button) -> void:
+	_close_dropdown()
+	_dropdown_row = row
+	# Full-rect catcher: a click anywhere outside the panel closes the dropdown.
+	_dropdown = Control.new()
+	_dropdown.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_dropdown.mouse_filter = Control.MOUSE_FILTER_STOP
+	_dropdown.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and (e as InputEventMouseButton).pressed:
+			_close_dropdown())
+	_root.add_child(_dropdown)
+
+	var panel := Panel.new()
+	_style(panel)
+	var psize := Vector2(760.0, 560.0)
+	var vpz := get_viewport().get_visible_rect().size
+	var pos := btn.global_position + Vector2(0.0, btn.size.y)
+	pos.x = clampf(pos.x, 8.0, maxf(8.0, vpz.x - psize.x - 8.0))
+	pos.y = clampf(pos.y, 8.0, maxf(8.0, vpz.y - psize.y - 8.0))
+	panel.position = pos
+	panel.size = psize
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_dropdown.add_child(panel)
+
+	var vb := VBoxContainer.new()
+	vb.position = Vector2(8.0, 8.0)
+	vb.size = psize - Vector2(16.0, 16.0)
+	vb.add_theme_constant_override("separation", 6)
+	panel.add_child(vb)
+
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 6)
+	vb.add_child(tabs)
+	var unit_tab := _mk_button("Unit", func() -> void: pass)
+	var fleet_tab := _mk_button("Fleet", func() -> void: pass)
+	unit_tab.custom_minimum_size = Vector2(120.0, 0.0)
+	fleet_tab.custom_minimum_size = Vector2(120.0, 0.0)
+	tabs.add_child(unit_tab)
+	tabs.add_child(fleet_tab)
+
+	var content := Control.new()
+	content.custom_minimum_size = Vector2(0.0, 500.0)
+	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vb.add_child(content)
+	var unit_panel := _build_unit_tab()
+	var fleet_panel := _build_fleet_tab()
+	content.add_child(unit_panel)
+	content.add_child(fleet_panel)
+	fleet_panel.visible = false
+	unit_tab.pressed.connect(func() -> void: unit_panel.visible = true;  fleet_panel.visible = false)
+	fleet_tab.pressed.connect(func() -> void: unit_panel.visible = false; fleet_panel.visible = true)
+
+func _build_unit_tab() -> Control:
+	var c := Control.new()
+	c.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var scroll := ScrollContainer.new()
+	scroll.size = Vector2(290.0, 500.0)
+	scroll.custom_minimum_size = Vector2(290.0, 500.0)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	c.add_child(scroll)
+	var grid := GridContainer.new()
+	grid.columns = 5
+	grid.add_theme_constant_override("h_separation", 4)
+	grid.add_theme_constant_override("v_separation", 4)
+	scroll.add_child(grid)
+	for id in _types:
+		var ids := String(id)
+		var b := Button.new()
+		b.custom_minimum_size = Vector2(50.0, 50.0)
+		b.tooltip_text = ids
+		var tex := _enemy_icon(ids)
+		if tex != null:
+			var tr := TextureRect.new()
+			tr.texture = tex
+			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			tr.set_anchors_preset(Control.PRESET_FULL_RECT)
+			tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			b.add_child(tr)
+		b.pressed.connect(func() -> void: _pick_type(ids))
+		grid.add_child(b)
+	return c
+
+func _build_fleet_tab() -> Control:
+	var c := Control.new()
+	c.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var preview := _FleetPreview.new()
+	preview.editor = self
+	preview.position = Vector2(228.0, 0.0)
+	preview.size = Vector2(500.0, 500.0)
+	preview.custom_minimum_size = Vector2(500.0, 500.0)
+	c.add_child(preview)
+	var scroll := ScrollContainer.new()
+	scroll.size = Vector2(210.0, 500.0)
+	scroll.custom_minimum_size = Vector2(210.0, 500.0)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	c.add_child(scroll)
+	var vb := VBoxContainer.new()
+	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vb.add_theme_constant_override("separation", 2)
+	scroll.add_child(vb)
+	for fl in _load_fleets():
+		var fld: Dictionary = fl
+		var nm := String(fld.get("name", "Fleet"))
+		var lbl := Button.new()
+		lbl.text = nm
+		lbl.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		lbl.custom_minimum_size = Vector2(0.0, 24.0)
+		if _font: lbl.add_theme_font_override("font", _font)
+		lbl.mouse_entered.connect(func() -> void: preview.set_fleet(fld))
+		lbl.pressed.connect(func() -> void: _pick_type("fleet:" + nm))
+		vb.add_child(lbl)
+	return c
+
+## Hovered-fleet formation preview: draws each non-empty slot's representative sprite at its placed
+## position/size, scaled to fit the 500px box.
+class _FleetPreview extends Control:
+	var editor = null
+	var fleet: Dictionary = {}
+	func set_fleet(f: Dictionary) -> void:
+		fleet = f
+		queue_redraw()
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.03, 0.05, 0.08, 0.95))
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.30, 0.40, 0.50, 0.6), false, 1.0)
+		if fleet.is_empty() or editor == null:
+			return
+		var slots: Array = fleet.get("slots", [])
+		var rects: Array = []
+		var mn := Vector2(INF, INF)
+		var mx := Vector2(-INF, -INF)
+		for s: Dictionary in slots:
+			var enemies: Array = s.get("enemies", [])
+			if enemies.is_empty():
+				continue
+			var tex: Texture2D = editor._enemy_icon(String(enemies[0]))
+			var w: float = float(s.get("size", 50.0))
+			var h := w
+			if tex != null and tex.get_width() > 0:
+				h = w * float(tex.get_height()) / float(tex.get_width())
+			var p: Vector2 = s.get("pos", Vector2.ZERO)
+			rects.append({"tex": tex, "p": p, "w": w, "h": h})
+			mn.x = minf(mn.x, p.x - w * 0.5); mn.y = minf(mn.y, p.y - h * 0.5)
+			mx.x = maxf(mx.x, p.x + w * 0.5); mx.y = maxf(mx.y, p.y + h * 0.5)
+		if rects.is_empty():
+			return
+		var span := mx - mn
+		var avail := size - Vector2(40.0, 40.0)
+		var sc := minf(avail.x / maxf(span.x, 1.0), avail.y / maxf(span.y, 1.0))
+		sc = minf(sc, 1.0)
+		var center := (mn + mx) * 0.5
+		for r: Dictionary in rects:
+			var rw: float = float(r["w"]) * sc
+			var rh: float = float(r["h"]) * sc
+			var rp: Vector2 = (r["p"] as Vector2 - center) * sc + size * 0.5
+			var rect := Rect2(rp - Vector2(rw, rh) * 0.5, Vector2(rw, rh))
+			if r["tex"] != null:
+				draw_texture_rect(r["tex"] as Texture2D, rect, false)
+			else:
+				draw_rect(rect, Color(0.4, 0.5, 0.7, 0.6))
+
 func _mk_label(text: String, sz: int) -> Label:
 	var l := Label.new()
 	l.text = text

@@ -1,0 +1,535 @@
+{
+ "date": "2026-06-27",
+ "description": "Arena run HUD: bottom XP bar (progress to next level, in-bar xp/require + Level labels) + top-right kill & coin counters.",
+ "entries": [
+  {
+   "id": 1,
+   "timestamp": "2026-06-27T00:00:00Z",
+   "task": "Add a bottom-of-screen XP bar that fills toward the next level-up (left in-bar label = [xp gained / xp require], right in-bar label = Level N), plus a top-right counter block: [kill icon placeholder] kill-count and [coin icon placeholder] coin-count. Arena mode only.",
+   "files_modified": [
+    {
+     "path": "scripts/autoload/game_manager.gd",
+     "action": "edited",
+     "lines": "signal kills_changed (~16); run_kills var + add_kill() near run_coin_mult (~589); reset_run resets run_kills + emits kills_changed (~683,~688)",
+     "reason": "No per-run kill counter existed. Added run_kills + kills_changed signal + add_kill() (mirrors the existing money/xp run-state pattern), reset to 0 each run. Coins reuse the existing money/money_changed; XP reuses xp_changed/level_changed/player_xp/xp_to_next."
+    },
+    {
+     "path": "scripts/gameplay/arena_enemy.gd",
+     "action": "edited",
+     "lines": "_die() (~582): GameManager.add_kill() guarded by has_method",
+     "reason": "Tally one kill the moment an enemy actually dies (only _die() is the real-kill path; fly-off-screen uses queue_free and is intentionally not counted)."
+    },
+    {
+     "path": "scripts/ui/hud/arena_stats_hud.gd",
+     "action": "created",
+     "reason": "New arena HUD Control: a centered bottom XP bar (dark bg + green fill scaled to player_xp/xp_to_next, left Label = 'xp / require', right Label = 'Level N') and a top-right two-row counter block (placeholder ColorRect icons for kill/coin + numbers). Re-pins on viewport size_changed; counters sit at y=118 to clear the perf overlay (y 8-110). Listens to xp_changed/level_changed/money_changed/kills_changed and primes from current values."
+    },
+    {
+     "path": "scripts/gameplay/arena.gd",
+     "action": "edited",
+     "lines": "preload ArenaStatsHudScript (~8); _build_ui add_child into the 'UI' CanvasLayer (~221)",
+     "reason": "Host the new stats HUD in the same screen-space UI CanvasLayer (layer 10) as the HP/weapon/aux HUD."
+    }
+   ],
+   "changes_summary": "Added the run HUD requested for the arena: a bottom XP progress bar with in-bar [xp/require] (left) and [Level N] (right) labels, plus a top-right block showing kills and coins each with a placeholder icon square. Kills required a new GameManager.run_kills counter (signal kills_changed, add_kill(), reset per run) incremented from arena_enemy._die(); coins reuse GameManager.money; XP/level reuse the existing GameManager XP system. All visuals live in scripts/ui/hud/arena_stats_hud.gd, instantiated from arena._build_ui().",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0, 0 parse/compile errors)"
+   ],
+   "git_commit_hash": "pending (not committed — user has not requested a commit)",
+   "rollback_steps": [
+    "git checkout -- scripts/autoload/game_manager.gd scripts/gameplay/arena_enemy.gd scripts/gameplay/arena.gd",
+    "git clean -f scripts/ui/hud/arena_stats_hud.gd .trace_logs/trace_2026-06-27.json"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Headless parse/compile check clean (exit 0; only a harmless headless dummy-texture RID leak warning). Manual F5 play-test still required: launch the arena, confirm the XP bar fills as orbs are collected and resets/relabels on level-up, the Level label updates, and the top-right kill count increments on enemy deaths while the coin count tracks money. Placeholder ColorRect icons (kill = red, coin = gold) are intended to be swapped for real icon textures later."
+   }
+  },
+  {
+   "id": 2,
+   "timestamp": "2026-06-27T01:00:00Z",
+   "task": "Fix: arena squid enemy stands still (reported by user). Diagnose and wire its movement.",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_enemy.gd",
+     "action": "edited",
+     "lines": "new \"squid\" case in _tick_behavior() match (~991, after \"jump_diag\")",
+     "reason": "Root cause: the squid behavior was half-implemented — helpers (_face_squid/_squid_attach/_squid_detach), the squid_clinging-group ship slow (arena.gd ~323), the tentacle wrap draw, and the plume modulation all existed, but _tick_behavior() had NO \"squid\" case, so behavior==\"squid\" fell through the match with zero movement -> the squid never moved or latched on. The case had existed in commit b9209fc ('Squid enemy: ... jump+cling behavior') and was lost at some point. Restored the ORIGINAL leap-based logic (user recalled the leap): _jump_tick(delta, dir, false) octopus-rhythm leaps toward the player led by the tentacles; on reaching _radius+SQUID_ATTACH_RANGE -> _squid_attach (joins squid_clinging -> slows ship, no contact dmg since def contact=0); while clinging lerp toward pp+_squid_attach_off to ride with the ship; detach only when the player escapes (dist > 3x reach). The _phase/_timer reset inside _squid_detach now correctly restarts the jump cycle. (First attempt this session used a continuous chase + 3s timer detach + a SQUID_CLING_TIME const; replaced with the original leap behavior and the const removed.)"
+    }
+   ],
+   "changes_summary": "Squid enemy was standing still because arena_enemy._tick_behavior() lacked a \"squid\" branch despite all supporting squid code being present. Restored the original leap+cling behavior from commit b9209fc: octopus-rhythm leaps in toward the player (via _jump_tick), latch onto the ship and slow it, ride along while clinging, release only when the player dashes away.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0, 0 parse/compile errors)"
+   ],
+   "git_commit_hash": "pending (not committed — user has not requested a commit)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/arena_enemy.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Headless parse check clean (exit 0). Manual F5 play-test required: spawn a squid (quick-spawn or wait for the 78s wave), confirm it now LEAPS toward the ship in the octopus rhythm (wait -> leap -> repeat), latches on at reach (tentacles wrap over the hull), visibly slows the ship while clinging, rides along with the ship, and detaches only when the player dashes far away (then resumes leaping); dies normally and stops slowing on death."
+   }
+  },
+  {
+   "id": 3,
+   "timestamp": "2026-06-27T02:00:00Z",
+   "task": "Dev-mode Quick Spawn panel thumbnails were using assets/enemies/ icons instead of the HD assets/enemiesHD/ versions. Switch to HD-first with fallback to standard when no HD sprite exists.",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_debug_spawn.gd",
+     "action": "edited",
+     "lines": "_load_thumb() (~425)",
+     "reason": "The in-game arena sprite already resolves HD via arena_enemy._resolve_sprite() (assets/enemiesHD/ first, fall back to assets/enemies/), but the Quick Spawn panel's _load_thumb() called load(icon) directly on the standard path, so its thumbnails showed the non-HD art. Routed _load_thumb through EnemyScript._resolve_sprite(icon) (single source of truth; EnemyScript already preloaded) and added a load-failure fallback to the original path (HD present but not yet imported). gif/png/sheet handling preserved, now keyed off the resolved src."
+    }
+   ],
+   "changes_summary": "Quick Spawn (Dev mode) thumbnails now prefer assets/enemiesHD/ and fall back to assets/enemies/ when no HD twin exists, matching the gameplay sprite resolution. NOTE: scripts/ui/hud/enemy_panel.gd (the separate legacy main-scene ENEMIES panel, group enemy_manager) still loads assets/enemies/ icons directly and was left untouched (out of scope; legacy non-arena panel).",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0, 0 parse/compile errors)"
+   ],
+   "git_commit_hash": "pending (not committed — user has not requested a commit)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/arena_debug_spawn.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Headless parse check clean (exit 0). Manual F5 play-test required: open Dev mode -> Quick Spawn, confirm enemies WITH an HD twin (bee, bug, dragonfly, fly, spider, beamer, shooter/jetfighter, sentinel, diver/kingfisher, missile, bomb) show the HD art, while those WITHOUT (octopus, centipede, swarm, dummy, squid, bomber) still show the standard art (fallback)."
+   }
+  },
+  {
+   "id": 4,
+   "timestamp": "2026-06-27T03:00:00Z",
+   "task": "Weapon naming/group unification — PHASE 1 (existing weapons only). User supplied a canonical design sheet (Name, manufacturer, lore, asset, spawn label, recipe). Decisions: also add new weapons later; use BOTH full Name + spawn label; group = manufacturer + keep combat group; resolve conflicts per the sheet.",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_weapons.gd",
+     "action": "edited",
+     "lines": "WEAPON_INFO rewritten (~63); FUSION_DEFS rewritten (~91)",
+     "reason": "WEAPON_INFO is now the canonical registry: each kind carries def_id + name (full official) + label (spawn display) + mfr (manufacturer). Added homing. Orphans ionize/parasite/homing/toxic_ballistic (not on the sheet) kept with placeholder names. FUSION_DEFS gained name/label/mfr and the Singularities recipe was changed orbital+void -> void+gauss per the sheet (recipe GATING only; _tick_singularity behavior unchanged). carnage/vampire_host/overcharger/predator a/b reordered to match the sheet (same pairs)."
+    },
+    {
+     "path": "scripts/gameplay/arena_weapon_palette.gd",
+     "action": "edited",
+     "lines": "WEAPONS labels (~8)",
+     "reason": "F12 palette labels switched to spawn display names (Minigun/Laser/Lightning/Defender/Vacuum/Stink Breath/Mortal/Jeager/Ionizer/Aliwa/Parasite/Yari/Striker/VIPER/Homing) to match WEAPON_INFO."
+    },
+    {
+     "path": "scripts/autoload/inventory_manager.gd",
+     "action": "edited",
+     "lines": "ITEM_DEFS gauss_cannon.name (~102), z_sword.name (~864), space_snake.name (~900), rosastro_nuclear.icon (~853)",
+     "reason": "Align official names to the sheet: Gauss Cannon->Gauss Pulser, Schockwelle->Jeager, Red Viper->Viper; fix Fat Boy icon Perses RED.png->FatBoy.png. ITEM_DEFS-only edits (locked file; load/get_icon untouched)."
+    }
+   ],
+   "changes_summary": "Phase 1 of the weapon overhaul: unified display naming across the three sources (WEAPON_INFO, F12 palette, ITEM_DEFS) onto the canonical sheet — full Name as official (ITEM_DEFS.name) + spawn name as in-game label (WEAPON_INFO.label/palette) + manufacturer (WEAPON_INFO.mfr). Fixed the Singularities recipe to void+gauss. Internal `kind` keys and all gameplay behavior were NOT touched. ORPHANS (on no sheet row): ionize, parasite, homing, toxic_ballistic — left with placeholder names, pending the user. PHASE 2 (not done): add the new weapons + upgrade tree (Big Gun, Super Laser, Jedi Laser, Candy Crush, Zeus, Black Ship, Black Hole, Venomancer) — each needs a gameplay mechanic spec; their icons already exist in assets/inventory. Dedicated fusion icons (Overcharger/Singularities/Vampire Host PNGs exist) also deferred to Phase 2 (need ITEM_DEFS entries).",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0, 0 parse/compile errors)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/arena_weapons.gd scripts/gameplay/arena_weapon_palette.gd scripts/autoload/inventory_manager.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Headless parse check clean (exit 0). Manual F5 play-test required: open F12 palette + weapon chest + slot HUD, confirm the new spawn labels show; inventory tooltips show the full official names; Singularities now requires Vacuum + Gauss to fuse."
+   }
+  },
+  {
+   "id": 5,
+   "timestamp": "2026-06-27T04:00:00Z",
+   "task": "Weapon overhaul follow-up: (1) move the 4 orphans into an 'obsolete' group (use existing icon, else placeholder); (2) show the weapon CODE NAME (asset model code) on mouse hover.",
+   "files_modified": [
+    {
+     "path": "scripts/autoload/inventory_manager.gd",
+     "action": "edited",
+     "lines": "ITEM_DEFS ionizing_field (~183), homing_missile (~229), parasite_cloud (~924)",
+     "reason": "Orphans -> group 'obsolete' (group field only). KEEP their existing icons per the user rule 'co icon thi dung' (CORRECTION: an earlier pass in this same task wrongly stripped HO-TD-W.png/BC-SL.png to placeholders to 'reserve' them for Phase-2 Black Hole/Venomancer — reverted). Final: ionizing_field stays name 'Tachyon Displacer' + HO-TD-W.png; parasite_cloud stays name 'Bio-Corrosive Spore Launcher' + BC-SL.png; homing_missile keeps homingmissile.png. Only the group changed to 'obsolete'. NOTE for Phase 2: Black Hole wants HO-TD-W and Venomancer wants BC-SL — they'll share these icons with the obsolete versions (duplicates OK) OR those obsolete weapons ARE those table weapons repurposed (user to decide). ITEM_DEFS-only edits (load/get_icon untouched)."
+    },
+    {
+     "path": "scripts/gameplay/arena_weapons.gd",
+     "action": "edited",
+     "lines": "WEAPON_INFO ionize/parasite/homing (~76-83); FUSION_DEFS toxic_ballistic (~97)",
+     "reason": "Tagged the 4 orphans (ionize, parasite, homing base + toxic_ballistic fusion) with group:'obsolete' in the registry."
+    },
+    {
+     "path": "scripts/ui/hud/arena_weapon_slots.gd",
+     "action": "edited",
+     "lines": "_build_tip + _update_hover_tip + _info_for + _code_for (~17-90); _icon_for now uses _info_for",
+     "reason": "Added a hover tooltip on the weapon-slot bar: hovering a slot shows that weapon's CODE NAME = its asset model code (icon filename minus folder/extension, e.g. 'VB-KA6'), falling back to the spawn label for obsolete placeholders. Reads ITEM_DEFS (const) for the icon path. Hover detected by comparing get_local_mouse_position() to each slot rect (node stays MOUSE_FILTER_IGNORE; no input change). _icon_for now also resolves fusion kinds via FUSION_DEFS (bonus: fusion icons now show in the slot bar instead of a placeholder)."
+    }
+   ],
+   "changes_summary": "Orphans (ionize/parasite/homing/toxic_ballistic) moved to a dedicated 'obsolete' group; the two borrowed icons (HO-TD-W = Black Hole, BC-SL = Venomancer) were released back to placeholders so the Phase-2 new weapons can claim them. Added a mouse-hover tooltip to the arena weapon-slot HUD that displays each weapon's code name (asset model code), and made the slot bar resolve fusion icons too.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0, 0 parse/compile errors)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/autoload/inventory_manager.gd scripts/gameplay/arena_weapons.gd scripts/ui/hud/arena_weapon_slots.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Headless parse check clean (exit 0). Manual F5 play-test required: acquire weapons, hover the slot bar -> code name appears above the slot; obsolete weapons (ionize/parasite/homing) show a coloured placeholder icon + fall back to their label on hover; confirm Black Hole/Venomancer icons (HO-TD-W/BC-SL) are now free for Phase 2."
+   }
+  },
+  {
+   "id": 6,
+   "timestamp": "2026-06-27T05:00:00Z",
+   "task": "Clarify evolution icon ownership: Vacuum(HZ-VD-S) --evolve--> Black Hole(HO-TD-W); Stink Breath/Biocide Vaporizer(VE-BV-4) --evolve--> Venomancer(BC-SL). Reassign icons accordingly.",
+   "files_modified": [
+    {
+     "path": "scripts/autoload/inventory_manager.gd",
+     "action": "edited",
+     "lines": "ITEM_DEFS ionizing_field (~183), parasite_cloud (~924)",
+     "reason": "HO-TD-W.png belongs to Black Hole (the evolve of Vacuum), NOT the ionize aura orphan -> ionizing_field name back to 'Ionizing Field', icon -> '' (placeholder), HO-TD-W reserved for Black Hole. parasite_cloud IS Venomancer (full name 'Bio-Corrosive Spore Launcher', icon BC-SL.png) = the evolve of Stink Breath -> it is a REAL weapon, not an orphan: group obsolete -> 'summon' (restored). Vacuum (rift_maker=HZ-VD-S) and Stink Breath (chemtrail=VE-BV-4) already correct, unchanged."
+    },
+    {
+     "path": "scripts/gameplay/arena_weapons.gd",
+     "action": "edited",
+     "lines": "WEAPON_INFO ionize + parasite (~77,~80)",
+     "reason": "ionize name -> 'Ionizing Field' (kept group obsolete). parasite is Venomancer: removed group:obsolete, label -> 'Venomancer', mfr -> 'Volney Elements x Chakra Bio-Synthetics'. Net orphans now: ionize, homing, toxic_ballistic (parasite/Venomancer is no longer an orphan)."
+    }
+   ],
+   "changes_summary": "Corrected icon ownership per the evolve design. parasite_cloud is confirmed as Venomancer (BC-SL, evolve of chemtrail/Stink Breath) and taken out of the obsolete group. ionize (aura) is the real orphan and released HO-TD-W back to Black Hole (evolve of void/Vacuum); it now uses a placeholder icon. Evolve chains captured for Phase 2: Vacuum->Black Hole(HO-TD-W), Stink Breath->Venomancer(BC-SL) [already exists as parasite_cloud]; plus the earlier sheet's Minigun->Big Gun(VB-KIC-6), Laser->Super Laser(KM-IL-100), Lightning->Zeus(Zeus.png).",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0, 0 parse/compile errors)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/autoload/inventory_manager.gd scripts/gameplay/arena_weapons.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Headless parse check clean (exit 0). Manual F5 play-test required: Venomancer (parasite) shows BC-SL.png + name 'Bio-Corrosive Spore Launcher' (label Venomancer); ionize shows a placeholder icon; HO-TD-W.png is unused (free for Black Hole)."
+   }
+  },
+  {
+   "id": 7,
+   "timestamp": "2026-06-27T06:00:00Z",
+   "task": "Full weapon audit vs the canonical Corp.pdf (treated as 100% correct). Apply: rename sprite files to the PDF names, overwrite descriptions with the PDF lore, wire dedicated fusion icons, fix hover = Code Name, fix name typos.",
+   "files_modified": [
+    {
+     "path": "assets/inventory/* , assets/weaponry/* (renamed)",
+     "action": "renamed",
+     "lines": "7 sprite files (+ their .png.import source_file updated)",
+     "reason": "Match PDF Lbl_name: ND-OIO-F->ND-OIF-F (inventory + weaponry), EK-SW88-Alt->EK-SW88, KM-IL-100->KM-IL-200, KM-QBM-200-alt->KM-QBM-200, Blackship->M-ST-17, Mortar->R-HPM-IV. git mv both .png and .png.import; .import source_file repointed. .godot/imported cache left as-is (runtime loads via .import; editor will reimport)."
+    },
+    {
+     "path": "scripts/autoload/inventory_manager.gd",
+     "action": "edited",
+     "lines": "ITEM_DEFS: gatling_gun name (Kinetic AutoCannon->Kinetic Auto Cannon), yari_jaeger name (Jaeger->Jeager), icon paths for swarm_host/z_sword/nuke repointed to renamed sprites, + desc overwritten with PDF lore for 17 implemented weapons (via tools script set_descs.py)",
+     "reason": "Names/icons/descriptions aligned to the PDF. ITEM_DEFS-only edits (load/get_icon untouched)."
+    },
+    {
+     "path": "scripts/gameplay/arena_weapons.gd",
+     "action": "edited",
+     "lines": "SWARM_SPRITE path + plume key ND-OIO-F->ND-OIF-F; FUSION_DEFS icon added for vampire_host/overcharger/singularities",
+     "reason": "Repoint swarm sprite + plume style key to the renamed asset; give the 3 fusions their dedicated icons (Vampire Host.png / Overcharger.png / Singularities.png) via a new FUSION_DEFS 'icon' field."
+    },
+    {
+     "path": "scripts/ui/hud/arena_weapon_slots.gd",
+     "action": "edited",
+     "lines": "_icon_for prefers info['icon']; _code_for returns the label (Code Name)",
+     "reason": "Hover tooltip now shows the PDF Code Name (label, e.g. 'Minigun') instead of the asset basename (earlier mistake). Slot icon prefers the dedicated fusion icon when present."
+    },
+    {
+     "path": "scripts/gameplay/arena_debug_spawn.gd",
+     "action": "edited (by user) + ref update",
+     "lines": "KM-IL-100->KM-IL-200, KM-QBM-200-alt->KM-QBM-200, Blackship->M-ST-17 in the user-added WEAPON_TABS",
+     "reason": "User added a Dev->Weapon panel (drop/evolve/fusion/obsolete tabs w/ placeholders); updated its icon paths to the renamed sprites. Decisions captured: parasite_cloud = Venomancer (Bio-Corrosive Spore Launcher); Swarm (Chakra) is a separate weapon to ADD (Phase 2)."
+    },
+    {
+     "path": "weapon_layout.cfg / weapon_plume_styles.cfg",
+     "action": "edited",
+     "lines": "ND-OIO-F -> ND-OIF-F keys",
+     "reason": "Keep the swarm weapon's layout + plume-style keys matching the renamed sprite basename."
+    }
+   ],
+   "changes_summary": "Audited every implemented arena weapon against Corp.pdf and aligned Name / Code Name / sprite / description. Renamed 7 sprite files to the PDF names (with .import repointed) and updated all code/cfg references; overwrote 17 descriptions with the PDF Vietnamese lore; wired dedicated icons for the Vampire Host / Overcharger / Singularities fusions; fixed the slot-HUD hover to show the Code Name (label) rather than the asset basename; fixed the 'Kinetic Auto Cannon' and 'Yari Jeager' name typos. STILL TODO (Phase 2, per PDF): the evolve system + new weapons Big Gun / Super Laser / Jedi Laser / Candy Crush / Black Hole / Black Ship / Zeus, the separate Chakra 'Swarm' weapon, and linking Venomancer as chemtrail's evolve. The user-added WEAPON_TABS in arena_debug_spawn.gd already scaffolds these as placeholders.",
+   "commands_executed": [
+    "git mv (7 sprite + .import pairs)",
+    "python tools/set_descs.py (17 desc overwrites)",
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0)",
+    "C:\\Program Files\\Godot\\Godot.exe --headless --path . (7s smoke test — 0 resource/script errors)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/ assets/ weapon_layout.cfg weapon_plume_styles.cfg",
+    "git status (restore any renamed files if needed)"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Headless parse check clean + 7s headless smoke test with 0 errors. Manual F5 REQUIRED: open the Godot editor once so the 7 renamed sprites reimport (regenerates .godot/imported cache); then in-arena confirm weapon icons render (esp. swarm/Striker, Jeager, Mortal, and the 3 fusion icons), hover shows Code Names, and tooltips show the new lore."
+   }
+  },
+  {
+   "id": 8,
+   "timestamp": "2026-06-27T07:00:00Z",
+   "task": "Fix: Tachyon Displacer (Black Hole) had no sprite in the dev Weapon panel. The user maps Black Hole to the existing `ionize` kind (per WEAPON_TABS), but an earlier pass had stripped ionizing_field's icon to a placeholder. Restore it.",
+   "files_modified": [
+    {
+     "path": "scripts/autoload/inventory_manager.gd",
+     "action": "edited",
+     "lines": "ITEM_DEFS ionizing_field (~183)",
+     "reason": "REVERT the earlier mistaken strip: ionizing_field IS Tachyon Displacer (Black Hole, evolve of Vacuum) per the user's WEAPON_TABS mapping. name '' -> 'Tachyon Displacer', icon '' -> HO-TD-W.png, group obsolete -> energy, desc -> PDF lore ('Vũ khí thử nghiệm bẻ cong không gian...'). So the dev panel's Tachyon Displacer entry (def_id ionizing_field) now shows HO-TD-W.png."
+    },
+    {
+     "path": "scripts/gameplay/arena_weapons.gd",
+     "action": "edited",
+     "lines": "WEAPON_INFO ionize (~78)",
+     "reason": "ionize is no longer an orphan: name 'Tachyon Displacer', label (Code Name) 'Black Hole', mfr 'Horizon Logistics', removed group:obsolete. Net orphans now: homing, toxic_ballistic only."
+    }
+   ],
+   "changes_summary": "ionize/ionizing_field is the Tachyon Displacer (Black Hole) — the evolve of Vacuum — not an orphan. Restored its HO-TD-W.png icon (+ name/label/mfr/lore) that a prior pass had wrongly stripped, so it now renders in the Weapon panel. Correction to entries #5/#6 which had treated ionize as a generic orphan.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/autoload/inventory_manager.gd scripts/gameplay/arena_weapons.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse check clean. Manual: open Dev -> Weapon -> Evolve tab; Tachyon Displacer now shows HO-TD-W.png. (HO-TD-W is no longer 'reserved' — ionize IS Black Hole.)"
+   }
+  },
+  {
+   "id": 9,
+   "timestamp": "2026-06-27T08:00:00Z",
+   "task": "Show the Code Name on hover over weapons in the Dev Weapon panel.",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_debug_spawn.gd",
+     "action": "edited",
+     "lines": "preload ArenaWeapons (~20); WEAPON_TABS: added 'code' to 6 placeholders (~50-59); new _weapon_code_name() (~586); _make_weapon_cell tooltip (~600)",
+     "reason": "Cell tooltip now leads with the Code Name. Implemented weapons resolve their Code Name from ArenaWeapons.WEAPON_INFO/FUSION_DEFS by kind (single source of truth); the 6 unimplemented placeholders (Big Gun, Super Laser, Black Ship, Zeus, Jedi Laser, Candy Crush) carry an explicit 'code' field; otherwise it falls back to the full name. Tooltip format: '<CodeName>  —  <FullName>' + recipe + [placeholder]."
+    }
+   ],
+   "changes_summary": "Dev Weapon panel cells show the weapon Code Name first on hover (e.g. 'Black Hole — Tachyon Displacer'). Code names for implemented weapons come from the live registry; placeholders got an explicit code field.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/arena_debug_spawn.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse check clean. Manual: open Dev -> Weapon, hover any cell -> tooltip shows the Code Name (Minigun, Black Hole, Venomancer, Big Gun, ...)."
+   }
+  },
+  {
+   "id": 10,
+   "timestamp": "2026-06-27T09:00:00Z",
+   "task": "Rewrite the Swarm (Chakra) weapon from scratch: 8 swarmballs launch out, loiter to acquire a target, then charge + ram as swarmbots and explode. (The old dart+heal familiar belongs to Vampire Host, which is untouched.)",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_weapons.gd",
+     "action": "edited",
+     "lines": "SBALL_* consts + DeathFX preload (~211); swarm state vars (~740); _load_swarm_tex/_load_sball_tex (~3395); activate_swarm + _launch_swarm_volley + _tick_swarm + _swarm_ball_hit_enemy + _acquire_swarm_target + _nearest_in_groups + _swarm_impact (~3556); _draw_swarm (~4226)",
+     "reason": "New Swarm mechanic per spec: volley of SBALL_COUNT=8 balls fired in evenly-spaced directions, fly out to SBALL_LAUNCH_RADIUS=300 @500px/s, loiter (wander) @200px/s for 1.5s, then acquire a target by priority — enemies (highest HP, ties->nearest) > ruins > asteroids — and charge @500px/s. Within SBALL_ARM_DIST=300 it swaps Swarmball.png -> Swarmbot.png; on reaching the target (or colliding with ANY enemy en route) it deals 5 dmg (level/crit-scaled via _roll_damage) and spawns a half-size enemy-kill burst (DeathFX, size 18). New volley after SBALL_COOLDOWN=3s once the pool is spent; SBALL_MAX_LIFE=9s backstop. Sprites drawn via draw_texture_rect at 20px width (ratio-kept), 24px for the bot. Reused _swarm_units/_swarm_active/_swarm_init; old SWARM_* constants kept (Vampire Host still uses SWARM_COUNT/IDLE_R/SPEED/AGGRO/HIT_RADIUS/DAMAGE/COL)."
+    }
+   ],
+   "changes_summary": "Swarm is now the swarmball volley weapon (replaced the old familiar). Targeting: enemies (max HP, tie nearest) > ruins > asteroids. Mid-flight enemy collisions detonate early. Explosion = the enemy-kill DeathFX at ~50% size. Vampire Host (dart+heal) untouched. NOTE: arena asteroids are currently decorative (no per-rock HP/take_damage), so asteroid targeting falls back to nearest Node2D in debug_asteroid/arena_asteroids and may be a no-op until a damageable asteroid entity exists. The leftover swarm plume registration (ND-OIF-F, 2 anchors) still attaches to 2 balls — cosmetic; real per-ball trails come from the TP plume work below.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0)",
+    "C:\\Program Files\\Godot\\Godot.exe --headless --path . (7s smoke test — 0 errors)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/arena_weapons.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse + boot smoke clean. Manual F5 REQUIRED: enter arena, acquire Swarm (Dev->Weapon->Drop->Swarm, or chest), confirm 8 balls fan out to ~300px, loiter ~1.5s, then ram the highest-HP enemy as swarmbots, exploding (half-size burst) for 5 dmg; early-detonate on any enemy hit en route; new volley ~3s after the last ball. TP/plume: Swarmball.png + Swarmbot.png already appear in Weapon Edit (it scans assets/weaponry/) so TP can be added there; wiring the TP plume to render in-game (z below the sprite) is the remaining follow-up."
+   }
+  },
+  {
+   "id": 11,
+   "timestamp": "2026-06-27T10:00:00Z",
+   "task": "Follow-ups: (1) separate the ND-OIF-F (Striker) plume from the swarmball; (2) make the Swarm button clickable in the Dev Weapon panel; remap swarm kind = Chakra Swarm (separate from Striker).",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_weapons.gd",
+     "action": "edited",
+     "lines": "removed the ND-OIF-F swarm plume registration (~842); WEAPON_INFO swarm (~87)",
+     "reason": "ND-OIF-F is the Striker sprite, unrelated to the swarmball — removed that plume so it no longer attaches to swarmballs (real trails will come from TPs on Swarmball/Swarmbot in Weapon Edit). WEAPON_INFO swarm remapped to the Chakra Swarm: name/label 'Swarm', mfr 'Chakra Bio-Synthetics', icon Swarm.png, def_id '' (no longer borrows swarm_host=Orbital Impact Offense). REMINDER for the future TP wiring: TP/plume must render z BELOW the sprite."
+    },
+    {
+     "path": "scripts/gameplay/arena_debug_spawn.gd",
+     "action": "edited",
+     "lines": "WEAPON_TABS drop tab (~34,~46)",
+     "reason": "BUG FIX: the 'Swarm' cell was a placeholder (ph:true, kind:'') -> button disabled/unclickable. Now {kind:'swarm', icon Swarm.png} (no ph) -> clickable, spawns a swarm pickup. The old {kind:'swarm', label 'Orbital Impact Offense'} cell became the Striker placeholder (kind:'', def_id swarm_host, code 'Striker', ph:true) since swarm now = Chakra Swarm."
+    },
+    {
+     "path": "scripts/ui/hud/arena_weapon_chest_ui.gd",
+     "action": "edited",
+     "lines": "card icon (~73)",
+     "reason": "Chest icon now prefers the registry 'icon' override before the def_id icon — so Swarm (Swarm.png) and the fusions (Vampire Host/Overcharger/Singularities) show their dedicated art in the start-of-run chest too."
+    }
+   ],
+   "changes_summary": "swarm kind is now unambiguously the Chakra Swarm (swarmball weapon, Swarm.png), fully separated from Striker (Orbital Impact Offense / ND-OIF-F / swarm_host, now an unimplemented placeholder). Fixed the Dev Weapon panel's Swarm button (was a disabled placeholder). Removed the stray ND-OIF-F plume from swarmballs. Chest icons now honor the icon override. swarm_host ITEM_DEFS kept as Striker's data for later.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/arena_weapons.gd scripts/gameplay/arena_debug_spawn.gd scripts/ui/hud/arena_weapon_chest_ui.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse clean. Manual: Dev:on -> Weapon -> Drop -> Swarm is now clickable and drops a swarm pickup; hover shows code name 'Swarm'; Striker shows as a dimmed placeholder. Walk over the pickup -> swarmball volley fires."
+   }
+  },
+  {
+   "id": 12,
+   "timestamp": "2026-06-27T11:00:00Z",
+   "task": "Swarmball tweaks: (1) anchor balls to the player during launch+loiter (move with the ship until they charge); (2) acquire target from the PLAYER position, not each ball.",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_weapons.gd",
+     "action": "edited",
+     "lines": "SBALL_LAUNCH_RADIUS 300->50 (earlier); _launch_swarm_volley dict (off/dir, dropped vel/origin); _tick_swarm launch/loiter/charge + ang; _acquire_swarm_target() now arg-less",
+     "reason": "(1) Balls now store an 'off' (offset from the player); launch grows the offset out to SBALL_LAUNCH_RADIUS and loiter ORBITS the player at SBALL_LOITER_SPEED — both phases set pos = player_pos + off, so the swarm stays anchored to the ship until it locks a target and enters 'charge' (world-space flight). Facing 'ang' now derives from actual per-frame movement. (2) _acquire_swarm_target() measures distances from _player.global_position (ties among highest-HP enemies, plus ruin/asteroid fallback) so all 8 balls converge on the same target. Mid-flight collision still uses the ball's own position."
+    }
+   ],
+   "changes_summary": "Swarmballs hug the player (orbit at 50px) through launch+loiter and only detach when charging a target; target selection is player-relative so the volley agrees on one victim.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/arena_weapons.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse clean. Manual F5: fire Swarm while moving — the 8 balls should orbit the ship (~50px) and follow it during the 1.5s loiter, then all charge the highest-HP enemy (nearest-to-player tiebreak) and explode."
+   }
+  },
+  {
+   "id": 13,
+   "timestamp": "2026-06-27T12:00:00Z",
+   "task": "Swarmball tuning + plume wiring: orbit radius 200, loiter speed 150, ball self-spin 40 RPM, register Swarmball/Swarmbot plumes.",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_weapons.gd",
+     "action": "edited",
+     "lines": "SBALL_LAUNCH_RADIUS 50->200 + SBALL_LOITER_SPEED 200->150 + new SBALL_SPIN_RAD (~213); ang logic in _tick_swarm tail; two _register_plume calls before _load_all_plumes (~853)",
+     "reason": "Orbit radius around the player is now 200px; loiter tangential speed 150px/s. The Swarmball sprite self-spins at 40 RPM (SBALL_SPIN_RAD = 40/60*TAU) while in ball form; once it arms (bot=true) the Swarmbot faces its travel direction. Plumes wired: registered pool 'Swarmball' (balls with bot=false) and 'Swarmbot' (bot=true), each SBALL_COUNT anchors sized from the texture ratio — a ball's trail auto-switches form when it arms. TP offset/style come from Weapon Edit (assets/weaponry/Swarmball.png, Swarmbot.png); no TP yet = no trail (graceful, boot-clean)."
+    }
+   ],
+   "changes_summary": "Swarm: 200px orbit, 150px/s loiter, 40 RPM ball spin, and plumes registered for both ball and bot forms (TPs added later in Weapon Edit). Reminder retained: TP/plume render z below the sprite.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0)",
+    "C:\\Program Files\\Godot\\Godot.exe --headless --path . (7s smoke test — 0 errors)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/arena_weapons.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse + boot smoke clean. Manual F5: balls orbit the ship at ~200px and 150px/s, the ball sprite visibly spins (~40 RPM); after adding TPs in Weapon Edit, trails emit from ball and bot."
+   }
+  },
+  {
+   "id": 14,
+   "timestamp": "2026-06-27T13:00:00Z",
+   "task": "Swarmball: orbit radius 100; orbit-contact chip damage (no consume); on target death mid-charge, survivors re-loiter around the death spot then re-target.",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_weapons.gd",
+     "action": "edited",
+     "lines": "SBALL_LAUNCH_RADIUS 200->100 + SBALL_LOITER_HIT_CD (~213); _tick_swarm loiter/charge rework + new reloiter state; new _swarm_loiter_contact() (~3703)",
+     "reason": "(1) orbit radius 100. (2) While orbiting (loiter OR reloiter), _swarm_loiter_contact deals SBALL_DAMAGE (5, level/crit-scaled) + a DeathFX burst to any grazed enemy WITHOUT removing the ball, rate-limited per ball by SBALL_LOITER_HIT_CD (0.3s). (3) In charge, the ball remembers its target's last position (last_tp); if the target dies before impact, the ball switches to a new 'reloiter' state that orbits b['center'] = the death spot for SBALL_LOITER_TIME (1.5s), then re-acquires via the original player-based _acquire_swarm_target and charges again. life resets whenever a target is (re)acquired so productive balls aren't culled by SBALL_MAX_LIFE. Mid-flight detonation collision is now gated to state=='charge' only. Volley spawn/cooldown is untouched (independent)."
+    }
+   ],
+   "changes_summary": "Swarm radius 100; orbiting balls chip enemies (5 dmg + VFX, not consumed, 0.3s/ball cd); if a charge target dies, the remaining balls orbit the death spot 1.5s, re-acquire (player-based), and charge on — without affecting the player's volley spawning.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0)",
+    "C:\\Program Files\\Godot\\Godot.exe --headless --path . (6s smoke test — 0 errors)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/arena_weapons.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse + boot smoke clean. Manual F5: orbit radius ~100; let a ball graze an enemy while orbiting -> 5 dmg + burst, ball persists; kill the charged target before impact -> survivors orbit the death point ~1.5s then pick a new target and charge."
+   }
+  },
+  {
+   "id": 15,
+   "timestamp": "2026-06-27T13:30:00Z",
+   "task": "Reloiter: distribute the balls evenly around the circle.",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_weapons.gd",
+     "action": "edited",
+     "lines": "_launch_swarm_volley adds 'idx' (~3589); reloiter entry in _tick_swarm charge (~3645)",
+     "reason": "Each ball stores its launch slot 'idx' (0..SBALL_COUNT-1). On entering reloiter it is placed at angle = TAU*idx/SBALL_COUNT at radius SBALL_LAUNCH_RADIUS around the death spot (instead of keeping its incoming offset), so the survivors are evenly spaced on the circle; equal radius keeps the spacing constant as they orbit."
+    }
+   ],
+   "changes_summary": "Reloiter now spaces balls evenly around the death-spot circle (by launch slot index) instead of clustering at their incoming offsets.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/arena_weapons.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse clean. Manual F5: kill a charged target -> survivors snap to evenly-spaced points around the death spot and orbit together."
+   }
+  },
+  {
+   "id": 16,
+   "timestamp": "2026-06-27T14:00:00Z",
+   "task": "Fix: arena spiders lost their jump-when-moving logic (user noticed after the HD sprite swap).",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_wave_director.gd",
+     "action": "edited",
+     "lines": "ENEMY_DEFS spider (~33)",
+     "reason": "Root cause was NOT the HD sprite swap — git blame shows commit 678e821 'new stuff' changed spider behavior 'jump_diag' -> 'chase' (alongside a rebalance: hp 60->500, speed 130->80, xp 8->50, +group/level). Restored behavior to 'jump_diag' (the engine + CLAUDE.md spec for spider; _jump_tick diagonal leaps + dash.wav SFX) while KEEPING the new rebalanced stats. Only the behavior field changed."
+    }
+   ],
+   "changes_summary": "Spider behavior restored to jump_diag (45-degree diagonal leaps) — it had been changed to plain chase in the 'new stuff' commit. Rebalanced stats (HP 500 / speed 80 / xp 50 / insects L3) preserved.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/arena_wave_director.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse clean. Manual F5: spawn spiders (Dev Quick Spawn or the 24s wave) -> they wait, then leap along the nearest 45-degree diagonal (with dash.wav), instead of walking straight."
+   }
+  },
+  {
+   "id": 17,
+   "timestamp": "2026-06-27T14:30:00Z",
+   "task": "Delete top-level assets/*.png that no code references (subfolders left untouched).",
+   "files_modified": [
+    {
+     "path": "assets/*.png (top-level only) + their .import",
+     "action": "deleted",
+     "lines": "12 PNGs: Boomerang.png, Boomerang 2.png, Boomerang 3.png, Bug 2.png, Bug_3.png, Bug_4.png, Bug_5.png, Bug_6.png, Fire_reference.png, Flame sprite.png, soff_flame_2.png, soft flame.png",
+     "reason": "Leftover reference/experiment images with zero references across .gd/.tscn/.tres/.cfg/.gdshader (by filename path AND by uid). Kept Soft_flame_3.png (used by dynamic_fire.gd flame_texture_path). Only the assets/ root was scanned; subfolders untouched."
+    }
+   ],
+   "changes_summary": "Removed 12 unreferenced loose PNGs from assets/ root (and their .import). Soft_flame_3.png retained. Verified no scene/script/uid references; headless boot clean. Tracked in git so recoverable.",
+   "commands_executed": [
+    "git rm --force (12 png + 12 .import)",
+    "C:\\Program Files\\Godot\\Godot.exe --headless --path . (boot smoke — 0 errors / no missing-resource)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- assets/ (restores the deleted PNGs + .import)"
+   ],
+   "verification": {
+    "status": "success",
+    "notes": "grep over .gd/.tscn/.tres/.cfg/.gdshader (path + the 3 sampled uids) found no references to any deleted file; headless boot produced no missing-resource/load errors."
+   }
+  }
+ ]
+}
