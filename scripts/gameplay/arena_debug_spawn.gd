@@ -32,7 +32,7 @@ const WEAPON_TABS := {
 		{"kind": "gatling",   "def_id": "gatling_gun",  "label": "Kinetic Auto Cannon"},
 		{"kind": "lasgun",    "def_id": "lasgun",        "label": "Solid-State Laser"},
 		{"kind": "orbital",   "def_id": "orbitals",      "label": "Orbital Impact Defense"},
-		{"kind": "",          "def_id": "swarm_host",    "label": "Orbital Impact Offense", "code": "Striker", "ph": true},
+		{"kind": "striker",   "def_id": "swarm_host",    "label": "Orbital Impact Offense", "code": "Striker"},
 		{"kind": "chemtrail", "def_id": "chemtrail",     "label": "Biocide Vaporizer"},
 		{"kind": "void",      "def_id": "rift_maker",    "label": "Vacuum Decoupler"},
 		{"kind": "arc",       "def_id": "arc",           "label": "Arc Lightning Chain"},
@@ -115,6 +115,14 @@ var _weapon_panel: Panel = null   # Spawn Weapon — button-toggled, default hid
 var _weapon_grid: GridContainer = null         # current-tab cell grid (rebuilt on tab switch)
 var _weapon_tab: String = "drop"               # active weapon tab
 var _weapon_tab_btns: Dictionary = {}          # tab id → Button (for highlight)
+# Creep panel tabs: Enemies (quick-spawn grid) + Fleet (saved-fleet list + formation preview)
+var _creep_tab: String = "enemies"
+var _creep_tab_btns: Dictionary = {}
+var _creep_enemies_content: Control = null
+var _creep_fleet_content: Control = null
+var _fleet_list_vbox: VBoxContainer = null
+var _fleet_preview: Control = null             # floating 500×500 formation preview (hover)
+var _fleet_icon_cache: Dictionary = {}
 var _hotkey_panel: Panel = null   # Hotkey help (right side) — button-toggled, default hidden
 var _click_player: AudioStreamPlayer = null   # uiclick — local + ALWAYS so it sounds while paused
 
@@ -159,10 +167,13 @@ func set_dev_ui_visible(v: bool) -> void:
 		if _creep_panel != null:  _creep_panel.visible = false
 		if _weapon_panel != null: _weapon_panel.visible = false
 		if _hotkey_panel != null: _hotkey_panel.visible = false
+		_hide_fleet_preview()
 
 func toggle_creep_panel() -> void:
 	if _creep_panel != null:
 		_creep_panel.visible = not _creep_panel.visible
+		if not _creep_panel.visible:
+			_hide_fleet_preview()
 
 func toggle_weapon_panel() -> void:
 	if _weapon_panel != null:
@@ -319,7 +330,8 @@ func _build_quick_spawn_panel() -> void:
 		return
 	const CELL  := 48
 	const COLS  := 4
-	const HDR_H := 50
+	const HDR_H := 28
+	const TAB_H := 26
 	const W     := COLS * CELL   # 192 px
 	const GRID_H := CELL * 4    # 4 visible rows = 192 px
 
@@ -335,7 +347,7 @@ func _build_quick_spawn_panel() -> void:
 	panel.anchor_top    = 1.0; panel.anchor_bottom = 1.0
 	panel.offset_left   = 8.0
 	panel.offset_right  = 8.0 + W
-	panel.offset_top    = -(HDR_H + GRID_H + 8)
+	panel.offset_top    = -(HDR_H + TAB_H + GRID_H + 16)
 	panel.offset_bottom = -8.0
 	panel.visible = false               # button-toggled (default hidden even when dev:on)
 	_creep_panel = panel
@@ -346,21 +358,11 @@ func _build_quick_spawn_panel() -> void:
 	vbox.add_theme_constant_override("separation", 0)
 	panel.add_child(vbox)
 
-	# Header row
+	# Header row — CLEAR ALL only (the old "Quick Spawn" title is now the Enemies tab).
 	var hdr := HBoxContainer.new()
 	hdr.custom_minimum_size = Vector2(0.0, float(HDR_H))
 	hdr.add_theme_constant_override("separation", 0)
 	vbox.add_child(hdr)
-
-	var lbl_title := Label.new()
-	lbl_title.text = "Quick Spawn"
-	lbl_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl_title.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	lbl_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	lbl_title.add_theme_font_size_override("font_size", 11)
-	lbl_title.add_theme_color_override("font_color", Color(0.75, 0.87, 1.00))
-	hdr.add_child(lbl_title)
-
 	var btn_clear := Button.new()
 	btn_clear.text = "CLEAR ALL"
 	btn_clear.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -368,23 +370,189 @@ func _build_quick_spawn_panel() -> void:
 	btn_clear.pressed.connect(_clear_quick_spawn)
 	hdr.add_child(btn_clear)
 
+	# Tab row — Enemies / Fleet
+	var tabs := HBoxContainer.new()
+	tabs.custom_minimum_size = Vector2(0.0, float(TAB_H))
+	tabs.add_theme_constant_override("separation", 2)
+	vbox.add_child(tabs)
+	_creep_tab_btns.clear()
+	for tab_def: Array in [["enemies", "Enemies"], ["fleet", "Fleet"]]:
+		var tb := Button.new()
+		tb.text = String(tab_def[1])
+		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tb.focus_mode = Control.FOCUS_NONE
+		tb.add_theme_font_size_override("font_size", 10)
+		tb.pressed.connect(_select_creep_tab.bind(String(tab_def[0])))
+		tabs.add_child(tb)
+		_creep_tab_btns[String(tab_def[0])] = tb
+
 	vbox.add_child(HSeparator.new())
 
-	# Scrollable grid (4 visible rows, scrolls for row 5+)
-	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(float(W), float(GRID_H))
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_AUTO
-	vbox.add_child(scroll)
+	# Content holder — both tab panels overlap full-rect; visibility is toggled.
+	var content := Control.new()
+	content.custom_minimum_size = Vector2(float(W), float(GRID_H))
+	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(content)
 
+	# Enemies tab — the quick-spawn grid (4 visible rows, scrolls for row 5+).
+	var escroll := ScrollContainer.new()
+	escroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	escroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	escroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_AUTO
+	content.add_child(escroll)
+	_creep_enemies_content = escroll
 	var grid := GridContainer.new()
 	grid.columns = COLS
 	grid.add_theme_constant_override("h_separation", 0)
 	grid.add_theme_constant_override("v_separation", 0)
-	scroll.add_child(grid)
-
+	escroll.add_child(grid)
 	for type_id: String in QUICK_SPAWN_ORDER:
 		grid.add_child(_make_quick_cell(type_id, CELL))
+
+	# Fleet tab — list of saved fleets (formation preview on hover, click to spawn).
+	var fscroll := ScrollContainer.new()
+	fscroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	fscroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	content.add_child(fscroll)
+	_creep_fleet_content = fscroll
+	_fleet_list_vbox = VBoxContainer.new()
+	_fleet_list_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_fleet_list_vbox.add_theme_constant_override("separation", 2)
+	fscroll.add_child(_fleet_list_vbox)
+
+	# Floating 500×500 formation preview (shown while hovering a fleet row) — to the right of both panels.
+	_fleet_preview = _FleetPreview.new()
+	_fleet_preview.editor = self
+	_fleet_preview.anchor_left = 0.0; _fleet_preview.anchor_right = 0.0
+	_fleet_preview.anchor_top  = 1.0; _fleet_preview.anchor_bottom = 1.0
+	_fleet_preview.offset_left   = 8.0 + W + 8.0 + W + 8.0
+	_fleet_preview.offset_right  = 8.0 + W + 8.0 + W + 8.0 + 500.0
+	_fleet_preview.offset_top    = -8.0 - 500.0
+	_fleet_preview.offset_bottom = -8.0
+	_fleet_preview.mouse_filter  = Control.MOUSE_FILTER_IGNORE
+	_fleet_preview.visible = false
+	_dev_ui_root.add_child(_fleet_preview)
+
+	_select_creep_tab("enemies")
+
+## Switch the creep panel between the Enemies grid and the Fleet list.
+func _select_creep_tab(tab_id: String) -> void:
+	_creep_tab = tab_id
+	for id: String in _creep_tab_btns.keys():
+		var active: bool = id == tab_id
+		(_creep_tab_btns[id] as Button).modulate = Color(1, 1, 1, 1) if active else Color(0.62, 0.66, 0.78, 1)
+	if _creep_enemies_content != null:
+		_creep_enemies_content.visible = (tab_id == "enemies")
+	if _creep_fleet_content != null:
+		_creep_fleet_content.visible = (tab_id == "fleet")
+	if tab_id == "fleet":
+		_rebuild_fleet_list()   # refresh in case fleets were edited since last open
+	else:
+		_hide_fleet_preview()
+
+## Rebuild the Fleet tab's list from res://fleet_layout.cfg.
+func _rebuild_fleet_list() -> void:
+	if _fleet_list_vbox == null:
+		return
+	for c in _fleet_list_vbox.get_children():
+		c.queue_free()
+	var fleets := _load_fleets()
+	if fleets.is_empty():
+		var lbl := Label.new()
+		lbl.text = "(no fleets saved)"
+		lbl.add_theme_font_size_override("font_size", 10)
+		lbl.add_theme_color_override("font_color", Color(0.6, 0.6, 0.65))
+		_fleet_list_vbox.add_child(lbl)
+		return
+	for fl: Dictionary in fleets:
+		var nm := String(fl.get("name", "Fleet"))
+		var b := Button.new()
+		b.text = nm
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.custom_minimum_size = Vector2(0.0, 24.0)
+		b.focus_mode = Control.FOCUS_NONE
+		b.add_theme_font_size_override("font_size", 11)
+		b.tooltip_text = "Click to spawn this fleet"
+		var cap_fl := fl
+		b.mouse_entered.connect(func() -> void: _show_fleet_preview(cap_fl))
+		b.mouse_exited.connect(func() -> void: _hide_fleet_preview())
+		b.pressed.connect(func() -> void: _spawn_fleet(cap_fl))
+		_fleet_list_vbox.add_child(b)
+
+func _load_fleets() -> Array:
+	var cfg := ConfigFile.new()
+	if cfg.load("res://fleet_layout.cfg") != OK:
+		return []
+	var data = cfg.get_value("fleets", "data", [])
+	return data if data is Array else []
+
+func _show_fleet_preview(fl: Dictionary) -> void:
+	if _fleet_preview == null:
+		return
+	_fleet_preview.set_fleet(fl)
+	_fleet_preview.visible = true
+	_fleet_preview.move_to_front()   # above the weapon/hotkey panels
+
+func _hide_fleet_preview() -> void:
+	if _fleet_preview != null:
+		_fleet_preview.visible = false
+
+## Icon for a fleet preview cell (by enemy id), cached.
+func _fleet_icon(id: String) -> Texture2D:
+	if _fleet_icon_cache.has(id):
+		return _fleet_icon_cache[id]
+	var d: Dictionary = WaveDir.ENEMY_DEFS.get(id, {})
+	var path := String(d.get("icon", ""))
+	var tex: Texture2D = _load_thumb(path) if path != "" else null
+	_fleet_icon_cache[id] = tex
+	return tex
+
+## Spawn a fleet EXACTLY like Wave Edit does — route through the wave director's _deploy_fleet so the
+## carrier logic (mothership docking/flee/respawn), per-slot sizes and off-screen entry all match the real
+## wave deploy. Only falls back to independent-unit spawning if no wave director is present.
+func _spawn_fleet(fl: Dictionary) -> void:
+	if _deploy_fleet_via_director(String(fl.get("name", ""))):
+		return
+	var slots: Array = fl.get("slots", [])
+	var sum := Vector2.ZERO
+	var cnt := 0
+	for s: Dictionary in slots:
+		if not (s.get("enemies", []) as Array).is_empty():
+			sum += (s.get("pos", Vector2.ZERO) as Vector2)
+			cnt += 1
+	if cnt == 0:
+		return
+	var centroid := sum / float(cnt)
+	var cam := get_viewport().get_camera_2d()
+	var base := cam.global_position if cam != null else Vector2.ZERO
+	for s: Dictionary in slots:
+		var enemies: Array = s.get("enemies", [])
+		if enemies.is_empty():
+			continue
+		var id := String(enemies[_rng.randi() % enemies.size()])
+		var pos := base + ((s.get("pos", Vector2.ZERO) as Vector2) - centroid)
+		_spawn_enemy_at(id, pos)
+
+## Deploy a fleet by name through the wave director — the SAME code path Wave Edit uses. Returns false if
+## the director is unavailable (so the caller can fall back).
+func _deploy_fleet_via_director(fleet_name: String) -> bool:
+	if fleet_name == "":
+		return false
+	var wd := get_tree().get_first_node_in_group("wave_director")
+	if wd == null or not wd.has_method("_deploy_fleet"):
+		return false
+	wd.call("_deploy_fleet", fleet_name, false)
+	return true
+
+## First saved fleet whose any slot contains `unit_id` — used to deploy a carrier fleet from a lone
+## Enemies-tab click on a mothership unit.
+func _fleet_name_containing(unit_id: String) -> String:
+	for fl: Dictionary in _load_fleets():
+		for s: Dictionary in (fl.get("slots", []) as Array):
+			for en in (s.get("enemies", []) as Array):
+				if String(en) == unit_id:
+					return String(fl.get("name", ""))
+	return ""
 
 func _make_quick_cell(type_id: String, cell_size: int) -> Control:
 	var is_boss: bool = QUICK_BOSS_IDS.has(type_id)
@@ -447,16 +615,23 @@ func _load_thumb(icon: String) -> Texture2D:
 	return t
 
 func _spawn_quick_enemy(type_id: String) -> void:
-	var src: Dictionary = WaveDir.ENEMY_DEFS.get(type_id, {})
-	if src.is_empty():
-		return
-	var def := src.duplicate()
-	var mgr := get_tree().get_first_node_in_group("enemy_manager")
-
 	# Random position within roughly the visible viewport
 	var cam := get_viewport().get_camera_2d()
 	var base := cam.global_position if cam != null else Vector2.ZERO
 	var pos := base + Vector2(_rng.randf_range(-500.0, 500.0), _rng.randf_range(-270.0, 270.0))
+	_spawn_enemy_at(type_id, pos)
+
+## Instantiate one enemy of `type_id` at `pos` (shared by quick-spawn + fleet-spawn).
+func _spawn_enemy_at(type_id: String, pos: Vector2) -> void:
+	var src: Dictionary = WaveDir.ENEMY_DEFS.get(type_id, {})
+	if src.is_empty():
+		return
+	# A carrier (mothership) spawned alone makes no sense — deploy its full fleet, exactly like Wave Edit.
+	if String(src.get("behavior", "")) == "mothership":
+		if _deploy_fleet_via_director(_fleet_name_containing(type_id)):
+			return
+	var def := src.duplicate()
+	var mgr := get_tree().get_first_node_in_group("enemy_manager")
 
 	var e: Node
 	if def.has("boss_script"):
@@ -721,3 +896,52 @@ func _build_hotkey_panel() -> void:
 		lbl.add_theme_font_size_override("font_size", 11)
 		lbl.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95, 0.90))
 		vbox.add_child(lbl)
+
+# ── Fleet formation preview ──────────────────────────────────────────────────────
+
+## Hovered-fleet formation preview: draws each non-empty slot's representative sprite at its placed
+## position/size, scaled to fit the 500px box. Mirrors arena_wave_editor.gd's _FleetPreview.
+class _FleetPreview extends Control:
+	var editor = null
+	var fleet: Dictionary = {}
+	func set_fleet(f: Dictionary) -> void:
+		fleet = f
+		queue_redraw()
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.03, 0.05, 0.08, 0.95))
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.30, 0.40, 0.50, 0.6), false, 1.0)
+		if fleet.is_empty() or editor == null:
+			return
+		var slots: Array = fleet.get("slots", [])
+		var rects: Array = []
+		var mn := Vector2(INF, INF)
+		var mx := Vector2(-INF, -INF)
+		for s: Dictionary in slots:
+			var enemies: Array = s.get("enemies", [])
+			if enemies.is_empty():
+				continue
+			var tex: Texture2D = editor._fleet_icon(String(enemies[0]))
+			var w: float = float(s.get("size", 50.0))
+			var h := w
+			if tex != null and tex.get_width() > 0:
+				h = w * float(tex.get_height()) / float(tex.get_width())
+			var p: Vector2 = s.get("pos", Vector2.ZERO)
+			rects.append({"tex": tex, "p": p, "w": w, "h": h})
+			mn.x = minf(mn.x, p.x - w * 0.5); mn.y = minf(mn.y, p.y - h * 0.5)
+			mx.x = maxf(mx.x, p.x + w * 0.5); mx.y = maxf(mx.y, p.y + h * 0.5)
+		if rects.is_empty():
+			return
+		var span := mx - mn
+		var avail := size - Vector2(40.0, 40.0)
+		var sc := minf(avail.x / maxf(span.x, 1.0), avail.y / maxf(span.y, 1.0))
+		sc = minf(sc, 1.0)
+		var center := (mn + mx) * 0.5
+		for r: Dictionary in rects:
+			var rw: float = float(r["w"]) * sc
+			var rh: float = float(r["h"]) * sc
+			var rp: Vector2 = (r["p"] as Vector2 - center) * sc + size * 0.5
+			var rect := Rect2(rp - Vector2(rw, rh) * 0.5, Vector2(rw, rh))
+			if r["tex"] != null:
+				draw_texture_rect(r["tex"] as Texture2D, rect, false)
+			else:
+				draw_rect(rect, Color(0.4, 0.5, 0.7, 0.6))

@@ -16,10 +16,18 @@ const ENEMY_ROWS := 5
 const CELL       := 50.0        # slot square px
 const PANEL_W    := 250.0
 const FONT_PATH  := "res://assets/fonts/Gameplay.ttf"
+const ZOOM_MIN   := 0.4
+const ZOOM_MAX   := 5.0
+const ZOOM_RATIO := 1.15        # per wheel notch
 
 var _oc: Control = null
 var _open: bool = false
 var _prev_paused: bool = false
+
+# Canvas view transform (screen = world * _zoom + _pan). Placeholders are drawn manually, so zoom
+# is applied in _draw_canvas / _slot_at / drag rather than by scaling a node (cf. Creep Edit).
+var _zoom: float = 1.0
+var _pan: Vector2 = Vector2.ZERO
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 # _fleets: [ { "name": String, "slots": [ { "enemies": [id,...], "pos": Vector2, "size": float } x SLOT_COUNT ] } ]
@@ -40,9 +48,11 @@ var _enemy_grid: GridContainer = null
 var _w_spin: SpinBox = null
 var _x_spin: SpinBox = null
 var _y_spin: SpinBox = null
+var _rot_spin: SpinBox = null
 var _ctx_menu: PopupMenu = null
 var _ctx_fleet: int = -1
 var _font: Font = null
+var _preview: Control = null              # 500×500 formation preview shown while hovering a FLEET row
 
 # on-screen drag
 var _dragging: bool = false
@@ -76,6 +86,8 @@ func toggle() -> void:
 func _open_panel() -> void:
 	_open = true
 	visible = true
+	_zoom = 1.0
+	_pan = Vector2.ZERO
 	_prev_paused = get_tree().paused
 	get_tree().paused = true
 	_arena_focus(true)
@@ -97,29 +109,39 @@ func _arena_focus(on: bool) -> void:
 	if arena != null and arena.has_method("set_edit_focus"):
 		arena.set_edit_focus(on)
 
-## Arrow keys nudge the selected slot(s) on screen (Shift = ×10). Skipped while a text field has focus.
+## Arrow keys ALWAYS nudge the selected slot(s) (Shift = ×10) — even while a transform field is
+## focused (they never reach the SpinBox). Delete clears the selection, but only when NOT editing text.
 func _input(event: InputEvent) -> void:
 	if not _open or not (event is InputEventKey) or not (event as InputEventKey).pressed:
 		return
-	if get_viewport().gui_get_focus_owner() is LineEdit:
-		return   # let the W/X/Y SpinBoxes use arrows for text editing
+	var ke := event as InputEventKey
+	# Arrow keys: move selected object, regardless of focus.
 	var dir := Vector2.ZERO
-	match (event as InputEventKey).keycode:
+	match ke.keycode:
 		KEY_UP:    dir = Vector2(0.0, -1.0)
 		KEY_DOWN:  dir = Vector2(0.0,  1.0)
 		KEY_LEFT:  dir = Vector2(-1.0, 0.0)
 		KEY_RIGHT: dir = Vector2(1.0,  0.0)
-	if dir == Vector2.ZERO or _sel_slots.is_empty():
+	if dir != Vector2.ZERO:
+		if _sel_slots.is_empty():
+			return
+		if ke.shift_pressed:
+			dir *= 10.0
+		var slots := _active_slots()
+		for si in _sel_slots:
+			if si >= 0 and si < slots.size():
+				slots[si]["pos"] = (slots[si]["pos"] as Vector2) + dir
+		_refresh_transform()
+		queue_redraw_canvas()
+		get_viewport().set_input_as_handled()
 		return
-	if (event as InputEventKey).shift_pressed:
-		dir *= 10.0
-	var slots := _active_slots()
-	for si in _sel_slots:
-		if si >= 0 and si < slots.size():
-			slots[si]["pos"] = (slots[si]["pos"] as Vector2) + dir
-	_refresh_transform()
-	queue_redraw_canvas()
-	get_viewport().set_input_as_handled()
+	# Delete key → clear the selected Random alternative, else the selected Unit slot(s). Works even
+	# while a transform field is focused: only swallow the key if something was actually deleted,
+	# otherwise let the focused LineEdit handle Delete for text editing.
+	if ke.keycode == KEY_DELETE:
+		if _delete_selected_slot():
+			get_viewport().set_input_as_handled()
+		return
 
 # ── Enemy palette source ───────────────────────────────────────────────────────
 func _collect_enemy_ids() -> void:
@@ -158,6 +180,15 @@ func _build_ui() -> void:
 	_build_left_panel()
 	_build_right_panel()
 
+	# Hover preview (added last → drawn above the panels). Sits just right of the widened left panel.
+	_preview = _FleetPreview.new()
+	_preview.editor = self
+	_preview.position = Vector2(8.0 + PANEL_W + 50.0 + 12.0, 44.0)
+	_preview.size = Vector2(500.0, 500.0)
+	_preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_preview.visible = false
+	_root.add_child(_preview)
+
 	_ctx_menu = PopupMenu.new()
 	_ctx_menu.add_item("Rename", 0)
 	_ctx_menu.add_item("Copy", 1)
@@ -166,11 +197,11 @@ func _build_ui() -> void:
 	_ctx_menu.id_pressed.connect(_on_ctx_id)
 	add_child(_ctx_menu)
 
-func _mk_panel(x: float) -> VBoxContainer:
+func _mk_panel(x: float, width: float = PANEL_W) -> VBoxContainer:
 	var panel := Panel.new()
 	panel.position = Vector2(x, 44.0)
-	panel.custom_minimum_size = Vector2(PANEL_W, 0.0)
-	panel.size = Vector2(PANEL_W, 700.0)
+	panel.custom_minimum_size = Vector2(width, 0.0)
+	panel.size = Vector2(width, 760.0)
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_root.add_child(panel)
 	var vb := VBoxContainer.new()
@@ -194,7 +225,7 @@ func _hdr(parent: Control, text: String) -> HBoxContainer:
 	return row
 
 func _build_left_panel() -> void:
-	var vb := _mk_panel(8.0)
+	var vb := _mk_panel(8.0, PANEL_W + 50.0)   # background extended 50px to the right
 
 	# FLEET table
 	var fh := _hdr(vb, "FLEET")
@@ -204,7 +235,7 @@ func _build_left_panel() -> void:
 	add_btn.pressed.connect(_on_add_fleet)
 	fh.add_child(add_btn)
 	var fscroll := ScrollContainer.new()
-	fscroll.custom_minimum_size = Vector2(0.0, 130.0)
+	fscroll.custom_minimum_size = Vector2(0.0, 260.0)   # show ~10 fleet rows (24px + 2px sep) before scrolling
 	fscroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	vb.add_child(fscroll)
 	_fleet_vbox = VBoxContainer.new()
@@ -256,6 +287,8 @@ func _build_right_panel() -> void:
 	_w_spin = _mk_tspin(vb, "W", 4.0, 400.0, 1.0, _on_w_changed)
 	_x_spin = _mk_tspin(vb, "X", -4000.0, 4000.0, 1.0, _on_xy_changed)
 	_y_spin = _mk_tspin(vb, "Y", -4000.0, 4000.0, 1.0, _on_xy_changed)
+	_rot_spin = _mk_tspin(vb, "Rot", -180.0, 180.0, 1.0, _on_rot_changed)
+	_rot_spin.suffix = "°"
 
 	vb.add_child(HSeparator.new())
 
@@ -306,7 +339,7 @@ func _build_enemy_palette() -> void:
 func _on_add_fleet() -> void:
 	var slots: Array = []
 	for i in SLOT_COUNT:
-		slots.append({"enemies": [], "pos": Vector2(400.0 + float(i) * 70.0, 300.0), "size": 50.0})
+		slots.append({"enemies": [], "pos": Vector2(400.0 + float(i) * 70.0, 300.0), "size": 50.0, "rot": 0.0})
 	_fleets.append({"name": "New Fleet", "slots": slots})
 	_active_fleet = _fleets.size() - 1
 	_active_unit = -1
@@ -333,6 +366,17 @@ func _rebuild_fleet_list() -> void:
 		lbl.custom_minimum_size = Vector2(0.0, 24.0)
 		lbl.set_active(fi == _active_fleet)
 		_fleet_vbox.add_child(lbl)
+
+## Hover a FLEET row → show its formation in the 500×500 preview (mirrors the Wave Editor preview).
+func _show_fleet_preview(fi: int) -> void:
+	if _preview == null or fi < 0 or fi >= _fleets.size():
+		return
+	_preview.set_fleet(_fleets[fi])
+	_preview.visible = true
+
+func _hide_fleet_preview() -> void:
+	if _preview != null:
+		_preview.visible = false
 
 func _select_fleet(fi: int) -> void:
 	_active_fleet = fi
@@ -403,7 +447,7 @@ func _on_ctx_id(id: int) -> void:
 func _dup_fleet(fl: Dictionary) -> Dictionary:
 	var slots: Array = []
 	for s: Dictionary in fl["slots"]:
-		slots.append({"enemies": (s["enemies"] as Array).duplicate(), "pos": s["pos"], "size": s["size"]})
+		slots.append({"enemies": (s["enemies"] as Array).duplicate(), "pos": s["pos"], "size": s["size"], "rot": s.get("rot", 0.0)})
 	return {"name": String(fl.get("name", "Fleet")), "slots": slots}
 
 # ── Unit table ─────────────────────────────────────────────────────────────────
@@ -513,12 +557,37 @@ func click_slot(slot_index: int, is_random: bool, additive: bool = false) -> voi
 	_refresh_transform()
 	queue_redraw_canvas()
 
+## Delete key handler. If a Random alternative is selected, remove just that one from the active
+## Unit's pool; otherwise clear the selected Unit slot(s). Returns true if anything was deleted.
+func _delete_selected_slot() -> bool:
+	var slots := _active_slots()
+	if slots.is_empty():
+		return false
+	if _active_rand >= 0 and _active_unit >= 0 and _active_unit < slots.size():
+		var pool: Array = slots[_active_unit]["enemies"]
+		if _active_rand < pool.size():
+			pool.remove_at(_active_rand)
+			slots[_active_unit]["enemies"] = pool
+		_active_rand = -1
+	elif not _sel_slots.is_empty():
+		for si in _sel_slots:
+			if si >= 0 and si < slots.size():
+				slots[si]["enemies"] = []
+		_active_rand = -1
+	else:
+		return false
+	_rebuild_unit_table()
+	_rebuild_rand_table()
+	_refresh_transform()
+	queue_redraw_canvas()
+	return true
+
 # ── Transform ──────────────────────────────────────────────────────────────────
 func _refresh_transform() -> void:
 	if _w_spin == null:
 		return
 	var single := _sel_slots.size() == 1
-	for sb: SpinBox in [_w_spin, _x_spin, _y_spin]:
+	for sb: SpinBox in [_w_spin, _x_spin, _y_spin, _rot_spin]:
 		sb.editable = single
 	if not single:
 		return
@@ -530,6 +599,7 @@ func _refresh_transform() -> void:
 	_w_spin.set_value_no_signal(float(s["size"]))
 	_x_spin.set_value_no_signal((s["pos"] as Vector2).x)
 	_y_spin.set_value_no_signal((s["pos"] as Vector2).y)
+	_rot_spin.set_value_no_signal(float(s.get("rot", 0.0)))
 
 func _on_w_changed() -> void:
 	var slots := _active_slots()
@@ -547,6 +617,15 @@ func _on_xy_changed() -> void:
 	var si: int = _sel_slots[0]
 	if si >= 0 and si < slots.size():
 		slots[si]["pos"] = Vector2(_x_spin.value, _y_spin.value)
+		queue_redraw_canvas()
+
+func _on_rot_changed() -> void:
+	var slots := _active_slots()
+	if _sel_slots.size() != 1:
+		return
+	var si: int = _sel_slots[0]
+	if si >= 0 and si < slots.size():
+		slots[si]["rot"] = _rot_spin.value
 		queue_redraw_canvas()
 
 # ── On-screen placeholders + drag ──────────────────────────────────────────────
@@ -573,40 +652,54 @@ func _draw_canvas(c: Control) -> void:
 		if id == "":
 			continue
 		var s: Dictionary = slots[si]
-		var pos: Vector2 = s["pos"]
-		var w: float = float(s["size"])
+		var w: float = float(s["size"]) * _zoom
 		var tex := _enemy_icon(id)
 		var h := w
 		if tex != null and tex.get_width() > 0:
 			h = w * float(tex.get_height()) / float(tex.get_width())
-		var rect := Rect2(pos - Vector2(w, h) * 0.5, Vector2(w, h))
+		var center: Vector2 = (s["pos"] as Vector2) * _zoom + _pan
+		var rot := deg_to_rad(float(s.get("rot", 0.0)))
+		# Draw in the slot's rotated frame: origin at its center, rect centered on origin.
+		c.draw_set_transform(center, rot, Vector2.ONE)
+		var rect := Rect2(-Vector2(w, h) * 0.5, Vector2(w, h))
 		if tex != null:
 			c.draw_texture_rect(tex, rect, false)
 		else:
 			c.draw_rect(rect, Color(0.4, 0.5, 0.7, 0.5))
 		if si in _sel_slots:
 			c.draw_rect(rect, Color(1.0, 0.85, 0.2, 0.9), false, 2.0)
+	c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _canvas_input(c: Control, event: InputEvent) -> void:
 	if not _open:
 		return
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
-		if mb.pressed:
-			var si := _slot_at(mb.position)
-			if si >= 0:
-				# Only SELECTED slots drag; clicking an unselected placeholder selects it first.
-				if not (si in _sel_slots):
-					_active_unit = si; _active_rand = -1; _sel_slots = [si]
-					_rebuild_unit_table(); _rebuild_rand_table(); _refresh_transform()
-				_dragging = true
-				_drag_last = mb.position
-				c.accept_event()
-		else:
-			_dragging = false
+		# Mouse wheel → zoom toward the cursor (like Creep Edit).
+		if mb.pressed and (mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN):
+			var factor := ZOOM_RATIO if mb.button_index == MOUSE_BUTTON_WHEEL_UP else (1.0 / ZOOM_RATIO)
+			var old_zoom := _zoom
+			_zoom = clampf(_zoom * factor, ZOOM_MIN, ZOOM_MAX)
+			_pan = mb.position - (mb.position - _pan) * (_zoom / old_zoom)
+			queue_redraw_canvas()
+			c.accept_event()
+			return
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.pressed:
+				var si := _slot_at(mb.position)
+				if si >= 0:
+					# Only SELECTED slots drag; clicking an unselected placeholder selects it first.
+					if not (si in _sel_slots):
+						_active_unit = si; _active_rand = -1; _sel_slots = [si]
+						_rebuild_unit_table(); _rebuild_rand_table(); _refresh_transform()
+					_dragging = true
+					_drag_last = mb.position
+					c.accept_event()
+			else:
+				_dragging = false
 	elif event is InputEventMouseMotion and _dragging:
 		var mm := event as InputEventMouseMotion
-		var delta := mm.position - _drag_last
+		var delta := (mm.position - _drag_last) / _zoom   # screen → world
 		_drag_last = mm.position
 		var slots := _active_slots()
 		for si2 in _sel_slots:
@@ -623,13 +716,16 @@ func _slot_at(p: Vector2) -> int:
 		if id == "":
 			continue
 		var s: Dictionary = slots[i]
-		var w: float = float(s["size"])
+		var w: float = float(s["size"]) * _zoom
 		var tex := _enemy_icon(id)
 		var h := w
 		if tex != null and tex.get_width() > 0:
 			h = w * float(tex.get_height()) / float(tex.get_width())
-		var rect := Rect2((s["pos"] as Vector2) - Vector2(w, h) * 0.5, Vector2(w, h))
-		if rect.has_point(p):
+		var center: Vector2 = (s["pos"] as Vector2) * _zoom + _pan
+		var rot := deg_to_rad(float(s.get("rot", 0.0)))
+		# Test in the slot's local (un-rotated) frame so rotated sprites hit-test correctly.
+		var local := (p - center).rotated(-rot)
+		if Rect2(-Vector2(w, h) * 0.5, Vector2(w, h)).has_point(local):
 			return i
 	return -1
 
@@ -657,6 +753,14 @@ class _FleetLabel extends Label:
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		add_theme_font_size_override("font_size", 12)
 		gui_input.connect(_on_input)
+		mouse_entered.connect(_on_enter)
+		mouse_exited.connect(_on_exit)
+	func _on_enter() -> void:
+		if owner_editor != null:
+			owner_editor._show_fleet_preview(fleet_index)
+	func _on_exit() -> void:
+		if owner_editor != null:
+			owner_editor._hide_fleet_preview()
 	func set_active(on: bool) -> void:
 		modulate = Color(1.0, 0.9, 0.4) if on else Color(0.85, 0.88, 0.95)
 	func _on_input(event: InputEvent) -> void:
@@ -771,3 +875,50 @@ class _Canvas extends Control:
 	func _gui_input(event: InputEvent) -> void:
 		if owner_editor != null:
 			owner_editor._canvas_input(self, event)
+
+## Hovered-fleet formation preview: draws each non-empty slot's representative sprite at its placed
+## position/size, scaled to fit the 500px box. Mirrors arena_wave_editor.gd's _FleetPreview.
+class _FleetPreview extends Control:
+	var editor = null
+	var fleet: Dictionary = {}
+	func set_fleet(f: Dictionary) -> void:
+		fleet = f
+		queue_redraw()
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.03, 0.05, 0.08, 0.95))
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.30, 0.40, 0.50, 0.6), false, 1.0)
+		if fleet.is_empty() or editor == null:
+			return
+		var slots: Array = fleet.get("slots", [])
+		var rects: Array = []
+		var mn := Vector2(INF, INF)
+		var mx := Vector2(-INF, -INF)
+		for s: Dictionary in slots:
+			var enemies: Array = s.get("enemies", [])
+			if enemies.is_empty():
+				continue
+			var tex: Texture2D = editor._enemy_icon(String(enemies[0]))
+			var w: float = float(s.get("size", 50.0))
+			var h := w
+			if tex != null and tex.get_width() > 0:
+				h = w * float(tex.get_height()) / float(tex.get_width())
+			var p: Vector2 = s.get("pos", Vector2.ZERO)
+			rects.append({"tex": tex, "p": p, "w": w, "h": h})
+			mn.x = minf(mn.x, p.x - w * 0.5); mn.y = minf(mn.y, p.y - h * 0.5)
+			mx.x = maxf(mx.x, p.x + w * 0.5); mx.y = maxf(mx.y, p.y + h * 0.5)
+		if rects.is_empty():
+			return
+		var span := mx - mn
+		var avail := size - Vector2(40.0, 40.0)
+		var sc := minf(avail.x / maxf(span.x, 1.0), avail.y / maxf(span.y, 1.0))
+		sc = minf(sc, 1.0)
+		var center := (mn + mx) * 0.5
+		for r: Dictionary in rects:
+			var rw: float = float(r["w"]) * sc
+			var rh: float = float(r["h"]) * sc
+			var rp: Vector2 = (r["p"] as Vector2 - center) * sc + size * 0.5
+			var rect := Rect2(rp - Vector2(rw, rh) * 0.5, Vector2(rw, rh))
+			if r["tex"] != null:
+				draw_texture_rect(r["tex"] as Texture2D, rect, false)
+			else:
+				draw_rect(rect, Color(0.4, 0.5, 0.7, 0.6))

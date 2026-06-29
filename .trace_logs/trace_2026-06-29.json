@@ -1,0 +1,180 @@
+{
+ "date": "2026-06-29",
+ "description": "Prosmothership carrier fleet move logic: docked pros escort + flee/release/respawn cycle.",
+ "entries": [
+  {
+   "id": 1,
+   "timestamp": "2026-06-29T00:00:00Z",
+   "task": "Give the Prosmothership fleet (prosmotherblank carrier + pros escort ships) a move/behavior cycle: every 50 HP the carrier takes, it turns around (50 rpm) and flees at 120 px/s while releasing its 5 docked escorts (1 per 0.5s); 5s after the last release it rebuilds the escort in order pros7, pros8, pros8, pros5, pros6 (2.5s each, 12.5s total), then returns to READY. Escorts ride docked in the carrier (rigid, no movement, no plume, vortex only) until released.",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_wave_director.gd",
+     "action": "modified",
+     "lines": "ENEMY_DEFS prosmotherblank: behavior chase->mothership, hp 20->150 (still lvl-scaled). _deploy_fleet: detect a mothership-behavior unit in the fleet -> route to new _deploy_mothership (mother + rigidly-docked escorts) instead of the generic per-slot spawn. _deploy_mothership honors authored slot sizes/offsets (scaled screen->world via the camera) so the squadron matches Fleet Edit, then calls mother.init_mothership(roster).",
+     "reason": "User updated the Prosmothership fleet layout and asked for its move logic. No fleet runtime controller existed (generic deploy spawned independent units); this wires the carrier as the controller. Authored sizes honored ONLY for carrier fleets (generic deploy still uses creep_layout sizes)."
+    },
+    {
+     "path": "scripts/gameplay/arena_enemy.gd",
+     "action": "modified",
+     "lines": "New MS_* consts (states + tunables: MS_TRIGGER_DMG 50, MS_TURN_RAD 300deg/s, MS_FLEE_SPEED 120, MS_RELEASE_INTERVAL 0.5, MS_WAIT_AFTER_RELEASE 5.0, MS_RESPAWN_INTERVAL 2.5, MS_RESPAWN_ORDER). New vars _docked, _force_draw_w, _ms_* state. configure(): read draw_w (override hit radius). _load_icon(): draw_w overrides creep_layout draw size. take_damage(): mothership accumulates damage -> at 50 (while READY) enters TURN. _die(): carrier releases docked escorts. _physics_process: docked enemies skip movement/gauss/knockback/auto-facing; mothership excluded from auto-facing. _tick_behavior: new 'mothership' case -> _tick_mothership. New methods: _tick_mothership (5-state machine), _ms_aim_facing, set_docked, _spawn_docked_child, init_mothership, _ms_release_child, _ms_build_respawn_bays, _ms_respawn_one, _ms_update_dock_positions.",
+     "reason": "arena_enemy.gd is the data-driven enemy engine (CLAUDE.md default target). Implemented the carrier as a new behavior + a docked-escort mode reusable by any future mothership fleet."
+    }
+   ],
+   "changes_summary": "Implemented the Prosmothership carrier fleet. The mother (prosmotherblank, now behavior 'mothership', hp 150*level) docks its pros escorts rigidly (no move/plume, vortex VFX kept, no collision so they don't shove the carrier). On every 50 damage taken while READY: TURN (about-face @300deg/s) -> FLEE (flee away @120 + release 5 escorts, 1 per 0.5s; released escorts detach into free 'chase' pros) -> WAIT 5s -> RESPAWN (rebuild 5 escorts in order pros7,pros8,pros8,pros5,pros6 @2.5s each) -> READY (fresh threshold). Carrier keeps fleeing through the whole cycle, resumes slow advance when re-armed. Deploy honors the Fleet Edit authored sizes/offsets for the formation.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/arena_enemy.gd scripts/gameplay/arena_wave_director.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse-check clean (exit 0). Manual F5 still needed: add a Wave (F7) of type fleet:Prosmothership (or trigger the wave), confirm escorts ride docked (vortex on, no plume), shoot the carrier ~50 dmg -> it turns and flees while launching escorts one by one, then 5s later rebuilds 5 escorts over ~12.5s. Open items to eyeball: formation scale vs Fleet Edit (authored sizes honored via camera-zoom factor), and whether READY-advance speed (60) feels right."
+   }
+  },
+  {
+   "id": 2,
+   "timestamp": "2026-06-29T01:00:00Z",
+   "task": "Fix carrier feedback: (1) fleets must enter from a random off-screen point like all enemies; (2) the carrier never turned (stayed upright); (3) respawn happened off-screen (carrier fled the whole cycle).",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_wave_director.gd",
+     "action": "modified",
+     "lines": "_deploy_fleet generic loop: anchor the formation at a random off-screen point (_one_position()) using each slot's offset from the fleet's non-empty centroid (new _fleet_centroid_screen helper). _deploy_mothership: spawn the mother at _one_position() instead of its authored screen pos (escort base_off stays relative to the mother).",
+     "reason": "#1 — the spawn-from-random-off-screen rule now applies to fleets too (was placing them at fixed authored mid-screen positions)."
+    },
+    {
+     "path": "scripts/gameplay/arena_enemy.gd",
+     "action": "modified",
+     "lines": "_tick_mothership: MS_READY now faces the player while advancing (was forcing _facing->0 = always upright) so the about-face is visible. MS_WAIT and MS_RESPAWN now HOLD position (velocity 0) instead of fleeing — the carrier flees only during MS_FLEE (the ~2.5s launch window), so the rebuild stays on-screen.",
+     "reason": "#2 — carrier never rotated because READY pinned it upright. #3 — fleeing 120px/s through the full ~20s cycle put the rebuild ~2400px off-screen; now flee distance is bounded to the launch window (~300px) and it holds while rebuilding."
+    }
+   ],
+   "changes_summary": "Fleets now enter from a random off-screen ring (centroid-anchored, relative offsets preserved). The carrier faces the player in READY so its 50-rpm about-face on trigger is visible, and it only flees while launching escorts (MS_FLEE), then holds position for the 5s wait + 12.5s rebuild so the respawn is on-screen. #4/#5 were already correct (released pros chase+attack, never re-dock; rebuild is a fixed 5s after the last launch, independent of how many pros are alive) — unchanged.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/arena_enemy.gd scripts/gameplay/arena_wave_director.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse-check clean (exit 0). Manual F5: spawn fleet:Prosmothership -> it enters from off-screen, advances facing the player; ~50 dmg -> about-face (50 rpm) + flee ~2.5s launching 5 escorts 1-per-0.5s, then stops; ~5s later rebuilds 5 escorts (pros7,pros8,pros8,pros5,pros6) over ~12.5s in view, then resumes advancing. Released escorts chase/attack and never re-dock."
+   }
+  },
+  {
+   "id": 3,
+   "timestamp": "2026-06-29T02:00:00Z",
+   "task": "Fix carrier feedback round 2: (1) escort pros spawned far too big vs the Fleet Edit design; (2) the mother still wasn't visibly respawning escorts after releasing them.",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_wave_director.gd",
+     "action": "modified",
+     "lines": "Dropped the camera-zoom (wps) conversion entirely. _deploy_fleet generic + _deploy_mothership now treat Fleet Edit px as world px 1:1: draw_w = authored slot size, base_off / slot offset = raw authored delta. Removed the unused `inv` (Transform2D) and _deploy_mothership's inv param.",
+     "reason": "#1 — the arena Camera2D zoom is <1, so wps>1 inflated draw_w (e.g. pros 46 -> ~46/zoom). Rendering authored sizes 1:1 in world keeps the squadron's proportions identical to the Fleet Edit canvas/preview and comparable to normal enemies (~60px)."
+    },
+    {
+     "path": "scripts/gameplay/arena_enemy.gd",
+     "action": "modified",
+     "lines": "New const MS_REGROUP_DIST (500). _tick_mothership: added `dist`; MS_WAIT and MS_RESPAWN now face the player and hold a standoff (_standoff at MS_REGROUP_DIST) instead of velocity=0. Flee@120 still only during MS_FLEE.",
+     "reason": "#2 — previous build had the carrier sit still (then earlier still: flee 120 for the whole ~20s cycle -> ~2400px off-screen). Sitting still with 150 HP and no escort shield = killed before the first respawn (7.5s); fleeing the whole time = respawn happened off-screen. Standoff hover keeps it on-screen at ~500px AND mobile, and respawned escorts re-shield it, so the rebuild actually completes in view."
+    }
+   ],
+   "changes_summary": "Escort/mother now render at their authored Fleet Edit sizes 1:1 in world (no camera-zoom inflation) so the formation matches the editor. During the 5s wait + 12.5s rebuild the carrier hovers at a 500px standoff from the player (facing it, mobile) instead of sitting still or fleeing off-screen — so the respawn is visible and the carrier survives long enough (and is re-shielded by the rebuilding escorts) to finish it.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/arena_enemy.gd scripts/gameplay/arena_wave_director.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse-check clean (exit 0). Manual F5: pros escort should now match the Fleet Edit size/layout; after the carrier launches its escorts it backs off to ~500px (still on-screen), then visibly rebuilds 5 escorts over ~12.5s and resumes. Tune MS_REGROUP_DIST if the hover sits off-screen on this viewport."
+   }
+  },
+  {
+   "id": 4,
+   "timestamp": "2026-06-29T03:00:00Z",
+   "task": "Make per-slot Fleet Edit size apply to ALL fleets on arena spawn (previously only the carrier honored it).",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_wave_director.gd",
+     "action": "modified",
+     "lines": "_spawn() gained an optional draw_w param (default 0.0 = use creep_layout size as before); when >0 it sets def['draw_w'] (also carried into the blob path). The generic fleet deploy now passes float(s.get('size', 0.0)) so each spawned fleet unit renders at its authored Fleet Edit size (world px, 1:1).",
+     "reason": "User asked that the size set in Fleet Edit take effect for every fleet on the arena, not just the mothership carrier. Non-fleet spawns (timeline units, quick spawn, death-spawns) pass no draw_w, so they are unchanged."
+    }
+   ],
+   "changes_summary": "Per-slot Fleet Edit size now applies to all fleets when deployed (via _spawn draw_w override), matching the editor layout. Normal (non-fleet) spawns keep using creep_layout sizes. Note: existing fleets whose slots are still at the default 50 will now render all those units at 50px world — re-check sizes in Fleet Edit if that looks off.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/arena_wave_director.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse-check clean (exit 0). Manual F5: deploy a non-carrier fleet (e.g. A.I.nimal/Kingdom) and confirm units render at their authored slot sizes; deploy Prosmothership and confirm it still matches."
+   }
+  },
+  {
+   "id": 5,
+   "timestamp": "2026-06-29T04:00:00Z",
+   "task": "Temporarily disable the carrier release/respawn cycle so the docked escort placement can be verified; the carrier just moves carrying all docked escorts.",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_enemy.gd",
+     "action": "modified",
+     "lines": "New const MS_CYCLE_ENABLED := false. take_damage() trigger now also requires MS_CYCLE_ENABLED, so the mother never leaves MS_READY (advance toward player) and keeps all escorts docked. Set MS_CYCLE_ENABLED = true to restore the flee/release/respawn cycle.",
+     "reason": "User wants to check whether the docked pros children sit in the right place; with the cycle off the carrier simply carries the full docked squadron while moving."
+    }
+   ],
+   "changes_summary": "Added a temporary MS_CYCLE_ENABLED flag (false) that gates the 50-dmg trigger. While off, the mothership stays in READY (faces player + advances at 60px/s) carrying all docked escorts pinned at their authored offsets — for placement verification. Flip to true to re-enable turn/flee/release/respawn.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "Set MS_CYCLE_ENABLED = true in scripts/gameplay/arena_enemy.gd to re-enable the cycle (or git checkout -- scripts/gameplay/arena_enemy.gd)"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse-check clean (exit 0). Manual F5: spawn Prosmothership -> it moves carrying all docked pros; verify each escort sits at its authored offset/size. Note the formation rotates with the carrier's facing (it turns to face the player)."
+   }
+  },
+  {
+   "id": 6,
+   "timestamp": "2026-06-29T05:00:00Z",
+   "task": "Make dev Quick Spawn deploy fleets exactly like Wave Edit (the root cause of 'pros rush out / no dock / no respawn' when testing via Quick Spawn).",
+   "files_modified": [
+    {
+     "path": "scripts/gameplay/arena_debug_spawn.gd",
+     "action": "modified",
+     "lines": "Root cause: _spawn_fleet (Fleet tab) and _spawn_enemy_at (Enemies tab) spawned each slot as an INDEPENDENT enemy via _spawn_enemy_at, never touching the wave director's _deploy_fleet -> no carrier/dock/respawn. Fix: _spawn_fleet now calls new _deploy_fleet_via_director(name) which routes to wave_director._deploy_fleet (same path as Wave Edit), with the old per-slot spawn kept only as a fallback. _spawn_enemy_at now detects a 'mothership'-behavior unit and deploys its whole fleet (via _fleet_name_containing) instead of a lone enemy. Added helpers _deploy_fleet_via_director + _fleet_name_containing.",
+     "reason": "User wants Quick Spawn to behave exactly like Wave Edit. Quick Spawn was bypassing the carrier deploy, which is why the carrier never docked/respawned and the pros rushed the player."
+    },
+    {
+     "path": "scripts/gameplay/arena_wave_director.gd",
+     "action": "modified",
+     "lines": "_deploy_fleet: ensure _player is resolved at the top (it may now be called outside _process via dev quick-spawn) so _one_position()/_spawn_center() don't hit a null _player.",
+     "reason": "Quick Spawn can call _deploy_fleet on a button press; guard against a transiently-null _player."
+    }
+   ],
+   "changes_summary": "Quick Spawn (Fleet tab click, or Enemies-tab click on a mothership unit like prosmotherblank) now deploys through wave_director._deploy_fleet — identical to Wave Edit: carrier docking, per-slot sizes, off-screen entry. Previously Quick Spawn spawned every slot as an independent chase enemy (no carrier), which is why the pros immediately rushed and nothing docked/respawned. Diagnostic prints from entry-prior still present for confirmation. MS_CYCLE_ENABLED remains false per the placement-check request.",
+   "commands_executed": [
+    "C:\\Program Files\\Godot\\Godot.exe --headless --check-only --path . --quit (exit 0)"
+   ],
+   "git_commit_hash": "pending (not committed)",
+   "rollback_steps": [
+    "git checkout -- scripts/gameplay/arena_debug_spawn.gd scripts/gameplay/arena_wave_director.gd"
+   ],
+   "verification": {
+    "status": "partial",
+    "notes": "Parse-check clean (exit 0). Manual F5: Quick Spawn -> Fleet tab -> Prosmothership (or Enemies tab -> prosmotherblank). Console should show '[FLEET] Prosmothership -> MOTHERSHIP path' + '[MOTHERSHIP] init: roster=5 docked=5'. Escorts should ride docked at their authored size/offset (cycle off). Then set MS_CYCLE_ENABLED=true to re-check the flee/release/respawn."
+   }
+  }
+ ]
+}

@@ -13,6 +13,7 @@ const SCREEN_ORIGIN   := Vector2(15.0, 8.0)
 # ── State ──────────────────────────────────────────────────────────────────────
 var _is_open:        bool    = false
 var _dirty:          bool    = false
+var _prev_paused:    bool    = false   # pause state before opening → restored on close (dev:on stays paused)
 var _active_boss:    String  = ""
 var _all_boss_names: Array[String] = []
 var _placed:         Dictionary = {}   # boss_name -> Array[EditableObjectNode]
@@ -664,6 +665,7 @@ func toggle() -> void:
 		_is_open = true
 		_grid_overlay.is_edit_open = true
 		_set_ui_visible(true)
+		_prev_paused = get_tree().paused
 		get_tree().paused = true
 		_reset_zoom()
 		_update_all_boss_interactivity()
@@ -697,7 +699,7 @@ func _close() -> void:
 	_select_obj(null)
 	_update_all_boss_interactivity()
 	_update_gameplay_visibility()
-	get_tree().paused = false
+	get_tree().paused = _prev_paused   # keep dev:on paused; only the dev:on→dev:off button resumes
 
 func _set_ui_visible(v: bool) -> void:
 	_dim_overlay.visible  = v

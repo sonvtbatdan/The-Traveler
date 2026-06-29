@@ -76,6 +76,7 @@ const WEAPON_INFO := {
 	"arc":         {"def_id": "arc",             "name": "Arc Lightning Chain",     "label": "Lightning",    "mfr": "Kwang Ming"},
 	"gauss":       {"def_id": "gauss_cannon",    "name": "Gauss Pulser",            "label": "Gauss",        "mfr": "Horizon Logistics x Vanguard Ballistics"},
 	"orbital":     {"def_id": "orbitals",        "name": "Orbital Impact Defense",  "label": "Defender",     "mfr": "Nebula Dynamics"},
+	"striker":     {"def_id": "swarm_host",      "name": "Orbital Impact Offense",  "label": "Striker",      "mfr": "Nebula Dynamics"},
 	"void":        {"def_id": "rift_maker",      "name": "Vacuum Decoupler",        "label": "Vacuum",       "mfr": "Horizon Logistics"},
 	"red_x":       {"def_id": "red_x",           "name": "Thermitic Discharger",    "label": "Red X",        "mfr": "Volney Elements"},
 	"chemtrail":   {"def_id": "chemtrail",       "name": "Biocide Vaporizer",       "label": "Stink Breath", "mfr": "Volney Elements"},
@@ -144,11 +145,19 @@ const ZSWORD_ARC_HALF    := 0.314159 # ~18° half-arc hit tolerance
 const ZSWORD_DAMAGE      := 45.0
 const ZSWORD_STAGGER     := 0.1
 # (slash visuals live in scripts/gameplay/fx/z_slash.gd; colours are ZSlash.LEAD_COL/LEAD_HOT there)
-# Ionizing Field (Energy) — always-on aura DoT around the ship.
+# Black Hole (Tachyon Displacer) — always-on aura DoT around the ship; visual = 2 EnergyVortex swirls
+# (creep-edit VFX) over a Vacuum-style gravitational-lens that distorts the space background.
 const IONIZE_TICK   := 0.3
 const IONIZE_RADIUS := 170.0
 const IONIZE_DAMAGE := 10.0
 const IONIZE_COL    := Color(0.6, 0.9, 1.0)
+const IONIZE_LENS_DIAM := 85.0    # gravitational-lens disc diameter around the ship (px) — 50% of the old 170
+const IONIZE_VORTEX_SCALE := 3.825   # zoom the 2 swirls (2.125 +50% +20%)
+const IONIZE_VORTEX_WIDTH := 0.4167  # line-width mult (0.5 ÷ 1.2 → absolute thickness unchanged after the +20% zoom)
+const IONIZE_LENS_BRIGHTNESS := 0.3  # <1 → the lens DARKENS the warped interior (no glare), like a real black hole
+const IONIZE_RIM_COL := Color(0.945, 0.459, 0.0)   # orange swirl rim = vortex1 core (#f17500)
+const IONIZE_RIM_SPIN := 2.2         # rim swirl rotation (rad/s)
+const IONIZE_GROUP_OPACITY := 0.75   # overall opacity of the whole Black Hole group (vortex + lens + rim)
 
 # ── TUNABLES: Batch-2 weapons (Boomerang / Parasite Cloud / Moroboshi-M1 / Swarm Host / Space Snake) ──
 # Boomerang (Kinetic) — a single PERPETUAL blade flying a 3-petal "trinity"/rose path around the ship: it loops
@@ -299,6 +308,21 @@ const streak_len_max       := 60.0    # streak length at full blur (px)
 const streak_width         := 18.0    # streak thickness (px)
 const streak_alpha         := 0.5
 
+# ── TUNABLES: Striker (Orbital Impact OFFENSE) — orbs circle the ship, then LAUNCH out to impact enemies ──
+const STRIKER_BALLS        := 3        # orbs orbiting the ship
+const STRIKER_RADIUS       := 90.0     # orbit radius (px)
+const STRIKER_SPIN         := 110.0    # deg/sec orbit
+const STRIKER_CHARGE       := 1.3      # s an orb orbits before it launches a strike
+const STRIKER_SPEED        := 660.0    # strike fly speed (px/s)
+const STRIKER_FLIGHT_MAX   := 0.75     # s max strike flight before it gives up + returns
+const STRIKER_HIT_RADIUS   := 28.0     # strike impact radius (px)
+const STRIKER_DAMAGE       := 30.0     # damage per impact (× mult, crit-rollable)
+const STRIKER_RANGE        := 560.0    # max target-acquisition range from the orb
+const STRIKER_RETURN_LERP  := 9.0      # how fast an orb eases back onto the orbit after a strike
+const STRIKER_STAGGER      := 0.18     # extra stagger applied to struck enemies
+const STRIKER_COL          := Color(1.0, 0.66, 0.22)   # orange-gold energy
+const STRIKER_LIGHT        := 2.5      # dust-light value per orb
+
 # ── TUNABLES: Void gun (Rift Maker — auto-casts a growing void on the nearest enemy; ported from weapon_system.gd) ──
 const VOID_COOLDOWN     := 5.0     # s between casts (measured from cast start)
 const VOID_DURATION     := 3.0     # s the void stays open
@@ -402,6 +426,7 @@ void fragment() {
 	vec4 scene    = texture(screen_tex, suv);
 	// Brighten only the warped interior (fade to unmodified scene at the rim so the disc edge stays seamless).
 	COLOR = vec4(scene.rgb * mix(1.0, brightness, edge), scene.a);
+	COLOR *= MODULATE;   // honour the node's modulate (default white = no-op for the Vacuum rift; lets Black Hole dim the lens)
 }
 "
 
@@ -487,6 +512,7 @@ const GatMuzzleScript := preload("res://scripts/gameplay/arena_gatling_muzzle.gd
 const GaussExplFX  := preload("res://scripts/gameplay/gauss_explosion_fx.gd")
 const ExplosionFX  := preload("res://scripts/gameplay/fx/explosion.gd")   # composite blast used by the Nuke
 const ZSlashScript := preload("res://scripts/gameplay/fx/z_slash.gd")     # sweeping energy-slash crescent VFX
+const EnergyVortex := preload("res://scripts/gameplay/fx/energy_vortex.gd")   # creep-edit swirl reused by Black Hole
 
 # ── Gatling tracer bolt look (copied from weapon_system.gd — visuals only) ────
 const GAT_TRACER_LEN   := 16.0
@@ -675,6 +701,10 @@ var _orbital_cd: Array = []        # per-ball hit cooldown timers
 var _orbital_tex: Texture2D = null # orb sprite; null → procedural fallback
 var _orbital_tex_size: Vector2 = Vector2.ZERO  # native pixel size of the orb sprite (for ratio-correct draw)
 var _orbital_damage: float = ORBITAL_DAMAGE
+# Striker (offensive orbital): orbs orbit, then strike out at enemies.
+var _striker_active: bool = false
+var _striker_init: bool = false
+var _striker_orbs: Array = []      # [{state:"orbit"|"strike", ang, pos, vel, t}]
 var _plume_registry: Array = []    # [{cfg_key, count, ds, provider, anchors}] — generic plume system
 var _void_active: bool = false     # turned on by the Void pickup
 var _void_cd: float = 0.0          # cast cooldown (ready when <= 0)
@@ -706,6 +736,9 @@ var _zsword_hit: Array = []
 var _ionize_active: bool = false
 var _ionize_tick: float = 0.0
 var _ionize_clock: float = 0.0         # always-advancing clock for the aura pulse visual
+var _ionize_vortex1: Node2D = null     # Black Hole: outer orange EnergyVortex swirl
+var _ionize_vortex2: Node2D = null     # Black Hole: inner violet EnergyVortex swirl (on top of vortex1)
+var _ionize_lens: ColorRect = null     # Black Hole: gravitational-lens distortion (reuses the Vacuum rift shader)
 # ── Batch-2 weapons (Boomerang / Parasite Cloud / Moroboshi-M1 / Swarm Host / Space Snake) ──
 var _boom_active: bool = false
 var _boom_init: bool = false
@@ -986,6 +1019,9 @@ func get_lights() -> Array:
 	if (_orbital_active or _singularity_active) and _player != null and is_instance_valid(_player):
 		for c: Vector2 in _orbital_positions():
 			lights.append({"pos": c, "value": ORBITAL_LIGHT, "color": ORBITAL_COL})
+	if _striker_active:
+		for orb: Dictionary in _striker_orbs:
+			lights.append({"pos": orb["pos"], "value": STRIKER_LIGHT, "color": STRIKER_COL})
 	if _singularity_active:
 		for c: Vector2 in _singularity_pos:
 			lights.append({"pos": c, "value": 6.0, "color": VOID_COL})   # void-purple glow at each rift
@@ -1073,6 +1109,8 @@ func _process(delta: float) -> void:
 		_tick_chemtrail(delta)
 	if _orbital_active:
 		_tick_orbital(delta)
+	if _striker_active:
+		_tick_striker(delta, enemy_on_screen)
 	if _void_active:
 		_tick_void(delta)
 	if _nuke_active:
@@ -2195,6 +2233,92 @@ func _make_orbital_plume(frac: Vector2, dir_angle: float, style: Dictionary, ds:
 	p.material = cm
 	return p
 
+# ── Striker (Orbital Impact Offense) ────────────────────────────────────────────
+func activate_striker() -> void:
+	_striker_active = true
+	_striker_init = false
+
+func _init_striker() -> void:
+	_striker_orbs.clear()
+	for k in STRIKER_BALLS:
+		var ang := 360.0 * float(k) / float(STRIKER_BALLS)
+		_striker_orbs.append({
+			"state": "orbit",
+			"ang":   ang,
+			"pos":   _player.global_position + Vector2.RIGHT.rotated(deg_to_rad(ang)) * STRIKER_RADIUS,
+			"vel":   Vector2.ZERO,
+			"t":     -STRIKER_CHARGE * float(k) / float(STRIKER_BALLS),   # stagger so they don't all fire at once
+		})
+	_striker_init = true
+
+func _tick_striker(delta: float, enemy_on_screen: bool) -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	if not _striker_init:
+		_init_striker()
+	var center := _player.global_position
+	for orb: Dictionary in _striker_orbs:
+		orb["ang"] = fmod(float(orb["ang"]) + STRIKER_SPIN * delta, 360.0)
+		var orbit_pos := center + Vector2.RIGHT.rotated(deg_to_rad(float(orb["ang"]))) * STRIKER_RADIUS
+		match String(orb["state"]):
+			"orbit":
+				orb["pos"] = (orb["pos"] as Vector2).lerp(orbit_pos, clampf(STRIKER_RETURN_LERP * delta, 0.0, 1.0))
+				orb["t"] = float(orb["t"]) + delta
+				if enemy_on_screen and float(orb["t"]) >= STRIKER_CHARGE:
+					var tgt := _nearest_enemy(orb["pos"] as Vector2, STRIKER_RANGE, [])
+					if tgt != null and is_instance_valid(tgt):
+						var dir := ((tgt as Node2D).global_position - (orb["pos"] as Vector2))
+						orb["vel"] = (dir.normalized() if dir.length() > 0.01 else Vector2.UP) * STRIKER_SPEED
+						orb["state"] = "strike"
+						orb["t"] = 0.0
+			"strike":
+				orb["pos"] = (orb["pos"] as Vector2) + (orb["vel"] as Vector2) * delta
+				orb["t"] = float(orb["t"]) + delta
+				if _striker_impact(orb["pos"] as Vector2) or float(orb["t"]) >= STRIKER_FLIGHT_MAX:
+					orb["state"] = "orbit"
+					orb["t"] = 0.0
+
+## Damage any enemy/ruin within STRIKER_HIT_RADIUS of `pos`. Returns true if it hit something (ends the strike).
+func _striker_impact(pos: Vector2) -> bool:
+	var hit := false
+	for en in get_tree().get_nodes_in_group("arena_enemy"):
+		if not is_instance_valid(en):
+			continue
+		var er = en.get("hit_radius")
+		var hr: float = (float(er) if er != null else 16.0) + STRIKER_HIT_RADIUS
+		if pos.distance_to((en as Node2D).global_position) <= hr:
+			if en.has_method("take_damage"):
+				var r := _roll_damage(STRIKER_DAMAGE, "striker")
+				en.take_damage(float(r["dmg"]), STRIKER_STAGGER)
+				if bool(r["is_crit"]):
+					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+			hit = true
+			break
+	if not hit:
+		for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+			if not is_instance_valid(ruin):
+				continue
+			var rr: float = STRIKER_HIT_RADIUS + (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0)
+			if pos.distance_to((ruin as Node2D).global_position) <= rr:
+				if ruin.has_method("take_damage"):
+					ruin.take_damage(STRIKER_DAMAGE * _dmg_mult * _lvl_mult("striker"))
+				hit = true
+				break
+	return hit
+
+func _draw_striker() -> void:
+	for orb: Dictionary in _striker_orbs:
+		var p: Vector2 = orb["pos"]
+		if String(orb["state"]) == "strike":
+			var v: Vector2 = orb["vel"]
+			if v.length() > 0.01:
+				var tail := p - v.normalized() * 30.0
+				draw_line(tail, p, Color(STRIKER_COL.r, STRIKER_COL.g, STRIKER_COL.b, 0.55), 4.0, true)
+		# Glow layers → crisp hot core.
+		draw_circle(p, 12.0, Color(STRIKER_COL.r, STRIKER_COL.g, STRIKER_COL.b, 0.16))
+		draw_circle(p, 7.5,  Color(STRIKER_COL.r, STRIKER_COL.g, STRIKER_COL.b, 0.42))
+		draw_circle(p, 4.0,  Color(1.0, 0.95, 0.8, 0.95))
+
 ## Per ball, drawn BACK→FRONT: tangent streak glow → afterimage ghosts → crisp body. The orbit is
 ## deterministic, so past ghost positions are just θ stepped back along the arc (no history buffer).
 func _draw_orbital() -> void:
@@ -2320,6 +2444,7 @@ func clear_all_weapons() -> void:
 	_arc_active     = false
 	_gauss_active   = false
 	_orbital_active = false
+	_striker_active = false;  _striker_init = false;  _striker_orbs.clear()
 	_void_active     = false
 	_red_x_active    = false
 	_chemtrail_active = false
@@ -2327,7 +2452,7 @@ func clear_all_weapons() -> void:
 	_fat_boy_active  = false;  _mortar_bullets.clear()
 	_sonic_active    = false
 	_zsword_active   = false
-	_ionize_active   = false
+	_ionize_active   = false;  _ionize_set_visible(false)
 	_boom_active     = false;  _boom_init = false;  _booms.clear()
 	for c: Dictionary in _para_clouds:
 		var _pa: Node2D = c.get("plume")
@@ -2409,6 +2534,7 @@ func _activate_kind(kind: String) -> void:
 		"arc":     activate_arc()
 		"gauss":   activate_gauss()
 		"orbital": activate_orbital()
+		"striker": activate_striker()
 		"void":    activate_void()
 		"red_x":   activate_red_x()
 		"chemtrail": activate_chemtrail()
@@ -2473,6 +2599,7 @@ func _deactivate_kind(kind: String) -> void:
 		"arc":     _arc_active = false
 		"gauss":   _gauss_active = false
 		"orbital": _orbital_active = false
+		"striker": _striker_active = false; _striker_init = false; _striker_orbs.clear()
 		"void":    _void_active = false; _void_on = false
 		"red_x":   _red_x_active = false; _red_x_cd = 0.0
 		"chemtrail": _chemtrail_active = false
@@ -2480,7 +2607,7 @@ func _deactivate_kind(kind: String) -> void:
 		"fat_boy": _fat_boy_active = false
 		"sonic":   _sonic_active = false; _sonic_left = 0; _sonic_rings.clear()
 		"zsword":  _zsword_active = false
-		"ionize":  _ionize_active = false
+		"ionize":  _ionize_active = false; _ionize_set_visible(false)
 		"boomerang": _boom_active = false
 		"parasite":  _para_active = false
 		"moroboshi": _moro_active = false
@@ -2492,7 +2619,7 @@ func _deactivate_kind(kind: String) -> void:
 func weapon_cooldown_frac(kind: String) -> float:
 	var rate := maxf(0.01, _rate_mult)
 	match kind:
-		"gatling", "orbital", "chemtrail", "ionize", "moroboshi", "yari_jaeger", "swarm", "snake", "boomerang":
+		"gatling", "orbital", "striker", "chemtrail", "ionize", "moroboshi", "yari_jaeger", "swarm", "snake", "boomerang":
 			return 1.0   # continuous stream / always-on passive or familiar → never masked
 		"gauss":
 			return clampf(_gauss_charge / maxf(0.01, GAUSS_CHARGE_TIME / rate), 0.0, 1.0)
@@ -2548,6 +2675,7 @@ func weapon_is_firing(kind: String) -> bool:
 		"chemtrail": return _chemtrail_active
 		"void":    return _void_active
 		"orbital": return _orbital_active
+		"striker": return _striker_active
 		"lasgun":  return _lasgun_active and fmod(_las_t, LASGUN_CYCLE) < LASGUN_DURATION
 		"nuke":    return _nuke_active
 		"fat_boy": return _fat_boy_active
@@ -3188,9 +3316,76 @@ func _tick_zsword(delta: float, enemy_on_screen: bool) -> void:
 func activate_ionize() -> void:
 	_ionize_active = true
 	_ionize_tick = 0.0
+	if _ionize_vortex1 == null:
+		# Two stacked EnergyVortex swirls (the creep-edit VFX) — outer orange + inner violet.
+		# NOTE: EnergyVortex._ready() sets its own z_index, so override z AFTER add_child.
+		_ionize_vortex1 = EnergyVortex.new()
+		add_child(_ionize_vortex1)
+		_ionize_vortex1.z_index = 5
+		_ionize_vortex1.modulate.a = IONIZE_GROUP_OPACITY
+		_ionize_vortex1.scale = Vector2(IONIZE_VORTEX_SCALE, IONIZE_VORTEX_SCALE)
+		_ionize_vortex1.call("setup", {
+			"radius": 40.0, "spin": 2.2, "arms": 6, "width_mult": IONIZE_VORTEX_WIDTH, "sparkle_mult": 0.5,
+			"col_core": Color.html("#f17500"), "col_mid": Color.html("#fde0a1e6"), "col_outer": Color.html("#ff930000")})
+		_ionize_vortex2 = EnergyVortex.new()
+		add_child(_ionize_vortex2)
+		_ionize_vortex2.z_index = 6
+		_ionize_vortex2.modulate.a = IONIZE_GROUP_OPACITY
+		_ionize_vortex2.scale = Vector2(IONIZE_VORTEX_SCALE, IONIZE_VORTEX_SCALE)
+		_ionize_vortex2.call("setup", {
+			"radius": 30.0, "spin": 3.8, "arms": 6, "width_mult": IONIZE_VORTEX_WIDTH, "sparkle_mult": 0.5,
+			"col_core": Color.html("#5900fc"), "col_mid": Color.html("#774dffe6"), "col_outer": Color.html("#8c33f200")})
+		# Gravitational lens (same screen-warp shader as the Vacuum rift) — distorts the space background.
+		var dsh := Shader.new()
+		dsh.code = RIFT_DISTORTION_SHADER
+		var dmat := ShaderMaterial.new()
+		dmat.shader = dsh
+		dmat.set_shader_parameter("twist_strength", RIFT_DISTORT_TWIST)
+		dmat.set_shader_parameter("twist_falloff", RIFT_DISTORT_FALLOFF)
+		dmat.set_shader_parameter("suck_in", RIFT_DISTORT_SUCK)
+		dmat.set_shader_parameter("rotation_speed", RIFT_DISTORT_ROT_SPEED)
+		dmat.set_shader_parameter("edge_softness", RIFT_DISTORT_EDGE)
+		dmat.set_shader_parameter("brightness", IONIZE_LENS_BRIGHTNESS)   # darken (no glare) instead of brighten
+		dmat.set_shader_parameter("growth", 1.0)
+		dmat.set_shader_parameter("rect_size", Vector2(IONIZE_LENS_DIAM, IONIZE_LENS_DIAM))
+		_ionize_lens = ColorRect.new()
+		_ionize_lens.material = dmat
+		_ionize_lens.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_ionize_lens.size = Vector2(IONIZE_LENS_DIAM, IONIZE_LENS_DIAM)
+		_ionize_lens.modulate.a = IONIZE_GROUP_OPACITY   # 75% group opacity (shader multiplies by MODULATE)
+		add_child(_ionize_lens)
+		_ionize_lens.z_index = 7   # ABOVE the swirls (5/6) — lenses/distorts the vortex glow too
+	_ionize_set_visible(true)
+
+## Show/hide all Black Hole visual nodes together.
+func _ionize_set_visible(v: bool) -> void:
+	if _ionize_vortex1 != null: _ionize_vortex1.visible = v
+	if _ionize_vortex2 != null: _ionize_vortex2.visible = v
+	if _ionize_lens != null:    _ionize_lens.visible = v
+
+## Orange swirling boundary ring at `rim_r` (2 bright lobes rotating at IONIZE_RIM_SPIN); 2 glow passes.
+func _draw_ionize_rim(center: Vector2, rim_r: float) -> void:
+	var rot := _ionize_clock * IONIZE_RIM_SPIN
+	var n := 64
+	for pass_def: Vector2 in [Vector2(5.0, 0.20), Vector2(2.0, 0.70)]:
+		var pts := PackedVector2Array()
+		var cols := PackedColorArray()
+		for i in n + 1:
+			var ang := TAU * float(i) / float(n)
+			pts.append(center + Vector2(cos(ang), sin(ang)) * rim_r)
+			var sweep := 0.5 + 0.5 * sin(ang * 2.0 - rot * 2.0)   # 2 bright lobes swirling around at IONIZE_RIM_SPIN
+			cols.append(Color(IONIZE_RIM_COL.r, IONIZE_RIM_COL.g, IONIZE_RIM_COL.b, pass_def.y * (0.25 + 0.75 * sweep) * IONIZE_GROUP_OPACITY))
+		draw_polyline_colors(pts, cols, pass_def.x, true)
 
 func _tick_ionize(delta: float) -> void:
 	_ionize_clock += delta
+	# Glue the swirls + lens onto the ship every frame.
+	if _player != null and is_instance_valid(_player):
+		var c := _player.global_position
+		if _ionize_vortex1 != null: _ionize_vortex1.position = c
+		if _ionize_vortex2 != null: _ionize_vortex2.position = c
+		if _ionize_lens != null:
+			_ionize_lens.position = c - Vector2(IONIZE_LENS_DIAM * 0.5, IONIZE_LENS_DIAM * 0.5)
 	_ionize_tick += delta
 	if _ionize_tick < IONIZE_TICK:
 		return
@@ -3217,26 +3412,40 @@ func _tick_ionize(delta: float) -> void:
 				ruin.take_damage(IONIZE_DAMAGE * _dmg_mult * _lvl_mult("ionize"))
 
 # ── Batch-1 draw helpers (this Node2D draws in world space) ─────────────────────────
+## Energy-wave VFX: a rippling crest + a trailing wave train fanning into the forward cone. Each crest is a
+## soft translucent GLOW (layered widths) whose alpha fades to 0 toward the two cone edges.
+const SONIC_GLOW_PASSES := [Vector2(12.0, 0.16), Vector2(6.0, 0.34), Vector2(2.5, 0.95)]
 func _draw_sonic_ring(ring: Dictionary) -> void:
 	var age := float(ring["age"])
 	var maxr: float = ring["maxr"]
-	var r := maxr * (age / SONIC_EXPAND_TIME)
-	var a := 1.0 - (age / SONIC_EXPAND_TIME)
+	var f := age / SONIC_EXPAND_TIME
+	var r := maxr * f
+	var a := 1.0 - f
 	var c: Vector2 = ring["center"]
 	var aim: float = ring["aim"]
-	# Forward crescent arc (not a full ring) — the cone the wave fans into.
-	var seg := maxi(8, int(SONIC_CONE_HALF / PI * 72.0))
-	draw_arc(c, r, aim - SONIC_CONE_HALF, aim + SONIC_CONE_HALF, seg, Color(SONIC_COL.r, SONIC_COL.g, SONIC_COL.b, 0.85 * a), 5.0, true)
-	draw_arc(c, r, aim - SONIC_CONE_HALF, aim + SONIC_CONE_HALF, seg, Color(SONIC_COL.r, SONIC_COL.g, SONIC_COL.b, 0.30 * a), 12.0, true)
+	var seg := maxi(12, int(SONIC_CONE_HALF / PI * 96.0))
+	# Leading crest (bright) + trailing wave train (fainter, smaller radius, phase-shifted ripple).
+	_draw_sonic_wave_arc(c, r,        aim, seg, 0.90 * a, age, 0.0)
+	_draw_sonic_wave_arc(c, r * 0.86, aim, seg, 0.50 * a, age, 1.3)
+	_draw_sonic_wave_arc(c, r * 0.72, aim, seg, 0.30 * a, age, 2.6)
 
-func _draw_ionize() -> void:
-	if _player == null or not is_instance_valid(_player):
-		return
-	var center := _player.global_position
-	var reach := _aoe_radius(IONIZE_RADIUS)
-	var pulse := 0.5 + 0.5 * sin(_ionize_clock * 4.0)
-	draw_circle(center, reach, Color(IONIZE_COL.r, IONIZE_COL.g, IONIZE_COL.b, 0.06 + 0.04 * pulse))
-	draw_arc(center, reach, 0.0, TAU, 64, Color(IONIZE_COL.r, IONIZE_COL.g, IONIZE_COL.b, 0.3 + 0.2 * pulse), 2.0, true)
+## A single wavy crest across the cone. Radius is sine-rippled (energy wavefront); the alpha tapers to 0 at the
+## two cone edges (sin envelope) and is drawn in layered glow passes (wide soft → narrow bright).
+func _draw_sonic_wave_arc(c: Vector2, base_r: float, aim: float, seg: int, intensity: float, age: float, phase: float) -> void:
+	var col := SONIC_COL
+	var pts := PackedVector2Array()
+	for i in seg + 1:
+		var t := float(i) / float(seg)
+		var ang := aim - SONIC_CONE_HALF + t * (2.0 * SONIC_CONE_HALF)
+		var ripple := sin(t * TAU * 3.0 + age * 16.0 + phase) * (base_r * 0.05)
+		pts.append(c + Vector2(cos(ang), sin(ang)) * (base_r + ripple))
+	for pass_def: Vector2 in SONIC_GLOW_PASSES:
+		var cols := PackedColorArray()
+		for i in seg + 1:
+			var t := float(i) / float(seg)
+			var edge := sin(clampf(t, 0.0, 1.0) * PI)   # 0 at both cone edges → fade out
+			cols.append(Color(col.r, col.g, col.b, intensity * pass_def.y * edge))
+		draw_polyline_colors(pts, cols, pass_def.x, true)
 
 # ══ Batch-2 weapons: Boomerang / Parasite Cloud / Moroboshi-M1 / Swarm Host / Space Snake ══════════
 ## Max turn toward a target angle, capped per call (used by the snake head to minimise turn angle).
@@ -4579,11 +4788,14 @@ func _draw() -> void:
 	# particles spawned in _fire_arc — no immediate-mode draw here.
 	if _orbital_active or _singularity_active:
 		_draw_orbital()   # Singularities draws the 3 orbital balls (the voids are ColorRect nodes, not _draw)
+	if _striker_active:
+		_draw_striker()
 	for sring: Dictionary in _sonic_rings:
 		_draw_sonic_ring(sring)
 	# Z-Sword slash is rendered by the additive ZSlash crescent node (driven in _tick_zsword) — no draw here.
-	if _ionize_active:
-		_draw_ionize()
+	if _ionize_active and _player != null and is_instance_valid(_player):
+		# Damage-range boundary, drawn as the orange swirl ring (rotating at IONIZE_RIM_SPIN).
+		_draw_ionize_rim(_player.global_position, _aoe_radius(IONIZE_RADIUS))
 	for boom: Dictionary in _booms:
 		_draw_boomerang(boom)
 	for pc: Dictionary in _para_clouds:

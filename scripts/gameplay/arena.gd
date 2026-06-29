@@ -180,10 +180,12 @@ func _make_glow_world_env() -> WorldEnvironment:
 	env.glow_intensity = 1.0
 	env.glow_strength = 1.0
 	env.glow_bloom = 0.1
+	# Perf: cap the glow mip chain at level 2 (was 4). Each extra level is another downsample+blur+upsample pass;
+	# stopping at 2 gives a tighter but much cheaper bloom on the HDR fire.
 	env.set_glow_level(1, 1.0)
 	env.set_glow_level(2, 1.0)
-	env.set_glow_level(3, 1.0)
-	env.set_glow_level(4, 0.5)
+	env.set_glow_level(3, 0.0)
+	env.set_glow_level(4, 0.0)
 	var we := WorldEnvironment.new()
 	we.environment = env
 	return we

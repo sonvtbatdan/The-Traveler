@@ -13,6 +13,8 @@ var thrust_points:    Array   = []   # Array[Dictionary {pos:Vector2, id:int, di
 var selected_tp_idx:  int     = -1
 var tentacle_points:   Array  = []   # Array[Dictionary {pos:Vector2, id:int, dir_angle:float}]
 var selected_tenp_idx: int    = -1
+var vortex_points:     Array  = []   # Array[Dictionary {pos:Vector2, id:int}] (directionless)
+var selected_vortex_idx: int  = -1
 var zoom:             float   = 1.0
 var canvas_offset:    Vector2 = Vector2.ZERO
 
@@ -28,6 +30,7 @@ func _draw() -> void:
 	_draw_fire_points()
 	_draw_thrust_points()
 	_draw_tentacle_points()
+	_draw_vortex_points()
 
 # ── Grid ──────────────────────────────────────────────────────────────────────
 
@@ -203,3 +206,22 @@ func _draw_tentacle_points() -> void:
 			"Tn%d" % tn_id, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0, 0, 0, 0.7))
 		draw_string(ThemeDB.fallback_font, lbl_pos,
 			"Tn%d" % tn_id, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
+
+# ── Vortex point markers (directionless — a small swirl glyph) ───────────────────
+
+func _draw_vortex_points() -> void:
+	for i: int in vortex_points.size():
+		var vx:     Dictionary = vortex_points[i]
+		var vp_pos: Vector2    = _to_vp(vx["pos"] as Vector2)
+		var is_sel: bool       = (i == selected_vortex_idx)
+		var col := Color(0.55, 0.85, 1.0, 0.98) if is_sel else Color(0.40, 0.65, 0.95, 0.90)
+		# Two concentric swirl arcs to read as a vortex marker.
+		draw_arc(vp_pos, 9.0, 0.4, 0.4 + TAU * 0.75, 18, col, 2.0)
+		draw_arc(vp_pos, 5.0, 3.5, 3.5 + TAU * 0.75, 14, col, 2.0)
+		draw_circle(vp_pos, 2.0, col)
+		var vx_id: int = vx.get("id", i + 1)
+		var lbl_pos := vp_pos + Vector2(11.0, -3.0)
+		draw_string(ThemeDB.fallback_font, lbl_pos + Vector2(1, 1),
+			"Vx%d" % vx_id, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0, 0, 0, 0.7))
+		draw_string(ThemeDB.fallback_font, lbl_pos,
+			"Vx%d" % vx_id, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)

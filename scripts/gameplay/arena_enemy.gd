@@ -13,6 +13,7 @@ extends CharacterBody2D
 const GifLoader        := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const ArenaExplosion   := preload("res://scripts/gameplay/arena_explosion.gd")
 const DeathFX          := preload("res://scripts/gameplay/arena_death_fx.gd")
+const EnergyVortex     := preload("res://scripts/gameplay/fx/energy_vortex.gd")
 # Per-enemy attack SFX (one-shot; played from a lazily-created AudioStreamPlayer on bus "SFX").
 const SFX_SPIDER_JUMP  := preload("res://assets/audio/sfx/dash.wav")      # spider (jump_diag) leap
 const SFX_OCTOPUS_JUMP := preload("res://assets/audio/sfx/chargeby.wav")  # octopus (jump) leap
@@ -44,14 +45,35 @@ const CENTI_TURN        := 3.0      # head max turn rad/s (mirrors SNAKE_TURN)
 const CENTI_WIDTH_MUL   := 1.95     # across width of every segment = _radius × this (75% of ICON_DRAW_SCALE 2.6)
 const CENTI_HEAD_OVERLAP := 20.0    # px the head is pulled back into the first body segment (smaller neck gap)
 
-# ── Teleport (alien) — blink toward the player every TELE_INTERVAL; idle-jigger between blinks ──
-const TELE_INTERVAL := 2.0          # seconds between teleports
-const TELE_DIST     := 200.0        # px jumped toward the player each teleport
-const TELE_JIGGER   := 5.0          # idle wobble radius around the anchor
+# ── Teleport (alien) — blink toward the player every TELE_INTERVAL; gently FLOAT adrift between blinks ──
+const TELE_INTERVAL    := 2.0       # seconds between teleports
+const TELE_DIST        := 200.0     # px jumped toward the player each teleport
+const TELE_FLOAT_RADIUS := 24.0     # drift radius of the slow idle float around the anchor (replaces the old jigger)
+const TELE_FLOAT_FREQ  := 0.85      # idle float speed (slow → reads as lazily floating, not jittering)
 # ── Patrol (fleet/sentinel) — straight flyby across the screen at `speed`, never re-aims ──
 const PATROL_CULL   := 1500.0       # despawn once this far from the player (flew off-screen)
 # ── Gauss shooter (pros5) — fires a gauss-style orb at the player ──
 const GAUSS_SHOOT_INTERVAL := 3.0   # seconds between gauss orbs
+# ── Mothership carrier (prosmotherblank) — docked escort + flee/release/respawn cycle ──
+const MS_READY   := 0   # docked squadron, slowly advancing on the player
+const MS_TURN    := 1   # turning tail (50 rpm) to face away before fleeing
+const MS_FLEE    := 2   # fleeing @120 + releasing escorts, one every MS_RELEASE_INTERVAL
+const MS_WAIT    := 3   # fleeing; MS_WAIT_AFTER_RELEASE pause before rebuilding
+const MS_RESPAWN := 4   # fleeing; rebuilding the escort, one every MS_RESPAWN_INTERVAL
+const MS_READY_HOLD        := 3.0     # READY: seconds to advance before auto-firing the next cycle (timer-driven, NOT damage-driven). After a respawn finishes the carrier waits this long, then releases again.
+const MS_TURN_RAD          := 5.235988 # 50 rpm = 300°/s, in rad/s (deg_to_rad(300))
+const MS_APPROACH_SPEED    := 60.0    # READY: slow looming advance toward the player
+const MS_FLEE_SPEED        := 120.0   # flee speed once turned around
+const MS_REGROUP_DIST      := 500.0   # WAIT/RESPAWN: hover at this standoff (on-screen, but mobile not a sitting duck)
+const MS_RELEASE_INTERVAL  := 0.5     # seconds between releasing each docked escort (5 → 2.5s)
+const MS_WAIT_AFTER_RELEASE := 5.0    # pause after the last release before respawning begins
+const MS_RESPAWN_INTERVAL  := 2.5     # seconds per rebuilt escort (5 → 12.5s)
+const MS_RESPAWN_ORDER     := ["pros7", "pros8", "pros8", "pros5", "pros6"]   # rebuild sequence
+const MS_CYCLE_ENABLED     := true    # true → carrier runs the full flee/release/respawn cycle (releases its docked pros escorts on damage). false → just carries the docked escorts (placement checks only).
+# ── Magma split (large magma → small magma on death) ──
+const MAGMA_SPLIT_N      := 3       # small magma flung out when a large magma dies
+const MAGMA_SPLIT_SCALE  := 0.5     # small magma size = this × the parent magma size
+const MAGMA_SPLIT_FLING  := 300.0   # outward knockback (px/s) given to each small magma so it "bursts" out
 
 # ── "Alive" procedural-motion tunables (sprite transform only — no new art) ────
 const BOB_AMOUNT     := 0.05    # idle breathing scale pulse (±)
@@ -96,6 +118,7 @@ var _fp_fracs: Array = []   # Array[{frac:Vector2, dir_angle:float, id:int}]
 # ── Thrust-point plume VFX ────────────────────────────────────────────────────
 static var _tp_fracs_cache: Dictionary = {}
 var _plumes: Array[CPUParticles2D] = []
+var _vortexes: Array = []   # EnergyVortex children (creep_layout.cfg [vortexpoints] + plume_styles.cfg [vortex_styles])
 var _plume_base: Array = []        # [{vel_min, vel_max, sc_min, sc_max, life}] per plume
 var _plume_base_cols: Array = []   # [PackedColorArray] per plume
 var _plume_red_cols: Array = []    # pre-built red gradient (dragonfly proximity)
@@ -198,11 +221,20 @@ var _death_spawn:  String = ""      # stone: spawn this enemy id at our position
 var _morph_to:     String = ""      # alien5: become this enemy id after _morph_after seconds alive
 var _morph_after:  float = 0.0
 var _strike_back:  bool = false     # fleet/sentinel: switch patrol→chase the first time it's hit
-var _eject_frag:   bool = false     # magma: eject a magma fragment projectile per 10 HP lost
-var _frag_acc:     float = 0.0      # damage accumulated toward the next fragment
+var _magma_split:  bool = false     # LARGE magma: on death, burst into MAGMA_SPLIT_N small magma (which don't re-split)
 var _anti_magnetic: bool = false    # bismuth: reflects 50% of gatling bullets; takes 50% from laser/arc/void
 var _gauss_shooter: bool = false    # pros5: fire a gauss orb at the player every GAUSS_SHOOT_INTERVAL
 var _gauss_t:      float = 0.0
+# ── Mothership carrier state (behavior == "mothership") + docked-escort flag ──
+var _docked: bool = false           # rigidly docked in a carrier: no move, no plume, no collision (vortex stays)
+var _force_draw_w: float = 0.0      # >0 → override sprite draw width (world px), set by the carrier deploy
+var _ms_state: int = MS_READY
+var _ms_timer: float = 0.0
+var _ms_release_idx: int = 0
+var _ms_respawn_idx: int = 0
+var _ms_dock: Array = []            # active docked escorts: [{node, base_off:Vector2, rot:float(rad)}]
+var _ms_roster: Array = []          # escort spec for respawn: [{id, base_off, draw_w, rot(deg)}]
+var _ms_respawn_bays: Array = []    # roster reordered by MS_RESPAWN_ORDER for the current rebuild
 var _orbit_r: float = 180.0
 var _orbit_ang: float = 0.0
 var _spiral_dir: float = 1.0   # spin direction (±1) for the spiral approach
@@ -270,9 +302,12 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_morph_to        = String(d.get("morph_to", ""))
 	_morph_after     = float(d.get("morph_after", 0.0))
 	_strike_back     = bool(d.get("strike_back", false))
-	_eject_frag      = bool(d.get("eject_frag", false))
+	_magma_split     = bool(d.get("magma_split", false))
 	_anti_magnetic   = bool(d.get("anti_magnetic", false))
 	_gauss_shooter   = bool(d.get("gauss_shooter", false))
+	_force_draw_w    = float(d.get("draw_w", 0.0))
+	if _force_draw_w > 0.0:
+		_radius = _force_draw_w * 0.42   # hit radius scales with the authored (carrier-honored) draw size
 	var eye_cfg: Dictionary = d.get("eye", {})
 	if not eye_cfg.is_empty():
 		_has_eye       = true
@@ -318,6 +353,7 @@ func _ready() -> void:
 		_load_centipede()
 	_load_tentacle()
 	_setup_plumes()
+	_setup_vortexes()
 	_setup_fire_points()
 	# Per-enemy "alive" variation so the crowd reads as individuals, not synced clones.
 	_bob_phase = randf() * TAU
@@ -330,11 +366,18 @@ func _ready() -> void:
 static func _resolve_sprite(path: String) -> String:
 	const STD := "res://assets/enemies/"
 	const HD  := "res://assets/enemiesHD/"
-	if path.begins_with(STD):
-		var hd := HD + path.substr(STD.length())
+	const DS  := "res://assets/Enemies Downscale/"
+	var p := path
+	if p.begins_with(STD):
+		var hd := HD + p.substr(STD.length())
 		if FileAccess.file_exists(hd) or ResourceLoader.exists(hd):
-			return hd
-	return path
+			p = hd
+	# Prefer the pre-baked downscaled sprite (tools/downscale_enemies.gd) — a light texture at the real display
+	# size. Missing → fall back to the HD source. Skipped for .gif / .sheet.png (no downscaled copy exists).
+	var ds := DS + p.get_file()
+	if ResourceLoader.exists(ds) or FileAccess.file_exists(ds):
+		return ds
+	return p
 
 ## Load the sprite (PNG, animated GIF, or sprite-sheet PNG+JSON) and compute draw size.
 func _load_icon() -> void:
@@ -372,6 +415,9 @@ func _load_icon() -> void:
 				# keep the configured width but lock height to the texture true aspect -> never stretches.
 				if ts.x > 0.0:
 					_draw_size.y = eo_sz.x * (ts.y / ts.x)
+		# Carrier-honored draw width wins over creep_layout so the squadron matches the Fleet Edit layout.
+		if _force_draw_w > 0.0 and ts.x > 0.0:
+			_draw_size = Vector2(_force_draw_w, _force_draw_w * (ts.y / ts.x))
 	if _has_eye and _eye_icon != "" and _eye_tex == null:
 		var eye_src := _resolve_sprite(_eye_icon)
 		_eye_tex = load(eye_src) as Texture2D
@@ -504,6 +550,52 @@ static func _load_tp_fracs(cname: String) -> Array:
 		var frac := (tp_oc - eo_pos) / eo_size
 		result.append({"frac": frac, "dir_angle": float(tp.get("dir_angle", PI * 0.5)), "id": int(tp.get("id", i + 1))})
 	return result
+
+## Spawn EnergyVortex VFX children from creep_layout.cfg [vortexpoints] (styled by plume_styles.cfg
+## [vortex_styles]). Anchored at the point's body-relative fraction, scaled to the in-game draw size.
+func _setup_vortexes() -> void:
+	if _icon.is_empty() or _draw_size == Vector2.ZERO:
+		return
+	var cname := _icon.get_file().get_basename().to_lower()
+	var cfg := ConfigFile.new()
+	if cfg.load("res://creep_layout.cfg") != OK:
+		return
+	var key := _resolve_cfg_key(cfg, "creeps", cname)
+	var eo: Dictionary = cfg.get_value("creeps", key, {})
+	if eo.is_empty():
+		return
+	var eo_pos: Vector2  = eo.get("pos",  Vector2(480.0, 380.0))
+	var eo_size: Vector2 = eo.get("size", Vector2(60.0, 60.0))
+	if eo_size.x <= 0.0:
+		return
+	var vxs: Array = cfg.get_value("vortexpoints", _resolve_cfg_key(cfg, "vortexpoints", cname), [])
+	if vxs.is_empty():
+		return
+	var styles := _load_vortex_styles_for(cname)
+	var s := _draw_size.x / eo_size.x   # config-space → in-game scale
+	const SS_ORIGIN := Vector2(15.0, 8.0)
+	for i: int in vxs.size():
+		var vx: Dictionary = vxs[i]
+		var vx_id: int = int(vx.get("id", i + 1))
+		var vx_oc: Vector2 = (vx["pos"] as Vector2) + SS_ORIGIN
+		var frac := (vx_oc - eo_pos) / eo_size
+		var node: Node2D = EnergyVortex.new()
+		node.position = (frac - Vector2(0.5, 0.5)) * _draw_size   # origin is CENTER → shift by -0.5
+		node.scale = Vector2(s, s)
+		node.z_index = 1
+		# Stash the anchor data so _update_vortex_xform() can re-glue the vortex to the (rotating, breathing)
+		# sprite each frame — same approach as the plumes.
+		node.set_meta("frac_centered", frac - Vector2(0.5, 0.5))
+		node.set_meta("base_scale", s)
+		add_child(node)
+		node.call("setup", styles.get("vx_%d" % vx_id, {}))
+		_vortexes.append(node)
+
+static func _load_vortex_styles_for(cname: String) -> Dictionary:
+	var cfg := ConfigFile.new()
+	if cfg.load("res://plume_styles.cfg") != OK:
+		return {}
+	return cfg.get_value("vortex_styles", _resolve_cfg_key(cfg, "vortex_styles", cname), {})
 
 func _setup_fire_points() -> void:
 	if _icon.is_empty() or _draw_size == Vector2.ZERO:
@@ -654,6 +746,27 @@ func _update_plume_xform() -> void:
 		p.direction = (p.get_meta("base_dir") as Vector2).rotated(rot)
 		p.scale     = node_scale   # local_coords plumes → node scale grows the whole jet with the enemy
 
+## Re-anchor every vortex to the sprite each frame using the LIVE sprite transform — identical to the plume
+## glue: the anchor offset (fraction-of-sprite × _draw_size × squash) is rotated to the heading, the node is
+## scaled by its config-space base × the breathing `uniform`, and the whole swirl is rotated WITH the sprite
+## so it tracks the enemy when it turns.
+func _update_vortex_xform() -> void:
+	if _vortexes.is_empty():
+		return
+	var rot := _spin if behavior == "centipede" else _facing
+	var vx := _visual_xform()
+	var svec: Vector2 = vx["scale"]
+	var uni: float = vx["uniform"]
+	for node: Node2D in _vortexes:
+		if not is_instance_valid(node):
+			continue
+		var fc: Vector2 = node.get_meta("frac_centered")
+		var bs: float = node.get_meta("base_scale")
+		var off := Vector2(fc.x * _draw_size.x * svec.x, fc.y * _draw_size.y * svec.y)
+		node.position = off.rotated(rot)
+		node.scale    = Vector2(bs * uni, bs * uni)
+		node.rotation = rot   # the swirl orients with the body so it follows the enemy's rotation
+
 # ── Universal damage contract ──────────────────────────────────────────────────
 func is_anti_magnetic() -> bool:
 	return _anti_magnetic
@@ -676,12 +789,8 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, kind: 
 	if _anti_magnetic and (kind == "lasgun" or kind == "arc" or kind == "void"):
 		dealt *= 0.5
 	hp -= dealt
-	# Magma: eject a magma fragment (projectile) for every 10 HP lost.
-	if _eject_frag:
-		_frag_acc += dealt
-		while _frag_acc >= 10.0:
-			_frag_acc -= 10.0
-			_eject_magma_fragment()
+	# Mothership: the flee/release/respawn cycle is timer-driven (see _tick_mothership MS_READY), NOT triggered
+	# by damage — so taking hits no longer starts a cycle.
 	# Fleet/Sentinel "Strike Back": once damaged, abandon the patrol flyby and hunt the player.
 	if _strike_back and behavior == "patrol":
 		behavior = "chase"
@@ -704,8 +813,17 @@ func _die() -> void:
 	if _dead:
 		return
 	_dead = true
+	# Carrier destroyed → set its docked escorts free so they don't freeze where they were pinned.
+	if behavior == "mothership":
+		for e: Dictionary in _ms_dock:
+			var dn = e.get("node")
+			if dn != null and is_instance_valid(dn):
+				dn.call("set_docked", false)
+		_ms_dock.clear()
 	if _death_spawn != "":
 		_spawn_sibling(_death_spawn, global_position)   # stone → magma fragment that keeps fighting
+	if _magma_split:
+		_burst_small_magma()   # large magma → MAGMA_SPLIT_N small magma flung outward
 	if GameManager.has_method("add_kill"):
 		GameManager.add_kill()   # tally for the arena HUD kill counter
 	if _squid_attached:
@@ -741,57 +859,30 @@ func _spawn_sibling(id: String, at: Vector2) -> void:
 	get_parent().add_child(e)
 	e.set("global_position", at)
 
-## Eject one magma fragment (a non-targetable projectile) in a random direction.
-func _eject_magma_fragment() -> void:
-	var tex := load("res://assets/enemiesHD/magmafrag (%d).png" % randi_range(1, 16)) as Texture2D
-	var frag := _MagmaFrag.new()
-	get_parent().add_child(frag)
-	var ang := randf() * TAU
-	frag.setup(global_position, Vector2(cos(ang), sin(ang)), tex)
-
-## Magma fragment — a self-managed projectile (NOT an arena_enemy, so weapons can't target it). Flies in a
-## fixed direction, speed + spin ramp down over the first 3 s, lives 10 s, deals contact damage to the player.
-class _MagmaFrag extends Node2D:
-	const LIFE    := 10.0
-	const RAMP_T  := 3.0
-	const HIT_R   := 22.0
-	const DMG     := 5
-	const DRAW_W  := 26.0
-	var _dir: Vector2 = Vector2.RIGHT
-	var _s0: float = 160.0
-	var _s1: float = 30.0
-	var _w0: float = 120.0 / 60.0 * TAU   # 120 rpm
-	var _w1: float = 20.0 / 60.0 * TAU    # 20 rpm
-	var _t: float = 0.0
-	var _spr: Sprite2D = null
-
-	func setup(world_pos: Vector2, dir: Vector2, tex: Texture2D) -> void:
-		global_position = world_pos
-		_dir = dir.normalized() if dir.length() > 0.01 else Vector2.RIGHT
-		_s0 = randf_range(120.0, 200.0)
-		_s1 = randf_range(20.0, 50.0)
-		z_index = 3
-		_spr = Sprite2D.new()
-		_spr.texture = tex
-		if tex != null and tex.get_width() > 0:
-			var s := DRAW_W / float(tex.get_width())
-			_spr.scale = Vector2(s, s)
-		add_child(_spr)
-
-	func _process(delta: float) -> void:
-		_t += delta
-		if _t >= LIFE:
-			queue_free()
-			return
-		var f := clampf(_t / RAMP_T, 0.0, 1.0)
-		global_position += _dir * lerpf(_s0, _s1, f) * delta
-		if _spr != null:
-			_spr.rotation += lerpf(_w0, _w1, f) * delta
-		var pl := get_tree().get_first_node_in_group("player")
-		if pl != null and global_position.distance_to((pl as Node2D).global_position) <= HIT_R:
-			if GameManager.has_method("ship_take_damage"):
-				GameManager.ship_take_damage(DMG)
-			queue_free()
+## Large magma death → burst into MAGMA_SPLIT_N small magma. Each small one is a REAL arena_enemy (shootable,
+## chases + contact-damages like the parent) at MAGMA_SPLIT_SCALE size, a random magmafrag sprite, and no further
+## split. They are flung outward (knockback) in evenly-spread directions so the burst reads as the rock shattering.
+func _burst_small_magma() -> void:
+	var base_ang := randf() * TAU
+	for i in MAGMA_SPLIT_N:
+		var ang := base_ang + TAU * float(i) / float(MAGMA_SPLIT_N) + randf_range(-0.25, 0.25)
+		var dir := Vector2(cos(ang), sin(ang))
+		# Build a magma-like def from THIS magma's (already level-scaled) stats — no "lvl" so it isn't re-scaled.
+		var def := {
+			"behavior": "chase",
+			"hp":       maxf(1.0, hp_max * 0.35),
+			"speed":    speed,
+			"size":     (_radius / 1.05) * MAGMA_SPLIT_SCALE,   # configure() multiplies size by 1.05
+			"contact":  contact_damage,
+			"xp":       maxi(1, int(round(float(xp) * 0.25))),
+			"armor":    armor,
+			"icon":     "res://assets/enemiesHD/magmafrag (%d).png" % randi_range(1, 16),
+		}
+		var e: Node = get_script().new()
+		e.call("configure", "magma_small", _mgr, def)
+		get_parent().add_child(e)
+		e.set("global_position", global_position + dir * (_radius * 0.4))
+		e.set("_knockback", dir * MAGMA_SPLIT_FLING)   # initial outward burst, decays into the chase
 
 ## Spawn a teleport space-warp at a world position. expand=true → space pushes outward (arrival);
 ## expand=false → space pulls inward (departure). Converts the world point to a screen UV for the shader.
@@ -802,6 +893,8 @@ func _spawn_warp(world_pos: Vector2, expand: bool) -> void:
 	var sz := vp.get_visible_rect().size
 	if sz.x <= 0.0 or sz.y <= 0.0:
 		return
+	if not _WarpFX.can_spawn():
+		return   # cap concurrent fullscreen screen-read warps — protects the GPU during synchronized alien waves
 	var screen := vp.get_canvas_transform() * world_pos
 	var fx := _WarpFX.new()
 	get_parent().add_child(fx)
@@ -813,6 +906,9 @@ class _WarpFX extends CanvasLayer:
 	const DUR  := 0.32
 	const RMAX := 0.16     # ring radius in screen-height units
 	const AMP  := 0.06     # peak UV displacement
+	const MAX_ACTIVE := 4  # hard cap on concurrent warps — each one is a fullscreen screen-read (backbuffer copy) pass
+	static var _active: int = 0
+	static var _shared_shader: Shader = null   # compiled ONCE and reused (avoids a per-spawn shader-compile stutter)
 	const SHADER_CODE := """
 shader_type canvas_item;
 uniform sampler2D screen_tex : hint_screen_texture, repeat_disable, filter_linear_mipmap;
@@ -835,19 +931,27 @@ void fragment() {
 	var _t: float = 0.0
 	var _expand: bool = true
 
+	static func can_spawn() -> bool:
+		return _active < MAX_ACTIVE
+
 	func setup(center_uv: Vector2, expand: bool) -> void:
 		_expand = expand
 		layer = 79
-		var sh := Shader.new()
-		sh.code = SHADER_CODE
+		if _shared_shader == null:
+			_shared_shader = Shader.new()
+			_shared_shader.code = SHADER_CODE
 		_mat = ShaderMaterial.new()
-		_mat.shader = sh
+		_mat.shader = _shared_shader
 		_mat.set_shader_parameter("center", center_uv)
 		var rect := ColorRect.new()
 		rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		rect.material = _mat
 		add_child(rect)
+		_active += 1
+
+	func _exit_tree() -> void:
+		_active -= 1
 
 	func _process(delta: float) -> void:
 		_t += delta
@@ -1060,7 +1164,7 @@ func _physics_process(delta: float) -> void:
 	if not _init_done:
 		_init_behavior()
 		_init_done = true
-	if _stagger_t <= 0.0:   # staggered → movement & attacks frozen (knockback/visuals still play)
+	if _stagger_t <= 0.0 and not _docked:   # staggered/docked → movement & attacks frozen (visuals still play)
 		_tick_behavior(delta)
 		if _gauss_shooter:   # pros5 ranged attack, independent of the chase movement
 			_gauss_t += delta
@@ -1070,19 +1174,18 @@ func _physics_process(delta: float) -> void:
 	# Position after intended (pursuit) movement but BEFORE knockback — facing reads from this, so a knockback
 	# push only DISPLACES the enemy, it never turns/reorients it.
 	var pos_pre_knockback := global_position
-	# Knockback recoil (decays).
-	if _knockback.length() > 1.0:
+	# Knockback recoil (decays). Docked escorts ignore it — the carrier re-pins them each frame.
+	if not _docked and _knockback.length() > 1.0:
 		global_position += _knockback * delta
 		_knockback = _knockback.lerp(Vector2.ZERO, clampf(KNOCKBACK_DECAY * delta, 0.0, 1.0))
-	# Squash/stretch eased from actual speed; hit-squash pulse decays.
-	var moved := global_position - _prev_pos
-	var spd := moved.length() / maxf(delta, 0.0001)
-	var target_squash := SQUASH_MAG * clampf(spd / SQUASH_REF_SPEED, 0.0, 1.0)
-	_squash = lerpf(_squash, target_squash, clampf(SQUASH_EASE * delta, 0.0, 1.0))
+	# Movement squash/stretch disabled — enemies no longer stretch/expand while moving. Only the hit-squash
+	# pulse remains (it decays back to 0 here).
+	_squash = 0.0
 	_hit_squash = lerpf(_hit_squash, 0.0, clampf(HIT_SQUASH_DECAY * delta, 0.0, 1.0))
 	# Face the intended movement direction only — knockback must NOT rotate the enemy (centipede keeps spin).
 	var intended := pos_pre_knockback - _prev_pos
-	if behavior != "centipede" and behavior != "squid" and intended.length() > 0.5:
+	# Carrier (mothership) drives its own _facing; docked escorts get it from the carrier each frame.
+	if behavior != "centipede" and behavior != "squid" and behavior != "mothership" and not _docked and intended.length() > 0.5:
 		_facing = lerp_angle(_facing, intended.angle() + PI * 0.5, clampf(TURN_RATE * delta, 0.0, 1.0))
 	_prev_pos = global_position
 	if not _frames.is_empty():
@@ -1103,6 +1206,7 @@ func _physics_process(delta: float) -> void:
 	# rotates/scales the sprite but not child nodes, so we mirror it here).
 	_update_plumes()
 	_update_plume_xform()
+	_update_vortex_xform()   # glue vortexes to the sprite (position + scale + rotation), same as plumes
 	if _has_eye:
 		_update_eye(delta)
 	if not _tent_template.is_empty():
@@ -1327,12 +1431,14 @@ func _tick_behavior(delta: float) -> void:
 			else:
 				velocity = dir * speed
 			move_and_slide()
+		"mothership":   # carrier: slow advance → on damage, turn tail, flee, release & rebuild the escort
+			_tick_mothership(delta)
 		"patrol":   # straight flyby across the screen along the captured heading; no tracking
 			velocity = _aim * speed
 			move_and_slide()
 			if dist > PATROL_CULL:
 				queue_free()   # flew off-screen
-		"teleport":   # blink TELE_DIST toward the player every TELE_INTERVAL; idle-jigger between
+		"teleport":   # blink TELE_DIST toward the player every TELE_INTERVAL; float adrift between blinks
 			_timer += delta
 			if _timer >= TELE_INTERVAL:
 				_timer = 0.0
@@ -1343,7 +1449,10 @@ func _tick_behavior(delta: float) -> void:
 				_spawn_warp(from, false)             # space CONTRACTS where it left
 				_spawn_warp(global_position, true)   # space EXPANDS where it arrives
 			else:
-				global_position = _tele_anchor + TELE_JIGGER * Vector2(sin(_t * 23.0), cos(_t * 19.0))
+				# Idle float: a slow elliptical drift around the landing anchor (per-enemy phase desyncs the crowd).
+				global_position = _tele_anchor + Vector2(
+					sin(_t * TELE_FLOAT_FREQ + _bob_phase),
+					cos(_t * TELE_FLOAT_FREQ * 1.3 + _bob_phase)) * TELE_FLOAT_RADIUS
 		"swarm":   # blob unit: ZOOM straight through the player @400 (then despawn), or CHASE slowly @speed
 			if _swarm_mode == "zoom":
 				velocity = _aim * SWARM_ZOOM_SPEED
@@ -1491,6 +1600,160 @@ func _tick_behavior(delta: float) -> void:
 				_die()
 		"dummy":
 			pass
+
+# ── Mothership carrier ────────────────────────────────────────────────────────
+## State machine: READY (advance) → on 50 dmg → TURN (50 rpm about-face) → FLEE (flee@120, release the 5
+## docked escorts 1 per 0.5s) → WAIT (5s) → RESPAWN (rebuild 5 escorts, 1 per 2.5s) → READY. Escorts are
+## pinned to the carrier (rotating with it) until released; released ones detach into free-flying chasers.
+func _tick_mothership(delta: float) -> void:
+	var pp := _player_pos()
+	var to := pp - global_position
+	var dist := to.length()
+	var dir := to.normalized() if dist > 0.01 else Vector2.UP
+	match _ms_state:
+		MS_READY:
+			_ms_aim_facing(dir, 4.0 * delta)   # face the player while advancing (so the about-face reads later)
+			velocity = dir * MS_APPROACH_SPEED
+			move_and_slide()
+			# Timer-driven cycle: MS_READY_HOLD seconds after spawning / finishing a respawn, fire the next
+			# flee/release/respawn — regardless of whether the carrier has taken any damage.
+			if MS_CYCLE_ENABLED:
+				_ms_timer += delta
+				if _ms_timer >= MS_READY_HOLD:
+					_ms_timer = 0.0
+					_ms_state = MS_TURN
+		MS_TURN:
+			velocity = Vector2.ZERO
+			if _ms_aim_facing(-dir, MS_TURN_RAD * delta):   # finished turning away from the player
+				_ms_state = MS_FLEE
+				_ms_timer = 0.0
+				_ms_release_idx = 0
+		MS_FLEE:   # flee ONLY while launching escorts — then hold so the rebuild stays on-screen
+			_ms_aim_facing(-dir, MS_TURN_RAD * delta)
+			velocity = -dir * MS_FLEE_SPEED
+			move_and_slide()
+			_ms_timer += delta
+			while _ms_release_idx < _ms_dock.size() and _ms_timer >= MS_RELEASE_INTERVAL * float(_ms_release_idx + 1):
+				_ms_release_child(_ms_release_idx)
+				_ms_release_idx += 1
+			if _ms_release_idx >= _ms_dock.size():
+				_ms_state = MS_WAIT
+				_ms_timer = 0.0
+		MS_WAIT:   # hover at standoff (on-screen, mobile); rebuild begins MS_WAIT_AFTER_RELEASE s after launch
+			_ms_aim_facing(dir, 4.0 * delta)
+			_standoff(dist, dir, MS_REGROUP_DIST)
+			_ms_timer += delta
+			if _ms_timer >= MS_WAIT_AFTER_RELEASE:
+				_ms_dock.clear()   # released escorts are free agents now — stop tracking them
+				_ms_respawn_bays = _ms_build_respawn_bays()
+				_ms_state = MS_RESPAWN
+				_ms_timer = 0.0
+				_ms_respawn_idx = 0
+		MS_RESPAWN:   # hover at standoff; rebuild the escort one ship at a time (visible, not a sitting duck)
+			_ms_aim_facing(dir, 4.0 * delta)
+			_standoff(dist, dir, MS_REGROUP_DIST)
+			_ms_timer += delta
+			while _ms_respawn_idx < _ms_respawn_bays.size() and _ms_timer >= MS_RESPAWN_INTERVAL * float(_ms_respawn_idx + 1):
+				_ms_respawn_one(_ms_respawn_idx)
+				_ms_respawn_idx += 1
+			if _ms_respawn_idx >= _ms_respawn_bays.size():
+				_ms_state = MS_READY
+				_ms_timer = 0.0     # start the MS_READY_HOLD countdown to the next release cycle
+	_ms_update_dock_positions()
+
+## Ease _facing toward the heading for `target_dir` (sprite north = travel dir), capped at max_step rad.
+## Returns true once aligned within ~3.4°.
+func _ms_aim_facing(target_dir: Vector2, max_step: float) -> bool:
+	var tgt := target_dir.angle() + PI * 0.5
+	_facing = _approach_angle(_facing, tgt, max_step)
+	return absf(wrapf(tgt - _facing, -PI, PI)) <= 0.06
+
+## Toggle docked state: docked escorts don't move, emit no plume, ignore collisions (vortex VFX stays on).
+func set_docked(on: bool) -> void:
+	_docked = on
+	for p: CPUParticles2D in _plumes:
+		if is_instance_valid(p):
+			p.emitting = not on
+			p.visible = not on
+	if on:
+		collision_layer = 0
+		collision_mask = 0
+	elif not _no_collide:
+		collision_layer = ENEMY_LAYER
+		collision_mask = ENEMY_LAYER
+
+## Spawn one escort rigidly docked in this carrier; returns its dock-tracking entry.
+func _spawn_docked_child(id: String, base_off: Vector2, draw_w: float, rot_deg: float) -> Dictionary:
+	var wd := get_tree().get_first_node_in_group("wave_director")
+	if wd == null:
+		return {}
+	var def: Dictionary = (wd.ENEMY_DEFS as Dictionary).get(id, {}).duplicate()
+	if def.is_empty():
+		return {}
+	if draw_w > 0.0:
+		def["draw_w"] = draw_w
+	var c: Node = get_script().new()
+	c.call("configure", id, _mgr, def)
+	c.set("global_position", global_position + base_off.rotated(_facing))
+	get_parent().add_child(c)
+	c.set("_facing", _facing + deg_to_rad(rot_deg))
+	c.call("set_docked", true)
+	return {"node": c, "base_off": base_off, "rot": deg_to_rad(rot_deg)}
+
+## Called by the carrier deploy: store the escort roster + dock the initial squadron.
+func init_mothership(roster: Array) -> void:
+	_ms_roster = roster
+	_ms_state = MS_READY
+	_ms_timer = 0.0
+	_ms_dock.clear()
+	for spec: Dictionary in roster:
+		var e := _spawn_docked_child(String(spec["id"]), spec["base_off"] as Vector2, float(spec.get("draw_w", 0.0)), float(spec.get("rot", 0.0)))
+		if not e.is_empty():
+			_ms_dock.append(e)
+	print("[MOTHERSHIP] init: roster=", roster.size(), " docked=", _ms_dock.size(), " cycle_enabled=", MS_CYCLE_ENABLED, " mother_draw_w=", _force_draw_w)
+
+## Release docked escort i — it detaches into a free-flying chaser.
+func _ms_release_child(i: int) -> void:
+	if i < 0 or i >= _ms_dock.size():
+		return
+	var n = (_ms_dock[i] as Dictionary).get("node")
+	if n != null and is_instance_valid(n):
+		n.call("set_docked", false)
+
+## Order the roster into the authored respawn sequence (the two pros8 map to the two pros8 bays).
+func _ms_build_respawn_bays() -> Array:
+	var pool: Array = _ms_roster.duplicate()
+	var out: Array = []
+	for id: String in MS_RESPAWN_ORDER:
+		for j in pool.size():
+			if String((pool[j] as Dictionary)["id"]) == id:
+				out.append(pool[j])
+				pool.remove_at(j)
+				break
+	return out
+
+func _ms_respawn_one(i: int) -> void:
+	if i < 0 or i >= _ms_respawn_bays.size():
+		return
+	var spec: Dictionary = _ms_respawn_bays[i]
+	var e := _spawn_docked_child(String(spec["id"]), spec["base_off"] as Vector2, float(spec.get("draw_w", 0.0)), float(spec.get("rot", 0.0)))
+	if not e.is_empty():
+		_ms_dock.append(e)
+
+## Pin docked escorts to their carrier-relative slot each frame (the formation rotates with the carrier).
+func _ms_update_dock_positions() -> void:
+	var i := _ms_dock.size() - 1
+	while i >= 0:
+		var e: Dictionary = _ms_dock[i]
+		var n = e.get("node")
+		if n == null or not is_instance_valid(n):
+			_ms_dock.remove_at(i)
+			i -= 1
+			continue
+		if bool(n.get("_docked")):
+			n.set("global_position", global_position + (e["base_off"] as Vector2).rotated(_facing))
+			n.set("_facing", _facing + float(e["rot"]))
+		i -= 1
 
 ## Octopus/spider shared leap engine.
 func _jump_tick(delta: float, dir: Vector2, diagonal: bool) -> void:
@@ -1694,6 +1957,8 @@ func _draw_centi_seg(pos: Vector2, ang: float, tex: Texture2D, col: Color) -> vo
 ## same scale → plumes stay glued to the sprite no matter how the enemy is sized.
 func _visual_xform() -> Dictionary:
 	var bob := 1.0 + sin(_t * _bob_freq + _bob_phase) * BOB_AMOUNT
+	if behavior == "mothership":
+		bob = 1.0   # the carrier doesn't breathe — no expand/contract pulse
 	var alpha := 1.0
 	var pop := 1.0
 	if _dying:

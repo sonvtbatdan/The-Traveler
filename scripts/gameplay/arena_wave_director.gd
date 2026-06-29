@@ -17,6 +17,8 @@ const HP_MULT       := 1.0     # global enemy-HP multiplier (quick difficulty kn
 const SPEED_MULT    := 1.0     # global enemy-speed multiplier
 const MAX_ALIVE     := 120     # hard cap on living enemies (bosses still spawn over the cap)
 const BLOB_SPAWN_R  := 90.0    # cluster radius for "blob" enemies (e.g. the 50-strong swarm)
+const SPAWN_BUDGET  := 4       # max enemy nodes CREATED per frame — big batches (rings, the 50-blob) are queued
+                               # and drained over several frames so a wave never instantiates everything at once.
 
 # ══ 1. ENEMY DEFINITION TABLE ══════════════════════════════════════════════════
 # id → { behavior, hp, speed, size, contact, xp, shape, tint, (explodes), (armor) }
@@ -83,14 +85,14 @@ const ENEMY_DEFS := {
 	"pirate2": {"behavior": "chase", "lvl": true, "hp": 4.0, "speed": 150.0, "size": 16.0, "contact": 10, "xp": 4, "armor": 2.0, "flee_speed": 120.0, "flee_below": 0.5, "icon": "res://assets/enemiesHD/pirate2.png"},
 	"piratespear":       {"behavior": "chase", "lvl": true, "hp": 4.0, "speed": 150.0, "size": 16.0, "contact": 10, "xp": 4, "armor": 1.0, "icon": "res://assets/enemiesHD/piratespear.png"},
 	"piratespearshield": {"behavior": "chase", "lvl": true, "hp": 4.0, "speed": 150.0, "size": 16.0, "contact": 10, "xp": 4, "armor": 5.0, "icon": "res://assets/enemiesHD/piratespearshield.png"},
-	# ── Magellanic Clouds — magma (ejects a magma fragment projectile every 10 hp lost) ──
-	"magma1": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 8, "armor": 0.0, "eject_frag": true, "icon": "res://assets/enemiesHD/magma1.png"},
-	"magma2": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 8, "armor": 0.0, "eject_frag": true, "icon": "res://assets/enemiesHD/magma2.png"},
-	"magma3": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 8, "armor": 0.0, "eject_frag": true, "icon": "res://assets/enemiesHD/magma3.png"},
-	"magma4": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 8, "armor": 0.0, "eject_frag": true, "icon": "res://assets/enemiesHD/magma4.png"},
-	"magma5": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 8, "armor": 0.0, "eject_frag": true, "icon": "res://assets/enemiesHD/magma5.png"},
-	"magma6": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 8, "armor": 0.0, "eject_frag": true, "icon": "res://assets/enemiesHD/magma6.png"},
-	"magma7": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 8, "armor": 0.0, "eject_frag": true, "icon": "res://assets/enemiesHD/magma7.png"},
+	# ── Magellanic Clouds — magma (shootable; a LARGE magma splits into 3 small magma on death) ──
+	"magma1": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 8, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma1.png"},
+	"magma2": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 8, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma2.png"},
+	"magma3": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 8, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma3.png"},
+	"magma4": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 8, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma4.png"},
+	"magma5": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 8, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma5.png"},
+	"magma6": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 8, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma6.png"},
+	"magma7": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 8, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma7.png"},
 	# ── Globular Cluster — stone (spawns matching magmaN on death) ──
 	"stone1": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 9, "armor": 3.0, "death_spawn": "magma1", "icon": "res://assets/enemiesHD/stone1.png"},
 	"stone2": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 9, "armor": 3.0, "death_spawn": "magma2", "icon": "res://assets/enemiesHD/stone2.png"},
@@ -108,7 +110,7 @@ const ENEMY_DEFS := {
 	"pros6": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 7, "armor": 3.0, "icon": "res://assets/enemiesHD/pros6.png"},
 	"pros7": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 7, "armor": 3.0, "icon": "res://assets/enemiesHD/pros7.png"},
 	"pros8": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 7, "armor": 3.0, "icon": "res://assets/enemiesHD/pros8.png"},
-	"prosmotherblank": {"behavior": "chase", "lvl": true, "hp": 20.0, "speed": 130.0, "size": 40.0, "contact": 30, "xp": 20, "armor": 7.0, "icon": "res://assets/enemiesHD/prosmotherblank.png"},
+	"prosmotherblank": {"behavior": "mothership", "lvl": true, "hp": 150.0, "speed": 130.0, "size": 40.0, "contact": 30, "xp": 20, "armor": 7.0, "icon": "res://assets/enemiesHD/prosmotherblank.png"},   # carrier: docked pros escort + flee/release/respawn cycle (see arena_enemy.gd `mothership`)
 	# bosses — big high-HP stubs (real movesets later)
 	"elephant":  {"behavior": "boss_stub", "hp": 5500.0, "speed": 110.0, "size": 70.0, "contact": 40, "xp": 500, "shape": "circle",   "tint": Color(0.75, 0.70, 0.65), "icon": "res://assets/bosses/elephant/elephant.sheet.png", "boss_script": "res://scripts/gameplay/arena_elephant.gd"},
 	"chromeleon":{"behavior": "boss_stub", "hp": 4200.0, "speed": 70.0, "size": 60.0, "contact": 35, "xp": 400, "shape": "diamond",  "tint": Color(0.45, 0.90, 0.65), "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},
@@ -172,6 +174,7 @@ var _mgr: Node = null
 var _elapsed: float = 0.0
 var _next: int = 0          # index of the next timeline entry to fire
 var _streams: Array = []    # active stream entries: {type, left, interval, acc, is_boss}
+var _spawn_queue: Array = [] # pending spawns {type, pos, draw_w, mode}, drained SPAWN_BUDGET/frame
 
 func _ready() -> void:
 	add_to_group("wave_director")
@@ -200,6 +203,7 @@ func restart() -> void:
 	_elapsed = 0.0
 	_next = 0
 	_streams.clear()
+	_spawn_queue.clear()
 	for e in get_tree().get_nodes_in_group("arena_enemy"):
 		if is_instance_valid(e):
 			e.queue_free()
@@ -214,6 +218,7 @@ func _process(delta: float) -> void:
 		_fire(timeline[_next])
 		_next += 1
 	_tick_streams(delta)
+	_drain_spawn_queue()
 
 func _fire(entry: Dictionary) -> void:
 	var type_s := String(entry.get("type", ""))
@@ -229,7 +234,7 @@ func _fire(entry: Dictionary) -> void:
 			"acc": 0.0, "is_boss": is_boss})
 		return
 	for pos: Vector2 in _pattern_positions(pattern, count):
-		_spawn(String(entry["type"]), pos, is_boss)
+		_queue_or_spawn(String(entry["type"]), pos, is_boss)
 
 func _tick_streams(delta: float) -> void:
 	var i := _streams.size() - 1
@@ -243,6 +248,31 @@ func _tick_streams(delta: float) -> void:
 		if int(s["left"]) <= 0:
 			_streams.remove_at(i)
 		i -= 1
+
+## Queue spawns for frame-spread instantiation (so a wave/ring/blob doesn't build every node in one frame).
+## Bosses spawn immediately (single, timing-sensitive). Blobs expand into one queued unit per member, all
+## sharing the same swarm mode + cluster centre, so the blob still travels together.
+func _queue_or_spawn(type_id: String, pos: Vector2, is_boss: bool, draw_w: float = 0.0) -> void:
+	if is_boss:
+		_spawn(type_id, pos, true, draw_w)
+		return
+	var src: Dictionary = ENEMY_DEFS.get(type_id, {})
+	var blob := int(src.get("blob", 1))
+	if blob > 1:
+		var mode := "zoom" if randf() < 0.5 else "chase"
+		for k in blob:
+			var off := pos + Vector2(cos(randf() * TAU), sin(randf() * TAU)) * randf_range(0.0, BLOB_SPAWN_R)
+			_spawn_queue.append({"type": type_id, "pos": off, "draw_w": draw_w, "mode": mode})
+		return
+	_spawn_queue.append({"type": type_id, "pos": pos, "draw_w": draw_w, "mode": ""})
+
+## Drain up to SPAWN_BUDGET queued spawns per frame (cap is re-checked per unit inside _spawn).
+func _drain_spawn_queue() -> void:
+	var budget := SPAWN_BUDGET
+	while budget > 0 and not _spawn_queue.is_empty():
+		var it: Dictionary = _spawn_queue.pop_front()
+		_spawn(String(it["type"]), it["pos"] as Vector2, false, float(it.get("draw_w", 0.0)), String(it.get("mode", "")))
+		budget -= 1
 
 ## Deploy a named fleet (from res://fleet_layout.cfg, authored in Fleet Edit): for each non-empty unit slot,
 ## roll one enemy from its pool (single = that enemy) and spawn it at the slot's placed position. The fleet's
@@ -261,7 +291,33 @@ func _deploy_fleet(fleet_name: String, is_boss: bool) -> void:
 			break
 	if fleet.is_empty():
 		return
-	var inv := get_viewport().get_canvas_transform().affine_inverse()   # screen → world
+	if _player == null or not is_instance_valid(_player):
+		_player = get_tree().get_first_node_in_group("player")   # may be called outside _process (e.g. dev quick-spawn)
+	# Carrier fleet: if a slot holds a "mothership"-behavior unit, deploy as ONE controlled fleet
+	# (mother + rigidly-docked escorts) instead of independent units.
+	var mother_slot: Dictionary = {}
+	var child_slots: Array = []
+	for s: Dictionary in fleet.get("slots", []):
+		var ids: Array = []
+		for en in (s.get("enemies", []) as Array):
+			if String(en) != "":
+				ids.append(String(en))
+		if ids.is_empty():
+			continue
+		var beh := String((ENEMY_DEFS.get(String(ids[0]), {}) as Dictionary).get("behavior", ""))
+		if beh == "mothership" and mother_slot.is_empty():
+			mother_slot = {"id": String(ids[0]), "slot": s}
+		else:
+			child_slots.append({"ids": ids, "slot": s})
+	if not mother_slot.is_empty():
+		print("[FLEET] '", fleet_name, "' -> MOTHERSHIP path, mother=", mother_slot["id"], " escorts=", child_slots.size())
+		_deploy_mothership(mother_slot, child_slots, is_boss)
+		return
+	print("[FLEET] '", fleet_name, "' -> GENERIC path (no mothership unit found), slots=", fleet.get("slots", []).size())
+	# Like every other enemy, a fleet ENTERS from a random off-screen point: anchor the whole formation
+	# (its non-empty centroid) there, keeping each unit's authored relative offset (Fleet Edit px = world px).
+	var anchor := _one_position()
+	var ref := _fleet_centroid_screen(fleet)
 	for s: Dictionary in fleet.get("slots", []):
 		var pool: Array = []
 		for en in (s.get("enemies", []) as Array):
@@ -270,7 +326,53 @@ func _deploy_fleet(fleet_name: String, is_boss: bool) -> void:
 		if pool.is_empty():
 			continue
 		var id := String(pool[randi() % pool.size()])   # random pool → roll one
-		_spawn(id, inv * (s.get("pos", Vector2.ZERO) as Vector2), is_boss)
+		_spawn(id, anchor + ((s.get("pos", Vector2.ZERO) as Vector2) - ref), is_boss, float(s.get("size", 0.0)))
+
+## Centroid (screen coords) of a fleet's non-empty slots — the anchor reference for off-screen entry.
+func _fleet_centroid_screen(fleet: Dictionary) -> Vector2:
+	var sum := Vector2.ZERO
+	var n := 0
+	for s: Dictionary in fleet.get("slots", []):
+		var has := false
+		for en in (s.get("enemies", []) as Array):
+			if String(en) != "":
+				has = true
+				break
+		if has:
+			sum += (s.get("pos", Vector2.ZERO) as Vector2)
+			n += 1
+	return sum / float(n) if n > 0 else Vector2.ZERO
+
+## Deploy a carrier fleet: the mother (a "mothership" unit) plus its rigidly-docked escorts. Authored slot
+## sizes/offsets are honored 1:1 (Fleet Edit px = world px) so the squadron matches the Fleet Edit layout;
+## the mother then runs the flee/release/respawn cycle (see arena_enemy.gd `mothership` behavior).
+func _deploy_mothership(mother_slot: Dictionary, child_slots: Array, _is_boss: bool) -> void:
+	var mslot: Dictionary = mother_slot["slot"]
+	var mpos_screen: Vector2 = mslot.get("pos", Vector2.ZERO)
+	var src: Dictionary = ENEMY_DEFS.get(String(mother_slot["id"]), {})
+	if src.is_empty():
+		return
+	var mdef := src.duplicate()
+	mdef["hp"] = float(mdef.get("hp", 150.0)) * HP_MULT
+	mdef["speed"] = float(mdef.get("speed", 95.0)) * SPEED_MULT
+	mdef["draw_w"] = float(mslot.get("size", 60.0))   # render the mother at its authored size (world px)
+	var mother: Node = EnemyScript.new()
+	mother.call("configure", String(mother_slot["id"]), _mgr, mdef)
+	mother.set("global_position", _one_position())   # enter from a random off-screen point (like all enemies)
+	get_parent().add_child(mother)
+	# Escort roster: id + carrier-relative offset + authored draw width + rotation, all in world px (1:1).
+	var roster: Array = []
+	for cs: Dictionary in child_slots:
+		var ids: Array = cs["ids"]
+		var cid := String(ids[randi() % ids.size()])   # random pool → roll one (as the generic deploy)
+		var cslot: Dictionary = cs["slot"]
+		roster.append({
+			"id": cid,
+			"base_off": (cslot.get("pos", Vector2.ZERO) as Vector2) - mpos_screen,
+			"draw_w": float(cslot.get("size", 50.0)),
+			"rot": float(cslot.get("rot", 0.0)),
+		})
+	mother.call("init_mothership", roster)
 
 # ══ 2. SPAWN PATTERNS (radial around the player, just off-screen) ══════════════
 func _spawn_center() -> Vector2:
@@ -308,7 +410,10 @@ func _pattern_positions(pattern: String, count: int) -> Array:
 	return out
 
 # ══ Spawn ══════════════════════════════════════════════════════════════════════
-func _spawn(type_id: String, pos: Vector2, is_boss: bool) -> void:
+## Create ONE enemy node at pos. Blob expansion + frame-spread happen upstream (_queue_or_spawn + the drain),
+## so this just builds a single unit. draw_w > 0 → render at that draw width (world px) for Fleet Edit per-slot
+## sizes; mode != "" → blob member's shared swarm_mode (0 / "" = normal). The alive-cap is checked per unit here.
+func _spawn(type_id: String, pos: Vector2, is_boss: bool, draw_w: float = 0.0, mode: String = "") -> void:
 	# Beacon aux item lifts the alive-cap so more enemies crowd the field (base mult 1.0 = no change).
 	var spawn_mult: float = GameManager.upg_spawn_rate_mult if "upg_spawn_rate_mult" in GameManager else 1.0
 	var cap := int(round(float(MAX_ALIVE) * spawn_mult))
@@ -320,20 +425,10 @@ func _spawn(type_id: String, pos: Vector2, is_boss: bool) -> void:
 	var def := src.duplicate()
 	def["hp"] = float(def.get("hp", 30.0)) * HP_MULT
 	def["speed"] = float(def.get("speed", 95.0)) * SPEED_MULT
-	# Blob enemies (e.g. the 50-strong swarm) spawn as a tight cluster that shares ONE behavior mode, so the
-	# whole blob travels together (all zoom across, or all chase).
-	var blob := int(def.get("blob", 1))
-	if blob > 1 and not is_boss:
-		var mode := "zoom" if randf() < 0.5 else "chase"
-		var room := maxi(0, cap - get_tree().get_nodes_in_group("arena_enemy").size())
-		for k in mini(blob, room):
-			var d := def.duplicate()
-			d["swarm_mode"] = mode
-			var u := EnemyScript.new()
-			u.configure(type_id, _mgr, d)
-			u.position = pos + Vector2(cos(randf() * TAU), sin(randf() * TAU)) * randf_range(0.0, BLOB_SPAWN_R)
-			get_parent().add_child(u)
-		return
+	if draw_w > 0.0:
+		def["draw_w"] = draw_w   # honor the Fleet Edit per-slot size
+	if mode != "":
+		def["swarm_mode"] = mode   # blob member → travels with its cluster
 	# Bosses with a dedicated class (e.g. the Elephant moveset) instantiate that instead of the generic enemy.
 	var e: Node
 	if def.has("boss_script"):
