@@ -472,6 +472,12 @@ func _weapon_pool(kind: String) -> Dictionary:
 		return ArenaWeapons.ORBITAL_POOL
 	if kind == "red_x":
 		return ArenaWeapons.DRAGON_POOL
+	if kind == "chemtrail":
+		return ArenaWeapons.CHEMTRAIL_POOL
+	if kind == "zsword":
+		return ArenaWeapons.ZSWORD_POOL
+	if kind == "sonic":
+		return ArenaWeapons.SONIC_POOL
 	return {}
 
 ## Show 3 random, not-maxed upgrades from `kind`'s pool, reusing the card layout. A back arrow returns here.

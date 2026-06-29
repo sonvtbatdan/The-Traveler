@@ -112,8 +112,13 @@ func take_wanderer_y_offset() -> float:
 	return o
 
 # ── Enemy bullets ───────────────────────────────────────────────────────────────
-func spawn_bullet(pos: Vector2, vel: Vector2, dmg: int) -> void:
-	_bullets.append({"pos": pos, "vel": vel, "dmg": dmg, "life": 0.0, "start": pos})
+func spawn_bullet(pos: Vector2, vel: Vector2, dmg: int, owner: Node = null) -> void:
+	var oid := owner.get_instance_id() if owner != null else 0
+	_bullets.append({"pos": pos, "vel": vel, "dmg": dmg, "life": 0.0, "start": pos, "owner": oid})
+
+## Destroy every live enemy projectile (Sonic's Deafening Silence evolution).
+func clear_bullets() -> void:
+	_bullets.clear()
 
 ## Deflect every enemy bullet within `radius` of `center` to fly outward at ≥ `force` px/s. Used by the
 ## Bulwark thruster + Guardian drone to shove incoming fire away. Returns how many bullets were pushed.
@@ -163,9 +168,23 @@ func _tick_bullets(delta: float) -> void:
 		elif p.distance_to(sc) <= sr + BULLET_RADIUS:
 			GameManager.ship_take_damage(int(b["dmg"]))
 			_bullets.remove_at(i)
+		elif _bullet_hits_enemy(p, int(b.get("owner", 0)), int(b["dmg"])):
+			_bullets.remove_at(i)   # bullets also damage enemies (charmed shooters fire on the swarm; friendly fire)
 		elif float(b["life"]) >= BULLET_MAX_LIFE or p.distance_to(b["start"]) >= BULLET_MAX_DIST:
 			_bullets.remove_at(i)
 		i -= 1
+
+## A bullet at `p` damages the first enemy it touches (excluding its owner). Returns true if it hit one.
+func _bullet_hits_enemy(p: Vector2, owner_id: int, dmg: int) -> bool:
+	for en in get_tree().get_nodes_in_group("arena_enemy"):
+		if not is_instance_valid(en) or en.get_instance_id() == owner_id:
+			continue
+		var er: float = float(en.get("_radius")) if en.get("_radius") != null else 16.0
+		if p.distance_to((en as Node2D).global_position) <= er + BULLET_RADIUS:
+			if en.has_method("take_damage"):
+				en.take_damage(float(dmg))
+			return true
+	return false
 
 # ── Explosions (cross-faction blast) ────────────────────────────────────────────
 func explode(blast_center: Vector2, blast_radius: float, dmg: int, source: Node = null) -> void:

@@ -308,6 +308,9 @@ func ship_take_damage(dmg: int) -> void:
 	if upg_daredevil:   # Daredevil ramp resets the moment HP damage lands
 		_daredevil_t = 0.0
 		_daredevil_bonus = 0.0
+	if upg_focus:       # Absolute Focus fire-rate ramp also resets on HP damage
+		_focus_t = 0.0
+		_focus_bonus = 0.0
 	ship_hp = maxi(0, ship_hp - int(ceil(d)))
 	ship_hp_changed.emit(ship_hp)
 	if ship_hp <= 0:
@@ -377,10 +380,13 @@ func energy_regen_rate() -> float:
 ## or 0 when "Nanobots, attack!" has disabled it. Gear affixes / hull-innate / Biotech no longer contribute.
 func hp_regen_rate() -> float:
 	var base := 0.0 if upg_regen_disabled else upg_hp_regen
-	return (base + _heat_syphon_regen) * (1.0 + upg_regen_mastery) * upg_regen_wtl_mult
+	return (base + _heat_syphon_regen + _chem_heal_regen) * (1.0 + upg_regen_mastery) * upg_regen_wtl_mult
 ## Dragon's Breath Heat Syphon: regen from currently-burning enemies (set each frame by arena_weapons).
 func set_heat_syphon(v: float) -> void:
 	_heat_syphon_regen = v
+## Chemtrail Healing Cloud: regen while standing in your own chemtrail (set each frame by arena_weapons).
+func set_chem_heal(v: float) -> void:
+	_chem_heal_regen = v
 func shield_capacity_total() -> float:
 	return _equipped_shield_capacity() + sum_affix("shield_flat") + upg_force_shield_max
 func shield_regen_bonus() -> float:
@@ -546,6 +552,12 @@ func _process(delta: float) -> void:
 		while _daredevil_t >= 3.0:
 			_daredevil_t -= 3.0
 			_daredevil_bonus = minf(1.0, _daredevil_bonus + 0.01)
+	# Absolute Focus evo: +1% fire rate every 5s without taking HP damage, up to +60% (300s) (reset on damage).
+	if upg_focus and ship_hp > 0:
+		_focus_t += delta
+		while _focus_t >= 5.0:
+			_focus_t -= 5.0
+			_focus_bonus = minf(0.60, _focus_bonus + 0.01)
 	if _shield_timer > 0.0:
 		_shield_timer -= delta
 		if _shield_timer <= 0.0:
@@ -607,8 +619,12 @@ var upg_ms_to_firerate: bool  = false     # Momentum evo: 100% of MS bonus also 
 var upg_daredevil:      bool  = false     # Daredevil evo: damage ramps while undamaged
 var _daredevil_t:       float = 0.0       # seconds since last damage (Daredevil ramp timer)
 var _daredevil_bonus:   float = 0.0       # current Daredevil damage bonus (0..1.0), reset on taking damage
+var upg_focus:          bool  = false     # Auto-Loader Absolute Focus evo: fire-rate ramps while undamaged
+var _focus_t:           float = 0.0       # seconds since last damage (Absolute Focus timer)
+var _focus_bonus:       float = 0.0       # current Absolute Focus fire-rate bonus (0..0.60), reset on damage
 var contact_dmg_base:   float = 0.0       # ship contact damage (Orbital pool grants it; base 0). × Contact Mastery
 var _heat_syphon_regen: float = 0.0       # Dragon's Breath Heat Syphon: HP/s from currently-burning enemies
+var _chem_heal_regen:   float = 0.0       # Chemtrail Healing Cloud: HP/s while standing in your own chemtrail
 var upg_fire_rate_mult: float = 1.0       # weapon fire-rate ×
 var upg_move_speed_mult: float = 1.0      # move-speed ×
 var upg_damage_mult:    float = 1.0       # weapon-damage ×
@@ -675,8 +691,9 @@ func kind_damage_mult(kinds: Array) -> float:
 func get_move_speed_mult() -> float: return upg_move_speed_mult
 func get_damage_mult() -> float:     return upg_damage_mult + _daredevil_bonus   # Daredevil ramp
 func get_fire_rate_mult() -> float:
-	# Momentum evo: 100% of the move-speed BONUS is also added to the global fire-rate multiplier.
-	return upg_fire_rate_mult + (maxf(0.0, upg_move_speed_mult - 1.0) if upg_ms_to_firerate else 0.0)
+	# Momentum evo: 100% of the move-speed BONUS is also added; Absolute Focus adds its ramped bonus.
+	return upg_fire_rate_mult + (maxf(0.0, upg_move_speed_mult - 1.0) if upg_ms_to_firerate else 0.0) + _focus_bonus
+func set_focus(on: bool) -> void: upg_focus = on; player_stats_changed.emit()
 ## Fins Speed Mastery: a fraction of the MS bonus that also speeds up weapons (projectile/minion travel speed).
 func weapon_speed_bonus() -> float:
 	return maxf(0.0, upg_move_speed_mult - 1.0) * upg_speed_mastery
@@ -776,6 +793,10 @@ func reset_run() -> void:
 	_daredevil_bonus = 0.0
 	contact_dmg_base = 0.0
 	_heat_syphon_regen = 0.0
+	_chem_heal_regen = 0.0
+	upg_focus = false
+	_focus_t = 0.0
+	_focus_bonus = 0.0
 	upg_hp_regen = 0.0
 	upg_fire_rate_mult = 1.0
 	upg_move_speed_mult = 1.0
