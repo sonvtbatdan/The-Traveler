@@ -208,6 +208,20 @@ var _stun_immune_t: float = 0.0  # immunity window after a stun (can't be re-stu
 var _stun_immune_mult: float = 1.0   # Dazzling Display capstone shortens immunity (set via set_stun_immune_mult)
 var _weaken_t: float = 0.0    # Pacifying Jolt: while > 0, this enemy's damage output is halved
 var _vuln_t: float = 0.0      # Orb of Annihilation: while > 0, this enemy takes +20% damage from all sources
+var _sed_t: float = 0.0       # Sedative Scent (Chemtrail): while > 0, enemy is slowed + deals less damage
+var _sed_dmg: float = 0.0     # sedative outgoing-damage reduction (0..)
+var _sed_slow: float = 0.0    # sedative move-speed reduction (0..)
+var _armor_reduce: float = 0.0  # Critical Break (Drill Bits): temporary armor stripped off this enemy
+var _armor_reduce_t: float = 0.0
+var _wiper_t: float = 0.0     # Windshield Wiper (Z-Sword): brief 99%→0% slow over 0.2s
+var _charm_t: float = 0.0     # Siren (Sonic): while > 0 this enemy fights for the player (targets other enemies)
+var _aggro_target: Node = null  # who this enemy is chasing/attacking this frame (player, or a charmed enemy, or — if charmed — a foe)
+var _bleed_stacks: int = 0   # Drill Bits bleed: 1 dmg/stack/s for 5s, IGNORES armor
+var _bleed_t: float = 0.0
+var _bleed_acc: float = 0.0
+const BLEED_TICK := 1.0
+const BLEED_DURATION := 5.0
+const BLEED_MAX_BASE := 50
 var _swarm_mode: String = "chase"   # swarm blob unit: "zoom" (fly through @400) or "chase" (slow @speed)
 var _flash_color: Color = HIT_FLASH_COLOR
 
@@ -617,9 +631,101 @@ func apply_weaken(duration: float) -> void:
 	if not _dead:
 		_weaken_t = maxf(_weaken_t, duration)
 
-## Multiplier on this enemy's outgoing damage (0.5 while weakened).
+## Sedative Scent (Chemtrail): slow + outgoing-damage reduction, refreshed each tick the enemy is in the cloud.
+func apply_sedative(dmg_red: float, ms_red: float, duration: float = 0.4) -> void:
+	if _dead:
+		return
+	_sed_dmg = dmg_red
+	_sed_slow = ms_red
+	_sed_t = maxf(_sed_t, duration)
+
+## Effective armor for a hit: (base − temp reduction) × (1 − %pen), then − flat pen, clamped to the floor
+## (0 normally; −20 under the Less Than Nothing evo so it amplifies damage).
+func _hit_armor() -> float:
+	if not GameManager.has_method("mech_bonus"):
+		return armor
+	var a := armor - _armor_reduce
+	a = a * (1.0 - GameManager.mech_bonus("armor_pen_pct")) - GameManager.mech_bonus("armor_pen_flat")
+	var fl := -20.0 if GameManager.mech_bonus("less_than_nothing") > 0.0 else 0.0
+	return maxf(fl, a)
+
+## Critical Break: temporarily strip `amt` armor for `dur` s (accumulates; timer refreshed).
+func _reduce_armor(amt: float, dur: float) -> void:
+	_armor_reduce += amt
+	_armor_reduce_t = maxf(_armor_reduce_t, dur)
+
+## Max bleed stacks: base 50 + Bleed Mastery (global) + Hurt evo (+3 per flat armor-pen point).
+func _bleed_max() -> int:
+	var m := BLEED_MAX_BASE
+	if GameManager.has_method("mech_bonus"):
+		m += int(GameManager.mech_bonus("bleed_max_add"))
+		if GameManager.mech_bonus("hurt") > 0.0:
+			m += int(GameManager.mech_bonus("armor_pen_flat") * 3.0)
+	return m
+
+func apply_bleed(stacks: int = 1) -> void:
+	if _dead:
+		return
+	_bleed_stacks = mini(_bleed_stacks + maxi(1, stacks), _bleed_max())
+	_bleed_t = BLEED_DURATION
+
+## Cauterize the Wound (Z-Sword): convert a fraction of current bleed stacks into burn stacks.
+func cauterize(frac: float) -> void:
+	if _bleed_stacks <= 0:
+		return
+	var moved := int(ceil(float(_bleed_stacks) * frac))
+	_bleed_stacks = maxi(0, _bleed_stacks - moved)
+	if _bleed_stacks <= 0:
+		_bleed_t = 0.0
+	apply_burn(moved)
+
+## Windshield Wiper (Z-Sword): a strong, brief slow that decays to 0 over 0.2s.
+func apply_wiper() -> void:
+	if not _dead:
+		_wiper_t = 0.2
+
+## Siren (Sonic): charm this enemy for `dur` s — it fights for the player. Bosses are immune.
+func apply_charm(dur: float) -> void:
+	if _dead or is_in_group("boss"):
+		return
+	_charm_t = dur
+
+func is_charmed() -> bool:
+	return _charm_t > 0.0
+
+## Number of distinct active statuses on this enemy — Sensory Overload (Sonic) scales damage by it.
+func status_count() -> int:
+	var n := 0
+	if _burn_stacks > 0: n += 1
+	if _freeze_stacks > 0: n += 1
+	if _stun_t > 0.0: n += 1
+	if _bleed_stacks > 0: n += 1
+	if _vuln_t > 0.0: n += 1
+	if _weaken_t > 0.0: n += 1
+	if _sed_t > 0.0: n += 1
+	return n
+
+## Nearest NON-charmed enemy (the charmed one's target / duel partner).
+func _nearest_foe() -> Node2D:
+	var best: Node2D = null
+	var bd := 1.0e20
+	for e in get_tree().get_nodes_in_group("arena_enemy"):
+		if e == self or not is_instance_valid(e):
+			continue
+		if e.has_method("is_charmed") and e.call("is_charmed"):
+			continue
+		var d: float = global_position.distance_squared_to((e as Node2D).global_position)
+		if d < bd:
+			bd = d
+			best = e
+	return best
+
+## Multiplier on this enemy's outgoing damage (Pacifying Jolt halves; Sedative reduces).
 func damage_out_mult() -> float:
-	return 0.5 if _weaken_t > 0.0 else 1.0
+	var m := 0.5 if _weaken_t > 0.0 else 1.0
+	if _sed_t > 0.0:
+		m *= (1.0 - _sed_dmg)
+	return m
 
 ## Orb of Annihilation: this enemy takes +20% damage from all sources for `duration` s (refreshed while in the orb).
 func apply_vulnerable(duration: float) -> void:
@@ -644,9 +750,23 @@ func _tick_status(delta: float) -> void:
 				var bmul: float = 1.0 + (GameManager.mech_bonus("burn_dmg") if GameManager.has_method("mech_bonus") else 0.0)
 				var dmg := hp * BURN_PCT * float(_burn_stacks) * BURN_TICK * bmul
 				if dmg > 0.0:
-					take_damage(dmg, 0.0)
+					take_damage(dmg, 0.0, 0.0, true)   # burn IGNORES armor
 					if _dead:
 						return
+	# Bleed (Drill Bits): 1 dmg/stack/s for 5s, IGNORES armor. Hurt evo scales it by % armor pen.
+	if _bleed_stacks > 0:
+		_bleed_t -= delta
+		if _bleed_t <= 0.0:
+			_bleed_stacks = 0
+			_bleed_acc = 0.0
+		else:
+			_bleed_acc += delta
+			while _bleed_acc >= BLEED_TICK:
+				_bleed_acc -= BLEED_TICK
+				var hurt: float = (GameManager.mech_bonus("armor_pen_pct") if (GameManager.has_method("mech_bonus") and GameManager.mech_bonus("hurt") > 0.0) else 0.0)
+				take_damage(float(_bleed_stacks) * (1.0 + hurt), 0.0, 0.0, true)
+				if _dead:
+					return
 	if _freeze_stacks > 0:
 		_freeze_t -= delta
 		if _freeze_t <= 0.0:
@@ -656,6 +776,16 @@ func _tick_status(delta: float) -> void:
 	# Stun timer → on expiry, grant the post-stun immunity window.
 	if _weaken_t > 0.0:
 		_weaken_t = maxf(0.0, _weaken_t - delta)
+	if _sed_t > 0.0:
+		_sed_t = maxf(0.0, _sed_t - delta)
+	if _armor_reduce_t > 0.0:
+		_armor_reduce_t = maxf(0.0, _armor_reduce_t - delta)
+		if _armor_reduce_t <= 0.0:
+			_armor_reduce = 0.0
+	if _wiper_t > 0.0:
+		_wiper_t = maxf(0.0, _wiper_t - delta)
+	if _charm_t > 0.0:
+		_charm_t = maxf(0.0, _charm_t - delta)
 	if _vuln_t > 0.0:
 		_vuln_t = maxf(0.0, _vuln_t - delta)
 	if _stun_t > 0.0:
@@ -668,8 +798,11 @@ func _tick_status(delta: float) -> void:
 			_stun_immune_t = imm * _stun_immune_mult * (1.0 - clampf(reduce, 0.0, 0.95))
 	elif _stun_immune_t > 0.0:
 		_stun_immune_t = maxf(0.0, _stun_immune_t - delta)
-	# Status tint: stun (electric) > freeze (icy) > burn (fiery).
-	if _stun_t > 0.0:
+	# Status tint: charm (pink blink) > stun (electric) > freeze (icy) > burn (fiery).
+	if _charm_t > 0.0:
+		var blink := 1.4 + 0.5 * sin(_charm_t * 18.0)   # pulsing pink
+		modulate = Color(blink, 0.5, blink * 0.8)
+	elif _stun_t > 0.0:
 		modulate = Color(1.7, 1.7, 0.6)
 	elif _freeze_stacks > 0:
 		modulate = Color(0.6, 0.8, 1.25)
@@ -678,19 +811,26 @@ func _tick_status(delta: float) -> void:
 	else:
 		modulate = Color.WHITE
 
-func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0) -> void:
+## ignore_armor: bleed/burn bypass armor DR. bleeds: kinetic/contact hit → Serrated Heads applies a bleed stack.
+## was_crit: a crit hit → Critical Break temporarily strips armor.
+func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore_armor: bool = false, bleeds: bool = false, was_crit: bool = false) -> void:
 	if _dead:
 		return
 	if _invincible:
 		return   # test dummy — still blocks the beam (it's in "arena_enemy") but never takes damage or dies
-	var dr := 0.0
-	if GameManager.has_method("armor_damage_reduction"):
-		dr = GameManager.armor_damage_reduction(armor)
 	if _stun_t > 0.0:
 		amount *= STUN_DMG_MULT   # stunned enemies take +50% damage
 	if _vuln_t > 0.0:
 		amount *= 1.2             # Orb of Annihilation: +20% damage taken
-	hp -= amount * (1.0 - dr)
+	if not ignore_armor and GameManager.has_method("armor_damage_reduction"):
+		amount *= 1.0 - GameManager.armor_damage_reduction(_hit_armor())   # armor DR after pen + reductions
+	hp -= amount
+	# Drill Bits: Serrated Heads (bleed on kinetic/contact hits) + Critical Break (crit strips armor).
+	if GameManager.has_method("mech_bonus"):
+		if bleeds and GameManager.mech_bonus("serrated") > 0.0:
+			apply_bleed(1)
+		if was_crit and GameManager.mech_bonus("critbreak") > 0.0:
+			_reduce_armor(GameManager.mech_bonus("critbreak") * amount, 5.0)
 	# Hit reaction: flash (red if this blow kills, else white) + squash pulse + (optional) knockback + stagger.
 	_flash_color = KILL_FLASH_COLOR if hp <= 0.0 else HIT_FLASH_COLOR
 	_stagger_t = maxf(_stagger_t, stagger)
@@ -759,7 +899,29 @@ func _play_sfx(stream: AudioStream) -> void:
 	_sfx.stream = stream
 	_sfx.play()
 
+## Pick this enemy's target by closeness. Charmed → nearest NON-charmed enemy. Normal → nearest of {player,
+## charmed enemies} (charmed allies are just more targets; everyone attacks whatever's closest).
+func _resolve_aggro() -> Node:
+	if _charm_t > 0.0:
+		return _nearest_foe()
+	var best: Node = _target
+	var bd := 1.0e20
+	if _target != null and is_instance_valid(_target):
+		bd = global_position.distance_squared_to((_target as Node2D).global_position)
+	for e in get_tree().get_nodes_in_group("arena_enemy"):
+		if e == self or not is_instance_valid(e):
+			continue
+		if not (e.has_method("is_charmed") and e.call("is_charmed")):
+			continue
+		var d: float = global_position.distance_squared_to((e as Node2D).global_position)
+		if d < bd:
+			bd = d
+			best = e
+	return best
+
 func _player_pos() -> Vector2:
+	if _aggro_target != null and is_instance_valid(_aggro_target):
+		return (_aggro_target as Node2D).global_position
 	if _target != null and is_instance_valid(_target):
 		return _target.global_position
 	_target = get_tree().get_first_node_in_group("player")
@@ -804,6 +966,7 @@ func _physics_process(delta: float) -> void:
 		_target = get_tree().get_first_node_in_group("player")
 		if _target == null:
 			return
+	_aggro_target = _resolve_aggro()   # player / a charmed enemy / (if charmed) a foe — picked by closeness
 	_t += delta
 	_spawn_t = minf(_spawn_t + delta, SPAWN_POP_TIME)
 	_stagger_t = maxf(0.0, _stagger_t - delta)
@@ -812,7 +975,8 @@ func _physics_process(delta: float) -> void:
 		return
 	if _base_speed < 0.0:
 		_base_speed = speed                      # capture the configured base once
-	speed = _base_speed * (1.0 - _move_slow)     # freeze slows all movement (behaviors read `speed`)
+	var wiper_slow := 0.99 * (_wiper_t / 0.2) if _wiper_t > 0.0 else 0.0   # Windshield Wiper: 99%→0 over 0.2s
+	speed = _base_speed * (1.0 - _move_slow) * (1.0 - (_sed_slow if _sed_t > 0.0 else 0.0)) * (1.0 - wiper_slow)
 	if not _init_done:
 		_init_behavior()
 		_init_done = true
@@ -1151,7 +1315,7 @@ func _tick_behavior(delta: float) -> void:
 				_burst_t -= delta
 				if _burst_t <= 0.0:
 					var fp_idx := sh_total - _burst_shots
-					_mgr.spawn_bullet(_muzzle(fp_idx), dir * 280.0, 5)
+					_mgr.spawn_bullet(_muzzle(fp_idx), dir * 280.0, 5, self)
 					_burst_shots -= 1
 					if _burst_shots > 0:
 						_burst_t = 0.2
@@ -1163,7 +1327,7 @@ func _tick_behavior(delta: float) -> void:
 				var base := dir.angle()
 				for k in 5:
 					var a := base + deg_to_rad(lerpf(-24.0, 24.0, float(k) / 4.0))
-					_mgr.spawn_bullet(muzzle, Vector2(cos(a), sin(a)) * 260.0, 5)
+					_mgr.spawn_bullet(muzzle, Vector2(cos(a), sin(a)) * 260.0, 5, self)
 		"beamer":
 			_standoff(dist, dir, 380.0)
 			_beamer_tick(delta, dir)
@@ -1270,7 +1434,7 @@ func _beamer_tick(delta: float, dir: Vector2) -> void:
 				var proj := (pp - beam_world).dot(_beam_dir)
 				if proj > 0.0:
 					var closest := beam_world + _beam_dir * proj
-					if closest.distance_to(pp) <= 30.0 and fmod(_timer, 0.5) < delta:
+					if _charm_t <= 0.0 and closest.distance_to(pp) <= 30.0 and fmod(_timer, 0.5) < delta:
 						GameManager.ship_take_damage(int(round(5.0 * damage_out_mult())))
 		3:
 			if _timer >= 1.5:
@@ -1293,20 +1457,32 @@ func _exit_tree() -> void:
 	_missile_volley = null
 
 # ── Contact ─────────────────────────────────────────────────────────────────────
+## Contact damages whatever this enemy is aggro'd on: the player (incl. ship-contact-back), or an enemy target
+## (a charmed ally for normal enemies, or a foe for charmed enemies). Throttled per-enemy for enemy-vs-enemy.
 func _check_contact() -> void:
 	if _ship_contact_cd > 0.0:
 		_ship_contact_cd -= get_physics_process_delta_time()
-	var ship_cd: float = GameManager.ship_contact_damage() if GameManager.has_method("ship_contact_damage") else 0.0
-	if contact_damage <= 0 and not contact_explodes and ship_cd <= 0.0:
+	var t := _aggro_target
+	if t == null or not is_instance_valid(t):
 		return
-	if global_position.distance_to(_player_pos()) <= 16.0 + _radius:
+	var is_player: bool = t.is_in_group("player")
+	var tr: float = 16.0 if is_player else (float(t.get("_radius")) if t.get("_radius") != null else 16.0)
+	if global_position.distance_to((t as Node2D).global_position) > tr + _radius:
+		return
+	if is_player:
+		var ship_cd: float = GameManager.ship_contact_damage() if GameManager.has_method("ship_contact_damage") else 0.0
 		if contact_damage > 0:
 			GameManager.ship_take_damage(int(round(contact_damage * damage_out_mult())))
 		if ship_cd > 0.0 and _ship_contact_cd <= 0.0:
-			take_damage(ship_cd, 0.0)        # ship hits back (Orbital pool: ship contact damage × Contact Mastery)
-			_ship_contact_cd = 0.5           # at most every 0.5s per enemy
-		if contact_explodes:
-			_on_contact_death()
+			take_damage(ship_cd, 0.0)        # ship hits back (Orbital pool: ship contact damage)
+			_ship_contact_cd = 0.5
+	else:
+		# enemy-vs-enemy (charm): deal contact damage to the target, throttled.
+		if contact_damage > 0 and t.has_method("take_damage") and _ship_contact_cd <= 0.0:
+			t.take_damage(float(contact_damage) * damage_out_mult())
+			_ship_contact_cd = 0.4
+	if contact_explodes:
+		_on_contact_death()
 
 func _on_contact_death() -> void:
 	if (behavior == "bomb" or behavior == "thrown_bomb") and _mgr != null and _mgr.has_method("explode"):
