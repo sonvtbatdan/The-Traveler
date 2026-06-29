@@ -37,6 +37,11 @@ var _showing: bool = false
 var _root: Control = null
 var _cards_box: Control = null
 var _current: Array = []   # the choice dicts currently offered
+var _tier1: Array = []     # saved 1st-tier choices, so the pool's back arrow can return to them
+var _back_btn: Button = null
+var _title: Label = null
+var _back_target: String = "tier1"   # where the back arrow goes: "tier1" | "capstone"
+var _capstone_weapon: String = ""    # the weapon being evolved (for the capstone / destroy screens)
 
 func _ready() -> void:
 	layer = 100
@@ -65,22 +70,51 @@ func _begin() -> void:
 
 func _show_cards() -> void:
 	_current = _generate_choices(CHOICES)
-	for c in _cards_box.get_children():
-		if is_instance_valid(c):
-			c.free()   # free immediately so _position_cards() only counts the new cards
 	if _current.is_empty():
 		# Nothing left to offer (everything owned + maxed) — silently skip this level-up.
+		_clear_cards()
 		_pending -= 1
 		if _pending > 0:
 			_show_cards()
 		else:
 			_finish()
 		return
+	if _back_btn != null:
+		_back_btn.visible = false   # 1st tier → no back arrow
+	if _title != null:
+		_title.text = "LEVEL UP — choose an item"
+	_render_current()
+	_root.show()
+	_play_sfx("res://assets/audio/sfx/uialert.wav")
+
+func _clear_cards() -> void:
+	for c in _cards_box.get_children():
+		if is_instance_valid(c):
+			c.free()   # free immediately so _position_cards() only counts the new cards
+
+## Rebuild the card row from `_current`.
+func _render_current() -> void:
+	_clear_cards()
 	for i in _current.size():
 		_cards_box.add_child(_make_card(_current[i], i))
 	_position_cards()
-	_root.show()
-	_play_sfx("res://assets/audio/sfx/uialert.wav")
+
+## Back arrow dispatcher.
+func _back() -> void:
+	if _back_target == "capstone":
+		_show_capstone(_capstone_weapon)   # destroy screen → back to the evolve choice
+	else:
+		_back_to_tier1()
+
+## Back to the original 1st-tier options.
+func _back_to_tier1() -> void:
+	_current = _tier1
+	if _back_btn != null:
+		_back_btn.visible = false
+	if _title != null:
+		_title.text = "LEVEL UP — choose an item"
+	_render_current()
+	_play_sfx("res://assets/audio/sfx/uiclick.wav")
 
 # ── Choice generation (weighted, owned-priority, no-dup, slot-limited, fallback) ──────────────
 func _generate_choices(n: int) -> Array:
@@ -225,7 +259,11 @@ func _bg_tex(cat: String) -> Texture2D:
 	# Weapons use the red frame; aux items the green. (Blue kept for any future third class.)
 	match cat:
 		"weapon": return TEX_RED
+		"pool":   return TEX_RED   # weapon sub-upgrade → red frame like its weapon
+		"capstone": return TEX_BLUE   # evolve → blue (gold-tinted + pulsed in _make_card)
+		"destroy":  return TEX_RED
 		"aux":    return TEX_GREEN
+		"aux_pool": return TEX_GREEN   # aux sub-upgrade → green frame like its item
 		"fusion": return TEX_BLUE   # the (otherwise-unused) blue frame, gold-tinted + pulsed in _make_card
 		_:        return TEX_BLUE
 
@@ -317,7 +355,7 @@ func _make_icon(c: Dictionary) -> Control:
 		box.add_child(plus)
 		box.add_child(_icon_rect(String(c.get("def_b", ""))))
 		return box
-	if String(c["cat"]) == "weapon":
+	if String(c["cat"]) in ["weapon", "pool", "capstone", "destroy"]:
 		var def_id := String(c.get("def_id", ""))
 		var tex: Texture2D = InventoryManager.get_icon(def_id) if def_id != "" else null
 		if tex != null:
@@ -364,12 +402,286 @@ func _pick(idx: int) -> void:
 	if String(c.get("cat", "")) == "fusion":
 		_pick_fusion(c)
 		return
+	# Pool pick (2nd tier): grant the chosen upgrade rank + spend a skill point (auto-levels the weapon).
+	if String(c.get("cat", "")) == "pool":
+		var aw := get_tree().get_first_node_in_group("arena_weapons")
+		var wk := String(c["weapon"])
+		if aw != null:
+			aw.call("pool_grant", wk, String(c["key"]))
+			aw.call("spend_weapon_point", wk)
+			if bool(aw.call("weapon_needs_capstone", wk)):
+				_show_capstone(wk)   # the weapon just hit max level → evolve! (don't consume the level-up yet)
+				return
+		_advance()
+		return
+	# Aux pool pick (2nd tier): grant the chosen perk rank + spend an aux skill point (auto-levels the item).
+	if String(c.get("cat", "")) == "aux_pool":
+		var ax := get_tree().get_first_node_in_group("arena_aux")
+		var ak := String(c["aux"])
+		if ax != null:
+			ax.call("aux_pool_grant", ak, String(c["key"]))
+			ax.call("spend_aux_point", ak)
+			if bool(ax.call("aux_needs_capstone", ak)):
+				_show_aux_capstone(ak)   # just hit max level → evolve! (don't consume the level-up yet)
+				return
+		_advance()
+		return
+	# Capstone (evolve) pick.
+	if String(c.get("cat", "")) == "capstone":
+		_pick_capstone(c)
+		return
+	# All-In destroy-a-weapon pick.
+	if String(c.get("cat", "")) == "destroy":
+		var aw2 := get_tree().get_first_node_in_group("arena_weapons")
+		if aw2 != null:
+			aw2.call("destroy_weapon", String(c["weapon"]))
+			aw2.call("pool_set_capstone", _capstone_weapon, "all_in")
+		_finish_capstone()
+		return
+	# 1st-tier weapon that HAS a skill-point pool (Gatling) → open its 3-of-pool sub-options instead of leveling.
+	if String(c.get("cat", "")) == "weapon" and not _weapon_pool(String(c.get("key", ""))).is_empty():
+		_show_pool(String(c["key"]))
+		return
+	# 1st-tier aux item that HAS a skill-point pool (Reinforcement Plate) → open its perk picker.
+	if String(c.get("cat", "")) == "aux" and not _aux_pool(String(c.get("key", ""))).is_empty():
+		_show_aux_pool(String(c["key"]))
+		return
 	_apply(c)
+	_advance()   # next queued level-up, or finish
+
+# ── Shared tail: consume one queued level-up, then show the next or finish. ──────────
+func _advance() -> void:
 	_pending -= 1
 	if _pending > 0:
-		_show_cards()   # next queued level-up
+		_show_cards()
 	else:
 		_finish()
+
+# ── Skill-point pool (2nd tier) ─────────────────────────────────────────────────────
+## The upgrade pool for a weapon kind (only Gatling so far). Add more weapons here as their pools land.
+func _weapon_pool(kind: String) -> Dictionary:
+	if kind == "gatling":
+		return ArenaWeapons.GATLING_POOL
+	if kind == "lasgun":
+		return ArenaWeapons.LASGUN_POOL
+	if kind == "arc":
+		return ArenaWeapons.ARC_POOL
+	if kind == "gauss":
+		return ArenaWeapons.GAUSS_POOL
+	if kind == "orbital":
+		return ArenaWeapons.ORBITAL_POOL
+	if kind == "red_x":
+		return ArenaWeapons.DRAGON_POOL
+	return {}
+
+## Show 3 random, not-maxed upgrades from `kind`'s pool, reusing the card layout. A back arrow returns here.
+func _show_pool(kind: String) -> void:
+	var pool_choices := _gen_pool_choices(kind)
+	if pool_choices.is_empty():
+		# Everything maxed → just spend the point (level progress) and move on.
+		var aw := get_tree().get_first_node_in_group("arena_weapons")
+		if aw != null:
+			aw.call("spend_weapon_point", kind)
+		_pending -= 1
+		if _pending > 0:
+			_show_cards()
+		else:
+			_finish()
+		return
+	_tier1 = _current   # remember the original options so the back arrow can restore them
+	_current = pool_choices
+	_back_target = "tier1"
+	if _back_btn != null:
+		_back_btn.visible = true
+	if _title != null:
+		_title.text = "%s — choose an upgrade" % String((ArenaWeapons.WEAPON_INFO as Dictionary).get(kind, {}).get("label", kind))
+	_render_current()
+	_play_sfx("res://assets/audio/sfx/uiclick.wav")
+
+func _gen_pool_choices(kind: String) -> Array:
+	var aw := get_tree().get_first_node_in_group("arena_weapons")
+	var pool := _weapon_pool(kind)
+	var avail: Array = []
+	for id: String in pool.keys():
+		var maxr := int(pool[id]["max"])
+		var rank: int = int(aw.call("pool_rank", kind, id)) if aw != null else 0
+		if maxr > 0 and rank >= maxr:
+			continue   # this upgrade is maxed → don't offer it
+		avail.append(id)
+	avail.shuffle()
+	var out: Array = []
+	var info: Dictionary = (ArenaWeapons.WEAPON_INFO as Dictionary).get(kind, {})
+	var def_id := String(info.get("def_id", ""))
+	for id: String in avail.slice(0, mini(CHOICES, avail.size())):
+		var d: Dictionary = pool[id]
+		out.append({
+			"cat": "pool", "weapon": kind, "key": id, "action": "pool",
+			"name": String(d.get("name", id)),
+			"def_id": def_id,
+			"color": WEAPON_FALLBACK_COLOR,
+			"effect": String(d.get("per", "")),
+			"desc": String(d.get("desc", "")),
+			"rank": int(aw.call("pool_rank", kind, id)) if aw != null else 0,
+			"maxr": int(d.get("max", 0)),
+			"level": 0,
+		})
+	return out
+
+# ── Aux skill-point pool (2nd tier) — mirrors the weapon pool flow for pooled passives ─────────
+## The upgrade pool for an aux id (only Reinforcement Plate so far). Empty for simple-levelling aux.
+func _aux_pool(id: String) -> Dictionary:
+	return (ArenaAux.AUX_POOL as Dictionary).get(id, {})
+
+## Show 3 random, not-maxed perks from the aux item's pool. A back arrow returns to the 1st tier.
+func _show_aux_pool(id: String) -> void:
+	var pool_choices := _gen_aux_pool_choices(id)
+	if pool_choices.is_empty():
+		# Everything maxed → just spend the point (level progress) and move on.
+		var ax := get_tree().get_first_node_in_group("arena_aux")
+		if ax != null:
+			ax.call("spend_aux_point", id)
+		_advance()
+		return
+	_tier1 = _current
+	_current = pool_choices
+	_back_target = "tier1"
+	if _back_btn != null:
+		_back_btn.visible = true
+	if _title != null:
+		var ax2 := get_tree().get_first_node_in_group("arena_aux")
+		var nm: String = String((ax2.call("def_for", id) as Dictionary).get("name", id)) if ax2 != null else id
+		_title.text = "%s — choose an upgrade" % nm
+	_render_current()
+	_play_sfx("res://assets/audio/sfx/uiclick.wav")
+
+func _gen_aux_pool_choices(id: String) -> Array:
+	var ax := get_tree().get_first_node_in_group("arena_aux")
+	var pool := _aux_pool(id)
+	var col: Color = (ax.call("def_for", id) as Dictionary).get("color", Color.GRAY) if ax != null else Color.GRAY
+	var avail: Array = []
+	for pid: String in pool.keys():
+		var maxr := int(pool[pid]["max"])
+		var rank: int = int(ax.call("aux_pool_rank", id, pid)) if ax != null else 0
+		if maxr > 0 and rank >= maxr:
+			continue   # maxed perk → don't offer it
+		avail.append(pid)
+	avail.shuffle()
+	var out: Array = []
+	for pid: String in avail.slice(0, mini(CHOICES, avail.size())):
+		var d: Dictionary = pool[pid]
+		out.append({
+			"cat": "aux_pool", "aux": id, "key": pid, "action": "pool",
+			"name": String(d.get("name", pid)),
+			"def_id": "",
+			"color": col,
+			"effect": String(d.get("per", "")),
+			"desc": String(d.get("desc", "")),
+			"rank": int(ax.call("aux_pool_rank", id, pid)) if ax != null else 0,
+			"maxr": int(d.get("max", 0)),
+			"level": 0,
+		})
+	return out
+
+# ── Capstone (level-6 evolve) ─────────────────────────────────────────────────────
+func _pick_capstone(c: Dictionary) -> void:
+	# Aux evolutions have no slot cost — set + finish.
+	if bool(c.get("is_aux", false)):
+		var ax := get_tree().get_first_node_in_group("arena_aux")
+		if ax != null:
+			ax.call("aux_set_capstone", String(c["weapon"]), String(c["key"]))
+		_finish_capstone()
+		return
+	var aw := get_tree().get_first_node_in_group("arena_weapons")
+	var wk := String(c["weapon"])
+	var cap := String(c["key"])
+	# All-In costs a slot: if you're full, you must destroy a weapon first.
+	if cap == "all_in" and aw != null and bool(aw.call("weapons_full")):
+		_capstone_weapon = wk
+		_show_destroy_choice(wk)
+		return
+	if aw != null:
+		aw.call("pool_set_capstone", wk, cap)
+	_finish_capstone()
+
+func _finish_capstone() -> void:
+	_back_target = "tier1"
+	if _back_btn != null:
+		_back_btn.visible = false
+	_pending -= 1
+	if _pending > 0:
+		_show_cards()
+	else:
+		_finish()
+
+func _show_capstone(kind: String) -> void:
+	var aw := get_tree().get_first_node_in_group("arena_weapons")
+	if aw == null:
+		_finish_capstone()
+		return
+	var info: Dictionary = (ArenaWeapons.WEAPON_INFO as Dictionary).get(kind, {})
+	var def_id := String(info.get("def_id", ""))
+	_current = []
+	for d: Dictionary in aw.call("weapon_capstones", kind):
+		_current.append({
+			"cat": "capstone", "weapon": kind, "key": String(d["id"]), "action": "capstone",
+			"name": String(d["name"]), "def_id": def_id, "color": WEAPON_FALLBACK_COLOR,
+			"effect": String(d.get("desc", "")), "desc": String(d.get("desc", "")), "level": 0,
+		})
+	_capstone_weapon = kind
+	if _back_btn != null:
+		_back_btn.visible = false   # evolve is a commitment → no back arrow on the choice itself
+	if _title != null:
+		_title.text = "%s — EVOLVE" % String(info.get("label", kind))
+	_render_current()
+	_play_sfx("res://assets/audio/sfx/uialert.wav")
+
+## Aux evolve screen — the 3 capstones for a pooled passive (Reinforcement Plate). Cards carry is_aux=true.
+func _show_aux_capstone(id: String) -> void:
+	var ax := get_tree().get_first_node_in_group("arena_aux")
+	if ax == null:
+		_finish_capstone()
+		return
+	var d: Dictionary = ax.call("def_for", id)
+	var col: Color = d.get("color", Color.GRAY)
+	_current = []
+	for cap: Dictionary in ax.call("aux_capstones", id):
+		_current.append({
+			"cat": "capstone", "weapon": id, "key": String(cap["id"]), "action": "capstone",
+			"name": String(cap["name"]), "def_id": "", "color": col,
+			"effect": String(cap.get("desc", "")), "desc": String(cap.get("desc", "")),
+			"level": 0, "is_aux": true,
+		})
+	_capstone_weapon = id
+	if _back_btn != null:
+		_back_btn.visible = false   # evolve is a commitment
+	if _title != null:
+		_title.text = "%s — EVOLVE" % String(d.get("name", id))
+	_render_current()
+	_play_sfx("res://assets/audio/sfx/uialert.wav")
+
+## All-In's "choose a weapon to destroy" screen (back arrow → returns to the evolve choice).
+func _show_destroy_choice(evolve_kind: String) -> void:
+	var aw := get_tree().get_first_node_in_group("arena_weapons")
+	if aw == null:
+		_finish_capstone()
+		return
+	_current = []
+	for k: String in aw.call("acquired_weapons"):
+		if k == evolve_kind:
+			continue   # can't sacrifice the weapon you're evolving
+		var info: Dictionary = (ArenaWeapons.WEAPON_INFO as Dictionary).get(k, {})
+		_current.append({
+			"cat": "destroy", "weapon": k, "key": k, "action": "destroy",
+			"name": String(info.get("label", k)), "def_id": String(info.get("def_id", "")),
+			"color": Color(0.9, 0.3, 0.3), "effect": "DESTROY", "desc": "Sacrifice this weapon.", "level": 0,
+		})
+	_back_target = "capstone"
+	if _back_btn != null:
+		_back_btn.visible = true
+	if _title != null:
+		_title.text = "ALL-IN — destroy a weapon"
+	_render_current()
+	_play_sfx("res://assets/audio/sfx/uiclick.wav")
 
 ## Fusion pick: hide the cards (tree stays paused), play the Yu-Gi-Oh cutscene, THEN perform the fuse.
 func _pick_fusion(c: Dictionary) -> void:
@@ -425,6 +737,24 @@ func _apply(c: Dictionary) -> void:
 # ── Display text ────────────────────────────────────────────────────────────────────
 func _default_text(c: Dictionary) -> String:
 	var lvl := int(c.get("level", 0))
+	if String(c["action"]) == "capstone" or String(c["action"]) == "destroy":
+		return String(c.get("effect", ""))
+	# 1st-tier card for a weapon that has a skill-point pool (Gatling): clicking opens the perk picker, so don't
+	# show the old generic "+30% Damage".
+	if String(c["cat"]) == "weapon" and not _weapon_pool(String(c.get("key", ""))).is_empty():
+		if String(c["action"]) == "new":
+			return "NEW\npick a perk"
+		return "Lv %d\npick a perk" % lvl
+	# 1st-tier aux with a pool (Reinforcement Plate): clicking opens its perk picker.
+	if String(c["cat"]) == "aux" and not _aux_pool(String(c.get("key", ""))).is_empty():
+		if String(c["action"]) == "new":
+			return "NEW\npick a perk"
+		return "Lv %d\npick a perk" % lvl
+	if String(c["action"]) == "pool":
+		var rank := int(c.get("rank", 0))
+		var maxr := int(c.get("maxr", 0))
+		var rt := ("Rank %d/%d" % [rank, maxr]) if maxr > 0 else ("Rank %d" % rank)
+		return "%s\n%s" % [String(c.get("effect", "")), rt]
 	if String(c["action"]) == "fuse":
 		return String(c.get("effect", "FUSE"))
 	if String(c["action"]) == "new":
@@ -435,6 +765,8 @@ func _default_text(c: Dictionary) -> String:
 	return "Lv %d → %d\n%s" % [lvl, lvl + 1, String(c.get("effect", ""))]
 
 func _current_text(c: Dictionary) -> String:
+	if String(c.get("action", "")) in ["pool", "capstone", "destroy"]:
+		return String(c.get("desc", ""))
 	if String(c.get("action", "")) == "fuse":
 		return "Both at MAX"
 	var lvl := int(c.get("level", 0))
@@ -527,6 +859,22 @@ func _build_ui() -> void:
 	title.offset_left   = -10
 	title.offset_right  = -10
 	panel.add_child(title)
+	_title = title
+
+	# Back arrow — only shown in the pool (2nd-tier) view; returns to the original 1st-tier options.
+	_back_btn = Button.new()
+	_back_btn.text = "←"
+	_back_btn.add_theme_font_size_override("font_size", 24)
+	_back_btn.focus_mode = Control.FOCUS_NONE
+	_back_btn.anchor_left = 0.0
+	_back_btn.anchor_top  = 0.0
+	_back_btn.offset_left = 18
+	_back_btn.offset_top  = 40
+	_back_btn.offset_right = 62
+	_back_btn.offset_bottom = 78
+	_back_btn.visible = false
+	_back_btn.pressed.connect(_back)
+	panel.add_child(_back_btn)
 
 	# Cards area — plain Control so we can position each card manually
 	_cards_box = Control.new()

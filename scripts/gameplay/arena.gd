@@ -6,6 +6,7 @@ extends Node2D
 
 const HudHpDisplayScript := preload("res://scripts/ui/hud/hud_hp_display.gd")
 const ArenaEnemyMgrScript := preload("res://scripts/gameplay/arena_enemy_manager.gd")
+const XpOrbMgrScript      := preload("res://scripts/gameplay/arena_xp_orb_manager.gd")
 const WaveDirectorScript := preload("res://scripts/gameplay/arena_wave_director.gd")
 const TestTemplateScript := preload("res://scripts/gameplay/test_template.gd")
 const WaveEditorScript   := preload("res://scripts/ui/hud/arena_wave_editor.gd")
@@ -79,6 +80,8 @@ const BOUNDARY_VIGNETTE_SHADER := "res://assets/shaders/boundary_vignette.gdshad
 # ── Runtime ───────────────────────────────────────────────────────────────────
 var _player: CharacterBody2D = null
 var _ship_spr: Sprite2D = null
+var _player_shape: CircleShape2D = null   # collision circle (Juggernaut scales its radius)
+var _applied_size_mult: float = 1.0       # last ship-size mult applied (Juggernaut nerf)
 var _tex_normal: Texture2D = null
 var _tex_lean: Texture2D = null
 var _fire_acc: float = 0.0
@@ -146,6 +149,7 @@ func _ready() -> void:
 	_weapon_chest = WeaponChestScript.new()   # start-of-run pick-1-of-3 weapon chest (opened deferred below)
 	add_child(_weapon_chest)
 	add_child(ArenaEnemyMgrScript.new())  # world-space enemy services (bullets, explosions, ship pos)
+	add_child(XpOrbMgrScript.new())       # single MultiMesh node that renders+updates ALL xp orbs (group "arena_xp_orb_mgr")
 	if USE_TEST_SPAWNER:
 		add_child(TestTemplateScript.new())   # quick test: one enemy every 5s
 	else:
@@ -229,9 +233,9 @@ func _build_player() -> void:
 	_tex_normal = tex
 	_tex_lean   = load("res://assets/screen/lean.png") as Texture2D
 	spr.texture = tex
-	# Scale the (large) source art down to PLAYER_SIZE_PX on its longest side.
+	# Scale the (large) source art down to PLAYER_SIZE_PX on its longest side (× any Juggernaut size nerf).
 	var longest := maxf(float(tex.get_width()), float(tex.get_height())) if tex != null else 1.0
-	var s := PLAYER_SIZE_PX / maxf(1.0, longest)
+	var s := PLAYER_SIZE_PX / maxf(1.0, longest) * GameManager.upg_ship_size_mult
 	spr.scale = Vector2(s, s)
 	spr.z_index = SHIP_Z   # keep the ship on top of every weapon/explosion effect — always visible
 	# The ship art points UP (forward = −Y); Sprite2D rotation 0 keeps it upright.
@@ -242,6 +246,7 @@ func _build_player() -> void:
 	var shape := CircleShape2D.new()
 	shape.radius = PLAYER_RADIUS
 	col.shape = shape
+	_player_shape = shape
 	_player.add_child(col)
 
 	var cam := CamShakeScript.new()   # Camera2D + screen-shake (group "camera_shake")
@@ -409,12 +414,21 @@ func _update_ship_lean(dir: Vector2) -> void:
 	_ship_spr.flip_h = flip
 	if new_tex != null:
 		var longest := maxf(float(new_tex.get_width()), float(new_tex.get_height()))
-		var s := PLAYER_SIZE_PX / maxf(1.0, longest)
+		var s := PLAYER_SIZE_PX / maxf(1.0, longest) * GameManager.upg_ship_size_mult
 		_ship_spr.scale = Vector2(s, s)
 
 func _process(delta: float) -> void:
 	if _player == null:
 		return
+	# Juggernaut nerf: apply the ship-size multiplier to the sprite + collision radius when it changes.
+	var sm: float = GameManager.upg_ship_size_mult
+	if not is_equal_approx(sm, _applied_size_mult):
+		_applied_size_mult = sm
+		if _player_shape != null:
+			_player_shape.radius = PLAYER_RADIUS * sm
+		if _ship_spr != null and _ship_spr.texture != null:
+			var longest := maxf(float(_ship_spr.texture.get_width()), float(_ship_spr.texture.get_height()))
+			_ship_spr.scale = Vector2.ONE * (PLAYER_SIZE_PX / maxf(1.0, longest) * sm)
 	_aim(delta)
 	if USE_PLACEHOLDER_FIRE:
 		_fire_acc += delta

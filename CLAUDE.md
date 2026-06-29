@@ -1366,6 +1366,14 @@ const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 - `_spawn_crit_number(world_pos: Vector2, amount: float)` — spawns a floating Label in a CanvasLayer (layer 12) at screen-space coords via `get_viewport().get_canvas_transform() * world_pos`. Style: red fill `Color(1.0, 0.15, 0.10)`, white outline (size 7), font `Gameplay.ttf` at 22px, scale ×1.6. Tweens: rise 48px over 0.8s, fade out, then `queue_free()`.
 - All three weapons (Gatling, Arc, Lasgun) call `_spawn_crit_number()` when `is_crit == true`.
 
+### `arena_weapons.gd` — Proc chances + Stroke of Luck (RULE)
+
+**RULE — Stroke of Luck (`mech_bonus("proc_luck")`) is added to EVERY positive chance in the game, everywhere.** It is a global luck value: the Arc pool's **Stroke of Luck** (+1% per rank, `add_mech("proc_luck", 0.01)`) raises ALL positive chances (existing AND future), retroactively. A "positive chance" = any roll the player *benefits* from that they already have (>0); luck boosts existing chances, it does NOT grant a chance the player has 0 of.
+
+- **In `arena_weapons.gd`**: every chance/proc roll MUST go through `_proc(chance)` (= `randf() < chance + _proc_luck()`), not a raw `randf() < chance`. Covers crit, burn/incinerate, freeze, stun/electrocute, Gatling pierce/bounce/multishot, etc.
+- **Outside arena_weapons** (e.g. `GameManager.ship_take_damage`'s Fins **dodge**): add `mech_bonus("proc_luck")` to the chance directly (`randf() < clampf(upg_dodge + mech_bonus("proc_luck"), 0, 0.95)`), guarded by `chance > 0` so luck only boosts an existing chance.
+- When you add ANY new chance-based effect anywhere, fold in `proc_luck`. If unsure whether something counts (e.g. integer 1-in-N odds like the Healing Round, currently NOT routed through `_proc`), ASK the user. `_proc_luck()` reads `mech_bonus("proc_luck")`.
+
 ### `arena_weapons.gd` — Arc lightning (textured, from the 2D-lightning tutorial)
 
 The Arc (chain lightning) **visual** is textured `Line2D` bolts (the 2D-lightning-tutorial technique), NOT

@@ -12,6 +12,7 @@ signal ship_energy_changed(energy: float)
 signal ship_ammo_changed(ammo: float)
 signal ship_shield_changed(shield: float)
 signal ship_destroyed
+signal mitigation_burst   # Exoskeleton Reactive evo: fired each time 500 mitigated damage accumulates
 signal money_changed(amount: int)   # green-$ player currency
 
 # ── Character level / XP (Phases 1 & 2) ──────────────────────────────────────
@@ -215,6 +216,16 @@ const SHIELD_REGEN_TIME:  float = 1.5   # seconds to refill 0 → capacity
 var ship_shield:       float = 0.0      # current shield points
 var _shield_max:       float = 0.0      # capacity of the equipped generator (0 = none equipped)
 var _shield_dmg_timer: float = 999.0    # time since last damage; regen once >= SHIELD_REGEN_DELAY
+# Force Field aux item (arena): adds shield capacity + its own slow regen (after FORCE_SHIELD_DELAY of no damage).
+const FORCE_SHIELD_DELAY := 10.0        # s of no damage before the Force Field starts regenerating
+var upg_force_shield_max:   float = 0.0 # extra shield capacity from the Force Field aux (folds into the shield)
+var upg_force_shield_regen: float = 0.0 # Force Field regen (shield/sec) once the delay has elapsed
+# Nanobots (regen aux) — regen modifiers. Mastery boosts HP+shield regen; WtL ×3 HP regen at low HP; the
+# "attack!" evolution forces HP regen to 0; over-regen routes wasted HP regen into the shield when HP is full.
+var upg_regen_mastery:    float = 0.0   # Regeneration Mastery (× applied to HP + shield regen)
+var upg_regen_wtl_mult:   float = 1.0   # Will to Live (×3 HP regen below 30% HP, else 1.0)
+var upg_regen_disabled:   bool  = false # Nanobots, attack!: HP regen forced to 0 (converted to automation dmg)
+var _overregen_to_shield: bool  = false # over-regen → shield: refill shield with HP regen when HP is full
 
 # ── Invincibility frames ──────────────────────────────────────────────────────
 const SHIP_IFRAME_TIME: float = 0.3     # invincibility window after a hit
@@ -268,12 +279,22 @@ func ship_take_damage(dmg: int) -> void:
 		return
 	if _iframe_timer > 0.0:
 		return   # still invincible from a recent hit
-	_iframe_timer = effective_iframe()   # post-hit invuln, lengthened by damage_immunity_duration affix
-	# Armor (+ damage_reduction affix) reduces ALL incoming damage first (a %), before shield.
-	var d := float(dmg) * (1.0 - player_total_dr())
-	# Arena-run flat Base Defense (Armor Plating cards) subtracts AFTER the % DR — a separate flat layer, not
-	# a second percentage (so no double-apply with player_total_dr).
-	d = maxf(0.0, d - float(upg_base_defense))
+	# Fins dodge — a POSITIVE chance, so Stroke of Luck (proc_luck) boosts it like every other positive chance.
+	if upg_dodge > 0.0 and randf() < clampf(upg_dodge + mech_bonus("proc_luck"), 0.0, 0.95):
+		return   # dodged: no damage, no iframe, Daredevil ramp NOT reset
+	_iframe_timer = effective_iframe()   # post-hit invuln (× Fins iframe perk)
+	# Daredevil takes MORE damage; the incoming hit is scaled first so mitigation/DR work off the real amount.
+	var incoming := float(dmg) * upg_damage_taken_mult
+	# % DR (Exoskeleton pre-armor DR + Fortress armor→DR) reduces incoming damage first, before the flat armor.
+	var d := incoming * (1.0 - player_total_dr())
+	# Flat arena armor (× Harden Mastery) subtracts AFTER the % DR — a separate flat layer.
+	d = maxf(0.0, d - effective_base_defense())
+	# Reactive evo: every 500 damage stopped by DR + flat armor fires a shockwave (the arena listens + spawns it).
+	if upg_mitigation_shockwave:
+		_mitigation_acc += incoming - d
+		while _mitigation_acc >= 500.0:
+			_mitigation_acc -= 500.0
+			mitigation_burst.emit()
 	# Shield absorbs next; leftover spills into HP the same hit.
 	if ship_shield > 0.0:
 		var absorbed := minf(ship_shield, d)
@@ -284,6 +305,9 @@ func ship_take_damage(dmg: int) -> void:
 	if d <= 0.0:
 		return
 	player_hit.emit()   # only fires when actual HP damage goes through
+	if upg_daredevil:   # Daredevil ramp resets the moment HP damage lands
+		_daredevil_t = 0.0
+		_daredevil_bonus = 0.0
 	ship_hp = maxi(0, ship_hp - int(ceil(d)))
 	ship_hp_changed.emit(ship_hp)
 	if ship_hp <= 0:
@@ -312,7 +336,11 @@ func damage_reduction() -> float:
 # ── Affix wiring ──────────────────────────────────────────────────────────────
 # One helper sums an affix's rolled value across ALL equipped items; the getters below combine the
 # base value (consts) with those affixes so gameplay AND the Character Sheet read one source of truth.
-const GunSys := preload("res://scripts/gameplay/gun_system.gd")   # movement/dash/scale base consts
+# Movement / dash base consts (formerly read from the now-removed gun_system.gd).
+const SHIP_MOVE_SPD := 200.0   # px/s, base run speed
+const DASH_CD       := 1.0     # dash cooldown (s)
+const DASH_SPEED    := 840.0   # px/s during the dash lunge
+const DASH_TIME     := 0.15    # dash duration (s)
 var _hp_regen_acc: float = 0.0
 
 ## Sum an affix's rolled value across every equipped item (weapons + hulls). Mirrors total_armor().
@@ -327,17 +355,17 @@ func sum_affix(id: String) -> float:
 				total += float(a.get("value", 0.0))
 	return total
 
-# Movement / dash / model scale (base consts live in gun_system.gd).
+# Movement / dash / model scale.
 func effective_move_speed() -> float:
 	# Maneuverability adds a flat %/pt fly-speed bonus on top of the gear affixes.
 	var maneuver := 1.0 + MAN_FLYSPEED_PER_PT * float(attr("maneuverability"))
-	return (GunSys.SHIP_MOVE_SPD + sum_affix("faster_run_flat")) * (1.0 + sum_affix("faster_run_percentage") / 100.0) * maneuver
+	return (SHIP_MOVE_SPD + sum_affix("faster_run_flat")) * (1.0 + sum_affix("faster_run_percentage") / 100.0) * maneuver
 func effective_dash_cd() -> float:
-	return GunSys.DASH_CD * clampf(1.0 - sum_affix("dash_cooldown_reduction") / 100.0, 0.1, 1.0)
+	return DASH_CD * clampf(1.0 - sum_affix("dash_cooldown_reduction") / 100.0, 0.1, 1.0)
 func effective_dash_speed() -> float:
-	return GunSys.DASH_SPEED * (1.0 + sum_affix("dash_distance") / 100.0)
+	return DASH_SPEED * (1.0 + sum_affix("dash_distance") / 100.0)
 func effective_dash_range() -> float:
-	return effective_dash_speed() * GunSys.DASH_TIME
+	return effective_dash_speed() * DASH_TIME
 func model_scale_mult() -> float:
 	return clampf(1.0 + (sum_affix("model_size_increase") + sum_affix("model_size_reduce")) / 100.0, 0.4, 2.0)
 
@@ -345,45 +373,40 @@ func model_scale_mult() -> float:
 func energy_regen_rate() -> float:
 	# Maneuverability adds a flat energy/s on top of the gear affixes.
 	return (ENERGY_REGEN + sum_affix("energy_regen_flat") + MAN_ENERGY_REGEN_PER_PT * float(attr("maneuverability"))) * (1.0 + sum_affix("energy_regen_percentage") / 100.0)
+## HP regen (arena-only): the run store (Nanobots perks/level rewards) × Regeneration Mastery × Will-to-Live,
+## or 0 when "Nanobots, attack!" has disabled it. Gear affixes / hull-innate / Biotech no longer contribute.
 func hp_regen_rate() -> float:
-	var r := sum_affix("hp_regen")
-	r += BIO_HP_REGEN_PER_PT * float(attr("biotech"))   # Biotech flat HP regen
-	var uid: int = InventoryManager.equipped_uid("hull")   # + Nanobot-style hull innate hp_regen
-	if uid != -1:
-		var def: Dictionary = InventoryManager.get_def(String(InventoryManager.get_item(uid).get("def", "")))
-		r += float(def.get("stats", {}).get("hp_regen", 0.0))
-	r += upg_hp_regen   # arena-run HP Regen upgrade cards
-	return r
+	var base := 0.0 if upg_regen_disabled else upg_hp_regen
+	return (base + _heat_syphon_regen) * (1.0 + upg_regen_mastery) * upg_regen_wtl_mult
+## Dragon's Breath Heat Syphon: regen from currently-burning enemies (set each frame by arena_weapons).
+func set_heat_syphon(v: float) -> void:
+	_heat_syphon_regen = v
 func shield_capacity_total() -> float:
-	return _equipped_shield_capacity() + sum_affix("shield_flat")
+	return _equipped_shield_capacity() + sum_affix("shield_flat") + upg_force_shield_max
 func shield_regen_bonus() -> float:
 	return sum_affix("shield_regen")   # flat shield/s added to the refill rate
 func shield_delay() -> float:
 	return SHIELD_REGEN_DELAY * clampf(1.0 - sum_affix("shield_delay_reduction") / 100.0, 0.1, 1.0)
+## Flat arena armor AFTER Harden Mastery makes it more effective (the value subtracted post-% DR).
+func effective_base_defense() -> float:
+	return float(upg_base_defense) * (1.0 + upg_harden_mastery)
+## Player % damage reduction (arena-only): Exoskeleton's pre-armor DR + the Fortress evo's armor→DR
+## (+1% per 10 armor), capped at upg_dr_cap (Fortress lowers the cap to 0.75). Gear DR no longer contributes.
 func player_total_dr() -> float:
-	return clampf(damage_reduction() + sum_affix("damage_reduction") / 100.0, 0.0, 0.95)
+	var dr := upg_pre_dr
+	if upg_armor_to_dr:
+		dr += effective_base_defense() * 0.001   # +1% DR per 10 armor
+	return clampf(dr, 0.0, upg_dr_cap)
 func effective_iframe() -> float:
-	return SHIP_IFRAME_TIME * (1.0 + sum_affix("damage_immunity_duration") / 100.0)
+	return SHIP_IFRAME_TIME * (1.0 + upg_iframe_mult)   # arena-only: Fins iframe perk
 
 ## Recompute gear-driven max HP: (BASE + hull bonus_hp[post-roll] + Σ hp_flat) × (1 + Σ hp_% / 100).
 ## Keeps current HP, clamping down if the new max is lower (no free heal on equip).
+## Max HP (arena-only): the fixed base + the arena run store. Every arena HP source — Reinforcement Plate perks,
+## its level rewards, Sacrificial Armor, the Mastery/Overall recompute — flows into upg_max_hp_bonus via
+## add_max_hp(). The retired attribute system (Biotech) and gear hulls/HP affixes no longer contribute.
 func recompute_max_hp() -> void:
-	var flat := 0.0
-	var pct := 0.0
-	var hull_bonus := 0
-	for slot: String in InventoryManager.EQUIP_SLOTS:
-		var uid: int = InventoryManager.equipped_uid(slot)
-		if uid == -1:
-			continue
-		hull_bonus += InventoryManager.hull_bonus_hp(uid)   # post-roll; 0 for non-hull items
-		for a: Dictionary in InventoryManager.item_affixes(uid):
-			match String(a.get("id", "")):
-				"hp_flat": flat += float(a.get("value", 0.0))
-				"hp_percentage": pct += float(a.get("value", 0.0))
-	flat += BIO_HP_PER_PT * float(attr("biotech"))   # Biotech flat max-HP bonus
-	flat += float(upg_max_hp_bonus)                  # arena-run Max HP upgrade cards
-	var hull_hp_pct := float(_equipped_hull_def().get("stats", {}).get("max_hp_pct", 0.0))   # Glass Hull penalty
-	ship_max_hp = maxi(1, int(round((float(BASE_SHIP_HP) + float(hull_bonus) + flat) * (1.0 + pct / 100.0) * (1.0 + hull_hp_pct / 100.0))))
+	ship_max_hp = maxi(1, BASE_SHIP_HP + upg_max_hp_bonus)
 	ship_hp = mini(ship_hp, ship_max_hp)
 	ship_hp_changed.emit(ship_hp)
 
@@ -456,8 +479,15 @@ func _tick_shield(delta: float) -> void:
 	if _shield_max <= 0.0:
 		return
 	_shield_dmg_timer += delta
-	if _shield_dmg_timer >= shield_delay() and ship_shield < _shield_max:
-		var rate := (_shield_max / SHIELD_REGEN_TIME) + shield_regen_bonus()   # base + shield_regen affix
+	# Default: inventory generator's delay + (capacity / refill-time) rate. The Force Field aux overrides BOTH to
+	# its spec (10s delay, +1 shield/sec per level) when present — in the arena it's the only shield source.
+	var delay := shield_delay()
+	var rate := (_shield_max / SHIELD_REGEN_TIME) + shield_regen_bonus()
+	if upg_force_shield_max > 0.0:
+		delay = FORCE_SHIELD_DELAY
+		rate = upg_force_shield_regen
+	rate *= (1.0 + upg_regen_mastery)   # Nanobots: Regeneration Mastery boosts shield regen too
+	if _shield_dmg_timer >= delay and ship_shield < _shield_max:
 		ship_shield = minf(_shield_max, ship_shield + rate * delta)
 		ship_shield_changed.emit(ship_shield)
 
@@ -489,7 +519,8 @@ func _process(delta: float) -> void:
 	if ship_energy < energy_cap:
 		ship_energy = minf(energy_cap, ship_energy + energy_regen_rate() * delta)
 		ship_energy_changed.emit(ship_energy)
-	# HP regen (hp_regen affix + hull innate) — accumulate fractional HP, heal whole points.
+	# HP regen — accumulate fractional HP, heal whole points. When HP is full, the Nanobots over-regen perk routes
+	# the otherwise-wasted regen into the shield (continuously, ignoring the shield's own damage delay).
 	if ship_hp > 0 and ship_hp < ship_max_hp:
 		_hp_regen_acc += hp_regen_rate() * delta
 		if _hp_regen_acc >= 1.0:
@@ -497,6 +528,11 @@ func _process(delta: float) -> void:
 			_hp_regen_acc -= float(heal)
 			ship_hp = mini(ship_max_hp, ship_hp + heal)
 			ship_hp_changed.emit(ship_hp)
+	elif ship_hp > 0 and _overregen_to_shield:
+		var scap := shield_capacity_total()
+		if ship_shield < scap:
+			ship_shield = minf(scap, ship_shield + hp_regen_rate() * delta)
+			ship_shield_changed.emit(ship_shield)
 	# Ammo regen — paused for a moment after any weapon fires/spends (see note_weapon_firing/try_spend_ammo).
 	_ammo_regen_block = maxf(0.0, _ammo_regen_block - delta)
 	var ammo_cap := max_ammo()
@@ -504,6 +540,12 @@ func _process(delta: float) -> void:
 		ship_ammo = minf(ammo_cap, ship_ammo + ammo_regen_rate() * delta)
 		ship_ammo_changed.emit(ship_ammo)
 	_tick_shield(delta)
+	# Daredevil evo: +1% damage every 3s without taking HP damage, up to +100% (reset in ship_take_damage).
+	if upg_daredevil and ship_hp > 0:
+		_daredevil_t += delta
+		while _daredevil_t >= 3.0:
+			_daredevil_t -= 3.0
+			_daredevil_bonus = minf(1.0, _daredevil_bonus + 0.01)
 	if _shield_timer > 0.0:
 		_shield_timer -= delta
 		if _shield_timer <= 0.0:
@@ -546,8 +588,27 @@ func heal_to_full() -> void:
 # game plays exactly as before. Folded into the existing HP/regen/DR paths (not a parallel system).
 const PICKUP_RADIUS_BASE: float = 90.0    # base XP-orb magnet radius (px) before % upgrades
 var upg_max_hp_bonus:   int   = 0         # flat +max HP (into recompute_max_hp)
-var upg_base_defense:   int   = 0         # flat damage reduction (subtracted after the % DR)
+var upg_base_defense:   int   = 0         # flat armor: subtracted after the % DR (× Harden Mastery)
 var upg_hp_regen:       float = 0.0       # flat HP/sec (into hp_regen_rate)
+# Exoskeleton (armor aux) — % DR layers + the three evolutions. All no-ops at base.
+var upg_pre_dr:         float = 0.0       # pre-armor-mitigation % damage reduction (Exoskeleton)
+var upg_harden_mastery: float = 0.0       # Harden Mastery: flat armor is this much MORE effective (×)
+var upg_armor_to_dr:    bool  = false     # Fortress evo: +1% DR per 10 armor (into player_total_dr)
+var upg_dr_cap:         float = 0.95      # max combined % DR from all sources (Fortress evo → 0.75)
+var upg_mitigation_shockwave: bool = false # Reactive evo: every 500 mitigated dmg → a shockwave (signal)
+var upg_ship_size_mult: float = 1.0       # ship drawn + hitbox × this (Juggernaut ×2 nerf; Fins shrinks it)
+var _mitigation_acc:    float = 0.0       # running mitigated-damage accumulator for the Reactive shockwave
+# Fins (speed aux) — dodge, iframe, speed-mastery, and the three evolutions. All no-ops at base.
+var upg_dodge:          float = 0.0       # chance (0..0.95) to fully avoid a hit
+var upg_iframe_mult:    float = 0.0       # post-hit invuln duration × (1 + this)
+var upg_speed_mastery:  float = 0.0       # fraction of the MS BONUS also added to weapon (projectile/minion) speed
+var upg_damage_taken_mult: float = 1.0    # Daredevil evo: >1 = take more damage
+var upg_ms_to_firerate: bool  = false     # Momentum evo: 100% of MS bonus also adds to global fire rate
+var upg_daredevil:      bool  = false     # Daredevil evo: damage ramps while undamaged
+var _daredevil_t:       float = 0.0       # seconds since last damage (Daredevil ramp timer)
+var _daredevil_bonus:   float = 0.0       # current Daredevil damage bonus (0..1.0), reset on taking damage
+var contact_dmg_base:   float = 0.0       # ship contact damage (Orbital pool grants it; base 0). × Contact Mastery
+var _heat_syphon_regen: float = 0.0       # Dragon's Breath Heat Syphon: HP/s from currently-burning enemies
 var upg_fire_rate_mult: float = 1.0       # weapon fire-rate ×
 var upg_move_speed_mult: float = 1.0      # move-speed ×
 var upg_damage_mult:    float = 1.0       # weapon-damage ×
@@ -612,8 +673,17 @@ func kind_damage_mult(kinds: Array) -> float:
 	return 1.0 + bonus
 
 func get_move_speed_mult() -> float: return upg_move_speed_mult
-func get_damage_mult() -> float:     return upg_damage_mult
-func get_fire_rate_mult() -> float:  return upg_fire_rate_mult
+func get_damage_mult() -> float:     return upg_damage_mult + _daredevil_bonus   # Daredevil ramp
+func get_fire_rate_mult() -> float:
+	# Momentum evo: 100% of the move-speed BONUS is also added to the global fire-rate multiplier.
+	return upg_fire_rate_mult + (maxf(0.0, upg_move_speed_mult - 1.0) if upg_ms_to_firerate else 0.0)
+## Fins Speed Mastery: a fraction of the MS bonus that also speeds up weapons (projectile/minion travel speed).
+func weapon_speed_bonus() -> float:
+	return maxf(0.0, upg_move_speed_mult - 1.0) * upg_speed_mastery
+## Ship contact damage dealt to enemies that touch the hull — base × Contact Mastery (global). 0 at base.
+func ship_contact_damage() -> float:
+	return contact_dmg_base * (1.0 + mech_bonus("contact_dmg_mult"))
+func add_contact_damage(n: float) -> void: contact_dmg_base += n; player_stats_changed.emit()
 func get_momentum_mult() -> float:   return upg_momentum_mult
 func get_base_defense() -> int:      return upg_base_defense
 func get_pickup_radius() -> float:   return PICKUP_RADIUS_BASE * upg_pickup_mult
@@ -627,6 +697,20 @@ func add_max_hp(n: int) -> void:
 	ship_hp_changed.emit(ship_hp)
 	player_stats_changed.emit()
 func add_base_defense(n: int) -> void:  upg_base_defense += n;        player_stats_changed.emit()
+# ── Exoskeleton (armor aux) setters ──
+func add_pre_dr(p: float) -> void:        upg_pre_dr += p;             player_stats_changed.emit()
+func add_harden_mastery(p: float) -> void: upg_harden_mastery += p;    player_stats_changed.emit()
+func set_armor_to_dr(on: bool) -> void:   upg_armor_to_dr = on;        player_stats_changed.emit()
+func set_dr_cap(c: float) -> void:        upg_dr_cap = c;             player_stats_changed.emit()
+func set_mitigation_shockwave(on: bool) -> void: upg_mitigation_shockwave = on
+func mul_ship_size(f: float) -> void:     upg_ship_size_mult *= f;     player_stats_changed.emit()   # Juggernaut ×2 / Fins shrink
+# ── Fins (speed aux) setters ──
+func add_dodge(p: float) -> void:         upg_dodge = clampf(upg_dodge + p, 0.0, 0.95); player_stats_changed.emit()
+func add_iframe_mult(p: float) -> void:   upg_iframe_mult += p;        player_stats_changed.emit()
+func add_speed_mastery(p: float) -> void: upg_speed_mastery += p;      player_stats_changed.emit()
+func set_damage_taken_mult(m: float) -> void: upg_damage_taken_mult = m; player_stats_changed.emit()
+func set_ms_to_firerate(on: bool) -> void: upg_ms_to_firerate = on;    player_stats_changed.emit()
+func set_daredevil(on: bool) -> void:     upg_daredevil = on;          player_stats_changed.emit()
 func add_fire_rate(p: float) -> void:   upg_fire_rate_mult += p;      player_stats_changed.emit()
 func add_move_speed(p: float) -> void:  upg_move_speed_mult += p;     player_stats_changed.emit()
 func add_damage(p: float) -> void:      upg_damage_mult += p;         player_stats_changed.emit()
@@ -640,6 +724,18 @@ func add_xp_gain(p: float) -> void:     upg_xp_gain_mult += p;        player_sta
 func add_spawn_rate(p: float) -> void:  upg_spawn_rate_mult += p;     player_stats_changed.emit()
 func add_retaliation(f: float) -> void: upg_retaliation += f;         player_stats_changed.emit()
 func add_coin_mult(p: float) -> void:   run_coin_mult += p;           player_stats_changed.emit()
+func add_force_shield(max_add: float, regen_add: float) -> void:
+	upg_force_shield_max += max_add
+	upg_force_shield_regen += regen_add
+	player_stats_changed.emit()
+# ── Nanobots (regen aux) regen modifiers ──
+func add_regen_mastery(amt: float) -> void:   upg_regen_mastery += amt;  player_stats_changed.emit()
+func set_regen_wtl_mult(mult: float) -> void:
+	if not is_equal_approx(upg_regen_wtl_mult, mult):
+		upg_regen_wtl_mult = mult
+		player_stats_changed.emit()
+func set_overregen_to_shield(on: bool) -> void: _overregen_to_shield = on
+func disable_hp_regen() -> void:                upg_regen_disabled = true;  player_stats_changed.emit()
 func add_rebirth(n: int) -> void:       rebirth_charges += n;         player_stats_changed.emit()
 
 ## Heal the player by `amount` HP, capped at max HP. Safe to call from loot drops.
@@ -663,6 +759,23 @@ func reset_run() -> void:
 	_shield_timer = 0.0
 	upg_max_hp_bonus = 0
 	upg_base_defense = 0
+	upg_pre_dr = 0.0
+	upg_harden_mastery = 0.0
+	upg_armor_to_dr = false
+	upg_dr_cap = 0.95
+	upg_mitigation_shockwave = false
+	upg_ship_size_mult = 1.0
+	_mitigation_acc = 0.0
+	upg_dodge = 0.0
+	upg_iframe_mult = 0.0
+	upg_speed_mastery = 0.0
+	upg_damage_taken_mult = 1.0
+	upg_ms_to_firerate = false
+	upg_daredevil = false
+	_daredevil_t = 0.0
+	_daredevil_bonus = 0.0
+	contact_dmg_base = 0.0
+	_heat_syphon_regen = 0.0
 	upg_hp_regen = 0.0
 	upg_fire_rate_mult = 1.0
 	upg_move_speed_mult = 1.0
@@ -674,6 +787,12 @@ func reset_run() -> void:
 	upg_xp_gain_mult = 1.0
 	upg_spawn_rate_mult = 1.0
 	upg_retaliation = 0.0
+	upg_force_shield_max = 0.0
+	upg_force_shield_regen = 0.0
+	upg_regen_mastery = 0.0
+	upg_regen_wtl_mult = 1.0
+	upg_regen_disabled = false
+	_overregen_to_shield = false
 	upg_group_dmg = {}
 	upg_kind_dmg = {}
 	upg_mech = {}
@@ -692,7 +811,6 @@ func reset_stats() -> void:
 	ship_shield = 0.0
 	ship_hp_changed.emit(ship_hp)
 	ship_shield_changed.emit(ship_shield)
-	MaterialManager.reset_all()
 	save_game()
 
 # ---------------------------------------------------------------------------
