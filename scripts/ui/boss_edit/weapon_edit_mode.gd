@@ -17,7 +17,7 @@ func _plume_path() -> String:  return "res://weapon_plume_styles.cfg"
 func _title() -> String:      return "WEAPON EDIT"
 
 ## Exclude ship parts that are not weapons.
-static var _SKIP := ["spaceship", "spaceshiphitbox", "wing", "missile"]
+static var _SKIP := ["spaceship", "spaceshiphitbox", "wing"]
 func _accept_file(fname: String) -> bool:
 	var low := fname.to_lower().get_basename()
 	for s in _SKIP:

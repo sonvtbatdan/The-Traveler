@@ -70,7 +70,8 @@ func _make_card(kind: String) -> Button:
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var tex := InventoryManager.get_icon(String(info.get("def_id", "")))
+	var icon_path := String(info.get("icon", ""))   # dedicated art (fusions / swarm) wins over the def_id icon
+	var tex: Texture2D = (load(icon_path) as Texture2D) if icon_path != "" else InventoryManager.get_icon(String(info.get("def_id", "")))
 	if tex != null:
 		icon.texture = tex
 	vb.add_child(icon)

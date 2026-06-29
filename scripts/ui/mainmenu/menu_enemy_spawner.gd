@@ -23,30 +23,8 @@ const WaveDir     := preload("res://scripts/gameplay/arena_wave_director.gd")
 const ENEMY_Z        := 3        # over space (z=1), under Logo (z=5) / buttons (z=10)
 const BULLET_Z       := 2
 const ENEMY_SCALE    := 0.5      # menu-only: enemies drawn at 50%
-const FX_BRIGHTNESS  := -0.12    # menu-only: dim the enemy layer a touch
-const FX_CONTRAST    := 1.40     # menu-only: punch up contrast
-
-# Per-CanvasItem brightness/contrast grade. Operates on the built-in COLOR (already
-# texture×modulate) so it works for textured sprites AND for the manager's draw_circle/
-# draw_line bullets, and — unlike a CanvasGroup — keeps each item's own z-index.
-const GRADE_SHADER := """
-shader_type canvas_item;
-uniform float brightness = -0.12;
-uniform float contrast = 1.4;
-void fragment() {
-	COLOR.rgb = clamp((COLOR.rgb - 0.5) * contrast + 0.5 + brightness, 0.0, 1.0);
-}
-"""
-# Same grade but additive — for the missile volley, which relies on additive blending.
-const GRADE_ADD_SHADER := """
-shader_type canvas_item;
-render_mode blend_add;
-uniform float brightness = -0.12;
-uniform float contrast = 1.4;
-void fragment() {
-	COLOR.rgb = clamp((COLOR.rgb - 0.5) * contrast + 0.5 + brightness, 0.0, 1.0);
-}
-"""
+# Brightness/contrast grade removed — menu enemies now render at native brightness (same as the arena).
+# Only the missile volley keeps an additive blend (a plain CanvasItemMaterial, no colour grade).
 
 # Menu-only audio bus: enemy sounds are rerouted here and treated to read as a faint,
 # far-off echo — low-pass (high freq cut), reverb (distance/echo), and lower volume.
@@ -75,8 +53,7 @@ const SPIDER_COOLDOWN := 5.0
 var _container: Control = null
 var _mgr: Node2D  = null
 var _target: Node2D = null
-var _grade_mat: ShaderMaterial = null       # mix-blend grade (enemies + bullets)
-var _grade_add_mat: ShaderMaterial = null   # additive grade (missile volley)
+var _grade_add_mat: CanvasItemMaterial = null   # additive blend for the missile volley (no colour grade)
 var _types: Array = []
 var _enemies: Array = []   # [{node, type, age, ttl, off}]
 var _acc: float = 0.0
@@ -94,8 +71,8 @@ func _ready() -> void:
 		return
 	_arm_shield()
 	_setup_audio_bus()
-	_grade_mat     = _make_grade(GRADE_SHADER)
-	_grade_add_mat = _make_grade(GRADE_ADD_SHADER)
+	_grade_add_mat = CanvasItemMaterial.new()
+	_grade_add_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	# Dummy aim target far below center → enemies descend across the screen; shooters fire down.
 	_target = Node2D.new()
 	_target.add_to_group("player")
@@ -106,7 +83,6 @@ func _ready() -> void:
 	_mgr.process_mode = Node.PROCESS_MODE_PAUSABLE
 	_container.add_child(_mgr)
 	_mgr.z_index = BULLET_Z
-	_mgr.material = _grade_mat   # grade the enemy bullets the manager draws
 	# Spawnable set = every enemy that is not a boss stub and not the test dummy.
 	for id: String in WaveDir.ENEMY_DEFS.keys():
 		var d: Dictionary = WaveDir.ENEMY_DEFS[id]
@@ -137,15 +113,6 @@ func _setup_audio_bus() -> void:
 	rv.predelay_msec = RV_PREDELAY_MS
 	rv.spread       = 1.0
 	AudioServer.add_bus_effect(idx, rv)
-
-func _make_grade(code: String) -> ShaderMaterial:
-	var sh := Shader.new()
-	sh.code = code
-	var mat := ShaderMaterial.new()
-	mat.shader = sh
-	mat.set_shader_parameter("brightness", FX_BRIGHTNESS)
-	mat.set_shader_parameter("contrast", FX_CONTRAST)
-	return mat
 
 func _process(delta: float) -> void:
 	_arm_shield()
@@ -197,8 +164,6 @@ func _fix_projectiles() -> void:
 			var n3 := en as Node2D
 			if n3.z_index != ENEMY_Z:
 				n3.z_index = ENEMY_Z
-			if n3.material != _grade_mat:
-				n3.material = _grade_mat   # covers thrown bombs the manager spawns
 			if "sfx_bus" in n3 and n3.get("sfx_bus") != MENU_BUS:
 				n3.set("sfx_bus", MENU_BUS)   # route their boom SFX to the echo bus too
 
@@ -238,7 +203,6 @@ func _spawn_one(y: float) -> void:
 	_container.add_child(e)
 	e.z_index = ENEMY_Z
 	e.scale = Vector2(ENEMY_SCALE, ENEMY_SCALE)   # menu-only 50% (movement uses global_position, unaffected)
-	e.material = _grade_mat                        # brightness/contrast grade (overrides the unused hit-flash mat)
 	var is_spider := id == SPIDER_ID
 	if is_spider:
 		_spider = e

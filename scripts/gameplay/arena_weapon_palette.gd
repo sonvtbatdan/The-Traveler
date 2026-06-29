@@ -5,25 +5,26 @@ extends CanvasLayer
 ## Self-contained: owns its F12 toggle + ESC close. Replaces the old direct-spawn F12 in arena_debug_spawn.gd.
 
 # kind → inventory def_id (for the icon) + display label.
+# Labels = spawn display names (canonical source: arena_weapons.WEAPON_INFO).
 const WEAPONS := [
-	{"kind": "gatling", "def_id": "gatling_gun",  "label": "Gatling"},
-	{"kind": "lasgun",  "def_id": "lasgun",       "label": "Lasgun"},
-	{"kind": "arc",     "def_id": "arc",          "label": "Arc"},
+	{"kind": "gatling", "def_id": "gatling_gun",  "label": "Minigun"},
+	{"kind": "lasgun",  "def_id": "lasgun",       "label": "Laser"},
+	{"kind": "arc",     "def_id": "arc",          "label": "Lightning"},
 	{"kind": "gauss",   "def_id": "gauss_cannon", "label": "Gauss"},
-	{"kind": "orbital", "def_id": "orbitals",     "label": "Orbital"},
-	{"kind": "void",    "def_id": "rift_maker",   "label": "Rift Maker"},
+	{"kind": "orbital", "def_id": "orbitals",     "label": "Defender"},
+	{"kind": "void",    "def_id": "rift_maker",   "label": "Vacuum"},
 	{"kind": "red_x",   "def_id": "red_x",        "label": "Red X"},
-	{"kind": "chemtrail", "def_id": "chemtrail",  "label": "Chemtrail"},
-	{"kind": "nuke",      "def_id": "nuke",          "label": "Nuke"},
-	{"kind": "sonic",     "def_id": "sonic_wave",    "label": "Sonic Wave"},
-	{"kind": "zsword",    "def_id": "z_sword",       "label": "Z-Sword"},
-	{"kind": "ionize",    "def_id": "ionizing_field","label": "Ionizing Field"},
-	{"kind": "boomerang", "def_id": "boomerang",     "label": "Boomerang"},
-	{"kind": "parasite",  "def_id": "parasite_cloud","label": "Parasite Cloud"},
-	{"kind": "moroboshi", "def_id": "moroboshi",     "label": "Moroboshi-M1"},
-	{"kind": "swarm",     "def_id": "swarm_host",    "label": "Swarm Host"},
-	{"kind": "snake",     "def_id": "space_snake",   "label": "Space Snake"},
-	{"kind": "homing",    "def_id": "homing_missile","label": "Homing Missile"},
+	{"kind": "chemtrail", "def_id": "chemtrail",  "label": "Stink Breath"},
+	{"kind": "nuke",      "def_id": "nuke",          "label": "Mortal"},
+	{"kind": "sonic",     "def_id": "sonic_wave",    "label": "Sonic"},
+	{"kind": "zsword",    "def_id": "z_sword",       "label": "Jeager"},
+	{"kind": "ionize",    "def_id": "ionizing_field","label": "Ionizer"},
+	{"kind": "boomerang", "def_id": "boomerang",     "label": "Aliwa"},
+	{"kind": "parasite",  "def_id": "parasite_cloud","label": "Parasite"},
+	{"kind": "moroboshi", "def_id": "moroboshi",     "label": "Yari"},
+	{"kind": "swarm",     "def_id": "swarm_host",    "label": "Striker"},
+	{"kind": "snake",     "def_id": "space_snake",   "label": "VIPER"},
+	{"kind": "homing",    "def_id": "homing_missile","label": "Homing"},
 ]
 
 const THUMB := Vector2(56, 56)

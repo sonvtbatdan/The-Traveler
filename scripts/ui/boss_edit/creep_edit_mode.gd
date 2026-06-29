@@ -5,9 +5,10 @@ extends CanvasLayer
 const EditableObject  := preload("res://scenes/ui/edit_mode/editable_object.tscn")
 const GifLoader       := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const GridOverlay     := preload("res://scripts/ui/boss_edit/grid_overlay.gd")
+const EnergyVortex    := preload("res://scripts/gameplay/fx/energy_vortex.gd")
 const LAYOUT_PATH       := "res://creep_layout.cfg"
 const PLUME_STYLES_PATH := "res://plume_styles.cfg"
-const ENEMIES_FOLDER    := "res://assets/enemies/"
+const ENEMIES_FOLDER    := "res://assets/enemiesHD/"
 const ASSET_PANEL_W     := 210.0
 const CTRL_PANEL_W      := 224.0
 const SCREEN_ORIGIN     := Vector2(15.0, 8.0)
@@ -37,7 +38,18 @@ var _selected_fp_idx:     int        = -1
 var _selected_tp_idx:     int        = -1   # primary (last clicked) — used for angle UI + plume editor
 var _selected_tp_indices: Array[int] = []   # full multi-selection set
 var _selected_tenp_idx:   int        = -1
+# Vortex Points (VX) — a directionless point that anchors a spinning energy-vortex VFX (EnergyVortex).
+var _adding_vortexpoint:  bool       = false
+var _vortex_points:       Dictionary = {}     # creep_name -> Array[{pos, id}]
+var _vortex_id_counter:   Dictionary = {}     # creep_name -> int
+var _selected_vortex_idx: int        = -1   # primary (last clicked) — used for the param editor + copy
+var _selected_vortex_indices: Array[int] = []   # full multi-selection set (paste/edit apply to all)
+var _vortex_styles:       Dictionary = {}     # cname -> {"vx_N": style_dict}
+var _updating_vortex:     bool       = false
+var _vortex_clipboard:    Dictionary = {}     # last Copy'd vortex style; empty = nothing to Paste
+var _preview_vortexes:    Array      = []     # live EnergyVortex preview nodes on the EO
 var _layers_collapsed:    bool       = true   # LAYERS panel: hide child rows by default (declutter once placed)
+var _prev_paused:         bool       = false  # pause state before opening → restored on close (dev:on stays paused)
 
 # ── UI ─────────────────────────────────────────────────────────────────────────
 var _dim_overlay:    ColorRect     = null
@@ -46,7 +58,7 @@ var _asset_vbox:     VBoxContainer = null
 var _fp_vbox:        VBoxContainer = null
 var _tp_vbox:        VBoxContainer = null
 var _ctrl_panel:     Panel         = null
-var _creep_btn_vbox: VBoxContainer = null
+var _creep_btn_vbox: Container     = null   # ENEMIES palette grid (icon cells, fleet-edit style)
 var _sz_w_spin:      SpinBox       = null
 var _sz_h_spin:      SpinBox       = null
 var _z_spin:         SpinBox       = null
@@ -57,6 +69,7 @@ var _grid_btn:       Button        = null
 var _add_fp_btn:     Button        = null
 var _add_tp_btn:     Button        = null
 var _add_tenp_btn:   Button        = null
+var _add_vortex_btn: Button        = null
 var _toast_label:    Label         = null
 var _grid_overlay:   Control       = null
 var _fp_angle_row:   Control       = null
@@ -66,6 +79,17 @@ var _tp_angle_spin:  SpinBox       = null
 var _tenp_vbox:      VBoxContainer = null
 var _tenp_angle_row: Control       = null
 var _tenp_angle_spin: SpinBox      = null
+# Tentacle Points section widgets (hidden by design — replaced by the Vortex Points section)
+var _tenp_section_nodes: Array     = []
+# Vortex Points section widgets + param editor
+var _vortex_vbox:      VBoxContainer = null
+var _vortex_lbl:       Label         = null
+var _vx_radius_spin:   SpinBox       = null
+var _vx_spin_spin:     SpinBox       = null
+var _vx_arms_spin:     SpinBox       = null
+var _vx_col_core_btn:  ColorPickerButton = null
+var _vx_col_mid_btn:   ColorPickerButton = null
+var _vx_col_outer_btn: ColorPickerButton = null
 var _save_confirm_dlg: ConfirmationDialog = null
 var _pos_x_spin:       SpinBox           = null
 var _pos_y_spin:       SpinBox           = null
@@ -83,6 +107,7 @@ var _plume_col_cool_btn:  ColorPickerButton = null
 var _plume_styles:        Dictionary        = {}  # cname → {"tp_N": style_dict}
 var _plume_tp_label:      Label             = null
 var _updating_plume:      bool              = false
+var _plume_clipboard:     Dictionary        = {}  # last Copy'd plume style; empty = nothing to Paste
 
 # Plume preview nodes (shown in edit mode so TPs can be verified visually)
 var _preview_plumes:    Array[CPUParticles2D] = []
@@ -118,6 +143,7 @@ func setup(objects_container: Control) -> void:
 	_objects_container = objects_container
 	_load_layout()
 	_load_plume_styles()
+	_load_vortex_styles()
 	_update_gameplay_visibility()
 
 func is_open() -> bool:
@@ -291,8 +317,10 @@ func _build_asset_panel() -> void:
 	_tp_angle_spin.value_changed.connect(func(_v: float) -> void: _on_tp_angle_changed())
 	_tp_angle_row.add_child(_tp_angle_spin)
 
-	# TENTACLE POINTS section — each point spawns a tentacle (the child-segment chain), aimed by its Dir vector
-	root.add_child(HSeparator.new())
+	# TENTACLE POINTS section — HIDDEN by design (replaced by the Vortex Points section below). Code kept intact
+	# so existing tentacle layouts still load/save; the widgets are just collapsed via _tenp_section_nodes.
+	var tn_sep := HSeparator.new()
+	root.add_child(tn_sep)
 	var tn_hdr := Label.new()
 	tn_hdr.text = "TENTACLE POINTS"
 	tn_hdr.add_theme_font_size_override("font_size", 11)
@@ -326,6 +354,82 @@ func _build_asset_panel() -> void:
 	_tenp_angle_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_tenp_angle_spin.value_changed.connect(func(_v: float) -> void: _on_tenp_angle_changed())
 	_tenp_angle_row.add_child(_tenp_angle_spin)
+	# Collapse the whole Tentacle Points section (kept in the tree, just hidden).
+	_tenp_section_nodes = [tn_sep, tn_hdr, tn_scroll]
+	for n: Control in _tenp_section_nodes:
+		n.visible = false
+
+	# ── VORTEX POINTS section — each point anchors a spinning EnergyVortex VFX (no direction needed) ──
+	root.add_child(HSeparator.new())
+	var vx_hdr_row := HBoxContainer.new()
+	vx_hdr_row.add_theme_constant_override("separation", 4)
+	root.add_child(vx_hdr_row)
+	var vx_hdr := Label.new()
+	vx_hdr.text = "VORTEX POINTS"
+	vx_hdr.add_theme_font_size_override("font_size", 11)
+	vx_hdr.modulate = Color(0.55, 0.80, 1.0)
+	vx_hdr.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vx_hdr_row.add_child(vx_hdr)
+	var vx_copy := Button.new()
+	vx_copy.text = "Copy"
+	vx_copy.add_theme_font_size_override("font_size", 9)
+	vx_copy.pressed.connect(_copy_vortex_style)
+	vx_hdr_row.add_child(vx_copy)
+	var vx_paste := Button.new()
+	vx_paste.text = "Paste"
+	vx_paste.add_theme_font_size_override("font_size", 9)
+	vx_paste.pressed.connect(_paste_vortex_style)
+	vx_hdr_row.add_child(vx_paste)
+
+	var vx_scroll := ScrollContainer.new()
+	vx_scroll.custom_minimum_size = Vector2(0.0, 96.0)
+	vx_scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	root.add_child(vx_scroll)
+	_vortex_vbox = VBoxContainer.new()
+	_vortex_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_vortex_vbox.add_theme_constant_override("separation", 2)
+	vx_scroll.add_child(_vortex_vbox)
+
+	_vortex_lbl = Label.new()
+	_vortex_lbl.text = "– select a VX –"
+	_vortex_lbl.add_theme_font_size_override("font_size", 10)
+	_vortex_lbl.modulate = Color(0.7, 0.7, 0.7)
+	root.add_child(_vortex_lbl)
+
+	# Radius + Spin row
+	var vxa_row := HBoxContainer.new()
+	vxa_row.add_theme_constant_override("separation", 3)
+	root.add_child(vxa_row)
+	var vxr_lbl := Label.new()
+	vxr_lbl.text = "Rad:"
+	vxr_lbl.add_theme_font_size_override("font_size", 10)
+	vxr_lbl.custom_minimum_size = Vector2(24.0, 0.0)
+	vxa_row.add_child(vxr_lbl)
+	_vx_radius_spin = _mk_vxspin(vxa_row, 8.0, 240.0, 2.0)
+	var vxs_lbl := Label.new()
+	vxs_lbl.text = "Spin:"
+	vxs_lbl.add_theme_font_size_override("font_size", 10)
+	vxa_row.add_child(vxs_lbl)
+	_vx_spin_spin = _mk_vxspin(vxa_row, -12.0, 12.0, 0.2)
+
+	# Arms row
+	var vxb_row := HBoxContainer.new()
+	vxb_row.add_theme_constant_override("separation", 3)
+	root.add_child(vxb_row)
+	var vxn_lbl := Label.new()
+	vxn_lbl.text = "Arms:"
+	vxn_lbl.add_theme_font_size_override("font_size", 10)
+	vxn_lbl.custom_minimum_size = Vector2(30.0, 0.0)
+	vxb_row.add_child(vxn_lbl)
+	_vx_arms_spin = _mk_vxspin(vxb_row, 1.0, 8.0, 1.0)
+
+	# Gradient colors: Core → Mid → Outer
+	var vxc_row := HBoxContainer.new()
+	vxc_row.add_theme_constant_override("separation", 3)
+	root.add_child(vxc_row)
+	_vx_col_core_btn  = _mk_vxcol_vbox(vxc_row, "Core",  Color(0.75, 0.92, 1.0, 1.0))
+	_vx_col_mid_btn   = _mk_vxcol_vbox(vxc_row, "Mid",   Color(0.30, 0.50, 1.0, 0.9))
+	_vx_col_outer_btn = _mk_vxcol_vbox(vxc_row, "Outer", Color(0.55, 0.20, 0.95, 0.0))
 
 	# ── PLUME STYLE section ──
 	root.add_child(HSeparator.new())
@@ -338,6 +442,16 @@ func _build_asset_panel() -> void:
 	pe_lbl.modulate = Color(0.55, 0.90, 1.0)
 	pe_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pe_hdr_row.add_child(pe_lbl)
+	var pe_copy := Button.new()
+	pe_copy.text = "Copy"
+	pe_copy.add_theme_font_size_override("font_size", 9)
+	pe_copy.pressed.connect(_copy_plume_style)
+	pe_hdr_row.add_child(pe_copy)
+	var pe_paste := Button.new()
+	pe_paste.text = "Paste"
+	pe_paste.add_theme_font_size_override("font_size", 9)
+	pe_paste.pressed.connect(_paste_plume_style)
+	pe_hdr_row.add_child(pe_paste)
 	var pe_reset := Button.new()
 	pe_reset.text = "Reset"
 	pe_reset.add_theme_font_size_override("font_size", 9)
@@ -432,11 +546,16 @@ func _build_ctrl_panel() -> void:
 	var creep_scroll := ScrollContainer.new()
 	creep_scroll.custom_minimum_size = Vector2(0.0, 240.0)
 	creep_scroll.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	creep_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	root.add_child(creep_scroll)
-	_creep_btn_vbox = VBoxContainer.new()
-	_creep_btn_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_creep_btn_vbox.add_theme_constant_override("separation", 2)
-	creep_scroll.add_child(_creep_btn_vbox)
+	# Icon grid (fleet-edit style) instead of a list of text buttons.
+	var creep_grid := GridContainer.new()
+	creep_grid.columns = 4
+	creep_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	creep_grid.add_theme_constant_override("h_separation", 4)
+	creep_grid.add_theme_constant_override("v_separation", 4)
+	creep_scroll.add_child(creep_grid)
+	_creep_btn_vbox = creep_grid
 
 	root.add_child(HSeparator.new())
 
@@ -475,6 +594,18 @@ func _build_ctrl_panel() -> void:
 	_add_tenp_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_add_tenp_btn.pressed.connect(_toggle_adding_tentaclepoint)
 	mode_row.add_child(_add_tenp_btn)
+
+	_add_vortex_btn = Button.new()
+	_add_vortex_btn.text = "Add Vortex"
+	_add_vortex_btn.toggle_mode = true
+	_add_vortex_btn.add_theme_font_size_override("font_size", 12)
+	_add_vortex_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_add_vortex_btn.pressed.connect(_toggle_adding_vortexpoint)
+	mode_row.add_child(_add_vortex_btn)
+
+	# Grid + TenP buttons hidden by design (code kept). Add Vortex replaces TenP in the workflow.
+	_grid_btn.visible     = false
+	_add_tenp_btn.visible = false
 
 	root.add_child(HSeparator.new())
 
@@ -599,14 +730,38 @@ func _build_creep_buttons() -> void:
 		child.queue_free()
 	_creep_buttons.clear()
 	for creep_name: String in _all_creep_names:
+		# Icon cell (fleet-edit style): a 46px toggle Button with the enemy thumbnail; tooltip = name.
 		var btn := Button.new()
-		btn.text = creep_name
 		btn.toggle_mode = true
-		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		btn.add_theme_font_size_override("font_size", 10)
+		btn.custom_minimum_size = Vector2(46.0, 46.0)
+		btn.tooltip_text = creep_name
+		btn.clip_contents = true
+		var tex := _creep_icon_tex(creep_name)
+		if tex != null:
+			var tr := TextureRect.new()
+			tr.texture = tex
+			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			tr.set_anchors_preset(Control.PRESET_FULL_RECT)
+			tr.offset_left = 3; tr.offset_top = 3; tr.offset_right = -3; tr.offset_bottom = -3
+			tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			btn.add_child(tr)
+		else:
+			btn.text = creep_name.substr(0, 4)
+			btn.add_theme_font_size_override("font_size", 9)
 		btn.pressed.connect(_set_active_creep.bind(creep_name))
 		_creep_btn_vbox.add_child(btn)
 		_creep_buttons[creep_name] = btn
+
+## Load a thumbnail texture for a creep name (first matching file in the enemies folder).
+func _creep_icon_tex(creep_name: String) -> Texture2D:
+	for ext: String in ["png", "gif", "jpg", "jpeg"]:
+		var path := _folder() + creep_name + "." + ext
+		if FileAccess.file_exists(path) or ResourceLoader.exists(path):
+			var tex := _load_full_tex(path)
+			if tex != null:
+				return tex
+	return null
 
 # ── Parent / child grouping ────────────────────────────────────────────────────
 
@@ -714,6 +869,8 @@ func toggle() -> void:
 		_is_open = true
 		_grid_overlay.is_edit_open = true
 		_set_ui_visible(true)
+		_arena_focus(true)
+		_prev_paused = get_tree().paused
 		get_tree().paused = true
 		_reset_zoom()
 		_update_all_creep_interactivity()
@@ -735,21 +892,39 @@ func _close() -> void:
 	_adding_firepoint  = false
 	_adding_thrustpoint = false
 	_adding_tentaclepoint = false
+	_adding_vortexpoint = false
 	_grid_btn.button_pressed  = false
 	_add_fp_btn.button_pressed = false
 	_add_tp_btn.button_pressed = false
 	_add_tenp_btn.button_pressed = false
+	_add_vortex_btn.button_pressed = false
 	_grid_overlay.show_grid    = false
 	_grid_overlay.is_edit_open = false
 	_reset_zoom()
 	_select_fp(-1)
 	_select_tp(-1)
 	_select_tenp(-1)
+	_select_vortex(-1)
+	# Clear the live vortex preview nodes (they live on objects_container, which persists past close).
+	for v in _preview_vortexes:
+		if is_instance_valid(v):
+			v.queue_free()
+	_preview_vortexes.clear()
 	_set_ui_visible(false)
+	_arena_focus(false)
 	_select_obj(null)
 	_update_all_creep_interactivity()
 	_update_gameplay_visibility()
-	get_tree().paused = false
+	get_tree().paused = _prev_paused   # keep dev:on paused; only the dev:on→dev:off button resumes
+
+## Hide the arena HUD + gameplay while the CREEP editor is open (not the Weapon-edit subclass, which needs
+## the ship visible). The arena exposes set_edit_focus().
+func _arena_focus(on: bool) -> void:
+	if _edit_group() != "creep_edit":
+		return
+	var arena := get_tree().get_first_node_in_group("arena")
+	if arena != null and arena.has_method("set_edit_focus"):
+		arena.set_edit_focus(on)
 
 func _set_ui_visible(v: bool) -> void:
 	_dim_overlay.visible = v
@@ -787,10 +962,14 @@ func _set_active_creep(creep_name: String) -> void:
 		_thrust_points[creep_name] = []
 	if not _tentacle_points.has(creep_name):
 		_tentacle_points[creep_name] = []
+	if not _vortex_points.has(creep_name):
+		_vortex_points[creep_name] = []
 	_selected_fp_idx = -1
 	_selected_tp_idx = -1
 	_selected_tp_indices.clear()
 	_selected_tenp_idx = -1
+	_selected_vortex_idx = -1
+	_selected_vortex_indices.clear()
 	_eo_drag_undo_pushed = false
 	_update_all_creep_interactivity()
 	_update_grid_overlay()
@@ -801,6 +980,8 @@ func _set_active_creep(creep_name: String) -> void:
 	_refresh_tp_angle_ui()
 	_refresh_tenp_angle_ui()
 	_refresh_plume_editor()
+	_refresh_vortex_list()
+	_refresh_vortex_editor()
 	# Auto-select the active creep's sprite so it can be dragged / nudged immediately
 	var active_eo: EditableObjectNode = _placed.get(creep_name, null)
 	_select_obj(active_eo if is_instance_valid(active_eo) else null)
@@ -955,9 +1136,11 @@ func _toggle_grid_mode() -> void:
 		_adding_firepoint   = false
 		_adding_thrustpoint = false
 		_adding_tentaclepoint = false
+		_adding_vortexpoint = false
 		_add_fp_btn.button_pressed = false
 		_add_tp_btn.button_pressed = false
 		_add_tenp_btn.button_pressed = false
+		_add_vortex_btn.button_pressed = false
 		_select_obj(null)
 		_select_fp(-1)
 		_select_tp(-1)
@@ -971,8 +1154,10 @@ func _toggle_adding_firepoint() -> void:
 	if _adding_firepoint:
 		_adding_thrustpoint = false
 		_adding_tentaclepoint = false
+		_adding_vortexpoint = false
 		_add_tp_btn.button_pressed = false
 		_add_tenp_btn.button_pressed = false
+		_add_vortex_btn.button_pressed = false
 		_grid_mode = false
 		_grid_btn.button_pressed = false
 		_select_obj(null)
@@ -986,8 +1171,10 @@ func _toggle_adding_thrustpoint() -> void:
 	if _adding_thrustpoint:
 		_adding_firepoint = false
 		_adding_tentaclepoint = false
+		_adding_vortexpoint = false
 		_add_fp_btn.button_pressed = false
 		_add_tenp_btn.button_pressed = false
+		_add_vortex_btn.button_pressed = false
 		_grid_mode = false
 		_grid_btn.button_pressed = false
 		_select_obj(null)
@@ -1167,8 +1354,10 @@ func _toggle_adding_tentaclepoint() -> void:
 	if _adding_tentaclepoint:
 		_adding_firepoint = false
 		_adding_thrustpoint = false
+		_adding_vortexpoint = false
 		_add_fp_btn.button_pressed = false
 		_add_tp_btn.button_pressed = false
+		_add_vortex_btn.button_pressed = false
 		_grid_mode = false
 		_grid_btn.button_pressed = false
 		_select_obj(null)
@@ -1281,6 +1470,276 @@ func _make_tenp_row(pt: Dictionary, idx: int) -> Control:
 	)
 	return row
 
+# ── Vortex Points ────────────────────────────────────────────────────────────
+# A directionless point anchoring a spinning EnergyVortex VFX. Per-point style: radius / spin / arms / colors.
+func _toggle_adding_vortexpoint() -> void:
+	_adding_vortexpoint = _add_vortex_btn.button_pressed
+	if _adding_vortexpoint:
+		_adding_firepoint = false
+		_adding_thrustpoint = false
+		_adding_tentaclepoint = false
+		_add_fp_btn.button_pressed = false
+		_add_tp_btn.button_pressed = false
+		_add_tenp_btn.button_pressed = false
+		_grid_mode = false
+		_grid_btn.button_pressed = false
+		_select_obj(null)
+		_select_fp(-1)
+		_select_tp(-1)
+		_select_tenp(-1)
+	_update_all_creep_interactivity()
+
+func _add_vortexpoint_at(viewport_pos: Vector2) -> void:
+	if _active_creep.is_empty():
+		return
+	var oc_pos: Vector2 = _objects_container.position if (_objects_container != null and is_instance_valid(_objects_container)) else Vector2.ZERO
+	var ss_pos := (viewport_pos - oc_pos) / _zoom - SCREEN_ORIGIN
+	if not _vortex_points.has(_active_creep):
+		_vortex_points[_active_creep] = []
+		_vortex_id_counter[_active_creep] = 1
+	var vx_id: int = _vortex_id_counter.get(_active_creep, 1)
+	_vortex_points[_active_creep].append({"pos": ss_pos, "id": vx_id})
+	_vortex_id_counter[_active_creep] = vx_id + 1
+	_selected_vortex_idx = _vortex_points[_active_creep].size() - 1
+	_selected_vortex_indices = [_selected_vortex_idx]
+	_dirty = true
+	_refresh_vortex_list()
+	_refresh_vortex_editor()
+	_update_grid_overlay()
+
+func _select_vortex(idx: int) -> void:
+	_selected_vortex_idx = idx
+	_selected_vortex_indices.clear()
+	if idx >= 0:
+		_selected_vortex_indices.append(idx)
+		_select_obj(null)
+		_selected_fp_idx = -1
+		_selected_tp_idx = -1
+		_selected_tp_indices.clear()
+		_selected_tenp_idx = -1
+	_refresh_vortex_list()
+	_refresh_vortex_editor()
+	_update_grid_overlay()
+
+## Shift-click: toggle a VX in/out of the multi-selection (mirrors _select_tp_add for plume).
+func _select_vortex_add(idx: int) -> void:
+	if idx < 0:
+		return
+	_select_obj(null)
+	_selected_fp_idx = -1
+	_selected_tp_idx = -1
+	_selected_tp_indices.clear()
+	_selected_tenp_idx = -1
+	if _selected_vortex_indices.has(idx):
+		_selected_vortex_indices.erase(idx)
+		if _selected_vortex_idx == idx:
+			_selected_vortex_idx = _selected_vortex_indices.back() if not _selected_vortex_indices.is_empty() else -1
+	else:
+		_selected_vortex_indices.append(idx)
+		_selected_vortex_idx = idx
+	_refresh_vortex_list()
+	_refresh_vortex_editor()
+	_update_grid_overlay()
+
+func _delete_selected_vortex() -> void:
+	if _selected_vortex_indices.is_empty():
+		return
+	var vxs: Array = _vortex_points.get(_active_creep, [])
+	var sorted: Array[int] = _selected_vortex_indices.duplicate()
+	sorted.sort()
+	sorted.reverse()
+	for idx: int in sorted:
+		if idx >= 0 and idx < vxs.size():
+			vxs.remove_at(idx)
+	_vortex_points[_active_creep] = vxs
+	_selected_vortex_idx = -1
+	_selected_vortex_indices.clear()
+	_dirty = true
+	_refresh_vortex_list()
+	_refresh_vortex_editor()
+	_update_grid_overlay()
+
+func _refresh_vortex_list() -> void:
+	if _vortex_vbox == null:
+		return
+	for child in _vortex_vbox.get_children():
+		child.queue_free()
+	var vxs: Array = _vortex_points.get(_active_creep, [])
+	for i: int in vxs.size():
+		_vortex_vbox.add_child(_make_vortex_row(vxs[i], i))
+
+func _make_vortex_row(pt: Dictionary, idx: int) -> Control:
+	var is_sel: bool = _selected_vortex_indices.has(idx)
+	var row := Panel.new()
+	row.custom_minimum_size = Vector2(0.0, 28.0)
+	row.mouse_filter = Control.MOUSE_FILTER_STOP
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.30, 0.55, 0.95, 0.40) if is_sel else Color(0.0, 0.0, 0.0, 0.0)
+	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
+	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
+	row.add_theme_stylebox_override("panel", style)
+	var hbox := HBoxContainer.new()
+	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hbox.add_theme_constant_override("separation", 5)
+	row.add_child(hbox)
+	var pt_id: int   = pt.get("id", idx + 1)
+	var pos: Vector2 = pt.get("pos", Vector2.ZERO)
+	var id_lbl := Label.new()
+	id_lbl.text = "Vx%d" % pt_id
+	id_lbl.add_theme_font_size_override("font_size", 11)
+	id_lbl.custom_minimum_size = Vector2(34.0, 0.0)
+	id_lbl.modulate = Color(0.70, 0.88, 1.0) if is_sel else Color(0.50, 0.70, 0.95)
+	hbox.add_child(id_lbl)
+	var pos_lbl := Label.new()
+	pos_lbl.text = "(%d,%d)" % [int(pos.x), int(pos.y)]
+	pos_lbl.add_theme_font_size_override("font_size", 10)
+	pos_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_child(pos_lbl)
+	var cap_idx := idx
+	row.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton \
+				and (e as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT \
+				and (e as InputEventMouseButton).pressed:
+			if Input.is_key_pressed(KEY_SHIFT):
+				_select_vortex_add(cap_idx)
+			else:
+				_select_vortex(cap_idx)
+	)
+	return row
+
+func _default_vortex_style() -> Dictionary:
+	return {
+		"radius":    40.0,
+		"spin":      2.2,
+		"arms":      3,
+		"col_core":  Color(0.75, 0.92, 1.0, 1.0),
+		"col_mid":   Color(0.30, 0.50, 1.0, 0.9),
+		"col_outer": Color(0.55, 0.20, 0.95, 0.0),
+	}
+
+func _get_selected_vx_id() -> int:
+	if _active_creep.is_empty() or _selected_vortex_idx < 0:
+		return -1
+	var vxs: Array = _vortex_points.get(_active_creep, [])
+	if _selected_vortex_idx >= vxs.size():
+		return -1
+	return int(vxs[_selected_vortex_idx].get("id", _selected_vortex_idx + 1))
+
+func _get_vx_style(vx_id: int) -> Dictionary:
+	if _active_creep.is_empty() or vx_id < 0:
+		return _default_vortex_style()
+	if not _vortex_styles.has(_active_creep):
+		_vortex_styles[_active_creep] = {}
+	var cmap: Dictionary = _vortex_styles[_active_creep]
+	var key := "vx_%d" % vx_id
+	if not cmap.has(key):
+		cmap[key] = _default_vortex_style()
+	return cmap[key]
+
+func _refresh_vortex_editor() -> void:
+	if _vx_radius_spin == null:
+		return
+	var n := _selected_vortex_indices.size()
+	var vx_id := _get_selected_vx_id()
+	var has := vx_id >= 0
+	if _vortex_lbl != null:
+		if not has:
+			_vortex_lbl.text = "– select a VX –"
+			_vortex_lbl.modulate = Color(0.55, 0.55, 0.55)
+		elif n <= 1:
+			_vortex_lbl.text = "VX %d" % vx_id
+			_vortex_lbl.modulate = Color(0.55, 0.80, 1.0)
+		else:
+			_vortex_lbl.text = "%d VXs selected" % n
+			_vortex_lbl.modulate = Color(0.75, 0.90, 1.0)
+	for spin: SpinBox in [_vx_radius_spin, _vx_spin_spin, _vx_arms_spin]:
+		spin.editable = has
+	for cpb: ColorPickerButton in [_vx_col_core_btn, _vx_col_mid_btn, _vx_col_outer_btn]:
+		cpb.disabled = not has
+	if not has:
+		return
+	_updating_vortex = true
+	var s := _get_vx_style(vx_id)
+	_vx_radius_spin.value   = float(s.get("radius", 40.0))
+	_vx_spin_spin.value     = float(s.get("spin",   2.2))
+	_vx_arms_spin.value     = float(s.get("arms",   3))
+	_vx_col_core_btn.color  = s.get("col_core",  Color(0.75, 0.92, 1.0, 1.0))
+	_vx_col_mid_btn.color   = s.get("col_mid",   Color(0.30, 0.50, 1.0, 0.9))
+	_vx_col_outer_btn.color = s.get("col_outer", Color(0.55, 0.20, 0.95, 0.0))
+	_updating_vortex = false
+
+func _on_vortex_changed() -> void:
+	if _updating_vortex or _active_creep.is_empty() or _selected_vortex_indices.is_empty():
+		return
+	if not _vortex_styles.has(_active_creep):
+		_vortex_styles[_active_creep] = {}
+	var vxs: Array = _vortex_points.get(_active_creep, [])
+	for sel_idx: int in _selected_vortex_indices:
+		if sel_idx < 0 or sel_idx >= vxs.size():
+			continue
+		var vx_id: int = int(vxs[sel_idx].get("id", sel_idx + 1))
+		var s := _get_vx_style(vx_id)
+		s["radius"]    = _vx_radius_spin.value
+		s["spin"]      = _vx_spin_spin.value
+		s["arms"]      = int(_vx_arms_spin.value)
+		s["col_core"]  = _vx_col_core_btn.color
+		s["col_mid"]   = _vx_col_mid_btn.color
+		s["col_outer"] = _vx_col_outer_btn.color
+		_vortex_styles[_active_creep]["vx_%d" % vx_id] = s
+	_refresh_vortex_preview()
+	_dirty = true
+
+func _copy_vortex_style() -> void:
+	if _active_creep.is_empty() or _selected_vortex_idx < 0:
+		return
+	var vx_id := _get_selected_vx_id()
+	if vx_id < 0:
+		return
+	_vortex_clipboard = (_get_vx_style(vx_id) as Dictionary).duplicate(true)
+	show_toast("Vortex style copied")
+
+## Replace the selected VX(s)' style with the clipboard. No-op if nothing has been copied yet.
+func _paste_vortex_style() -> void:
+	if _vortex_clipboard.is_empty() or _active_creep.is_empty() or _selected_vortex_indices.is_empty():
+		return
+	# Push the clipboard into the controls (guarded so the per-spin signals don't write piecemeal),
+	# then _on_vortex_changed() writes the whole style into every selected VX at once.
+	_updating_vortex = true
+	_vx_radius_spin.value   = float(_vortex_clipboard.get("radius", _vx_radius_spin.value))
+	_vx_spin_spin.value     = float(_vortex_clipboard.get("spin",   _vx_spin_spin.value))
+	_vx_arms_spin.value     = float(_vortex_clipboard.get("arms",   _vx_arms_spin.value))
+	_vx_col_core_btn.color  = _vortex_clipboard.get("col_core",  _vx_col_core_btn.color)
+	_vx_col_mid_btn.color   = _vortex_clipboard.get("col_mid",   _vx_col_mid_btn.color)
+	_vx_col_outer_btn.color = _vortex_clipboard.get("col_outer", _vx_col_outer_btn.color)
+	_updating_vortex = false
+	_on_vortex_changed()
+	show_toast("Vortex style pasted")
+
+func _refresh_vortex_preview() -> void:
+	for v in _preview_vortexes:
+		if is_instance_valid(v):
+			v.queue_free()
+	_preview_vortexes.clear()
+	if _objects_container == null or not is_instance_valid(_objects_container):
+		return
+	var cmap: Dictionary = _vortex_styles.get(_active_creep, {})
+	var vxs: Array = _vortex_points.get(_active_creep, [])
+	for i: int in vxs.size():
+		var vx: Dictionary = vxs[i]
+		var vx_id: int = int(vx.get("id", i + 1))
+		var style: Dictionary = cmap.get("vx_%d" % vx_id, _default_vortex_style())
+		var ss_pos: Vector2 = vx["pos"]
+		var node: Node2D = EnergyVortex.new()
+		node.process_mode = Node.PROCESS_MODE_ALWAYS   # animate while the editor pauses the tree
+		node.position = ss_pos + SCREEN_ORIGIN          # objects_container handles zoom/offset
+		_objects_container.add_child(node)
+		# Set z_index AFTER add_child: EnergyVortex._ready() forces z_index=2, so setting it
+		# before add_child would be overwritten. Here the vortex is a SIBLING of the enemy EO
+		# (z_index 115), so it needs an absolute z above the sprite to render on top.
+		node.z_index = 120
+		node.call("setup", style)
+		_preview_vortexes.append(node)
+
 func _make_point_row(pt: Dictionary, idx: int, is_fp: bool) -> Control:
 	var is_sel: bool = (idx == _selected_fp_idx) if is_fp else _selected_tp_indices.has(idx)
 	var col_sel  := Color(0.25, 0.85, 1.0, 0.38) if is_fp else Color(0.10, 0.80, 0.55, 0.38)
@@ -1383,10 +1842,13 @@ func _update_grid_overlay() -> void:
 	_grid_overlay.selected_tp_idx = _selected_tp_idx
 	_grid_overlay.tentacle_points   = _tentacle_points.get(_active_creep, [])
 	_grid_overlay.selected_tenp_idx = _selected_tenp_idx
+	_grid_overlay.vortex_points     = _vortex_points.get(_active_creep, [])
+	_grid_overlay.selected_vortex_idx = _selected_vortex_idx
 	if _objects_container != null and is_instance_valid(_objects_container):
 		_grid_overlay.zoom          = _zoom
 		_grid_overlay.canvas_offset = _objects_container.position
 	_refresh_plume_preview()
+	_refresh_vortex_preview()
 
 func _refresh_plume_preview() -> void:
 	for p: CPUParticles2D in _preview_plumes:
@@ -1452,7 +1914,7 @@ func _make_preview_plume(oc_pos: Vector2, dir_angle: float, style: Dictionary = 
 # ── Interactivity ──────────────────────────────────────────────────────────────
 
 func _update_all_creep_interactivity() -> void:
-	var allow_select: bool = not _grid_mode and not _adding_firepoint and not _adding_thrustpoint and not _adding_tentaclepoint
+	var allow_select: bool = not _grid_mode and not _adding_firepoint and not _adding_thrustpoint and not _adding_tentaclepoint and not _adding_vortexpoint
 	# Build the set of sprites that should be visible: the whole group (root + all its children).
 	# Whether the active member is the root or a child, the entire assembly stays visible.
 	var visible_set: Dictionary = {}
@@ -1516,6 +1978,7 @@ func _input(event: InputEvent) -> void:
 			var fps: Array = _fire_points.get(_active_creep, [])
 			var tps: Array = _thrust_points.get(_active_creep, [])
 			var tns: Array = _tentacle_points.get(_active_creep, [])
+			var vxs: Array = _vortex_points.get(_active_creep, [])
 			if _selected_fp_idx >= 0 and _selected_fp_idx < fps.size():
 				fps[_selected_fp_idx]["pos"] = (fps[_selected_fp_idx]["pos"] as Vector2) + dir
 				_fire_points[_active_creep] = fps
@@ -1539,6 +2002,16 @@ func _input(event: InputEvent) -> void:
 				_tentacle_points[_active_creep] = tns
 				_dirty = true
 				_refresh_tenp_list()
+				_update_grid_overlay()
+				get_viewport().set_input_as_handled()
+				return
+			elif not _selected_vortex_indices.is_empty():
+				for sel_idx: int in _selected_vortex_indices:
+					if sel_idx >= 0 and sel_idx < vxs.size():
+						vxs[sel_idx]["pos"] = (vxs[sel_idx]["pos"] as Vector2) + dir
+				_vortex_points[_active_creep] = vxs
+				_dirty = true
+				_refresh_vortex_list()
 				_update_grid_overlay()
 				get_viewport().set_input_as_handled()
 				return
@@ -1597,6 +2070,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_delete_selected_tp()
 			elif _selected_tenp_idx >= 0:
 				_delete_selected_tenp()
+			elif _selected_vortex_idx >= 0:
+				_delete_selected_vortex()
 			elif is_instance_valid(_selected_obj):
 				_delete_selected()
 			get_viewport().set_input_as_handled()
@@ -1617,6 +2092,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			if _adding_tentaclepoint:
 				_adding_tentaclepoint = false
 				_add_tenp_btn.button_pressed = false
+				_update_all_creep_interactivity()
+				get_viewport().set_input_as_handled()
+				return
+			if _adding_vortexpoint:
+				_adding_vortexpoint = false
+				_add_vortex_btn.button_pressed = false
 				_update_all_creep_interactivity()
 				get_viewport().set_input_as_handled()
 				return
@@ -1656,6 +2137,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				_add_tentaclepoint_at(mb.position)
 				get_viewport().set_input_as_handled()
 				return
+			if _adding_vortexpoint:
+				_add_vortexpoint_at(mb.position)
+				get_viewport().set_input_as_handled()
+				return
 		if mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed and not in_panels:
 			if _adding_firepoint:
 				_adding_firepoint = false
@@ -1669,6 +2154,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				_adding_tentaclepoint = false
 				_add_tenp_btn.button_pressed = false
 				_update_all_creep_interactivity()
+			elif _adding_vortexpoint:
+				_adding_vortexpoint = false
+				_add_vortex_btn.button_pressed = false
+				_update_all_creep_interactivity()
 			elif _grid_mode:
 				_grid_mode = false
 				_grid_btn.button_pressed = false
@@ -1679,6 +2168,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_select_fp(-1)
 				_select_tp(-1)
 				_select_tenp(-1)
+				_select_vortex(-1)
 			get_viewport().set_input_as_handled()
 
 func _on_asset_title_input(event: InputEvent) -> void:
@@ -1775,8 +2265,14 @@ func _save_layout() -> void:
 		for tn: Dictionary in _tentacle_points.get(creep_name, []):
 			tn_data.append({"pos": tn["pos"], "id": tn.get("id", 0), "dir_angle": tn.get("dir_angle", 0.0)})
 		cfg.set_value("tentaclepoints", creep_name, tn_data)
+		# Vortex points (directionless)
+		var vx_data: Array[Dictionary] = []
+		for vx: Dictionary in _vortex_points.get(creep_name, []):
+			vx_data.append({"pos": vx["pos"], "id": vx.get("id", 0)})
+		cfg.set_value("vortexpoints", creep_name, vx_data)
 	cfg.save(_layout_path())
 	_save_plume_styles()
+	_save_vortex_styles()
 	_dirty = false
 	show_toast("Saved " + _layout_path().get_file())
 
@@ -1826,10 +2322,35 @@ func _load_layout() -> void:
 			_tentacle_points[creep_name].append({"pos": tn.get("pos", Vector2.ZERO), "id": tn_id, "dir_angle": tn.get("dir_angle", 0.0)})
 			max_tn_id = maxi(max_tn_id, tn_id)
 		_tenp_id_counter[creep_name] = max_tn_id + 1
+		# Vortex points
+		_vortex_points[creep_name] = []
+		var max_vx_id := 0
+		for vx: Dictionary in cfg.get_value("vortexpoints", creep_name, []):
+			var vx_id: int = vx.get("id", max_vx_id + 1)
+			_vortex_points[creep_name].append({"pos": vx.get("pos", Vector2.ZERO), "id": vx_id})
+			max_vx_id = maxi(max_vx_id, vx_id)
+		_vortex_id_counter[creep_name] = max_vx_id + 1
 
 # ── Asset loading ──────────────────────────────────────────────────────────────
 
+## Map an assets/enemies/ path to its assets/enemiesHD/ twin when that file exists (dev:on editor preview).
+func _hd_path(path: String) -> String:
+	const HD_FOLDER := "res://assets/enemiesHD/"
+	if path.begins_with(ENEMIES_FOLDER):
+		var hd := HD_FOLDER + path.substr(ENEMIES_FOLDER.length())
+		if FileAccess.file_exists(hd) or ResourceLoader.exists(hd):
+			return hd
+	return path
+
 func _load_full_tex(path: String) -> Texture2D:
+	# Prefer the HD sprite; fall back to the standard one if HD is missing or fails to load.
+	var src := _hd_path(path)
+	var tex := _load_tex_raw(src)
+	if tex == null and src != path:
+		tex = _load_tex_raw(path)
+	return tex
+
+func _load_tex_raw(path: String) -> Texture2D:
 	var ext := path.get_extension().to_lower()
 	if ext == "gif":
 		return GifLoader.load_gif(path)
@@ -1872,6 +2393,34 @@ func _mk_pcol_vbox(parent: HBoxContainer, lbl_text: String, default_col: Color) 
 	cpb.custom_minimum_size = Vector2(0.0, 22.0)
 	cpb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cpb.color_changed.connect(func(_c: Color) -> void: _on_plume_changed())
+	vb.add_child(cpb)
+	return cpb
+
+# ── Vortex style UI builders (same look as the plume builders, wired to _on_vortex_changed) ──
+func _mk_vxspin(parent: HBoxContainer, mn: float, mx: float, step: float) -> SpinBox:
+	var sb := SpinBox.new()
+	sb.min_value = mn; sb.max_value = mx; sb.step = step
+	sb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sb.get_line_edit().add_theme_font_size_override("font_size", 10)
+	sb.value_changed.connect(func(_v: float) -> void: _on_vortex_changed())
+	parent.add_child(sb)
+	return sb
+
+func _mk_vxcol_vbox(parent: HBoxContainer, lbl_text: String, default_col: Color) -> ColorPickerButton:
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 1)
+	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(vb)
+	var lbl := Label.new()
+	lbl.text = lbl_text
+	lbl.add_theme_font_size_override("font_size", 9)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(lbl)
+	var cpb := ColorPickerButton.new()
+	cpb.color = default_col
+	cpb.custom_minimum_size = Vector2(0.0, 22.0)
+	cpb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cpb.color_changed.connect(func(_c: Color) -> void: _on_vortex_changed())
 	vb.add_child(cpb)
 	return cpb
 
@@ -1971,6 +2520,36 @@ func _on_plume_changed() -> void:
 	_refresh_plume_preview()
 	_dirty = true
 
+## Copy the selected TP's full plume style (all params + colors) into the clipboard.
+func _copy_plume_style() -> void:
+	if _active_creep.is_empty() or _selected_tp_indices.is_empty():
+		return
+	var tp_id := _get_selected_tp_id()
+	if tp_id < 0:
+		return
+	_plume_clipboard = (_get_tp_plume_style(tp_id) as Dictionary).duplicate(true)
+	show_toast("Plume style copied")
+
+## Replace the selected TP(s)' plume style with the clipboard. No-op if nothing has been copied yet.
+func _paste_plume_style() -> void:
+	if _plume_clipboard.is_empty() or _active_creep.is_empty() or _selected_tp_indices.is_empty():
+		return
+	# Push the clipboard into the controls (guarded so the per-spin signals don't write piecemeal),
+	# then _on_plume_changed() writes the whole style into every selected TP at once.
+	_updating_plume = true
+	_plume_vel_min_spin.value  = float(_plume_clipboard.get("vel_min",  _plume_vel_min_spin.value))
+	_plume_vel_max_spin.value  = float(_plume_clipboard.get("vel_max",  _plume_vel_max_spin.value))
+	_plume_life_spin.value     = float(_plume_clipboard.get("lifetime", _plume_life_spin.value))
+	_plume_spread_spin.value   = float(_plume_clipboard.get("spread",   _plume_spread_spin.value))
+	_plume_sc_min_spin.value   = float(_plume_clipboard.get("sc_min",   _plume_sc_min_spin.value))
+	_plume_sc_max_spin.value   = float(_plume_clipboard.get("sc_max",   _plume_sc_max_spin.value))
+	_plume_col_core_btn.color  = _plume_clipboard.get("col_core",  _plume_col_core_btn.color)
+	_plume_col_flame_btn.color = _plume_clipboard.get("col_flame", _plume_col_flame_btn.color)
+	_plume_col_cool_btn.color  = _plume_clipboard.get("col_cool",  _plume_col_cool_btn.color)
+	_updating_plume = false
+	_on_plume_changed()
+	show_toast("Plume style pasted")
+
 func _reset_plume_style() -> void:
 	if _active_creep.is_empty() or _selected_tp_indices.is_empty():
 		return
@@ -2002,6 +2581,23 @@ func _save_plume_styles() -> void:
 	cfg.load(_plume_path())
 	for cname: String in _plume_styles:
 		cfg.set_value("styles", cname, _plume_styles[cname])
+	cfg.save(_plume_path())
+
+# ── Vortex style persistence (shares the plume cfg file, separate "vortex_styles" section) ──
+func _load_vortex_styles() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(_plume_path()) != OK:
+		return
+	if not cfg.has_section("vortex_styles"):
+		return
+	for key: String in cfg.get_section_keys("vortex_styles"):
+		_vortex_styles[key] = cfg.get_value("vortex_styles", key, _default_vortex_style())
+
+func _save_vortex_styles() -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(_plume_path())
+	for cname: String in _vortex_styles:
+		cfg.set_value("vortex_styles", cname, _vortex_styles[cname])
 	cfg.save(_plume_path())
 
 # ── Overridable config (weapon_edit_mode.gd overrides these for the weapon editor) ──

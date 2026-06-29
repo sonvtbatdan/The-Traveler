@@ -17,22 +17,76 @@ const PULSE_AMT   := 0.07               # firing-pulse depth (±7% in-place scal
 var _weapons: Node = null
 var _icons: Dictionary = {}   # kind → Texture2D (lazy cache)
 var _t: float = 0.0           # animation clock for the firing pulse
+var _tip: Label = null        # hover tooltip showing the weapon's code name (asset model code)
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_build_tip()
+
+func _build_tip() -> void:
+	_tip = Label.new()
+	_tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tip.add_theme_font_size_override("font_size", 11)
+	_tip.add_theme_color_override("font_color", Color(0.88, 0.95, 1.0))
+	_tip.add_theme_color_override("font_outline_color", Color.BLACK)
+	_tip.add_theme_constant_override("outline_size", 4)
+	var font := load("res://assets/fonts/Gameplay.ttf") as FontFile
+	if font:
+		_tip.add_theme_font_override("font", font)
+	_tip.z_index = 60
+	_tip.hide()
+	add_child(_tip)
 
 func _process(delta: float) -> void:
 	_t += delta
 	if _weapons == null or not is_instance_valid(_weapons):
 		_weapons = get_tree().get_first_node_in_group("arena_weapons")
+	_update_hover_tip()
 	queue_redraw()
+
+## Show the hovered slot's code name above the bar (reads the live acquired list each frame).
+func _update_hover_tip() -> void:
+	if _tip == null:
+		return
+	var acquired: Array = []
+	if _weapons != null and is_instance_valid(_weapons) and _weapons.has_method("acquired_weapons"):
+		acquired = _weapons.call("acquired_weapons")
+	var mpos := get_local_mouse_position()
+	for i in acquired.size():
+		var r := Rect2(ORIGIN + Vector2(float(i) * (SLOT + GAP), 0.0), Vector2(SLOT, SLOT))
+		if r.has_point(mpos):
+			_tip.text = _code_for(String(acquired[i]))
+			_tip.reset_size()
+			var sx := ORIGIN.x + float(i) * (SLOT + GAP) + SLOT * 0.5 - _tip.size.x * 0.5
+			_tip.position = Vector2(sx, ORIGIN.y - _tip.size.y - 4.0)
+			_tip.show()
+			return
+	_tip.hide()
+
+## Registry entry for a kind from either the base weapon map or the fusion map.
+func _info_for(kind: String) -> Dictionary:
+	var wi: Dictionary = ArenaWeapons.WEAPON_INFO
+	if wi.has(kind):
+		return wi[kind]
+	var fd: Dictionary = ArenaWeapons.FUSION_DEFS
+	return fd.get(kind, {})
+
+## Code name = the weapon's short display name (WEAPON_INFO/FUSION_DEFS "label"), e.g. "Minigun".
+func _code_for(kind: String) -> String:
+	var info := _info_for(kind)
+	return String(info.get("label", info.get("name", kind)))
 
 func _icon_for(kind: String) -> Texture2D:
 	if _icons.has(kind):
 		return _icons[kind]
-	var info: Dictionary = (ArenaWeapons.WEAPON_INFO as Dictionary).get(kind, {})
-	var tex := InventoryManager.get_icon(String(info.get("def_id", "")))
+	var info := _info_for(kind)
+	var tex: Texture2D = null
+	var icon_path := String(info.get("icon", ""))   # dedicated fusion art takes priority over the def_id icon
+	if icon_path != "":
+		tex = load(icon_path) as Texture2D
+	if tex == null:
+		tex = InventoryManager.get_icon(String(info.get("def_id", "")))
 	_icons[kind] = tex
 	return tex
 

@@ -1,12 +1,20 @@
 extends CanvasLayer
-## F7 in-game WAVE EDITOR for the arena — modelled on the legacy level-design dev tool, but driving the
-## arena's time-keyed timeline (add wave → set time, type, count, pattern, duration, boss). Toggle with F7:
-## pauses the game, shows the editable wave list, a NAME field, a Save/Load library (res://levels/arena/*.json),
-## a live JSON readout, and Apply&Restart / Reset. Reads/writes the live wave_director via its editor API.
+## F7 in-game WAVE EDITOR for the arena. The timeline is authored on a 5-second grid: 360 rows (5s → 1800s).
+## Each row is ONE moment in time that can spawn MANY things at once — up to 10 Unit/Fleet "slots" (a 2×5 grid)
+## dropped in from the Type popup. Each slot carries its own Count / Pattern / Boss (Fleets ignore count/pattern
+## and use their authored formation). Toggle with F7: pauses the game, shows the editable row list, a NAME field,
+## a Save/Load library (res://levels/arena/*.json), a live JSON readout, Apply&Restart / Reset / Sort.
+##
+## The wave_director timeline stays FLAT ({time,type,count,pattern,[duration],[is_boss]}) — this editor expands
+## each row's filled slots into one flat entry per slot on Apply/Save, and re-groups flat entries (snapped to the
+## 5s grid) back into rows on open. So old saved files + DEFAULT_TIMELINE keep working unchanged.
 
 const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
 const LEVELS_DIR := "res://levels/arena"
 const TEST_WAVES := 20   # how many repeating time points a Quick-test builds (each spawns COUNT enemies)
+const GRID_STEP := 5.0   # seconds between template rows
+const GRID_ROWS := 360   # 5, 10, … , 1800
+const SLOTS_PER_ROW := 10 # 2×5 spawn slots per row
 
 var _director: Node = null
 var _root: Control = null
@@ -22,9 +30,14 @@ var _readout: TextEdit = null
 var _rows: Array = []
 var _types: Array = []
 var _open: bool = false
+var _prev_paused: bool = false         # pause state before opening → restored on close (dev:on stays paused)
 var _font: FontFile = null
+var _dropdown: Control = null          # the open Type popup (Unit/Fleet picker + 2×5 slot grid)
+var _slots_grid: GridContainer = null  # the 2×5 slot grid inside the open popup
+var _icon_cache: Dictionary = {}
 
 func _ready() -> void:
+	add_to_group("wave_editor")   # the dev:on Wave_edit button toggles us via this group
 	layer = 100
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_font = load(FONT_PATH) as FontFile
@@ -39,10 +52,18 @@ func _input(event: InputEvent) -> void:
 		_toggle()
 		get_viewport().set_input_as_handled()
 
+func toggle() -> void:   # public entry for the Wave_edit HUD button (same as F7)
+	_toggle()
+
 func _toggle() -> void:
 	_open = not _open
 	_root.visible = _open
-	get_tree().paused = _open
+	if _open:
+		_prev_paused = get_tree().paused
+		get_tree().paused = true
+	else:
+		get_tree().paused = _prev_paused   # keep dev:on paused; only the dev:on→dev:off button resumes
+		_close_dropdown()
 	if _open:
 		if _director == null or not is_instance_valid(_director):
 			_director = get_tree().get_first_node_in_group("wave_director")
@@ -124,10 +145,11 @@ func _build_ui() -> void:
 
 	vb.add_child(HSeparator.new())
 
-	# Column header.
+	# Column header. Count / Pattern / Dur / Boss now live PER-SLOT inside the Type popup, so the table is just
+	# Time + Type(Blank/Set) + delete.
 	var hdr := HBoxContainer.new()
 	hdr.add_theme_constant_override("separation", 8)
-	for h: Array in [["Time(s)", 90], ["Type", 130], ["Count", 80], ["Pattern", 110], ["Dur(s)", 80], ["Boss", 50], ["", 36]]:
+	for h: Array in [["Time(s)", 90], ["Type (Blank / Set)", 220], ["", 36]]:
 		var l := _mk_label(String(h[0]), 11)
 		l.custom_minimum_size = Vector2(float(h[1]), 0)
 		hdr.add_child(l)
@@ -146,8 +168,9 @@ func _build_ui() -> void:
 	btns.add_theme_constant_override("separation", 12)
 	vb.add_child(btns)
 	btns.add_child(_mk_button("+ Add Wave", _on_add))
+	btns.add_child(_mk_button("Sort by time", _on_sort))
 	btns.add_child(_mk_button("Apply & Restart", _on_apply))
-	btns.add_child(_mk_button("Reset to Default", _on_reset))
+	btns.add_child(_mk_button("Reset (blank 360 grid)", _on_reset))
 	btns.add_child(_mk_button("Close", _toggle))
 
 	_readout = TextEdit.new()
@@ -157,89 +180,128 @@ func _build_ui() -> void:
 	_readout.add_theme_font_size_override("font_size", 10)
 	vb.add_child(_readout)
 
-func _rebuild_rows() -> void:
+# ── Rows ──────────────────────────────────────────────────────────────────────
+## Fresh empty slot record.
+func _slot_default() -> Dictionary:
+	return {"type": "", "count": 5, "pattern": "ring", "is_boss": false, "duration": 0.0}
+
+## Build the blank 5-second-grid template: GRID_ROWS rows at 5, 10, … , 1800s, all slots empty.
+func _build_template_grid() -> void:
 	for c in _rows_box.get_children():
+		_rows_box.remove_child(c)
 		c.queue_free()
 	_rows.clear()
+	for i in GRID_ROWS:
+		_add_row(GRID_STEP * float(i + 1))
+
+## Open / Reset shows the 360-row template; existing timeline entries are snapped onto the nearest grid row
+## (each becomes one filled slot). Lossless re-open of timelines already authored on the 5s grid.
+func _rebuild_rows() -> void:
+	_build_template_grid()
 	if _director == null:
 		return
 	for entry: Dictionary in _director.get_timeline():
-		_add_row(entry)
+		var row := _grid_row_for_time(float(entry.get("time", 0.0)))
+		if row.is_empty():
+			continue
+		var slots: Array = row["slots"]
+		for j in slots.size():
+			if String((slots[j] as Dictionary).get("type", "")) == "":
+				slots[j] = {
+					"type": String(entry.get("type", "")),
+					"count": int(entry.get("count", 1)),
+					"pattern": String(entry.get("pattern", "ring")),
+					"is_boss": bool(entry.get("is_boss", false)),
+					"duration": float(entry.get("duration", 0.0)),
+				}
+				break
+		_update_type_btn(row)
 
-func _add_row(entry: Dictionary) -> void:
+## Find the template row whose time matches `t` snapped to the nearest 5s grid point (clamped 5…1800).
+func _grid_row_for_time(t: float) -> Dictionary:
+	var snapped := clampf(round(t / GRID_STEP) * GRID_STEP, GRID_STEP, GRID_STEP * float(GRID_ROWS))
+	for r: Dictionary in _rows:
+		if absf((r["time"] as SpinBox).value - snapped) < 0.01:
+			return r
+	return {}
+
+func _add_row(time: float, preset_slots: Array = []) -> void:
 	var hb := HBoxContainer.new()
 	hb.add_theme_constant_override("separation", 8)
 
-	var time_sb := _mk_spin(0.0, 3600.0, 1.0, float(entry.get("time", 0.0)), 90)
+	var time_sb := _mk_spin(0.0, 3600.0, 1.0, time, 90)
 	hb.add_child(time_sb)
 
-	var type_ob := OptionButton.new()
-	type_ob.custom_minimum_size = Vector2(130, 0)
-	if _font: type_ob.add_theme_font_override("font", _font)
-	for i in _types.size():
-		type_ob.add_item(String(_types[i]), i)
-	var ti := _types.find(String(entry.get("type", "fly")))
-	type_ob.selected = ti if ti >= 0 else 0
-	hb.add_child(type_ob)
+	# Type — a fixed-width button showing Blank / Set; opens the picker + 2×5 slot popup.
+	var type_btn := Button.new()
+	type_btn.custom_minimum_size = Vector2(220, 0)
+	type_btn.clip_text = true
+	if _font: type_btn.add_theme_font_override("font", _font)
+	hb.add_child(type_btn)
 
-	var count_sb := _mk_spin(1.0, 200.0, 1.0, float(int(entry.get("count", 1))), 80)
-	hb.add_child(count_sb)
-
-	var pat_ob := OptionButton.new()
-	pat_ob.custom_minimum_size = Vector2(110, 0)
-	if _font: pat_ob.add_theme_font_override("font", _font)
-	var patterns: Array = _director.PATTERNS
-	for i in patterns.size():
-		pat_ob.add_item(String(patterns[i]), i)
-	var pi := patterns.find(String(entry.get("pattern", "ring")))
-	pat_ob.selected = pi if pi >= 0 else 0
-	hb.add_child(pat_ob)
-
-	var dur_sb := _mk_spin(0.0, 120.0, 0.5, float(entry.get("duration", 0.0)), 80)
-	hb.add_child(dur_sb)
-
-	var boss_cb := CheckButton.new()
-	boss_cb.button_pressed = bool(entry.get("is_boss", false))
-	boss_cb.custom_minimum_size = Vector2(50, 0)
-	hb.add_child(boss_cb)
-
-	var del := _mk_button("X", func(): _remove_row(hb))
-	del.custom_minimum_size = Vector2(36, 0)
-	hb.add_child(del)
+	var clr := Button.new()
+	clr.text = "X"
+	clr.tooltip_text = "Clear this row's units/fleets (back to Blank)"
+	clr.custom_minimum_size = Vector2(36, 0)
+	if _font: clr.add_theme_font_override("font", _font)
+	hb.add_child(clr)
 
 	_rows_box.add_child(hb)
-	_rows.append({"hbox": hb, "time": time_sb, "type": type_ob, "count": count_sb,
-		"pattern": pat_ob, "dur": dur_sb, "boss": boss_cb})
+	var slots: Array = []
+	for i in SLOTS_PER_ROW:
+		slots.append(preset_slots[i] if i < preset_slots.size() else _slot_default())
+	var row := {"hbox": hb, "time": time_sb, "type_btn": type_btn, "slots": slots}
+	type_btn.pressed.connect(func() -> void: _open_type_dropdown(row))
+	clr.pressed.connect(func() -> void: _clear_row(row))
+	_update_type_btn(row)
+	_rows.append(row)
 
-func _remove_row(hb: HBoxContainer) -> void:
-	for i in range(_rows.size() - 1, -1, -1):
-		if _rows[i]["hbox"] == hb:
-			_rows.remove_at(i)
-	hb.queue_free()
+## Empty every slot of a row (back to Blank). The row itself stays — X no longer deletes rows.
+func _clear_row(row: Dictionary) -> void:
+	var slots: Array = row["slots"]
+	for i in slots.size():
+		slots[i] = _slot_default()
+	_update_type_btn(row)
 
-## Collect the current rows into a timeline entries array.
+## Type button label: "Set (N)" when any slot is filled (N = filled count), else "Blank".
+func _update_type_btn(row: Dictionary) -> void:
+	var n := 0
+	for s: Dictionary in row["slots"]:
+		if String(s.get("type", "")) != "":
+			n += 1
+	(row["type_btn"] as Button).text = ("Set (%d)" % n) if n > 0 else "Blank"
+
+## Expand every row's filled slots into FLAT timeline entries (one entry per slot, all sharing the row's time).
 func _collect() -> Array:
 	var entries: Array = []
-	var patterns: Array = _director.PATTERNS
 	for r: Dictionary in _rows:
-		var pat: String = String(patterns[(r["pattern"] as OptionButton).selected])
-		var e := {
-			"time": (r["time"] as SpinBox).value,
-			"type": String(_types[(r["type"] as OptionButton).selected]),
-			"count": int((r["count"] as SpinBox).value),
-			"pattern": pat,
-		}
-		if pat == "stream":
-			e["duration"] = (r["dur"] as SpinBox).value
-		if (r["boss"] as CheckButton).button_pressed:
-			e["is_boss"] = true
-		entries.append(e)
+		var t: float = (r["time"] as SpinBox).value
+		for s: Dictionary in r["slots"]:
+			var ty := String(s.get("type", ""))
+			if ty == "":
+				continue
+			var pat := String(s.get("pattern", "ring"))
+			var e := {"time": t, "type": ty, "count": int(s.get("count", 1)), "pattern": pat}
+			if pat == "stream":
+				e["duration"] = float(s.get("duration", 0.0))
+			if bool(s.get("is_boss", false)):
+				e["is_boss"] = true
+			entries.append(e)
 	return entries
 
 # ── Actions ───────────────────────────────────────────────────────────────────
 func _on_add() -> void:
-	_add_row({"time": _director.elapsed() if _director.has_method("elapsed") else 0.0,
-		"type": _types[0] if not _types.is_empty() else "fly", "count": 5, "pattern": "ring"})
+	var t := GRID_STEP
+	if _director != null and _director.has_method("elapsed"):
+		t = clampf(round(float(_director.elapsed()) / GRID_STEP) * GRID_STEP, GRID_STEP, GRID_STEP * float(GRID_ROWS))
+	_add_row(t)
+
+## Re-order the rows by ascending time (re-arranges them in the list).
+func _on_sort() -> void:
+	_rows.sort_custom(func(a, b): return (a["time"] as SpinBox).value < (b["time"] as SpinBox).value)
+	for i in _rows.size():
+		_rows_box.move_child(_rows[i]["hbox"], i)
+	_set_status("Sorted %d rows by time" % _rows.size())
 
 func _on_apply() -> void:
 	if _director != null:
@@ -248,10 +310,9 @@ func _on_apply() -> void:
 	_refresh_readout()
 
 func _on_reset() -> void:
-	if _director != null:
-		_director.set_timeline((_director.DEFAULT_TIMELINE as Array).duplicate(true))
-	_rebuild_rows()
+	_build_template_grid()
 	_refresh_readout()
+	_set_status("Reset to blank 360-row grid (5 → 1800s)")
 
 ## Build a single-type repeating timeline: TEST_WAVES time points, every `interval` seconds, each spawning
 ## COUNT enemies of the picked type. (COUNT is applied to every time point.)
@@ -350,6 +411,403 @@ func _sanitize(s: String) -> String:
 		out += c if c in "abcdefghijklmnopqrstuvwxyz0123456789-_" else "_"
 	return out
 
+# ── Type popup: Unit/Fleet picker (drag source) + 2×5 spawn slots (drop targets) ─────────────────
+func _enemy_icon(id: String) -> Texture2D:
+	if _icon_cache.has(id):
+		return _icon_cache[id]
+	var tex: Texture2D = null
+	if _director != null:
+		var d: Dictionary = _director.ENEMY_DEFS.get(id, {})
+		var p := String(d.get("icon", ""))
+		if p != "":
+			tex = load(p) as Texture2D
+	_icon_cache[id] = tex
+	return tex
+
+func _load_fleets() -> Array:
+	var cfg := ConfigFile.new()
+	if cfg.load("res://fleet_layout.cfg") != OK:
+		return []
+	var data = cfg.get_value("fleets", "data", [])
+	return data if data is Array else []
+
+func _close_dropdown() -> void:
+	if _dropdown != null and is_instance_valid(_dropdown):
+		_dropdown.queue_free()
+	_dropdown = null
+	_slots_grid = null
+
+func _open_type_dropdown(row: Dictionary) -> void:
+	_close_dropdown()
+	# Full-rect catcher: a real click anywhere outside the panel closes the popup (wheel events ignored so the
+	# inner ScrollContainers don't snap it shut at their scroll limit).
+	_dropdown = Control.new()
+	_dropdown.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_dropdown.mouse_filter = Control.MOUSE_FILTER_STOP
+	_dropdown.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and (e as InputEventMouseButton).pressed:
+			var bi := (e as InputEventMouseButton).button_index
+			if bi == MOUSE_BUTTON_LEFT or bi == MOUSE_BUTTON_RIGHT or bi == MOUSE_BUTTON_MIDDLE:
+				_close_dropdown())
+	_root.add_child(_dropdown)
+
+	var panel := Panel.new()
+	_style(panel)
+	var psize := Vector2(1180.0, 600.0)
+	var vpz := get_viewport().get_visible_rect().size
+	var pos := (vpz - psize) * 0.5   # centered on screen
+	pos.x = clampf(pos.x, 8.0, maxf(8.0, vpz.x - psize.x - 8.0))
+	pos.y = clampf(pos.y, 8.0, maxf(8.0, vpz.y - psize.y - 8.0))
+	panel.position = pos
+	panel.size = psize
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_dropdown.add_child(panel)
+
+	var vb := VBoxContainer.new()
+	vb.position = Vector2(8.0, 8.0)
+	vb.size = psize - Vector2(16.0, 16.0)
+	vb.add_theme_constant_override("separation", 6)
+	panel.add_child(vb)
+
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 6)
+	vb.add_child(tabs)
+	var unit_tab := _mk_button("Unit", func() -> void: pass)
+	var fleet_tab := _mk_button("Fleet", func() -> void: pass)
+	unit_tab.custom_minimum_size = Vector2(120.0, 0.0)
+	fleet_tab.custom_minimum_size = Vector2(120.0, 0.0)
+	tabs.add_child(unit_tab)
+	tabs.add_child(fleet_tab)
+	tabs.add_child(_mk_label("◀ drag a Unit / Fleet into a slot ▶   (spawn together at this time)", 11))
+
+	var content := HBoxContainer.new()
+	content.add_theme_constant_override("separation", 10)
+	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vb.add_child(content)
+
+	# Left: the Unit grid / Fleet list picker (drag sources).
+	var picker := Control.new()
+	picker.custom_minimum_size = Vector2(600.0, 520.0)
+	content.add_child(picker)
+	var unit_panel := _build_unit_tab()
+	var fleet_panel := _build_fleet_tab()
+	picker.add_child(unit_panel)
+	picker.add_child(fleet_panel)
+	fleet_panel.visible = false
+	unit_tab.pressed.connect(func() -> void: unit_panel.visible = true;  fleet_panel.visible = false)
+	fleet_tab.pressed.connect(func() -> void: unit_panel.visible = false; fleet_panel.visible = true)
+
+	content.add_child(VSeparator.new())
+
+	# Right: the 2×5 spawn slots for this row (drop targets + per-slot config).
+	var right := VBoxContainer.new()
+	right.custom_minimum_size = Vector2(540.0, 0.0)
+	right.add_theme_constant_override("separation", 6)
+	content.add_child(right)
+	right.add_child(_mk_label("Spawn slots (2 × 5)", 12))
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(540.0, 500.0)
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	right.add_child(sc)
+	_slots_grid = GridContainer.new()
+	_slots_grid.columns = 2
+	_slots_grid.add_theme_constant_override("h_separation", 6)
+	_slots_grid.add_theme_constant_override("v_separation", 6)
+	sc.add_child(_slots_grid)
+	_populate_slots_grid(row)
+
+func _build_unit_tab() -> Control:
+	var c := Control.new()
+	c.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var scroll := ScrollContainer.new()
+	scroll.size = Vector2(290.0, 500.0)
+	scroll.custom_minimum_size = Vector2(290.0, 500.0)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	c.add_child(scroll)
+	var grid := GridContainer.new()
+	grid.columns = 5
+	grid.add_theme_constant_override("h_separation", 4)
+	grid.add_theme_constant_override("v_separation", 4)
+	scroll.add_child(grid)
+	for id in _types:
+		var ids := String(id)
+		var b := _DragSrc.new()
+		b.custom_minimum_size = Vector2(50.0, 50.0)
+		b.tooltip_text = ids + "  (drag → slot)"
+		b.payload = {"kind": "unit", "id": ids}
+		var tex := _enemy_icon(ids)
+		b.ptex = tex
+		b.ptext = ids
+		if tex != null:
+			var tr := TextureRect.new()
+			tr.texture = tex
+			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			tr.set_anchors_preset(Control.PRESET_FULL_RECT)
+			tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			b.add_child(tr)
+		else:
+			b.text = ids.substr(0, 4)
+			if _font: b.add_theme_font_override("font", _font)
+		grid.add_child(b)
+	return c
+
+func _build_fleet_tab() -> Control:
+	var c := Control.new()
+	c.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var preview := _FleetPreview.new()
+	preview.editor = self
+	preview.position = Vector2(218.0, 0.0)
+	preview.size = Vector2(380.0, 500.0)
+	preview.custom_minimum_size = Vector2(380.0, 500.0)
+	c.add_child(preview)
+	var scroll := ScrollContainer.new()
+	scroll.size = Vector2(206.0, 500.0)
+	scroll.custom_minimum_size = Vector2(206.0, 500.0)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	c.add_child(scroll)
+	var vb := VBoxContainer.new()
+	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vb.add_theme_constant_override("separation", 2)
+	scroll.add_child(vb)
+	for fl in _load_fleets():
+		var fld: Dictionary = fl
+		var nm := String(fld.get("name", "Fleet"))
+		var lbl := _DragSrc.new()
+		lbl.text = nm
+		lbl.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		lbl.custom_minimum_size = Vector2(0.0, 24.0)
+		lbl.tooltip_text = nm + "  (drag → slot)"
+		lbl.payload = {"kind": "fleet", "name": nm}
+		lbl.ptext = "[F] " + nm
+		if _font: lbl.add_theme_font_override("font", _font)
+		lbl.mouse_entered.connect(func() -> void: preview.set_fleet(fld))
+		vb.add_child(lbl)
+	return c
+
+# ── Slot grid (drop targets + per-slot config) ──────────────────────────────────
+func _populate_slots_grid(row: Dictionary) -> void:
+	if _slots_grid == null or not is_instance_valid(_slots_grid):
+		return
+	for c in _slots_grid.get_children():
+		_slots_grid.remove_child(c)
+		c.queue_free()
+	for i in SLOTS_PER_ROW:
+		_slots_grid.add_child(_make_slot_cell(row, i))
+
+## Drop a dragged Unit/Fleet into slot `idx` of `row`, then rebuild the grid + the row's Blank/Set label.
+func _assign_slot(row: Dictionary, idx: int, data: Dictionary) -> void:
+	var slots: Array = row["slots"]
+	if idx < 0 or idx >= slots.size():
+		return
+	var slot: Dictionary = slots[idx]
+	var kind := String(data.get("kind", ""))
+	if kind == "unit":
+		slot["type"] = String(data.get("id", ""))
+	elif kind == "fleet":
+		slot["type"] = "fleet:" + String(data.get("name", ""))
+		slot["is_boss"] = false
+	else:
+		return
+	_populate_slots_grid(row)
+	_update_type_btn(row)
+
+func _clear_slot(row: Dictionary, idx: int) -> void:
+	var slots: Array = row["slots"]
+	if idx < 0 or idx >= slots.size():
+		return
+	slots[idx] = _slot_default()
+	_populate_slots_grid(row)
+	_update_type_btn(row)
+
+func _make_slot_cell(row: Dictionary, idx: int) -> Control:
+	var cell := _SlotCell.new()
+	cell.editor = self
+	cell.row = row
+	cell.idx = idx
+	cell.custom_minimum_size = Vector2(252.0, 104.0)
+	cell.mouse_filter = Control.MOUSE_FILTER_STOP
+	_style_slot(cell)
+
+	var slot: Dictionary = row["slots"][idx]
+	var ty := String(slot.get("type", ""))
+
+	var vb := VBoxContainer.new()
+	vb.position = Vector2(6.0, 4.0)
+	vb.size = Vector2(240.0, 96.0)
+	vb.add_theme_constant_override("separation", 3)
+	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cell.add_child(vb)
+
+	if ty == "":
+		var ph := _mk_label("slot %d\n(drag here)" % (idx + 1), 11)
+		ph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ph.add_theme_color_override("font_color", Color(0.55, 0.62, 0.72))
+		vb.add_child(ph)
+		return cell
+
+	var is_fleet := ty.begins_with("fleet:")
+	# Row 1 — icon / name + clear.
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 4)
+	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if not is_fleet:
+		var tex := _enemy_icon(ty)
+		if tex != null:
+			var tr := TextureRect.new()
+			tr.texture = tex
+			tr.custom_minimum_size = Vector2(28.0, 28.0)
+			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			head.add_child(tr)
+	var nm := _mk_label(("[F] " + ty.substr(6)) if is_fleet else ty, 11)
+	nm.clip_text = true
+	nm.custom_minimum_size = Vector2(160.0, 0.0)
+	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	head.add_child(nm)
+	var clr := _mk_button("x", func() -> void: _clear_slot(row, idx))
+	clr.custom_minimum_size = Vector2(24.0, 0.0)
+	head.add_child(clr)
+	vb.add_child(head)
+
+	if is_fleet:
+		# Fleets use their authored formation — only the boss flag is meaningful.
+		var fb := HBoxContainer.new()
+		fb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		fb.add_child(_mk_label("Boss", 10))
+		var bcb := CheckButton.new()
+		bcb.button_pressed = bool(slot.get("is_boss", false))
+		bcb.toggled.connect(func(p: bool) -> void: slot["is_boss"] = p)
+		fb.add_child(bcb)
+		vb.add_child(fb)
+		return cell
+
+	# Unit config: Count + Pattern.
+	var cfg := HBoxContainer.new()
+	cfg.add_theme_constant_override("separation", 4)
+	cfg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cfg.add_child(_mk_label("n", 10))
+	var csb := _mk_spin(1.0, 200.0, 1.0, float(slot.get("count", 1)), 56)
+	csb.value_changed.connect(func(v: float) -> void: slot["count"] = int(v))
+	cfg.add_child(csb)
+	var pob := OptionButton.new()
+	pob.custom_minimum_size = Vector2(92.0, 0.0)
+	if _font: pob.add_theme_font_override("font", _font)
+	var patterns: Array = _director.PATTERNS
+	for i in patterns.size():
+		pob.add_item(String(patterns[i]), i)
+	var pi := patterns.find(String(slot.get("pattern", "ring")))
+	pob.selected = pi if pi >= 0 else 0
+	pob.item_selected.connect(func(i: int) -> void:
+		slot["pattern"] = String(patterns[i])
+		_populate_slots_grid(row))   # re-draw so the Dur field appears/disappears for "stream"
+	cfg.add_child(pob)
+	vb.add_child(cfg)
+
+	# Unit config row 2: Boss + (Dur only for the "stream" pattern).
+	var r2 := HBoxContainer.new()
+	r2.add_theme_constant_override("separation", 4)
+	r2.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	r2.add_child(_mk_label("Boss", 10))
+	var bcb2 := CheckButton.new()
+	bcb2.button_pressed = bool(slot.get("is_boss", false))
+	bcb2.toggled.connect(func(p: bool) -> void: slot["is_boss"] = p)
+	r2.add_child(bcb2)
+	if String(slot.get("pattern", "ring")) == "stream":
+		r2.add_child(_mk_label("dur", 10))
+		var dsb := _mk_spin(0.0, 120.0, 0.5, float(slot.get("duration", 0.0)), 56)
+		dsb.value_changed.connect(func(v: float) -> void: slot["duration"] = v)
+		r2.add_child(dsb)
+	vb.add_child(r2)
+	return cell
+
+## Drag source: a Button/Label that yields its payload dict (and a small preview) when dragged.
+class _DragSrc extends Button:
+	var payload: Dictionary = {}
+	var ptex: Texture2D = null
+	var ptext: String = ""
+	func _get_drag_data(_at: Vector2) -> Variant:
+		# Match the slot-cell icon size (28px). The TextureRect must be ANCHORED full-rect to a fixed-size
+		# parent — EXPAND_IGNORE_SIZE renders at native size unless the rect is sized by its parent (same
+		# pattern as the Unit grid buttons + slot icons). Setting .size directly does NOT work here.
+		const ICON := 28.0
+		var prev := Control.new()
+		prev.custom_minimum_size = Vector2(ICON, ICON)
+		prev.size = Vector2(ICON, ICON)
+		if ptex != null:
+			var tr := TextureRect.new()
+			tr.texture = ptex
+			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			tr.set_anchors_preset(Control.PRESET_FULL_RECT)
+			tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			prev.add_child(tr)
+		else:
+			var l := Label.new()
+			l.text = ptext
+			prev.add_child(l)
+		set_drag_preview(prev)
+		return payload
+
+## Drop target: one spawn slot. Accepts a Unit/Fleet payload and hands it to the editor.
+class _SlotCell extends Panel:
+	var editor = null
+	var row: Dictionary = {}
+	var idx: int = 0
+	func _can_drop_data(_at: Vector2, data: Variant) -> bool:
+		return data is Dictionary and String((data as Dictionary).get("kind", "")) in ["unit", "fleet"]
+	func _drop_data(_at: Vector2, data: Variant) -> void:
+		if editor != null:
+			editor._assign_slot(row, idx, data as Dictionary)
+
+## Hovered-fleet formation preview: draws each non-empty slot's representative sprite at its placed
+## position/size, scaled to fit the box.
+class _FleetPreview extends Control:
+	var editor = null
+	var fleet: Dictionary = {}
+	func set_fleet(f: Dictionary) -> void:
+		fleet = f
+		queue_redraw()
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.03, 0.05, 0.08, 0.95))
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.30, 0.40, 0.50, 0.6), false, 1.0)
+		if fleet.is_empty() or editor == null:
+			return
+		var slots: Array = fleet.get("slots", [])
+		var rects: Array = []
+		var mn := Vector2(INF, INF)
+		var mx := Vector2(-INF, -INF)
+		for s: Dictionary in slots:
+			var enemies: Array = s.get("enemies", [])
+			if enemies.is_empty():
+				continue
+			var tex: Texture2D = editor._enemy_icon(String(enemies[0]))
+			var w: float = float(s.get("size", 50.0))
+			var h := w
+			if tex != null and tex.get_width() > 0:
+				h = w * float(tex.get_height()) / float(tex.get_width())
+			var p: Vector2 = s.get("pos", Vector2.ZERO)
+			rects.append({"tex": tex, "p": p, "w": w, "h": h})
+			mn.x = minf(mn.x, p.x - w * 0.5); mn.y = minf(mn.y, p.y - h * 0.5)
+			mx.x = maxf(mx.x, p.x + w * 0.5); mx.y = maxf(mx.y, p.y + h * 0.5)
+		if rects.is_empty():
+			return
+		var span := mx - mn
+		var avail := size - Vector2(40.0, 40.0)
+		var sc := minf(avail.x / maxf(span.x, 1.0), avail.y / maxf(span.y, 1.0))
+		sc = minf(sc, 1.0)
+		var center := (mn + mx) * 0.5
+		for r: Dictionary in rects:
+			var rw: float = float(r["w"]) * sc
+			var rh: float = float(r["h"]) * sc
+			var rp: Vector2 = (r["p"] as Vector2 - center) * sc + size * 0.5
+			var rect := Rect2(rp - Vector2(rw, rh) * 0.5, Vector2(rw, rh))
+			if r["tex"] != null:
+				draw_texture_rect(r["tex"] as Texture2D, rect, false)
+			else:
+				draw_rect(rect, Color(0.4, 0.5, 0.7, 0.6))
+
 # ── Widget helpers ──────────────────────────────────────────────────────────────
 func _mk_label(text: String, sz: int) -> Label:
 	var l := Label.new()
@@ -385,4 +843,12 @@ func _style(p: Panel) -> void:
 	s.set_border_width_all(2)
 	s.border_color = Color(0.4, 0.6, 0.4, 0.95)
 	s.set_corner_radius_all(8)
+	p.add_theme_stylebox_override("panel", s)
+
+func _style_slot(p: Panel) -> void:
+	var s := StyleBoxFlat.new()
+	s.bg_color = Color(0.08, 0.11, 0.15, 0.95)
+	s.set_border_width_all(1)
+	s.border_color = Color(0.35, 0.5, 0.65, 0.8)
+	s.set_corner_radius_all(4)
 	p.add_theme_stylebox_override("panel", s)

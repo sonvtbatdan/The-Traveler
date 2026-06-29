@@ -5,6 +5,7 @@ extends Node2D
 ## (inventory/weapons/bosses/enemies/affixes come later). All knobs are in the TUNABLES block below.
 
 const HudHpDisplayScript := preload("res://scripts/ui/hud/hud_hp_display.gd")
+const ArenaStatsHudScript := preload("res://scripts/ui/hud/arena_stats_hud.gd")
 const ArenaEnemyMgrScript := preload("res://scripts/gameplay/arena_enemy_manager.gd")
 const XpOrbMgrScript      := preload("res://scripts/gameplay/arena_xp_orb_manager.gd")
 const WaveDirectorScript := preload("res://scripts/gameplay/arena_wave_director.gd")
@@ -39,6 +40,7 @@ const ArenaHudButtonsScript := preload("res://scripts/ui/hud/arena_hud_buttons.g
 const BossEditScript        := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
 const CreepEditScript       := preload("res://scripts/ui/boss_edit/creep_edit_mode.gd")
 const WeaponEditScript      := preload("res://scripts/ui/boss_edit/weapon_edit_mode.gd")
+const FleetEditScript       := preload("res://scripts/ui/boss_edit/fleet_edit_mode.gd")
 const RESET_RUN_ON_START := true   # each arena run starts a fresh VS climb (level 1, no upgrades). Flip off to keep saved level.
 const WEAPON_TEST_MODE := true     # TEST: skip the hub launch page + start-of-run weapon-pick chest; boot straight into
 								   # the arena, then auto-pause and open the F12 weapon palette. Flip off to restore normal flow.
@@ -92,8 +94,11 @@ var _boss_edit:  Node = null
 var _creep_edit: Node = null
 var _weapon_edit: Node = null
 var _weapon_chest: Node = null   # start-of-run weapon chest UI
+var _ui_layer: CanvasLayer = null      # HP / weapon / aux / XP HUD layer (hidden while a full-screen editor is open)
+var _hud_buttons: Node = null          # bottom-right + left dev button clusters
 
 func _ready() -> void:
+	add_to_group("arena")                # editors find the arena to hide the HUD while editing
 	randomize()                          # fresh RNG each launch → random spawn spot (below)
 	if MetaManager.has_method("purge_run_temp"):
 		MetaManager.purge_run_temp()     # clear last run's temporary boss-drop loot
@@ -134,7 +139,8 @@ func _ready() -> void:
 	bg.add_child(solar)
 	add_child(PlanetMenuScript.new())    # F6 menu: inspect/drag-spawn planets (input stays in the main viewport)
 	add_child(DebugSpawnScript.new())    # F5 asteroids / F9 comet / F10 planet+moons (Shift = clear)
-	add_child(ArenaHudButtonsScript.new())  # bottom-right HUD: Setting / Devon / Quit
+	_hud_buttons = ArenaHudButtonsScript.new()  # bottom-right HUD: Setting / Devon / Quit
+	add_child(_hud_buttons)
 	_build_parallax(bg)
 	_build_player()
 	_build_ui()
@@ -163,6 +169,7 @@ func _ready() -> void:
 	call_deferred("_setup_boss_edit")
 	call_deferred("_setup_creep_edit")
 	call_deferred("_setup_weapon_edit")
+	call_deferred("_setup_fleet_edit")
 	call_deferred("_open_start_chest")   # fresh run → present the pick-1-of-3 weapon chest (ship starts unarmed)
 
 ## Canvas glow/bloom for the arena. With hdr_2d on (project.godot) + glow_hdr_threshold 1.0, only HDR (>1)
@@ -177,10 +184,12 @@ func _make_glow_world_env() -> WorldEnvironment:
 	env.glow_intensity = 1.0
 	env.glow_strength = 1.0
 	env.glow_bloom = 0.1
+	# Perf: cap the glow mip chain at level 2 (was 4). Each extra level is another downsample+blur+upsample pass;
+	# stopping at 2 gives a tighter but much cheaper bloom on the HDR fire.
 	env.set_glow_level(1, 1.0)
 	env.set_glow_level(2, 1.0)
-	env.set_glow_level(3, 1.0)
-	env.set_glow_level(4, 0.5)
+	env.set_glow_level(3, 0.0)
+	env.set_glow_level(4, 0.0)
 	var we := WorldEnvironment.new()
 	we.environment = env
 	return we
@@ -215,12 +224,15 @@ func _build_boundary_vignette() -> void:
 func _build_ui() -> void:
 	var ui := CanvasLayer.new()
 	ui.name = "UI"
+	ui.layer = 10   # explicit (was default 1): keep the HP/weapon/aux HUD ABOVE the mortar/fatboy shockwave (layer 8) so the blast distortion never ripples the HUD; still below buttons (11) / crit (12)
 	add_child(ui)
+	_ui_layer = ui
 	var hp := HudHpDisplayScript.new()
 	hp.arena_mode = true   # re-pin the HP cluster to the top-left corner (legacy keeps its layout pos)
 	ui.add_child(hp)
 	ui.add_child(WeaponSlotsScript.new())   # 5 weapon slots + cooldown pies, just below the HP cluster
 	ui.add_child(AuxSlotsScript.new())      # 5 aux-item slots in a second row below the weapon slots
+	ui.add_child(ArenaStatsHudScript.new()) # XP bar (bottom) + kill/coin counters (top-right)
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 func _build_player() -> void:
@@ -523,6 +535,36 @@ func _setup_weapon_edit() -> void:
 	add_child(wem)
 	_weapon_edit = wem
 	wem.setup(oc)
+
+## Hide the gameplay + all HUD (HP/XP, weapon/aux slots, button clusters, debug panels, player, live enemies)
+## while a full-screen editor (Creep / Fleet) is open, so only the editor panels + its edit objects show.
+## Restored when the editor closes. Background/parallax is left in place.
+func set_edit_focus(on: bool) -> void:
+	var vis := not on
+	if _ui_layer != null and is_instance_valid(_ui_layer):
+		_ui_layer.visible = vis
+	if _hud_buttons != null and is_instance_valid(_hud_buttons):
+		_hud_buttons.visible = vis            # CanvasLayer — hides both button clusters
+	if _player != null and is_instance_valid(_player):
+		_player.visible = vis
+	var ds := get_tree().get_first_node_in_group("arena_debug_spawn")
+	if ds != null:
+		ds.visible = vis                      # CanvasLayer — fire-rate / +level / quick-spawn UI
+	for e in get_tree().get_nodes_in_group("arena_enemy"):
+		if e is CanvasItem:
+			(e as CanvasItem).visible = vis
+
+func _setup_fleet_edit() -> void:
+	var cl := CanvasLayer.new()
+	cl.layer = 9
+	add_child(cl)
+	var oc := Control.new()
+	oc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	oc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cl.add_child(oc)
+	var fem := FleetEditScript.new()
+	add_child(fem)
+	fem.setup(oc)
 
 # ── Run end (death → hub) ───────────────────────────────────────────────────────
 var _run_over_shown: bool = false

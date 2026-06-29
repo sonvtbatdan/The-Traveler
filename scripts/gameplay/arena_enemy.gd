@@ -13,6 +13,7 @@ extends CharacterBody2D
 const GifLoader        := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const ArenaExplosion   := preload("res://scripts/gameplay/arena_explosion.gd")
 const DeathFX          := preload("res://scripts/gameplay/arena_death_fx.gd")
+const EnergyVortex     := preload("res://scripts/gameplay/fx/energy_vortex.gd")
 # Per-enemy attack SFX (one-shot; played from a lazily-created AudioStreamPlayer on bus "SFX").
 const SFX_SPIDER_JUMP  := preload("res://assets/audio/sfx/dash.wav")      # spider (jump_diag) leap
 const SFX_OCTOPUS_JUMP := preload("res://assets/audio/sfx/chargeby.wav")  # octopus (jump) leap
@@ -31,6 +32,48 @@ const SPIRAL_CENTER_SPEED := 80.0   # px/s the spiral center drifts toward the p
 const TURN_RATE := 10.0             # how fast a sprite eases to face its movement direction (head = sprite north)
 const THROWN_BOMB_SPEED := 460.0    # bomber's thrown bombs travel this fast (straight, aimed at the player)
 const THROWN_BOMB_RANGE := 1200.0   # a thrown bomb despawns after travelling this far (projectile, not an enemy)
+
+# ── Centipede: a segmented body that crawls toward the player using the Viper weapon's chain logic
+# (ported from arena_weapons.gd SNAKE_*). The node IS the head (collision + damage target); the body
+# segments TRAIL it at a fixed spacing. Segment pixel sizes scale with the enemy _radius. ──
+const CENTI_SEGMENTS    := 10       # 1 head + 8 body + 1 tail
+const CENTI_VIPER_SPEED := 300.0    # arena_weapons.gd SNAKE_SPEED — the Viper's move speed
+const CENTI_TURN        := 3.0      # head max turn rad/s (mirrors SNAKE_TURN)
+# All 3 sprites are drawn upright (spine vertical: head face / segment connection at TOP, tail stinger at
+# bottom), so every segment shares one ACROSS width and rotates by ang+PI/2. Follow-spacing = the body
+# segment's along-spine length (height), so body segments sit flush.
+const CENTI_WIDTH_MUL   := 1.95     # across width of every segment = _radius × this (75% of ICON_DRAW_SCALE 2.6)
+const CENTI_HEAD_OVERLAP := 20.0    # px the head is pulled back into the first body segment (smaller neck gap)
+
+# ── Teleport (alien) — blink toward the player every TELE_INTERVAL; gently FLOAT adrift between blinks ──
+const TELE_INTERVAL    := 2.0       # seconds between teleports
+const TELE_DIST        := 200.0     # px jumped toward the player each teleport
+const TELE_FLOAT_RADIUS := 24.0     # drift radius of the slow idle float around the anchor (replaces the old jigger)
+const TELE_FLOAT_FREQ  := 0.85      # idle float speed (slow → reads as lazily floating, not jittering)
+# ── Patrol (fleet/sentinel) — straight flyby across the screen at `speed`, never re-aims ──
+const PATROL_CULL   := 1500.0       # despawn once this far from the player (flew off-screen)
+# ── Gauss shooter (pros5) — fires a gauss-style orb at the player ──
+const GAUSS_SHOOT_INTERVAL := 3.0   # seconds between gauss orbs
+# ── Mothership carrier (prosmotherblank) — docked escort + flee/release/respawn cycle ──
+const MS_READY   := 0   # docked squadron, slowly advancing on the player
+const MS_TURN    := 1   # turning tail (50 rpm) to face away before fleeing
+const MS_FLEE    := 2   # fleeing @120 + releasing escorts, one every MS_RELEASE_INTERVAL
+const MS_WAIT    := 3   # fleeing; MS_WAIT_AFTER_RELEASE pause before rebuilding
+const MS_RESPAWN := 4   # fleeing; rebuilding the escort, one every MS_RESPAWN_INTERVAL
+const MS_READY_HOLD        := 3.0     # READY: seconds to advance before auto-firing the next cycle (timer-driven, NOT damage-driven). After a respawn finishes the carrier waits this long, then releases again.
+const MS_TURN_RAD          := 5.235988 # 50 rpm = 300°/s, in rad/s (deg_to_rad(300))
+const MS_APPROACH_SPEED    := 60.0    # READY: slow looming advance toward the player
+const MS_FLEE_SPEED        := 120.0   # flee speed once turned around
+const MS_REGROUP_DIST      := 500.0   # WAIT/RESPAWN: hover at this standoff (on-screen, but mobile not a sitting duck)
+const MS_RELEASE_INTERVAL  := 0.5     # seconds between releasing each docked escort (5 → 2.5s)
+const MS_WAIT_AFTER_RELEASE := 5.0    # pause after the last release before respawning begins
+const MS_RESPAWN_INTERVAL  := 2.5     # seconds per rebuilt escort (5 → 12.5s)
+const MS_RESPAWN_ORDER     := ["pros7", "pros8", "pros8", "pros5", "pros6"]   # rebuild sequence
+const MS_CYCLE_ENABLED     := true    # true → carrier runs the full flee/release/respawn cycle (releases its docked pros escorts on damage). false → just carries the docked escorts (placement checks only).
+# ── Magma split (large magma → small magma on death) ──
+const MAGMA_SPLIT_N      := 3       # small magma flung out when a large magma dies
+const MAGMA_SPLIT_SCALE  := 0.5     # small magma size = this × the parent magma size
+const MAGMA_SPLIT_FLING  := 300.0   # outward knockback (px/s) given to each small magma so it "bursts" out
 
 # ── "Alive" procedural-motion tunables (sprite transform only — no new art) ────
 const BOB_AMOUNT     := 0.05    # idle breathing scale pulse (±)
@@ -65,7 +108,7 @@ const SCALE_VAR      := 0.15    # per-enemy base-size variance (±) so the crowd
 const FALLBACK := {
 	"chase": {"behavior": "chase", "hp": 30.0, "speed": 95.0, "size": 16.0, "contact": 6, "xp": 5, "shape": "diamond", "tint": Color(0.95, 0.35, 0.30)},
 	"bomb":  {"behavior": "bomb",  "hp": 50.0, "speed": 120.0, "size": 18.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(0.9, 0.5, 0.2), "no_collide": true},
-	"thrown_bomb": {"behavior": "thrown_bomb", "hp": 12.0, "speed": THROWN_BOMB_SPEED, "size": 13.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(1.0, 0.55, 0.2), "icon": "res://assets/enemies/bomb.png", "no_collide": true},
+	"thrown_bomb": {"behavior": "thrown_bomb", "hp": 12.0, "speed": THROWN_BOMB_SPEED, "size": 13.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(1.0, 0.55, 0.2), "icon": "res://assets/enemiesHD/bomb.png", "no_collide": true},
 }
 
 # ── Fire-point positions (loaded from creep_layout.cfg [firepoints]) ─────────
@@ -75,6 +118,7 @@ var _fp_fracs: Array = []   # Array[{frac:Vector2, dir_angle:float, id:int}]
 # ── Thrust-point plume VFX ────────────────────────────────────────────────────
 static var _tp_fracs_cache: Dictionary = {}
 var _plumes: Array[CPUParticles2D] = []
+var _vortexes: Array = []   # EnergyVortex children (creep_layout.cfg [vortexpoints] + plume_styles.cfg [vortex_styles])
 var _plume_vrot_applied: float = 0.0   # last rotation pushed to plume emitters; skip the re-rotate when unchanged
 var _plume_vrot_init: bool = false
 var _plume_base: Array = []        # [{vel_min, vel_max, sc_min, sc_max, life}] per plume
@@ -150,6 +194,7 @@ var _squid_attach_off: Vector2 = Vector2.ZERO   # held offset from the player wh
 var _mgr: Node = null
 var _target: Node2D = null
 var _flash: float = 0.0
+var _flash_mat: ShaderMaterial = null   # attached ONLY while flashing; otherwise material stays null (default pipeline)
 var _dead: bool = false
 # behavior state
 var _t: float = 0.0
@@ -158,6 +203,41 @@ var _timer: float = 0.0
 var _fire_t: float = 0.0
 var _aim: Vector2 = Vector2.ZERO
 var _spin: float = 0.0
+# ── Centipede chain (Viper-ported) ──
+var _centi_pts: Array = []          # head-first world positions (Vector2), one per segment
+var _centi_dir: float = 0.0         # head heading (rad)
+var _centi_init: bool = false
+var _centi_head_tex: Texture2D = null
+var _centi_body_tex: Texture2D = null
+var _centi_tail_tex: Texture2D = null
+var _centi_width: float = 0.0       # across width shared by every segment (set in _load_centipede)
+var _centi_spacing: float = 0.0     # body along-spine length = follow spacing (segments flush)
+var _centi_head_len: float = 0.0    # head along-spine length (for the forward neck shift)
+var _tele_anchor: Vector2 = Vector2.ZERO   # teleport: idle-jigger anchor (last landing spot)
+# ── Per-def special modifiers (enemies.pdf "Move" column) ──
+var _sprite_alpha: float = 1.0      # ghost: <1 → permanently see-through
+var _evade_chance: float = 0.0      # ghost: chance to dodge a hit entirely once hp ≤ _evade_below × max
+var _evade_below:  float = 0.0
+var _flee_speed:   float = 0.0      # pirate: flee away from the player at this speed once hp ≤ _flee_below × max
+var _flee_below:   float = 0.0
+var _death_spawn:  String = ""      # stone: spawn this enemy id at our position on death (stoneN → magmaN)
+var _morph_to:     String = ""      # alien5: become this enemy id after _morph_after seconds alive
+var _morph_after:  float = 0.0
+var _strike_back:  bool = false     # fleet/sentinel: switch patrol→chase the first time it's hit
+var _magma_split:  bool = false     # LARGE magma: on death, burst into MAGMA_SPLIT_N small magma (which don't re-split)
+var _anti_magnetic: bool = false    # bismuth: reflects 50% of gatling bullets; takes 50% from laser/arc/void
+var _gauss_shooter: bool = false    # pros5: fire a gauss orb at the player every GAUSS_SHOOT_INTERVAL
+var _gauss_t:      float = 0.0
+# ── Mothership carrier state (behavior == "mothership") + docked-escort flag ──
+var _docked: bool = false           # rigidly docked in a carrier: no move, no plume, no collision (vortex stays)
+var _force_draw_w: float = 0.0      # >0 → override sprite draw width (world px), set by the carrier deploy
+var _ms_state: int = MS_READY
+var _ms_timer: float = 0.0
+var _ms_release_idx: int = 0
+var _ms_respawn_idx: int = 0
+var _ms_dock: Array = []            # active docked escorts: [{node, base_off:Vector2, rot:float(rad)}]
+var _ms_roster: Array = []          # escort spec for respawn: [{id, base_off, draw_w, rot(deg)}]
+var _ms_respawn_bays: Array = []    # roster reordered by MS_RESPAWN_ORDER for the current rebuild
 var _orbit_r: float = 180.0
 var _orbit_ang: float = 0.0
 var _spiral_dir: float = 1.0   # spin direction (±1) for the spiral approach
@@ -232,14 +312,17 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	var d: Dictionary = def if not def.is_empty() else FALLBACK.get(type_id, FALLBACK["chase"])
 	behavior         = String(d.get("behavior", "chase"))
 	_swarm_mode      = String(d.get("swarm_mode", "chase"))
-	hp_max           = float(d.get("hp", 30.0))
+	# "lvl": true → HP & XP in the def are PER-PLAYER-LEVEL bases (the table's "15*"); multiply by the
+	# player's level snapshotted at spawn. Other stats (speed/size/contact/armor) are flat.
+	var lvl_mult: int = GameManager.player_level if bool(d.get("lvl", false)) else 1
+	hp_max           = float(d.get("hp", 30.0)) * float(lvl_mult)
 	hp               = hp_max
 	armor            = float(d.get("armor", 0.0))
 	speed            = float(d.get("speed", 95.0))
 	_radius          = float(d.get("size", 16.0)) * 1.05
 	contact_damage   = int(d.get("contact", 6))
 	contact_explodes = bool(d.get("explodes", false))
-	xp               = int(d.get("xp", 5))
+	xp               = int(d.get("xp", 5)) * lvl_mult
 	_color           = d.get("tint", Color(0.95, 0.35, 0.30))
 	shape_kind       = String(d.get("shape", "diamond"))
 	_original_icon   = String(d.get("icon", ""))
@@ -250,6 +333,21 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 			_icon = s_path
 	_no_collide      = bool(d.get("no_collide", false))
 	_invincible      = bool(d.get("invincible", false))
+	_sprite_alpha    = float(d.get("sprite_alpha", 1.0))
+	_evade_chance    = float(d.get("evade_chance", 0.0))
+	_evade_below     = float(d.get("evade_below", 0.0))
+	_flee_speed      = float(d.get("flee_speed", 0.0))
+	_flee_below      = float(d.get("flee_below", 0.0))
+	_death_spawn     = String(d.get("death_spawn", ""))
+	_morph_to        = String(d.get("morph_to", ""))
+	_morph_after     = float(d.get("morph_after", 0.0))
+	_strike_back     = bool(d.get("strike_back", false))
+	_magma_split     = bool(d.get("magma_split", false))
+	_anti_magnetic   = bool(d.get("anti_magnetic", false))
+	_gauss_shooter   = bool(d.get("gauss_shooter", false))
+	_force_draw_w    = float(d.get("draw_w", 0.0))
+	if _force_draw_w > 0.0:
+		_radius = _force_draw_w * 0.42   # hit radius scales with the authored (carrier-honored) draw size
 	var eye_cfg: Dictionary = d.get("eye", {})
 	if not eye_cfg.is_empty():
 		_has_eye       = true
@@ -281,15 +379,21 @@ func _ready() -> void:
 	_target = get_tree().get_first_node_in_group("player")
 	z_index = 1
 	# Per-instance flash material (shared compiled shader) — lerps the sprite toward white/red on hit.
+	# IMPORTANT: it is NOT assigned as the node's material by default. Under hdr_2d the custom canvas
+	# shader's manual TEXTURE sample renders the sprite darker than the engine-default pipeline, so the
+	# sprite would look dimmed at all times. We only attach it WHILE flashing (_physics_process), so the
+	# normal state uses the default pipeline (full brightness, matching the Creep Edit preview).
 	if _flash_shader == null:
 		_flash_shader = Shader.new()
 		_flash_shader.code = FLASH_SHADER_CODE
-	var mat := ShaderMaterial.new()
-	mat.shader = _flash_shader
-	material = mat
+	_flash_mat = ShaderMaterial.new()
+	_flash_mat.shader = _flash_shader
 	_load_icon()
+	if behavior == "centipede":
+		_load_centipede()
 	_load_tentacle()
 	_setup_plumes()
+	_setup_vortexes()
 	_setup_fire_points()
 	# Per-enemy "alive" variation so the crowd reads as individuals, not synced clones.
 	_bob_phase = randf() * TAU
@@ -302,11 +406,18 @@ func _ready() -> void:
 static func _resolve_sprite(path: String) -> String:
 	const STD := "res://assets/enemies/"
 	const HD  := "res://assets/enemiesHD/"
-	if path.begins_with(STD):
-		var hd := HD + path.substr(STD.length())
+	const DS  := "res://assets/Enemies Downscale/"
+	var p := path
+	if p.begins_with(STD):
+		var hd := HD + p.substr(STD.length())
 		if FileAccess.file_exists(hd) or ResourceLoader.exists(hd):
-			return hd
-	return path
+			p = hd
+	# Prefer the pre-baked downscaled sprite (tools/downscale_enemies.gd) — a light texture at the real display
+	# size. Missing → fall back to the HD source. Skipped for .gif / .sheet.png (no downscaled copy exists).
+	var ds := DS + p.get_file()
+	if ResourceLoader.exists(ds) or FileAccess.file_exists(ds):
+		return ds
+	return p
 
 ## Load the sprite (PNG, animated GIF, or sprite-sheet PNG+JSON) and compute draw size.
 func _load_icon() -> void:
@@ -344,6 +455,9 @@ func _load_icon() -> void:
 				# keep the configured width but lock height to the texture true aspect -> never stretches.
 				if ts.x > 0.0:
 					_draw_size.y = eo_sz.x * (ts.y / ts.x)
+		# Carrier-honored draw width wins over creep_layout so the squadron matches the Fleet Edit layout.
+		if _force_draw_w > 0.0 and ts.x > 0.0:
+			_draw_size = Vector2(_force_draw_w, _force_draw_w * (ts.y / ts.x))
 	if _has_eye and _eye_icon != "" and _eye_tex == null:
 		var eye_src := _resolve_sprite(_eye_icon)
 		_eye_tex = load(eye_src) as Texture2D
@@ -436,25 +550,39 @@ func _setup_plumes() -> void:
 		_plume_base_cols.append(p2.color_ramp.colors.duplicate())
 		_plume_red_cols.append(red)
 
+## The editor saves creep_layout / plume_styles keys with the file's ORIGINAL case (e.g. "Pirate1"),
+## but lookups use the lowercased icon basename. Resolve the real key case-insensitively so every sprite
+## (incl. capitalized / spaced filenames) finds its TPs, fire-points and plume styles.
+static func _resolve_cfg_key(cfg: ConfigFile, section: String, cname: String) -> String:
+	if not cfg.has_section(section):
+		return cname
+	if cfg.has_section_key(section, cname):
+		return cname
+	for k: String in cfg.get_section_keys(section):
+		if k.to_lower() == cname:
+			return k
+	return cname
+
 static func _load_plume_styles_for(cname: String) -> Dictionary:
 	var cfg := ConfigFile.new()
 	if cfg.load("res://plume_styles.cfg") != OK:
 		return {}
-	return cfg.get_value("styles", cname, {})
+	return cfg.get_value("styles", _resolve_cfg_key(cfg, "styles", cname), {})
 
 static func _load_tp_fracs(cname: String) -> Array:
 	const SCREEN_ORIGIN := Vector2(15.0, 8.0)
 	var cfg := ConfigFile.new()
 	if cfg.load("res://creep_layout.cfg") != OK:
 		return []
-	var eo: Dictionary = cfg.get_value("creeps", cname, {})
+	var key := _resolve_cfg_key(cfg, "creeps", cname)
+	var eo: Dictionary = cfg.get_value("creeps", key, {})
 	if eo.is_empty():
 		return []
 	var eo_pos: Vector2 = eo.get("pos", Vector2(480.0, 380.0))
 	var eo_size: Vector2 = eo.get("size", Vector2(60.0, 60.0))
 	if eo_size.x <= 0.0 or eo_size.y <= 0.0:
 		return []
-	var tps: Array = cfg.get_value("thrustpoints", cname, [])
+	var tps: Array = cfg.get_value("thrustpoints", _resolve_cfg_key(cfg, "thrustpoints", cname), [])
 	var result: Array = []
 	for i: int in tps.size():
 		var tp: Dictionary = tps[i]
@@ -462,6 +590,52 @@ static func _load_tp_fracs(cname: String) -> Array:
 		var frac := (tp_oc - eo_pos) / eo_size
 		result.append({"frac": frac, "dir_angle": float(tp.get("dir_angle", PI * 0.5)), "id": int(tp.get("id", i + 1))})
 	return result
+
+## Spawn EnergyVortex VFX children from creep_layout.cfg [vortexpoints] (styled by plume_styles.cfg
+## [vortex_styles]). Anchored at the point's body-relative fraction, scaled to the in-game draw size.
+func _setup_vortexes() -> void:
+	if _icon.is_empty() or _draw_size == Vector2.ZERO:
+		return
+	var cname := _icon.get_file().get_basename().to_lower()
+	var cfg := ConfigFile.new()
+	if cfg.load("res://creep_layout.cfg") != OK:
+		return
+	var key := _resolve_cfg_key(cfg, "creeps", cname)
+	var eo: Dictionary = cfg.get_value("creeps", key, {})
+	if eo.is_empty():
+		return
+	var eo_pos: Vector2  = eo.get("pos",  Vector2(480.0, 380.0))
+	var eo_size: Vector2 = eo.get("size", Vector2(60.0, 60.0))
+	if eo_size.x <= 0.0:
+		return
+	var vxs: Array = cfg.get_value("vortexpoints", _resolve_cfg_key(cfg, "vortexpoints", cname), [])
+	if vxs.is_empty():
+		return
+	var styles := _load_vortex_styles_for(cname)
+	var s := _draw_size.x / eo_size.x   # config-space → in-game scale
+	const SS_ORIGIN := Vector2(15.0, 8.0)
+	for i: int in vxs.size():
+		var vx: Dictionary = vxs[i]
+		var vx_id: int = int(vx.get("id", i + 1))
+		var vx_oc: Vector2 = (vx["pos"] as Vector2) + SS_ORIGIN
+		var frac := (vx_oc - eo_pos) / eo_size
+		var node: Node2D = EnergyVortex.new()
+		node.position = (frac - Vector2(0.5, 0.5)) * _draw_size   # origin is CENTER → shift by -0.5
+		node.scale = Vector2(s, s)
+		node.z_index = 1
+		# Stash the anchor data so _update_vortex_xform() can re-glue the vortex to the (rotating, breathing)
+		# sprite each frame — same approach as the plumes.
+		node.set_meta("frac_centered", frac - Vector2(0.5, 0.5))
+		node.set_meta("base_scale", s)
+		add_child(node)
+		node.call("setup", styles.get("vx_%d" % vx_id, {}))
+		_vortexes.append(node)
+
+static func _load_vortex_styles_for(cname: String) -> Dictionary:
+	var cfg := ConfigFile.new()
+	if cfg.load("res://plume_styles.cfg") != OK:
+		return {}
+	return cfg.get_value("vortex_styles", _resolve_cfg_key(cfg, "vortex_styles", cname), {})
 
 func _setup_fire_points() -> void:
 	if _icon.is_empty() or _draw_size == Vector2.ZERO:
@@ -476,14 +650,15 @@ static func _load_fp_fracs(cname: String) -> Array:
 	var cfg := ConfigFile.new()
 	if cfg.load("res://creep_layout.cfg") != OK:
 		return []
-	var eo: Dictionary = cfg.get_value("creeps", cname, {})
+	var key := _resolve_cfg_key(cfg, "creeps", cname)
+	var eo: Dictionary = cfg.get_value("creeps", key, {})
 	if eo.is_empty():
 		return []
 	var eo_pos: Vector2  = eo.get("pos",  Vector2(480.0, 380.0))
 	var eo_size: Vector2 = eo.get("size", Vector2(60.0,  60.0))
 	if eo_size.x <= 0.0 or eo_size.y <= 0.0:
 		return []
-	var fps: Array = cfg.get_value("firepoints", cname, [])
+	var fps: Array = cfg.get_value("firepoints", _resolve_cfg_key(cfg, "firepoints", cname), [])
 	var result: Array = []
 	for i: int in fps.size():
 		var fp: Dictionary = fps[i]
@@ -523,9 +698,11 @@ func _make_plume(frac: Vector2, dir_angle: float, style: Dictionary = {}) -> CPU
 	taper.add_point(Vector2(0.0, 1.0))
 	taper.add_point(Vector2(1.0, 0.05))
 	p.scale_amount_curve = taper
-	# Store unrotated values so _physics_process can re-apply visual rotation each frame.
-	p.set_meta("base_pos", p.position)
+	# Store the sprite-relative anchor (fraction of _draw_size, centered) + base direction so
+	# _update_plume_xform() can re-derive position & scale each frame from the live sprite transform.
+	p.set_meta("frac_centered", frac - Vector2(0.5, 0.5))
 	p.set_meta("base_dir", p.direction)
+	p.set_meta("base_pos", p.position)   # un-rotated anchor (px) for the optimized plume re-rotate (R6)
 	var img := Image.create(16, 16, false, Image.FORMAT_RGBA8)
 	var ctr := Vector2(16, 16) * 0.5
 	for iy in 16:
@@ -588,7 +765,53 @@ func _update_plumes() -> void:
 		"squid":
 			_apply_plume_full_mult(2.0 if _phase == 1 else 1.0)   # vel / scale / life ×2 during a leap
 
+## Re-anchor every plume to the sprite each frame using the LIVE sprite transform: its position is the
+## fraction-of-sprite anchor scaled by _draw_size × the current squash/stretch (then rotated), and the
+## emitter NODE is scaled by `uniform` so the particles themselves grow/shrink with the enemy. Result:
+## plumes stay rigidly stuck to the sprite at any size — no per-scale re-adjustment needed.
+func _update_plume_xform() -> void:
+	if _plumes.is_empty():
+		return
+	var rot := _spin if behavior == "centipede" else _facing
+	var vx := _visual_xform()
+	var svec: Vector2 = vx["scale"]
+	var uni: float = vx["uniform"]
+	var node_scale := Vector2(uni, uni)
+	for p: CPUParticles2D in _plumes:
+		if not is_instance_valid(p):
+			continue
+		var fc: Vector2 = p.get_meta("frac_centered")
+		# Anchor offset in sprite-local px, including squash/stretch, then rotate to face heading.
+		var off := Vector2(fc.x * _draw_size.x * svec.x, fc.y * _draw_size.y * svec.y)
+		p.position  = off.rotated(rot)
+		p.direction = (p.get_meta("base_dir") as Vector2).rotated(rot)
+		p.scale     = node_scale   # local_coords plumes → node scale grows the whole jet with the enemy
+
+## Re-anchor every vortex to the sprite each frame using the LIVE sprite transform — identical to the plume
+## glue: the anchor offset (fraction-of-sprite × _draw_size × squash) is rotated to the heading, the node is
+## scaled by its config-space base × the breathing `uniform`, and the whole swirl is rotated WITH the sprite
+## so it tracks the enemy when it turns.
+func _update_vortex_xform() -> void:
+	if _vortexes.is_empty():
+		return
+	var rot := _spin if behavior == "centipede" else _facing
+	var vx := _visual_xform()
+	var svec: Vector2 = vx["scale"]
+	var uni: float = vx["uniform"]
+	for node: Node2D in _vortexes:
+		if not is_instance_valid(node):
+			continue
+		var fc: Vector2 = node.get_meta("frac_centered")
+		var bs: float = node.get_meta("base_scale")
+		var off := Vector2(fc.x * _draw_size.x * svec.x, fc.y * _draw_size.y * svec.y)
+		node.position = off.rotated(rot)
+		node.scale    = Vector2(bs * uni, bs * uni)
+		node.rotation = rot   # the swirl orients with the body so it follows the enemy's rotation
+
 # ── Universal damage contract ──────────────────────────────────────────────────
+func is_anti_magnetic() -> bool:
+	return _anti_magnetic
+
 # ── Status effects ─────────────────────────────────────────────────────────────
 ## Status-duration multiplier from the Lasgun's Capacitor perk (global mech "duration_pct").
 func _dur_mult() -> float:
@@ -813,13 +1036,27 @@ func _tick_status(delta: float) -> void:
 
 ## ignore_armor: bleed/burn bypass armor DR. bleeds: kinetic/contact hit → Serrated Heads applies a bleed stack.
 ## was_crit: a crit hit → Critical Break temporarily strips armor.
-func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore_armor: bool = false, bleeds: bool = false, was_crit: bool = false) -> void:
+func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore_armor: bool = false, bleeds: bool = false, was_crit: bool = false, kind: String = "") -> void:
 	if _dead:
 		return
 	if _invincible:
 		return   # test dummy — still blocks the beam (it's in "arena_enemy") but never takes damage or dies
+	# Ghost evasion: once below the HP threshold, a chance to dodge the hit entirely (brief shimmer, no damage).
+	if _evade_chance > 0.0 and hp <= hp_max * _evade_below and randf() < _evade_chance:
+		_flash = HIT_FLASH_TIME * 0.5
+		_flash_color = HIT_FLASH_COLOR
+		queue_redraw()
+		return
+	# Armor damage reduction — RNG's GameManager curve (fallback to the inline formula if unavailable).
+	else:
+		dr = (0.052 * armor) / (1.0 + 0.052 * armor)
+	var dealt := amount * (1.0 - dr)
+	# Bismuth anti-magnetic: only laser / lightning / vacuum bite, and only for half.
+	if _anti_magnetic and (kind == "lasgun" or kind == "arc" or kind == "void"):
+		dealt *= 0.5
+	# Status multipliers: stunned enemies take +50%, Orb-of-Annihilation vulnerable +20%.
 	if _stun_t > 0.0:
-		amount *= STUN_DMG_MULT   # stunned enemies take +50% damage
+		dealt *= STUN_DMG_MULT
 	if _vuln_t > 0.0:
 		amount *= 1.2             # Orb of Annihilation: +20% damage taken
 	if not ignore_armor and GameManager.has_method("armor_damage_reduction"):
@@ -850,6 +1087,19 @@ func _die() -> void:
 	if _dead:
 		return
 	_dead = true
+	# Carrier destroyed → set its docked escorts free so they don't freeze where they were pinned.
+	if behavior == "mothership":
+		for e: Dictionary in _ms_dock:
+			var dn = e.get("node")
+			if dn != null and is_instance_valid(dn):
+				dn.call("set_docked", false)
+		_ms_dock.clear()
+	if _death_spawn != "":
+		_spawn_sibling(_death_spawn, global_position)   # stone → magma fragment that keeps fighting
+	if _magma_split:
+		_burst_small_magma()   # large magma → MAGMA_SPLIT_N small magma flung outward
+	if GameManager.has_method("add_kill"):
+		GameManager.add_kill()   # tally for the arena HUD kill counter
 	if _squid_attached:
 		_squid_detach()   # stop slowing the ship the instant this squid dies
 	# Drop a collectible XP orb (the player magnetizes + collects it) instead of granting XP instantly.
@@ -866,6 +1116,239 @@ func _die() -> void:
 	_death_t = 0.0
 	collision_layer = 0
 	collision_mask = 0
+
+## Spawn another arena enemy by id at `at`, as a sibling (used by stone death-spawn + alien morph).
+## Reads ENEMY_DEFS from the live wave_director node (no preload → avoids the wave_director↔enemy cycle).
+func _spawn_sibling(id: String, at: Vector2) -> void:
+	if id == "":
+		return
+	var wd := get_tree().get_first_node_in_group("wave_director")
+	if wd == null:
+		return
+	var def: Dictionary = (wd.ENEMY_DEFS as Dictionary).get(id, {})
+	if def.is_empty():
+		return
+	var e: Node = get_script().new()   # a fresh arena_enemy (no preload needed — same script)
+	e.call("configure", id, _mgr, def)
+	get_parent().add_child(e)
+	e.set("global_position", at)
+
+## Large magma death → burst into MAGMA_SPLIT_N small magma. Each small one is a REAL arena_enemy (shootable,
+## chases + contact-damages like the parent) at MAGMA_SPLIT_SCALE size, a random magmafrag sprite, and no further
+## split. They are flung outward (knockback) in evenly-spread directions so the burst reads as the rock shattering.
+func _burst_small_magma() -> void:
+	var base_ang := randf() * TAU
+	for i in MAGMA_SPLIT_N:
+		var ang := base_ang + TAU * float(i) / float(MAGMA_SPLIT_N) + randf_range(-0.25, 0.25)
+		var dir := Vector2(cos(ang), sin(ang))
+		# Build a magma-like def from THIS magma's (already level-scaled) stats — no "lvl" so it isn't re-scaled.
+		var def := {
+			"behavior": "chase",
+			"hp":       maxf(1.0, hp_max * 0.35),
+			"speed":    speed,
+			"size":     (_radius / 1.05) * MAGMA_SPLIT_SCALE,   # configure() multiplies size by 1.05
+			"contact":  contact_damage,
+			"xp":       maxi(1, int(round(float(xp) * 0.25))),
+			"armor":    armor,
+			"icon":     "res://assets/enemiesHD/magmafrag (%d).png" % randi_range(1, 16),
+		}
+		var e: Node = get_script().new()
+		e.call("configure", "magma_small", _mgr, def)
+		get_parent().add_child(e)
+		e.set("global_position", global_position + dir * (_radius * 0.4))
+		e.set("_knockback", dir * MAGMA_SPLIT_FLING)   # initial outward burst, decays into the chase
+
+## Spawn a teleport space-warp at a world position. expand=true → space pushes outward (arrival);
+## expand=false → space pulls inward (departure). Converts the world point to a screen UV for the shader.
+func _spawn_warp(world_pos: Vector2, expand: bool) -> void:
+	var vp := get_viewport()
+	if vp == null:
+		return
+	var sz := vp.get_visible_rect().size
+	if sz.x <= 0.0 or sz.y <= 0.0:
+		return
+	if not _WarpFX.can_spawn():
+		return   # cap concurrent fullscreen screen-read warps — protects the GPU during synchronized alien waves
+	var screen := vp.get_canvas_transform() * world_pos
+	var fx := _WarpFX.new()
+	get_parent().add_child(fx)
+	fx.setup(Vector2(screen.x / sz.x, screen.y / sz.y), expand)
+
+## Teleport space-warp — a fullscreen screen-distortion ring (same refraction technique as the explosion
+## shockwave) on its own CanvasLayer. Signed displacement: outward = expand, inward = contract. Self-frees.
+class _WarpFX extends CanvasLayer:
+	const DUR  := 0.32
+	const RMAX := 0.16     # ring radius in screen-height units
+	const AMP  := 0.06     # peak UV displacement
+	const MAX_ACTIVE := 4  # hard cap on concurrent warps — each one is a fullscreen screen-read (backbuffer copy) pass
+	static var _active: int = 0
+	static var _shared_shader: Shader = null   # compiled ONCE and reused (avoids a per-spawn shader-compile stutter)
+	const SHADER_CODE := """
+shader_type canvas_item;
+uniform sampler2D screen_tex : hint_screen_texture, repeat_disable, filter_linear_mipmap;
+uniform vec2 center = vec2(0.5);
+uniform float radius = 0.0;
+uniform float amp = 0.0;          // signed: + push out (expand), - pull in (contract)
+uniform float thickness = 0.07;
+void fragment() {
+	float aspect = SCREEN_PIXEL_SIZE.y / SCREEN_PIXEL_SIZE.x;
+	vec2 raw = SCREEN_UV - center;
+	vec2 d = raw; d.x *= aspect;
+	float dist = length(d);
+	vec2 dir = dist > 1e-5 ? normalize(raw) : vec2(0.0);
+	float ring = 1.0 - smoothstep(0.0, thickness, abs(dist - radius));
+	vec2 disp = dir * ring * amp;
+	COLOR = texture(screen_tex, SCREEN_UV - disp);
+}
+"""
+	var _mat: ShaderMaterial = null
+	var _t: float = 0.0
+	var _expand: bool = true
+
+	static func can_spawn() -> bool:
+		return _active < MAX_ACTIVE
+
+	func setup(center_uv: Vector2, expand: bool) -> void:
+		_expand = expand
+		layer = 79
+		if _shared_shader == null:
+			_shared_shader = Shader.new()
+			_shared_shader.code = SHADER_CODE
+		_mat = ShaderMaterial.new()
+		_mat.shader = _shared_shader
+		_mat.set_shader_parameter("center", center_uv)
+		var rect := ColorRect.new()
+		rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		rect.material = _mat
+		add_child(rect)
+		_active += 1
+
+	func _exit_tree() -> void:
+		_active -= 1
+
+	func _process(delta: float) -> void:
+		_t += delta
+		var f := clampf(_t / DUR, 0.0, 1.0)
+		if f >= 1.0:
+			queue_free()
+			return
+		var pulse := sin(f * PI)   # 0→1→0 envelope
+		if _expand:
+			_mat.set_shader_parameter("radius", f * RMAX)          # ring grows outward
+			_mat.set_shader_parameter("amp", AMP * pulse)
+		else:
+			_mat.set_shader_parameter("radius", (1.0 - f) * RMAX)  # ring closes inward
+			_mat.set_shader_parameter("amp", -AMP * pulse)
+
+## pros5: fire a gauss-style orb straight at the player's current position.
+func _fire_gauss_orb() -> void:
+	var to := _player_pos() - global_position
+	var orb := _GaussOrb.new()
+	get_parent().add_child(orb)
+	orb.setup(global_position, to.normalized() if to.length() > 0.01 else Vector2.DOWN)
+
+## Gauss orb fired BY an enemy AT the player — reuses the player Gauss orb's plasma flipbook (modulated
+## orange instead of blue), flies straight, explodes on player contact OR after MAX_DIST. (Player's gauss
+## lives in arena_weapons; this is the enemy-facing counterpart.)
+class _GaussOrb extends Node2D:
+	const SPEED    := 360.0
+	const MAX_DIST := 800.0
+	const HIT_R    := 24.0
+	const DMG      := 10
+	const DRAW     := 40.0
+	const FPS      := 24.0
+	const COL      := Color(1.0, 0.55, 0.15)   # orange (player's is blue)
+	const ORB_DIR  := "res://assets/beam references/Gauss_orb_files_2/"
+	static var _frames: Array = []
+	var _dir: Vector2 = Vector2.DOWN
+	var _start: Vector2 = Vector2.ZERO
+	var _fb: float = 0.0
+	var _idx: int = 0
+	var _spr: Sprite2D = null
+
+	static func _ensure_frames() -> void:
+		if not _frames.is_empty():
+			return
+		for i in 24:
+			var img := Image.new()
+			if img.load("%sgauss24_%02d.png" % [ORB_DIR, i]) == OK:
+				_frames.append(ImageTexture.create_from_image(img))
+
+	func setup(world_pos: Vector2, dir: Vector2) -> void:
+		_ensure_frames()
+		global_position = world_pos
+		_start = world_pos
+		_dir = dir
+		z_index = 3
+		_spr = Sprite2D.new()
+		_spr.modulate = COL
+		if not _frames.is_empty():
+			_spr.texture = _frames[0] as Texture2D
+			var w := float((_frames[0] as Texture2D).get_width())
+			if w > 0.0:
+				_spr.scale = Vector2(DRAW / w, DRAW / w)
+		add_child(_spr)
+
+	func _process(delta: float) -> void:
+		global_position += _dir * SPEED * delta
+		if not _frames.is_empty():
+			_fb += delta
+			var spf := 1.0 / FPS
+			while _fb >= spf:
+				_fb -= spf
+				_idx = (_idx + 1) % _frames.size()
+			if _spr != null:
+				_spr.texture = _frames[_idx] as Texture2D
+		var pl := get_tree().get_first_node_in_group("player")
+		var hit := pl != null and global_position.distance_to((pl as Node2D).global_position) <= HIT_R
+		if hit or global_position.distance_to(_start) >= MAX_DIST:
+			if hit and GameManager.has_method("ship_take_damage"):
+				GameManager.ship_take_damage(DMG)
+			var burst := _GaussBurst.new()
+			get_parent().add_child(burst)
+			burst.setup(global_position)
+			queue_free()
+
+## Brief self-animating gauss explosion (reuses the Gauss explosion v1 flipbook, orange-tinted).
+class _GaussBurst extends Node2D:
+	const DUR  := 0.5
+	const DRAW := 90.0
+	const COL  := Color(1.0, 0.55, 0.15)
+	const DIR  := "res://assets/fx/gauss_explosion/v1/"
+	static var _frames: Array = []
+	var _t: float = 0.0
+	var _spr: Sprite2D = null
+
+	static func _ensure_frames() -> void:
+		if not _frames.is_empty():
+			return
+		for i in 12:
+			var img := Image.new()
+			if img.load("%s%02d.png" % [DIR, i]) == OK:
+				_frames.append(ImageTexture.create_from_image(img))
+
+	func setup(world_pos: Vector2) -> void:
+		_ensure_frames()
+		global_position = world_pos
+		z_index = 4
+		_spr = Sprite2D.new()
+		_spr.modulate = COL
+		if not _frames.is_empty():
+			_spr.texture = _frames[0] as Texture2D
+			var w := float((_frames[0] as Texture2D).get_width())
+			if w > 0.0:
+				_spr.scale = Vector2(DRAW / w, DRAW / w)
+		add_child(_spr)
+
+	func _process(delta: float) -> void:
+		_t += delta
+		if _t >= DUR or _frames.is_empty():
+			queue_free()
+			return
+		var idx := clampi(int(_t / DUR * float(_frames.size())), 0, _frames.size() - 1)
+		if _spr != null:
+			_spr.texture = _frames[idx] as Texture2D
 
 func _spawn_explosion(size_px: float) -> void:
 	# Baked flipbook blast (scripts/gameplay/arena_death_fx.gd) — a pre-rendered sprite sheet of the composite
@@ -968,6 +1451,11 @@ func _physics_process(delta: float) -> void:
 			return
 	_aggro_target = _resolve_aggro()   # player / a charmed enemy / (if charmed) a foe — picked by closeness
 	_t += delta
+	# alien5: transform into another enemy (e.g. alien4) after a fixed lifetime — silent swap, no death/XP.
+	if _morph_to != "" and _t >= _morph_after:
+		_spawn_sibling(_morph_to, global_position)
+		queue_free()
+		return
 	_spawn_t = minf(_spawn_t + delta, SPAWN_POP_TIME)
 	_stagger_t = maxf(0.0, _stagger_t - delta)
 	_tick_status(delta)
@@ -980,24 +1468,28 @@ func _physics_process(delta: float) -> void:
 	if not _init_done:
 		_init_behavior()
 		_init_done = true
-	if _stagger_t <= 0.0 and _stun_t <= 0.0:   # staggered/stunned → movement & attacks frozen (visuals still play)
+	if _stagger_t <= 0.0 and not _docked and _stun_t <= 0.0:   # staggered/docked/stunned → movement & attacks frozen (visuals still play)
 		_tick_behavior(delta)
+		if _gauss_shooter:   # pros5 ranged attack, independent of the chase movement
+			_gauss_t += delta
+			if _gauss_t >= GAUSS_SHOOT_INTERVAL:
+				_gauss_t = 0.0
+				_fire_gauss_orb()
 	# Position after intended (pursuit) movement but BEFORE knockback — facing reads from this, so a knockback
 	# push only DISPLACES the enemy, it never turns/reorients it.
 	var pos_pre_knockback := global_position
-	# Knockback recoil (decays).
-	if _knockback.length() > 1.0:
+	# Knockback recoil (decays). Docked escorts ignore it — the carrier re-pins them each frame.
+	if not _docked and _knockback.length() > 1.0:
 		global_position += _knockback * delta
 		_knockback = _knockback.lerp(Vector2.ZERO, clampf(KNOCKBACK_DECAY * delta, 0.0, 1.0))
-	# Squash/stretch eased from actual speed; hit-squash pulse decays.
-	var moved := global_position - _prev_pos
-	var spd := moved.length() / maxf(delta, 0.0001)
-	var target_squash := SQUASH_MAG * clampf(spd / SQUASH_REF_SPEED, 0.0, 1.0)
-	_squash = lerpf(_squash, target_squash, clampf(SQUASH_EASE * delta, 0.0, 1.0))
+	# Movement squash/stretch disabled — enemies no longer stretch/expand while moving. Only the hit-squash
+	# pulse remains (it decays back to 0 here).
+	_squash = 0.0
 	_hit_squash = lerpf(_hit_squash, 0.0, clampf(HIT_SQUASH_DECAY * delta, 0.0, 1.0))
 	# Face the intended movement direction only — knockback must NOT rotate the enemy (centipede keeps spin).
 	var intended := pos_pre_knockback - _prev_pos
-	if behavior != "centipede" and behavior != "squid" and intended.length() > 0.5:
+	# Carrier (mothership) drives its own _facing; docked escorts get it from the carrier each frame.
+	if behavior != "centipede" and behavior != "squid" and behavior != "mothership" and not _docked and intended.length() > 0.5:
 		_facing = lerp_angle(_facing, intended.angle() + PI * 0.5, clampf(TURN_RATE * delta, 0.0, 1.0))
 	_prev_pos = global_position
 	if not _frames.is_empty():
@@ -1009,8 +1501,13 @@ func _physics_process(delta: float) -> void:
 			_tex = _frames[_anim_frame] as Texture2D
 	if _flash > 0.0:
 		_flash = maxf(0.0, _flash - delta)
+	# Attach the flash material only while flashing; otherwise leave material null (default = full brightness).
+	var _want_mat: ShaderMaterial = _flash_mat if _flash > 0.0 else null
+	if material != _want_mat:
+		material = _want_mat
 	_check_contact()
-	# Sync plume emitters to the visual rotation (draw_set_transform rotates the sprite but not node children).
+	# Glue plume emitters to the sprite: same rotation AND scale as the drawn sprite (draw_set_transform
+	# rotates/scales the sprite but not child nodes, so we mirror it here).
 	_update_plumes()
 	if not _plumes.is_empty():
 		var vrot := _spin if behavior == "centipede" else _facing
@@ -1023,10 +1520,13 @@ func _physics_process(delta: float) -> void:
 				if is_instance_valid(p):
 					p.position  = (p.get_meta("base_pos") as Vector2).rotated(vrot)
 					p.direction = (p.get_meta("base_dir") as Vector2).rotated(vrot)
+	_update_vortex_xform()   # glue vortexes to the sprite (position + scale + rotation)
 	if _has_eye:
 		_update_eye(delta)
 	if not _tent_template.is_empty():
 		_update_tentacle(delta)
+	if behavior == "centipede":
+		_update_centipede_chain()   # body trails the head's final (post-knockback) position
 	queue_redraw()   # bob/squash/facing animate continuously
 
 ## Slide the tracking eye toward the player within its socket. _eye_off is in local (pre-rotation) px,
@@ -1224,6 +1724,13 @@ func _init_behavior() -> void:
 			_scatter_target = _player_pos() + _rand_offset(_view().length() * 0.35)
 		"jump_diag":
 			_jump_interval = randf_range(0.5, 1.5)
+		"centipede":
+			_centi_dir = _aim.angle()   # head starts pointed at the player
+		"teleport":
+			_tele_anchor = global_position
+			_timer = 0.0
+		"patrol":
+			_timer = 0.0   # _aim (set above) is the captured straight-line heading; never re-aimed
 
 func _tick_behavior(delta: float) -> void:
 	var pp := _player_pos()
@@ -1232,8 +1739,34 @@ func _tick_behavior(delta: float) -> void:
 	var dir := to.normalized() if dist > 0.01 else Vector2.UP
 	match behavior:
 		"chase", "boss_stub":
-			velocity = dir * speed
+			# Pirate flee: once below the HP threshold, turn tail and run from the player at _flee_speed.
+			if _flee_speed > 0.0 and hp <= hp_max * _flee_below:
+				velocity = -dir * _flee_speed
+			else:
+				velocity = dir * speed
 			move_and_slide()
+		"mothership":   # carrier: slow advance → on damage, turn tail, flee, release & rebuild the escort
+			_tick_mothership(delta)
+		"patrol":   # straight flyby across the screen along the captured heading; no tracking
+			velocity = _aim * speed
+			move_and_slide()
+			if dist > PATROL_CULL:
+				queue_free()   # flew off-screen
+		"teleport":   # blink TELE_DIST toward the player every TELE_INTERVAL; float adrift between blinks
+			_timer += delta
+			if _timer >= TELE_INTERVAL:
+				_timer = 0.0
+				var from := global_position
+				global_position += dir * minf(TELE_DIST, dist)
+				_tele_anchor = global_position
+				_spawn_t = 0.0   # replay the spawn pop at the landing spot
+				_spawn_warp(from, false)             # space CONTRACTS where it left
+				_spawn_warp(global_position, true)   # space EXPANDS where it arrives
+			else:
+				# Idle float: a slow elliptical drift around the landing anchor (per-enemy phase desyncs the crowd).
+				global_position = _tele_anchor + Vector2(
+					sin(_t * TELE_FLOAT_FREQ + _bob_phase),
+					cos(_t * TELE_FLOAT_FREQ * 1.3 + _bob_phase)) * TELE_FLOAT_RADIUS
 		"swarm":   # blob unit: ZOOM straight through the player @400 (then despawn), or CHASE slowly @speed
 			if _swarm_mode == "zoom":
 				velocity = _aim * SWARM_ZOOM_SPEED
@@ -1244,8 +1777,11 @@ func _tick_behavior(delta: float) -> void:
 				velocity = dir * speed
 				move_and_slide()
 		"centipede":
-			_spin += TAU / 3.0 * delta
-			velocity = dir * speed
+			# Head chases the player with a capped turn rate (Viper SNAKE_TURN); the body trails it
+			# (see _update_centipede_chain). `speed` is set to 75% of the Viper in ENEMY_DEFS.
+			var desired := (pp - global_position).angle()
+			_centi_dir = _approach_angle(_centi_dir, desired, CENTI_TURN * delta)
+			velocity = Vector2(cos(_centi_dir), sin(_centi_dir)) * speed
 			move_and_slide()
 			queue_redraw()
 		"dash":   # dive along the captured aim; once it flies off-view, re-aim and dive back
@@ -1285,6 +1821,19 @@ func _tick_behavior(delta: float) -> void:
 			_jump_tick(delta, dir, false)
 		"jump_diag":   # spider — leap along the nearest 45° diagonal
 			_jump_tick(delta, dir, true)
+		"squid":
+			# Leap toward the player (octopus jump rhythm) led by the tentacles; latch on at reach, then cling.
+			_face_squid(pp, delta)   # orient so the tentacle side leads (general facing block skips "squid")
+			if _squid_attached:
+				var tgt := pp + _squid_attach_off
+				global_position = global_position.lerp(tgt, clampf(8.0 * delta, 0.0, 1.0))   # ride with the ship
+				velocity = Vector2.ZERO
+				if dist > (_radius + SQUID_ATTACH_RANGE) * 3.0:
+					_squid_detach()   # player got away (e.g. dashed off) — resume the chase
+			else:
+				_jump_tick(delta, dir, false)   # octopus-style: wait, then leap at the player, repeat
+				if global_position.distance_to(pp) <= _radius + SQUID_ATTACH_RANGE:
+					_squid_attach(pp)
 		"scatter":   # fly — wander to random points around the player
 			if global_position.distance_to(_scatter_target) < 24.0 or _t - _timer > 1.0:
 				_scatter_target = pp + _rand_offset(_view().length() * 0.35)
@@ -1365,6 +1914,160 @@ func _tick_behavior(delta: float) -> void:
 				_die()
 		"dummy":
 			pass
+
+# ── Mothership carrier ────────────────────────────────────────────────────────
+## State machine: READY (advance) → on 50 dmg → TURN (50 rpm about-face) → FLEE (flee@120, release the 5
+## docked escorts 1 per 0.5s) → WAIT (5s) → RESPAWN (rebuild 5 escorts, 1 per 2.5s) → READY. Escorts are
+## pinned to the carrier (rotating with it) until released; released ones detach into free-flying chasers.
+func _tick_mothership(delta: float) -> void:
+	var pp := _player_pos()
+	var to := pp - global_position
+	var dist := to.length()
+	var dir := to.normalized() if dist > 0.01 else Vector2.UP
+	match _ms_state:
+		MS_READY:
+			_ms_aim_facing(dir, 4.0 * delta)   # face the player while advancing (so the about-face reads later)
+			velocity = dir * MS_APPROACH_SPEED
+			move_and_slide()
+			# Timer-driven cycle: MS_READY_HOLD seconds after spawning / finishing a respawn, fire the next
+			# flee/release/respawn — regardless of whether the carrier has taken any damage.
+			if MS_CYCLE_ENABLED:
+				_ms_timer += delta
+				if _ms_timer >= MS_READY_HOLD:
+					_ms_timer = 0.0
+					_ms_state = MS_TURN
+		MS_TURN:
+			velocity = Vector2.ZERO
+			if _ms_aim_facing(-dir, MS_TURN_RAD * delta):   # finished turning away from the player
+				_ms_state = MS_FLEE
+				_ms_timer = 0.0
+				_ms_release_idx = 0
+		MS_FLEE:   # flee ONLY while launching escorts — then hold so the rebuild stays on-screen
+			_ms_aim_facing(-dir, MS_TURN_RAD * delta)
+			velocity = -dir * MS_FLEE_SPEED
+			move_and_slide()
+			_ms_timer += delta
+			while _ms_release_idx < _ms_dock.size() and _ms_timer >= MS_RELEASE_INTERVAL * float(_ms_release_idx + 1):
+				_ms_release_child(_ms_release_idx)
+				_ms_release_idx += 1
+			if _ms_release_idx >= _ms_dock.size():
+				_ms_state = MS_WAIT
+				_ms_timer = 0.0
+		MS_WAIT:   # hover at standoff (on-screen, mobile); rebuild begins MS_WAIT_AFTER_RELEASE s after launch
+			_ms_aim_facing(dir, 4.0 * delta)
+			_standoff(dist, dir, MS_REGROUP_DIST)
+			_ms_timer += delta
+			if _ms_timer >= MS_WAIT_AFTER_RELEASE:
+				_ms_dock.clear()   # released escorts are free agents now — stop tracking them
+				_ms_respawn_bays = _ms_build_respawn_bays()
+				_ms_state = MS_RESPAWN
+				_ms_timer = 0.0
+				_ms_respawn_idx = 0
+		MS_RESPAWN:   # hover at standoff; rebuild the escort one ship at a time (visible, not a sitting duck)
+			_ms_aim_facing(dir, 4.0 * delta)
+			_standoff(dist, dir, MS_REGROUP_DIST)
+			_ms_timer += delta
+			while _ms_respawn_idx < _ms_respawn_bays.size() and _ms_timer >= MS_RESPAWN_INTERVAL * float(_ms_respawn_idx + 1):
+				_ms_respawn_one(_ms_respawn_idx)
+				_ms_respawn_idx += 1
+			if _ms_respawn_idx >= _ms_respawn_bays.size():
+				_ms_state = MS_READY
+				_ms_timer = 0.0     # start the MS_READY_HOLD countdown to the next release cycle
+	_ms_update_dock_positions()
+
+## Ease _facing toward the heading for `target_dir` (sprite north = travel dir), capped at max_step rad.
+## Returns true once aligned within ~3.4°.
+func _ms_aim_facing(target_dir: Vector2, max_step: float) -> bool:
+	var tgt := target_dir.angle() + PI * 0.5
+	_facing = _approach_angle(_facing, tgt, max_step)
+	return absf(wrapf(tgt - _facing, -PI, PI)) <= 0.06
+
+## Toggle docked state: docked escorts don't move, emit no plume, ignore collisions (vortex VFX stays on).
+func set_docked(on: bool) -> void:
+	_docked = on
+	for p: CPUParticles2D in _plumes:
+		if is_instance_valid(p):
+			p.emitting = not on
+			p.visible = not on
+	if on:
+		collision_layer = 0
+		collision_mask = 0
+	elif not _no_collide:
+		collision_layer = ENEMY_LAYER
+		collision_mask = ENEMY_LAYER
+
+## Spawn one escort rigidly docked in this carrier; returns its dock-tracking entry.
+func _spawn_docked_child(id: String, base_off: Vector2, draw_w: float, rot_deg: float) -> Dictionary:
+	var wd := get_tree().get_first_node_in_group("wave_director")
+	if wd == null:
+		return {}
+	var def: Dictionary = (wd.ENEMY_DEFS as Dictionary).get(id, {}).duplicate()
+	if def.is_empty():
+		return {}
+	if draw_w > 0.0:
+		def["draw_w"] = draw_w
+	var c: Node = get_script().new()
+	c.call("configure", id, _mgr, def)
+	c.set("global_position", global_position + base_off.rotated(_facing))
+	get_parent().add_child(c)
+	c.set("_facing", _facing + deg_to_rad(rot_deg))
+	c.call("set_docked", true)
+	return {"node": c, "base_off": base_off, "rot": deg_to_rad(rot_deg)}
+
+## Called by the carrier deploy: store the escort roster + dock the initial squadron.
+func init_mothership(roster: Array) -> void:
+	_ms_roster = roster
+	_ms_state = MS_READY
+	_ms_timer = 0.0
+	_ms_dock.clear()
+	for spec: Dictionary in roster:
+		var e := _spawn_docked_child(String(spec["id"]), spec["base_off"] as Vector2, float(spec.get("draw_w", 0.0)), float(spec.get("rot", 0.0)))
+		if not e.is_empty():
+			_ms_dock.append(e)
+	print("[MOTHERSHIP] init: roster=", roster.size(), " docked=", _ms_dock.size(), " cycle_enabled=", MS_CYCLE_ENABLED, " mother_draw_w=", _force_draw_w)
+
+## Release docked escort i — it detaches into a free-flying chaser.
+func _ms_release_child(i: int) -> void:
+	if i < 0 or i >= _ms_dock.size():
+		return
+	var n = (_ms_dock[i] as Dictionary).get("node")
+	if n != null and is_instance_valid(n):
+		n.call("set_docked", false)
+
+## Order the roster into the authored respawn sequence (the two pros8 map to the two pros8 bays).
+func _ms_build_respawn_bays() -> Array:
+	var pool: Array = _ms_roster.duplicate()
+	var out: Array = []
+	for id: String in MS_RESPAWN_ORDER:
+		for j in pool.size():
+			if String((pool[j] as Dictionary)["id"]) == id:
+				out.append(pool[j])
+				pool.remove_at(j)
+				break
+	return out
+
+func _ms_respawn_one(i: int) -> void:
+	if i < 0 or i >= _ms_respawn_bays.size():
+		return
+	var spec: Dictionary = _ms_respawn_bays[i]
+	var e := _spawn_docked_child(String(spec["id"]), spec["base_off"] as Vector2, float(spec.get("draw_w", 0.0)), float(spec.get("rot", 0.0)))
+	if not e.is_empty():
+		_ms_dock.append(e)
+
+## Pin docked escorts to their carrier-relative slot each frame (the formation rotates with the carrier).
+func _ms_update_dock_positions() -> void:
+	var i := _ms_dock.size() - 1
+	while i >= 0:
+		var e: Dictionary = _ms_dock[i]
+		var n = e.get("node")
+		if n == null or not is_instance_valid(n):
+			_ms_dock.remove_at(i)
+			i -= 1
+			continue
+		if bool(n.get("_docked")):
+			n.set("global_position", global_position + (e["base_off"] as Vector2).rotated(_facing))
+			n.set("_facing", _facing + float(e["rot"]))
+		i -= 1
 
 ## Octopus/spider shared leap engine.
 func _jump_tick(delta: float, dir: Vector2, diagonal: bool) -> void:
@@ -1465,12 +2168,16 @@ func _check_contact() -> void:
 	var t := _aggro_target
 	if t == null or not is_instance_valid(t):
 		return
-	var is_player: bool = t.is_in_group("player")
-	var tr: float = 16.0 if is_player else (float(t.get("_radius")) if t.get("_radius") != null else 16.0)
-	if global_position.distance_to((t as Node2D).global_position) > tr + _radius:
+	# Centipede: any body segment touching the player bites (GameManager i-frames prevent multi-hits).
+	if behavior == "centipede" and not _centi_pts.is_empty():
+		var seg_r := 16.0 + _centi_width * 0.5
+		var pp := _player_pos()
+		for seg: Vector2 in _centi_pts:
+			if seg.distance_to(pp) <= seg_r:
+				GameManager.ship_take_damage(contact_damage)
+				return
 		return
-	if is_player:
-		var ship_cd: float = GameManager.ship_contact_damage() if GameManager.has_method("ship_contact_damage") else 0.0
+	if global_position.distance_to(_player_pos()) <= 16.0 + _radius:
 		if contact_damage > 0:
 			GameManager.ship_take_damage(int(round(contact_damage * damage_out_mult())))
 		if ship_cd > 0.0 and _ship_contact_cd <= 0.0:
@@ -1489,11 +2196,96 @@ func _on_contact_death() -> void:
 		_mgr.explode(global_position, 100.0, 20, self)
 	_die()
 
-# ── Draw: composes idle bob + squash/stretch + facing + spawn/death pop + flash, around the sprite/shape;
-# the HP bar and beam are drawn AFTER resetting the transform so they stay level & unscaled. ────────────
-func _draw() -> void:
-	# Uniform scale: per-enemy base variance × idle bob × spawn/death pop.
+# ── Centipede chain (Viper-ported) ───────────────────────────────────────────────
+## Load the 3 HD segment sprites + derive pixel sizes from the enemy radius.
+func _load_centipede() -> void:
+	_centi_head_tex = load("res://assets/enemiesHD/centipedehead.png") as Texture2D
+	_centi_body_tex = load("res://assets/enemiesHD/centipedebody.png") as Texture2D
+	_centi_tail_tex = load("res://assets/enemiesHD/centipedetail.png") as Texture2D
+	_centi_width = _radius * CENTI_WIDTH_MUL
+	# along-spine length of each sprite at the shared across width (preserves the source aspect)
+	_centi_spacing  = _seg_along_len(_centi_body_tex)
+	_centi_head_len = _seg_along_len(_centi_head_tex)
+
+## Along-spine (height) length of a segment sprite drawn at the shared across width _centi_width.
+func _seg_along_len(tex: Texture2D) -> float:
+	if tex == null:
+		return _centi_width
+	var tw := float(tex.get_width())
+	var th := float(tex.get_height())
+	return _centi_width * th / maxf(tw, 1.0)
+
+## Max turn toward a target angle, capped per call (ported from arena_weapons._approach_angle).
+func _approach_angle(cur: float, target: float, max_step: float) -> float:
+	var diff := wrapf(target - cur, -PI, PI)
+	return cur + clampf(diff, -max_step, max_step)
+
+## Trail the body behind the head: head = node position; each segment is pulled to a fixed spacing
+## behind the one ahead (identical to the Viper's _run_snake follow loop).
+func _update_centipede_chain() -> void:
+	var sp := _centi_spacing
+	if not _centi_init or _centi_pts.size() != CENTI_SEGMENTS:
+		_centi_pts.clear()
+		var back := Vector2(cos(_centi_dir), sin(_centi_dir))
+		for k in CENTI_SEGMENTS:
+			_centi_pts.append(global_position - back * (sp * float(k)))
+		_centi_init = true
+		return
+	_centi_pts[0] = global_position
+	for k in range(1, _centi_pts.size()):
+		var prev: Vector2 = _centi_pts[k - 1]
+		var cur: Vector2 = _centi_pts[k]
+		var d := prev - cur
+		if d.length() > sp:
+			cur = prev - d.normalized() * sp
+		_centi_pts[k] = cur
+
+## Draw the chain tail → head (head paints on top), each segment oriented along the body curve.
+## Mirrors arena_weapons._draw_snake but in node-local space (pos − global_position) with a flash tint.
+func _draw_centipede(alpha: float, flash_s: float) -> void:
+	var n := _centi_pts.size()
+	if n < 2:
+		return
+	var col := Color(1.0, 1.0, 1.0, alpha)
+	if flash_s > 0.0:
+		col = col.lerp(Color(_flash_color.r, _flash_color.g, _flash_color.b, alpha), flash_s)
+	for k in range(n - 1, -1, -1):
+		var pos: Vector2 = _centi_pts[k]
+		var ang: float
+		if k == 0:
+			ang = _centi_dir
+		elif k == n - 1:
+			ang = ((_centi_pts[k - 1] as Vector2) - pos).angle()
+		else:
+			ang = ((_centi_pts[k - 1] as Vector2) - (_centi_pts[k + 1] as Vector2)).angle()
+		if k == 0:
+			# Head: shift forward so its neck meets the first body segment, then pull back CENTI_HEAD_OVERLAP
+			# px so the head overlaps the body a little (smaller neck gap).
+			var shift := (_centi_head_len - _centi_spacing) * 0.5 - CENTI_HEAD_OVERLAP
+			_draw_centi_seg(pos + Vector2(cos(ang), sin(ang)) * shift, ang, _centi_head_tex, col)
+		elif k == n - 1:
+			_draw_centi_seg(pos, ang, _centi_tail_tex, col)
+		else:
+			_draw_centi_seg(pos, ang, _centi_body_tex, col)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+## One segment (head/body/tail), all drawn upright at the shared across width: local +Y (image bottom)
+## points backward, local −Y (image top = face/connection) points along travel → rotation = ang + PI/2.
+func _draw_centi_seg(pos: Vector2, ang: float, tex: Texture2D, col: Color) -> void:
+	if tex == null:
+		return
+	var dw := _centi_width
+	var dh := _seg_along_len(tex)
+	draw_set_transform(pos - global_position, ang + PI * 0.5, Vector2.ONE)
+	draw_texture_rect(tex, Rect2(Vector2(-dw * 0.5, -dh * 0.5), Vector2(dw, dh)), false, col)
+
+## The live sprite transform: per-enemy base variance × idle bob × spawn/death pop (uniform), plus
+## squash/stretch. Returned so BOTH the sprite (_draw) and the plumes (_update_plume_xform) use the exact
+## same scale → plumes stay glued to the sprite no matter how the enemy is sized.
+func _visual_xform() -> Dictionary:
 	var bob := 1.0 + sin(_t * _bob_freq + _bob_phase) * BOB_AMOUNT
+	if behavior == "mothership":
+		bob = 1.0   # the carrier doesn't breathe — no expand/contract pulse
 	var alpha := 1.0
 	var pop := 1.0
 	if _dying:
@@ -1509,6 +2301,16 @@ func _draw() -> void:
 	# Squash/stretch along the head axis (local Y); thin across (local X). Frozen during death.
 	var sq := 0.0 if _dying else (_squash + _hit_squash)
 	var scale_vec := Vector2(uniform * (1.0 - sq * 0.5), uniform * (1.0 + sq))
+	return {"scale": scale_vec, "uniform": uniform, "alpha": alpha * _sprite_alpha}
+
+# ── Draw: composes idle bob + squash/stretch + facing + spawn/death pop + flash, around the sprite/shape;
+# the HP bar and beam are drawn AFTER resetting the transform so they stay level & unscaled. ────────────
+func _draw() -> void:
+	# Shared sprite transform (scale + alpha). _physics_process applies the same scale to the plumes so
+	# they stay glued to the sprite at any size — see _update_plume_xform().
+	var vx := _visual_xform()
+	var scale_vec: Vector2 = vx["scale"]
+	var alpha: float = vx["alpha"]
 	var rot := _spin if behavior == "centipede" else _facing
 
 	# Drive the flash shader (whitens/reddens the actual sprite pixels — modulate alone can't).
@@ -1520,20 +2322,23 @@ func _draw() -> void:
 	# Tentacles first (world-space chains) so they sit behind the body sprite; root paints last → just under body.
 	if not _tent_template.is_empty():
 		_draw_tentacle(alpha)
-	draw_set_transform(Vector2.ZERO, rot, scale_vec)
-	if _tex != null:
-		draw_texture_rect(_tex, Rect2(-_draw_size * 0.5, _draw_size), false, Color(1, 1, 1, alpha))
-		# Tracking eye: drawn in the same rotated/scaled frame so it sits in the socket and slides toward the player.
-		if _has_eye and _eye_tex != null:
-			var socket := (_eye_socket - Vector2(0.5, 0.5)) * _draw_size
-			var eye_sz := _eye_size_frac * _draw_size
-			var eye_center := socket + _eye_off
-			draw_texture_rect(_eye_tex, Rect2(eye_center - eye_sz * 0.5, eye_sz), false, Color(1, 1, 1, alpha))
+	if behavior == "centipede":
+		_draw_centipede(alpha, flash_s)   # head/body/tail chain (resets the transform itself)
 	else:
-		var col := _color
-		col.a *= alpha
-		_draw_shape(_radius, col)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # back to level/unscaled for beam + HP bar
+		draw_set_transform(Vector2.ZERO, rot, scale_vec)
+		if _tex != null:
+			draw_texture_rect(_tex, Rect2(-_draw_size * 0.5, _draw_size), false, Color(1, 1, 1, alpha))
+			# Tracking eye: drawn in the same rotated/scaled frame so it sits in the socket and slides toward the player.
+			if _has_eye and _eye_tex != null:
+				var socket := (_eye_socket - Vector2(0.5, 0.5)) * _draw_size
+				var eye_sz := _eye_size_frac * _draw_size
+				var eye_center := socket + _eye_off
+				draw_texture_rect(_eye_tex, Rect2(eye_center - eye_sz * 0.5, eye_sz), false, Color(1, 1, 1, alpha))
+		else:
+			var col := _color
+			col.a *= alpha
+			_draw_shape(_radius, col)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # back to level/unscaled for beam + HP bar
 
 	if _beam_on:
 		var bstart := _beam_origin   # local offset from enemy center to muzzle
