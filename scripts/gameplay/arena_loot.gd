@@ -67,9 +67,9 @@ func _collect() -> void:
 			if GameManager.has_method("heal"):
 				GameManager.heal(25)
 		"magnetic":
-			for orb in get_tree().get_nodes_in_group("arena_xp_orb"):
-				if is_instance_valid(orb) and orb.has_method("force_magnetize"):
-					orb.force_magnetize()
+			var mgr := get_tree().get_first_node_in_group("arena_xp_orb_mgr")
+			if mgr != null:
+				mgr.magnetize_all()
 		"shield":
 			if GameManager.has_method("activate_shield"):
 				GameManager.activate_shield(10.0)

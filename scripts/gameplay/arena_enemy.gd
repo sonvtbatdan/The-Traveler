@@ -119,6 +119,8 @@ var _fp_fracs: Array = []   # Array[{frac:Vector2, dir_angle:float, id:int}]
 static var _tp_fracs_cache: Dictionary = {}
 var _plumes: Array[CPUParticles2D] = []
 var _vortexes: Array = []   # EnergyVortex children (creep_layout.cfg [vortexpoints] + plume_styles.cfg [vortex_styles])
+var _plume_vrot_applied: float = 0.0   # last rotation pushed to plume emitters; skip the re-rotate when unchanged
+var _plume_vrot_init: bool = false
 var _plume_base: Array = []        # [{vel_min, vel_max, sc_min, sc_max, life}] per plume
 var _plume_base_cols: Array = []   # [PackedColorArray] per plume
 var _plume_red_cols: Array = []    # pre-built red gradient (dragonfly proximity)
@@ -135,6 +137,7 @@ var hit_radius: float:
 	get: return _radius
 var contact_damage: int = 6
 var contact_explodes: bool = false
+var _ship_contact_cd: float = 0.0   # throttles the ship's own contact damage to this enemy (Orbital pool)
 var xp: int = 5
 var _color: Color = Color(0.95, 0.35, 0.30)
 var shape_kind: String = "diamond"
@@ -262,6 +265,29 @@ var _spawn_t: float = 0.0
 var _dying: bool = false
 var _death_t: float = 0.0
 var _stagger_t: float = 0.0   # while > 0, movement/attacks are frozen (per-weapon hit stagger)
+# ── Status effects (burn / freeze) — applied by weapons via apply_burn() / apply_freeze() ──
+const BURN_DURATION    := 5.0    # s a burn lasts (refreshed on each new stack)
+const BURN_TICK        := 1.0    # s between burn DoT ticks
+const BURN_PCT         := 0.001  # current-HP fraction lost per second PER stack (0.1%)
+const FREEZE_DURATION  := 3.0    # s a freeze lasts before stacks decay (refreshed on apply)
+const FREEZE_SLOW_PER  := 0.15   # movement slow per freeze stack
+const FREEZE_MAX       := 0.90   # max slow (normal enemies) → 6 stacks
+const FREEZE_MAX_BOSS  := 0.30   # max slow (bosses) → 2 stacks
+const STUN_DMG_MULT    := 1.5    # +50% damage taken while stunned
+const STUN_IMMUNE      := 0.5    # immunity after a stun (normal enemies)
+const STUN_IMMUNE_BOSS := 3.0    # immunity after a stun (bosses)
+var _burn_stacks: int = 0
+var _burn_t: float = 0.0
+var _burn_acc: float = 0.0
+var _freeze_stacks: int = 0
+var _freeze_t: float = 0.0
+var _move_slow: float = 0.0    # current freeze slow (0..cap); scales `speed` each frame
+var _base_speed: float = -1.0  # captured configured speed (so freeze slow is non-destructive)
+var _stun_t: float = 0.0       # remaining stun time (movement/attacks frozen, +50% damage taken)
+var _stun_immune_t: float = 0.0  # immunity window after a stun (can't be re-stunned)
+var _stun_immune_mult: float = 1.0   # Dazzling Display capstone shortens immunity (set via set_stun_immune_mult)
+var _weaken_t: float = 0.0    # Pacifying Jolt: while > 0, this enemy's damage output is halved
+var _vuln_t: float = 0.0      # Orb of Annihilation: while > 0, this enemy takes +20% damage from all sources
 var _swarm_mode: String = "chase"   # swarm blob unit: "zoom" (fly through @400) or "chase" (slow @speed)
 var _flash_color: Color = HIT_FLASH_COLOR
 
@@ -662,6 +688,7 @@ func _make_plume(frac: Vector2, dir_angle: float, style: Dictionary = {}) -> CPU
 	# _update_plume_xform() can re-derive position & scale each frame from the live sprite transform.
 	p.set_meta("frac_centered", frac - Vector2(0.5, 0.5))
 	p.set_meta("base_dir", p.direction)
+	p.set_meta("base_pos", p.position)   # un-rotated anchor (px) for the optimized plume re-rotate (R6)
 	var img := Image.create(16, 16, false, Image.FORMAT_RGBA8)
 	var ctr := Vector2(16, 16) * 0.5
 	for iy in 16:
@@ -771,6 +798,109 @@ func _update_vortex_xform() -> void:
 func is_anti_magnetic() -> bool:
 	return _anti_magnetic
 
+# ── Status effects ─────────────────────────────────────────────────────────────
+## Status-duration multiplier from the Lasgun's Capacitor perk (global mech "duration_pct").
+func _dur_mult() -> float:
+	return 1.0 + (GameManager.mech_bonus("duration_pct") if GameManager.has_method("mech_bonus") else 0.0)
+
+func is_burning() -> bool:
+	return _burn_stacks > 0
+
+## Apply burn stack(s): % current-HP DoT per stack for BURN_DURATION (refreshed). No hard stack cap.
+func apply_burn(stacks: int = 1) -> void:
+	if _dead:
+		return
+	_burn_stacks += maxi(1, stacks)
+	var add: float = GameManager.mech_bonus("burn_dur_add") if GameManager.has_method("mech_bonus") else 0.0
+	_burn_t = BURN_DURATION * _dur_mult() + add   # Prolonged Flame / Dragon's Breath burn-duration bonus
+
+## Apply freeze stack(s): each slows FREEZE_SLOW_PER, capped (6 stacks normal / 2 boss), decays after FREEZE_DURATION.
+func apply_freeze(stacks: int = 1) -> void:
+	if _dead:
+		return
+	var cap_stacks := 2 if is_in_group("boss") else 6
+	_freeze_stacks = mini(_freeze_stacks + maxi(1, stacks), cap_stacks)
+	_freeze_t = FREEZE_DURATION * _dur_mult()
+
+## Stun for `duration` s — frozen movement/attacks + +50% damage taken. No-op if already stunned or immune.
+func apply_stun(duration: float) -> void:
+	if _dead or _stun_t > 0.0 or _stun_immune_t > 0.0:
+		return
+	_stun_t = duration * _dur_mult()
+
+func is_stunned() -> bool:
+	return _stun_t > 0.0
+
+## Dazzling Display capstone: scale this enemy's post-stun immunity (e.g. 0.5 = halved).
+func set_stun_immune_mult(m: float) -> void:
+	_stun_immune_mult = m
+
+## Pacifying Jolt: halve this enemy's damage output for `duration` s.
+func apply_weaken(duration: float) -> void:
+	if not _dead:
+		_weaken_t = maxf(_weaken_t, duration)
+
+## Multiplier on this enemy's outgoing damage (0.5 while weakened).
+func damage_out_mult() -> float:
+	return 0.5 if _weaken_t > 0.0 else 1.0
+
+## Orb of Annihilation: this enemy takes +20% damage from all sources for `duration` s (refreshed while in the orb).
+func apply_vulnerable(duration: float) -> void:
+	if not _dead:
+		_vuln_t = maxf(_vuln_t, duration)
+
+## Tick burn DoT + freeze decay; update the movement-slow + a status tint.
+func _tick_status(delta: float) -> void:
+	if _burn_stacks > 0:
+		_burn_t -= delta
+		if _burn_t <= 0.0:
+			_burn_stacks = 0
+			_burn_acc = 0.0
+		else:
+			_burn_acc += delta
+			# Armor Melter (Dragon's Breath evo): heavily-burned enemies (≥10 stacks) take more damage.
+			# (Enemies have no real armor stat — modeled as vulnerability; see note.)
+			if _burn_stacks >= 10 and GameManager.has_method("mech_bonus") and GameManager.mech_bonus("armor_melt") > 0.0:
+				apply_vulnerable(BURN_TICK + 0.2)
+			while _burn_acc >= BURN_TICK:
+				_burn_acc -= BURN_TICK
+				var bmul: float = 1.0 + (GameManager.mech_bonus("burn_dmg") if GameManager.has_method("mech_bonus") else 0.0)
+				var dmg := hp * BURN_PCT * float(_burn_stacks) * BURN_TICK * bmul
+				if dmg > 0.0:
+					take_damage(dmg, 0.0)
+					if _dead:
+						return
+	if _freeze_stacks > 0:
+		_freeze_t -= delta
+		if _freeze_t <= 0.0:
+			_freeze_stacks = 0
+	var cap := FREEZE_MAX_BOSS if is_in_group("boss") else FREEZE_MAX
+	_move_slow = minf(float(_freeze_stacks) * FREEZE_SLOW_PER, cap)
+	# Stun timer → on expiry, grant the post-stun immunity window.
+	if _weaken_t > 0.0:
+		_weaken_t = maxf(0.0, _weaken_t - delta)
+	if _vuln_t > 0.0:
+		_vuln_t = maxf(0.0, _vuln_t - delta)
+	if _stun_t > 0.0:
+		_stun_t -= delta
+		if _stun_t <= 0.0:
+			_stun_t = 0.0
+			var imm := STUN_IMMUNE_BOSS if is_in_group("boss") else STUN_IMMUNE
+			# Dazzling Display: a global immunity reduction (0..0.95) on top of any per-enemy mult.
+			var reduce: float = GameManager.mech_bonus("stun_immune_reduce") if GameManager.has_method("mech_bonus") else 0.0
+			_stun_immune_t = imm * _stun_immune_mult * (1.0 - clampf(reduce, 0.0, 0.95))
+	elif _stun_immune_t > 0.0:
+		_stun_immune_t = maxf(0.0, _stun_immune_t - delta)
+	# Status tint: stun (electric) > freeze (icy) > burn (fiery).
+	if _stun_t > 0.0:
+		modulate = Color(1.7, 1.7, 0.6)
+	elif _freeze_stacks > 0:
+		modulate = Color(0.6, 0.8, 1.25)
+	elif _burn_stacks > 0:
+		modulate = Color(1.3, 0.7, 0.45)
+	else:
+		modulate = Color.WHITE
+
 func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, kind: String = "") -> void:
 	if _dead:
 		return
@@ -782,15 +912,22 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, kind: 
 		_flash_color = HIT_FLASH_COLOR
 		queue_redraw()
 		return
-	# Armor damage reduction: DR = (0.052·armor) / (1 + 0.052·armor).
-	var dr := (0.052 * armor) / (1.0 + 0.052 * armor)
+	# Armor damage reduction — RNG's GameManager curve (fallback to the inline formula if unavailable).
+	var dr := 0.0
+	if GameManager.has_method("armor_damage_reduction"):
+		dr = GameManager.armor_damage_reduction(armor)
+	else:
+		dr = (0.052 * armor) / (1.0 + 0.052 * armor)
 	var dealt := amount * (1.0 - dr)
 	# Bismuth anti-magnetic: only laser / lightning / vacuum bite, and only for half.
 	if _anti_magnetic and (kind == "lasgun" or kind == "arc" or kind == "void"):
 		dealt *= 0.5
+	# Status multipliers: stunned enemies take +50%, Orb-of-Annihilation vulnerable +20%.
+	if _stun_t > 0.0:
+		dealt *= STUN_DMG_MULT
+	if _vuln_t > 0.0:
+		dealt *= 1.2
 	hp -= dealt
-	# Mothership: the flee/release/respawn cycle is timer-driven (see _tick_mothership MS_READY), NOT triggered
-	# by damage — so taking hits no longer starts a cycle.
 	# Fleet/Sentinel "Strike Back": once damaged, abandon the patrol flyby and hunt the player.
 	if _strike_back and behavior == "patrol":
 		behavior = "chase"
@@ -1161,10 +1298,16 @@ func _physics_process(delta: float) -> void:
 		return
 	_spawn_t = minf(_spawn_t + delta, SPAWN_POP_TIME)
 	_stagger_t = maxf(0.0, _stagger_t - delta)
+	_tick_status(delta)
+	if _dead:   # a burn tick may have killed it
+		return
+	if _base_speed < 0.0:
+		_base_speed = speed                      # capture the configured base once
+	speed = _base_speed * (1.0 - _move_slow)     # freeze slows all movement (behaviors read `speed`)
 	if not _init_done:
 		_init_behavior()
 		_init_done = true
-	if _stagger_t <= 0.0 and not _docked:   # staggered/docked → movement & attacks frozen (visuals still play)
+	if _stagger_t <= 0.0 and not _docked and _stun_t <= 0.0:   # staggered/docked/stunned → movement & attacks frozen (visuals still play)
 		_tick_behavior(delta)
 		if _gauss_shooter:   # pros5 ranged attack, independent of the chase movement
 			_gauss_t += delta
@@ -1205,8 +1348,18 @@ func _physics_process(delta: float) -> void:
 	# Glue plume emitters to the sprite: same rotation AND scale as the drawn sprite (draw_set_transform
 	# rotates/scales the sprite but not child nodes, so we mirror it here).
 	_update_plumes()
-	_update_plume_xform()
-	_update_vortex_xform()   # glue vortexes to the sprite (position + scale + rotation), same as plumes
+	if not _plumes.is_empty():
+		var vrot := _spin if behavior == "centipede" else _facing
+		# Only re-rotate the emitters when the rotation actually moved (skips the per-frame .rotated() churn
+		# for the hundreds of near-static swarm enemies that dominate the node count).
+		if not _plume_vrot_init or absf(angle_difference(vrot, _plume_vrot_applied)) > 0.01:
+			_plume_vrot_init = true
+			_plume_vrot_applied = vrot
+			for p: CPUParticles2D in _plumes:
+				if is_instance_valid(p):
+					p.position  = (p.get_meta("base_pos") as Vector2).rotated(vrot)
+					p.direction = (p.get_meta("base_dir") as Vector2).rotated(vrot)
+	_update_vortex_xform()   # glue vortexes to the sprite (position + scale + rotation)
 	if _has_eye:
 		_update_eye(delta)
 	if not _tent_template.is_empty():
@@ -1824,7 +1977,7 @@ func _beamer_tick(delta: float, dir: Vector2) -> void:
 				if proj > 0.0:
 					var closest := beam_world + _beam_dir * proj
 					if closest.distance_to(pp) <= 30.0 and fmod(_timer, 0.5) < delta:
-						GameManager.ship_take_damage(5)
+						GameManager.ship_take_damage(int(round(5.0 * damage_out_mult())))
 		3:
 			if _timer >= 1.5:
 				_phase = 0
@@ -1847,7 +2000,10 @@ func _exit_tree() -> void:
 
 # ── Contact ─────────────────────────────────────────────────────────────────────
 func _check_contact() -> void:
-	if contact_damage <= 0 and not contact_explodes:
+	if _ship_contact_cd > 0.0:
+		_ship_contact_cd -= get_physics_process_delta_time()
+	var ship_cd: float = GameManager.ship_contact_damage() if GameManager.has_method("ship_contact_damage") else 0.0
+	if contact_damage <= 0 and not contact_explodes and ship_cd <= 0.0:
 		return
 	# Centipede: any body segment touching the player bites (GameManager i-frames prevent multi-hits).
 	if behavior == "centipede" and not _centi_pts.is_empty():
@@ -1860,7 +2016,10 @@ func _check_contact() -> void:
 		return
 	if global_position.distance_to(_player_pos()) <= 16.0 + _radius:
 		if contact_damage > 0:
-			GameManager.ship_take_damage(contact_damage)
+			GameManager.ship_take_damage(int(round(contact_damage * damage_out_mult())))
+		if ship_cd > 0.0 and _ship_contact_cd <= 0.0:
+			take_damage(ship_cd, 0.0)        # ship hits back (Orbital pool: ship contact damage × Contact Mastery)
+			_ship_contact_cd = 0.5           # at most every 0.5s per enemy
 		if contact_explodes:
 			_on_contact_death()
 

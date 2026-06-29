@@ -139,7 +139,7 @@ const ITEM_DEFS: Dictionary = {
 		},
 	},
 	"red_x": {
-		"name": "Thermitic Discharger",
+		"name": "Dragon's Breath",
 		"icon": "res://assets/inventory/VE-TD-P.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],

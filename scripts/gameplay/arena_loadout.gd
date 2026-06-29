@@ -160,9 +160,9 @@ func _drone_repair(def: Dictionary, delta: float) -> void:
 func _drone_collect(def: Dictionary) -> void:
 	var rng := float(def.get("stats", {}).get("radius_px", 240.0))
 	var center := _player.global_position
-	for orb in get_tree().get_nodes_in_group("arena_xp_orb"):
-		if is_instance_valid(orb) and orb.has_method("force_magnetize") and center.distance_to((orb as Node2D).global_position) <= rng:
-			orb.force_magnetize()
+	var mgr := get_tree().get_first_node_in_group("arena_xp_orb_mgr")
+	if mgr != null:
+		mgr.magnetize_all_within(center, rng)
 
 # ── Per-slot firing ─────────────────────────────────────────────────────────────
 func _tick_slot(ctx: Dictionary, def: Dictionary, delta: float, enemy_visible: bool) -> void:

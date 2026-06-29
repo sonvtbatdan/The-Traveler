@@ -114,6 +114,29 @@ func set_points(pts: Array) -> void:
 	_apply_emission(_path_pts.size())
 	_particles.emitting = true
 
+## Directional JET (flamethrower): aim the emission along `forward_angle`, fan by ±`spread_half_deg`, launch
+## particles at `speed` px/s, and have them die after `life` s (so they vanish ~at speed×life range). Pair with
+## free_form + set_points([Vector2.ZERO]) (single emit point at the node = muzzle) for a continuous stream.
+func set_stream(forward_angle: float, spread_half_deg: float, speed: float, life: float) -> void:
+	rotation = forward_angle + PI * 0.5   # local -Y (the emit direction) now points along forward_angle
+	if _pm != null:
+		_pm.spread = spread_half_deg
+		_pm.initial_velocity_min = speed * 0.8
+		_pm.initial_velocity_max = speed
+	if _particles != null:
+		_particles.lifetime = maxf(0.05, life)
+
+## Swirl/aura mode: no aiming. Low outward velocity so puffs linger near their (free-form) spawn points — pair
+## with a rotating ring of points for a swirling fire aura. spread 180 = puffs bloom every direction.
+func set_swirl(speed: float, life: float) -> void:
+	rotation = 0.0
+	if _pm != null:
+		_pm.spread = 180.0
+		_pm.initial_velocity_min = speed * 0.4
+		_pm.initial_velocity_max = speed
+	if _particles != null:
+		_particles.lifetime = maxf(0.05, life)
+
 func _process(delta: float) -> void:
 	if free_form:
 		return   # emission is driven by set_points()

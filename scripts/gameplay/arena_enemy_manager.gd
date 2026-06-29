@@ -5,7 +5,6 @@ extends Node2D
 ## take_wanderer_y_offset. It owns the enemy-bullet pool + explosion FX and routes damage through GameManager.
 
 const ArenaEnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
-const XpOrbScript      := preload("res://scripts/gameplay/arena_xp_orb.gd")
 const LootScript       := preload("res://scripts/gameplay/arena_loot.gd")
 const SFX_HIT          := preload("res://assets/audio/sfx/hit.wav")
 
@@ -145,13 +144,23 @@ func nearest_bullet_offset(center: Vector2, radius: float) -> Vector2:
 func _tick_bullets(delta: float) -> void:
 	var sc := ship_center()
 	var sr := ship_radius()
+	# Impenetrable evo: orbiting balls destroy enemy projectiles they touch.
+	var aw := get_tree().get_first_node_in_group("arena_weapons")
+	var blocks: Array = aw.call("orbital_block_positions") if (aw != null and aw.has_method("orbital_block_positions")) else []
 	var i := _bullets.size() - 1
 	while i >= 0:
 		var b: Dictionary = _bullets[i]
 		b["pos"] = (b["pos"] as Vector2) + (b["vel"] as Vector2) * delta
 		b["life"] = float(b["life"]) + delta
 		var p: Vector2 = b["pos"]
-		if p.distance_to(sc) <= sr + BULLET_RADIUS:
+		var blocked := false
+		for blk: Dictionary in blocks:
+			if p.distance_to(blk["pos"]) <= float(blk["r"]) + BULLET_RADIUS:
+				blocked = true
+				break
+		if blocked:
+			_bullets.remove_at(i)
+		elif p.distance_to(sc) <= sr + BULLET_RADIUS:
 			GameManager.ship_take_damage(int(b["dmg"]))
 			_bullets.remove_at(i)
 		elif float(b["life"]) >= BULLET_MAX_LIFE or p.distance_to(b["start"]) >= BULLET_MAX_DIST:
@@ -186,11 +195,12 @@ func _tick_explosions(delta: float) -> void:
 			_explosions.remove_at(i)
 		i -= 1
 
-## Drop a collectible XP orb at a world position (gameplay plane → sharp, magnetizes to the player).
+## Drop a collectible XP orb at a world position. Delegates to the single MultiMesh orb manager (no
+## per-orb node) — keeps the same signature so arena_enemy / arena_elephant callers are unchanged.
 func spawn_xp_orb(pos: Vector2, value: int) -> void:
-	var o := XpOrbScript.new()
-	get_parent().add_child(o)   # same gameplay container as the enemies
-	o.setup(pos, value)
+	var mgr := get_tree().get_first_node_in_group("arena_xp_orb_mgr")
+	if mgr != null:
+		mgr.spawn(pos, value)
 
 ## Drop a loot item (coin / diamond / heart / magnetic / shield) at a world position.
 func spawn_loot(pos: Vector2, type: String) -> void:

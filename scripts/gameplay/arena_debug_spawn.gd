@@ -195,12 +195,19 @@ func _build_fire_rate_ui() -> void:
 	hb.anchor_right  = 0.5
 	hb.anchor_top    = 1.0
 	hb.anchor_bottom = 1.0
-	hb.offset_left   = -160
-	hb.offset_right  =  160
+	hb.offset_left   = -210
+	hb.offset_right  =  210
 	hb.offset_top    =  -38
 	hb.offset_bottom =  -8
 	root.add_child(hb)
 	_dev_ui_root = root
+
+	# Left-most: a dedicated "Level Up" button — one player level per click.
+	var btn_levelup := Button.new()
+	btn_levelup.text = "Level Up"
+	btn_levelup.custom_minimum_size = Vector2(84, 28)
+	btn_levelup.pressed.connect(_add_level)
+	hb.add_child(btn_levelup)
 
 	var btn_minus := Button.new()
 	btn_minus.text = "−"

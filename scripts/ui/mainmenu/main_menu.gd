@@ -109,8 +109,7 @@ func _save_and_quit() -> void:
 	# Play the game-over sting, let it ring out, persist all managers, then exit.
 	AudioManager.play_sfx(SFX_QUIT)
 	await get_tree().create_timer(minf(SFX_QUIT.get_length(), 4.0)).timeout
-	for mgr in [GameManager, UpgradeManager, WeaponManager, DefenseManager,
-			MaterialManager, InventoryManager, MetaManager]:
+	for mgr in [GameManager, InventoryManager, MetaManager]:
 		if mgr != null and mgr.has_method("save_game"):
 			mgr.save_game()
 	get_tree().quit()

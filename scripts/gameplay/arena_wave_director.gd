@@ -167,6 +167,10 @@ const DEBUG_TIMELINE := [
 # Auto-load NOTHING — no elephant, no enemies at all (empty timeline). Set false to restore spawning.
 const DEBUG_NO_ENEMIES := false
 
+# Default run timeline loaded at game start: the saved Wave-editor level (res://levels/arena/*.json).
+# Falls back to DEFAULT_TIMELINE above if the file is missing / unreadable. DEBUG flags still take precedence.
+const DEFAULT_LEVEL_FILE := "res://levels/arena/1strun.json"
+
 # ══ Runtime ════════════════════════════════════════════════════════════════════
 var timeline: Array = []    # live, editable copy of DEFAULT_TIMELINE (the F7 editor mutates this)
 var _player: Node2D = null
@@ -178,9 +182,29 @@ var _spawn_queue: Array = [] # pending spawns {type, pos, draw_w, mode}, drained
 
 func _ready() -> void:
 	add_to_group("wave_director")
-	timeline = [] if DEBUG_NO_ENEMIES else (DEBUG_TIMELINE if DEBUG_ELEPHANT_ONLY else DEFAULT_TIMELINE).duplicate(true)
+	if DEBUG_NO_ENEMIES:
+		timeline = []
+	elif DEBUG_ELEPHANT_ONLY:
+		timeline = DEBUG_TIMELINE.duplicate(true)
+	else:
+		timeline = _load_default_timeline()
 	_player = get_tree().get_first_node_in_group("player")
 	_mgr = get_tree().get_first_node_in_group("enemy_manager")
+
+## Load the default run timeline from DEFAULT_LEVEL_FILE (1strun.json), sorted by time. Falls back to the
+## built-in DEFAULT_TIMELINE if the file is missing, unreadable, or has no usable "timeline" array.
+func _load_default_timeline() -> Array:
+	var f := FileAccess.open(DEFAULT_LEVEL_FILE, FileAccess.READ)
+	if f != null:
+		var parsed: Variant = JSON.parse_string(f.get_as_text())
+		f.close()
+		if typeof(parsed) == TYPE_DICTIONARY and (parsed as Dictionary).has("timeline"):
+			var tl = (parsed as Dictionary)["timeline"]
+			if tl is Array and not (tl as Array).is_empty():
+				var out: Array = (tl as Array).duplicate(true)
+				out.sort_custom(func(a, b): return float(a["time"]) < float(b["time"]))
+				return out
+	return DEFAULT_TIMELINE.duplicate(true)
 
 # ── Editor API (used by the F7 wave editor) ────────────────────────────────────
 func enemy_types() -> Array:

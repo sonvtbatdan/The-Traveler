@@ -106,22 +106,14 @@ func _setup_counter_label() -> void:
 	pass
 
 func _setup_price_label() -> void:
-	if group_id != "active" or is_group_layer():
-		return
-	var upgrade_id := source_path.get_file().get_basename().to_lower()
-	if UpgradeManager.UPGRADES.has(upgrade_id):
-		var price: float = UpgradeManager.UPGRADES[upgrade_id]["cost"]
-		var cost_type: String = UpgradeManager.UPGRADES[upgrade_id].get("cost_type", "metal")
-		_price_label.text = "%d %s" % [int(price), cost_type.capitalize()]
-		_price_label.size = Vector2(size.x, 30.0)
+	# Legacy upgrade-shop price label (group "active") removed with UpgradeManager.
+	return
 
 func _setup_desc_panel() -> void:
-	if group_id != "active" or is_group_layer():
+	# Legacy upgrade-shop description panel (group "active") removed with UpgradeManager.
+	if true:
 		return
-	var upgrade_id := source_path.get_file().get_basename().to_lower()
-	if not UpgradeManager.UPGRADES.has(upgrade_id):
-		return
-	var data: Dictionary = UpgradeManager.UPGRADES[upgrade_id]
+	var data: Dictionary = {}
 
 	_desc_panel = PanelContainer.new()
 	_desc_panel.visible = false
@@ -285,9 +277,6 @@ func _handle_gameplay_input(event: InputEvent) -> void:
 
 func _on_mouse_entered() -> void:
 	if not _gameplay_mode or group_id != "active" or is_group_layer():
-		return
-	var upgrade_id := source_path.get_file().get_basename().to_lower()
-	if not UpgradeManager.UPGRADES.has(upgrade_id):
 		return
 	_show_hover()
 

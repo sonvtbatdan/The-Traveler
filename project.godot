@@ -18,11 +18,7 @@ config/icon="res://icon.svg"
 [autoload]
 
 AudioManager="*res://scripts/autoload/audio_manager.gd"
-MaterialManager="*res://scripts/autoload/material_manager.gd"
-DefenseManager="*res://scripts/autoload/defense_manager.gd"
-UpgradeManager="*res://scripts/autoload/upgrade_manager.gd"
 GameManager="*res://scripts/autoload/game_manager.gd"
-WeaponManager="*res://scripts/autoload/weapon_manager.gd"
 AffixManager="*res://scripts/autoload/affix_manager.gd"
 InventoryManager="*res://scripts/autoload/inventory_manager.gd"
 MetaManager="*res://scripts/autoload/meta_manager.gd"
