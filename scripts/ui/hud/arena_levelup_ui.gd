@@ -609,9 +609,7 @@ func _pick_capstone(c: Dictionary) -> void:
 	_finish_capstone()
 
 func _finish_capstone() -> void:
-	_back_target = "tier1"
-	if _back_btn != null:
-		_back_btn.visible = false
+	_options_back = false
 	_pending -= 1
 	if _pending > 0:
 		_show_cards()
