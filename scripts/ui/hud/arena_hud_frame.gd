@@ -3,8 +3,9 @@ extends Control
 ## centre open for gameplay. Pure decoration (drawn behind the HUD widgets). No art — swap to textures later
 ## by replacing _draw. Recomputes from the viewport size every frame so it tracks window resizes.
 
-const LINE_COL := Color(0.32, 0.50, 0.78, 0.85)
+const LINE_COL := Color(0.40, 0.55, 0.85, 0.9)   # matches the vitals-bar / slot borders (one cohesive frame)
 const LINE_W := 2.0
+const BRACKET := 46.0   # corner-bracket arm length (ties the four edges into one frame)
 const M := 6.0        # outer margin from the screen edge
 const SIDE_INSET := 70.0   # how far the left/right bezels reach in from the edge at their widest
 const SIDE_TOP := 0.22     # left/right bezel spans this fraction of the height (top..bottom)
@@ -38,7 +39,20 @@ func _draw() -> void:
 	])
 	# NOTE: top + bottom bezels are intentionally NOT drawn — those spots are the boss vitals bar (top,
 	# drops down on spawn) and the player vitals bar (bottom). Drawing bezels there would double up.
+	# Corner brackets — small L-shapes hugging each screen corner, tying the four edge pieces together.
+	_bracket(Vector2(M, M), 1, 1)                          # top-left
+	_bracket(Vector2(vp.x - M, M), -1, 1)                  # top-right
+	_bracket(Vector2(M, vp.y - M), 1, -1)                  # bottom-left
+	_bracket(Vector2(vp.x - M, vp.y - M), -1, -1)          # bottom-right
 
 func _poly(pts: Array) -> void:
 	var pv := PackedVector2Array(pts)
 	draw_polyline(pv, LINE_COL, LINE_W, true)
+
+## An L-shaped corner bracket at `corner`, arms pointing inward by (sx, sy) ∈ {-1, +1}.
+func _bracket(corner: Vector2, sx: float, sy: float) -> void:
+	_poly([
+		corner + Vector2(0.0, BRACKET * sy),
+		corner,
+		corner + Vector2(BRACKET * sx, 0.0),
+	])

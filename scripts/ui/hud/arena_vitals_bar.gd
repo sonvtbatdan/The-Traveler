@@ -25,9 +25,21 @@ const INNER_TRACK := Color(0.09, 0.11, 0.15, 0.92)
 const EDGE_COL  := Color(0.40, 0.55, 0.85, 0.95)
 const EDGE_DIM  := Color(0.40, 0.55, 0.85, 0.5)
 
+const FILL_LERP := 10.0       # fill smoothing rate (higher = snappier catch-up to the real value)
+const FLASH_DUR := 0.28       # damage white-flash duration (s)
+const LOW_HP_FRAC := 0.3      # below this HP fraction → the border pulses red
+
 var mode: String = "player"
 var _font: FontFile = null
 var _boss_anim: float = 0.0
+var _hp_disp: float = 1.0     # displayed HP fraction (lerps toward the real one)
+var _sh_disp: float = 1.0     # displayed shield fraction
+var _prev_hp: float = -1.0    # last frame's absolute HP/shield (to detect damage = a drop)
+var _prev_sh: float = -1.0
+var _hp_flash: float = 0.0    # HP damage-flash timer
+var _sh_flash: float = 0.0    # shield damage-flash timer
+var _t: float = 0.0           # clock for the low-HP pulse
+var _cur: Dictionary = {}     # latest vitals snapshot (set in _process, read in _draw)
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -35,6 +47,7 @@ func _ready() -> void:
 	_font = load(FONT_PATH) as FontFile
 
 func _process(delta: float) -> void:
+	_t += delta
 	if mode == "boss":
 		var active := GameManager.boss_max_hp > 0 and GameManager.boss_hp > 0
 		if active:
@@ -43,6 +56,25 @@ func _process(delta: float) -> void:
 		else:
 			visible = false
 			_boss_anim = 0.0
+			_prev_hp = -1.0   # reset so the next boss doesn't flash on first appearance
+			_prev_sh = -1.0
+	var v := _vitals()
+	_cur = v
+	var hp_target := clampf(float(v["hp"]) / float(v["hp_max"]), 0.0, 1.0)
+	var sh_target := clampf(float(v["sh"]) / float(v["sh_max"]), 0.0, 1.0) if float(v["sh_max"]) > 0.0 else 0.0
+	# Damage = an absolute drop → trigger the white flash for that layer.
+	if _prev_hp >= 0.0 and float(v["hp"]) < _prev_hp - 0.01:
+		_hp_flash = FLASH_DUR
+	if _prev_sh >= 0.0 and float(v["sh"]) < _prev_sh - 0.01:
+		_sh_flash = FLASH_DUR
+	_prev_hp = float(v["hp"])
+	_prev_sh = float(v["sh"])
+	# Smoothly catch the displayed fills up to their targets.
+	var k := clampf(delta * FILL_LERP, 0.0, 1.0)
+	_hp_disp = lerpf(_hp_disp, hp_target, k)
+	_sh_disp = lerpf(_sh_disp, sh_target, k)
+	_hp_flash = maxf(0.0, _hp_flash - delta)
+	_sh_flash = maxf(0.0, _sh_flash - delta)
 	queue_redraw()
 
 func _bar_size() -> Vector2:
@@ -99,19 +131,23 @@ func _draw() -> void:
 	draw_colored_polygon(outer, TRACK_COL)
 	var sh_max: float = v["sh_max"]
 	var has_shield := sh_max > 0.0
-	if has_shield:
-		var sf := clampf(float(v["sh"]) / sh_max, 0.0, 1.0)
-		if sf > 0.0:
-			draw_colored_polygon(_clip_x(outer, ox + w * sf), SHIELD_COL)
+	if has_shield and _sh_disp > 0.0:
+		var sh_col := SHIELD_COL.lerp(Color.WHITE, (_sh_flash / FLASH_DUR) * 0.85)   # white-flash on shield damage
+		draw_colored_polygon(_clip_x(outer, ox + w * _sh_disp), sh_col)
 	draw_colored_polygon(inner, INNER_TRACK)
-	var hf := clampf(float(v["hp"]) / float(v["hp_max"]), 0.0, 1.0)
-	var hp_col: Color = HP_COL if hf > 0.3 else HP_LOW
+	var hf := _hp_disp
+	var hp_col: Color = HP_COL if hf > LOW_HP_FRAC else HP_LOW
+	hp_col = hp_col.lerp(Color.WHITE, (_hp_flash / FLASH_DUR) * 0.85)                 # white-flash on HP damage
 	if hf > 0.0:
 		draw_colored_polygon(_clip_x(inner, ox + w * hf), hp_col)
 	var iol := inner.duplicate(); iol.append(inner[0])
 	draw_polyline(iol, EDGE_DIM, 1.5, true)
+	# Low-HP: pulse the outer border red.
+	var edge := EDGE_COL
+	if hf <= LOW_HP_FRAC:
+		edge = EDGE_COL.lerp(Color(1.0, 0.2, 0.2), 0.5 + 0.5 * sin(_t * 8.0))
 	var ol := outer.duplicate(); ol.append(outer[0])
-	draw_polyline(ol, EDGE_COL, 2.0, true)
+	draw_polyline(ol, edge, 2.0, true)
 	# Readouts.
 	if _font != null:
 		var hp_txt := "%d / %d" % [int(round(v["hp"])), int(v["hp_max"])]
