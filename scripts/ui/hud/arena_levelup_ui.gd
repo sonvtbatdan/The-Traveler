@@ -194,9 +194,131 @@ func _make_slot(slot: Control, spec: Dictionary) -> void:
 			pulse.tween_property(slot, "modulate", Color(0.7, 1.4, 1.4), 0.5).set_trans(Tween.TRANS_SINE)
 			pulse.tween_property(slot, "modulate", Color(1.4, 1.4, 0.7), 0.5).set_trans(Tween.TRANS_SINE)
 
-## Temporary stub — replaced in Task 3 (selected panel + options routing).
 func _select_item(idx: int) -> void:
+	if idx < 0 or idx >= _choices.size():
+		return
 	_selected_idx = idx
+	_options_back = false
+	var c: Dictionary = _choices[idx]
+	if String(c.get("cat", "")) == "fusion":
+		_select_fusion(c)   # bespoke A-top / FUSION / B-bottom view
+		return
+	_set_selected_display(String(c.get("def_id", "")), String(c["name"]), c.get("color", Color.GRAY))
+	_title.text = String(c["name"])
+	_route_options(c)
+	_play_sfx("res://assets/audio/sfx/uiclick.wav")
+
+## Fill the center-top panel with a big centered sprite + the item name.
+func _set_selected_display(def_id: String, item_name: String, color: Color) -> void:
+	for ch in _selected_box.get_children():
+		ch.free()
+	var spr := _sprite_or_swatch(def_id, color)
+	spr.anchor_left = 0.2; spr.anchor_right = 0.8
+	spr.anchor_top = 0.06; spr.anchor_bottom = 0.78
+	_selected_box.add_child(spr)
+	var lbl := Label.new()
+	lbl.text = item_name
+	lbl.add_theme_font_override("font", load(FONT_PATH))
+	lbl.add_theme_font_size_override("font_size", 22)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lbl.anchor_left = 0.05; lbl.anchor_right = 0.95
+	lbl.anchor_top = 0.80; lbl.anchor_bottom = 0.97
+	_selected_box.add_child(lbl)
+
+## Decide the bottom-row content for the selected choice and render it. Sets _current = the array _pick() acts on.
+func _route_options(c: Dictionary) -> void:
+	var cat := String(c.get("cat", ""))
+	var key := String(c.get("key", ""))
+	if cat == "weapon" and not _weapon_pool(key).is_empty():
+		var aw := get_tree().get_first_node_in_group("arena_weapons")
+		# Maxed weapon → its capstones become the options (EVOLVE). _show_capstone sets _current + renders.
+		if aw != null and bool(aw.call("weapon_needs_capstone", key)):
+			_show_capstone(key)
+			return
+		var pool_choices := _gen_pool_choices(key)
+		_current = pool_choices if not pool_choices.is_empty() else [c]
+		_render_options()
+		return
+	if cat == "aux" and not _aux_pool(key).is_empty():
+		var ax := get_tree().get_first_node_in_group("arena_aux")
+		if ax != null and bool(ax.call("aux_needs_capstone", key)):
+			_show_aux_capstone(key)
+			return
+		var aux_choices := _gen_aux_pool_choices(key)
+		_current = aux_choices if not aux_choices.is_empty() else [c]
+		_render_options()
+		return
+	# New weapon / poolless weapon / simple aux → a single Confirm panel.
+	_current = [c]
+	_render_options()
+
+## Render _current into _options_box: 1 item → full-width confirm; N → N equal boxes. Adds a Back box in the
+## All-In destroy sub-view (_options_back).
+func _render_options() -> void:
+	for ch in _options_box.get_children():
+		ch.free()
+	var n := _current.size()
+	for i in n:
+		_options_box.add_child(_make_option_box(_current[i], i, n))
+	if _options_back:
+		var back := Button.new()
+		back.text = "← back"
+		back.add_theme_font_override("font", load(FONT_PATH))
+		back.focus_mode = Control.FOCUS_NONE
+		back.anchor_left = 0.0; back.anchor_right = 0.18
+		back.anchor_top = -0.16; back.anchor_bottom = -0.02
+		back.pressed.connect(func() -> void: _show_capstone(_capstone_weapon))
+		_options_box.add_child(back)
+
+## One option/confirm box: bold name + small detail + full-rect click → _pick(idx).
+func _make_option_box(c: Dictionary, idx: int, total: int) -> Control:
+	var box := _make_panel()
+	box.mouse_filter = Control.MOUSE_FILTER_STOP
+	if total <= 1:
+		box.anchor_left = 0.0; box.anchor_right = 1.0
+	else:
+		var step := 1.0 / float(total)
+		box.anchor_left = float(idx) * step + 0.01
+		box.anchor_right = float(idx + 1) * step - 0.01
+	box.anchor_top = 0.0; box.anchor_bottom = 1.0
+	var name_lbl := Label.new()
+	name_lbl.text = String(c.get("name", ""))
+	name_lbl.add_theme_font_override("font", load(FONT_PATH))
+	name_lbl.add_theme_font_size_override("font_size", 19)
+	name_lbl.add_theme_color_override("font_color", Color(1.0, 0.95, 0.7))
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	name_lbl.anchor_left = 0.06; name_lbl.anchor_right = 0.94
+	name_lbl.anchor_top = 0.06; name_lbl.anchor_bottom = 0.34
+	box.add_child(name_lbl)
+	var detail := Label.new()
+	var dtxt := _default_text(c)
+	if String(c.get("desc", "")) != "":
+		dtxt += "\n" + String(c.get("desc", ""))
+	detail.text = dtxt
+	detail.add_theme_font_override("font", load(FONT_PATH))
+	detail.add_theme_font_size_override("font_size", 13)
+	detail.add_theme_color_override("font_color", Color(0.78, 0.82, 0.9))
+	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	detail.anchor_left = 0.06; detail.anchor_right = 0.94
+	detail.anchor_top = 0.40; detail.anchor_bottom = 0.94
+	box.add_child(detail)
+	var btn := Button.new()
+	btn.flat = true
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var empty := StyleBoxEmpty.new()
+	for s in ["normal", "hover", "pressed", "focus", "disabled"]:
+		btn.add_theme_stylebox_override(s, empty)
+	btn.pressed.connect(_pick.bind(idx))
+	box.add_child(btn)
+	return box
+
+## Temporary stub — replaced in Task 4 (fusion composition view).
+func _select_fusion(c: Dictionary) -> void:
+	_set_selected_display(String(c.get("def_a", "")), String(c["name"]), c.get("color", Color.GRAY))
 
 # ── Choice generation (weighted, owned-priority, no-dup, slot-limited, fallback) ──────────────
 func _generate_choices(n: int) -> Array:
@@ -504,14 +626,8 @@ func _pick(idx: int) -> void:
 			aw2.call("pool_set_capstone", _capstone_weapon, "all_in")
 		_finish_capstone()
 		return
-	# 1st-tier weapon that HAS a skill-point pool (Gatling) → open its 3-of-pool sub-options instead of leveling.
-	if String(c.get("cat", "")) == "weapon" and not _weapon_pool(String(c.get("key", ""))).is_empty():
-		_show_pool(String(c["key"]))
-		return
-	# 1st-tier aux item that HAS a skill-point pool (Reinforcement Plate) → open its perk picker.
-	if String(c.get("cat", "")) == "aux" and not _aux_pool(String(c.get("key", ""))).is_empty():
-		_show_aux_pool(String(c["key"]))
-		return
+	# A weapon/aux confirm box (new / poolless / pool-perks-maxed). The pool drill-down is handled by
+	# _route_options when the LEFT item is selected, so here we just acquire/level the item.
 	_apply(c)
 	_advance()   # next queued level-up, or finish
 
@@ -690,8 +806,9 @@ func _show_capstone(kind: String) -> void:
 			"effect": String(d.get("desc", "")), "desc": String(d.get("desc", "")), "level": 0,
 		})
 	_capstone_weapon = kind
+	_options_back = false
 	_title.text = "%s — EVOLVE" % String(info.get("label", kind))
-	_render_current()
+	_render_options()
 	_play_sfx("res://assets/audio/sfx/uialert.wav")
 
 ## Aux evolve screen — the 3 capstones for a pooled passive (Reinforcement Plate). Cards carry is_aux=true.
@@ -711,8 +828,9 @@ func _show_aux_capstone(id: String) -> void:
 			"level": 0, "is_aux": true,
 		})
 	_capstone_weapon = id
+	_options_back = false
 	_title.text = "%s — EVOLVE" % String(d.get("name", id))
-	_render_current()
+	_render_options()
 	_play_sfx("res://assets/audio/sfx/uialert.wav")
 
 ## All-In's "choose a weapon to destroy" screen (back arrow → returns to the evolve choice).
@@ -731,8 +849,9 @@ func _show_destroy_choice(evolve_kind: String) -> void:
 			"name": String(info.get("label", k)), "def_id": String(info.get("def_id", "")),
 			"color": Color(0.9, 0.3, 0.3), "effect": "DESTROY", "desc": "Sacrifice this weapon.", "level": 0,
 		})
+	_options_back = true
 	_title.text = "ALL-IN — destroy a weapon"
-	_render_current()
+	_render_options()
 	_play_sfx("res://assets/audio/sfx/uiclick.wav")
 
 ## Fusion pick: hide the cards (tree stays paused), play the Yu-Gi-Oh cutscene, THEN perform the fuse.
