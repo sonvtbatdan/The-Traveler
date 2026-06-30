@@ -55,10 +55,10 @@ func _draw() -> void:
 			var d: Dictionary = _aux.call("def_for", id)
 			var tex := _icon_for(id, d)
 			if tex != null:
-				draw_texture_rect(tex, rect.grow(-rect.size.x * 0.09), false)   # HUD art when available
+				draw_texture_rect(tex, rect.grow(-3.0), false)   # near-full: maximize icon inside the slot
 			else:
 				var col: Color = d.get("color", Color.GRAY)
-				draw_rect(rect.grow(-rect.size.x * 0.18), col, true)             # colour swatch fallback
+				draw_rect(rect.grow(-6.0), col, true)            # colour swatch fallback
 			# Level pips along the bottom edge.
 			var lvl := int(_aux.call("aux_level", id))
 			_draw_level_pips(rect, lvl)

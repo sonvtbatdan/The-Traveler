@@ -116,7 +116,7 @@ func _draw() -> void:
 			_draw_slot_bg(rect)
 			var tex := _icon_for(kind)
 			if tex != null:
-				draw_texture_rect(tex, rect.grow(-rect.size.x * 0.09), false)
+				draw_texture_rect(tex, rect.grow(-3.0), false)   # near-full: maximize icon inside the slot
 			var frac := 1.0
 			if _weapons.has_method("weapon_cooldown_frac"):
 				frac = float(_weapons.call("weapon_cooldown_frac", kind))

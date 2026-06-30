@@ -36,20 +36,8 @@ func _draw() -> void:
 		Vector2(vp.x - M - SIDE_INSET, vp.y * SIDE_BOT - CHAMFER),
 		Vector2(vp.x - M, vp.y * SIDE_BOT),
 	])
-	# Top bezel (horizontal trapezoid).
-	_poly([
-		Vector2(vp.x * TB_SIDE, M),
-		Vector2(vp.x * TB_SIDE + CHAMFER, M + TB_INSET),
-		Vector2(vp.x * (1.0 - TB_SIDE) - CHAMFER, M + TB_INSET),
-		Vector2(vp.x * (1.0 - TB_SIDE), M),
-	])
-	# Bottom bezel (mirror).
-	_poly([
-		Vector2(vp.x * TB_SIDE, vp.y - M),
-		Vector2(vp.x * TB_SIDE + CHAMFER, vp.y - M - TB_INSET),
-		Vector2(vp.x * (1.0 - TB_SIDE) - CHAMFER, vp.y - M - TB_INSET),
-		Vector2(vp.x * (1.0 - TB_SIDE), vp.y - M),
-	])
+	# NOTE: top + bottom bezels are intentionally NOT drawn — those spots are the boss vitals bar (top,
+	# drops down on spawn) and the player vitals bar (bottom). Drawing bezels there would double up.
 
 func _poly(pts: Array) -> void:
 	var pv := PackedVector2Array(pts)
