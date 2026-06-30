@@ -5,6 +5,7 @@ extends Node2D
 ## (inventory/weapons/bosses/enemies/affixes come later). All knobs are in the TUNABLES block below.
 
 const HudHpDisplayScript := preload("res://scripts/ui/hud/hud_hp_display.gd")
+const VitalsBarScript    := preload("res://scripts/ui/hud/arena_vitals_bar.gd")  # player + boss vitals bars
 const ArenaStatsHudScript := preload("res://scripts/ui/hud/arena_stats_hud.gd")
 const ArenaEnemyMgrScript := preload("res://scripts/gameplay/arena_enemy_manager.gd")
 const XpOrbMgrScript      := preload("res://scripts/gameplay/arena_xp_orb_manager.gd")
@@ -227,12 +228,15 @@ func _build_ui() -> void:
 	ui.layer = 10   # explicit (was default 1): keep the HP/weapon/aux HUD ABOVE the mortar/fatboy shockwave (layer 8) so the blast distortion never ripples the HUD; still below buttons (11) / crit (12)
 	add_child(ui)
 	_ui_layer = ui
-	var hp := HudHpDisplayScript.new()
-	hp.arena_mode = true   # re-pin the HP cluster to the top-left corner (legacy keeps its layout pos)
-	ui.add_child(hp)
-	ui.add_child(WeaponSlotsScript.new())   # 5 weapon slots + cooldown pies, just below the HP cluster
-	ui.add_child(AuxSlotsScript.new())      # 5 aux-item slots in a second row below the weapon slots
-	ui.add_child(ArenaStatsHudScript.new()) # XP bar (bottom) + kill/coin counters (top-right)
+	var player_vitals := VitalsBarScript.new()
+	player_vitals.mode = "player"           # bottom-centre nested shield+HP bar (replaces hud_hp_display)
+	ui.add_child(player_vitals)
+	var boss_vitals := VitalsBarScript.new()
+	boss_vitals.mode = "boss"               # top-centre, mirrors the player bar; auto-hides when no boss
+	ui.add_child(boss_vitals)
+	ui.add_child(WeaponSlotsScript.new())   # left vertical column of weapon slots
+	ui.add_child(AuxSlotsScript.new())      # right vertical column of aux slots
+	ui.add_child(ArenaStatsHudScript.new()) # shorter XP bar (bottom) + kill/coin counters (top-right)
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 func _build_player() -> void:
