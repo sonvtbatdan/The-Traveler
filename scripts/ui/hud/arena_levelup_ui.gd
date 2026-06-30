@@ -304,6 +304,14 @@ func _make_option_box(c: Dictionary, idx: int, total: int) -> Control:
 	for s in ["normal", "hover", "pressed", "focus", "disabled"]:
 		btn.add_theme_stylebox_override(s, empty)
 	btn.pressed.connect(_pick.bind(idx))
+	# Hover highlight: brighten the box border + fill while the cursor is over it.
+	var base_sb := box.get_theme_stylebox("panel") as StyleBoxFlat
+	var hover_sb := base_sb.duplicate() as StyleBoxFlat
+	hover_sb.bg_color = Color(0.16, 0.21, 0.32, 0.95)
+	hover_sb.set_border_width_all(3)
+	hover_sb.border_color = Color(1.0, 0.85, 0.35, 1.0)
+	btn.mouse_entered.connect(func() -> void: box.add_theme_stylebox_override("panel", hover_sb))
+	btn.mouse_exited.connect(func() -> void: box.add_theme_stylebox_override("panel", base_sb))
 	box.add_child(btn)
 	return box
 
@@ -756,8 +764,8 @@ func _default_text(c: Dictionary) -> String:
 	if String(c["action"]) == "new":
 		# A new weapon is conveyed by its icon + name; aux items also show what the passive grants.
 		if String(c["cat"]) == "weapon":
-			return "NEW WEAPON"
-		return "NEW\n%s" % String(c.get("effect", ""))
+			return "Acquired"
+		return "Acquired\n%s" % String(c.get("effect", ""))
 	return "Lv %d → %d\n%s" % [lvl, lvl + 1, String(c.get("effect", ""))]
 
 func _current_text(c: Dictionary) -> String:
