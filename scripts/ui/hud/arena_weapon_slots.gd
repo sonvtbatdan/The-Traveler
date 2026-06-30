@@ -7,9 +7,17 @@ extends Control
 
 const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")
 
-const ORIGIN := Vector2(12.0, 82.0)   # top-left of the first slot — ~8px (~0.2cm) below the HP bar's bottom edge
-const SLOT   := 30.8                   # slot side (px) — 30% smaller than the original 44
-const GAP    := 5.6                    # gap between slots (px) — 30% smaller than the original 8
+const SLOT   := 46.0                   # slot side (px) — left-edge vertical column
+const GAP    := 12.0                   # gap between slots (px)
+const LEFT_MARGIN := 16.0              # x of the column from the left screen edge
+
+## i-th slot rect: a vertical column pinned to the left edge, vertically centered on screen.
+func _slot_rect(i: int) -> Rect2:
+	var vp := get_viewport_rect().size
+	var n := ArenaWeapons.MAX_WEAPONS
+	var total_h := SLOT * float(n) + GAP * float(n - 1)
+	var y0 := (vp.y - total_h) * 0.5
+	return Rect2(Vector2(LEFT_MARGIN, y0 + float(i) * (SLOT + GAP)), Vector2(SLOT, SLOT))
 const MASK_COL := Color(0.0, 0.0, 0.0, 0.58)   # cooldown wedge tint
 const PULSE_SPEED := 11.0               # firing-pulse rate (rad/s)
 const PULSE_AMT   := 0.07               # firing-pulse depth (±7% in-place scale)
@@ -54,12 +62,12 @@ func _update_hover_tip() -> void:
 		acquired = _weapons.call("acquired_weapons")
 	var mpos := get_local_mouse_position()
 	for i in acquired.size():
-		var r := Rect2(ORIGIN + Vector2(float(i) * (SLOT + GAP), 0.0), Vector2(SLOT, SLOT))
+		var r := _slot_rect(i)
 		if r.has_point(mpos):
 			_tip.text = _code_for(String(acquired[i]))
 			_tip.reset_size()
-			var sx := ORIGIN.x + float(i) * (SLOT + GAP) + SLOT * 0.5 - _tip.size.x * 0.5
-			_tip.position = Vector2(sx, ORIGIN.y - _tip.size.y - 4.0)
+			# Tooltip to the RIGHT of the slot (column is on the left edge), vertically centered on it.
+			_tip.position = Vector2(r.position.x + SLOT + 6.0, r.get_center().y - _tip.size.y * 0.5)
 			_tip.show()
 			return
 	_tip.hide()
@@ -96,8 +104,8 @@ func _draw() -> void:
 		acquired = _weapons.call("acquired_weapons")
 	for i in ArenaWeapons.MAX_WEAPONS:
 		# Base slot box; centre stays put so the firing pulse scales in place.
-		var center := ORIGIN + Vector2(float(i) * (SLOT + GAP) + SLOT * 0.5, SLOT * 0.5)
-		var rect := Rect2(ORIGIN + Vector2(float(i) * (SLOT + GAP), 0.0), Vector2(SLOT, SLOT))
+		var rect := _slot_rect(i)
+		var center := rect.get_center()
 		if i < acquired.size():
 			var kind := String(acquired[i])
 			# Slight in-place pulse while this weapon is actively firing.
