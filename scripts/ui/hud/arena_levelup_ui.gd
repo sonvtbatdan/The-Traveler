@@ -316,9 +316,29 @@ func _make_option_box(c: Dictionary, idx: int, total: int) -> Control:
 	box.add_child(btn)
 	return box
 
-## Temporary stub — replaced in Task 4 (fusion composition view).
+## Fusion view: source A big (center-top), source B in the options area, a FUSION button between them.
 func _select_fusion(c: Dictionary) -> void:
+	_selected_idx = _choices.find(c)
+	_title.text = "FUSE — %s" % String(c["name"])
 	_set_selected_display(String(c.get("def_a", "")), String(c["name"]), c.get("color", Color.GRAY))
+	for ch in _options_box.get_children():
+		ch.free()
+	# Source B sprite (fills the options box, leaving room for the FUSION button on top).
+	var spr := _sprite_or_swatch(String(c.get("def_b", "")), c.get("color", Color.GRAY))
+	spr.anchor_left = 0.3; spr.anchor_right = 0.7
+	spr.anchor_top = 0.28; spr.anchor_bottom = 0.96
+	_options_box.add_child(spr)
+	# FUSION button, centered above source B (visually between A and B).
+	var btn := Button.new()
+	btn.text = "✦ FUSION ✦"
+	btn.add_theme_font_override("font", load(FONT_PATH))
+	btn.add_theme_font_size_override("font_size", 22)
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.anchor_left = 0.3; btn.anchor_right = 0.7
+	btn.anchor_top = 0.02; btn.anchor_bottom = 0.22
+	btn.pressed.connect(func() -> void: _pick_fusion(c))
+	_options_box.add_child(btn)
+	_play_sfx("res://assets/audio/sfx/uialert.wav")
 
 # ── Choice generation (weighted, owned-priority, no-dup, slot-limited, fallback) ──────────────
 func _generate_choices(n: int) -> Array:
