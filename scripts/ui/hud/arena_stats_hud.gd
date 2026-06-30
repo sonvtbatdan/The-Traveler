@@ -6,11 +6,11 @@ extends Control
 const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
 
 # ── XP bar geometry ──
-const XP_H            := 28.0    # bar height
-const XP_BOTTOM_MARGIN := 20.0   # gap from the bottom screen edge
-const XP_W_FRAC       := 0.3     # bar width as a fraction of the viewport width (shorter — sits under the vitals bar)
-const XP_W_MIN        := 280.0
-const XP_W_MAX        := 460.0
+const XP_H            := 24.0    # bar height
+const XP_BOTTOM_MARGIN := 6.0    # hug the bottom screen edge (the vitals bar sits above it)
+const XP_W_FRAC       := 0.5     # bar width — matches the vitals bar so they stack as one column
+const XP_W_MIN        := 480.0
+const XP_W_MAX        := 900.0
 const XP_PAD          := 10.0    # text inset from the bar's left/right edges
 
 # ── Top-right counters geometry ──
