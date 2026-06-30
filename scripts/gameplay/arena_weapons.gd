@@ -79,8 +79,9 @@ const ORBITAL_POOL := {
 const MUZZLE_OFFSET     := 22.0     # how far ahead of the ship centre shots spawn (px)
 
 # ── Weapon acquisition (chest + pickups → up to 5 unique weapons; backs the 5-slot HUD) ──
-const MAX_WEAPONS := 5                                  # HUD slot count / acquisition cap
+const MAX_WEAPONS := 4                                  # HUD slot count / acquisition cap
 const MAX_WEAPON_LEVEL := 18                            # weapon levels 1→18; each point spent = +1 level, then EVOLVE
+const FUSION_MIN_LEVEL := 15                            # both components must be ≥ this (and un-evolved) to fuse
 const WEAPON_DMG_PER_LEVEL := 0.30                      # FUSIONS ONLY: +30%/bonus-level (base weapons get no per-level damage)
 const CHEST_POOL  := ["gatling", "lasgun", "arc", "gauss"]   # the 4 "F12" weapons the start-of-run chest rolls from
 # Canonical weapon registry shared by the chest + slot HUD + F12 palette. Per kind:
@@ -1264,6 +1265,48 @@ func _ruins() -> Array[Node]:
 		_ruin_cache_frame = f
 		_ruin_cache = get_tree().get_nodes_in_group("arena_ruin")
 	return _ruin_cache
+
+# ── Spatial hash grid over the enemies (rebuilt once per frame from _enemies()) ──────────────────────────
+# Point-collision weapons with MANY projectiles (gatling/gauss/orbital/mortar) used to test EVERY projectile
+# against EVERY enemy — O(projectiles × enemies), which is what collapsed the frame rate at 500 enemies. The
+# grid buckets enemies by cell so each projectile only checks the handful of enemies in nearby cells.
+const GRID_CELL := 128.0
+const ENEMY_MAX_HIT_R := 120.0   # query pad ≥ the largest enemy hit radius (+ test slack) so none is missed
+var _grid: Dictionary = {}       # Vector2i cell → Array[Node]
+var _grid_frame: int = -1
+
+func _grid_cell(p: Vector2) -> Vector2i:
+	return Vector2i(int(floor(p.x / GRID_CELL)), int(floor(p.y / GRID_CELL)))
+
+## Rebuild the enemy grid once per frame (cheap: one O(enemies) pass, shared by every projectile query).
+func _rebuild_grid() -> void:
+	var f := Engine.get_process_frames()
+	if f == _grid_frame:
+		return
+	_grid_frame = f
+	_grid.clear()
+	for e in _enemies():
+		if not is_instance_valid(e):
+			continue
+		var cell := _grid_cell((e as Node2D).global_position)
+		if _grid.has(cell):
+			(_grid[cell] as Array).append(e)
+		else:
+			_grid[cell] = [e]
+
+## Enemies in cells overlapping [pos ± radius] — a SUPERSET; the caller still does the precise distance + valid
+## test. Returns a fresh array each call (safe to iterate even if another query runs afterward).
+func _enemies_near(pos: Vector2, radius: float) -> Array:
+	_rebuild_grid()
+	var out: Array = []
+	var minc := _grid_cell(pos - Vector2(radius, radius))
+	var maxc := _grid_cell(pos + Vector2(radius, radius))
+	for cy in range(minc.y, maxc.y + 1):
+		for cx in range(minc.x, maxc.x + 1):
+			var cell := Vector2i(cx, cy)
+			if _grid.has(cell):
+				out.append_array(_grid[cell] as Array)
+	return out
 
 func _process(delta: float) -> void:
 	if _player == null or not is_instance_valid(_player):
@@ -2968,7 +3011,6 @@ func _run_orbital(delta: float, kind: String) -> void:
 	if _orbital_capstone == "avatar" and _orbital_elements.size() != n:
 		_rebuild_orbital_elements()   # keep element list sized to the current ball count
 	var dmg_val := _orbital_dmg_value()
-	var enemies := _enemies()
 	var ruins   := get_tree().get_nodes_in_group("arena_ruin")
 	var balls := _orbital_positions()
 	# hit radius = half the visual size (× Bigger Orbs / AoE) + enemy-catchment pad
@@ -2980,7 +3022,7 @@ func _run_orbital(delta: float, kind: String) -> void:
 			continue
 		var bpos: Vector2 = balls[k]
 		var struck := false
-		for en in enemies:
+		for en in _enemies_near(bpos, hit_r):
 			if not is_instance_valid(en):
 				continue
 			if bpos.distance_to((en as Node2D).global_position) <= hit_r:
@@ -3401,8 +3443,11 @@ func level_up_weapon(kind: String) -> void:
 func weapon_level(kind: String) -> int:
 	return int(_levels.get(kind, 1)) if kind in _acquired else 0
 
+## Offerable in the level-up roll while it can still gain a level OR is maxed-but-not-yet-evolved (→ EVOLVE option).
 func weapon_can_upgrade(kind: String) -> bool:
-	return kind in _acquired and int(_levels.get(kind, 1)) < _level_cap(kind)
+	if not (kind in _acquired):
+		return false
+	return int(_levels.get(kind, 1)) < _level_cap(kind) or weapon_needs_capstone(kind)
 
 # ── Skill-point progression (level N→N+1 costs N+1 points; the first point on an unowned kind acquires it) ──
 ## Points already invested toward this kind's NEXT level (0-owned items start collecting toward level 2).
@@ -3477,6 +3522,8 @@ func is_fusion_kind(kind: String) -> bool:
 	return FUSION_DEFS.has(kind)
 
 ## Recipe ids ready to fuse: both components owned at MAX_WEAPON_LEVEL and the fusion not already owned.
+## Fusions become available once both components reach FUSION_MIN_LEVEL (15) — UNLESS a component has already
+## evolved (chosen a capstone), which permanently locks it out of fusion.
 func available_fusions() -> Array:
 	var out: Array = []
 	for fid: String in FUSION_DEFS.keys():
@@ -3486,8 +3533,9 @@ func available_fusions() -> Array:
 		var a := String(rec["a"])
 		var b := String(rec["b"])
 		if (a in _acquired) and (b in _acquired) \
-			and int(_levels.get(a, 1)) >= MAX_WEAPON_LEVEL \
-			and int(_levels.get(b, 1)) >= MAX_WEAPON_LEVEL:
+			and int(_levels.get(a, 1)) >= FUSION_MIN_LEVEL \
+			and int(_levels.get(b, 1)) >= FUSION_MIN_LEVEL \
+			and weapon_capstone(a) == "" and weapon_capstone(b) == "":   # not yet evolved
 			out.append(fid)
 	return out
 
@@ -3619,7 +3667,6 @@ func spawn_lasgun_pickup_near(world_pos: Vector2) -> void:
 	spawn_weapon_pickup("lasgun", world_pos)
 
 func _tick_bullets(delta: float) -> void:
-	var enemies := _enemies()
 	var ruins   := get_tree().get_nodes_in_group("arena_ruin")
 	var i := _bullets.size() - 1
 	while i >= 0:
@@ -3638,7 +3685,7 @@ func _tick_bullets(delta: float) -> void:
 			var bk: String = b.get("kind", "gatling")   # Carnage/Red O fusion bullets tag their kind for level scaling
 			var is_gat := bk == "gatling"
 			var hits: Array = b.get("hits", [])
-			for en in enemies:
+			for en in _enemies_near(p, ENEMY_MAX_HIT_R):
 				if not is_instance_valid(en):
 					continue
 				if is_gat and en in hits:
@@ -3799,7 +3846,6 @@ func _tick_orbs(delta: float) -> void:
 		while _gauss_fb_t >= gspf:
 			_gauss_fb_t -= gspf
 			_gauss_fb_idx = (_gauss_fb_idx + 1) % _gauss_frames.size()
-	var enemies := _enemies()
 	var ruins   := get_tree().get_nodes_in_group("arena_ruin")
 	var i := _orbs.size() - 1
 	while i >= 0:
@@ -3817,7 +3863,7 @@ func _tick_orbs(delta: float) -> void:
 		# explosion at the impact point. All damage now comes from the explosion DoT (_tick_explosions);
 		# the orb itself no longer deals direct damage.
 		if not dead:
-			for en in enemies:
+			for en in _enemies_near(p, ENEMY_MAX_HIT_R):
 				if not is_instance_valid(en):
 					continue
 				var _en_r = en.get("hit_radius")
@@ -4077,7 +4123,7 @@ func _tick_mortar_bullets(delta: float) -> void:
 		var pos: Vector2 = (b["pos"] as Vector2) + (b["vel"] as Vector2) * delta
 		b["pos"] = pos
 		var hit := false
-		for en in _enemies():
+		for en in _enemies_near(pos, ENEMY_MAX_HIT_R):
 			if not is_instance_valid(en):
 				continue
 			var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 12.0

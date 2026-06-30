@@ -8,7 +8,7 @@ extends Node
 ## Per-run state lives only here (a fresh node each run) + GameManager.upg_* (zeroed by reset_run), so each run
 ## starts clean.
 
-const MAX_AUX       := 5    # aux slot count (second HUD row) / acquisition cap
+const MAX_AUX       := 4    # aux slot count (second HUD row) / acquisition cap
 const MAX_AUX_LEVEL := 18   # pooled aux level 1→18; each point spent = +1 level, then EVOLVE
 
 # ── AUX CATALOG ──────────────────────────────────────────────────────────────────
