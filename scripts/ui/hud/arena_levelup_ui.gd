@@ -34,14 +34,34 @@ const WEAPON_FALLBACK_COLOR := Color(0.55, 0.62, 0.72)   # placeholder swatch if
 
 var _pending: int = 0
 var _showing: bool = false
-var _root: Control = null
-var _cards_box: Control = null
-var _current: Array = []   # the choice dicts currently offered
-var _tier1: Array = []     # saved 1st-tier choices, so the pool's back arrow can return to them
-var _back_btn: Button = null
-var _title: Label = null
-var _back_target: String = "tier1"   # where the back arrow goes: "tier1" | "capstone"
+var _current: Array = []   # the OPTIONS-row array that _pick() acts on (pool / capstone / destroy / single confirm)
+var _choices: Array = []   # left-column offered items (tier-1), persistent for this screen
+var _selected_idx: int = -1   # which left slot is currently selected
+var _options_back: bool = false   # true while the All-In "destroy a weapon" sub-view shows (offers a back affordance)
 var _capstone_weapon: String = ""    # the weapon being evolved (for the capstone / destroy screens)
+
+# Node refs (full-screen layout).
+var _root: Control = null
+var _slot_nodes: Array = []        # the 3 left-column slot Controls
+var _selected_box: Control = null  # center-top big-sprite panel
+var _options_box: Control = null   # center-bottom options container
+var _stats_box: VBoxContainer = null
+var _title: Label = null
+
+# Full-screen layout fractions (symmetric: left/right columns equal, centered main column).
+const COL_L_LEFT  := 0.02
+const COL_L_RIGHT := 0.23
+const COL_C_LEFT  := 0.25
+const COL_C_RIGHT := 0.75
+const COL_R_LEFT  := 0.77
+const COL_R_RIGHT := 0.98
+const CONTENT_TOP    := 0.085   # below the title strip
+const CONTENT_BOTTOM := 0.98
+const SEL_BOTTOM := 0.55        # selected-item panel bottom (center column)
+const OPT_TOP    := 0.60        # options row top (center column)
+const SLOT_GAP   := 0.015       # vertical gap between the 3 left slots (fraction)
+const FONT_PATH := "res://assets/fonts/Good Old DOS.ttf"
+const RING_COL  := Color(1.0, 0.85, 0.2)   # fusion source-box yellow ring
 
 func _ready() -> void:
 	layer = 100
@@ -79,42 +99,17 @@ func _show_cards() -> void:
 		else:
 			_finish()
 		return
-	if _back_btn != null:
-		_back_btn.visible = false   # 1st tier → no back arrow
-	if _title != null:
-		_title.text = "LEVEL UP — choose an item"
+	_title.text = "LEVEL UP — choose an item"
 	_render_current()
 	_root.show()
 	_play_sfx("res://assets/audio/sfx/uialert.wav")
 
 func _clear_cards() -> void:
-	for c in _cards_box.get_children():
-		if is_instance_valid(c):
-			c.free()   # free immediately so _position_cards() only counts the new cards
+	pass   # legacy card-row clear — superseded by the full-screen layout (removed in cleanup)
 
-## Rebuild the card row from `_current`.
+## Legacy card-row render — stubbed; the full-screen path (Task 2/3) renders via _render_left/_render_options.
 func _render_current() -> void:
-	_clear_cards()
-	for i in _current.size():
-		_cards_box.add_child(_make_card(_current[i], i))
-	_position_cards()
-
-## Back arrow dispatcher.
-func _back() -> void:
-	if _back_target == "capstone":
-		_show_capstone(_capstone_weapon)   # destroy screen → back to the evolve choice
-	else:
-		_back_to_tier1()
-
-## Back to the original 1st-tier options.
-func _back_to_tier1() -> void:
-	_current = _tier1
-	if _back_btn != null:
-		_back_btn.visible = false
-	if _title != null:
-		_title.text = "LEVEL UP — choose an item"
-	_render_current()
-	_play_sfx("res://assets/audio/sfx/uiclick.wav")
+	pass
 
 # ── Choice generation (weighted, owned-priority, no-dup, slot-limited, fallback) ──────────────
 func _generate_choices(n: int) -> Array:
@@ -237,23 +232,7 @@ const _CGAP  := 10.0    # gap between cards
 const _CSHIFT := 20.0   # left card shifts left / right card shifts right by this amount
 
 func _position_cards() -> void:
-	var cards := _cards_box.get_children()
-	# Use actual resolved size; fall back to anchor × panel size if layout not yet computed.
-	var box_w := _cards_box.size.x if _cards_box.size.x > 1.0 else (_cards_box.anchor_right  - _cards_box.anchor_left) * 720.0
-	var box_h := _cards_box.size.y if _cards_box.size.y > 1.0 else (_cards_box.anchor_bottom - _cards_box.anchor_top)  * 390.0
-	var cluster_w := _CW * cards.size() + _CGAP * (cards.size() - 1)
-	var base_x    := (box_w - cluster_w) * 0.5
-	var base_y    := (box_h - _CH) * 0.5 - 22.0
-	for i in cards.size():
-		var x := base_x + i * (_CW + _CGAP)
-		if i == 0:
-			x -= _CSHIFT
-		elif i == cards.size() - 1:
-			x += _CSHIFT
-		var c := cards[i] as Control
-		c.position     = Vector2(x, base_y)
-		c.size         = Vector2(_CW, _CH)
-		c.pivot_offset = Vector2(_CW * 0.5, _CH * 0.5)   # scale from center on hover
+	pass   # legacy card positioning — superseded by anchor-based full-screen layout (removed in cleanup)
 
 func _bg_tex(cat: String) -> Texture2D:
 	# Weapons use the red frame; aux items the green. (Blue kept for any future third class.)
@@ -494,13 +473,8 @@ func _show_pool(kind: String) -> void:
 		else:
 			_finish()
 		return
-	_tier1 = _current   # remember the original options so the back arrow can restore them
 	_current = pool_choices
-	_back_target = "tier1"
-	if _back_btn != null:
-		_back_btn.visible = true
-	if _title != null:
-		_title.text = "%s — choose an upgrade" % String((ArenaWeapons.WEAPON_INFO as Dictionary).get(kind, {}).get("label", kind))
+	_title.text = "%s — choose an upgrade" % String((ArenaWeapons.WEAPON_INFO as Dictionary).get(kind, {}).get("label", kind))
 	_render_current()
 	_play_sfx("res://assets/audio/sfx/uiclick.wav")
 
@@ -548,15 +522,10 @@ func _show_aux_pool(id: String) -> void:
 			ax.call("spend_aux_point", id)
 		_advance()
 		return
-	_tier1 = _current
 	_current = pool_choices
-	_back_target = "tier1"
-	if _back_btn != null:
-		_back_btn.visible = true
-	if _title != null:
-		var ax2 := get_tree().get_first_node_in_group("arena_aux")
-		var nm: String = String((ax2.call("def_for", id) as Dictionary).get("name", id)) if ax2 != null else id
-		_title.text = "%s — choose an upgrade" % nm
+	var ax2 := get_tree().get_first_node_in_group("arena_aux")
+	var nm: String = String((ax2.call("def_for", id) as Dictionary).get("name", id)) if ax2 != null else id
+	_title.text = "%s — choose an upgrade" % nm
 	_render_current()
 	_play_sfx("res://assets/audio/sfx/uiclick.wav")
 
@@ -634,10 +603,7 @@ func _show_capstone(kind: String) -> void:
 			"effect": String(d.get("desc", "")), "desc": String(d.get("desc", "")), "level": 0,
 		})
 	_capstone_weapon = kind
-	if _back_btn != null:
-		_back_btn.visible = false   # evolve is a commitment → no back arrow on the choice itself
-	if _title != null:
-		_title.text = "%s — EVOLVE" % String(info.get("label", kind))
+	_title.text = "%s — EVOLVE" % String(info.get("label", kind))
 	_render_current()
 	_play_sfx("res://assets/audio/sfx/uialert.wav")
 
@@ -658,10 +624,7 @@ func _show_aux_capstone(id: String) -> void:
 			"level": 0, "is_aux": true,
 		})
 	_capstone_weapon = id
-	if _back_btn != null:
-		_back_btn.visible = false   # evolve is a commitment
-	if _title != null:
-		_title.text = "%s — EVOLVE" % String(d.get("name", id))
+	_title.text = "%s — EVOLVE" % String(d.get("name", id))
 	_render_current()
 	_play_sfx("res://assets/audio/sfx/uialert.wav")
 
@@ -681,11 +644,7 @@ func _show_destroy_choice(evolve_kind: String) -> void:
 			"name": String(info.get("label", k)), "def_id": String(info.get("def_id", "")),
 			"color": Color(0.9, 0.3, 0.3), "effect": "DESTROY", "desc": "Sacrifice this weapon.", "level": 0,
 		})
-	_back_target = "capstone"
-	if _back_btn != null:
-		_back_btn.visible = true
-	if _title != null:
-		_title.text = "ALL-IN — destroy a weapon"
+	_title.text = "ALL-IN — destroy a weapon"
 	_render_current()
 	_play_sfx("res://assets/audio/sfx/uiclick.wav")
 
@@ -819,74 +778,130 @@ func _play_sfx(path: String) -> void:
 func _build_ui() -> void:
 	_root = Control.new()
 	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)
 
-	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.65)
-	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	dim.mouse_filter = Control.MOUSE_FILTER_STOP
-	_root.add_child(dim)
+	var backdrop := ColorRect.new()
+	backdrop.color = Color(0.02, 0.03, 0.06, 0.97)   # near-opaque: the level-up takes the whole screen
+	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
+	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	_root.add_child(backdrop)
 
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_root.add_child(center)
+	# Title strip (full width, top).
+	_title = Label.new()
+	_title.text = "LEVEL UP — choose an item"
+	_title.add_theme_font_size_override("font_size", 26)
+	_title.add_theme_font_override("font", load(FONT_PATH))
+	_title.add_theme_color_override("font_color", Color("#E5792A"))
+	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_title.anchor_left = 0.0; _title.anchor_right = 1.0
+	_title.anchor_top = 0.012; _title.anchor_bottom = 0.07
+	_root.add_child(_title)
 
-	# Fixed-size panel matching lvupframe proportions (~700×384 native)
-	var panel := Control.new()
-	panel.custom_minimum_size = Vector2(800, 433)
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	center.add_child(panel)
+	# Left column: 3 stacked slots.
+	_slot_nodes.clear()
+	var avail := CONTENT_BOTTOM - CONTENT_TOP
+	var slot_h := (avail - SLOT_GAP * 2.0) / 3.0
+	for i in 3:
+		var slot := _make_panel()
+		slot.anchor_left = COL_L_LEFT; slot.anchor_right = COL_L_RIGHT
+		slot.anchor_top = CONTENT_TOP + float(i) * (slot_h + SLOT_GAP)
+		slot.anchor_bottom = slot.anchor_top + slot_h
+		_root.add_child(slot)
+		_slot_nodes.append(slot)
 
-	# lvupframe as panel background (full-rect)
-	var panel_bg := TextureRect.new()
-	panel_bg.texture = TEX_FRAME
-	panel_bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	panel_bg.stretch_mode = TextureRect.STRETCH_SCALE
-	panel_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	panel_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(panel_bg)
+	# Center column: selected-item panel (top) + options box (bottom).
+	_selected_box = _make_panel()
+	_selected_box.anchor_left = COL_C_LEFT; _selected_box.anchor_right = COL_C_RIGHT
+	_selected_box.anchor_top = CONTENT_TOP; _selected_box.anchor_bottom = SEL_BOTTOM
+	_root.add_child(_selected_box)
 
-	# Title label — inside the teal bar slot at the top of lvupframe (~12%–88% wide, 3.5%–15% tall)
-	var title := Label.new()
-	title.text = "LEVEL UP — choose an item"
-	title.add_theme_font_size_override("font_size", 22)
-	title.add_theme_font_override("font", load("res://assets/fonts/Good Old DOS.ttf"))
-	title.add_theme_color_override("font_color", Color("#E5792A"))
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	title.anchor_left   = 0.0
-	title.anchor_right  = 1.0
-	title.anchor_top    = 0.035
-	title.anchor_bottom = 0.155
-	title.offset_top    = 38
-	title.offset_bottom = 38
-	title.offset_left   = -10
-	title.offset_right  = -10
-	panel.add_child(title)
-	_title = title
+	_options_box = Control.new()
+	_options_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_options_box.anchor_left = COL_C_LEFT; _options_box.anchor_right = COL_C_RIGHT
+	_options_box.anchor_top = OPT_TOP; _options_box.anchor_bottom = CONTENT_BOTTOM
+	_root.add_child(_options_box)
 
-	# Back arrow — only shown in the pool (2nd-tier) view; returns to the original 1st-tier options.
-	_back_btn = Button.new()
-	_back_btn.text = "←"
-	_back_btn.add_theme_font_size_override("font_size", 24)
-	_back_btn.focus_mode = Control.FOCUS_NONE
-	_back_btn.anchor_left = 0.0
-	_back_btn.anchor_top  = 0.0
-	_back_btn.offset_left = 18
-	_back_btn.offset_top  = 40
-	_back_btn.offset_right = 62
-	_back_btn.offset_bottom = 78
-	_back_btn.visible = false
-	_back_btn.pressed.connect(_back)
-	panel.add_child(_back_btn)
+	# Right column: curated stats list.
+	var stats_panel := _make_panel()
+	stats_panel.anchor_left = COL_R_LEFT; stats_panel.anchor_right = COL_R_RIGHT
+	stats_panel.anchor_top = CONTENT_TOP; stats_panel.anchor_bottom = CONTENT_BOTTOM
+	_root.add_child(stats_panel)
+	var stats_head := Label.new()
+	stats_head.text = "STATS"
+	stats_head.add_theme_font_override("font", load(FONT_PATH))
+	stats_head.add_theme_font_size_override("font_size", 20)
+	stats_head.add_theme_color_override("font_color", Color("#E5792A"))
+	stats_head.anchor_left = 0.0; stats_head.anchor_right = 1.0
+	stats_head.anchor_top = 0.01; stats_head.anchor_bottom = 0.07
+	stats_head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	stats_panel.add_child(stats_head)
+	_stats_box = VBoxContainer.new()
+	_stats_box.add_theme_constant_override("separation", 4)
+	_stats_box.anchor_left = 0.06; _stats_box.anchor_right = 0.94
+	_stats_box.anchor_top = 0.08; _stats_box.anchor_bottom = 0.98
+	stats_panel.add_child(_stats_box)
 
-	# Cards area — plain Control so we can position each card manually
-	_cards_box = Control.new()
-	_cards_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_cards_box.anchor_left   = 0.025
-	_cards_box.anchor_right  = 0.975
-	_cards_box.anchor_top    = 0.19
-	_cards_box.anchor_bottom = 0.97
-	panel.add_child(_cards_box)
+## A bordered translucent panel used for slots / the selected box / the stats column.
+func _make_panel() -> Panel:
+	var p := Panel.new()
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.08, 0.10, 0.16, 0.85)
+	sb.set_border_width_all(2)
+	sb.border_color = Color(0.30, 0.45, 0.70, 0.9)
+	sb.set_corner_radius_all(10)
+	p.add_theme_stylebox_override("panel", sb)
+	return p
+
+## Build the curated, read-only global-stat rows. Each entry is rendered only if its value resolves
+## (so stats not yet wired in GameManager are omitted rather than shown as 0). Refreshed on every open.
+func _refresh_stats() -> void:
+	if _stats_box == null:
+		return
+	for c in _stats_box.get_children():
+		c.free()
+	var gm := GameManager
+	if gm.has_method("get_damage_mult"):
+		_stats_box.add_child(_make_stat_row("Damage", "x%.2f" % gm.get_damage_mult()))
+	if gm.has_method("get_fire_rate_mult"):
+		_stats_box.add_child(_make_stat_row("Fire rate", "x%.2f" % gm.get_fire_rate_mult()))
+	if gm.has_method("get_crit_chance"):
+		_stats_box.add_child(_make_stat_row("Crit chance", "%d%%" % int(round(gm.get_crit_chance() * 100.0))))
+	if gm.has_method("get_crit_damage"):
+		_stats_box.add_child(_make_stat_row("Crit damage", "x%.2f" % gm.get_crit_damage()))
+	if gm.has_method("get_move_speed_mult"):
+		_stats_box.add_child(_make_stat_row("Move speed", "x%.2f" % gm.get_move_speed_mult()))
+	if gm.has_method("get_pickup_radius"):
+		_stats_box.add_child(_make_stat_row("Pickup", "%d" % int(round(gm.get_pickup_radius()))))
+	if gm.has_method("get_base_defense"):
+		_stats_box.add_child(_make_stat_row("Armor (flat)", "%d" % gm.get_base_defense()))
+	if gm.has_method("get_momentum_mult"):
+		_stats_box.add_child(_make_stat_row("Momentum", "x%.2f" % gm.get_momentum_mult()))
+	# Probe optional stats that may not exist yet (HP, AOE, armor pen). Add rows only if present.
+	if gm.has_method("get_max_hp"):
+		_stats_box.add_child(_make_stat_row("HP", "%d" % int(gm.get_max_hp())))
+	if gm.has_method("get_aoe_mult"):
+		_stats_box.add_child(_make_stat_row("AOE", "x%.2f" % gm.get_aoe_mult()))
+	if gm.has_method("get_armor_pen_pct"):
+		_stats_box.add_child(_make_stat_row("Armor pen %", "%d%%" % int(round(gm.get_armor_pen_pct() * 100.0))))
+	if gm.has_method("get_armor_pen_flat"):
+		_stats_box.add_child(_make_stat_row("Armor pen flat", "%d" % int(gm.get_armor_pen_flat())))
+
+func _make_stat_row(label: String, value: String) -> Control:
+	var row := HBoxContainer.new()
+	var l := Label.new()
+	l.text = label
+	l.add_theme_font_override("font", load(FONT_PATH))
+	l.add_theme_font_size_override("font_size", 15)
+	l.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(l)
+	var v := Label.new()
+	v.text = value
+	v.add_theme_font_override("font", load(FONT_PATH))
+	v.add_theme_font_size_override("font_size", 15)
+	v.add_theme_color_override("font_color", Color(1.0, 0.95, 0.6))
+	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(v)
+	return row
