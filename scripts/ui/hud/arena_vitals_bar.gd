@@ -27,6 +27,7 @@ const EDGE_DIM  := Color(0.40, 0.55, 0.85, 0.5)
 
 const FILL_LERP := 10.0       # fill smoothing rate (higher = snappier catch-up to the real value)
 const FLASH_DUR := 0.28       # damage white-flash duration (s)
+const REGEN_FLASH_DUR := 1.0  # blue "shield regenerating" notify flash duration (s)
 const LOW_HP_FRAC := 0.3      # below this HP fraction → the border pulses red
 
 var mode: String = "player"
@@ -38,6 +39,8 @@ var _prev_hp: float = -1.0    # last frame's absolute HP/shield (to detect damag
 var _prev_sh: float = -1.0
 var _hp_flash: float = 0.0    # HP damage-flash timer
 var _sh_flash: float = 0.0    # shield damage-flash timer
+var _regen_flash: float = 0.0 # shield-regen-started blue notify timer
+var _was_regen: bool = false  # was the shield increasing last frame (to fire the regen flash once on start)
 var _t: float = 0.0           # clock for the low-HP pulse
 var _cur: Dictionary = {}     # latest vitals snapshot (set in _process, read in _draw)
 
@@ -67,6 +70,11 @@ func _process(delta: float) -> void:
 		_hp_flash = FLASH_DUR
 	if _prev_sh >= 0.0 and float(v["sh"]) < _prev_sh - 0.01:
 		_sh_flash = FLASH_DUR
+	# Shield STARTED regenerating (first frame it ticks up) → fire the blue notify flash once.
+	var is_regen := _prev_sh >= 0.0 and float(v["sh"]) > _prev_sh + 0.01
+	if is_regen and not _was_regen:
+		_regen_flash = REGEN_FLASH_DUR
+	_was_regen = is_regen
 	_prev_hp = float(v["hp"])
 	_prev_sh = float(v["sh"])
 	# Smoothly catch the displayed fills up to their targets.
@@ -75,6 +83,7 @@ func _process(delta: float) -> void:
 	_sh_disp = lerpf(_sh_disp, sh_target, k)
 	_hp_flash = maxf(0.0, _hp_flash - delta)
 	_sh_flash = maxf(0.0, _sh_flash - delta)
+	_regen_flash = maxf(0.0, _regen_flash - delta)
 	queue_redraw()
 
 func _bar_size() -> Vector2:
@@ -148,6 +157,12 @@ func _draw() -> void:
 		edge = EDGE_COL.lerp(Color(1.0, 0.2, 0.2), 0.5 + 0.5 * sin(_t * 8.0))
 	var ol := outer.duplicate(); ol.append(outer[0])
 	draw_polyline(ol, edge, 2.0, true)
+	# Shield-damage flash: a white wash over the WHOLE bar (the thin shield band alone is too subtle to notice).
+	if _sh_flash > 0.0:
+		draw_colored_polygon(outer, Color(1.0, 1.0, 1.0, (_sh_flash / FLASH_DUR) * 0.5))
+	# Shield STARTED regenerating: a blue wash over the whole bar that fades over ~1s to notify the player.
+	if _regen_flash > 0.0:
+		draw_colored_polygon(outer, Color(0.35, 0.65, 1.0, (_regen_flash / REGEN_FLASH_DUR) * 0.4))
 	# Readouts.
 	if _font != null:
 		var hp_txt := "%d / %d" % [int(round(v["hp"])), int(v["hp_max"])]
