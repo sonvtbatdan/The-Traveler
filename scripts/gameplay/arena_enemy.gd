@@ -111,6 +111,40 @@ const FALLBACK := {
 	"thrown_bomb": {"behavior": "thrown_bomb", "hp": 12.0, "speed": THROWN_BOMB_SPEED, "size": 13.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(1.0, 0.55, 0.2), "icon": "res://assets/enemiesHD/bomb.png", "no_collide": true},
 }
 
+# ── Layout config cache ───────────────────────────────────────────────────────
+# creep_layout.cfg is 50+ KB / 500+ entries and was loaded+parsed FRESH FROM DISK on every enemy spawn
+# (draw size, firepoints, vortexpoints, tentacles) — a multi-ms stall that fired on every spawn-and-die at
+# the ring. Parse each layout config ONCE and share it. The creep/plume editors call reload_layout_cfgs()
+# after saving so live edits still apply.
+static var _creep_cfg: ConfigFile = null
+static var _creep_cfg_tried: bool = false
+static var _plume_cfg: ConfigFile = null
+static var _plume_cfg_tried: bool = false
+
+static func _creep_layout() -> ConfigFile:
+	if not _creep_cfg_tried:
+		_creep_cfg_tried = true
+		var c := ConfigFile.new()
+		_creep_cfg = c if c.load("res://creep_layout.cfg") == OK else null
+	return _creep_cfg
+
+static func _plume_styles_cfg() -> ConfigFile:
+	if not _plume_cfg_tried:
+		_plume_cfg_tried = true
+		var c := ConfigFile.new()
+		_plume_cfg = c if c.load("res://plume_styles.cfg") == OK else null
+	return _plume_cfg
+
+## Drop the cached layout configs (+ derived per-creep caches) so the next spawn re-reads from disk. Called
+## by the in-game creep/plume editors after they save, so live edits take effect without a restart.
+static func reload_layout_cfgs() -> void:
+	_creep_cfg_tried = false
+	_creep_cfg = null
+	_plume_cfg_tried = false
+	_plume_cfg = null
+	_fp_fracs_cache.clear()
+	_tp_fracs_cache.clear()
+
 # ── Fire-point positions (loaded from creep_layout.cfg [firepoints]) ─────────
 static var _fp_fracs_cache: Dictionary = {}
 var _fp_fracs: Array = []   # Array[{frac:Vector2, dir_angle:float, id:int}]
@@ -121,6 +155,8 @@ var _plumes: Array[CPUParticles2D] = []
 var _vortexes: Array = []   # EnergyVortex children (creep_layout.cfg [vortexpoints] + plume_styles.cfg [vortex_styles])
 var _plume_vrot_applied: float = 0.0   # last rotation pushed to plume emitters; skip the re-rotate when unchanged
 var _plume_vrot_init: bool = false
+const LOD_MARGIN := 180.0   # grow the camera-visible rect by this before the off-screen LOD test (sprite/plume slack)
+var _lod_visible: bool = true   # false → enemy is off-screen: skip _draw + pause plume emission (it still moves)
 var _plume_base: Array = []        # [{vel_min, vel_max, sc_min, sc_max, life}] per plume
 var _plume_base_cols: Array = []   # [PackedColorArray] per plume
 var _plume_red_cols: Array = []    # pre-built red gradient (dragonfly proximity)
@@ -445,8 +481,8 @@ func _load_icon() -> void:
 		_draw_size = Vector2(w, h)
 		var cname := _icon.get_file().get_basename().to_lower()
 		var raw_name := _icon.get_file().get_basename()   # editor keeps the file's original case (e.g. "Squid-body")
-		var eo_cfg := ConfigFile.new()
-		if eo_cfg.load("res://creep_layout.cfg") == OK:
+		var eo_cfg := _creep_layout()
+		if eo_cfg != null:
 			var eo: Dictionary = eo_cfg.get_value("creeps", raw_name, eo_cfg.get_value("creeps", cname, {}))
 			var eo_sz: Vector2 = eo.get("size", Vector2.ZERO)
 			if eo_sz.x > 0.0 and eo_sz.y > 0.0:
@@ -564,15 +600,15 @@ static func _resolve_cfg_key(cfg: ConfigFile, section: String, cname: String) ->
 	return cname
 
 static func _load_plume_styles_for(cname: String) -> Dictionary:
-	var cfg := ConfigFile.new()
-	if cfg.load("res://plume_styles.cfg") != OK:
+	var cfg := _plume_styles_cfg()
+	if cfg == null:
 		return {}
 	return cfg.get_value("styles", _resolve_cfg_key(cfg, "styles", cname), {})
 
 static func _load_tp_fracs(cname: String) -> Array:
 	const SCREEN_ORIGIN := Vector2(15.0, 8.0)
-	var cfg := ConfigFile.new()
-	if cfg.load("res://creep_layout.cfg") != OK:
+	var cfg := _creep_layout()
+	if cfg == null:
 		return []
 	var key := _resolve_cfg_key(cfg, "creeps", cname)
 	var eo: Dictionary = cfg.get_value("creeps", key, {})
@@ -597,8 +633,8 @@ func _setup_vortexes() -> void:
 	if _icon.is_empty() or _draw_size == Vector2.ZERO:
 		return
 	var cname := _icon.get_file().get_basename().to_lower()
-	var cfg := ConfigFile.new()
-	if cfg.load("res://creep_layout.cfg") != OK:
+	var cfg := _creep_layout()
+	if cfg == null:
 		return
 	var key := _resolve_cfg_key(cfg, "creeps", cname)
 	var eo: Dictionary = cfg.get_value("creeps", key, {})
@@ -632,8 +668,8 @@ func _setup_vortexes() -> void:
 		_vortexes.append(node)
 
 static func _load_vortex_styles_for(cname: String) -> Dictionary:
-	var cfg := ConfigFile.new()
-	if cfg.load("res://plume_styles.cfg") != OK:
+	var cfg := _plume_styles_cfg()
+	if cfg == null:
 		return {}
 	return cfg.get_value("vortex_styles", _resolve_cfg_key(cfg, "vortex_styles", cname), {})
 
@@ -647,8 +683,8 @@ func _setup_fire_points() -> void:
 
 static func _load_fp_fracs(cname: String) -> Array:
 	const SCREEN_ORIGIN := Vector2(15.0, 8.0)
-	var cfg := ConfigFile.new()
-	if cfg.load("res://creep_layout.cfg") != OK:
+	var cfg := _creep_layout()
+	if cfg == null:
 		return []
 	var key := _resolve_cfg_key(cfg, "creeps", cname)
 	var eo: Dictionary = cfg.get_value("creeps", key, {})
@@ -912,6 +948,8 @@ func apply_charm(dur: float) -> void:
 	if _dead or is_in_group("boss"):
 		return
 	_charm_t = dur
+	if not is_in_group("arena_charmed"):
+		add_to_group("arena_charmed")   # tiny group scanned by _resolve_aggro (keeps it O(charmed), not O(all enemies))
 
 func is_charmed() -> bool:
 	return _charm_t > 0.0
@@ -1009,6 +1047,8 @@ func _tick_status(delta: float) -> void:
 		_wiper_t = maxf(0.0, _wiper_t - delta)
 	if _charm_t > 0.0:
 		_charm_t = maxf(0.0, _charm_t - delta)
+		if _charm_t <= 0.0 and is_in_group("arena_charmed"):
+			remove_from_group("arena_charmed")   # charm expired → drop out of the scanned group
 	if _vuln_t > 0.0:
 		_vuln_t = maxf(0.0, _vuln_t - delta)
 	if _stun_t > 0.0:
@@ -1048,6 +1088,9 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore
 		queue_redraw()
 		return
 	# Armor damage reduction — RNG's GameManager curve (fallback to the inline formula if unavailable).
+	var dr := 0.0
+	if GameManager.has_method("armor_damage_reduction"):
+		dr = GameManager.armor_damage_reduction(armor)
 	else:
 		dr = (0.052 * armor) / (1.0 + 0.052 * armor)
 	var dealt := amount * (1.0 - dr)
@@ -1360,16 +1403,9 @@ func _spawn_explosion(size_px: float) -> void:
 	ex.call("setup", global_position, size_px)
 
 func _play_boom() -> void:
-	var stream := load("res://assets/audio/sfx/boom.wav") as AudioStream
-	if stream == null:
-		return
-	var p := AudioStreamPlayer.new()
-	p.stream = stream
-	p.bus = sfx_bus
-	p.volume_db = linear_to_db(0.7)
-	get_parent().add_child(p)
-	p.play()
-	p.finished.connect(p.queue_free)
+	# Route through the manager's pooled+throttled boom (no per-death node churn / boom cacophony at mass death).
+	if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("play_boom"):
+		_mgr.play_boom()
 
 ## Play a one-shot attack sound (lazily creates the player on first use). Plays once — no loop.
 func _play_sfx(stream: AudioStream) -> void:
@@ -1391,10 +1427,13 @@ func _resolve_aggro() -> Node:
 	var bd := 1.0e20
 	if _target != null and is_instance_valid(_target):
 		bd = global_position.distance_squared_to((_target as Node2D).global_position)
-	for e in get_tree().get_nodes_in_group("arena_enemy"):
+	# Only charmed enemies are extra targets. Scanning the (almost always empty) "arena_charmed" group instead
+	# of ALL enemies turns this per-frame, per-enemy call from O(N²) into O(N × charmed) — critical at 200-300.
+	var charmed := get_tree().get_nodes_in_group("arena_charmed")
+	if charmed.is_empty():
+		return best
+	for e in charmed:
 		if e == self or not is_instance_valid(e):
-			continue
-		if not (e.has_method("is_charmed") and e.call("is_charmed")):
 			continue
 		var d: float = global_position.distance_squared_to((e as Node2D).global_position)
 		if d < bd:
@@ -1506,28 +1545,43 @@ func _physics_process(delta: float) -> void:
 	if material != _want_mat:
 		material = _want_mat
 	_check_contact()
-	# Glue plume emitters to the sprite: same rotation AND scale as the drawn sprite (draw_set_transform
-	# rotates/scales the sprite but not child nodes, so we mirror it here).
-	_update_plumes()
-	if not _plumes.is_empty():
-		var vrot := _spin if behavior == "centipede" else _facing
-		# Only re-rotate the emitters when the rotation actually moved (skips the per-frame .rotated() churn
-		# for the hundreds of near-static swarm enemies that dominate the node count).
-		if not _plume_vrot_init or absf(angle_difference(vrot, _plume_vrot_applied)) > 0.01:
-			_plume_vrot_init = true
-			_plume_vrot_applied = vrot
+	# Off-screen LOD: an enemy outside the camera-visible rect (+ margin) skips ALL its visual work — no _draw,
+	# no plume transform, and its plumes stop emitting (drain to ~0 particles). It keeps moving (physics above),
+	# so it still closes on the player; visuals resume the frame it re-enters view. This is the dominant saving
+	# at 500 enemies (the per-enemy CPUParticles2D plume sim + _draw are the heaviest per-frame costs).
+	var on_screen := true
+	if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("visible_world_rect"):
+		on_screen = (_mgr.visible_world_rect() as Rect2).grow(LOD_MARGIN).has_point(global_position)
+	if on_screen != _lod_visible:
+		_lod_visible = on_screen
+		if not _docked:   # docked escorts manage their own emitting via set_docked — don't fight it
 			for p: CPUParticles2D in _plumes:
 				if is_instance_valid(p):
-					p.position  = (p.get_meta("base_pos") as Vector2).rotated(vrot)
-					p.direction = (p.get_meta("base_dir") as Vector2).rotated(vrot)
-	_update_vortex_xform()   # glue vortexes to the sprite (position + scale + rotation)
+					p.emitting = on_screen
+	if on_screen:
+		# Glue plume emitters to the sprite: same rotation AND scale as the drawn sprite (draw_set_transform
+		# rotates/scales the sprite but not child nodes, so we mirror it here).
+		_update_plumes()
+		if not _plumes.is_empty():
+			var vrot := _spin if behavior == "centipede" else _facing
+			# Only re-rotate the emitters when the rotation actually moved (skips the per-frame .rotated() churn
+			# for the hundreds of near-static swarm enemies that dominate the node count).
+			if not _plume_vrot_init or absf(angle_difference(vrot, _plume_vrot_applied)) > 0.01:
+				_plume_vrot_init = true
+				_plume_vrot_applied = vrot
+				for p: CPUParticles2D in _plumes:
+					if is_instance_valid(p):
+						p.position  = (p.get_meta("base_pos") as Vector2).rotated(vrot)
+						p.direction = (p.get_meta("base_dir") as Vector2).rotated(vrot)
+		_update_vortex_xform()   # glue vortexes to the sprite (position + scale + rotation)
 	if _has_eye:
 		_update_eye(delta)
 	if not _tent_template.is_empty():
 		_update_tentacle(delta)
 	if behavior == "centipede":
 		_update_centipede_chain()   # body trails the head's final (post-knockback) position
-	queue_redraw()   # bob/squash/facing animate continuously
+	if on_screen:
+		queue_redraw()   # bob/squash/facing animate continuously (skipped off-screen — last frame persists)
 
 ## Slide the tracking eye toward the player within its socket. _eye_off is in local (pre-rotation) px,
 ## relative to the socket center, smoothed so the gaze eases rather than snaps.
@@ -1549,8 +1603,8 @@ func _load_tentacle() -> void:
 	_tent_init = false
 	if _icon.is_empty() or _draw_size == Vector2.ZERO:
 		return
-	var cfg := ConfigFile.new()
-	if cfg.load("res://creep_layout.cfg") != OK or not cfg.has_section("creeps"):
+	var cfg := _creep_layout()
+	if cfg == null or not cfg.has_section("creeps"):
 		return
 	var body_name := _icon.get_file().get_basename()
 	var keys := cfg.get_section_keys("creeps")
@@ -2165,6 +2219,8 @@ func _exit_tree() -> void:
 func _check_contact() -> void:
 	if _ship_contact_cd > 0.0:
 		_ship_contact_cd -= get_physics_process_delta_time()
+	# Ship contact-back damage (Orbital pool) — 0 unless GameManager provides the curve.
+	var ship_cd: float = GameManager.ship_contact_damage() if GameManager.has_method("ship_contact_damage") else 0.0
 	var t := _aggro_target
 	if t == null or not is_instance_valid(t):
 		return
@@ -2180,16 +2236,19 @@ func _check_contact() -> void:
 	if global_position.distance_to(_player_pos()) <= 16.0 + _radius:
 		if contact_damage > 0:
 			GameManager.ship_take_damage(int(round(contact_damage * damage_out_mult())))
+		# The player's contact (ramming) damage to the enemy — 0 by default, only > 0 with the contact-damage
+		# upgrade. The enemy does NOT die from touching the player; it just takes this (and keeps attacking).
 		if ship_cd > 0.0 and _ship_contact_cd <= 0.0:
-			take_damage(ship_cd, 0.0)        # ship hits back (Orbital pool: ship contact damage)
+			take_damage(ship_cd, 0.0)
 			_ship_contact_cd = 0.5
+		# Only bombs detonate + die on contact; every other enemy survives the touch.
+		if contact_explodes and (behavior == "bomb" or behavior == "thrown_bomb"):
+			_on_contact_death()
 	else:
 		# enemy-vs-enemy (charm): deal contact damage to the target, throttled.
 		if contact_damage > 0 and t.has_method("take_damage") and _ship_contact_cd <= 0.0:
 			t.take_damage(float(contact_damage) * damage_out_mult())
 			_ship_contact_cd = 0.4
-	if contact_explodes:
-		_on_contact_death()
 
 func _on_contact_death() -> void:
 	if (behavior == "bomb" or behavior == "thrown_bomb") and _mgr != null and _mgr.has_method("explode"):

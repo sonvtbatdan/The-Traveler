@@ -10,6 +10,7 @@ const ArenaPopulator := preload("res://scripts/gameplay/arena_populator.gd")
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
 const PLANET_FACTOR  := 0.40    # parallax: 0 = static far, 1 = surface speed (mid-distance)
 const PLANET_Z       := -50     # behind player/enemies/projectiles, in front of nebula/stars
+const SPAWN_PER_FRAME := 1       # max new planets streamed in per frame (amortized to kill movement hitch)
 const STREAM_ENABLED := true    # procedural planets stream everywhere BEYOND the home zone (ArenaPopulator.HOME_RADIUS);
                                 # the authored arena_solar_system.gd still owns the start area near origin.
 # Placement (cell size, rarity weight, jitter, min-distance, biome density) is unified in ArenaPopulator
@@ -44,14 +45,16 @@ func _process(_delta: float) -> void:
 	var cy0 := int(floor((vc.y - half.y) / cs))
 	var cy1 := int(ceil((vc.y + half.y) / cs))
 	var needed := {}
+	var budget := SPAWN_PER_FRAME   # amortize: cap new planets/frame so crossing cells doesn't spike (rest fill in next frames)
 	for cy in range(cy0, cy1 + 1):
 		for cx in range(cx0, cx1 + 1):
 			var key := Vector2i(cx, cy)
 			var place := ArenaPopulator.place_in_cell(ArenaPopulator.PLANET, key)
 			if not place.is_empty():
-				needed[key] = true
-				if not _planets.has(key):
+				needed[key] = true   # mark needed even if deferred, so it isn't despawned before it spawns
+				if not _planets.has(key) and budget > 0:
 					_spawn_cell(key, place["pos"], place["rng"])
+					budget -= 1
 	for key: Vector2i in _planets.keys():
 		if not needed.has(key):
 			if is_instance_valid(_planets[key]):

@@ -1158,6 +1158,12 @@ func _load_orbital_tex() -> void:
 ## Light sources this weapon currently emits, for the dust field: one per live projectile/beam.
 ## Each: {pos: world Vector2, value: float (light strength), color: Color}.
 func get_lights() -> Array:
+	# Built once per frame and cached: both arena_dust and arena_asteroids call this every frame, and it
+	# rebuilds a dict per live bullet/orb/arc — no need to do that twice (or allocate it fresh per consumer).
+	var lf := Engine.get_process_frames()
+	if lf == _lights_frame:
+		return _lights_cache
+	_lights_frame = lf
 	var lights: Array = []
 	if _gat_active:
 		for b: Dictionary in _bullets:
@@ -1199,6 +1205,7 @@ func get_lights() -> Array:
 			lights.append({"pos": u["pos"], "value": 2.0, "color": SWARM_COL})
 	if (_snake_active or _predator_active) and not _snake_pts.is_empty():
 		lights.append({"pos": _snake_pts[0], "value": 3.0, "color": SNAKE_COL})
+	_lights_cache = lights
 	return lights
 
 ## True when the equipment-driven loadout engine has a primary weapon equipped (so this default
@@ -1242,6 +1249,21 @@ func _enemies() -> Array[Node]:
 				out.append(e)
 		_enemy_cache = out
 	return _enemy_cache
+
+var _ruin_cache: Array[Node] = []
+var _ruin_cache_frame: int = -1
+
+var _lights_cache: Array = []
+var _lights_frame: int = -1
+
+## Ruins (group "arena_ruin"), cached once per frame — same rationale as _enemies(). Small group, but several
+## weapon ticks iterated it per-bullet/per-tick, so the per-call group lookup + array alloc added up.
+func _ruins() -> Array[Node]:
+	var f := Engine.get_process_frames()
+	if f != _ruin_cache_frame:
+		_ruin_cache_frame = f
+		_ruin_cache = get_tree().get_nodes_in_group("arena_ruin")
+	return _ruin_cache
 
 func _process(delta: float) -> void:
 	if _player == null or not is_instance_valid(_player):
@@ -1715,7 +1737,7 @@ func _base_cd(kind: String) -> float:
 		"gatling":     return GAT_FIRE_INTERVAL
 		"gauss":       return GAUSS_CHARGE_TIME
 		"arc":         return ARC_COOLDOWN
-		"nuke":        return NUKE_COOLDOWN
+		"nuke":        return MORTAR_FIRE_INTERVAL
 		"sonic":       return SONIC_COOLDOWN
 		"zsword":      return ZSWORD_COOLDOWN
 		"parasite":    return PARA_COOLDOWN
@@ -2318,7 +2340,7 @@ func _dragon_damage_tick() -> void:
 				_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
 		if en.has_method("apply_burn") and _proc(burn_ch):
 			en.call("apply_burn", 1)
-	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+	for ruin in _ruins():
 		if not is_instance_valid(ruin):
 			continue
 		var roff := (ruin as Node2D).global_position - origin
@@ -2408,7 +2430,7 @@ func _red_x_damage(kind: String, scale: float, base_angle := PI / 4.0) -> void:
 				en.take_damage(float(r["dmg"]), 0.0)
 				if bool(r["is_crit"]):
 					_spawn_crit_number(ep, float(r["dmg"]))
-	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+	for ruin in _ruins():
 		if not is_instance_valid(ruin):
 			continue
 		if center.distance_to((ruin as Node2D).global_position) <= RED_X_REACH:
@@ -2558,7 +2580,7 @@ func _chemtrail_dot_tick(kind := "chemtrail") -> void:
 				en.call("apply_burn", 1)
 			if sed > 0.0 and en.has_method("apply_sedative"):
 				en.call("apply_sedative", sed, sed)
-	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+	for ruin in _ruins():
 		if not is_instance_valid(ruin):
 			continue
 		if _chemtrail_covers((ruin as Node2D).global_position) and ruin.has_method("take_damage"):
@@ -2825,7 +2847,7 @@ func _tick_void(delta: float) -> void:
 			if _void_pos.distance_to((en as Node2D).global_position) <= radius + VOID_HIT_PAD:
 				if en.has_method("take_damage"):
 					en.take_damage(per_tick, 0.0, 0.0, "void")
-		for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+		for ruin in _ruins():
 			if not is_instance_valid(ruin):
 				continue
 			var rr: float = radius + (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0)
@@ -3175,7 +3197,7 @@ func _tick_striker(delta: float, enemy_on_screen: bool) -> void:
 ## Damage any enemy/ruin within STRIKER_HIT_RADIUS of `pos`. Returns true if it hit something (ends the strike).
 func _striker_impact(pos: Vector2) -> bool:
 	var hit := false
-	for en in get_tree().get_nodes_in_group("arena_enemy"):
+	for en in _enemies():
 		if not is_instance_valid(en):
 			continue
 		var er = en.get("hit_radius")
@@ -3189,7 +3211,7 @@ func _striker_impact(pos: Vector2) -> bool:
 			hit = true
 			break
 	if not hit:
-		for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+		for ruin in _ruins():
 			if not is_instance_valid(ruin):
 				continue
 			var rr: float = STRIKER_HIT_RADIUS + (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0)
@@ -3924,7 +3946,7 @@ func _gauss_explosion_tick(center: Vector2, kind := "gauss", size_mult := 1.0, a
 						en.call("apply_burn", 1)
 					if _gauss_stun_chance() > 0.0 and en.has_method("apply_stun") and _proc(_gauss_stun_chance() * GAUSS_TICK_INTERVAL):
 						en.call("apply_stun", 0.5 * (1.0 + (GameManager.mech_bonus("lightning_stun_dur") if GameManager.has_method("mech_bonus") else 0.0)))
-	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+	for ruin in _ruins():
 		if not is_instance_valid(ruin):
 			continue
 		var ruin_r: float = radius + (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0)
@@ -4055,7 +4077,7 @@ func _tick_mortar_bullets(delta: float) -> void:
 		var pos: Vector2 = (b["pos"] as Vector2) + (b["vel"] as Vector2) * delta
 		b["pos"] = pos
 		var hit := false
-		for en in get_tree().get_nodes_in_group("arena_enemy"):
+		for en in _enemies():
 			if not is_instance_valid(en):
 				continue
 			var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 12.0
@@ -4074,18 +4096,18 @@ func _explode_mortar(pos: Vector2, kind: String) -> void:
 	var is_fat := kind == "fat_boy"
 	var dmg := FATBOY_DAMAGE if is_fat else MORTAR_DAMAGE
 	var aoe := _aoe_radius(FATBOY_AOE if is_fat else MORTAR_AOE)
-	for en in get_tree().get_nodes_in_group("arena_enemy"):
+	for en in _enemies():
 		if not is_instance_valid(en):
 			continue
 		var en2 := en as Node2D
 		var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0
 		if pos.distance_to(en2.global_position) <= aoe + enr:
 			if en.has_method("take_damage"):
-				var r := _roll_damage(NUKE_DAMAGE, "nuke")
+				var r := _roll_damage(dmg, "nuke")
 				en.take_damage(float(r["dmg"]), NUKE_BLAST_STAGGER, 1.0, false, true, bool(r["is_crit"]))   # Nuke keeps pushback
 				if bool(r["is_crit"]):
 					_spawn_crit_number(en2.global_position, float(r["dmg"]))
-	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+	for ruin in _ruins():
 		if not is_instance_valid(ruin):
 			continue
 		var rr: float = aoe + (float(ruin.get("hit_radius")) if ruin.get("hit_radius") != null else 0.0)
@@ -4442,7 +4464,7 @@ func _tick_ionize(delta: float) -> void:
 				en.take_damage(float(r["dmg"]), 0.0)
 				if bool(r["is_crit"]):
 					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
-	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+	for ruin in _ruins():
 		if not is_instance_valid(ruin):
 			continue
 		var rr: float = reach + (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0)
@@ -5348,7 +5370,7 @@ func _missile_explode(pos: Vector2, dmg: float, kind := "homing") -> void:
 				en.take_damage(float(r["dmg"]), 0.0)
 				if bool(r["is_crit"]):
 					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
-	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+	for ruin in _ruins():
 		if not is_instance_valid(ruin):
 			continue
 		var rr: float = reach + (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0)

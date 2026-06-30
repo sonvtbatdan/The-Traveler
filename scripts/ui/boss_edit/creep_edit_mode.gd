@@ -6,6 +6,7 @@ const EditableObject  := preload("res://scenes/ui/edit_mode/editable_object.tscn
 const GifLoader       := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const GridOverlay     := preload("res://scripts/ui/boss_edit/grid_overlay.gd")
 const EnergyVortex    := preload("res://scripts/gameplay/fx/energy_vortex.gd")
+const ArenaEnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")   # to invalidate its cached layout cfg on save
 const LAYOUT_PATH       := "res://creep_layout.cfg"
 const PLUME_STYLES_PATH := "res://plume_styles.cfg"
 const ENEMIES_FOLDER    := "res://assets/enemiesHD/"
@@ -2273,6 +2274,7 @@ func _save_layout() -> void:
 	cfg.save(_layout_path())
 	_save_plume_styles()
 	_save_vortex_styles()
+	ArenaEnemyScript.reload_layout_cfgs()   # drop the spawn-time cache so live creep/plume edits apply next spawn
 	_dirty = false
 	show_toast("Saved " + _layout_path().get_file())
 

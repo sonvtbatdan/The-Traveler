@@ -15,10 +15,10 @@ const SPAWN_VARY    := 120.0   # ± jitter on spawn radius
 const COUNT_MULT    := 1.0     # global multiplier on every entry's count
 const HP_MULT       := 1.0     # global enemy-HP multiplier (quick difficulty knob)
 const SPEED_MULT    := 1.0     # global enemy-speed multiplier
-const MAX_ALIVE     := 120     # hard cap on living enemies (bosses still spawn over the cap)
+const MAX_ALIVE     := 500    # hard cap on living enemies (bosses still spawn over the cap)
 const BLOB_SPAWN_R  := 90.0    # cluster radius for "blob" enemies (e.g. the 50-strong swarm)
 const SPAWN_BUDGET  := 4       # max enemy nodes CREATED per frame — big batches (rings, the 50-blob) are queued
-                               # and drained over several frames so a wave never instantiates everything at once.
+							   # and drained over several frames so a wave never instantiates everything at once.
 
 # ══ 1. ENEMY DEFINITION TABLE ══════════════════════════════════════════════════
 # id → { behavior, hp, speed, size, contact, xp, shape, tint, (explodes), (armor) }

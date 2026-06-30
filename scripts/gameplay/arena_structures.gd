@@ -12,6 +12,7 @@ const ArenaPopulator := preload("res://scripts/gameplay/arena_populator.gd")
 const STRUCTURE_FACTOR  := 0.25     # parallax: slower than planets (0.40) → farther/bigger-feeling
 const STRUCTURE_Z       := -60      # in front of star field (-100), behind planets (-50)/comets (-48)
 const STRUCTURE_TYPE_COUNT := 3     # types in rotation (0..2). Pillars (type 3) disabled for now → set 4 to re-enable
+const SPAWN_PER_FRAME := 1          # max new structures streamed in per frame (amortized to kill movement hitch)
 # Placement (cell size, rarity weight, jitter, min-distance, biome density) is unified in ArenaPopulator
 # (type ArenaPopulator.STRUCTURE, setpiece group 0 → no two structures overlap). Only parallax + visuals here.
 
@@ -35,14 +36,16 @@ func _process(_delta: float) -> void:
 	var cy0 := int(floor((vc.y - half.y) / cs))
 	var cy1 := int(ceil((vc.y + half.y) / cs))
 	var needed := {}
+	var budget := SPAWN_PER_FRAME   # amortize: cap new structures/frame so crossing cells doesn't spike (rest fill in next frames)
 	for cy in range(cy0, cy1 + 1):
 		for cx in range(cx0, cx1 + 1):
 			var key := Vector2i(cx, cy)
 			var place := ArenaPopulator.place_in_cell(ArenaPopulator.STRUCTURE, key)
 			if not place.is_empty():
-				needed[key] = true
-				if not _structures.has(key):
+				needed[key] = true   # mark needed even if deferred, so it isn't despawned before it spawns
+				if not _structures.has(key) and budget > 0:
 					_spawn_cell(key, place["pos"], place["rng"])
+					budget -= 1
 	for key: Vector2i in _structures.keys():
 		if not needed.has(key):
 			if is_instance_valid(_structures[key]):

@@ -1,19 +1,9 @@
 [remap]
 
-importer="csv_translation"
-type="Translation"
+importer="keep"
 uid="uid://b2l80ntyepcjj"
 
 [deps]
 
-files=["res://weapon_current.Rarity.translation", "res://weapon_current.Tags.translation", "res://weapon_current.Fire Mode.translation", "res://weapon_current.Fire Type.translation", "res://weapon_current.Damage.translation", "res://weapon_current.Fire Rate / Cadence.translation", "res://weapon_current.Energy Use.translation", "res://weapon_current.Range / Radius.translation", "res://weapon_current.Other Stats.translation", "res://weapon_current.Grid Size.translation", "res://weapon_current.Weight.translation", "res://weapon_current.What it does / how it works.translation"]
-
 source_file="res://weapon_current.csv"
-dest_files=["res://weapon_current.Rarity.translation", "res://weapon_current.Tags.translation", "res://weapon_current.Fire Mode.translation", "res://weapon_current.Fire Type.translation", "res://weapon_current.Damage.translation", "res://weapon_current.Fire Rate / Cadence.translation", "res://weapon_current.Energy Use.translation", "res://weapon_current.Range / Radius.translation", "res://weapon_current.Other Stats.translation", "res://weapon_current.Grid Size.translation", "res://weapon_current.Weight.translation", "res://weapon_current.What it does / how it works.translation"]
-
-[params]
-
-compress=1
-delimiter=0
-unescape_keys=false
-unescape_translations=true
+dest_files=[]
