@@ -66,9 +66,13 @@ const MAX_LEVEL: int = 50         # level cap; XP stops accruing once reached
 const XP_PER_ASTEROID: int = 1            # flat XP per asteroid destroyed
 const XP_ASTEROID_SIZE_DIV: float = 12.0  # + round(width / this) → bigger rocks worth more
 const XP_PER_BOSS: int = 500              # one lump on a boss's FINAL defeat (the "event" reward)
+const XP_GAIN_SCALE: float = 1.0 / 20.0   # GLOBAL multiplier on ALL earned XP (1/20 = 5% of the source value).
+                                          # Applied on top of upg_xp_gain_mult; fractional remainder carries between
+                                          # kills (see add_xp) so low-XP enemies still count instead of rounding to 0.
 
 var player_level: int = 1   # starts at 1
 var player_xp:    int = 0    # current XP toward the NEXT level (resets to 0 on each level-up)
+var _xp_frac_acc: float = 0.0   # sub-1 XP carried between add_xp calls so XP_GAIN_SCALE stays exact over many kills
 
 ## XP required to advance FROM `level` to the next: round(BASE_XP * GROWTH^(level-1)).
 ## Accelerating, so each level is a bigger step than the last.
@@ -84,7 +88,14 @@ func xp_for_asteroid(width: float) -> int:
 func add_xp(amount: int) -> void:
 	if amount <= 0 or player_level >= MAX_LEVEL:
 		return
-	player_xp += int(round(float(amount) * upg_xp_gain_mult))   # Data Harvester aux item scales XP gain
+	# Data Harvester aux item scales XP gain; XP_GAIN_SCALE is the global 1/20 reduction. Accumulate the scaled
+	# value as a float and only spend whole points, carrying the remainder so low-XP kills aren't lost to rounding.
+	_xp_frac_acc += float(amount) * upg_xp_gain_mult * XP_GAIN_SCALE
+	var gain := int(_xp_frac_acc)
+	_xp_frac_acc -= float(gain)
+	if gain <= 0:
+		return
+	player_xp += gain
 	var leveled := false
 	while player_level < MAX_LEVEL and player_xp >= xp_to_next(player_level):
 		player_xp -= xp_to_next(player_level)
@@ -211,9 +222,10 @@ func armor_damage_reduction(armor: float) -> float:
 		return ENEMY_ARMOR_DR_MIN   # armor at/below the pole (-200) → max amplification
 	return clampf(ARMOR_DR_COEFF * armor / denom, ENEMY_ARMOR_DR_MIN, 0.95)
 
-# ── Shield (granted by an equipped Shield Generator in the Secondary slot) ─────
-const SHIELD_REGEN_DELAY: float = 3.0   # seconds of no damage before regen starts
-const SHIELD_REGEN_TIME:  float = 1.5   # seconds to refill 0 → capacity
+# ── Shield (base capacity always present; generators/affixes add on top) ─────
+const BASE_SHIELD_MAX:    float = 20.0  # default shield capacity (always present, even with no generator)
+const SHIELD_REGEN_DELAY: float = 20.0  # seconds of no damage before shield regen starts
+const SHIELD_REGEN_RATE:  float = 1.0   # shield points regenerated per second (flat)
 var ship_shield:       float = 0.0      # current shield points
 var _shield_max:       float = 0.0      # capacity of the equipped generator (0 = none equipped)
 var _shield_dmg_timer: float = 999.0    # time since last damage; regen once >= SHIELD_REGEN_DELAY
@@ -389,7 +401,7 @@ func set_heat_syphon(v: float) -> void:
 func set_chem_heal(v: float) -> void:
 	_chem_heal_regen = v
 func shield_capacity_total() -> float:
-	return _equipped_shield_capacity() + sum_affix("shield_flat") + upg_force_shield_max
+	return BASE_SHIELD_MAX + _equipped_shield_capacity() + sum_affix("shield_flat") + upg_force_shield_max
 func shield_regen_bonus() -> float:
 	return sum_affix("shield_regen")   # flat shield/s added to the refill rate
 func shield_delay() -> float:
@@ -489,7 +501,7 @@ func _tick_shield(delta: float) -> void:
 	# Default: inventory generator's delay + (capacity / refill-time) rate. The Force Field aux overrides BOTH to
 	# its spec (10s delay, +1 shield/sec per level) when present — in the arena it's the only shield source.
 	var delay := shield_delay()
-	var rate := (_shield_max / SHIELD_REGEN_TIME) + shield_regen_bonus()
+	var rate := SHIELD_REGEN_RATE + shield_regen_bonus()   # flat 1 shield/sec (+ any affix bonus)
 	if upg_force_shield_max > 0.0:
 		delay = FORCE_SHIELD_DELAY
 		rate = upg_force_shield_regen
