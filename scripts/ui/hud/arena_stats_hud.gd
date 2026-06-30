@@ -6,12 +6,12 @@ extends Control
 const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
 
 # ── XP bar geometry ──
-const XP_H            := 24.0    # bar height
-const XP_BOTTOM_MARGIN := 6.0    # hug the bottom screen edge (the vitals bar sits above it)
-const XP_W_FRAC       := 0.5     # bar width — matches the vitals bar so they stack as one column
+const XP_H            := 9.0     # bar height — thin strip hugging the top edge
+const XP_TOP_MARGIN   := 5.0     # gap from the top screen edge
+const XP_W_FRAC       := 0.6     # bar width as a fraction of the viewport width
 const XP_W_MIN        := 480.0
-const XP_W_MAX        := 900.0
-const XP_PAD          := 10.0    # text inset from the bar's left/right edges
+const XP_W_MAX        := 1000.0
+const XP_PAD          := 10.0    # (unused now that the XP bar carries no text)
 
 # ── Top-right counters geometry ──
 const TR_TOP          := 118.0   # start below the perf overlay (which occupies y 8–110)
@@ -66,9 +66,11 @@ func _build() -> void:
 	add_child(_xp_fill)
 
 	_xp_label = _make_label(Color("#EAF7E8"), HORIZONTAL_ALIGNMENT_LEFT)
+	_xp_label.visible = false   # XP bar carries no text — just a thin fill strip at the top
 	add_child(_xp_label)
 
 	_lv_label = _make_label(Color("#FBF662"), HORIZONTAL_ALIGNMENT_RIGHT)
+	_lv_label.visible = false
 	add_child(_lv_label)
 
 	# ── Top-right counters ──
@@ -106,17 +108,13 @@ func _make_icon(color: Color) -> ColorRect:
 func _relayout() -> void:
 	var vp := get_viewport_rect().size
 
-	# XP bar — centered horizontally, pinned near the bottom edge.
+	# XP bar — a thin strip centered horizontally, hugging the TOP edge. No text.
 	var bar_w := clampf(vp.x * XP_W_FRAC, XP_W_MIN, XP_W_MAX)
 	var bar_x := (vp.x - bar_w) * 0.5
-	var bar_y := vp.y - XP_H - XP_BOTTOM_MARGIN
+	var bar_y := XP_TOP_MARGIN
 	_xp_bg.position = Vector2(bar_x, bar_y)
 	_xp_bg.size = Vector2(bar_w, XP_H)
 	_xp_fill.position = Vector2(bar_x, bar_y)   # width set by _refresh_xp_fill()
-	_xp_label.position = Vector2(bar_x + XP_PAD, bar_y)
-	_xp_label.size = Vector2(bar_w - XP_PAD * 2.0, XP_H)
-	_lv_label.position = Vector2(bar_x + XP_PAD, bar_y)
-	_lv_label.size = Vector2(bar_w - XP_PAD * 2.0, XP_H)
 	_refresh_xp_fill()
 
 	# Top-right counters — two stacked rows under the perf overlay.
