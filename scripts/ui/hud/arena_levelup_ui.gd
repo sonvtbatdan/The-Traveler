@@ -11,11 +11,6 @@ extends CanvasLayer
 const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")
 const ArenaAux     := preload("res://scripts/gameplay/arena_aux.gd")
 
-const TEX_FRAME := preload("res://assets/hud/lvupframe.png")
-const TEX_GREEN := preload("res://assets/hud/lvgreen.png")
-const TEX_RED   := preload("res://assets/hud/lvred.png")
-const TEX_BLUE  := preload("res://assets/hud/lvblue.png")
-
 const CHOICES := 3
 # Chance a given card slot rolls from the owned-upgrade pool (vs the full new+owned pool). Higher = the player
 # sees upgrades for what they already own more often, so picked items keep showing up. (Pivot §5 suggests this
@@ -105,10 +100,6 @@ func _show_cards() -> void:
 	_root.show()
 	_play_sfx("res://assets/audio/sfx/uialert.wav")
 	_select_item(0)
-
-## Legacy card-row render — stubbed; the full-screen path renders via _render_left/_render_options.
-func _render_current() -> void:
-	pass
 
 ## A centered sprite for a weapon/fusion def_id, or a colour swatch fallback (aux items have no art).
 ## The TextureRect keeps the texture's aspect (never stretched).
@@ -454,154 +445,6 @@ func _fusion_choice(aw: Node, fid: String) -> Dictionary:
 		"effect": "FUSE\n%s + %s" % [String(ai.get("label", a)), String(bi.get("label", b))],
 	}
 
-# Card layout constants — keep in sync with custom_minimum_size in _make_card().
-const _CW    := 160.0   # card width
-const _CH    := 208.0   # card height
-const _CGAP  := 10.0    # gap between cards
-const _CSHIFT := 20.0   # left card shifts left / right card shifts right by this amount
-
-func _position_cards() -> void:
-	pass   # legacy card positioning — superseded by anchor-based full-screen layout (removed in cleanup)
-
-func _bg_tex(cat: String) -> Texture2D:
-	# Weapons use the red frame; aux items the green. (Blue kept for any future third class.)
-	match cat:
-		"weapon": return TEX_RED
-		"pool":   return TEX_RED   # weapon sub-upgrade → red frame like its weapon
-		"capstone": return TEX_BLUE   # evolve → blue (gold-tinted + pulsed in _make_card)
-		"destroy":  return TEX_RED
-		"aux":    return TEX_GREEN
-		"aux_pool": return TEX_GREEN   # aux sub-upgrade → green frame like its item
-		"fusion": return TEX_BLUE   # the (otherwise-unused) blue frame, gold-tinted + pulsed in _make_card
-		_:        return TEX_BLUE
-
-func _make_card(c: Dictionary, idx: int) -> Control:
-	var card := Control.new()
-	card.custom_minimum_size = Vector2(160, 208)
-
-	# Background texture (fills entire card)
-	var bg := TextureRect.new()
-	bg.texture = _bg_tex(String(c["cat"]))
-	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	bg.stretch_mode = TextureRect.STRETCH_SCALE
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	card.add_child(bg)
-
-	# Icon — weapons load their inventory icon; aux items show a placeholder colour swatch (no art yet).
-	var icon_node := _make_icon(c)
-	icon_node.anchor_left   = 0.255
-	icon_node.anchor_right  = 0.745
-	icon_node.anchor_top    = 0.158
-	icon_node.anchor_bottom = 0.473
-	card.add_child(icon_node)
-	card.set_meta("icon_tex", icon_node)
-
-	# Name label — always visible (items have no recognisable art, so the name carries the card).
-	var lbl_name := _styled_label(String(c["name"]), 15)
-	lbl_name.anchor_left   = 0.05
-	lbl_name.anchor_right  = 0.95
-	lbl_name.anchor_top    = 0.26
-	lbl_name.anchor_bottom = 0.38
-	card.add_child(lbl_name)
-
-	# Effect label — action + effect by default (e.g. "NEW\n+20 Max HP" or "Lv 2 → 3\n+10% Damage").
-	var lbl_effect := _styled_label(_default_text(c), 14)
-	lbl_effect.anchor_left   = 0.05
-	lbl_effect.anchor_right  = 0.95
-	lbl_effect.anchor_top    = 0.70
-	lbl_effect.anchor_bottom = 0.92
-	card.add_child(lbl_effect)
-	card.set_meta("lbl_effect", lbl_effect)
-
-	# Current-status label — shown on hover (e.g. "Owned Lv 2" / "Not owned yet").
-	var lbl_current := _styled_label(_current_text(c), 14)
-	lbl_current.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
-	lbl_current.anchor_left   = 0.05
-	lbl_current.anchor_right  = 0.95
-	lbl_current.anchor_top    = 0.70
-	lbl_current.anchor_bottom = 0.92
-	lbl_current.visible = false
-	card.add_child(lbl_current)
-	card.set_meta("lbl_current", lbl_current)
-
-	# Invisible button — full-rect click capture
-	var btn := Button.new()
-	btn.flat = true
-	btn.focus_mode = Control.FOCUS_NONE
-	btn.set_anchors_preset(Control.PRESET_FULL_RECT)
-	var empty := StyleBoxEmpty.new()
-	for s in ["normal", "hover", "pressed", "focus", "disabled"]:
-		btn.add_theme_stylebox_override(s, empty)
-	btn.pressed.connect(_pick.bind(idx))
-	btn.mouse_entered.connect(_on_card_hover.bind(card))
-	btn.mouse_exited.connect(_on_card_unhover.bind(card))
-	card.add_child(btn)
-
-	# FUSION cards look distinct + alive: gold tint on the blue frame, a special title, and a slow pulse.
-	if String(c["cat"]) == "fusion":
-		bg.modulate = Color(1.6, 1.25, 0.5)
-		lbl_name.text = "✦ %s ✦" % String(c["name"])
-		lbl_name.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
-		var pulse := card.create_tween().set_loops()
-		pulse.tween_property(bg, "modulate", Color(2.0, 1.6, 0.7), 0.6).set_trans(Tween.TRANS_SINE)
-		pulse.tween_property(bg, "modulate", Color(1.6, 1.25, 0.5), 0.6).set_trans(Tween.TRANS_SINE)
-
-	return card
-
-func _make_icon(c: Dictionary) -> Control:
-	# Fusion card: until the fused icon art lands, show the two source icons side-by-side with a "+".
-	if String(c["cat"]) == "fusion":
-		var box := HBoxContainer.new()
-		box.alignment = BoxContainer.ALIGNMENT_CENTER
-		box.add_theme_constant_override("separation", 2)
-		box.add_child(_icon_rect(String(c.get("def_a", ""))))
-		var plus := Label.new()
-		plus.text = "+"
-		plus.add_theme_font_override("font", load("res://assets/fonts/Good Old DOS.ttf"))
-		plus.add_theme_font_size_override("font_size", 20)
-		plus.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		box.add_child(plus)
-		box.add_child(_icon_rect(String(c.get("def_b", ""))))
-		return box
-	if String(c["cat"]) in ["weapon", "pool", "capstone", "destroy"]:
-		var def_id := String(c.get("def_id", ""))
-		var tex: Texture2D = InventoryManager.get_icon(def_id) if def_id != "" else null
-		if tex != null:
-			var icon_tex := TextureRect.new()
-			icon_tex.texture = tex
-			icon_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-			icon_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-			return icon_tex
-	# Aux item (or missing weapon icon) → coloured placeholder swatch.
-	var swatch := ColorRect.new()
-	swatch.color = c.get("color", Color.GRAY)
-	return swatch
-
-## A single weapon icon (used for the fusion card's two source icons). Falls back to a gold swatch.
-func _icon_rect(def_id: String) -> Control:
-	var tex: Texture2D = InventoryManager.get_icon(def_id) if def_id != "" else null
-	if tex != null:
-		var tr := TextureRect.new()
-		tr.texture = tex
-		tr.custom_minimum_size = Vector2(40, 40)
-		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		return tr
-	var sw := ColorRect.new()
-	sw.custom_minimum_size = Vector2(40, 40)
-	sw.color = Color(1.0, 0.82, 0.30)
-	return sw
-
-func _styled_label(text: String, size: int) -> Label:
-	var lbl := Label.new()
-	lbl.text = text
-	lbl.add_theme_font_size_override("font_size", size)
-	lbl.add_theme_font_override("font", load("res://assets/fonts/Good Old DOS.ttf"))
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
-	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	return lbl
-
 func _pick(idx: int) -> void:
 	if idx < 0 or idx >= _current.size():
 		return
@@ -682,25 +525,6 @@ func _weapon_pool(kind: String) -> Dictionary:
 		return ArenaWeapons.SONIC_POOL
 	return {}
 
-## Show 3 random, not-maxed upgrades from `kind`'s pool, reusing the card layout. A back arrow returns here.
-func _show_pool(kind: String) -> void:
-	var pool_choices := _gen_pool_choices(kind)
-	if pool_choices.is_empty():
-		# Everything maxed → just spend the point (level progress) and move on.
-		var aw := get_tree().get_first_node_in_group("arena_weapons")
-		if aw != null:
-			aw.call("spend_weapon_point", kind)
-		_pending -= 1
-		if _pending > 0:
-			_show_cards()
-		else:
-			_finish()
-		return
-	_current = pool_choices
-	_title.text = "%s — choose an upgrade" % String((ArenaWeapons.WEAPON_INFO as Dictionary).get(kind, {}).get("label", kind))
-	_render_current()
-	_play_sfx("res://assets/audio/sfx/uiclick.wav")
-
 func _gen_pool_choices(kind: String) -> Array:
 	var aw := get_tree().get_first_node_in_group("arena_weapons")
 	var pool := _weapon_pool(kind)
@@ -734,23 +558,6 @@ func _gen_pool_choices(kind: String) -> Array:
 ## The upgrade pool for an aux id (only Reinforcement Plate so far). Empty for simple-levelling aux.
 func _aux_pool(id: String) -> Dictionary:
 	return (ArenaAux.AUX_POOL as Dictionary).get(id, {})
-
-## Show 3 random, not-maxed perks from the aux item's pool. A back arrow returns to the 1st tier.
-func _show_aux_pool(id: String) -> void:
-	var pool_choices := _gen_aux_pool_choices(id)
-	if pool_choices.is_empty():
-		# Everything maxed → just spend the point (level progress) and move on.
-		var ax := get_tree().get_first_node_in_group("arena_aux")
-		if ax != null:
-			ax.call("spend_aux_point", id)
-		_advance()
-		return
-	_current = pool_choices
-	var ax2 := get_tree().get_first_node_in_group("arena_aux")
-	var nm: String = String((ax2.call("def_for", id) as Dictionary).get("name", id)) if ax2 != null else id
-	_title.text = "%s — choose an upgrade" % nm
-	_render_current()
-	_play_sfx("res://assets/audio/sfx/uiclick.wav")
 
 func _gen_aux_pool_choices(id: String) -> Array:
 	var ax := get_tree().get_first_node_in_group("arena_aux")
@@ -964,28 +771,6 @@ func _current_text(c: Dictionary) -> String:
 	if lvl <= 0:
 		return "Not own\nyet"
 	return "Owned  Lv %d" % lvl
-
-# ── Hover effects ───────────────────────────────────────────────────────────────
-func _on_card_hover(card: Control) -> void:
-	card.scale    = Vector2(1.03, 1.03)
-	card.modulate = Color(1.03, 1.03, 1.03)
-	_play_sfx("res://assets/audio/sfx/uiclick.wav")
-	if card.has_meta("icon_tex"):
-		(card.get_meta("icon_tex") as CanvasItem).modulate.a = 0.35
-	if card.has_meta("lbl_effect"):
-		(card.get_meta("lbl_effect") as CanvasItem).visible = false
-	if card.has_meta("lbl_current"):
-		(card.get_meta("lbl_current") as CanvasItem).visible = true
-
-func _on_card_unhover(card: Control) -> void:
-	card.scale    = Vector2.ONE
-	card.modulate = Color.WHITE
-	if card.has_meta("icon_tex"):
-		(card.get_meta("icon_tex") as CanvasItem).modulate.a = 1.0
-	if card.has_meta("lbl_effect"):
-		(card.get_meta("lbl_effect") as CanvasItem).visible = true
-	if card.has_meta("lbl_current"):
-		(card.get_meta("lbl_current") as CanvasItem).visible = false
 
 # ── SFX helper ──────────────────────────────────────────────────────────────────
 func _play_sfx(path: String) -> void:
