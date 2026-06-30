@@ -89,10 +89,9 @@ func _begin() -> void:
 	_show_cards()
 
 func _show_cards() -> void:
-	_current = _generate_choices(CHOICES)
-	if _current.is_empty():
+	_choices = _generate_choices(CHOICES)
+	if _choices.is_empty():
 		# Nothing left to offer (everything owned + maxed) — silently skip this level-up.
-		_clear_cards()
 		_pending -= 1
 		if _pending > 0:
 			_show_cards()
@@ -100,16 +99,104 @@ func _show_cards() -> void:
 			_finish()
 		return
 	_title.text = "LEVEL UP — choose an item"
-	_render_current()
+	_options_back = false
+	_render_left()
+	_refresh_stats()
 	_root.show()
 	_play_sfx("res://assets/audio/sfx/uialert.wav")
+	_select_item(0)
 
-func _clear_cards() -> void:
-	pass   # legacy card-row clear — superseded by the full-screen layout (removed in cleanup)
-
-## Legacy card-row render — stubbed; the full-screen path (Task 2/3) renders via _render_left/_render_options.
+## Legacy card-row render — stubbed; the full-screen path renders via _render_left/_render_options.
 func _render_current() -> void:
 	pass
+
+## A centered sprite for a weapon/fusion def_id, or a colour swatch fallback (aux items have no art).
+## The TextureRect keeps the texture's aspect (never stretched).
+func _sprite_or_swatch(def_id: String, color: Color) -> Control:
+	var tex: Texture2D = InventoryManager.get_icon(def_id) if def_id != "" else null
+	if tex != null:
+		var tr := TextureRect.new()
+		tr.texture = tex
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		return tr
+	var sw := ColorRect.new()
+	sw.color = color
+	sw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return sw
+
+## Fill the 3 left slots from _choices. A fusion choice expands into its two source weapons (slots 0 & 1).
+func _render_left() -> void:
+	for slot: Control in _slot_nodes:
+		for c in slot.get_children():
+			c.free()
+		slot.visible = false
+	# Find a fusion (if any) — it claims slots 0 & 1 with the two source weapons.
+	var fusion: Dictionary = {}
+	var rest: Array = []
+	for c: Dictionary in _choices:
+		if String(c.get("cat", "")) == "fusion" and fusion.is_empty():
+			fusion = c
+		else:
+			rest.append(c)
+	var slot_specs: Array = []   # each: {def, name, color, idx (into _choices), fusion}
+	if not fusion.is_empty():
+		slot_specs.append({"def": String(fusion.get("def_a", "")), "name": fusion["name"], "color": fusion.get("color", Color.GRAY), "idx": _choices.find(fusion), "fusion": true})
+		slot_specs.append({"def": String(fusion.get("def_b", "")), "name": fusion["name"], "color": fusion.get("color", Color.GRAY), "idx": _choices.find(fusion), "fusion": true})
+	for c: Dictionary in rest:
+		if slot_specs.size() >= 3:
+			break
+		slot_specs.append({"def": String(c.get("def_id", "")), "name": c["name"], "color": c.get("color", Color.GRAY), "idx": _choices.find(c), "fusion": false})
+	for i in mini(slot_specs.size(), 3):
+		_make_slot(_slot_nodes[i], slot_specs[i])
+
+func _make_slot(slot: Control, spec: Dictionary) -> void:
+	slot.visible = true
+	var idx := int(spec["idx"])
+	var is_fusion := bool(spec["fusion"])
+	# Centered sprite (upper band of the slot).
+	var spr := _sprite_or_swatch(String(spec["def"]), spec.get("color", Color.GRAY))
+	spr.anchor_left = 0.12; spr.anchor_right = 0.88
+	spr.anchor_top = 0.08; spr.anchor_bottom = 0.66
+	slot.add_child(spr)
+	# Name label (lower band).
+	var lbl := Label.new()
+	lbl.text = String(spec["name"])
+	lbl.add_theme_font_override("font", load(FONT_PATH))
+	lbl.add_theme_font_size_override("font_size", 16)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl.anchor_left = 0.04; lbl.anchor_right = 0.96
+	lbl.anchor_top = 0.70; lbl.anchor_bottom = 0.96
+	slot.add_child(lbl)
+	# Click target.
+	var btn := Button.new()
+	btn.flat = true
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var empty := StyleBoxEmpty.new()
+	for s in ["normal", "hover", "pressed", "focus", "disabled"]:
+		btn.add_theme_stylebox_override(s, empty)
+	btn.pressed.connect(_select_item.bind(idx))
+	slot.add_child(btn)
+	# Fusion source boxes get a yellow ring + a rainbow pulse.
+	if is_fusion:
+		var sb := slot.get_theme_stylebox("panel") as StyleBoxFlat
+		if sb != null:
+			var sb2 := sb.duplicate() as StyleBoxFlat
+			sb2.set_border_width_all(3)
+			sb2.border_color = RING_COL
+			slot.add_theme_stylebox_override("panel", sb2)
+			var pulse := slot.create_tween().set_loops()
+			pulse.tween_property(slot, "modulate", Color(1.4, 0.7, 1.4), 0.5).set_trans(Tween.TRANS_SINE)
+			pulse.tween_property(slot, "modulate", Color(0.7, 1.4, 1.4), 0.5).set_trans(Tween.TRANS_SINE)
+			pulse.tween_property(slot, "modulate", Color(1.4, 1.4, 0.7), 0.5).set_trans(Tween.TRANS_SINE)
+
+## Temporary stub — replaced in Task 3 (selected panel + options routing).
+func _select_item(idx: int) -> void:
+	_selected_idx = idx
 
 # ── Choice generation (weighted, owned-priority, no-dup, slot-limited, fallback) ──────────────
 func _generate_choices(n: int) -> Array:
