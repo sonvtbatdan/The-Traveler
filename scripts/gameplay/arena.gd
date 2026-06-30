@@ -6,6 +6,7 @@ extends Node2D
 
 const HudHpDisplayScript := preload("res://scripts/ui/hud/hud_hp_display.gd")
 const VitalsBarScript    := preload("res://scripts/ui/hud/arena_vitals_bar.gd")  # player + boss vitals bars
+const HudFrameScript     := preload("res://scripts/ui/hud/arena_hud_frame.gd")   # procedural cockpit bezels
 const ArenaStatsHudScript := preload("res://scripts/ui/hud/arena_stats_hud.gd")
 const ArenaEnemyMgrScript := preload("res://scripts/gameplay/arena_enemy_manager.gd")
 const XpOrbMgrScript      := preload("res://scripts/gameplay/arena_xp_orb_manager.gd")
@@ -228,6 +229,7 @@ func _build_ui() -> void:
 	ui.layer = 10   # explicit (was default 1): keep the HP/weapon/aux HUD ABOVE the mortar/fatboy shockwave (layer 8) so the blast distortion never ripples the HUD; still below buttons (11) / crit (12)
 	add_child(ui)
 	_ui_layer = ui
+	ui.add_child(HudFrameScript.new())      # procedural cockpit bezels (drawn behind the HUD widgets)
 	var player_vitals := VitalsBarScript.new()
 	player_vitals.mode = "player"           # bottom-centre nested shield+HP bar (replaces hud_hp_display)
 	ui.add_child(player_vitals)
