@@ -88,9 +88,14 @@ func _show_cards() -> void:
 	_play_sfx("res://assets/audio/sfx/uialert.wav")
 
 func _clear_cards() -> void:
+	# Detach NOW so _position_cards() only counts the new cards, but DEFER the actual deletion.
+	# A card's own Button emits `pressed` → _pick() → (re-render) → _clear_cards(); freeing the card
+	# immediately here would destroy the Button mid-signal-emission (use-after-free → silent C++ crash).
+	# remove_child() keeps the object alive until the signal fully unwinds; queue_free() deletes it next frame.
 	for c in _cards_box.get_children():
 		if is_instance_valid(c):
-			c.free()   # free immediately so _position_cards() only counts the new cards
+			_cards_box.remove_child(c)
+			c.queue_free()
 
 ## Rebuild the card row from `_current`.
 func _render_current() -> void:

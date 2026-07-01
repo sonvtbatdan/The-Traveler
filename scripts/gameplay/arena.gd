@@ -40,6 +40,7 @@ const ArenaHudButtonsScript := preload("res://scripts/ui/hud/arena_hud_buttons.g
 const BossEditScript        := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
 const CreepEditScript       := preload("res://scripts/ui/boss_edit/creep_edit_mode.gd")
 const WeaponEditScript      := preload("res://scripts/ui/boss_edit/weapon_edit_mode.gd")
+const HudEditScript         := preload("res://scripts/ui/boss_edit/hud_edit_mode.gd")
 const FleetEditScript       := preload("res://scripts/ui/boss_edit/fleet_edit_mode.gd")
 const RESET_RUN_ON_START := true   # each arena run starts a fresh VS climb (level 1, no upgrades). Flip off to keep saved level.
 const WEAPON_TEST_MODE := true     # TEST: skip the hub launch page + start-of-run weapon-pick chest; boot straight into
@@ -93,6 +94,7 @@ var _enemy_mgr: Node = null   # arena_enemy_manager (smart/defend thruster bulle
 var _boss_edit:  Node = null
 var _creep_edit: Node = null
 var _weapon_edit: Node = null
+var _hud_edit: Node = null
 var _weapon_chest: Node = null   # start-of-run weapon chest UI
 var _ui_layer: CanvasLayer = null      # HP / weapon / aux / XP HUD layer (hidden while a full-screen editor is open)
 var _hud_buttons: Node = null          # bottom-right + left dev button clusters
@@ -161,6 +163,16 @@ func _ready() -> void:
 	else:
 		add_child(WaveDirectorScript.new())   # authored-timeline wave spawner
 		add_child(WaveEditorScript.new())     # F7 in-game wave editor (add/edit/remove waves live)
+	# Gravitational-lens weapon VFX (Vacuum / Black Hole / Singularities) are screen-read ColorRects (z 4–7,
+	# world canvas) that sample hint_screen_texture to warp the scene behind them. Since the DoF optimization
+	# moved the whole background onto a SEPARATE CanvasLayer (arena_dof composite, CL -5), the auto rect-copy at
+	# each lens no longer captures it → the discs sampled an empty buffer and rendered as opaque WHITE squares.
+	# This explicit full-VIEWPORT back-buffer copy (drawn at z 3, just under the lens discs) repopulates the
+	# screen buffer with the fully-composited scene (nebula + DoF background + gameplay) so the lenses warp it.
+	var _lens_bbc := BackBufferCopy.new()
+	_lens_bbc.copy_mode = BackBufferCopy.COPY_MODE_VIEWPORT
+	_lens_bbc.z_index = 3
+	add_child(_lens_bbc)
 	add_child(ArenaWeaponsScript.new())   # bespoke 5-slot weapons (chest + F12 pickups) — the ONLY arena combat path
 	add_child(ArenaAuxScript.new())       # auxiliary passive-item store (level-up offers; group "arena_aux")
 	# arena_loadout (fires EQUIPPED inventory weapons) is intentionally NOT instantiated: combat is driven solely by
@@ -169,6 +181,7 @@ func _ready() -> void:
 	call_deferred("_setup_boss_edit")
 	call_deferred("_setup_creep_edit")
 	call_deferred("_setup_weapon_edit")
+	call_deferred("_setup_hud_edit")
 	call_deferred("_setup_fleet_edit")
 	call_deferred("_open_start_chest")   # fresh run → present the pick-1-of-3 weapon chest (ship starts unarmed)
 
@@ -184,12 +197,13 @@ func _make_glow_world_env() -> WorldEnvironment:
 	env.glow_intensity = 1.0
 	env.glow_strength = 1.0
 	env.glow_bloom = 0.1
-	# Perf: cap the glow mip chain at level 2 (was 4). Each extra level is another downsample+blur+upsample pass;
-	# stopping at 2 gives a tighter but much cheaper bloom on the HDR fire.
+	# NOTE: glow runs the full 4-level mip chain. Disabling the upper levels (perf experiment) broke the
+	# gravitational-lens VFX (hint_screen_texture ColorRect rendered as a white square), so it is restored
+	# to the original 4 levels. The real FPS win is the warp-concurrency cap, not trimming glow.
 	env.set_glow_level(1, 1.0)
 	env.set_glow_level(2, 1.0)
-	env.set_glow_level(3, 0.0)
-	env.set_glow_level(4, 0.0)
+	env.set_glow_level(3, 1.0)
+	env.set_glow_level(4, 0.5)
 	var we := WorldEnvironment.new()
 	we.environment = env
 	return we
@@ -227,12 +241,15 @@ func _build_ui() -> void:
 	ui.layer = 10   # explicit (was default 1): keep the HP/weapon/aux HUD ABOVE the mortar/fatboy shockwave (layer 8) so the blast distortion never ripples the HUD; still below buttons (11) / crit (12)
 	add_child(ui)
 	_ui_layer = ui
+	# Legacy programmer-art HUD — REPLACED by the authored playerhud (playerhud_layout.cfg, rendered +
+	# wired by hud_edit_mode.gd). Kept in the tree (hidden) so any group lookups still resolve.
 	var hp := HudHpDisplayScript.new()
-	hp.arena_mode = true   # re-pin the HP cluster to the top-left corner (legacy keeps its layout pos)
+	hp.arena_mode = true
+	hp.visible = false
 	ui.add_child(hp)
-	ui.add_child(WeaponSlotsScript.new())   # 5 weapon slots + cooldown pies, just below the HP cluster
-	ui.add_child(AuxSlotsScript.new())      # 5 aux-item slots in a second row below the weapon slots
-	ui.add_child(ArenaStatsHudScript.new()) # XP bar (bottom) + kill/coin counters (top-right)
+	var _wslots := WeaponSlotsScript.new(); _wslots.visible = false; ui.add_child(_wslots)
+	var _aslots := AuxSlotsScript.new();    _aslots.visible = false; ui.add_child(_aslots)
+	var _stats  := ArenaStatsHudScript.new(); _stats.visible = false; ui.add_child(_stats)
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 func _build_player() -> void:
@@ -535,6 +552,19 @@ func _setup_weapon_edit() -> void:
 	add_child(wem)
 	_weapon_edit = wem
 	wem.setup(oc)
+
+func _setup_hud_edit() -> void:
+	var cl := CanvasLayer.new()
+	cl.layer = 9
+	add_child(cl)
+	var oc := Control.new()
+	oc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	oc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cl.add_child(oc)
+	var hem := HudEditScript.new()
+	add_child(hem)
+	_hud_edit = hem
+	hem.setup(oc)
 
 ## Hide the gameplay + all HUD (HP/XP, weapon/aux slots, button clusters, debug panels, player, live enemies)
 ## while a full-screen editor (Creep / Fleet) is open, so only the editor panels + its edit objects show.

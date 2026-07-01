@@ -516,6 +516,14 @@ func _build_asset_panel() -> void:
 	_save_confirm_dlg.ok_button_text = "Overwrite"
 	add_child(_save_confirm_dlg)
 
+	# HUD edit (and any editor with no firing/thrust geometry) hides every section below the
+	# LAYERS list (root child 0). The widgets stay built so their refreshers never null-crash.
+	if not _uses_points():
+		for i: int in range(1, root.get_child_count()):
+			var sec := root.get_child(i) as CanvasItem
+			if sec != null:
+				sec.visible = false
+
 # ── RIGHT panel ────────────────────────────────────────────────────────────────
 
 func _build_ctrl_panel() -> void:
@@ -606,6 +614,9 @@ func _build_ctrl_panel() -> void:
 	# Grid + TenP buttons hidden by design (code kept). Add Vortex replaces TenP in the workflow.
 	_grid_btn.visible     = false
 	_add_tenp_btn.visible = false
+	# Editors with no point geometry (HUD edit) hide the whole Add-FP/TP/Vortex row.
+	if not _uses_points():
+		mode_row.visible = false
 
 	root.add_child(HSeparator.new())
 
@@ -685,6 +696,9 @@ func _build_ctrl_panel() -> void:
 	_zoom_pct_lbl.custom_minimum_size = Vector2(36.0, 0.0)
 	_zoom_pct_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	zoom_row.add_child(_zoom_pct_lbl)
+
+	# Subclass extras (e.g. HUD-edit Blend dropdown) appended below the TRANSFORM block.
+	_build_extra_controls(root)
 
 func _add_section(parent: VBoxContainer, text: String) -> void:
 	var lbl := Label.new()
@@ -1063,6 +1077,7 @@ func _refresh_transform_panel() -> void:
 		_pos_x_spin.editable = false
 		_pos_y_spin.editable = false
 	_updating_spin = false
+	_refresh_extra_controls()
 
 func _on_spin_changed() -> void:
 	if _updating_spin or _active_creep.is_empty():
@@ -2249,6 +2264,7 @@ func _save_layout() -> void:
 				"size":    eo.size,
 				"z_index": eo.z_index,
 				"parent":  _creep_parents.get(creep_name, ""),
+				"blend":   eo.blend_id,
 			})
 		# Fire points
 		var fp_data: Array[Dictionary] = []
@@ -2295,6 +2311,7 @@ func _load_layout() -> void:
 						entry.get("size", Vector2(60.0, 60.0)))
 					if eo != null:
 						eo.z_index = entry.get("z_index", 115)
+						eo.set_blend_mode(int(entry.get("blend", 0)))
 				var par: String = entry.get("parent", "")
 				if not par.is_empty():
 					_creep_parents[creep_name] = par
@@ -2607,6 +2624,18 @@ func _layout_path() -> String: return LAYOUT_PATH
 func _plume_path() -> String: return PLUME_STYLES_PATH
 func _title() -> String: return "CREEP EDIT"
 func _accept_file(_fname: String) -> bool: return true
+
+## When false, the Fire/Thrust/Tentacle/Vortex/Plume sections + Add FP/TP/Vortex buttons are hidden
+## (hud_edit_mode.gd overrides this — HUD sprites have no firing/thrust points).
+func _uses_points() -> bool: return true
+
+## Hook: subclasses add extra TRANSFORM-area controls (hud_edit_mode adds the Blend dropdown). Default no-op.
+func _build_extra_controls(_root: VBoxContainer) -> void:
+	pass
+
+## Hook: subclasses refresh their extra controls when the selection/active object changes. Default no-op.
+func _refresh_extra_controls() -> void:
+	pass
 
 # ── Toast ──────────────────────────────────────────────────────────────────────
 
