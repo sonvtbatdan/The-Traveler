@@ -29,6 +29,7 @@ var _weapon_btn:     TextureButton = null
 var _hotkey_btn:     TextureButton = null
 var _fleet_edit_btn: TextureButton = null
 var _wave_edit_btn:  TextureButton = null
+var _hud_edit_btn:   TextureButton = null
 var _inv_btn:        Button = null
 var _vb:             VBoxContainer = null
 
@@ -45,6 +46,7 @@ var _tex_weapon:        Texture2D = null
 var _tex_hotkey:        Texture2D = null
 var _tex_fleet_edit:    Texture2D = null
 var _tex_wave_edit:     Texture2D = null
+var _tex_hud_edit:      Texture2D = null
 
 # Total height without dev-edit buttons (for VBox repositioning)
 var _base_total_h: float = 0.0
@@ -64,9 +66,11 @@ func _ready() -> void:
 	_tex_hotkey        = _load_img("res://assets/hud/hotkey.png")
 	_tex_fleet_edit    = _load_img("res://assets/hud/Fleet_edit.png")
 	_tex_wave_edit     = _load_img("res://assets/hud/Wave_edit.png")
+	_tex_hud_edit      = _load_img("res://assets/hud/Asset 41.png")
 	_build_ui()
 	SettingsScript.apply_saved()       # apply saved SFX volume + window mode (covers arena-direct launch)
 	_settings = SettingsScript.new()
+	_settings.add_to_group("settings_panel")   # so the HUD Menu button can open it (hud_edit_mode._open_menu)
 	add_child(_settings)
 	_click_player = AudioStreamPlayer.new()
 	_click_player.stream = SFX_UICLICK
@@ -206,6 +210,14 @@ func _build_ui() -> void:
 	_wave_edit_btn.pressed.connect(_on_wave_edit)
 	root.add_child(_wave_edit_btn)
 
+	# HUD Edit — below the Wave button (dev:on only)
+	var hud_h := _btn_h(_tex_hud_edit)
+	_hud_edit_btn = _make_btn(_tex_hud_edit, hud_h)
+	_hud_edit_btn.position = Vector2(SIMPLIFIED_X, y_fleet + fleet_h + BTN_SEP + wave_h + BTN_SEP)
+	_hud_edit_btn.visible = false
+	_hud_edit_btn.pressed.connect(_on_hud_edit)
+	root.add_child(_hud_edit_btn)
+
 func _make_label_btn(label: String) -> Button:
 	var btn := Button.new()
 	btn.text = label
@@ -282,6 +294,7 @@ func _on_devon() -> void:
 	_hotkey_btn.visible     = _dev_mode
 	_fleet_edit_btn.visible = _dev_mode
 	_wave_edit_btn.visible  = _dev_mode
+	_hud_edit_btn.visible   = _dev_mode
 
 	# Update Devon button texture
 	_devon_btn.texture_normal = _tex_devon if _dev_mode else _tex_devoff
@@ -330,6 +343,12 @@ func _on_wave_edit() -> void:
 	var wem := get_tree().get_first_node_in_group("wave_editor")
 	if wem != null and wem.has_method("toggle"):
 		wem.toggle()
+
+func _on_hud_edit() -> void:
+	_click_sfx()
+	var hem := get_tree().get_first_node_in_group("hud_edit")
+	if hem != null and hem.has_method("toggle"):
+		hem.toggle()
 
 func _on_simplified() -> void:
 	_click_sfx()

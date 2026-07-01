@@ -207,13 +207,47 @@ func get_state() -> Dictionary:
 	return { "path": source_path, "group": group_id, "pos": global_position, "size": size, "z_index": save_z, "layer_visible": layer_visible, "flip_h": texture_rect.flip_h if texture_rect else false, "display_name": display_name, "blend_mode": 1 if screen_blend else 0 }
 
 func set_screen_blend(enabled: bool) -> void:
-	screen_blend = enabled
-	if enabled:
-		var mat := CanvasItemMaterial.new()
-		mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-		texture_rect.material = mat
-	else:
-		texture_rect.material = null
+	# Back-compat (F4 edit mode): screen-blend toggle == ADD blend.
+	set_blend_mode(BLEND_ADD if enabled else BLEND_NORMAL)
+
+# ── Blend modes (HUD edit) ───────────────────────────────────────────────────────
+# Order matches the HUD-edit dropdown: Normal, Screen, Hard light, Overlay, Color Dodge (add), Multiply.
+const BLEND_NORMAL    := 0
+const BLEND_SCREEN    := 1
+const BLEND_HARDLIGHT := 2
+const BLEND_OVERLAY   := 3
+const BLEND_ADD       := 4   # "Color Dodge (add)"
+const BLEND_MULTIPLY  := 5
+
+static var _blend_shader: Shader = null
+
+var blend_id: int = 0
+
+## Apply one of the BLEND_* modes to the sprite. Normal/Add/Multiply use a CanvasItemMaterial;
+## Screen/HardLight/Overlay need the backdrop, so they use res://assets/shaders/hud_blend.gdshader.
+func set_blend_mode(id: int) -> void:
+	blend_id = id
+	screen_blend = (id == BLEND_ADD)
+	if texture_rect == null:
+		return
+	match id:
+		BLEND_ADD:
+			var ma := CanvasItemMaterial.new()
+			ma.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+			texture_rect.material = ma
+		BLEND_MULTIPLY:
+			var mm := CanvasItemMaterial.new()
+			mm.blend_mode = CanvasItemMaterial.BLEND_MODE_MUL
+			texture_rect.material = mm
+		BLEND_SCREEN, BLEND_HARDLIGHT, BLEND_OVERLAY:
+			if _blend_shader == null:
+				_blend_shader = load("res://assets/shaders/hud_blend.gdshader")
+			var sm := ShaderMaterial.new()
+			sm.shader = _blend_shader
+			sm.set_shader_parameter("mode", id - 1)  # 1→0 Screen, 2→1 HardLight, 3→2 Overlay
+			texture_rect.material = sm
+		_:
+			texture_rect.material = null
 
 func apply_state(state: Dictionary) -> void:
 	position = state["pos"]
