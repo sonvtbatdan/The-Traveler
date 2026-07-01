@@ -63,16 +63,16 @@ var money: int = 0   # green-$ currency; new game starts at 0 (Phase 2 will spen
 const BASE_XP: float = 100.0      # XP for level 1→2; the whole curve scales off this
 const GROWTH:  float = 1.12       # each level costs GROWTH× the previous (early fast, late grind)
 const MAX_LEVEL: int = 50         # level cap; XP stops accruing once reached
-const XP_PER_ASTEROID: int = 1            # flat XP per asteroid destroyed
-const XP_ASTEROID_SIZE_DIV: float = 12.0  # + round(width / this) → bigger rocks worth more
-const XP_PER_BOSS: int = 500              # one lump on a boss's FINAL defeat (the "event" reward)
-const XP_GAIN_SCALE: float = 1.0 / 20.0   # GLOBAL multiplier on ALL earned XP (1/20 = 5% of the source value).
-                                          # Applied on top of upg_xp_gain_mult; fractional remainder carries between
-                                          # kills (see add_xp) so low-XP enemies still count instead of rounding to 0.
+const XP_PER_ASTEROID: float = 0.05       # flat XP per asteroid destroyed (1/20 of old 1; XP is face-value now)
+const XP_ASTEROID_SIZE_DIV: float = 12.0  # + (width / this) / 20 → bigger rocks worth more
+const XP_PER_BOSS: float = 25.0           # one lump on a boss's FINAL defeat (1/20 of old 500)
+# NOTE: the old global XP_GAIN_SCALE (1/20) multiplier was removed — every XP source now carries its real,
+# face-value amount (see ENEMY_DEFS in arena_wave_director.gd). add_xp still uses a fractional accumulator so
+# sub-1 enemies (e.g. swarm at 0.2 XP) accumulate across kills instead of rounding to 0.
 
 var player_level: int = 1   # starts at 1
 var player_xp:    int = 0    # current XP toward the NEXT level (resets to 0 on each level-up)
-var _xp_frac_acc: float = 0.0   # sub-1 XP carried between add_xp calls so XP_GAIN_SCALE stays exact over many kills
+var _xp_frac_acc: float = 0.0   # sub-1 XP carried between add_xp calls so fractional enemy XP isn't lost to rounding
 
 ## XP required to advance FROM `level` to the next: round(BASE_XP * GROWTH^(level-1)).
 ## Accelerating, so each level is a bigger step than the last.
@@ -80,17 +80,18 @@ func xp_to_next(level: int) -> int:
 	return int(round(BASE_XP * pow(GROWTH, float(level - 1))))
 
 ## XP a destroyed asteroid is worth, scaled by its visible width (px). Small rocks ~1, big ~5.
-func xp_for_asteroid(width: float) -> int:
-	return XP_PER_ASTEROID + int(round(width / XP_ASTEROID_SIZE_DIV))
+func xp_for_asteroid(width: float) -> float:
+	return XP_PER_ASTEROID + (width / XP_ASTEROID_SIZE_DIV) / 20.0
 
 ## THE single entry point for gaining XP. Handles multiple level-ups from one big gain (e.g. a
 ## boss), caps at MAX_LEVEL, emits signals for UI/effects, and saves.
-func add_xp(amount: int) -> void:
-	if amount <= 0 or player_level >= MAX_LEVEL:
+func add_xp(amount: float) -> void:
+	if amount <= 0.0 or player_level >= MAX_LEVEL:
 		return
-	# Data Harvester aux item scales XP gain; XP_GAIN_SCALE is the global 1/20 reduction. Accumulate the scaled
-	# value as a float and only spend whole points, carrying the remainder so low-XP kills aren't lost to rounding.
-	_xp_frac_acc += float(amount) * upg_xp_gain_mult * XP_GAIN_SCALE
+	# Data Harvester aux item scales XP gain. XP is face-value now (the old global 1/20 was removed and baked into
+	# the per-enemy values). Accumulate as a float and only spend whole points, carrying the fractional remainder
+	# so sub-1 enemies (e.g. swarm at 0.2 XP) still count over many kills instead of rounding to 0.
+	_xp_frac_acc += amount * upg_xp_gain_mult
 	var gain := int(_xp_frac_acc)
 	_xp_frac_acc -= float(gain)
 	if gain <= 0:

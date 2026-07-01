@@ -13,7 +13,7 @@ const BOB_SPEED     := 2.2
 
 # Per-kind look: crate/ring colour + an emblem style drawn across the crate. emblem: "beam" | "bolt" | "orb" | "tracer".
 const KIND_STYLE := {
-	"lasgun":  {"color": Color(1.0, 0.55, 0.22), "ring": Color(1.0, 0.8, 0.4),  "emblem": "beam"},
+	"death_beam":  {"color": Color(1.0, 0.55, 0.22), "ring": Color(1.0, 0.8, 0.4),  "emblem": "beam"},
 	"arc":     {"color": Color(0.55, 0.8, 1.0),  "ring": Color(0.7, 0.9, 1.0),  "emblem": "bolt"},
 	"gauss":   {"color": Color(0.4, 0.7, 1.0),   "ring": Color(0.7, 0.9, 1.0),  "emblem": "orb"},
 	"gatling": {"color": Color(1.0, 0.82, 0.25), "ring": Color(1.0, 0.9, 0.5),  "emblem": "tracer"},
@@ -22,7 +22,7 @@ const KIND_STYLE := {
 	"void":    {"color": Color(0.7, 0.4, 1.0),    "ring": Color(0.85, 0.7, 1.0), "emblem": "orb"},
 	"red_x":   {"color": Color(1.0, 0.35, 0.3),   "ring": Color(1.0, 0.6, 0.5),  "emblem": "bolt"},
 	"chemtrail": {"color": Color(0.6, 0.95, 0.45),"ring": Color(0.8, 1.0, 0.6),  "emblem": "orb"},
-	"nuke":    {"color": Color(1.0, 0.75, 0.35),  "ring": Color(1.0, 0.9, 0.6),  "emblem": "orb"},
+	"little_man":    {"color": Color(1.0, 0.75, 0.35),  "ring": Color(1.0, 0.9, 0.6),  "emblem": "orb"},
 	"sonic":   {"color": Color(0.55, 0.85, 1.0),  "ring": Color(0.75, 0.95, 1.0),"emblem": "orb"},
 	"zsword":  {"color": Color(0.7, 1.0, 0.85),   "ring": Color(0.85, 1.0, 0.95),"emblem": "beam"},
 	"ionize":  {"color": Color(0.6, 0.9, 1.0),    "ring": Color(0.8, 0.97, 1.0), "emblem": "bolt"},
@@ -35,7 +35,7 @@ const KIND_STYLE := {
 }
 const DEFAULT_STYLE := {"color": Color(0.8, 0.8, 0.8), "ring": Color(0.95, 0.95, 0.95), "emblem": "beam"}
 
-var _kind: String = "lasgun"
+var _kind: String = "death_beam"
 var _t := 0.0
 var _player: Node2D = null
 var _popping := false

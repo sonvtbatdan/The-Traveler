@@ -83,7 +83,7 @@ const MAX_WEAPONS := 4                                  # HUD slot count / acqui
 const MAX_WEAPON_LEVEL := 18                            # weapon levels 1→18; each point spent = +1 level, then EVOLVE
 const FUSION_MIN_LEVEL := 15                            # both components must be ≥ this (and un-evolved) to fuse
 const WEAPON_DMG_PER_LEVEL := 0.30                      # FUSIONS ONLY: +30%/bonus-level (base weapons get no per-level damage)
-const CHEST_POOL  := ["gatling", "lasgun", "arc", "gauss"]   # the 4 "F12" weapons the start-of-run chest rolls from
+const CHEST_POOL  := ["gatling", "death_beam", "arc", "gauss"]   # the 4 "F12" weapons the start-of-run chest rolls from
 # Canonical weapon registry shared by the chest + slot HUD + F12 palette. Per kind:
 #   def_id = inventory icon source · name = full official name (matches ITEM_DEFS.name) ·
 #   label = short in-game / spawn display name · mfr = manufacturer (lore "group").
@@ -92,26 +92,26 @@ const CHEST_POOL  := ["gatling", "lasgun", "arc", "gauss"]   # the 4 "F12" weapo
 # kept with placeholder names until the sheet assigns them. See trace log 2026-06-27.
 const WEAPON_INFO := {
 	"gatling":     {"def_id": "gatling_gun",     "name": "Kinetic Auto Cannon",     "label": "Minigun",      "mfr": "Vanguard Ballistics"},
-	"lasgun":      {"def_id": "lasgun",          "name": "Solid-State Laser",       "label": "Laser",        "mfr": "Kwang Ming"},
+	"death_beam":      {"def_id": "death_beam",          "name": "Death Beam",              "label": "Death Beam",   "mfr": "Kwang Ming"},
 	"arc":         {"def_id": "arc",             "name": "Arc Lightning Chain",     "label": "Lightning",    "mfr": "Kwang Ming"},
 	"gauss":       {"def_id": "gauss_cannon",    "name": "Gauss Pulser",            "label": "Gauss",        "mfr": "Horizon Logistics x Vanguard Ballistics"},
 	"orbital":     {"def_id": "orbitals",        "name": "Orbital Impact Defense",  "label": "Defender",     "mfr": "Nebula Dynamics"},
 	"striker":     {"def_id": "swarm_host",      "name": "Orbital Impact Offense",  "label": "Striker",      "mfr": "Nebula Dynamics"},
-	"void":        {"def_id": "rift_maker",      "name": "Vacuum Decoupler",        "label": "Vacuum",       "mfr": "Horizon Logistics"},
+	"void":        {"def_id": "rift_maker",      "name": "Rift Maker",              "label": "Rift Maker",   "mfr": "Horizon Logistics"},
 	"red_x":       {"def_id": "red_x",           "name": "Thermitic Discharger",    "label": "Red X",        "mfr": "Volney Elements"},
 	"chemtrail":   {"def_id": "chemtrail",       "name": "Biocide Vaporizer",       "label": "Stink Breath", "mfr": "Volney Elements"},
-	"nuke":        {"def_id": "nuke",            "name": "Rosastro HE Mortar",      "label": "Mortal",       "mfr": "Rosastro"},
-	"fat_boy":     {"def_id": "rosastro_nuclear","name": "Rosastro Nuclear",        "label": "Fat Boy",      "mfr": "Rosastro"},
+	"little_man":        {"def_id": "little_man",            "name": "Little Man",              "label": "Little Man",   "mfr": "Rosastro"},
+	"fat_boy":     {"def_id": "rosastro_nuclear","name": "Fat Boy",                 "label": "Fat Boy",      "mfr": "Rosastro"},
 	"sonic":       {"def_id": "sonic_wave",      "name": "Sonic",                   "label": "Sonic",        "mfr": "Yongsan"},
 	"zsword":      {"def_id": "z_sword",         "name": "Jeager",                  "label": "Jeager",       "mfr": "Eisenkraft Kinematik"},
-	"ionize":      {"def_id": "ionizing_field",  "name": "Tachyon Displacer",            "label": "Black Hole",   "mfr": "Horizon Logistics"},
+	"ionize":      {"def_id": "ionizing_field",  "name": "Ionizing Field",               "label": "Ionizing Field", "mfr": "Horizon Logistics"},
 	"boomerang":   {"def_id": "boomerang",       "name": "Aliwa",                        "label": "Aliwa",        "mfr": "Nebula Dynamics"},
-	"parasite":    {"def_id": "parasite_cloud",  "name": "Bio-Corrosive Spore Launcher", "label": "Venomancer",   "mfr": "Volney Elements x Chakra Bio-Synthetics"},
+	"parasite":    {"def_id": "parasite_cloud",  "name": "Venomancer",                   "label": "Venomancer",   "mfr": "Volney Elements x Chakra Bio-Synthetics"},
 	"moroboshi":   {"def_id": "moroboshi",       "name": "Yari",                    "label": "Yari",         "mfr": "Miyamoto"},
 	"yari_jaeger": {"def_id": "yari_jaeger",     "name": "Yari Jeager",             "label": "Yari Jeager",  "mfr": "Miyamoto x Eisenkraft Kinematik"},
 	"swarm":       {"def_id": "",                "icon": "res://assets/inventory/Swarm.png", "name": "Swarm", "label": "Swarm", "mfr": "Chakra Bio-Synthetics"},
 	"snake":       {"def_id": "space_snake",     "name": "Viper",                   "label": "VIPER",        "mfr": ""},
-	"homing":      {"def_id": "homing_missile",  "name": "Homing Missile",          "label": "Homing",       "mfr": "", "group": "obsolete"},
+	"homing":      {"def_id": "homing_missile",  "name": "Homing Missile",          "label": "Homing",       "mfr": ""},
 }
 
 # ── Weapon FUSION recipes ─────────────────────────────────────────────────────────
@@ -126,19 +126,19 @@ const FUSION_DEFS := {
 	"carnage":         {"a": "red_x",   "b": "gatling",   "def_id": "gatling_gun",   "name": "Thermitic Auto Cannon", "label": "Carnage",       "mfr": "Volney Elements x Vanguard Ballistics"},
 	"vampire_host":    {"a": "sonic",   "b": "swarm",     "def_id": "swarm_host",    "icon": "res://assets/inventory/Vampire Host.png", "name": "Vampire Host",          "label": "Vampire Host",  "mfr": "Nebula Dynamics x Yongsan"},
 	"overcharger":     {"a": "arc",     "b": "gauss",     "def_id": "gauss_cannon",  "icon": "res://assets/inventory/Overcharger.png",  "name": "Overcharger",           "label": "Overcharger",   "mfr": "Kwang Ming x Horizon Logistics"},
-	"predator":        {"a": "snake",   "b": "lasgun",    "def_id": "lasgun",        "name": "Predator",              "label": "Predator",      "mfr": ""},
-	"toxic_ballistic": {"a": "homing",  "b": "chemtrail", "def_id": "homing_missile","name": "Toxic Ballistic",       "label": "Toxic Ballistic","mfr": "", "group": "obsolete"},
+	"predator":        {"a": "snake",   "b": "death_beam",    "def_id": "death_beam",        "name": "Predator",              "label": "Predator",      "mfr": ""},
+	"toxic_ballistic": {"a": "homing",  "b": "chemtrail", "def_id": "homing_missile","name": "Toxic Ballistic",       "label": "Toxic Ballistic","mfr": ""},
 	"singularities":   {"a": "void",    "b": "gauss",     "def_id": "orbitals",      "icon": "res://assets/inventory/Singularities.png", "name": "Singularities",         "label": "Singularities", "mfr": "Horizon Logistics x Vanguard Ballistics"},
 }
 const FUSION_BONUS_LEVELS := 4   # fused weapons can climb this many levels past MAX_WEAPON_LEVEL (6 → 10)
 # (Carnage / Vampire Host tunables are declared later in the file — the canonical OURS copies.)
 
 # ── TUNABLES: Batch-1 weapons (Nuke / Sonic Wave / Z-Sword / Ionizing Field) ──────
-# Mortar (Rosastro HE Mortar, code "Mortar") + Fat Boy (Rosastro Nuclear): a mouse-aimed mortarbullet that flies
+# Mortar (Little Man, code "Mortar") + Fat Boy (Fat Boy): a mouse-aimed mortarbullet that flies
 # straight and detonates an AoE explosion on the FIRST enemy it touches. Fat Boy = the full-size blast; Mortar
 # fires the same bullet but its explosion is a 5% mini version.
-const NUKE_RADIUS         := 540.0    # full explosion footprint (Fat Boy) + the full-VFX size_px base
-const NUKE_BLAST_STAGGER  := 0.6      # stagger applied to enemies caught in the blast
+const MORTAR_RADIUS         := 540.0    # full explosion footprint (Fat Boy) + the full-VFX size_px base
+const MORTAR_BLAST_STAGGER  := 0.6      # stagger applied to enemies caught in the blast
 const MORTAR_FIRE_INTERVAL := 1.0     # auto-fire cadence (1 bullet/sec, before fire-rate mult)
 const MORTAR_BULLET_SPEED  := 700.0   # px/s, straight toward the mouse
 const MORTAR_BULLET_LIFE   := 3.0     # s before an un-hit bullet is culled (no explosion on timeout)
@@ -181,7 +181,7 @@ const ZSWORD_POOL := {
 	"divergence": {"name": "Divergence Sword", "max": 6, "per": "+5% extra-swipe chance", "desc": "Each swing may trigger another (and those can chain too)."},
 }
 # (slash visuals live in scripts/gameplay/fx/z_slash.gd; colours are ZSlash.LEAD_COL/LEAD_HOT there)
-# Black Hole (Tachyon Displacer) — always-on aura DoT around the ship; visual = 2 EnergyVortex swirls
+# Ionizing Field — always-on aura DoT around the ship; visual = 2 EnergyVortex swirls
 # (creep-edit VFX) over a Vacuum-style gravitational-lens that distorts the space background.
 const IONIZE_TICK   := 0.3
 const IONIZE_RADIUS := 170.0
@@ -467,21 +467,21 @@ void fragment() {
 "
 
 # ── TUNABLES: Lasgun (continuous tick-based beam — gained from a pickup, off until then) ──────────────────
-const LASGUN_RANGE   := 3000.0   # beam length px — runs far off-screen so it reads as "infinite"
-const LASGUN_BEAM_Z  := 90       # beam draws ON TOP of enemies (z≤4); still under the ship (z 100)
-const LASGUN_DAMAGE  := 22.0     # damage PER TICK
-const LASGUN_TICK    := 0.10     # s between damage ticks (≈ damage/sec = LASGUN_DAMAGE / this)
-const LASGUN_STAGGER := 0.15     # s stagger per tick
-const LASGUN_WIDTH   := 14.0     # beam hit width (px) — matches the beam visual
-const LASGUN_HIT_PAD := 16.0     # enemy-radius padding for the distance-to-line hit test
-const LASGUN_LIGHT        := 5.5 # dust-light value per sample point along the beam (casts light on the dust)
-const LASGUN_LIGHT_SAMPLES := 16 # number of light points sampled evenly along the beam (denser = brighter line)
-const LASGUN_CYCLE    := 5.0     # full period (s): the beam fires once every CYCLE
-const LASGUN_DURATION := 3.0     # beam-on time within each cycle (s) → fires 3s out of every 5s
-const LASGUN_CHARGE   := 1.5     # charge telegraph (s) before each burst — the orb light-gather plays over this
+const DEATHBEAM_RANGE   := 3000.0   # beam length px — runs far off-screen so it reads as "infinite"
+const DEATHBEAM_BEAM_Z  := 90       # beam draws ON TOP of enemies (z≤4); still under the ship (z 100)
+const DEATHBEAM_DAMAGE  := 22.0     # damage PER TICK
+const DEATHBEAM_TICK    := 0.10     # s between damage ticks (≈ damage/sec = DEATHBEAM_DAMAGE / this)
+const DEATHBEAM_STAGGER := 0.15     # s stagger per tick
+const DEATHBEAM_WIDTH   := 14.0     # beam hit width (px) — matches the beam visual
+const DEATHBEAM_HIT_PAD := 16.0     # enemy-radius padding for the distance-to-line hit test
+const DEATHBEAM_LIGHT        := 5.5 # dust-light value per sample point along the beam (casts light on the dust)
+const DEATHBEAM_LIGHT_SAMPLES := 16 # number of light points sampled evenly along the beam (denser = brighter line)
+const DEATHBEAM_CYCLE    := 5.0     # full period (s): the beam fires once every CYCLE
+const DEATHBEAM_DURATION := 3.0     # beam-on time within each cycle (s) → fires 3s out of every 5s
+const DEATHBEAM_CHARGE   := 1.5     # charge telegraph (s) before each burst — the orb light-gather plays over this
 
 # ── Lasgun skill-point upgrade pool (incinerate/freeze need the status system — Stage 2, not wired yet) ──
-const LASGUN_POOL := {
+const DEATHBEAM_POOL := {
 	"energy":     {"name": "Energy Mastery", "max": 0,  "per": "+10% energy damage",  "desc": "Boosts all energy weapons (global)."},
 	"damage":     {"name": "Overcharge",     "max": 10, "per": "+10% damage",         "desc": "The beam hits harder."},
 	"duration":   {"name": "Capacitor",      "max": 10, "per": "+10% duration",       "desc": "Longer Lasgun beam, Red X fire, Sonic, Gauss, Chemtrail + burn/freeze/stun."},
@@ -497,7 +497,7 @@ const CAPSTONES := {
 		{"id": "focus",   "name": "Focus Fire",     "desc": "+0.5% damage per consecutive hit on the same target (max +100%)."},
 		{"id": "healing", "name": "Healing Round",  "desc": "1 in 200 bullets heals you + the target for 5 HP."},
 	],
-	"lasgun": [
+	"death_beam": [
 		{"id": "all_in",       "name": "All-In",          "desc": "+200% damage, but you lose a weapon slot."},
 		{"id": "lights_out",   "name": "Lights-Out",      "desc": "While the beam fires, -30% cooldown for all your OTHER weapons."},
 		{"id": "ice_and_fire", "name": "Of Ice and Fire", "desc": "Applying freeze also burns, and applying burn also freezes."},
@@ -630,8 +630,8 @@ const SFX_ENGINE_HUM: AudioStream = preload("res://assets/audio/sfx/Scifi/scifi-
 const SFX_GAUSS_FIRE: AudioStream = preload("res://assets/audio/sfx/hitimpact.wav")
 const SFX_GAUSS_IMPACT: AudioStream = preload("res://assets/audio/sfx/AstroMenace-SFX/weaponfire6.wav")
 const SFX_ORBITAL_IMPACT: AudioStream = preload("res://assets/audio/sfx/AstroMenace-SFX/weaponfire6.wav")
-const SFX_LASGUN_CHARGE: AudioStream = preload("res://assets/audio/sfx/Scifi/blg_beam_01.wav")
-const SFX_LASGUN_BEAM: AudioStream = preload("res://assets/audio/sfx/AstroMenace-SFX/weaponfire14.wav")
+const SFX_DEATHBEAM_CHARGE: AudioStream = preload("res://assets/audio/sfx/Scifi/blg_beam_01.wav")
+const SFX_DEATHBEAM_BEAM: AudioStream = preload("res://assets/audio/sfx/AstroMenace-SFX/weaponfire14.wav")
 const PickupScript := preload("res://scripts/gameplay/arena_weapon_pickup.gd")
 const OrbChargeScript := preload("res://scripts/gameplay/arena_orb_charge_fx.gd")
 const GatMuzzleScript := preload("res://scripts/gameplay/arena_gatling_muzzle.gd")
@@ -793,9 +793,9 @@ var _gat_active: bool = false
 var _gat_upg: Dictionary = {"hardened": 0, "piercing": 0, "quick": 0, "bouncing": 0, "multishot": 0, "kinetic": 0, "advance_ballistic": 0}
 var _gat_capstone: String = ""   # "" | "spray" | "focus" | "healing"
 # Lasgun upgrade ranks (from its skill-point pool) + the level-6 evolve capstone.
-var _las_upg: Dictionary = {"energy": 0, "damage": 0, "duration": 0, "cooldown": 0, "incinerate": 0, "freeze": 0}
-var _las_capstone: String = ""   # "" | "all_in" | "lights_out" | "ice_and_fire"
-var _las_is_firing: bool = false # true during the beam-on window (Lights-Out reads this)
+var _db_upg: Dictionary = {"energy": 0, "damage": 0, "duration": 0, "cooldown": 0, "incinerate": 0, "freeze": 0}
+var _db_capstone: String = ""   # "" | "all_in" | "lights_out" | "ice_and_fire"
+var _db_is_firing: bool = false # true during the beam-on window (Lights-Out reads this)
 var _slot_penalty: int = 0       # weapon-slot capacity lost (All-In capstone)
 # Arc upgrade ranks + the level-6 evolve capstone.
 var _arc_upg: Dictionary = {"luck": 0, "damage": 0, "firerate": 0, "bounce": 0, "lightning": 0, "electrocute": 0}
@@ -814,9 +814,9 @@ var _engine_hum: AudioStreamPlayer = null
 var _gauss_fire_player: AudioStreamPlayer = null
 var _gauss_impact_player: AudioStreamPlayer = null
 var _orbital_impact_player: AudioStreamPlayer = null
-var _las_charge_player: AudioStreamPlayer = null
-var _las_beam_player: AudioStreamPlayer = null
-var _las_beam_playing: bool = false
+var _db_charge_player: AudioStreamPlayer = null
+var _db_beam_player: AudioStreamPlayer = null
+var _db_beam_playing: bool = false
 var _arc_active: bool = ARC_ENABLED_DEFAULT   # turned on by the Arc pickup
 var _red_x_active: bool = false    # turned on by the Red X / Dragon's Breath pickup
 var _red_x_cd: float = 0.0         # (legacy detonation cd — Carnage X-fire still uses _spawn_red_x_fire)
@@ -866,9 +866,9 @@ var _void_tick: float = 0.0        # damage-tick accumulator
 var _void_node: ColorRect = null   # the swirling-vortex visual
 var _void_distort: ColorRect = null   # gravitational-lens disc (screen-warp), drawn under the vortex
 # ── Batch-1 weapons (Nuke / Sonic Wave / Z-Sword / Ionizing Field) ──
-var _nuke_active: bool = false          # Mortar (Rosastro HE Mortar) — mortarbullet auto-fire
-var _nuke_cd: float = 0.0               # Mortar fire timer
-var _fat_boy_active: bool = false       # Fat Boy (Rosastro Nuclear) — same bullet, full-size blast
+var _little_man_active: bool = false          # Mortar (Little Man) — mortarbullet auto-fire
+var _little_man_cd: float = 0.0               # Mortar fire timer
+var _fat_boy_active: bool = false       # Fat Boy (Fat Boy) — same bullet, full-size blast
 var _fat_boy_cd: float = 0.0            # Fat Boy fire timer
 var _mortar_bullets: Array = []         # shared pool: {pos, vel, kind, life}
 var _mortarbullet_tex: Texture2D = null
@@ -971,14 +971,14 @@ var _snake_tail_tex:      Texture2D = null
 var _snake_head_plume_anchor:  Node2D = null
 var _snake_tail_plume_anchor:  Node2D = null
 var _snake_body_plume_anchors: Array  = []   # one Node2D per body segment (k=1..n-2)
-var _lasgun_active: bool = false   # turned on by the Lasgun pickup (auto-equip, accumulates with the Gatling)
+var _death_beam_active: bool = false   # turned on by the Lasgun pickup (auto-equip, accumulates with the Gatling)
 var _beam_cd: float = 0.0          # Lasgun damage-tick cooldown
 var _beam: Node2D = null           # additive beam VFX child (gameplay plane → sharp)
 var _gat_muzzle_t: float = 0.0     # Gatling muzzle-fire intensity (1 on each shot, decays)
 var _gat_muzzle_fx: Node2D = null  # additive Gatling muzzle-flash FX child
-var _las_t: float = 0.0            # Lasgun cycle clock (advances while active)
+var _db_t: float = 0.0            # Lasgun cycle clock (advances while active)
 var _charge_fx: Node2D = null      # Chromeleon-orb light-gather charge telegraph (ported _ChannelFX)
-var _las_charge_started: bool = false   # one-shot guard so the charge FX triggers once per cycle
+var _db_charge_started: bool = false   # one-shot guard so the charge FX triggers once per cycle
 var _beam_light_on: bool = false   # beam currently casting dust light
 var _beam_light_from := Vector2.ZERO
 var _beam_light_to := Vector2.ZERO
@@ -994,7 +994,7 @@ func _ready() -> void:
 		GameManager.mitigation_burst.connect(_fire_mitigation_shockwave)   # Exoskeleton Reactive Plating evo
 	_beam = BeamScript.new()
 	add_child(_beam)
-	_beam.z_index = LASGUN_BEAM_Z   # beam renders over enemy sprites
+	_beam.z_index = DEATHBEAM_BEAM_Z   # beam renders over enemy sprites
 	_charge_fx = OrbChargeScript.new()
 	add_child(_charge_fx)
 	_gat_muzzle_fx = GatMuzzleScript.new()
@@ -1083,14 +1083,14 @@ func _ready() -> void:
 	_orbital_impact_player.stream = SFX_ORBITAL_IMPACT
 	_orbital_impact_player.bus = "SFX"
 	add_child(_orbital_impact_player)
-	_las_charge_player = AudioStreamPlayer.new()
-	_las_charge_player.stream = SFX_LASGUN_CHARGE
-	_las_charge_player.bus = "SFX"
-	add_child(_las_charge_player)
-	_las_beam_player = AudioStreamPlayer.new()
-	_las_beam_player.stream = SFX_LASGUN_BEAM
-	_las_beam_player.bus = "SFX"
-	add_child(_las_beam_player)
+	_db_charge_player = AudioStreamPlayer.new()
+	_db_charge_player.stream = SFX_DEATHBEAM_CHARGE
+	_db_charge_player.bus = "SFX"
+	add_child(_db_charge_player)
+	_db_beam_player = AudioStreamPlayer.new()
+	_db_beam_player.stream = SFX_DEATHBEAM_BEAM
+	_db_beam_player.bus = "SFX"
+	add_child(_db_beam_player)
 	_engine_hum = AudioStreamPlayer.new()
 	_engine_hum.stream = SFX_ENGINE_HUM
 	_engine_hum.bus = "SFX"
@@ -1175,11 +1175,11 @@ func get_lights() -> Array:
 	if _arc_active:
 		for a: Dictionary in _arcs:
 			lights.append({"pos": a["tip"], "value": ARC_LIGHT, "color": ARC_COL})
-	if _lasgun_active and _beam_light_on:
+	if _death_beam_active and _beam_light_on:
 		# Light points sampled along the beam → the dust glows the whole length of the laser.
-		for i in LASGUN_LIGHT_SAMPLES:
-			var f := float(i) / float(maxi(1, LASGUN_LIGHT_SAMPLES - 1))
-			lights.append({"pos": _beam_light_from.lerp(_beam_light_to, f), "value": LASGUN_LIGHT, "color": _beam_light_col})
+		for i in DEATHBEAM_LIGHT_SAMPLES:
+			var f := float(i) / float(maxi(1, DEATHBEAM_LIGHT_SAMPLES - 1))
+			lights.append({"pos": _beam_light_from.lerp(_beam_light_to, f), "value": DEATHBEAM_LIGHT, "color": _beam_light_col})
 	if (_orbital_active or _singularity_active) and _player != null and is_instance_valid(_player):
 		for c: Vector2 in _orbital_positions():
 			lights.append({"pos": c, "value": ORBITAL_LIGHT, "color": ORBITAL_COL})
@@ -1351,8 +1351,8 @@ func _process(delta: float) -> void:
 		_tick_striker(delta, enemy_on_screen)
 	if _void_active:
 		_tick_void(delta)
-	if _nuke_active:
-		_tick_mortar(delta, "nuke")
+	if _little_man_active:
+		_tick_mortar(delta, "little_man")
 	if _fat_boy_active:
 		_tick_mortar(delta, "fat_boy")
 	if not _mortar_bullets.is_empty():
@@ -1391,15 +1391,15 @@ func _process(delta: float) -> void:
 		_tick_toxic(delta, enemy_on_screen)
 	if _singularity_active:
 		_tick_singularity(delta)
-	if _lasgun_active:
+	if _death_beam_active:
 		if enemy_on_screen:
-			_fire_lasgun(delta)
+			_fire_death_beam(delta)
 		else:
-			_las_is_firing = false   # not firing → Lights-Out off
-			# Pause the lasgun cycle — stop beam visuals/audio but don't reset _las_t.
-			if _las_beam_playing:
-				_las_beam_player.stop()
-				_las_beam_playing = false
+			_db_is_firing = false   # not firing → Lights-Out off
+			# Pause the lasgun cycle — stop beam visuals/audio but don't reset _db_t.
+			if _db_beam_playing:
+				_db_beam_player.stop()
+				_db_beam_playing = false
 			if _beam != null:
 				_beam.set_beam(Vector2.ZERO, Vector2.ZERO, false, false)
 			_beam_light_on = false
@@ -1447,9 +1447,9 @@ const CONTACT_KINDS := ["orbital", "singularities", "swarm", "snake", "boomerang
 # Weapon damage FAMILY (the 3-family taxonomy) → Art of War per-family masteries + the X-Truth evolutions.
 const WEAPON_FAMILY := {
 	"gatling": "kinetic", "orbital": "kinetic", "boomerang": "kinetic", "moroboshi": "kinetic",
-	"yari_jaeger": "kinetic", "snake": "kinetic", "swarm": "kinetic", "homing": "kinetic", "nuke": "kinetic",
+	"yari_jaeger": "kinetic", "snake": "kinetic", "swarm": "kinetic", "homing": "kinetic", "little_man": "kinetic",
 	"carnage": "kinetic",
-	"lasgun": "energy", "arc": "energy", "gauss": "energy", "sonic": "energy", "void": "energy",
+	"death_beam": "energy", "arc": "energy", "gauss": "energy", "sonic": "energy", "void": "energy",
 	"zsword": "energy", "ionize": "energy", "red_x": "energy", "singularities": "energy",
 	"overcharger": "energy", "predator": "energy",
 	"chemtrail": "biological", "parasite": "biological", "vampire_host": "biological", "toxic_ballistic": "biological",
@@ -1633,7 +1633,7 @@ func _fire_gatling() -> void:
 func pool_rank(kind: String, id: String) -> int:
 	match kind:
 		"gatling": return gat_upgrade_rank(id)
-		"lasgun":  return las_upgrade_rank(id)
+		"death_beam":  return db_upgrade_rank(id)
 		"arc":     return arc_upgrade_rank(id)
 		"gauss":   return gauss_upgrade_rank(id)
 		"orbital": return orbital_upgrade_rank(id)
@@ -1646,7 +1646,7 @@ func pool_rank(kind: String, id: String) -> int:
 func pool_grant(kind: String, id: String) -> bool:
 	match kind:
 		"gatling": return gat_grant_upgrade(id)
-		"lasgun":  return las_grant_upgrade(id)
+		"death_beam":  return db_grant_upgrade(id)
 		"arc":     return arc_grant_upgrade(id)
 		"gauss":   return gauss_grant_upgrade(id)
 		"orbital": return orbital_grant_upgrade(id)
@@ -1659,7 +1659,7 @@ func pool_grant(kind: String, id: String) -> bool:
 func pool_set_capstone(kind: String, id: String) -> void:
 	match kind:
 		"gatling": gat_set_capstone(id)
-		"lasgun":  las_set_capstone(id)
+		"death_beam":  db_set_capstone(id)
 		"arc":     arc_set_capstone(id)
 		"gauss":   gauss_set_capstone(id)
 		"orbital": orbital_set_capstone(id)
@@ -1669,7 +1669,7 @@ func pool_set_capstone(kind: String, id: String) -> void:
 		"sonic":   _sonic_capstone = id
 	# All-In: lose a weapon slot. If you're at/over the new cap, the UI must destroy one first (it checks
 	# weapons_full() before applying); here we just lower the capacity.
-	if kind == "lasgun" and id == "all_in":
+	if kind == "death_beam" and id == "all_in":
 		_slot_penalty += 1
 
 ## The level-6 evolve options for a weapon (empty if it has none).
@@ -1680,7 +1680,7 @@ func weapon_capstones(kind: String) -> Array:
 func weapon_capstone(kind: String) -> String:
 	match kind:
 		"gatling": return _gat_capstone
-		"lasgun":  return _las_capstone
+		"death_beam":  return _db_capstone
 		"arc":     return _arc_capstone
 		"gauss":   return _gauss_capstone
 		"orbital": return _orbital_capstone
@@ -1703,16 +1703,16 @@ func destroy_weapon(kind: String) -> void:
 		_deactivate_kind(kind)
 
 # ── Lasgun upgrades: API + effective stats (ranks + level rewards). Status (incinerate/freeze) = Stage 2. ──
-func las_upgrade_rank(id: String) -> int:
-	return int(_las_upg.get(id, 0))
+func db_upgrade_rank(id: String) -> int:
+	return int(_db_upg.get(id, 0))
 
-func las_grant_upgrade(id: String) -> bool:
-	if not LASGUN_POOL.has(id):
+func db_grant_upgrade(id: String) -> bool:
+	if not DEATHBEAM_POOL.has(id):
 		return false
-	var maxr := int(LASGUN_POOL[id]["max"])
-	if maxr > 0 and int(_las_upg.get(id, 0)) >= maxr:
+	var maxr := int(DEATHBEAM_POOL[id]["max"])
+	if maxr > 0 and int(_db_upg.get(id, 0)) >= maxr:
 		return false
-	_las_upg[id] = int(_las_upg.get(id, 0)) + 1
+	_db_upg[id] = int(_db_upg.get(id, 0)) + 1
 	if GameManager.has_method("add_mech"):
 		if id == "energy":
 			GameManager.add_mech("energy_dmg", 0.10)      # GLOBAL: energy weapons read mech_bonus("energy_dmg")
@@ -1720,44 +1720,44 @@ func las_grant_upgrade(id: String) -> bool:
 			GameManager.add_mech("duration_pct", 0.10)    # GLOBAL: duration weapons read mech_bonus("duration_pct")
 	return true
 
-func las_set_capstone(id: String) -> void:
-	_las_capstone = id
+func db_set_capstone(id: String) -> void:
+	_db_capstone = id
 
-func _las_lvl() -> int:
-	return weapon_level("lasgun")
+func _db_lvl() -> int:
+	return weapon_level("death_beam")
 
 ## Beam damage per tick: base × Overcharge ranks. Energy/all masteries applied centrally in _roll_damage.
-func _las_dmg() -> float:
-	var local := 1.0 + float(_las_upg["damage"]) * 0.10
-	var allin := 3.0 if _las_capstone == "all_in" else 1.0   # All-In: +200% damage
-	return LASGUN_DAMAGE * local * allin
+func _db_dmg() -> float:
+	var local := 1.0 + float(_db_upg["damage"]) * 0.10
+	var allin := 3.0 if _db_capstone == "all_in" else 1.0   # All-In: +200% damage
+	return DEATHBEAM_DAMAGE * local * allin
 
 ## Firing-cycle length: Heat Sink ranks (floored so it never collapses).
-func _las_cycle() -> float:
-	var reduction := float(_las_upg["cooldown"]) * 0.05
-	return LASGUN_CYCLE * maxf(0.25, 1.0 - reduction)
+func _db_cycle() -> float:
+	var reduction := float(_db_upg["cooldown"]) * 0.05
+	return DEATHBEAM_CYCLE * maxf(0.25, 1.0 - reduction)
 
 ## Beam-on time: Capacitor (global duration), clamped to keep a little off-time.
-func _las_duration() -> float:
+func _db_duration() -> float:
 	var dur_global: float = GameManager.mech_bonus("duration_pct") if GameManager.has_method("mech_bonus") else 0.0
 	var mult := 1.0 + dur_global
-	return minf(LASGUN_DURATION * mult, _las_cycle() - 0.3)
+	return minf(DEATHBEAM_DURATION * mult, _db_cycle() - 0.3)
 
 ## Beam half-width multiplier (no level scaling).
-func _las_width_mult() -> float:
+func _db_width_mult() -> float:
 	return 1.0
 
 ## Burn-apply chance PER SECOND (Incinerate ranks). Rolled per damage tick, scaled by the tick interval.
-func _las_incinerate_rate() -> float:
-	return float(_las_upg["incinerate"]) * 0.05
+func _db_incinerate_rate() -> float:
+	return float(_db_upg["incinerate"]) * 0.05
 
 ## Freeze-apply chance PER SECOND (Freeze ranks).
-func _las_freeze_rate() -> float:
-	return float(_las_upg["freeze"]) * 0.05
+func _db_freeze_rate() -> float:
+	return float(_db_upg["freeze"]) * 0.05
 
 ## Lights-Out capstone: while the Lasgun beam fires, every OTHER weapon's cooldown is scaled ×0.7 (-30%).
 func _cd_scale(kind: String) -> float:
-	var base := 0.7 if (kind != "lasgun" and _lasgun_active and _las_capstone == "lights_out" and _las_is_firing) else 1.0
+	var base := 0.7 if (kind != "death_beam" and _death_beam_active and _db_capstone == "lights_out" and _db_is_firing) else 1.0
 	return base / _fam_rate(kind)   # Auto-Loader per-family fire rate (faster cadence → smaller cd multiplier)
 
 ## Per-family fire-rate multiplier (≥1) from Auto-Loader's kinetic/energy/bio rate masteries; 1.0 if no family.
@@ -1780,7 +1780,7 @@ func _base_cd(kind: String) -> float:
 		"gatling":     return GAT_FIRE_INTERVAL
 		"gauss":       return GAUSS_CHARGE_TIME
 		"arc":         return ARC_COOLDOWN
-		"nuke":        return MORTAR_FIRE_INTERVAL
+		"little_man":        return MORTAR_FIRE_INTERVAL
 		"sonic":       return SONIC_COOLDOWN
 		"zsword":      return ZSWORD_COOLDOWN
 		"parasite":    return PARA_COOLDOWN
@@ -1927,58 +1927,58 @@ func _gauss_fission_count() -> int:
 func _gauss_orb_count() -> int:
 	return 1 if _gauss_capstone == "spirit_bomb" else _gauss_fission_count()
 
-func _fire_lasgun(delta: float) -> void:
-	# Duty cycle: fire for _las_duration() out of every _las_cycle() seconds, with a charge telegraph in the
-	# last LASGUN_CHARGE seconds before each burst.
-	_las_t += delta
-	var cyc := _las_cycle()
-	var dur := _las_duration()
-	var phase := fmod(_las_t, cyc)
+func _fire_death_beam(delta: float) -> void:
+	# Duty cycle: fire for _db_duration() out of every _db_cycle() seconds, with a charge telegraph in the
+	# last DEATHBEAM_CHARGE seconds before each burst.
+	_db_t += delta
+	var cyc := _db_cycle()
+	var dur := _db_duration()
+	var phase := fmod(_db_t, cyc)
 	var firing := phase < dur
-	_las_is_firing = firing   # Lights-Out reads this
+	_db_is_firing = firing   # Lights-Out reads this
 	if not firing:
-		# Charge telegraph (Chromeleon orb light-gather) in the last LASGUN_CHARGE seconds before the burst.
-		var charge_start := maxf(0.0, cyc - LASGUN_CHARGE)
+		# Charge telegraph (Chromeleon orb light-gather) in the last DEATHBEAM_CHARGE seconds before the burst.
+		var charge_start := maxf(0.0, cyc - DEATHBEAM_CHARGE)
 		if phase >= charge_start and _charge_fx != null:
 			_charge_fx.position = _muzzle()   # follow the moving nose
-			if not _las_charge_started:
-				_charge_fx.start(LASGUN_CHARGE)
-				_las_charge_player.play()
-				_las_charge_started = true
+			if not _db_charge_started:
+				_charge_fx.start(DEATHBEAM_CHARGE)
+				_db_charge_player.play()
+				_db_charge_started = true
 		if _beam != null:
 			_beam.set_beam(Vector2.ZERO, Vector2.ZERO, false, false)
 		_beam_light_on = false
 		_beam_cd = 0.0   # so the first damage tick lands the instant the burst starts
-		if _las_beam_playing:
-			_las_beam_player.stop()
-			_las_beam_playing = false
+		if _db_beam_playing:
+			_db_beam_player.stop()
+			_db_beam_playing = false
 		return
 	# Firing: kill the charge FX and arm the next cycle's telegraph.
-	_las_charge_started = false
-	if not _las_beam_playing:
-		_las_beam_player.play()
-		_las_beam_playing = true
-	elif not _las_beam_player.playing:
-		_las_beam_player.play()
+	_db_charge_started = false
+	if not _db_beam_playing:
+		_db_beam_player.play()
+		_db_beam_playing = true
+	elif not _db_beam_player.playing:
+		_db_beam_player.play()
 	if _charge_fx != null:
 		_charge_fx.stop()
 	var from := _muzzle()
 	var dir := _forward()
 	# ONLY bosses block the beam. Find the nearest boss along the line; otherwise the beam runs to max range.
-	var block_along := LASGUN_RANGE
-	var half_w := LASGUN_WIDTH * 0.5 * _las_width_mult()   # AOE → wider beam
+	var block_along := DEATHBEAM_RANGE
+	var half_w := DEATHBEAM_WIDTH * 0.5 * _db_width_mult()   # AOE → wider beam
 	for b in get_tree().get_nodes_in_group("boss"):
 		if not is_instance_valid(b):
 			continue
 		var tb: Vector2 = (b as Node2D).global_position - from
 		var balong := tb.dot(dir)
-		if balong < 0.0 or balong > LASGUN_RANGE:
+		if balong < 0.0 or balong > DEATHBEAM_RANGE:
 			continue
 		var _br = b.get("hit_radius")
-		var bw: float = half_w + (float(_br) if _br != null else LASGUN_HIT_PAD)
+		var bw: float = half_w + (float(_br) if _br != null else DEATHBEAM_HIT_PAD)
 		if (tb - dir * balong).length() <= bw and balong < block_along:
 			block_along = balong
-	var blocked := block_along < LASGUN_RANGE
+	var blocked := block_along < DEATHBEAM_RANGE
 	# Beam ends at the blocking boss, else far off-screen (looks infinite). Non-degenerate at point-blank.
 	var to_pt := from + dir * maxf(2.0, block_along)
 	if _beam != null:
@@ -1987,11 +1987,11 @@ func _fire_lasgun(delta: float) -> void:
 	_beam_light_on = true
 	_beam_light_from = from
 	_beam_light_to = to_pt
-	_beam_light_col = Color.from_hsv(fposmod(_las_t * 0.5, 1.0), 0.7, 1.0)
+	_beam_light_col = Color.from_hsv(fposmod(_db_t * 0.5, 1.0), 0.7, 1.0)
 	# Tick damage to EVERY enemy the beam touches up to the block point (pierce-all; a boss stops it).
 	_beam_cd -= delta
 	if _beam_cd <= 0.0:
-		_beam_cd = LASGUN_TICK / _rate_mult / _fam_rate("lasgun")
+		_beam_cd = DEATHBEAM_TICK / _rate_mult / _fam_rate("death_beam")
 		for en in _enemies():
 			if not is_instance_valid(en):
 				continue
@@ -2000,30 +2000,30 @@ func _fire_lasgun(delta: float) -> void:
 			if along < 0.0 or along > block_along:
 				continue
 			var _en_r3 = en.get("hit_radius")
-			var hit_w: float = half_w + (float(_en_r3) if _en_r3 != null else LASGUN_HIT_PAD)
+			var hit_w: float = half_w + (float(_en_r3) if _en_r3 != null else DEATHBEAM_HIT_PAD)
 			if (to_e - dir * along).length() > hit_w:
 				continue
 			if en.has_method("take_damage"):
-				var _las_r := _roll_damage(_las_dmg(), "lasgun")   # "lasgun" → energy family mastery applies
-				en.take_damage(float(_las_r["dmg"]), LASGUN_STAGGER, 0.0, false, _bleeds("lasgun"), bool(_las_r["is_crit"]))
-				if bool(_las_r["is_crit"]):
-					_spawn_crit_number((en as Node2D).global_position, float(_las_r["dmg"]))
+				var _db_r := _roll_damage(_db_dmg(), "death_beam")   # "death_beam" → energy family mastery applies
+				en.take_damage(float(_db_r["dmg"]), DEATHBEAM_STAGGER, 0.0, false, _bleeds("death_beam"), bool(_db_r["is_crit"]))
+				if bool(_db_r["is_crit"]):
+					_spawn_crit_number((en as Node2D).global_position, float(_db_r["dmg"]))
 				# Incinerate / Freeze: chance/sec, rolled per tick (scaled by the tick interval).
-				var tick_dt := LASGUN_TICK / _rate_mult
-				var ice_fire := _las_capstone == "ice_and_fire"   # each status also applies the OTHER (no self-loop)
-				if _las_incinerate_rate() > 0.0 and en.has_method("apply_burn") and _proc(_las_incinerate_rate() * tick_dt):
+				var tick_dt := DEATHBEAM_TICK / _rate_mult
+				var ice_fire := _db_capstone == "ice_and_fire"   # each status also applies the OTHER (no self-loop)
+				if _db_incinerate_rate() > 0.0 and en.has_method("apply_burn") and _proc(_db_incinerate_rate() * tick_dt):
 					en.call("apply_burn", 1)
 					if ice_fire and en.has_method("apply_freeze"):
 						en.call("apply_freeze", 1)
-				if _las_freeze_rate() > 0.0 and en.has_method("apply_freeze") and _proc(_las_freeze_rate() * tick_dt):
+				if _db_freeze_rate() > 0.0 and en.has_method("apply_freeze") and _proc(_db_freeze_rate() * tick_dt):
 					en.call("apply_freeze", 1)
 					if ice_fire and en.has_method("apply_burn"):
 						en.call("apply_burn", 1)
 
 ## Called by the Lasgun pickup on collection — adds the beam to the active loadout (accumulates with Gatling).
-func activate_lasgun() -> void:
-	_lasgun_active = true
-	_las_t = maxf(0.0, _las_cycle() - LASGUN_CHARGE)   # begin in the charge window → telegraph, then the first burst
+func activate_death_beam() -> void:
+	_death_beam_active = true
+	_db_t = maxf(0.0, _db_cycle() - DEATHBEAM_CHARGE)   # begin in the charge window → telegraph, then the first burst
 
 func _on_ship_hp_changed(hp: int) -> void:
 	if not is_instance_valid(_engine_hum):
@@ -3400,7 +3400,7 @@ func clear_all_weapons() -> void:
 	_acquired.clear()
 	_levels.clear()
 	_gat_active     = false
-	_lasgun_active  = false
+	_death_beam_active  = false
 	_arc_active     = false
 	_gauss_active   = false
 	_orbital_active = false
@@ -3408,7 +3408,7 @@ func clear_all_weapons() -> void:
 	_void_active     = false
 	_red_x_active    = false
 	_chemtrail_active = false
-	_nuke_active     = false
+	_little_man_active     = false
 	_fat_boy_active  = false;  _mortar_bullets.clear()
 	_sonic_active    = false
 	_zsword_active   = false
@@ -3490,7 +3490,7 @@ func _lvl_mult(kind: String) -> float:
 func _activate_kind(kind: String) -> void:
 	match kind:
 		"gatling": activate_gatling()
-		"lasgun":  activate_lasgun()
+		"death_beam":  activate_death_beam()
 		"arc":     activate_arc()
 		"gauss":   activate_gauss()
 		"orbital": activate_orbital()
@@ -3498,7 +3498,7 @@ func _activate_kind(kind: String) -> void:
 		"void":    activate_void()
 		"red_x":   activate_red_x()
 		"chemtrail": activate_chemtrail()
-		"nuke":    activate_nuke()
+		"little_man":    activate_little_man()
 		"fat_boy": activate_fat_boy()
 		"sonic":   activate_sonic()
 		"zsword":  activate_zsword()
@@ -3558,7 +3558,7 @@ func fuse(fusion_id: String) -> bool:
 func _deactivate_kind(kind: String) -> void:
 	match kind:
 		"gatling": _gat_active = false
-		"lasgun":  _lasgun_active = false
+		"death_beam":  _death_beam_active = false
 		"arc":     _arc_active = false
 		"gauss":   _gauss_active = false
 		"orbital": _orbital_active = false
@@ -3566,7 +3566,7 @@ func _deactivate_kind(kind: String) -> void:
 		"void":    _void_active = false; _void_on = false
 		"red_x":   _red_x_active = false; _red_x_cd = 0.0
 		"chemtrail": _chemtrail_active = false
-		"nuke":    _nuke_active = false
+		"little_man":    _little_man_active = false
 		"fat_boy": _fat_boy_active = false
 		"sonic":   _sonic_active = false; _sonic_left = 0; _sonic_rings.clear()
 		"zsword":  _zsword_active = false
@@ -3598,17 +3598,17 @@ func weapon_cooldown_frac(kind: String) -> float:
 			if _void_cd <= 0.0:
 				return 1.0
 			return clampf(1.0 - _void_cd / maxf(0.01, VOID_COOLDOWN / rate), 0.0, 1.0)
-		"lasgun":
-			var lcyc := _las_cycle()
-			var ldur := _las_duration()
-			var phase := fmod(_las_t, lcyc)
+		"death_beam":
+			var lcyc := _db_cycle()
+			var ldur := _db_duration()
+			var phase := fmod(_db_t, lcyc)
 			if phase < ldur:
 				return 1.0   # firing window → ready
 			return clampf((phase - ldur) / maxf(0.01, lcyc - ldur), 0.0, 1.0)
-		"nuke":
-			if _nuke_cd <= 0.0:
+		"little_man":
+			if _little_man_cd <= 0.0:
 				return 1.0
-			return clampf(1.0 - _nuke_cd / maxf(0.01, MORTAR_FIRE_INTERVAL / rate), 0.0, 1.0)
+			return clampf(1.0 - _little_man_cd / maxf(0.01, MORTAR_FIRE_INTERVAL / rate), 0.0, 1.0)
 		"fat_boy":
 			if _fat_boy_cd <= 0.0:
 				return 1.0
@@ -3641,8 +3641,8 @@ func weapon_is_firing(kind: String) -> bool:
 		"void":    return _void_active
 		"orbital": return _orbital_active
 		"striker": return _striker_active
-		"lasgun":  return _lasgun_active and fmod(_las_t, _las_cycle()) < _las_duration()
-		"nuke":    return _nuke_active
+		"death_beam":  return _death_beam_active and fmod(_db_t, _db_cycle()) < _db_duration()
+		"little_man":    return _little_man_active
 		"fat_boy": return _fat_boy_active
 		"sonic":   return _sonic_active
 		"zsword":  return _zsword_active and _zsword_sweeping
@@ -3663,8 +3663,8 @@ func spawn_weapon_pickup(kind: String, world_pos: Vector2) -> void:
 	p.setup(world_pos, kind)
 
 ## Debug (legacy F12): drop a Lasgun pickup at a world position on the gameplay plane.
-func spawn_lasgun_pickup_near(world_pos: Vector2) -> void:
-	spawn_weapon_pickup("lasgun", world_pos)
+func spawn_death_beam_pickup_near(world_pos: Vector2) -> void:
+	spawn_weapon_pickup("death_beam", world_pos)
 
 func _tick_bullets(delta: float) -> void:
 	var ruins   := get_tree().get_nodes_in_group("arena_ruin")
@@ -4072,10 +4072,10 @@ func _aoe_radius(base: float) -> float:
 		return base
 	return (base + GameManager.mech_bonus("radius")) * (1.0 + GameManager.mech_bonus("aoe_pct"))   # flat (Explosivo) + % (Gauss AoE Mastery, global)
 
-# ── Mortar (Rosastro HE Mortar) + Fat Boy (Rosastro Nuclear) ──────────────────────────
-func activate_nuke() -> void:
-	_nuke_active = true
-	_nuke_cd = 0.0
+# ── Mortar (Little Man) + Fat Boy (Fat Boy) ──────────────────────────
+func activate_little_man() -> void:
+	_little_man_active = true
+	_little_man_cd = 0.0
 	_ensure_mortar_tex()
 
 func activate_fat_boy() -> void:
@@ -4089,7 +4089,7 @@ func _ensure_mortar_tex() -> void:
 
 ## Mortar / Fat Boy share this: auto-fire one mortarbullet toward the mouse every MORTAR_FIRE_INTERVAL.
 func _tick_mortar(delta: float, kind: String) -> void:
-	var cd := _nuke_cd if kind == "nuke" else _fat_boy_cd
+	var cd := _little_man_cd if kind == "little_man" else _fat_boy_cd
 	cd -= delta
 	if cd <= 0.0:
 		cd = MORTAR_FIRE_INTERVAL / _rate_mult
@@ -4098,8 +4098,8 @@ func _tick_mortar(delta: float, kind: String) -> void:
 				_explode_mortar(_player.global_position, "fat_boy")   # detonate AT the ship — no projectile
 		else:
 			_fire_mortar(kind)
-	if kind == "nuke":
-		_nuke_cd = cd
+	if kind == "little_man":
+		_little_man_cd = cd
 	else:
 		_fat_boy_cd = cd
 
@@ -4149,8 +4149,8 @@ func _explode_mortar(pos: Vector2, kind: String) -> void:
 		var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0
 		if pos.distance_to(en2.global_position) <= aoe + enr:
 			if en.has_method("take_damage"):
-				var r := _roll_damage(dmg, "nuke")
-				en.take_damage(float(r["dmg"]), NUKE_BLAST_STAGGER, 1.0, false, true, bool(r["is_crit"]))   # Nuke keeps pushback
+				var r := _roll_damage(dmg, "little_man")
+				en.take_damage(float(r["dmg"]), MORTAR_BLAST_STAGGER, 1.0, false, true, bool(r["is_crit"]))   # Nuke keeps pushback
 				if bool(r["is_crit"]):
 					_spawn_crit_number(en2.global_position, float(r["dmg"]))
 	for ruin in _ruins():
@@ -4161,7 +4161,7 @@ func _explode_mortar(pos: Vector2, kind: String) -> void:
 			if ruin.has_method("take_damage"):
 				ruin.take_damage(dmg * _dmg_mult * _lvl_mult(kind))
 	# Fat Boy = full-size blast; Mortar = a tiny (1%) LITE puff, 1.5× faster, no fullscreen shockwave.
-	var full_px := _aoe_radius(NUKE_RADIUS)
+	var full_px := _aoe_radius(MORTAR_RADIUS)
 	if is_fat:
 		_spawn_mortar_explosion(pos, full_px, 1.0, false)
 	else:
@@ -4193,8 +4193,8 @@ func _spawn_mortar_explosion(pos: Vector2, size_px: float, speed_mult: float = 1
 	ex.call("setup", pos, size_px)
 	if not lite:
 		var cam := get_tree().get_first_node_in_group("camera_shake")
-		if cam != null and cam.has_method("nuke_impact"):
-			cam.call("nuke_impact")
+		if cam != null and cam.has_method("mortar_impact"):
+			cam.call("mortar_impact")
 
 ## Draw in-flight mortarbullets at native aspect ratio, nose pointing along velocity.
 func _draw_mortar_bullets() -> void:
@@ -5179,7 +5179,7 @@ func _ensure_predator_beam() -> void:
 		return
 	_predator_beam = BeamScript.new()
 	add_child(_predator_beam)
-	_predator_beam.z_index = LASGUN_BEAM_Z
+	_predator_beam.z_index = DEATHBEAM_BEAM_Z
 
 func _tick_predator(delta: float, enemy_on_screen: bool) -> void:
 	# Steer the head toward the densest beam line (only when there are enemies); otherwise default snake
@@ -5198,24 +5198,24 @@ func _tick_predator(delta: float, enemy_on_screen: bool) -> void:
 	_predator_beam_cd -= delta
 	var fire := false
 	if _predator_beam_cd <= 0.0:
-		_predator_beam_cd = LASGUN_TICK / _rate_mult / _fam_rate("predator")
+		_predator_beam_cd = DEATHBEAM_TICK / _rate_mult / _fam_rate("predator")
 		_predator_aim = _best_beam_dir(head)
 		fire = true
 	var dir := Vector2.from_angle(_snake_dir)   # beam = the head's current facing (turning aims it)
 	# Bosses block the beam (same rule as the main Lasgun).
-	var block_along := LASGUN_RANGE
+	var block_along := DEATHBEAM_RANGE
 	for b in get_tree().get_nodes_in_group("boss"):
 		if not is_instance_valid(b):
 			continue
 		var tb: Vector2 = (b as Node2D).global_position - head
 		var balong := tb.dot(dir)
-		if balong < 0.0 or balong > LASGUN_RANGE:
+		if balong < 0.0 or balong > DEATHBEAM_RANGE:
 			continue
 		var _br = b.get("hit_radius")
-		var bw: float = LASGUN_WIDTH * 0.5 + (float(_br) if _br != null else LASGUN_HIT_PAD)
+		var bw: float = DEATHBEAM_WIDTH * 0.5 + (float(_br) if _br != null else DEATHBEAM_HIT_PAD)
 		if (tb - dir * balong).length() <= bw and balong < block_along:
 			block_along = balong
-	var blocked := block_along < LASGUN_RANGE
+	var blocked := block_along < DEATHBEAM_RANGE
 	_predator_beam.set_beam(head, head + dir * maxf(2.0, block_along), true, blocked)
 	if fire:
 		for en in _enemies():
@@ -5226,12 +5226,12 @@ func _tick_predator(delta: float, enemy_on_screen: bool) -> void:
 			if along < 0.0 or along > block_along:
 				continue
 			var _en_r = en.get("hit_radius")
-			var hit_w: float = LASGUN_WIDTH * 0.5 + (float(_en_r) if _en_r != null else LASGUN_HIT_PAD)
+			var hit_w: float = DEATHBEAM_WIDTH * 0.5 + (float(_en_r) if _en_r != null else DEATHBEAM_HIT_PAD)
 			if (to_e - dir * along).length() > hit_w:
 				continue
 			if en.has_method("take_damage"):
-				var r := _roll_damage(LASGUN_DAMAGE, "predator")
-				en.take_damage(float(r["dmg"]), LASGUN_STAGGER, 0.0, "lasgun")
+				var r := _roll_damage(DEATHBEAM_DAMAGE, "predator")
+				en.take_damage(float(r["dmg"]), DEATHBEAM_STAGGER, 0.0, "death_beam")
 				if bool(r["is_crit"]):
 					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
 
@@ -5253,10 +5253,10 @@ func _best_beam_dir(head: Vector2) -> Vector2:
 				continue
 			var to_e: Vector2 = (en as Node2D).global_position - head
 			var along := to_e.dot(dir)
-			if along < 0.0 or along > LASGUN_RANGE:
+			if along < 0.0 or along > DEATHBEAM_RANGE:
 				continue
 			var _en_r = en.get("hit_radius")
-			var hit_w: float = LASGUN_WIDTH * 0.5 + (float(_en_r) if _en_r != null else LASGUN_HIT_PAD)
+			var hit_w: float = DEATHBEAM_WIDTH * 0.5 + (float(_en_r) if _en_r != null else DEATHBEAM_HIT_PAD)
 			if (to_e - dir * along).length() <= hit_w:
 				count += 1
 		if count > best_count:

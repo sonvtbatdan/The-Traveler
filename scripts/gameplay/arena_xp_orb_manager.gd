@@ -19,6 +19,9 @@ const FORCE_MAGNET_MAX    := 1200.0   # speed cap for forced magnetization
 # ── Population control ────────────────────────────────────────────────────────
 const MAX_ORBS      := 4000     # MultiMesh buffer size (visible_instance_count tracks the live subset)
 const MERGE_RADIUS  := 24.0     # an orb spawning within this of an idle orb folds its value into it
+const MERGE_SCAN_MAX := 48      # spawn() only scans the most-recent N orbs for a merge target (O(1)-ish instead of
+                                # O(all orbs)) — a whole cluster dying drops orbs at the same spot consecutively, so
+                                # the merge target is always among the latest few. Avoids the mass-death spawn spike.
 const ORB_LIFETIME  := 30.0     # idle orbs auto-magnetize after this so XP is never lost / never piles up
 
 # ── State machine ─────────────────────────────────────────────────────────────
@@ -27,13 +30,13 @@ const ST_MAGNET := 1   # naturally magnetized (player walked into pickup radius)
 const ST_FORCE  := 2   # pulled by the magnetic loot item (ramps from 0 speed)
 
 # ── XP orb tiers (threshold = max xp for that tier, inclusive) ────────────────
-const TIER_GREEN_MAX  :=  50
-const TIER_YELLOW_MAX := 100
-const TIER_RED_MAX    := 500
-const TIER_GREEN_MULT  := 1.0
-const TIER_YELLOW_MULT := 0.5
-const TIER_RED_MULT    := 0.2
-const TIER_PURPLE_MULT := 0.1
+const TIER_GREEN_MAX  :=  2.5   # XP is face-value now (1/20 of the old scale) → tiers rescaled ÷20, mults ×20,
+const TIER_YELLOW_MAX :=  5.0   # caps unchanged, so orbs keep the same on-screen size/color as before.
+const TIER_RED_MAX    := 25.0
+const TIER_GREEN_MULT  := 20.0
+const TIER_YELLOW_MULT := 10.0
+const TIER_RED_MULT    := 4.0
+const TIER_PURPLE_MULT := 2.0
 const TIER_GREEN_CAP  :=  8.0
 const TIER_YELLOW_CAP := 14.0
 const TIER_RED_CAP    := 22.0
@@ -50,7 +53,7 @@ const TEX_SIZE := 64
 var _pos:   PackedVector2Array = PackedVector2Array()
 var _vel:   PackedVector2Array = PackedVector2Array()
 var _col:   PackedColorArray   = PackedColorArray()
-var _value: PackedInt32Array   = PackedInt32Array()
+var _value: PackedFloat32Array = PackedFloat32Array()
 var _diam:  PackedFloat32Array = PackedFloat32Array()   # quad world size (= glow diameter)
 var _state: PackedInt32Array   = PackedInt32Array()
 var _age:   PackedFloat32Array = PackedFloat32Array()
@@ -125,9 +128,10 @@ func _process(delta: float) -> void:
 # ── Spawn / merge ─────────────────────────────────────────────────────────────
 ## Add a collectible XP orb at a world position. Merges into a nearby idle orb when possible to keep the
 ## live array (and thus the per-frame loop) short.
-func spawn(world_pos: Vector2, value: int) -> void:
+func spawn(world_pos: Vector2, value: float) -> void:
 	var merge_sq := MERGE_RADIUS * MERGE_RADIUS
-	for i in _n:
+	var scan_start := maxi(0, _n - MERGE_SCAN_MAX)   # scan only the most-recent orbs (see MERGE_SCAN_MAX)
+	for i in range(_n - 1, scan_start - 1, -1):
 		if _state[i] == ST_IDLE and (_pos[i] - world_pos).length_squared() <= merge_sq:
 			_value[i] += value
 			_apply_tier(i)

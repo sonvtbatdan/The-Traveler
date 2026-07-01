@@ -106,7 +106,7 @@ const SCALE_VAR      := 0.15    # per-enemy base-size variance (±) so the crowd
 
 # Fallbacks so the enemy is self-sufficient if configured without a def (e.g. manager.spawn_bomb).
 const FALLBACK := {
-	"chase": {"behavior": "chase", "hp": 30.0, "speed": 95.0, "size": 16.0, "contact": 6, "xp": 5, "shape": "diamond", "tint": Color(0.95, 0.35, 0.30)},
+	"chase": {"behavior": "chase", "hp": 30.0, "speed": 95.0, "size": 16.0, "contact": 6, "xp": 0.25, "shape": "diamond", "tint": Color(0.95, 0.35, 0.30)},
 	"bomb":  {"behavior": "bomb",  "hp": 50.0, "speed": 120.0, "size": 18.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(0.9, 0.5, 0.2), "no_collide": true},
 	"thrown_bomb": {"behavior": "thrown_bomb", "hp": 12.0, "speed": THROWN_BOMB_SPEED, "size": 13.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(1.0, 0.55, 0.2), "icon": "res://assets/enemiesHD/bomb.png", "no_collide": true},
 }
@@ -156,7 +156,9 @@ var _vortexes: Array = []   # EnergyVortex children (creep_layout.cfg [vortexpoi
 var _plume_vrot_applied: float = 0.0   # last rotation pushed to plume emitters; skip the re-rotate when unchanged
 var _plume_vrot_init: bool = false
 const LOD_MARGIN := 180.0   # grow the camera-visible rect by this before the off-screen LOD test (sprite/plume slack)
-var _lod_visible: bool = true   # false → enemy is off-screen: skip _draw + pause plume emission (it still moves)
+const PLUME_LOD_COUNT := 150   # above this many live enemies, stop plume emission (the jets are an indistinct blur
+                               # in a melee that dense, so dropping the CPUParticles2D sim is ~free visually)
+var _lod_visible: bool = true   # tracks whether this enemy's plumes are currently ON (on-screen AND not overcrowded)
 var _plume_base: Array = []        # [{vel_min, vel_max, sc_min, sc_max, life}] per plume
 var _plume_base_cols: Array = []   # [PackedColorArray] per plume
 var _plume_red_cols: Array = []    # pre-built red gradient (dragonfly proximity)
@@ -174,7 +176,7 @@ var hit_radius: float:
 var contact_damage: int = 6
 var contact_explodes: bool = false
 var _ship_contact_cd: float = 0.0   # throttles the ship's own contact damage to this enemy (Orbital pool)
-var xp: int = 5
+var xp: float = 5.0
 var _color: Color = Color(0.95, 0.35, 0.30)
 var shape_kind: String = "diamond"
 var _icon: String = ""
@@ -358,7 +360,7 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_radius          = float(d.get("size", 16.0)) * 1.05
 	contact_damage   = int(d.get("contact", 6))
 	contact_explodes = bool(d.get("explodes", false))
-	xp               = int(d.get("xp", 5)) * lvl_mult
+	xp               = float(d.get("xp", 5)) * float(lvl_mult)
 	_color           = d.get("tint", Color(0.95, 0.35, 0.30))
 	shape_kind       = String(d.get("shape", "diamond"))
 	_original_icon   = String(d.get("icon", ""))
@@ -1095,7 +1097,7 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore
 		dr = (0.052 * armor) / (1.0 + 0.052 * armor)
 	var dealt := amount * (1.0 - dr)
 	# Bismuth anti-magnetic: only laser / lightning / vacuum bite, and only for half.
-	if _anti_magnetic and (kind == "lasgun" or kind == "arc" or kind == "void"):
+	if _anti_magnetic and (kind == "death_beam" or kind == "arc" or kind == "void"):
 		dealt *= 0.5
 	# Status multipliers: stunned enemies take +50%, Orb-of-Annihilation vulnerable +20%.
 	if _stun_t > 0.0:
@@ -1191,7 +1193,7 @@ func _burst_small_magma() -> void:
 			"speed":    speed,
 			"size":     (_radius / 1.05) * MAGMA_SPLIT_SCALE,   # configure() multiplies size by 1.05
 			"contact":  contact_damage,
-			"xp":       maxi(1, int(round(float(xp) * 0.25))),
+			"xp":       xp * 0.25,
 			"armor":    armor,
 			"icon":     "res://assets/enemiesHD/magmafrag (%d).png" % randi_range(1, 16),
 		}
@@ -1550,19 +1552,25 @@ func _physics_process(delta: float) -> void:
 	# so it still closes on the player; visuals resume the frame it re-enters view. This is the dominant saving
 	# at 500 enemies (the per-enemy CPUParticles2D plume sim + _draw are the heaviest per-frame costs).
 	var on_screen := true
-	if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("visible_world_rect"):
-		on_screen = (_mgr.visible_world_rect() as Rect2).grow(LOD_MARGIN).has_point(global_position)
-	if on_screen != _lod_visible:
-		_lod_visible = on_screen
+	var crowded := false
+	if _mgr != null and is_instance_valid(_mgr):
+		if _mgr.has_method("visible_world_rect"):
+			on_screen = (_mgr.visible_world_rect() as Rect2).grow(LOD_MARGIN).has_point(global_position)
+		if _mgr.has_method("enemy_count"):
+			crowded = _mgr.enemy_count() > PLUME_LOD_COUNT   # density LOD: too many enemies → drop plume sim
+	# Plumes emit only when on-screen AND the field isn't overcrowded; the sprite still draws while on-screen.
+	var plumes_on := on_screen and not crowded
+	if plumes_on != _lod_visible:
+		_lod_visible = plumes_on
 		if not _docked:   # docked escorts manage their own emitting via set_docked — don't fight it
 			for p: CPUParticles2D in _plumes:
 				if is_instance_valid(p):
-					p.emitting = on_screen
+					p.emitting = plumes_on
 	if on_screen:
-		# Glue plume emitters to the sprite: same rotation AND scale as the drawn sprite (draw_set_transform
-		# rotates/scales the sprite but not child nodes, so we mirror it here).
-		_update_plumes()
-		if not _plumes.is_empty():
+		if plumes_on and not _plumes.is_empty():
+			# Glue plume emitters to the sprite: same rotation AND scale as the drawn sprite (draw_set_transform
+			# rotates/scales the sprite but not child nodes, so we mirror it here).
+			_update_plumes()
 			var vrot := _spin if behavior == "centipede" else _facing
 			# Only re-rotate the emitters when the rotation actually moved (skips the per-frame .rotated() churn
 			# for the hundreds of near-static swarm enemies that dominate the node count).

@@ -54,6 +54,7 @@ var _now: float = 0.0
 # Camera-visible world rect, refreshed once per frame. Enemies read it for off-screen LOD: an enemy outside
 # this (grown by a margin) skips its _draw and pauses its plume emission — the dominant saving at 500 enemies.
 var _vis_rect: Rect2 = Rect2(-1.0e9, -1.0e9, 2.0e9, 2.0e9)
+var _enemy_count: int = 0   # live "arena_enemy" count, refreshed once per frame (plume density LOD)
 
 func _ready() -> void:
 	add_to_group("enemy_manager")
@@ -113,9 +114,15 @@ func _update_vis_rect() -> void:
 func visible_world_rect() -> Rect2:
 	return _vis_rect
 
+## Live enemy count, cached once per frame — read by enemies for the plume density LOD (avoids an O(N) query
+## per enemy, which would be O(N²)).
+func enemy_count() -> int:
+	return _enemy_count
+
 func _process(delta: float) -> void:
 	_now += delta
 	_update_vis_rect()
+	_enemy_count = get_tree().get_node_count_in_group("arena_enemy")   # cached for the plume density LOD
 	if _player == null or not is_instance_valid(_player):
 		_player = get_tree().get_first_node_in_group("player")
 	_tick_bullets(delta)
@@ -267,7 +274,7 @@ func _tick_explosions(delta: float) -> void:
 
 ## Drop a collectible XP orb at a world position. Delegates to the single MultiMesh orb manager (no
 ## per-orb node) — keeps the same signature so arena_enemy / arena_elephant callers are unchanged.
-func spawn_xp_orb(pos: Vector2, value: int) -> void:
+func spawn_xp_orb(pos: Vector2, value: float) -> void:
 	var mgr := get_tree().get_first_node_in_group("arena_xp_orb_mgr")
 	if mgr != null:
 		mgr.spawn(pos, value)
@@ -295,7 +302,7 @@ func throw_bomb(pos: Vector2) -> void:
 ## Spawn a small flock of bee enemies near the player — used by the F12 debug palette to test plume VFX.
 func spawn_bee() -> void:
 	const BEE_DEF := {"behavior": "swarm_dive", "hp": 20.0, "speed": 150.0, "size": 12.0,
-		"contact": 8, "explodes": true, "xp": 3, "icon": "res://assets/enemiesHD/animalbee.png"}
+		"contact": 8, "explodes": true, "xp": 0.15, "icon": "res://assets/enemiesHD/animalbee.png"}
 	var pp := ship_center()
 	for i in 6:
 		var e := ArenaEnemyScript.new()

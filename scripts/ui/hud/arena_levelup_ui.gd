@@ -19,9 +19,9 @@ const OWNED_UPGRADE_CHANCE := 0.65
 
 # Weapon spawn weights for the NEW-weapon roll (rarer/special weapons → lower weight). Upgrade weight reuses these.
 const WEAPON_WEIGHTS := {
-	"gatling": 100, "lasgun": 80, "arc": 80, "gauss": 70,
+	"gatling": 100, "death_beam": 80, "arc": 80, "gauss": 70,
 	"orbital": 50, "void": 40, "red_x": 30, "chemtrail": 40,
-	"nuke": 20, "sonic": 60, "zsword": 50, "ionize": 70,
+	"little_man": 20, "sonic": 60, "zsword": 50, "ionize": 70,
 	"boomerang": 50, "parasite": 50, "moroboshi": 30, "swarm": 40, "snake": 30,
 	"homing": 60,
 }
@@ -468,9 +468,8 @@ func _pick(idx: int) -> void:
 		if aw != null:
 			aw.call("pool_grant", wk, String(c["key"]))
 			aw.call("spend_weapon_point", wk)
-			if bool(aw.call("weapon_needs_capstone", wk)):
-				_show_capstone(wk)   # the weapon just hit max level → evolve! (don't consume the level-up yet)
-				return
+			# At max level the weapon does NOT auto-evolve — it stays un-evolved so it can still FUSE (lv 15-18).
+			# EVOLVE is offered as its own choice next level-up (via weapon_can_upgrade + _route_options).
 		_advance()
 		return
 	# Aux pool pick (2nd tier): grant the chosen perk rank + spend an aux skill point (auto-levels the item).
@@ -515,8 +514,8 @@ func _advance() -> void:
 func _weapon_pool(kind: String) -> Dictionary:
 	if kind == "gatling":
 		return ArenaWeapons.GATLING_POOL
-	if kind == "lasgun":
-		return ArenaWeapons.LASGUN_POOL
+	if kind == "death_beam":
+		return ArenaWeapons.DEATHBEAM_POOL
 	if kind == "arc":
 		return ArenaWeapons.ARC_POOL
 	if kind == "gauss":

@@ -4,7 +4,7 @@ extends Camera2D
 ##   • SHAKE — a chaotic random jolt driven by a decaying "trauma" value (the well-known Squirrel-Eiserloh model:
 ##     displacement ∝ trauma², so a big hit kicks hard then settles smoothly). add_trauma() / a heavy `impact()`.
 ##   • VIBRATION — a short, fast sinusoidal buzz (rhythmic, low-amplitude) — clearly different from the jolt.
-## nuke_impact() = a heavy shake now + a vibration buzz 0.5s later (the Nuke's signature one-two punch).
+## mortar_impact() = a heavy shake now + a vibration buzz 0.5s later (the Nuke's signature one-two punch).
 
 const SHAKE_MAX   := Vector2(30.0, 24.0)   # max positional jolt (px) at full trauma
 const SHAKE_DECAY := 1.8                    # trauma lost per second
@@ -41,6 +41,6 @@ func start_vibration() -> void:
 	_vibe_t = VIBE_TIME
 
 ## The Nuke's one-two: a heavy shake on detonation, then a vibration buzz VIBE_DELAY seconds later.
-func nuke_impact() -> void:
+func mortar_impact() -> void:
 	add_trauma(0.95)
 	get_tree().create_timer(VIBE_DELAY).timeout.connect(start_vibration)

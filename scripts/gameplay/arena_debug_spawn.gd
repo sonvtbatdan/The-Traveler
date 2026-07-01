@@ -26,19 +26,19 @@ const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")   # for
 # `kind` = arena_weapons code kind (spawnable on click). Entries with "ph": true are PLACEHOLDERS — the weapon
 # isn't implemented yet, so the cell renders dimmed + non-spawnable (a gray placeholder icon) until it lands.
 # `from` (optional) = the source recipe, shown in the tooltip. NOTE: a few PDF→code kind mappings are
-# best-guess (Jeager→zsword, Rosastro HE Mortar→nuke, Viper→snake) — relabel if wrong.
+# best-guess (Jeager→zsword, Little Man→little_man, Viper→snake) — relabel if wrong.
 const WEAPON_TABS := {
 	"drop": [
 		{"kind": "gatling",   "def_id": "gatling_gun",  "label": "Kinetic Auto Cannon"},
-		{"kind": "lasgun",    "def_id": "lasgun",        "label": "Solid-State Laser"},
+		{"kind": "death_beam",    "def_id": "death_beam",        "label": "Death Beam"},
 		{"kind": "orbital",   "def_id": "orbitals",      "label": "Orbital Impact Defense"},
 		{"kind": "striker",   "def_id": "swarm_host",    "label": "Orbital Impact Offense", "code": "Striker"},
 		{"kind": "chemtrail", "def_id": "chemtrail",     "label": "Biocide Vaporizer"},
-		{"kind": "void",      "def_id": "rift_maker",    "label": "Vacuum Decoupler"},
+		{"kind": "void",      "def_id": "rift_maker",    "label": "Rift Maker"},
 		{"kind": "arc",       "def_id": "arc",           "label": "Arc Lightning Chain"},
 		{"kind": "moroboshi", "def_id": "moroboshi",     "label": "Yari"},
 		{"kind": "zsword",    "def_id": "z_sword",       "label": "Jeager"},
-		{"kind": "nuke",      "def_id": "nuke",          "label": "Rosastro HE Mortar"},
+		{"kind": "little_man",      "def_id": "little_man",          "label": "Little Man"},
 		{"kind": "red_x",     "def_id": "red_x",         "label": "Thermitic Discharger"},
 		{"kind": "boomerang", "def_id": "boomerang",     "label": "Aliwa"},
 		{"kind": "gauss",     "def_id": "gauss_cannon",  "label": "Gauss Pulser"},
@@ -49,22 +49,22 @@ const WEAPON_TABS := {
 	],
 	"evolve": [
 		{"kind": "",       "def_id": "",               "label": "Kinetic Induction Cannon", "code": "Big Gun",    "from": "Kinetic Auto Cannon", "icon": "res://assets/inventory/VB-KIC-6.png",      "ph": true},
-		{"kind": "",       "def_id": "",               "label": "Isotope Laser",            "code": "Super Laser", "from": "Solid-State Laser",   "icon": "res://assets/inventory/KM-IL-200.png", "ph": true},
-		{"kind": "ionize", "def_id": "ionizing_field", "label": "Tachyon Displacer",        "from": "Vacuum Decoupler"},
-		{"kind": "",       "def_id": "",               "label": "Mobile Vacuum",            "code": "Black Ship", "from": "Vacuum Decoupler",    "icon": "res://assets/inventory/M-ST-17.png",     "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Isotope Laser",            "code": "Super Laser", "from": "Death Beam",   "icon": "res://assets/inventory/KM-IL-200.png", "ph": true},
+		{"kind": "ionize", "def_id": "ionizing_field", "label": "Ionizing Field",        "from": "Rift Maker"},
+		{"kind": "",       "def_id": "",               "label": "Mobile Vacuum",            "code": "Black Ship", "from": "Rift Maker",    "icon": "res://assets/inventory/M-ST-17.png",     "ph": true},
 		{"kind": "",       "def_id": "",               "label": "Thunder Strike",           "code": "Zeus",       "from": "Arc Lightning Chain", "icon": "res://assets/inventory/Zeus.png",          "ph": true},
-		{"kind": "fat_boy", "def_id": "rosastro_nuclear", "label": "Rosastro Nuclear",        "from": "Rosastro HE Mortar"},
+		{"kind": "fat_boy", "def_id": "rosastro_nuclear", "label": "Fat Boy",        "from": "Little Man"},
 	],
 	"fusion": [
-		{"kind": "",            "def_id": "",              "label": "KM Quantum Beam Rifle",        "code": "Jedi Laser",  "from": "Kinetic Auto Cannon × Solid-State Laser", "icon": "res://assets/inventory/KM-QBM-200.png", "ph": true},
+		{"kind": "",            "def_id": "",              "label": "KM Quantum Beam Rifle",        "code": "Jedi Laser",  "from": "Kinetic Auto Cannon × Death Beam", "icon": "res://assets/inventory/KM-QBM-200.png", "ph": true},
 		{"kind": "",            "def_id": "",              "label": "Drone Cannon",                 "code": "Candy Crush", "from": "Kinetic Auto Cannon × Orbital Impact Defense", "icon": "res://assets/inventory/NC-DC-F.png", "ph": true},
 		{"kind": "",            "def_id": "",              "label": "Vampire Host",                 "from": "Sonic × Orbital Impact Offense", "icon": "res://assets/inventory/Vampire Host.png", "ph": true},
-		{"kind": "parasite",    "def_id": "parasite_cloud","label": "Bio-Corrosive Spore Launcher", "from": "Biocide Vaporizer × Swarm"},
+		{"kind": "parasite",    "def_id": "parasite_cloud","label": "Venomancer", "from": "Biocide Vaporizer × Swarm"},
 		{"kind": "overcharger", "def_id": "gauss_cannon",  "label": "Overcharger",                  "from": "Arc Lightning Chain × Gauss Pulser", "icon": "res://assets/inventory/Overcharger.png"},
 		{"kind": "yari_jaeger", "def_id": "yari_jaeger",   "label": "Yari Jeager",                  "from": "Yari × Jeager"},
 		{"kind": "carnage",     "def_id": "gatling_gun",   "label": "Thermitic Auto Cannon",        "from": "Thermitic Discharger × Kinetic Auto Cannon"},
-		{"kind": "",            "def_id": "",              "label": "Singularities",                "from": "Vacuum Decoupler × Gauss Pulser", "icon": "res://assets/inventory/Singularities.png", "ph": true},
-		{"kind": "predator",    "def_id": "lasgun",        "label": "Predator",                     "from": "Viper × Solid-State Laser"},
+		{"kind": "",            "def_id": "",              "label": "Singularities",                "from": "Rift Maker × Gauss Pulser", "icon": "res://assets/inventory/Singularities.png", "ph": true},
+		{"kind": "predator",    "def_id": "death_beam",        "label": "Predator",                     "from": "Viper × Death Beam"},
 	],
 	"obsolete": [
 		{"kind": "vampire_host",    "def_id": "swarm_host",     "label": "Vampire Host (old)",  "from": "Swarm + Sonic — reworked"},
@@ -971,7 +971,7 @@ func _build_hotkey_panel() -> void:
 		"F9         Comet              Shift+F9  clear",
 		"F10        Planet + moons     Shift+F10 clear",
 		"F11        Structure          Shift+F11 clear",
-		"F12        Lasgun pickup      Shift+F12 clear",
+		"F12        DeathBeam pickup      Shift+F12 clear",
 		"[ − ] [ + ]  Fire rate",
 		"[ +Level ]   Level up",
 	]
