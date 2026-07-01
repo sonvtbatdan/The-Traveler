@@ -157,7 +157,7 @@ var _plume_vrot_applied: float = 0.0   # last rotation pushed to plume emitters;
 var _plume_vrot_init: bool = false
 const LOD_MARGIN := 180.0   # grow the camera-visible rect by this before the off-screen LOD test (sprite/plume slack)
 const PLUME_LOD_COUNT := 150   # above this many live enemies, stop plume emission (the jets are an indistinct blur
-                               # in a melee that dense, so dropping the CPUParticles2D sim is ~free visually)
+							   # in a melee that dense, so dropping the CPUParticles2D sim is ~free visually)
 var _lod_visible: bool = true   # tracks whether this enemy's plumes are currently ON (on-screen AND not overcrowded)
 var _plume_base: Array = []        # [{vel_min, vel_max, sc_min, sc_max, life}] per plume
 var _plume_base_cols: Array = []   # [PackedColorArray] per plume

@@ -39,7 +39,9 @@ static func _load_hud_rect(key: String) -> Rect2: ...  # đọc từ user://hud_
 
 > Khác hẳn F6 `hud_edit_overlay.gd` ở trên (cái đó drag widget HUD có sẵn). Đây là editor **standalone** (extends CanvasLayer, KHÔNG subclass creep) để dựng Player-HUD từ **GROUPS**.
 
-**Mô hình dữ liệu** (lưu `res://playerhud_layout.cfg`, section `[hud] groups`):
+> **2026-07-02 — generic board editor:** file này giờ author nhiều "board" (HUD, Level Up…) qua dropdown "Board:". Runtime từng board tách ra `scripts/ui/boards/<x>_binder.gd`; registry ở `board_defs.gd`. Xem [`hud.md` §11](hud.md).
+
+**Mô hình dữ liệu** (lưu `res://config/boards/<board>.cfg`, section `[hud] groups`):
 - `_groups: Array` — danh sách nhóm có thứ tự; **index 0 = trên cùng panel = Z cao nhất**.
 - Mỗi group = `{name, children: Array}`. Mỗi child có `id` duy nhất (`_next_id`), `type` = `"item"` hoặc `"text"`.
   - item: `file` (basename trong Playerhud), `pos`, `size`, `blend`.

@@ -130,6 +130,37 @@ const FUSION_DEFS := {
 	"toxic_ballistic": {"a": "homing",  "b": "chemtrail", "def_id": "homing_missile","name": "Toxic Ballistic",       "label": "Toxic Ballistic","mfr": ""},
 	"singularities":   {"a": "void",    "b": "gauss",     "def_id": "orbitals",      "icon": "res://assets/inventory/Singularities.png", "name": "Singularities",         "label": "Singularities", "mfr": "Horizon Logistics x Vanguard Ballistics"},
 }
+
+# ── Weapon LORE (English) ─────────────────────────────────────────────────────────────
+# Flavour text shown on the Level-Up board's WeaponDisplay (Item Lore). Keyed by weapon/fusion KIND.
+# Source: the weaponinfo sheet's English "Lore" column (NOT the Vietnamese tech description). Kinds not
+# present here have no lore yet (the Item Lore text simply hides).
+const WEAPON_LORE := {
+	"gatling":     "High-speed kinetic auto cannon, a standard military issue popular across the universe.",
+	"death_beam":  "High-energy laser beam.",
+	"arc":         "Chain lightning that strikes multiple targets sequentially.",
+	"gauss":       "By locally expanding and contracting space, the G-Pulser generates molecular-level shear stress.",
+	"orbital":     "Automated UAV that rotates and rams into targets approaching the ship.",
+	"striker":     "Automated UAV that tracks and rams into targets approaching the ship.",
+	"void":        "Weapon that triggers a localized Vacuum Decay state.",
+	"red_x":       "Turret equipped with 4 symmetrical 90-degree nozzles, simultaneously firing high-velocity liquid Thermite particle chains.",
+	"chemtrail":   "Converts liquid biocidal toxic compounds into dense molecular biocide vapor streams, sprayed behind the ship.",
+	"fat_boy":     "Ultimate nuclear weapon with infinite destructive power.",
+	"sonic":       "Emits sonic waves.",
+	"zsword":      "Melee weapon utilizing a complex sawtooth drive mechanism, sweeping and emitting a shockwave.",
+	"boomerang":   "Throws a boomerang.",
+	"parasite":    "Genetically modified bio-spore launcher that corrodes the ultra-durable metal alloy layers of enemy ships.",
+	"moroboshi":   "Chase enemy and use melee weapon utilizing a pin-shot mechanism to fire a sharp spear at enemies.",
+	"yari_jaeger": "Chase enemy and use melee weapon utilizing a complex sawtooth drive mechanism, sweeping and emitting a shockwave.",
+	"swarm":       "A launcher shaped like a hollow bone-and-steel exo-skeleton sphere with 8 upward-facing holes. Capable of launching space bugs folded into spherical shapes.",
+	"snake":       "V.I.P.E.R (Viral Infiltration & Penetration Exo-Rover): A peripheral autonomous rover for viral infiltration and penetration.",
+	# Fusions
+	"carnage":       "Continuously fires high-velocity liquid Thermite particle chains and bullets in 4 directions.",
+	"vampire_host":  "Fires minor sonic waves; grants player lifesteal upon hitting targets.",
+	"overcharger":   "Arc chain, triggers a Gauss explosion for each chained target.",
+	"predator":      "A snake capable of firing lasers.",
+	"singularities": "Creates an absolute vacuum combined with negative gravity.",
+}
 const FUSION_BONUS_LEVELS := 4   # fused weapons can climb this many levels past MAX_WEAPON_LEVEL (6 → 10)
 # (Carnage / Vampire Host tunables are declared later in the file — the canonical OURS copies.)
 

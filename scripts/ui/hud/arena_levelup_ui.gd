@@ -10,6 +10,9 @@ extends CanvasLayer
 
 const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")
 const ArenaAux     := preload("res://scripts/gameplay/arena_aux.gd")
+# Optional authored "Level Up" board (edited with the shared board editor): supplies role rects for the
+# title / 3 slots / selected / options / stats so this UI can be laid out visually. Empty board → fallback.
+const BoardEditScript := preload("res://scripts/ui/boss_edit/hud_edit_mode.gd")
 
 const CHOICES := 3
 # Chance a given card slot rolls from the owned-upgrade pool (vs the full new+owned pool). Higher = the player
@@ -41,7 +44,21 @@ var _slot_nodes: Array = []        # the 3 left-column slot Controls
 var _selected_box: Control = null  # center-top big-sprite panel
 var _options_box: Control = null   # center-bottom options container
 var _stats_box: VBoxContainer = null
+var _stats_panel: Panel = null
 var _title: Label = null
+var _backdrop: ColorRect = null
+# Authored Level-Up board host (runtime-only board_edit_mode) + its CanvasLayer. Null-safe: if the board is
+# empty the layout falls back to the built-in fractional anchors and the chrome layer simply stays hidden.
+var _board_layer: CanvasLayer = null
+var _board_host = null
+var _slot_specs: Array = []          # last computed left-slot specs (shared with the board renderer)
+var _rt_choices: Array = []          # runtime board nodes: weapon-choice sprites (+ click)
+var _rt_options: Array = []          # runtime board nodes: upgrade-option click targets + labels
+var _rt_stats: Array = []            # runtime board nodes: stat rows
+var _rt_display: Array = []          # runtime board nodes: selected-item sprite (WeaponDisplay)
+var _board_blocker: ColorRect = null # host input/darken backdrop while the board is showing
+const WEAPON_SPRITE_MARGIN := 8.0    # weapon sprite is this many px smaller than its frame (per the spec)
+const CHOICE_SPRITE_SCALE := 0.8     # Weapon1-3 choice sprites shown at 80% of the frame box
 
 # Full-screen layout fractions (symmetric: left/right columns equal, centered main column).
 const COL_L_LEFT  := 0.02
@@ -63,9 +80,394 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group("levelup_ui")   # reward chests find this to grant a choice without a real level-up
 	_build_ui()
+	_build_board_host()
 	_root.hide()
 	if GameManager.has_signal("leveled_up"):
 		GameManager.leveled_up.connect(_on_leveled_up)
+
+# ── Authored Level-Up board (optional visual layout) ─────────────────────────────────────────────────
+## Spawn a runtime-only board surface (CanvasLayer 99, below this UI's cards at 100) that renders the
+## authored "levelup" board chrome. Hidden until a level-up shows. Its LevelUpBinder supplies role rects.
+func _build_board_host() -> void:
+	_board_layer = CanvasLayer.new()
+	_board_layer.layer = 99
+	_board_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	_board_layer.visible = false
+	add_child(_board_layer)
+	var oc := Control.new()
+	oc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	oc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_board_layer.add_child(oc)
+	_board_host = BoardEditScript.new()
+	add_child(_board_host)
+	_board_host.setup(oc, "levelup", false)   # runtime-only host (no authoring UI)
+
+## The host's LevelUpBinder (exposes has_layout/has_role/role_rect), or null.
+func _board_binder():
+	if _board_host != null and is_instance_valid(_board_host):
+		return _board_host.get_binder()
+	return null
+
+func _board_authored() -> bool:
+	var b = _board_binder()
+	return b != null and b.has_method("has_layout") and bool(b.call("has_layout"))
+
+func _use_board() -> bool:
+	return _board_authored()
+
+## Re-read the board layout (picks up edits saved in the editor). Clears runtime nodes first so they don't
+## linger across the host rebuild.
+func _board_reload() -> void:
+	_board_clear_all()
+	if _board_host != null and is_instance_valid(_board_host):
+		_board_host.reload()
+
+## Toggle the authored board. Authored → hide the built-in full-screen panels (backdrop lets input through)
+## and show the host chrome + a full-rect input/darken blocker. Not authored → keep the built-in UI.
+func _board_show(v: bool) -> void:
+	var authored := v and _board_authored()
+	if _board_layer != null and is_instance_valid(_board_layer):
+		_board_layer.visible = authored
+	# Authored board fully replaces the built-in UI: HIDE _root, otherwise its full-rect Control (mouse
+	# STOP, layer 100) swallows every click meant for the host's interactive nodes at layer 99. Input +
+	# darkening are handled by the host blocker instead.
+	if _root != null and is_instance_valid(_root):
+		_root.visible = v and not authored
+	if authored:
+		_ensure_blocker()
+	elif _board_blocker != null and is_instance_valid(_board_blocker):
+		_board_blocker.visible = false
+
+## Full-rect dark input blocker on the host container (behind the chrome): darkens gameplay + absorbs
+## clicks that miss an interactive element, so nothing leaks to the paused game.
+func _ensure_blocker() -> void:
+	var b = _board_binder()
+	if b == null:
+		return
+	var host_c = b.call("container")
+	if host_c == null or not is_instance_valid(host_c):
+		return
+	if _board_blocker == null or not is_instance_valid(_board_blocker):
+		_board_blocker = ColorRect.new()
+		_board_blocker.color = Color(0.02, 0.03, 0.06, 0.97)
+		_board_blocker.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_board_blocker.mouse_filter = Control.MOUSE_FILTER_STOP
+		_board_blocker.z_index = -100
+		host_c.add_child(_board_blocker)
+	_board_blocker.visible = true
+
+# ── Board render helpers ──────────────────────────────────────────────────────────────
+func _board_clear(list: Array) -> void:
+	for n in list:
+		if n != null and is_instance_valid(n):
+			n.queue_free()
+	list.clear()
+
+func _board_clear_all() -> void:
+	_board_clear(_rt_choices); _board_clear(_rt_options); _board_clear(_rt_stats); _board_clear(_rt_display)
+
+func _board_add(n: Control) -> void:
+	var b = _board_binder()
+	if b == null:
+		return
+	var c = b.call("container")
+	if c != null and is_instance_valid(c):
+		c.add_child(n)
+
+func _node_rect(n) -> Rect2:
+	if n == null or not is_instance_valid(n):
+		return Rect2()
+	return Rect2((n as Control).position, (n as Control).size)
+
+## Weapon1-3: place each choice's weapon sprite centred on its WeaponFrame (WEAPON_SPRITE_MARGIN px smaller),
+## with hover (brighten + 5% grow + uiclick) and click (uialert → select the item).
+func _board_render_choices() -> void:
+	_board_clear(_rt_choices)
+	var b = _board_binder()
+	if b == null:
+		return
+	for i in 3:
+		_board_set_text(b.call("weapon_codename", i), "")   # blank unused slots' code name
+	for i in mini(_slot_specs.size(), 3):
+		var spec: Dictionary = _slot_specs[i]
+		var frame = b.call("weapon_frame", i)
+		if frame == null or not is_instance_valid(frame):
+			continue
+		var fc := frame as Control
+		# code name of this choice, centred on the WeaponFrame then nudged +3px right (Y unchanged)
+		_board_set_text_cx(b.call("weapon_codename", i), String(spec.get("name", "")), fc.position.x + fc.size.x * 0.5, 3.0)
+		var node := _board_make_choice(fc, spec, int(spec["idx"]))
+		_board_add(node)
+		_rt_choices.append(node)
+
+func _board_make_choice(frame: Control, spec: Dictionary, idx: int) -> Control:
+	var root := Control.new()
+	root.position = frame.position
+	root.size = frame.size
+	root.pivot_offset = frame.size * 0.5     # hover scale grows from centre
+	root.z_index = frame.z_index + 5
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := (frame.size - Vector2(WEAPON_SPRITE_MARGIN, WEAPON_SPRITE_MARGIN)) * CHOICE_SPRITE_SCALE
+	var tex: Texture2D = InventoryManager.get_icon(String(spec.get("def", ""))) if String(spec.get("def", "")) != "" else null
+	var content: Control
+	if tex != null:
+		var tr := TextureRect.new()
+		tr.texture = tex
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		content = tr
+	else:
+		var sw := ColorRect.new()
+		sw.color = spec.get("color", Color.GRAY)
+		content = sw
+	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content.size = box
+	content.position = (frame.size - box) * 0.5
+	root.add_child(content)
+	var btn := Button.new()
+	btn.flat = true
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var empty := StyleBoxEmpty.new()
+	for s in ["normal", "hover", "pressed", "focus", "disabled"]:
+		btn.add_theme_stylebox_override(s, empty)
+	btn.mouse_entered.connect(func() -> void:
+		root.scale = Vector2(1.05, 1.05)
+		content.modulate = Color(1.35, 1.35, 1.35)
+		_play_sfx("res://assets/audio/sfx/uiclick.wav"))
+	btn.mouse_exited.connect(func() -> void:
+		root.scale = Vector2.ONE
+		content.modulate = Color.WHITE)
+	btn.pressed.connect(func() -> void:
+		_play_sfx("res://assets/audio/sfx/uialert.wav")
+		_select_item(idx))
+	root.add_child(btn)
+	return root
+
+## Codename=label, Full Name=name, Lore=WEAPON_INFO.lore (optional). Aux → codename=name only.
+func _weapon_meta(c: Dictionary) -> Dictionary:
+	var cat := String(c.get("cat", ""))
+	if cat in ["weapon", "pool", "capstone"]:
+		var kind := String(c.get("key", c.get("weapon", "")))
+		var info: Dictionary = (ArenaWeapons.WEAPON_INFO as Dictionary).get(kind, {})
+		return {"codename": String(info.get("label", c.get("name", ""))), "fullname": String(info.get("name", "")),
+			"lore": String((ArenaWeapons.WEAPON_LORE as Dictionary).get(kind, "")), "def_id": String(c.get("def_id", info.get("def_id", "")))}
+	if cat == "fusion":
+		var fkind := String(c.get("key", ""))
+		var rec: Dictionary = (ArenaWeapons.FUSION_DEFS as Dictionary).get(fkind, {})
+		return {"codename": String(rec.get("label", c.get("name", ""))), "fullname": String(c.get("name", "")),
+			"lore": String((ArenaWeapons.WEAPON_LORE as Dictionary).get(fkind, "")), "def_id": String(c.get("def_id", ""))}
+	return {"codename": String(c.get("name", "")), "fullname": "", "lore": "", "def_id": String(c.get("def_id", ""))}
+
+## WeaponDisplay: big weapon sprite on the frame + Codename/Full Name/Item Lore. All hidden with no selection.
+func _board_render_selected() -> void:
+	var b = _board_binder()
+	if b == null:
+		return
+	_board_clear(_rt_display)
+	var cn = b.call("display_codename")
+	var fn = b.call("display_fullname")
+	var lr = b.call("display_lore")
+	if _selected_idx < 0 or _selected_idx >= _choices.size():
+		_board_set_text(cn, ""); _board_set_text(fn, ""); _board_set_text(lr, "")
+		return
+	var info := _weapon_meta(_choices[_selected_idx])
+	# WeaponDisplay centre X (frame if present, else the group) — codename/full name centre on it.
+	var disp_cx := 0.0
+	var frame = b.call("display_frame")
+	if frame != null and is_instance_valid(frame):
+		var fc := frame as Control
+		disp_cx = fc.position.x + fc.size.x * 0.5
+		var tex: Texture2D = InventoryManager.get_icon(String(info.get("def_id", ""))) if String(info.get("def_id", "")) != "" else null
+		if tex != null:
+			var box := fc.size - Vector2(WEAPON_SPRITE_MARGIN, WEAPON_SPRITE_MARGIN)
+			var tr := TextureRect.new()
+			tr.texture = tex
+			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			tr.size = box
+			tr.position = fc.position + (fc.size - box) * 0.5
+			tr.z_index = (frame as CanvasItem).z_index + 5
+			_board_add(tr)
+			_rt_display.append(tr)
+	else:
+		var dgr: Rect2 = b.call("group_rect", "WeaponDisplay")
+		disp_cx = dgr.position.x + dgr.size.x * 0.5
+	_board_set_text_cx(cn, String(info.get("codename", "")), disp_cx)
+	_board_set_text_cx(fn, String(info.get("fullname", "")), disp_cx)
+	# Item Lore: wrap inside the LoreDisplay indicator's box (runtime label; hide the authored template text).
+	_board_set_vis(lr, false)
+	var lore := String(info.get("lore", ""))
+	if lore != "":
+		var lframe = b.call("display_lore_frame")
+		var rect := Rect2()
+		var lz := 260
+		if lframe != null and is_instance_valid(lframe):
+			rect = _node_rect(lframe)
+			lz = (lframe as CanvasItem).z_index + 6
+		elif lr != null and is_instance_valid(lr):
+			rect = _node_rect(lr)   # fallback: the Item Lore text's own rect
+			lz = (lr as CanvasItem).z_index + 6
+		if rect.size.x > 1.0:
+			var lore_lbl := _make_wrapped_label(rect, b.call("display_lore_style"), lore, lz, VERTICAL_ALIGNMENT_CENTER)
+			if lore_lbl != null:
+				_rt_display.append(lore_lbl)
+
+func _board_set_text(node, s: String) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	if node.has_method("set_text_value"):
+		node.call("set_text_value", s)
+	(node as CanvasItem).visible = s != ""
+
+## Set an authored text node's value + visibility, then re-centre it horizontally on center_x (+ off_x),
+## keeping its Y.
+func _board_set_text_cx(node, s: String, center_x: float, off_x: float = 0.0) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	if node.has_method("set_text_value"):
+		node.call("set_text_value", s)
+	var c := node as Control
+	c.visible = s != ""
+	if s != "":
+		c.position.x = center_x - c.size.x * 0.5 + off_x
+
+## Upgrade1-3: fill from _current (1..N options, extras hidden). prompt=true → the pre-selection state
+## ("Select Weapon" in each name, desc blank, no click targets).
+func _board_render_options(prompt: bool = false) -> void:
+	var b = _board_binder()
+	if b == null:
+		return
+	_board_clear(_rt_options)
+	var n := 0 if prompt else _current.size()
+	for i in 3:
+		# Hide the authored template texts (runtime wrapped labels replace them).
+		_board_set_vis(b.call("upg_name_text", i), false)
+		_board_set_vis(b.call("upg_desc_text", i), false)
+		var name_ind = b.call("upg_name_ind", i)
+		var desc_ind = b.call("upg_desc_ind", i)
+		if prompt:
+			var pl := _board_wrapped(name_ind, b.call("upg_name_text", i), b.call("upg_name_style", i), "Select Weapon")
+			if pl != null:
+				_rt_options.append(pl)
+			continue
+		if i >= n:
+			continue
+		var c: Dictionary = _current[i]
+		var nm := String(c.get("name", ""))
+		var dt := _default_text(c)
+		if String(c.get("desc", "")) != "":
+			dt += "\n" + String(c.get("desc", ""))
+		var slot_labels: Array = []
+		var name_lbl := _board_wrapped(name_ind, b.call("upg_name_text", i), b.call("upg_name_style", i), nm)
+		if name_lbl != null:
+			_rt_options.append(name_lbl); slot_labels.append(name_lbl)
+		var desc_lbl := _board_wrapped(desc_ind, b.call("upg_desc_text", i), b.call("upg_desc_style", i), dt)
+		if desc_lbl != null:
+			_rt_options.append(desc_lbl); slot_labels.append(desc_lbl)
+		var rect := _node_rect(name_ind).merge(_node_rect(desc_ind)) if name_ind != null and desc_ind != null else _node_rect(name_ind if name_ind != null else desc_ind)
+		if rect.size.x > 1.0:
+			var btn := _board_click(rect, i, slot_labels)
+			_board_add(btn)
+			_rt_options.append(btn)
+
+func _board_set_vis(node, v: bool) -> void:
+	if node != null and is_instance_valid(node):
+		(node as CanvasItem).visible = v
+
+## Core: a horizontally-centred, wrapped runtime Label filling `rect`, styled from an authored text child
+## dict (font/size/color/outline). Returns the label (caller tracks + frees it).
+func _make_wrapped_label(rect: Rect2, style: Dictionary, text: String, z: int, valign: int = VERTICAL_ALIGNMENT_CENTER) -> Label:
+	if text == "" or rect.size.x <= 1.0:
+		return null
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment = valign
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lbl.add_theme_font_size_override("font_size", int(style.get("font_size", 16)))
+	var font := _font_from(style)
+	if font != null:
+		lbl.add_theme_font_override("font", font)
+	lbl.add_theme_color_override("font_color", style.get("color", Color.WHITE))
+	if int(style.get("outline_size", 0)) > 0:
+		lbl.add_theme_constant_override("outline_size", int(style.get("outline_size", 0)))
+		lbl.add_theme_color_override("font_outline_color", style.get("outline_color", Color.BLACK))
+	lbl.position = rect.position
+	lbl.size = rect.size
+	lbl.z_index = z
+	_board_add(lbl)
+	return lbl
+
+## Upgrade name/desc: a centred wrapped label at the indicator sprite's rect (wrap width = indicator
+## width, always centred on it). Falls back to the template text node's rect if no indicator. Returns the
+## label so the caller can wire hover-scale.
+func _board_wrapped(ind, template_node, style: Dictionary, text: String) -> Label:
+	var rect := _node_rect(ind) if ind != null and is_instance_valid(ind) else _node_rect(template_node)
+	var z := ((ind as CanvasItem).z_index + 6) if ind != null and is_instance_valid(ind) else 250
+	return _make_wrapped_label(rect, style, text, z)
+
+func _font_from(style: Dictionary) -> Font:
+	var fname := String(style.get("font", ""))
+	if fname != "":
+		for ext: String in ["ttf", "otf", "fnt"]:
+			var p := "res://assets/fonts/" + fname + "." + ext
+			if ResourceLoader.exists(p):
+				return load(p) as Font
+	return load(FONT_PATH) as Font
+
+func _board_click(rect: Rect2, idx: int, labels: Array = []) -> Button:
+	var btn := Button.new()
+	btn.flat = true
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.position = rect.position
+	btn.size = rect.size
+	btn.z_index = 300
+	var empty := StyleBoxEmpty.new()
+	for s in ["normal", "hover", "pressed", "focus", "disabled"]:
+		btn.add_theme_stylebox_override(s, empty)
+	# Hover: enlarge the slot's text 5% (from centre) + uiclick. Click: _pick (plays selectconfirm3.wav).
+	btn.mouse_entered.connect(func() -> void:
+		for l in labels:
+			if l != null and is_instance_valid(l):
+				(l as Control).pivot_offset = (l as Control).size * 0.5
+				(l as Control).scale = Vector2(1.05, 1.05)
+		_play_sfx("res://assets/audio/sfx/uiclick.wav"))
+	btn.mouse_exited.connect(func() -> void:
+		for l in labels:
+			if l != null and is_instance_valid(l):
+				(l as Control).scale = Vector2.ONE)
+	btn.pressed.connect(_pick.bind(idx))
+	return btn
+
+## StatDisplay: replace the "Weapon Stat" text with the curated stats list (reuses _fill_stat_rows).
+func _board_render_stats() -> void:
+	var b = _board_binder()
+	if b == null:
+		return
+	_board_clear(_rt_stats)
+	var anchor = b.call("stat_text")
+	if anchor == null or not is_instance_valid(anchor):
+		return
+	(anchor as CanvasItem).visible = false
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 4)
+	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vb.scale = Vector2(0.8, 0.8)   # stats shown at 80% size (per request)
+	var gr: Rect2 = b.call("group_rect", "StatDisplay")
+	if gr.size.x > 1.0:
+		vb.position = gr.position
+		vb.custom_minimum_size = Vector2(gr.size.x / 0.8, 0.0)   # pre-scale width so the 80% result fits the group
+		vb.size = Vector2(gr.size.x / 0.8, gr.size.y)
+	else:
+		vb.position = (anchor as Control).position
+	vb.position.y += 100.0   # shift the stats list down 100px (per request)
+	vb.z_index = (anchor as CanvasItem).z_index + 6
+	_fill_stat_rows(vb)
+	_board_add(vb)
+	_rt_stats.append(vb)
 
 func _on_leveled_up(_level: int) -> void:
 	_pending += 1
@@ -81,6 +483,7 @@ func grant_reward() -> void:
 func _begin() -> void:
 	_showing = true
 	get_tree().paused = true
+	_board_reload()   # refresh the authored chrome + lay boxes out from its role rects
 	_show_cards()
 
 func _show_cards() -> void:
@@ -98,8 +501,17 @@ func _show_cards() -> void:
 	_render_left()
 	_refresh_stats()
 	_root.show()
+	_board_show(true)
 	_play_sfx("res://assets/audio/sfx/uialert.wav")
-	_select_item(0)
+	if _use_board():
+		# Authored board: render the 3 choices + stats, and wait for a weapon click ("Select Weapon" prompt).
+		_selected_idx = -1
+		_board_render_choices()
+		_board_render_stats()
+		_board_render_selected()
+		_board_render_options(true)
+	else:
+		_select_item(0)
 
 ## A centered sprite for a weapon/fusion def_id, or a colour swatch fallback (aux items have no art).
 ## The TextureRect keeps the texture's aspect (never stretched).
@@ -139,6 +551,7 @@ func _render_left() -> void:
 		if slot_specs.size() >= 3:
 			break
 		slot_specs.append({"def": String(c.get("def_id", "")), "name": c["name"], "color": c.get("color", Color.GRAY), "idx": _choices.find(c), "fusion": false})
+	_slot_specs = slot_specs   # shared with the authored-board renderer
 	for i in mini(slot_specs.size(), 3):
 		_make_slot(_slot_nodes[i], slot_specs[i])
 
@@ -216,6 +629,8 @@ func _set_selected_display(def_id: String, item_name: String, color: Color) -> v
 	lbl.anchor_left = 0.05; lbl.anchor_right = 0.95
 	lbl.anchor_top = 0.80; lbl.anchor_bottom = 0.97
 	_selected_box.add_child(lbl)
+	if _use_board():
+		_board_render_selected()
 
 ## Decide the bottom-row content for the selected choice and render it. Sets _current = the array _pick() acts on.
 func _route_options(c: Dictionary) -> void:
@@ -261,6 +676,8 @@ func _render_options() -> void:
 		back.anchor_top = -0.16; back.anchor_bottom = -0.02
 		back.pressed.connect(func() -> void: _show_capstone(_capstone_weapon))
 		_options_box.add_child(back)
+	if _use_board():
+		_board_render_options()
 
 ## One option/confirm box: bold name + small detail + full-rect click → _pick(idx).
 func _make_option_box(c: Dictionary, idx: int, total: int) -> Control:
@@ -338,6 +755,11 @@ func _select_fusion(c: Dictionary) -> void:
 	btn.pressed.connect(func() -> void: _pick_fusion(c))
 	_options_box.add_child(btn)
 	_play_sfx("res://assets/audio/sfx/uialert.wav")
+	if _use_board():
+		# Board: show the fused result in WeaponDisplay + a single FUSION option in Upgrade1 (click → fuse).
+		_current = [c]
+		_board_render_selected()
+		_board_render_options()
 
 # ── Choice generation (weighted, owned-priority, no-dup, slot-limited, fallback) ──────────────
 func _generate_choices(n: int) -> Array:
@@ -689,6 +1111,7 @@ func _show_destroy_choice(evolve_kind: String) -> void:
 ## Fusion pick: hide the cards (tree stays paused), play the Yu-Gi-Oh cutscene, THEN perform the fuse.
 func _pick_fusion(c: Dictionary) -> void:
 	_root.hide()
+	_board_show(false)
 	var cut := get_tree().get_first_node_in_group("arena_fusion_cutscene")
 	if cut != null and cut.has_method("play"):
 		cut.call("play", String(c.get("def_a", "")), String(c.get("def_b", "")), String(c.get("def_id", "")))
@@ -705,6 +1128,8 @@ func _pick_fusion(c: Dictionary) -> void:
 func _finish() -> void:
 	_showing = false
 	_root.hide()
+	_board_clear_all()
+	_board_show(false)
 	get_tree().paused = false
 
 func _input(event: InputEvent) -> void:
@@ -796,11 +1221,11 @@ func _build_ui() -> void:
 	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(_root)
 
-	var backdrop := ColorRect.new()
-	backdrop.color = Color(0.02, 0.03, 0.06, 0.97)   # near-opaque: the level-up takes the whole screen
-	backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
-	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
-	_root.add_child(backdrop)
+	_backdrop = ColorRect.new()
+	_backdrop.color = Color(0.02, 0.03, 0.06, 0.97)   # near-opaque: the level-up takes the whole screen
+	_backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	_root.add_child(_backdrop)
 
 	# Title strip (full width, top).
 	_title = Label.new()
@@ -840,6 +1265,7 @@ func _build_ui() -> void:
 
 	# Right column: curated stats list.
 	var stats_panel := _make_panel()
+	_stats_panel = stats_panel
 	stats_panel.anchor_left = COL_R_LEFT; stats_panel.anchor_right = COL_R_RIGHT
 	stats_panel.anchor_top = CONTENT_TOP; stats_panel.anchor_bottom = CONTENT_BOTTOM
 	_root.add_child(stats_panel)
@@ -877,35 +1303,44 @@ func _refresh_stats() -> void:
 		return
 	for c in _stats_box.get_children():
 		c.free()
+	_fill_stat_rows(_stats_box)
+
+## Build the curated, read-only global-stat rows into `box` (shared by the built-in panel + the board's
+## StatDisplay). Each entry renders only if its value resolves.
+func _fill_stat_rows(box: Container) -> void:
 	var gm := GameManager
 	if gm.has_method("get_damage_mult"):
-		_stats_box.add_child(_make_stat_row("Damage", "x%.2f" % gm.get_damage_mult()))
+		box.add_child(_make_stat_row("Damage", "x%.2f" % gm.get_damage_mult()))
 	if gm.has_method("get_fire_rate_mult"):
-		_stats_box.add_child(_make_stat_row("Fire rate", "x%.2f" % gm.get_fire_rate_mult()))
+		box.add_child(_make_stat_row("Fire rate", "x%.2f" % gm.get_fire_rate_mult()))
 	if gm.has_method("get_crit_chance"):
-		_stats_box.add_child(_make_stat_row("Crit chance", "%d%%" % int(round(gm.get_crit_chance() * 100.0))))
+		box.add_child(_make_stat_row("Crit chance", "%d%%" % int(round(gm.get_crit_chance() * 100.0))))
 	if gm.has_method("get_crit_damage"):
-		_stats_box.add_child(_make_stat_row("Crit damage", "x%.2f" % gm.get_crit_damage()))
+		box.add_child(_make_stat_row("Crit damage", "x%.2f" % gm.get_crit_damage()))
 	if gm.has_method("get_move_speed_mult"):
-		_stats_box.add_child(_make_stat_row("Move speed", "x%.2f" % gm.get_move_speed_mult()))
+		box.add_child(_make_stat_row("Move speed", "x%.2f" % gm.get_move_speed_mult()))
 	if gm.has_method("get_pickup_radius"):
-		_stats_box.add_child(_make_stat_row("Pickup", "%d" % int(round(gm.get_pickup_radius()))))
+		box.add_child(_make_stat_row("Pickup", "%d" % int(round(gm.get_pickup_radius()))))
 	if gm.has_method("get_base_defense"):
-		_stats_box.add_child(_make_stat_row("Armor (flat)", "%d" % gm.get_base_defense()))
+		box.add_child(_make_stat_row("Armor (flat)", "%d" % gm.get_base_defense()))
 	if gm.has_method("get_momentum_mult"):
-		_stats_box.add_child(_make_stat_row("Momentum", "x%.2f" % gm.get_momentum_mult()))
+		box.add_child(_make_stat_row("Momentum", "x%.2f" % gm.get_momentum_mult()))
 	# Probe optional stats that may not exist yet (HP, AOE, armor pen). Add rows only if present.
 	if gm.has_method("get_max_hp"):
-		_stats_box.add_child(_make_stat_row("HP", "%d" % int(gm.get_max_hp())))
+		box.add_child(_make_stat_row("HP", "%d" % int(gm.get_max_hp())))
 	if gm.has_method("get_aoe_mult"):
-		_stats_box.add_child(_make_stat_row("AOE", "x%.2f" % gm.get_aoe_mult()))
+		box.add_child(_make_stat_row("AOE", "x%.2f" % gm.get_aoe_mult()))
 	if gm.has_method("get_armor_pen_pct"):
-		_stats_box.add_child(_make_stat_row("Armor pen %", "%d%%" % int(round(gm.get_armor_pen_pct() * 100.0))))
+		box.add_child(_make_stat_row("Armor pen %", "%d%%" % int(round(gm.get_armor_pen_pct() * 100.0))))
 	if gm.has_method("get_armor_pen_flat"):
-		_stats_box.add_child(_make_stat_row("Armor pen flat", "%d" % int(gm.get_armor_pen_flat())))
+		box.add_child(_make_stat_row("Armor pen flat", "%d" % int(gm.get_armor_pen_flat())))
 
 func _make_stat_row(label: String, value: String) -> Control:
 	var row := HBoxContainer.new()
+	var lead := Control.new()                        # left column shifted right 10px
+	lead.custom_minimum_size = Vector2(10.0, 0.0)
+	lead.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(lead)
 	var l := Label.new()
 	l.text = label
 	l.add_theme_font_override("font", load(FONT_PATH))
@@ -920,4 +1355,8 @@ func _make_stat_row(label: String, value: String) -> Control:
 	v.add_theme_color_override("font_color", Color(1.0, 0.95, 0.6))
 	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(v)
+	var trail := Control.new()                       # right column shifted left 10px
+	trail.custom_minimum_size = Vector2(10.0, 0.0)
+	trail.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(trail)
 	return row
