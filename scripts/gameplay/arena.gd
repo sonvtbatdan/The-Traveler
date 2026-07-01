@@ -43,6 +43,7 @@ const BossEditScript        := preload("res://scripts/ui/boss_edit/boss_edit_mod
 const CreepEditScript       := preload("res://scripts/ui/boss_edit/creep_edit_mode.gd")
 const WeaponEditScript      := preload("res://scripts/ui/boss_edit/weapon_edit_mode.gd")
 const FleetEditScript       := preload("res://scripts/ui/boss_edit/fleet_edit_mode.gd")
+const HudEditScript         := preload("res://scripts/ui/boss_edit/hud_edit_mode.gd")   # authored playerhud (the active HUD)
 const RESET_RUN_ON_START := true   # each arena run starts a fresh VS climb (level 1, no upgrades). Flip off to keep saved level.
 const WEAPON_TEST_MODE := true     # TEST: skip the hub launch page + start-of-run weapon-pick chest; boot straight into
 								   # the arena, then auto-pause and open the F12 weapon palette. Flip off to restore normal flow.
@@ -95,6 +96,7 @@ var _enemy_mgr: Node = null   # arena_enemy_manager (smart/defend thruster bulle
 var _boss_edit:  Node = null
 var _creep_edit: Node = null
 var _weapon_edit: Node = null
+var _hud_edit:   Node = null     # authored playerhud (live HUD when closed; F-button opens the editor)
 var _weapon_chest: Node = null   # start-of-run weapon chest UI
 var _ui_layer: CanvasLayer = null      # HP / weapon / aux / XP HUD layer (hidden while a full-screen editor is open)
 var _hud_buttons: Node = null          # bottom-right + left dev button clusters
@@ -172,6 +174,7 @@ func _ready() -> void:
 	call_deferred("_setup_creep_edit")
 	call_deferred("_setup_weapon_edit")
 	call_deferred("_setup_fleet_edit")
+	call_deferred("_setup_hud_edit")     # authored playerhud = the live HUD (replaces the hidden cockpit HUD)
 	call_deferred("_open_start_chest")   # fresh run → present the pick-1-of-3 weapon chest (ship starts unarmed)
 
 ## Canvas glow/bloom for the arena. With hdr_2d on (project.godot) + glow_hdr_threshold 1.0, only HDR (>1)
@@ -229,16 +232,20 @@ func _build_ui() -> void:
 	ui.layer = 10   # explicit (was default 1): keep the HP/weapon/aux HUD ABOVE the mortar/fatboy shockwave (layer 8) so the blast distortion never ripples the HUD; still below buttons (11) / crit (12)
 	add_child(ui)
 	_ui_layer = ui
-	ui.add_child(HudFrameScript.new())      # procedural cockpit bezels (drawn behind the HUD widgets)
+	# Legacy Cockpit HUD — REPLACED by the authored playerhud (hud_edit_mode.gd / playerhud_layout.cfg,
+	# wired by _setup_hud_edit). Kept in the tree but HIDDEN so any group lookups still resolve.
+	var _frame := HudFrameScript.new(); _frame.visible = false; ui.add_child(_frame)
 	var player_vitals := VitalsBarScript.new()
-	player_vitals.mode = "player"           # bottom-centre nested shield+HP bar (replaces hud_hp_display)
+	player_vitals.mode = "player"
+	player_vitals.visible = false
 	ui.add_child(player_vitals)
 	var boss_vitals := VitalsBarScript.new()
-	boss_vitals.mode = "boss"               # top-centre, mirrors the player bar; auto-hides when no boss
+	boss_vitals.mode = "boss"
+	boss_vitals.visible = false
 	ui.add_child(boss_vitals)
-	ui.add_child(WeaponSlotsScript.new())   # left vertical column of weapon slots
-	ui.add_child(AuxSlotsScript.new())      # right vertical column of aux slots
-	ui.add_child(ArenaStatsHudScript.new()) # shorter XP bar (bottom) + kill/coin counters (top-right)
+	var _wslots := WeaponSlotsScript.new(); _wslots.visible = false; ui.add_child(_wslots)
+	var _aslots := AuxSlotsScript.new();    _aslots.visible = false; ui.add_child(_aslots)
+	var _stats  := ArenaStatsHudScript.new(); _stats.visible = false; ui.add_child(_stats)
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 func _build_player() -> void:
@@ -541,6 +548,22 @@ func _setup_weapon_edit() -> void:
 	add_child(wem)
 	_weapon_edit = wem
 	wem.setup(oc)
+
+## Authored playerhud: a CanvasLayer(9) + full-screen ObjectsContainer that hud_edit_mode.gd fills. When
+## the editor is closed those placed nodes ARE the live HUD (wired to game state via its runtime bindings),
+## replacing the hidden cockpit HUD in _build_ui.
+func _setup_hud_edit() -> void:
+	var cl := CanvasLayer.new()
+	cl.layer = 9
+	add_child(cl)
+	var oc := Control.new()
+	oc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	oc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cl.add_child(oc)
+	var hem := HudEditScript.new()
+	add_child(hem)
+	_hud_edit = hem
+	hem.setup(oc)
 
 ## Hide the gameplay + all HUD (HP/XP, weapon/aux slots, button clusters, debug panels, player, live enemies)
 ## while a full-screen editor (Creep / Fleet) is open, so only the editor panels + its edit objects show.
