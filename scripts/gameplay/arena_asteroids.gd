@@ -14,6 +14,7 @@ const ASTEROID_Z      := -10        # just behind gameplay (player/enemies/proje
 # ArenaPopulator (type ArenaPopulator.ASTEROID). Only parallax + the field contents/drift stay here.
 const FIELD_SPREAD    := Vector2(120.0, 320.0)   # scatter radius of a field
 const PER_CLUSTER     := Vector2i(6, 16)         # asteroids per field
+const SPAWN_PER_FRAME := 1                        # max new fields streamed in per frame (amortized to kill movement hitch)
 const FIELD_DRIFT     := Vector2(6.0, 18.0)      # slow constant drift px/s (so clusters move even when idle)
 const AST_LIGHT_REACH := 140.0                   # px reach per light "value" (rocks catch passing fire)
 const SHIP_LIGHT_VALUE := 2.6                    # the ship is an always-on soft light → rocks glow as you fly past
@@ -49,14 +50,16 @@ func _process(delta: float) -> void:
 	var cy0 := int(floor((vc.y - half.y) / cs))
 	var cy1 := int(ceil((vc.y + half.y) / cs))
 	var needed := {}
+	var budget := SPAWN_PER_FRAME   # amortize: cap new fields/frame so crossing cells doesn't spike (rest fill in next frames)
 	for cy in range(cy0, cy1 + 1):
 		for cx in range(cx0, cx1 + 1):
 			var key := Vector2i(cx, cy)
 			var place := ArenaPopulator.place_in_cell(ArenaPopulator.ASTEROID, key)
 			if not place.is_empty():
-				needed[key] = true
-				if not _fields.has(key):
+				needed[key] = true   # mark needed even if deferred, so it isn't despawned before it spawns
+				if not _fields.has(key) and budget > 0:
 					_spawn_cell(key, place["pos"], place["rng"])
+					budget -= 1
 	for key: Vector2i in _fields.keys():
 		if not needed.has(key):
 			if is_instance_valid(_fields[key]):

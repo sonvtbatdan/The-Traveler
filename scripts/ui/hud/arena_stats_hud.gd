@@ -6,12 +6,13 @@ extends Control
 const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
 
 # ── XP bar geometry ──
-const XP_H            := 28.0    # bar height
-const XP_BOTTOM_MARGIN := 20.0   # gap from the bottom screen edge
-const XP_W_FRAC       := 0.5     # bar width as a fraction of the viewport width
-const XP_W_MIN        := 380.0
-const XP_W_MAX        := 760.0
-const XP_PAD          := 10.0    # text inset from the bar's left/right edges
+const XP_H            := 9.0     # bar height — thin strip hugging the top edge
+const XP_TOP_MARGIN   := 5.0     # gap from the top screen edge
+const XP_W_FRAC       := 0.6     # bar width as a fraction of the viewport width
+const XP_W_MIN        := 480.0
+const XP_W_MAX        := 1000.0
+const XP_PAD          := 10.0    # (unused now that the XP bar carries no text)
+const XP_FILL_LERP    := 8.0     # XP fill smoothing rate
 
 # ── Top-right counters geometry ──
 const TR_TOP          := 118.0   # start below the perf overlay (which occupies y 8–110)
@@ -27,6 +28,7 @@ var _font: FontFile = null
 # XP bar nodes
 var _xp_bg:    ColorRect = null
 var _xp_fill:  ColorRect = null
+var _xp_disp:  float = 0.0   # displayed XP fraction (lerps toward the real one)
 var _xp_label: Label     = null   # left: "xp / require"
 var _lv_label: Label     = null   # right: "Level N"
 
@@ -51,6 +53,7 @@ func _ready() -> void:
 	_on_level_changed(GameManager.player_level)
 	_on_money_changed(GameManager.money)
 	_on_kills_changed(GameManager.run_kills if "run_kills" in GameManager else 0)
+	_xp_disp = _xp_target()      # prime so the bar doesn't animate up from empty on load
 	call_deferred("_relayout")   # viewport size is reliable after the first frame
 
 func _build() -> void:
@@ -61,14 +64,16 @@ func _build() -> void:
 	add_child(_xp_bg)
 
 	_xp_fill = ColorRect.new()
-	_xp_fill.color = Color(0.30, 0.85, 0.45, 0.95)   # green progress
+	_xp_fill.color = Color(1.0, 0.78, 0.25, 0.97)   # gold — distinct from HP green + shield blue
 	_xp_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_xp_fill)
 
 	_xp_label = _make_label(Color("#EAF7E8"), HORIZONTAL_ALIGNMENT_LEFT)
+	_xp_label.visible = false   # XP bar carries no text — just a thin fill strip at the top
 	add_child(_xp_label)
 
 	_lv_label = _make_label(Color("#FBF662"), HORIZONTAL_ALIGNMENT_RIGHT)
+	_lv_label.visible = false
 	add_child(_lv_label)
 
 	# ── Top-right counters ──
@@ -106,17 +111,13 @@ func _make_icon(color: Color) -> ColorRect:
 func _relayout() -> void:
 	var vp := get_viewport_rect().size
 
-	# XP bar — centered horizontally, pinned near the bottom edge.
+	# XP bar — a thin strip centered horizontally, hugging the TOP edge. No text.
 	var bar_w := clampf(vp.x * XP_W_FRAC, XP_W_MIN, XP_W_MAX)
 	var bar_x := (vp.x - bar_w) * 0.5
-	var bar_y := vp.y - XP_H - XP_BOTTOM_MARGIN
+	var bar_y := XP_TOP_MARGIN
 	_xp_bg.position = Vector2(bar_x, bar_y)
 	_xp_bg.size = Vector2(bar_w, XP_H)
 	_xp_fill.position = Vector2(bar_x, bar_y)   # width set by _refresh_xp_fill()
-	_xp_label.position = Vector2(bar_x + XP_PAD, bar_y)
-	_xp_label.size = Vector2(bar_w - XP_PAD * 2.0, XP_H)
-	_lv_label.position = Vector2(bar_x + XP_PAD, bar_y)
-	_lv_label.size = Vector2(bar_w - XP_PAD * 2.0, XP_H)
 	_refresh_xp_fill()
 
 	# Top-right counters — two stacked rows under the perf overlay.
@@ -151,12 +152,20 @@ func _on_money_changed(amount: int) -> void:
 func _on_kills_changed(kills: int) -> void:
 	_kill_label.text = str(kills)
 
-## Scale the green fill to the current XP fraction (uses the bg's current width).
+## Target XP fraction toward the next level.
+func _xp_target() -> float:
+	var to_next := GameManager.xp_to_next(GameManager.player_level)
+	return clampf(float(GameManager.player_xp) / float(to_next), 0.0, 1.0) if to_next > 0 else 0.0
+
+## Smoothly catch the displayed fill up to the real XP fraction each frame.
+func _process(delta: float) -> void:
+	if _xp_bg == null or _xp_fill == null:
+		return
+	_xp_disp = lerpf(_xp_disp, _xp_target(), clampf(delta * XP_FILL_LERP, 0.0, 1.0))
+	_xp_fill.size = Vector2(_xp_bg.size.x * _xp_disp, XP_H)
+
+## Snap the fill to the current fraction (on relayout / immediate refresh).
 func _refresh_xp_fill() -> void:
 	if _xp_bg == null or _xp_fill == null:
 		return
-	var to_next := GameManager.xp_to_next(GameManager.player_level)
-	var frac := 0.0
-	if to_next > 0:
-		frac = clampf(float(GameManager.player_xp) / float(to_next), 0.0, 1.0)
-	_xp_fill.size = Vector2(_xp_bg.size.x * frac, XP_H)
+	_xp_fill.size = Vector2(_xp_bg.size.x * _xp_disp, XP_H)

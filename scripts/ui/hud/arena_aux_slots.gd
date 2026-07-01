@@ -7,9 +7,17 @@ extends Control
 const ArenaAux := preload("res://scripts/gameplay/arena_aux.gd")
 
 # Same slot size/gap as the weapon row; placed one row lower (weapon ORIGIN.y 82 + SLOT 30.8 + 10 gap).
-const SLOT   := 30.8
-const GAP    := 5.6
-const ORIGIN := Vector2(12.0, 82.0 + SLOT + 10.0)
+const SLOT   := 46.0                   # slot side (px) — right-edge vertical column (matches weapon column)
+const GAP    := 12.0
+const RIGHT_MARGIN := 16.0             # x of the column from the right screen edge
+
+## i-th slot rect: a vertical column pinned to the right edge, vertically centered on screen.
+func _slot_rect(i: int) -> Rect2:
+	var vp := get_viewport_rect().size
+	var n := ArenaAux.MAX_AUX
+	var total_h := SLOT * float(n) + GAP * float(n - 1)
+	var y0 := (vp.y - total_h) * 0.5
+	return Rect2(Vector2(vp.x - RIGHT_MARGIN - SLOT, y0 + float(i) * (SLOT + GAP)), Vector2(SLOT, SLOT))
 const PIP_COL    := Color(1.0, 1.0, 1.0, 0.95)
 const PIP_OFF    := Color(0.0, 0.0, 0.0, 0.45)
 
@@ -40,17 +48,17 @@ func _draw() -> void:
 	if _aux != null and is_instance_valid(_aux) and _aux.has_method("owned_aux"):
 		owned = _aux.call("owned_aux")
 	for i in ArenaAux.MAX_AUX:
-		var rect := Rect2(ORIGIN + Vector2(float(i) * (SLOT + GAP), 0.0), Vector2(SLOT, SLOT))
+		var rect := _slot_rect(i)
 		_draw_slot_bg(rect)
 		if i < owned.size():
 			var id := String(owned[i])
 			var d: Dictionary = _aux.call("def_for", id)
 			var tex := _icon_for(id, d)
 			if tex != null:
-				draw_texture_rect(tex, rect.grow(-rect.size.x * 0.09), false)   # HUD art when available
+				draw_texture_rect(tex, rect.grow(-3.0), false)   # near-full: maximize icon inside the slot
 			else:
 				var col: Color = d.get("color", Color.GRAY)
-				draw_rect(rect.grow(-rect.size.x * 0.18), col, true)             # colour swatch fallback
+				draw_rect(rect.grow(-6.0), col, true)            # colour swatch fallback
 			# Level pips along the bottom edge.
 			var lvl := int(_aux.call("aux_level", id))
 			_draw_level_pips(rect, lvl)

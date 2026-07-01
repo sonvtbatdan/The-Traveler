@@ -7,6 +7,7 @@ extends Node2D
 const ArenaEnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 const LootScript       := preload("res://scripts/gameplay/arena_loot.gd")
 const SFX_HIT          := preload("res://assets/audio/sfx/hit.wav")
+const SFX_BOOM         := preload("res://assets/audio/sfx/boom.wav")
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
 const BULLET_RADIUS    := 5.0
@@ -40,6 +41,21 @@ var _hit_flash_rect: ColorRect = null
 var _hit_flash_mat: ShaderMaterial = null
 var _hit_flash_t: float = 0.0
 
+# Pooled, throttled death booms — replaces a per-death AudioStreamPlayer.new() (node churn + dozens of
+# overlapping booms when a whole wave dies at once). Round-robin a few players; collapse near-simultaneous
+# booms via a min-gap so mass death is one punchy boom, not 50.
+const BOOM_POOL    := 6
+const BOOM_MIN_GAP := 0.045
+var _boom_pool: Array[AudioStreamPlayer] = []
+var _boom_i: int = 0
+var _boom_last: float = -1.0
+var _now: float = 0.0
+
+# Camera-visible world rect, refreshed once per frame. Enemies read it for off-screen LOD: an enemy outside
+# this (grown by a margin) skips its _draw and pauses its plume emission — the dominant saving at 500 enemies.
+var _vis_rect: Rect2 = Rect2(-1.0e9, -1.0e9, 2.0e9, 2.0e9)
+var _enemy_count: int = 0   # live "arena_enemy" count, refreshed once per frame (plume density LOD)
+
 func _ready() -> void:
 	add_to_group("enemy_manager")
 	z_index = -1   # bullets/explosions just under the player/enemies
@@ -62,9 +78,51 @@ func _ready() -> void:
 	_hit_flash_rect.hide()
 	cl.add_child(_hit_flash_rect)
 	add_child(cl)
+	for i in BOOM_POOL:
+		var bp := AudioStreamPlayer.new()
+		bp.stream = SFX_BOOM
+		bp.bus = "SFX"
+		bp.volume_db = linear_to_db(0.7)
+		add_child(bp)
+		_boom_pool.append(bp)
 	GameManager.player_hit.connect(_play_hit)
 
+## Death boom for a dying enemy — pooled + throttled (see _boom_pool). Call instead of spawning a player.
+func play_boom() -> void:
+	if _boom_pool.is_empty():
+		return
+	if _now - _boom_last < BOOM_MIN_GAP:
+		return   # collapse a burst of simultaneous deaths into a single boom
+	_boom_last = _now
+	var p := _boom_pool[_boom_i]
+	_boom_i = (_boom_i + 1) % _boom_pool.size()
+	p.pitch_scale = randf_range(0.92, 1.08)   # slight variation so reused booms don't sound mechanical
+	p.play()
+
+## Refresh the camera-visible world rect (once per frame). Enemies read it via visible_world_rect().
+func _update_vis_rect() -> void:
+	var vp := get_viewport()
+	if vp == null:
+		return
+	var cam := vp.get_camera_2d()
+	if cam == null or cam.zoom.x <= 0.0 or cam.zoom.y <= 0.0:
+		return
+	var size := vp.get_visible_rect().size / cam.zoom
+	_vis_rect = Rect2(cam.get_screen_center_position() - size * 0.5, size)
+
+## Camera-visible world rect, cached per frame (LOD culling for enemies).
+func visible_world_rect() -> Rect2:
+	return _vis_rect
+
+## Live enemy count, cached once per frame — read by enemies for the plume density LOD (avoids an O(N) query
+## per enemy, which would be O(N²)).
+func enemy_count() -> int:
+	return _enemy_count
+
 func _process(delta: float) -> void:
+	_now += delta
+	_update_vis_rect()
+	_enemy_count = get_tree().get_node_count_in_group("arena_enemy")   # cached for the plume density LOD
 	if _player == null or not is_instance_valid(_player):
 		_player = get_tree().get_first_node_in_group("player")
 	_tick_bullets(delta)
@@ -112,8 +170,13 @@ func take_wanderer_y_offset() -> float:
 	return o
 
 # ── Enemy bullets ───────────────────────────────────────────────────────────────
-func spawn_bullet(pos: Vector2, vel: Vector2, dmg: int) -> void:
-	_bullets.append({"pos": pos, "vel": vel, "dmg": dmg, "life": 0.0, "start": pos})
+func spawn_bullet(pos: Vector2, vel: Vector2, dmg: int, owner: Node = null) -> void:
+	var oid := owner.get_instance_id() if owner != null else 0
+	_bullets.append({"pos": pos, "vel": vel, "dmg": dmg, "life": 0.0, "start": pos, "owner": oid})
+
+## Destroy every live enemy projectile (Sonic's Deafening Silence evolution).
+func clear_bullets() -> void:
+	_bullets.clear()
 
 ## Deflect every enemy bullet within `radius` of `center` to fly outward at ≥ `force` px/s. Used by the
 ## Bulwark thruster + Guardian drone to shove incoming fire away. Returns how many bullets were pushed.
@@ -163,9 +226,23 @@ func _tick_bullets(delta: float) -> void:
 		elif p.distance_to(sc) <= sr + BULLET_RADIUS:
 			GameManager.ship_take_damage(int(b["dmg"]))
 			_bullets.remove_at(i)
+		elif _bullet_hits_enemy(p, int(b.get("owner", 0)), int(b["dmg"])):
+			_bullets.remove_at(i)   # bullets also damage enemies (charmed shooters fire on the swarm; friendly fire)
 		elif float(b["life"]) >= BULLET_MAX_LIFE or p.distance_to(b["start"]) >= BULLET_MAX_DIST:
 			_bullets.remove_at(i)
 		i -= 1
+
+## A bullet at `p` damages the first enemy it touches (excluding its owner). Returns true if it hit one.
+func _bullet_hits_enemy(p: Vector2, owner_id: int, dmg: int) -> bool:
+	for en in get_tree().get_nodes_in_group("arena_enemy"):
+		if not is_instance_valid(en) or en.get_instance_id() == owner_id:
+			continue
+		var er: float = float(en.get("_radius")) if en.get("_radius") != null else 16.0
+		if p.distance_to((en as Node2D).global_position) <= er + BULLET_RADIUS:
+			if en.has_method("take_damage"):
+				en.take_damage(float(dmg))
+			return true
+	return false
 
 # ── Explosions (cross-faction blast) ────────────────────────────────────────────
 func explode(blast_center: Vector2, blast_radius: float, dmg: int, source: Node = null) -> void:
@@ -197,7 +274,7 @@ func _tick_explosions(delta: float) -> void:
 
 ## Drop a collectible XP orb at a world position. Delegates to the single MultiMesh orb manager (no
 ## per-orb node) — keeps the same signature so arena_enemy / arena_elephant callers are unchanged.
-func spawn_xp_orb(pos: Vector2, value: int) -> void:
+func spawn_xp_orb(pos: Vector2, value: float) -> void:
 	var mgr := get_tree().get_first_node_in_group("arena_xp_orb_mgr")
 	if mgr != null:
 		mgr.spawn(pos, value)
@@ -225,7 +302,7 @@ func throw_bomb(pos: Vector2) -> void:
 ## Spawn a small flock of bee enemies near the player — used by the F12 debug palette to test plume VFX.
 func spawn_bee() -> void:
 	const BEE_DEF := {"behavior": "swarm_dive", "hp": 20.0, "speed": 150.0, "size": 12.0,
-		"contact": 8, "explodes": true, "xp": 3, "icon": "res://assets/enemiesHD/animalbee.png"}
+		"contact": 8, "explodes": true, "xp": 0.15, "icon": "res://assets/enemiesHD/animalbee.png"}
 	var pp := ship_center()
 	for i in 6:
 		var e := ArenaEnemyScript.new()

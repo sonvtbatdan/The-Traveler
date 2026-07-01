@@ -12,6 +12,8 @@ const HITCH_MS := 20.0   # peak frame-ms above this = a real dip → shown red
 var _label: Label
 var _peak_ms: float = 0.0
 var _win_t: float = 0.0
+var _ui_t: float = 0.0     # refresh-the-readout accumulator (the text update is throttled, see _process)
+var _red: bool = false
 
 func _ready() -> void:
 	layer = 99
@@ -34,10 +36,18 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	var ms := delta * 1000.0
-	_peak_ms = maxf(_peak_ms, ms)
-	_label.text = "FPS %d   frame %.1f ms\npeak(2s) %.1f ms   nodes %d" % [
-		Engine.get_frames_per_second(), ms, _peak_ms, get_tree().get_node_count()]
-	_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.45) if _peak_ms > HITCH_MS else Color(0.7, 1.0, 0.7))
+	_peak_ms = maxf(_peak_ms, ms)   # track the peak every frame (cheap) so brief hitches still register
+	# Refresh the on-screen text at 5 Hz, NOT every frame: get_tree().get_node_count() walks the entire scene
+	# tree, which at 500 enemies (+ plumes, bullets, orbs) is thousands of nodes — too costly 60×/sec.
+	_ui_t += delta
+	if _ui_t >= 0.2:
+		_ui_t = 0.0
+		_label.text = "FPS %d   frame %.1f ms\npeak(2s) %.1f ms   nodes %d" % [
+			Engine.get_frames_per_second(), ms, _peak_ms, get_tree().get_node_count()]
+		var red := _peak_ms > HITCH_MS
+		if red != _red:   # only touch the theme override when the state actually flips
+			_red = red
+			_label.add_theme_color_override("font_color", Color(1.0, 0.45, 0.45) if red else Color(0.7, 1.0, 0.7))
 	_win_t += delta
 	if _win_t >= 2.0:
 		_win_t = 0.0

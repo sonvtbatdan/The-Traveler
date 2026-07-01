@@ -135,7 +135,7 @@ var _radius: float = 70.0
 var hit_radius: float:
 	get: return _radius
 var contact_damage: int = 40
-var xp: int = 500
+var xp: float = 25.0
 var _icon: String = ""
 
 # ── Runtime ─────────────────────────────────────────────────────────────────────
@@ -199,7 +199,7 @@ func configure(_type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	speed = float(def.get("speed", 120.0))
 	_radius = float(def.get("size", 70.0))
 	contact_damage = int(def.get("contact", 40))
-	xp = int(def.get("xp", 500))
+	xp = float(def.get("xp", 25.0))
 	_icon = String(def.get("icon", ""))
 
 func _ready() -> void:

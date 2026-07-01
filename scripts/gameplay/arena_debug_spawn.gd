@@ -26,19 +26,19 @@ const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")   # for
 # `kind` = arena_weapons code kind (spawnable on click). Entries with "ph": true are PLACEHOLDERS — the weapon
 # isn't implemented yet, so the cell renders dimmed + non-spawnable (a gray placeholder icon) until it lands.
 # `from` (optional) = the source recipe, shown in the tooltip. NOTE: a few PDF→code kind mappings are
-# best-guess (Jeager→zsword, Rosastro HE Mortar→nuke, Viper→snake) — relabel if wrong.
+# best-guess (Jeager→zsword, Little Man→little_man, Viper→snake) — relabel if wrong.
 const WEAPON_TABS := {
 	"drop": [
 		{"kind": "gatling",   "def_id": "gatling_gun",  "label": "Kinetic Auto Cannon"},
-		{"kind": "lasgun",    "def_id": "lasgun",        "label": "Solid-State Laser"},
+		{"kind": "death_beam",    "def_id": "death_beam",        "label": "Death Beam"},
 		{"kind": "orbital",   "def_id": "orbitals",      "label": "Orbital Impact Defense"},
 		{"kind": "striker",   "def_id": "swarm_host",    "label": "Orbital Impact Offense", "code": "Striker"},
 		{"kind": "chemtrail", "def_id": "chemtrail",     "label": "Biocide Vaporizer"},
-		{"kind": "void",      "def_id": "rift_maker",    "label": "Vacuum Decoupler"},
+		{"kind": "void",      "def_id": "rift_maker",    "label": "Rift Maker"},
 		{"kind": "arc",       "def_id": "arc",           "label": "Arc Lightning Chain"},
 		{"kind": "moroboshi", "def_id": "moroboshi",     "label": "Yari"},
 		{"kind": "zsword",    "def_id": "z_sword",       "label": "Jeager"},
-		{"kind": "nuke",      "def_id": "nuke",          "label": "Rosastro HE Mortar"},
+		{"kind": "little_man",      "def_id": "little_man",          "label": "Little Man"},
 		{"kind": "red_x",     "def_id": "red_x",         "label": "Thermitic Discharger"},
 		{"kind": "boomerang", "def_id": "boomerang",     "label": "Aliwa"},
 		{"kind": "gauss",     "def_id": "gauss_cannon",  "label": "Gauss Pulser"},
@@ -49,22 +49,22 @@ const WEAPON_TABS := {
 	],
 	"evolve": [
 		{"kind": "",       "def_id": "",               "label": "Kinetic Induction Cannon", "code": "Big Gun",    "from": "Kinetic Auto Cannon", "icon": "res://assets/inventory/VB-KIC-6.png",      "ph": true},
-		{"kind": "",       "def_id": "",               "label": "Isotope Laser",            "code": "Super Laser", "from": "Solid-State Laser",   "icon": "res://assets/inventory/KM-IL-200.png", "ph": true},
-		{"kind": "ionize", "def_id": "ionizing_field", "label": "Tachyon Displacer",        "from": "Vacuum Decoupler"},
-		{"kind": "",       "def_id": "",               "label": "Mobile Vacuum",            "code": "Black Ship", "from": "Vacuum Decoupler",    "icon": "res://assets/inventory/M-ST-17.png",     "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Isotope Laser",            "code": "Super Laser", "from": "Death Beam",   "icon": "res://assets/inventory/KM-IL-200.png", "ph": true},
+		{"kind": "ionize", "def_id": "ionizing_field", "label": "Ionizing Field",        "from": "Rift Maker"},
+		{"kind": "",       "def_id": "",               "label": "Mobile Vacuum",            "code": "Black Ship", "from": "Rift Maker",    "icon": "res://assets/inventory/M-ST-17.png",     "ph": true},
 		{"kind": "",       "def_id": "",               "label": "Thunder Strike",           "code": "Zeus",       "from": "Arc Lightning Chain", "icon": "res://assets/inventory/Zeus.png",          "ph": true},
-		{"kind": "fat_boy", "def_id": "rosastro_nuclear", "label": "Rosastro Nuclear",        "from": "Rosastro HE Mortar"},
+		{"kind": "fat_boy", "def_id": "rosastro_nuclear", "label": "Fat Boy",        "from": "Little Man"},
 	],
 	"fusion": [
-		{"kind": "",            "def_id": "",              "label": "KM Quantum Beam Rifle",        "code": "Jedi Laser",  "from": "Kinetic Auto Cannon × Solid-State Laser", "icon": "res://assets/inventory/KM-QBM-200.png", "ph": true},
+		{"kind": "",            "def_id": "",              "label": "KM Quantum Beam Rifle",        "code": "Jedi Laser",  "from": "Kinetic Auto Cannon × Death Beam", "icon": "res://assets/inventory/KM-QBM-200.png", "ph": true},
 		{"kind": "",            "def_id": "",              "label": "Drone Cannon",                 "code": "Candy Crush", "from": "Kinetic Auto Cannon × Orbital Impact Defense", "icon": "res://assets/inventory/NC-DC-F.png", "ph": true},
 		{"kind": "",            "def_id": "",              "label": "Vampire Host",                 "from": "Sonic × Orbital Impact Offense", "icon": "res://assets/inventory/Vampire Host.png", "ph": true},
-		{"kind": "parasite",    "def_id": "parasite_cloud","label": "Bio-Corrosive Spore Launcher", "from": "Biocide Vaporizer × Swarm"},
+		{"kind": "parasite",    "def_id": "parasite_cloud","label": "Venomancer", "from": "Biocide Vaporizer × Swarm"},
 		{"kind": "overcharger", "def_id": "gauss_cannon",  "label": "Overcharger",                  "from": "Arc Lightning Chain × Gauss Pulser", "icon": "res://assets/inventory/Overcharger.png"},
 		{"kind": "yari_jaeger", "def_id": "yari_jaeger",   "label": "Yari Jeager",                  "from": "Yari × Jeager"},
 		{"kind": "carnage",     "def_id": "gatling_gun",   "label": "Thermitic Auto Cannon",        "from": "Thermitic Discharger × Kinetic Auto Cannon"},
-		{"kind": "",            "def_id": "",              "label": "Singularities",                "from": "Vacuum Decoupler × Gauss Pulser", "icon": "res://assets/inventory/Singularities.png", "ph": true},
-		{"kind": "predator",    "def_id": "lasgun",        "label": "Predator",                     "from": "Viper × Solid-State Laser"},
+		{"kind": "",            "def_id": "",              "label": "Singularities",                "from": "Rift Maker × Gauss Pulser", "icon": "res://assets/inventory/Singularities.png", "ph": true},
+		{"kind": "predator",    "def_id": "death_beam",        "label": "Predator",                     "from": "Viper × Death Beam"},
 	],
 	"obsolete": [
 		{"kind": "vampire_host",    "def_id": "swarm_host",     "label": "Vampire Host (old)",  "from": "Swarm + Sonic — reworked"},
@@ -77,6 +77,12 @@ const WEAPON_TABS := {
 }
 const WEAPON_TAB_ORDER: Array[String] = ["drop", "evolve", "fusion", "obsolete"]
 const WEAPON_TAB_LABELS := {"drop": "Drop", "evolve": "Evolve", "fusion": "Fusion", "obsolete": "Obsolete"}
+# Two extra tabs built dynamically from the live weapon data (not from WEAPON_TABS): "Evolved" = the real EVOLVE
+# capstones (3/weapon, e.g. "Dragon's Breath: The Sun"); "Combined" = the FUSION recipes ("Combined (A + B)").
+const EXTRA_WEAPON_TABS: Array[String] = ["evolved", "combined"]
+const EXTRA_TAB_LABELS := {"evolved": "Evolved", "combined": "Combined"}
+# In-fiction base name where WEAPON_INFO's label differs from the design name (red_x is the Dragon's Breath weapon).
+const BASE_NAME_OVERRIDE := {"red_x": "Dragon's Breath"}
 const SFX_UICLICK := preload("res://assets/audio/sfx/uiclick.wav")
 
 # Enemy order in the quick-spawn grid — normals first, bosses last.
@@ -735,9 +741,9 @@ func _build_weapon_spawn_panel() -> void:
 	tabs.add_theme_constant_override("separation", 2)
 	vbox.add_child(tabs)
 	_weapon_tab_btns.clear()
-	for tab_id: String in WEAPON_TAB_ORDER:
+	for tab_id: String in _all_weapon_tabs():
 		var tb := Button.new()
-		tb.text = String(WEAPON_TAB_LABELS[tab_id])
+		tb.text = _weapon_tab_label(tab_id)
 		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tb.focus_mode = Control.FOCUS_NONE
 		tb.add_theme_font_size_override("font_size", 10)
@@ -747,19 +753,23 @@ func _build_weapon_spawn_panel() -> void:
 
 	vbox.add_child(HSeparator.new())
 
-	# ── Cell grid (rebuilt per active tab) ──
+	# ── Cell grid (rebuilt per active tab) — scrollable so the Evolved tab's 27 cells fit the fixed panel ──
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(float(W), float(grid_h))
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vbox.add_child(scroll)
 	var grid := GridContainer.new()
 	grid.columns = COLS
-	grid.custom_minimum_size = Vector2(float(W), float(grid_h))
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	grid.add_theme_constant_override("h_separation", 0)
 	grid.add_theme_constant_override("v_separation", 0)
-	vbox.add_child(grid)
+	scroll.add_child(grid)
 	_weapon_grid = grid
 	_select_weapon_tab(_weapon_tab)
 
 ## Switch the Weapon panel to `tab_id`, highlight its button, and rebuild the cell grid.
 func _select_weapon_tab(tab_id: String) -> void:
-	if not WEAPON_TABS.has(tab_id):
+	if tab_id not in _all_weapon_tabs():
 		return
 	_weapon_tab = tab_id
 	for id: String in _weapon_tab_btns.keys():
@@ -772,7 +782,7 @@ func _rebuild_weapon_grid() -> void:
 		return
 	for c in _weapon_grid.get_children():
 		c.queue_free()
-	for w: Dictionary in (WEAPON_TABS[_weapon_tab] as Array):
+	for w: Dictionary in _weapon_tab_entries(_weapon_tab):
 		_weapon_grid.add_child(_make_weapon_cell(w, 48))
 
 ## The weapon's Code Name (short nickname, e.g. "Minigun"). Implemented weapons resolve it from the live
@@ -839,7 +849,11 @@ func _make_weapon_cell(w: Dictionary, cell_size: int) -> Control:
 		btn.add_child(tr)
 
 	if not is_ph:
-		btn.pressed.connect(_spawn_weapon_pickup.bind(String(w["kind"])))
+		var cap := String(w.get("capstone", ""))
+		if cap != "":
+			btn.pressed.connect(_spawn_evolved.bind(String(w["kind"]), cap))   # Evolved tab: grant base + evolution
+		else:
+			btn.pressed.connect(_spawn_weapon_pickup.bind(String(w["kind"])))
 	return btn
 
 ## Drop a weapon pickup right next to the player (walk over it to collect + activate).
@@ -851,6 +865,71 @@ func _spawn_weapon_pickup(kind: String) -> void:
 	var base: Vector2 = (player as Node2D).global_position if player != null else Vector2.ZERO
 	var pos := base + Vector2(_rng.randf_range(-80.0, 80.0), _rng.randf_range(-80.0, 80.0))
 	weapons.spawn_weapon_pickup(kind, pos)
+
+# ── Dynamic weapon tabs: Evolved (real EVOLVE capstones) + Combined (FUSION recipes) ────────────────────
+func _all_weapon_tabs() -> Array:
+	var out: Array = []
+	out.append_array(WEAPON_TAB_ORDER)
+	out.append_array(EXTRA_WEAPON_TABS)
+	return out
+
+func _weapon_tab_label(tab_id: String) -> String:
+	if WEAPON_TAB_LABELS.has(tab_id):
+		return String(WEAPON_TAB_LABELS[tab_id])
+	return String(EXTRA_TAB_LABELS.get(tab_id, tab_id))
+
+func _weapon_tab_entries(tab_id: String) -> Array:
+	match tab_id:
+		"evolved":  return _evolved_entries()
+		"combined": return _combined_entries()
+	return WEAPON_TABS.get(tab_id, [])
+
+## Base weapon's display name for the Evolved/Combined labels (override → WEAPON_INFO label → kind).
+func _base_name(kind: String) -> String:
+	if BASE_NAME_OVERRIDE.has(kind):
+		return String(BASE_NAME_OVERRIDE[kind])
+	return String((ArenaWeapons.WEAPON_INFO as Dictionary).get(kind, {}).get("label", kind))
+
+## Every EVOLVE capstone (3/weapon) as a spawnable cell: "<Base>: <Evolved>", drawn with the BASE weapon's
+## icon, carrying the capstone id so a click grants the base weapon then forces its evolution.
+func _evolved_entries() -> Array:
+	var out: Array = []
+	for kind: String in (ArenaWeapons.CAPSTONES as Dictionary).keys():
+		var info: Dictionary = (ArenaWeapons.WEAPON_INFO as Dictionary).get(kind, {})
+		for cap: Dictionary in (ArenaWeapons.CAPSTONES[kind] as Array):
+			out.append({
+				"kind": kind,
+				"def_id": String(info.get("def_id", "")),
+				"icon": String(info.get("icon", "")),
+				"label": "%s: %s" % [_base_name(kind), String(cap.get("name", cap.get("id", "")))],
+				"from": String(cap.get("desc", "")),
+				"capstone": String(cap.get("id", "")),
+			})
+	return out
+
+## Every fusion recipe as a spawnable cell: "Combined (<A> + <B>)" with the fusion's icon.
+func _combined_entries() -> Array:
+	var out: Array = []
+	for fid: String in (ArenaWeapons.FUSION_DEFS as Dictionary).keys():
+		var rec: Dictionary = ArenaWeapons.FUSION_DEFS[fid]
+		out.append({
+			"kind": fid,
+			"def_id": String(rec.get("def_id", "")),
+			"icon": String(rec.get("icon", "")),
+			"label": "Combined (%s + %s)" % [_base_name(String(rec.get("a", ""))), _base_name(String(rec.get("b", "")))],
+			"from": String(rec.get("name", "")),
+		})
+	return out
+
+## Grant an evolved weapon: acquire the base weapon, then force its evolution capstone.
+func _spawn_evolved(kind: String, capstone: String) -> void:
+	var weapons := get_tree().get_first_node_in_group("arena_weapons")
+	if weapons == null:
+		return
+	if weapons.has_method("acquire_weapon"):
+		weapons.acquire_weapon(kind)
+	if weapons.has_method("pool_set_capstone"):
+		weapons.pool_set_capstone(kind, capstone)
 
 func _build_hotkey_panel() -> void:
 	if _dev_ui_root == null:
@@ -892,7 +971,7 @@ func _build_hotkey_panel() -> void:
 		"F9         Comet              Shift+F9  clear",
 		"F10        Planet + moons     Shift+F10 clear",
 		"F11        Structure          Shift+F11 clear",
-		"F12        Lasgun pickup      Shift+F12 clear",
+		"F12        DeathBeam pickup      Shift+F12 clear",
 		"[ − ] [ + ]  Fire rate",
 		"[ +Level ]   Level up",
 	]

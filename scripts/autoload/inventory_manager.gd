@@ -181,7 +181,7 @@ const ITEM_DEFS: Dictionary = {
 		},
 	},
 	"ionizing_field": {
-		"name": "Tachyon Displacer",
+		"name": "Ionizing Field",
 		"icon": "res://assets/inventory/HO-TD-W.png",   # Black Hole (evolve of Vacuum) per Corp.pdf
 		"size": Vector2i(2, 2),
 		"tags": ["weapon", "shield"],
@@ -226,7 +226,6 @@ const ITEM_DEFS: Dictionary = {
 		"fire_mode": "repeat",   # auto-fires every cooldown_sec while held
 		"fire_type": "homing",   # picks the nearest target; missile curves toward it
 		"rarity": "uncommon",
-		"group": "obsolete",
 		"damage_kind": ["explosive", "fire"],
 		"desc": "Launches out the back, loops around the ship, then streaks to the cursor and bursts in an explosion.",
 		"stats": {
@@ -260,8 +259,8 @@ const ITEM_DEFS: Dictionary = {
 			"ammo": 2,            # 2 ammo/s drain while firing
 		},
 	},
-	"lasgun": {
-		"name": "Solid-State Laser",
+	"death_beam": {
+		"name": "Death Beam",
 		"icon": "res://assets/inventory/KM-SSL-A-Alt.png",
 		"size": Vector2i(3, 1),
 		"tags": ["weapon"],
@@ -323,7 +322,7 @@ const ITEM_DEFS: Dictionary = {
 		},
 	},
 	"rift_maker": {
-		"name": "Vacuum Decoupler",
+		"name": "Rift Maker",
 		"icon": "res://assets/inventory/HZ-VD-S.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
@@ -836,8 +835,8 @@ const ITEM_DEFS: Dictionary = {
 			"weight": 4,
 		},
 	},
-	"nuke": {
-		"name": "Rosastro HE Mortar",
+	"little_man": {
+		"name": "Little Man",
 		"icon": "res://assets/inventory/R-HPM-IV.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
@@ -849,7 +848,7 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "weight": 8 },
 	},
 	"rosastro_nuclear": {
-		"name": "Rosastro Nuclear",
+		"name": "Fat Boy",
 		"icon": "res://assets/inventory/FatBoy.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
@@ -922,7 +921,7 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "weight": 5 },
 	},
 	"parasite_cloud": {
-		"name": "Bio-Corrosive Spore Launcher",
+		"name": "Venomancer",
 		"icon": "res://assets/inventory/BC-SL.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
@@ -938,7 +937,7 @@ const ITEM_DEFS: Dictionary = {
 # Items granted automatically the FIRST time a save is created (new game only).
 # Keeping this separate from ITEM_DEFS means future items (e.g. asteroid drops in
 # Phase 4) can be defined without being auto-placed in the backpack.
-const STARTER_ITEMS: Array[String] = ["gauss_cannon", "shield_generator", "gatling_gun", "homing_missile", "shotgun", "lasgun", "arc", "plasma_drill", "rift_maker", "parasite_gun", "swarm_host", "orbitals", "acid_sprayer"]
+const STARTER_ITEMS: Array[String] = ["gauss_cannon", "shield_generator", "gatling_gun", "homing_missile", "shotgun", "death_beam", "arc", "plasma_drill", "rift_maker", "parasite_gun", "swarm_host", "orbitals", "acid_sprayer"]
 
 # ── Runtime state ─────────────────────────────────────────────────────────────
 # _items: uid(int) -> {"def": String, "where": String, "cell": Vector2i}

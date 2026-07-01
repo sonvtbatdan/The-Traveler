@@ -8,14 +8,14 @@ extends Node2D
 const COLLECT_RADIUS      := 16.0
 
 # ── XP orb tiers (threshold = max xp for that tier, inclusive) ────────────────
-const TIER_GREEN_MAX  :=  50     # 0–50   xp:  radius = xp × 1.0   (green)
-const TIER_YELLOW_MAX := 100     # 51–100 xp:  radius = xp × 0.5   (yellow)
-const TIER_RED_MAX    := 500     # 101–500 xp: radius = xp × 0.2   (red)
-#                                  501+    xp:  radius = xp × 0.1   (purple)
-const TIER_GREEN_MULT  := 1.0
-const TIER_YELLOW_MULT := 0.5
-const TIER_RED_MULT    := 0.2
-const TIER_PURPLE_MULT := 0.1
+const TIER_GREEN_MAX  :=  2.5    # face-value XP now (÷20 of the old scale): tiers rescaled ÷20, mults ×20,
+const TIER_YELLOW_MAX :=  5.0    # caps unchanged → orbs keep the same on-screen size/color as before.
+const TIER_RED_MAX    := 25.0
+#                                  25+     xp:  radius = xp × 2.0   (purple)
+const TIER_GREEN_MULT  := 20.0
+const TIER_YELLOW_MULT := 10.0
+const TIER_RED_MULT    := 4.0
+const TIER_PURPLE_MULT := 2.0
 # Visual cap per tier so no orb overwhelms the screen (outer glow = cap × 1.8)
 const TIER_GREEN_CAP  :=  8.0   # → max outer glow ≈ 29 px diam
 const TIER_YELLOW_CAP := 14.0   # → max outer glow ≈ 50 px diam
@@ -37,14 +37,14 @@ const RED_GLOW    := Color(1.0,  0.05, 0.0)
 const PURPLE_CORE := Color(0.75, 0.2,  1.0)
 const PURPLE_GLOW := Color(0.55, 0.0,  0.9)
 
-var _value: int = 1
+var _value: float = 1.0
 var _vel := Vector2.ZERO
 var _magnetized := false
 var _force_magnet := false   # true when pulled by the magnetic loot item (starts from 0 speed)
 var _t := 0.0
 var _player: Node2D = null
 
-func setup(world_pos: Vector2, value: int) -> void:
+func setup(world_pos: Vector2, value: float) -> void:
 	add_to_group("arena_xp_orb")
 	global_position = world_pos
 	_value = value

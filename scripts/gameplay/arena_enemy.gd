@@ -106,10 +106,44 @@ const SCALE_VAR      := 0.15    # per-enemy base-size variance (±) so the crowd
 
 # Fallbacks so the enemy is self-sufficient if configured without a def (e.g. manager.spawn_bomb).
 const FALLBACK := {
-	"chase": {"behavior": "chase", "hp": 30.0, "speed": 95.0, "size": 16.0, "contact": 6, "xp": 5, "shape": "diamond", "tint": Color(0.95, 0.35, 0.30)},
+	"chase": {"behavior": "chase", "hp": 30.0, "speed": 95.0, "size": 16.0, "contact": 6, "xp": 0.25, "shape": "diamond", "tint": Color(0.95, 0.35, 0.30)},
 	"bomb":  {"behavior": "bomb",  "hp": 50.0, "speed": 120.0, "size": 18.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(0.9, 0.5, 0.2), "no_collide": true},
 	"thrown_bomb": {"behavior": "thrown_bomb", "hp": 12.0, "speed": THROWN_BOMB_SPEED, "size": 13.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(1.0, 0.55, 0.2), "icon": "res://assets/enemiesHD/bomb.png", "no_collide": true},
 }
+
+# ── Layout config cache ───────────────────────────────────────────────────────
+# creep_layout.cfg is 50+ KB / 500+ entries and was loaded+parsed FRESH FROM DISK on every enemy spawn
+# (draw size, firepoints, vortexpoints, tentacles) — a multi-ms stall that fired on every spawn-and-die at
+# the ring. Parse each layout config ONCE and share it. The creep/plume editors call reload_layout_cfgs()
+# after saving so live edits still apply.
+static var _creep_cfg: ConfigFile = null
+static var _creep_cfg_tried: bool = false
+static var _plume_cfg: ConfigFile = null
+static var _plume_cfg_tried: bool = false
+
+static func _creep_layout() -> ConfigFile:
+	if not _creep_cfg_tried:
+		_creep_cfg_tried = true
+		var c := ConfigFile.new()
+		_creep_cfg = c if c.load("res://creep_layout.cfg") == OK else null
+	return _creep_cfg
+
+static func _plume_styles_cfg() -> ConfigFile:
+	if not _plume_cfg_tried:
+		_plume_cfg_tried = true
+		var c := ConfigFile.new()
+		_plume_cfg = c if c.load("res://plume_styles.cfg") == OK else null
+	return _plume_cfg
+
+## Drop the cached layout configs (+ derived per-creep caches) so the next spawn re-reads from disk. Called
+## by the in-game creep/plume editors after they save, so live edits take effect without a restart.
+static func reload_layout_cfgs() -> void:
+	_creep_cfg_tried = false
+	_creep_cfg = null
+	_plume_cfg_tried = false
+	_plume_cfg = null
+	_fp_fracs_cache.clear()
+	_tp_fracs_cache.clear()
 
 # ── Fire-point positions (loaded from creep_layout.cfg [firepoints]) ─────────
 static var _fp_fracs_cache: Dictionary = {}
@@ -121,6 +155,10 @@ var _plumes: Array[CPUParticles2D] = []
 var _vortexes: Array = []   # EnergyVortex children (creep_layout.cfg [vortexpoints] + plume_styles.cfg [vortex_styles])
 var _plume_vrot_applied: float = 0.0   # last rotation pushed to plume emitters; skip the re-rotate when unchanged
 var _plume_vrot_init: bool = false
+const LOD_MARGIN := 180.0   # grow the camera-visible rect by this before the off-screen LOD test (sprite/plume slack)
+const PLUME_LOD_COUNT := 150   # above this many live enemies, stop plume emission (the jets are an indistinct blur
+                               # in a melee that dense, so dropping the CPUParticles2D sim is ~free visually)
+var _lod_visible: bool = true   # tracks whether this enemy's plumes are currently ON (on-screen AND not overcrowded)
 var _plume_base: Array = []        # [{vel_min, vel_max, sc_min, sc_max, life}] per plume
 var _plume_base_cols: Array = []   # [PackedColorArray] per plume
 var _plume_red_cols: Array = []    # pre-built red gradient (dragonfly proximity)
@@ -138,7 +176,7 @@ var hit_radius: float:
 var contact_damage: int = 6
 var contact_explodes: bool = false
 var _ship_contact_cd: float = 0.0   # throttles the ship's own contact damage to this enemy (Orbital pool)
-var xp: int = 5
+var xp: float = 5.0
 var _color: Color = Color(0.95, 0.35, 0.30)
 var shape_kind: String = "diamond"
 var _icon: String = ""
@@ -288,6 +326,20 @@ var _stun_immune_t: float = 0.0  # immunity window after a stun (can't be re-stu
 var _stun_immune_mult: float = 1.0   # Dazzling Display capstone shortens immunity (set via set_stun_immune_mult)
 var _weaken_t: float = 0.0    # Pacifying Jolt: while > 0, this enemy's damage output is halved
 var _vuln_t: float = 0.0      # Orb of Annihilation: while > 0, this enemy takes +20% damage from all sources
+var _sed_t: float = 0.0       # Sedative Scent (Chemtrail): while > 0, enemy is slowed + deals less damage
+var _sed_dmg: float = 0.0     # sedative outgoing-damage reduction (0..)
+var _sed_slow: float = 0.0    # sedative move-speed reduction (0..)
+var _armor_reduce: float = 0.0  # Critical Break (Drill Bits): temporary armor stripped off this enemy
+var _armor_reduce_t: float = 0.0
+var _wiper_t: float = 0.0     # Windshield Wiper (Z-Sword): brief 99%→0% slow over 0.2s
+var _charm_t: float = 0.0     # Siren (Sonic): while > 0 this enemy fights for the player (targets other enemies)
+var _aggro_target: Node = null  # who this enemy is chasing/attacking this frame (player, or a charmed enemy, or — if charmed — a foe)
+var _bleed_stacks: int = 0   # Drill Bits bleed: 1 dmg/stack/s for 5s, IGNORES armor
+var _bleed_t: float = 0.0
+var _bleed_acc: float = 0.0
+const BLEED_TICK := 1.0
+const BLEED_DURATION := 5.0
+const BLEED_MAX_BASE := 50
 var _swarm_mode: String = "chase"   # swarm blob unit: "zoom" (fly through @400) or "chase" (slow @speed)
 var _flash_color: Color = HIT_FLASH_COLOR
 
@@ -308,7 +360,7 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_radius          = float(d.get("size", 16.0)) * 1.05
 	contact_damage   = int(d.get("contact", 6))
 	contact_explodes = bool(d.get("explodes", false))
-	xp               = int(d.get("xp", 5)) * lvl_mult
+	xp               = float(d.get("xp", 5)) * float(lvl_mult)
 	_color           = d.get("tint", Color(0.95, 0.35, 0.30))
 	shape_kind       = String(d.get("shape", "diamond"))
 	_original_icon   = String(d.get("icon", ""))
@@ -431,8 +483,8 @@ func _load_icon() -> void:
 		_draw_size = Vector2(w, h)
 		var cname := _icon.get_file().get_basename().to_lower()
 		var raw_name := _icon.get_file().get_basename()   # editor keeps the file's original case (e.g. "Squid-body")
-		var eo_cfg := ConfigFile.new()
-		if eo_cfg.load("res://creep_layout.cfg") == OK:
+		var eo_cfg := _creep_layout()
+		if eo_cfg != null:
 			var eo: Dictionary = eo_cfg.get_value("creeps", raw_name, eo_cfg.get_value("creeps", cname, {}))
 			var eo_sz: Vector2 = eo.get("size", Vector2.ZERO)
 			if eo_sz.x > 0.0 and eo_sz.y > 0.0:
@@ -550,15 +602,15 @@ static func _resolve_cfg_key(cfg: ConfigFile, section: String, cname: String) ->
 	return cname
 
 static func _load_plume_styles_for(cname: String) -> Dictionary:
-	var cfg := ConfigFile.new()
-	if cfg.load("res://plume_styles.cfg") != OK:
+	var cfg := _plume_styles_cfg()
+	if cfg == null:
 		return {}
 	return cfg.get_value("styles", _resolve_cfg_key(cfg, "styles", cname), {})
 
 static func _load_tp_fracs(cname: String) -> Array:
 	const SCREEN_ORIGIN := Vector2(15.0, 8.0)
-	var cfg := ConfigFile.new()
-	if cfg.load("res://creep_layout.cfg") != OK:
+	var cfg := _creep_layout()
+	if cfg == null:
 		return []
 	var key := _resolve_cfg_key(cfg, "creeps", cname)
 	var eo: Dictionary = cfg.get_value("creeps", key, {})
@@ -583,8 +635,8 @@ func _setup_vortexes() -> void:
 	if _icon.is_empty() or _draw_size == Vector2.ZERO:
 		return
 	var cname := _icon.get_file().get_basename().to_lower()
-	var cfg := ConfigFile.new()
-	if cfg.load("res://creep_layout.cfg") != OK:
+	var cfg := _creep_layout()
+	if cfg == null:
 		return
 	var key := _resolve_cfg_key(cfg, "creeps", cname)
 	var eo: Dictionary = cfg.get_value("creeps", key, {})
@@ -618,8 +670,8 @@ func _setup_vortexes() -> void:
 		_vortexes.append(node)
 
 static func _load_vortex_styles_for(cname: String) -> Dictionary:
-	var cfg := ConfigFile.new()
-	if cfg.load("res://plume_styles.cfg") != OK:
+	var cfg := _plume_styles_cfg()
+	if cfg == null:
 		return {}
 	return cfg.get_value("vortex_styles", _resolve_cfg_key(cfg, "vortex_styles", cname), {})
 
@@ -633,8 +685,8 @@ func _setup_fire_points() -> void:
 
 static func _load_fp_fracs(cname: String) -> Array:
 	const SCREEN_ORIGIN := Vector2(15.0, 8.0)
-	var cfg := ConfigFile.new()
-	if cfg.load("res://creep_layout.cfg") != OK:
+	var cfg := _creep_layout()
+	if cfg == null:
 		return []
 	var key := _resolve_cfg_key(cfg, "creeps", cname)
 	var eo: Dictionary = cfg.get_value("creeps", key, {})
@@ -840,9 +892,103 @@ func apply_weaken(duration: float) -> void:
 	if not _dead:
 		_weaken_t = maxf(_weaken_t, duration)
 
-## Multiplier on this enemy's outgoing damage (0.5 while weakened).
+## Sedative Scent (Chemtrail): slow + outgoing-damage reduction, refreshed each tick the enemy is in the cloud.
+func apply_sedative(dmg_red: float, ms_red: float, duration: float = 0.4) -> void:
+	if _dead:
+		return
+	_sed_dmg = dmg_red
+	_sed_slow = ms_red
+	_sed_t = maxf(_sed_t, duration)
+
+## Effective armor for a hit: (base − temp reduction) × (1 − %pen), then − flat pen, clamped to the floor
+## (0 normally; −20 under the Less Than Nothing evo so it amplifies damage).
+func _hit_armor() -> float:
+	if not GameManager.has_method("mech_bonus"):
+		return armor
+	var a := armor - _armor_reduce
+	a = a * (1.0 - GameManager.mech_bonus("armor_pen_pct")) - GameManager.mech_bonus("armor_pen_flat")
+	var fl := -20.0 if GameManager.mech_bonus("less_than_nothing") > 0.0 else 0.0
+	return maxf(fl, a)
+
+## Critical Break: temporarily strip `amt` armor for `dur` s (accumulates; timer refreshed).
+func _reduce_armor(amt: float, dur: float) -> void:
+	_armor_reduce += amt
+	_armor_reduce_t = maxf(_armor_reduce_t, dur)
+
+## Max bleed stacks: base 50 + Bleed Mastery (global) + Hurt evo (+3 per flat armor-pen point).
+func _bleed_max() -> int:
+	var m := BLEED_MAX_BASE
+	if GameManager.has_method("mech_bonus"):
+		m += int(GameManager.mech_bonus("bleed_max_add"))
+		if GameManager.mech_bonus("hurt") > 0.0:
+			m += int(GameManager.mech_bonus("armor_pen_flat") * 3.0)
+	return m
+
+func apply_bleed(stacks: int = 1) -> void:
+	if _dead:
+		return
+	_bleed_stacks = mini(_bleed_stacks + maxi(1, stacks), _bleed_max())
+	_bleed_t = BLEED_DURATION
+
+## Cauterize the Wound (Z-Sword): convert a fraction of current bleed stacks into burn stacks.
+func cauterize(frac: float) -> void:
+	if _bleed_stacks <= 0:
+		return
+	var moved := int(ceil(float(_bleed_stacks) * frac))
+	_bleed_stacks = maxi(0, _bleed_stacks - moved)
+	if _bleed_stacks <= 0:
+		_bleed_t = 0.0
+	apply_burn(moved)
+
+## Windshield Wiper (Z-Sword): a strong, brief slow that decays to 0 over 0.2s.
+func apply_wiper() -> void:
+	if not _dead:
+		_wiper_t = 0.2
+
+## Siren (Sonic): charm this enemy for `dur` s — it fights for the player. Bosses are immune.
+func apply_charm(dur: float) -> void:
+	if _dead or is_in_group("boss"):
+		return
+	_charm_t = dur
+	if not is_in_group("arena_charmed"):
+		add_to_group("arena_charmed")   # tiny group scanned by _resolve_aggro (keeps it O(charmed), not O(all enemies))
+
+func is_charmed() -> bool:
+	return _charm_t > 0.0
+
+## Number of distinct active statuses on this enemy — Sensory Overload (Sonic) scales damage by it.
+func status_count() -> int:
+	var n := 0
+	if _burn_stacks > 0: n += 1
+	if _freeze_stacks > 0: n += 1
+	if _stun_t > 0.0: n += 1
+	if _bleed_stacks > 0: n += 1
+	if _vuln_t > 0.0: n += 1
+	if _weaken_t > 0.0: n += 1
+	if _sed_t > 0.0: n += 1
+	return n
+
+## Nearest NON-charmed enemy (the charmed one's target / duel partner).
+func _nearest_foe() -> Node2D:
+	var best: Node2D = null
+	var bd := 1.0e20
+	for e in get_tree().get_nodes_in_group("arena_enemy"):
+		if e == self or not is_instance_valid(e):
+			continue
+		if e.has_method("is_charmed") and e.call("is_charmed"):
+			continue
+		var d: float = global_position.distance_squared_to((e as Node2D).global_position)
+		if d < bd:
+			bd = d
+			best = e
+	return best
+
+## Multiplier on this enemy's outgoing damage (Pacifying Jolt halves; Sedative reduces).
 func damage_out_mult() -> float:
-	return 0.5 if _weaken_t > 0.0 else 1.0
+	var m := 0.5 if _weaken_t > 0.0 else 1.0
+	if _sed_t > 0.0:
+		m *= (1.0 - _sed_dmg)
+	return m
 
 ## Orb of Annihilation: this enemy takes +20% damage from all sources for `duration` s (refreshed while in the orb).
 func apply_vulnerable(duration: float) -> void:
@@ -867,9 +1013,23 @@ func _tick_status(delta: float) -> void:
 				var bmul: float = 1.0 + (GameManager.mech_bonus("burn_dmg") if GameManager.has_method("mech_bonus") else 0.0)
 				var dmg := hp * BURN_PCT * float(_burn_stacks) * BURN_TICK * bmul
 				if dmg > 0.0:
-					take_damage(dmg, 0.0)
+					take_damage(dmg, 0.0, 0.0, true)   # burn IGNORES armor
 					if _dead:
 						return
+	# Bleed (Drill Bits): 1 dmg/stack/s for 5s, IGNORES armor. Hurt evo scales it by % armor pen.
+	if _bleed_stacks > 0:
+		_bleed_t -= delta
+		if _bleed_t <= 0.0:
+			_bleed_stacks = 0
+			_bleed_acc = 0.0
+		else:
+			_bleed_acc += delta
+			while _bleed_acc >= BLEED_TICK:
+				_bleed_acc -= BLEED_TICK
+				var hurt: float = (GameManager.mech_bonus("armor_pen_pct") if (GameManager.has_method("mech_bonus") and GameManager.mech_bonus("hurt") > 0.0) else 0.0)
+				take_damage(float(_bleed_stacks) * (1.0 + hurt), 0.0, 0.0, true)
+				if _dead:
+					return
 	if _freeze_stacks > 0:
 		_freeze_t -= delta
 		if _freeze_t <= 0.0:
@@ -879,6 +1039,18 @@ func _tick_status(delta: float) -> void:
 	# Stun timer → on expiry, grant the post-stun immunity window.
 	if _weaken_t > 0.0:
 		_weaken_t = maxf(0.0, _weaken_t - delta)
+	if _sed_t > 0.0:
+		_sed_t = maxf(0.0, _sed_t - delta)
+	if _armor_reduce_t > 0.0:
+		_armor_reduce_t = maxf(0.0, _armor_reduce_t - delta)
+		if _armor_reduce_t <= 0.0:
+			_armor_reduce = 0.0
+	if _wiper_t > 0.0:
+		_wiper_t = maxf(0.0, _wiper_t - delta)
+	if _charm_t > 0.0:
+		_charm_t = maxf(0.0, _charm_t - delta)
+		if _charm_t <= 0.0 and is_in_group("arena_charmed"):
+			remove_from_group("arena_charmed")   # charm expired → drop out of the scanned group
 	if _vuln_t > 0.0:
 		_vuln_t = maxf(0.0, _vuln_t - delta)
 	if _stun_t > 0.0:
@@ -891,8 +1063,11 @@ func _tick_status(delta: float) -> void:
 			_stun_immune_t = imm * _stun_immune_mult * (1.0 - clampf(reduce, 0.0, 0.95))
 	elif _stun_immune_t > 0.0:
 		_stun_immune_t = maxf(0.0, _stun_immune_t - delta)
-	# Status tint: stun (electric) > freeze (icy) > burn (fiery).
-	if _stun_t > 0.0:
+	# Status tint: charm (pink blink) > stun (electric) > freeze (icy) > burn (fiery).
+	if _charm_t > 0.0:
+		var blink := 1.4 + 0.5 * sin(_charm_t * 18.0)   # pulsing pink
+		modulate = Color(blink, 0.5, blink * 0.8)
+	elif _stun_t > 0.0:
 		modulate = Color(1.7, 1.7, 0.6)
 	elif _freeze_stacks > 0:
 		modulate = Color(0.6, 0.8, 1.25)
@@ -901,7 +1076,9 @@ func _tick_status(delta: float) -> void:
 	else:
 		modulate = Color.WHITE
 
-func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, kind: String = "") -> void:
+## ignore_armor: bleed/burn bypass armor DR. bleeds: kinetic/contact hit → Serrated Heads applies a bleed stack.
+## was_crit: a crit hit → Critical Break temporarily strips armor.
+func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore_armor: bool = false, bleeds: bool = false, was_crit: bool = false, kind: String = "") -> void:
 	if _dead:
 		return
 	if _invincible:
@@ -920,17 +1097,22 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, kind: 
 		dr = (0.052 * armor) / (1.0 + 0.052 * armor)
 	var dealt := amount * (1.0 - dr)
 	# Bismuth anti-magnetic: only laser / lightning / vacuum bite, and only for half.
-	if _anti_magnetic and (kind == "lasgun" or kind == "arc" or kind == "void"):
+	if _anti_magnetic and (kind == "death_beam" or kind == "arc" or kind == "void"):
 		dealt *= 0.5
 	# Status multipliers: stunned enemies take +50%, Orb-of-Annihilation vulnerable +20%.
 	if _stun_t > 0.0:
 		dealt *= STUN_DMG_MULT
 	if _vuln_t > 0.0:
-		dealt *= 1.2
-	hp -= dealt
-	# Fleet/Sentinel "Strike Back": once damaged, abandon the patrol flyby and hunt the player.
-	if _strike_back and behavior == "patrol":
-		behavior = "chase"
+		amount *= 1.2             # Orb of Annihilation: +20% damage taken
+	if not ignore_armor and GameManager.has_method("armor_damage_reduction"):
+		amount *= 1.0 - GameManager.armor_damage_reduction(_hit_armor())   # armor DR after pen + reductions
+	hp -= amount
+	# Drill Bits: Serrated Heads (bleed on kinetic/contact hits) + Critical Break (crit strips armor).
+	if GameManager.has_method("mech_bonus"):
+		if bleeds and GameManager.mech_bonus("serrated") > 0.0:
+			apply_bleed(1)
+		if was_crit and GameManager.mech_bonus("critbreak") > 0.0:
+			_reduce_armor(GameManager.mech_bonus("critbreak") * amount, 5.0)
 	# Hit reaction: flash (red if this blow kills, else white) + squash pulse + (optional) knockback + stagger.
 	_flash_color = KILL_FLASH_COLOR if hp <= 0.0 else HIT_FLASH_COLOR
 	_stagger_t = maxf(_stagger_t, stagger)
@@ -1011,7 +1193,7 @@ func _burst_small_magma() -> void:
 			"speed":    speed,
 			"size":     (_radius / 1.05) * MAGMA_SPLIT_SCALE,   # configure() multiplies size by 1.05
 			"contact":  contact_damage,
-			"xp":       maxi(1, int(round(float(xp) * 0.25))),
+			"xp":       xp * 0.25,
 			"armor":    armor,
 			"icon":     "res://assets/enemiesHD/magmafrag (%d).png" % randi_range(1, 16),
 		}
@@ -1223,16 +1405,9 @@ func _spawn_explosion(size_px: float) -> void:
 	ex.call("setup", global_position, size_px)
 
 func _play_boom() -> void:
-	var stream := load("res://assets/audio/sfx/boom.wav") as AudioStream
-	if stream == null:
-		return
-	var p := AudioStreamPlayer.new()
-	p.stream = stream
-	p.bus = sfx_bus
-	p.volume_db = linear_to_db(0.7)
-	get_parent().add_child(p)
-	p.play()
-	p.finished.connect(p.queue_free)
+	# Route through the manager's pooled+throttled boom (no per-death node churn / boom cacophony at mass death).
+	if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("play_boom"):
+		_mgr.play_boom()
 
 ## Play a one-shot attack sound (lazily creates the player on first use). Plays once — no loop.
 func _play_sfx(stream: AudioStream) -> void:
@@ -1245,7 +1420,32 @@ func _play_sfx(stream: AudioStream) -> void:
 	_sfx.stream = stream
 	_sfx.play()
 
+## Pick this enemy's target by closeness. Charmed → nearest NON-charmed enemy. Normal → nearest of {player,
+## charmed enemies} (charmed allies are just more targets; everyone attacks whatever's closest).
+func _resolve_aggro() -> Node:
+	if _charm_t > 0.0:
+		return _nearest_foe()
+	var best: Node = _target
+	var bd := 1.0e20
+	if _target != null and is_instance_valid(_target):
+		bd = global_position.distance_squared_to((_target as Node2D).global_position)
+	# Only charmed enemies are extra targets. Scanning the (almost always empty) "arena_charmed" group instead
+	# of ALL enemies turns this per-frame, per-enemy call from O(N²) into O(N × charmed) — critical at 200-300.
+	var charmed := get_tree().get_nodes_in_group("arena_charmed")
+	if charmed.is_empty():
+		return best
+	for e in charmed:
+		if e == self or not is_instance_valid(e):
+			continue
+		var d: float = global_position.distance_squared_to((e as Node2D).global_position)
+		if d < bd:
+			bd = d
+			best = e
+	return best
+
 func _player_pos() -> Vector2:
+	if _aggro_target != null and is_instance_valid(_aggro_target):
+		return (_aggro_target as Node2D).global_position
 	if _target != null and is_instance_valid(_target):
 		return _target.global_position
 	_target = get_tree().get_first_node_in_group("player")
@@ -1290,6 +1490,7 @@ func _physics_process(delta: float) -> void:
 		_target = get_tree().get_first_node_in_group("player")
 		if _target == null:
 			return
+	_aggro_target = _resolve_aggro()   # player / a charmed enemy / (if charmed) a foe — picked by closeness
 	_t += delta
 	# alien5: transform into another enemy (e.g. alien4) after a fixed lifetime — silent swap, no death/XP.
 	if _morph_to != "" and _t >= _morph_after:
@@ -1303,7 +1504,8 @@ func _physics_process(delta: float) -> void:
 		return
 	if _base_speed < 0.0:
 		_base_speed = speed                      # capture the configured base once
-	speed = _base_speed * (1.0 - _move_slow)     # freeze slows all movement (behaviors read `speed`)
+	var wiper_slow := 0.99 * (_wiper_t / 0.2) if _wiper_t > 0.0 else 0.0   # Windshield Wiper: 99%→0 over 0.2s
+	speed = _base_speed * (1.0 - _move_slow) * (1.0 - (_sed_slow if _sed_t > 0.0 else 0.0)) * (1.0 - wiper_slow)
 	if not _init_done:
 		_init_behavior()
 		_init_done = true
@@ -1345,28 +1547,49 @@ func _physics_process(delta: float) -> void:
 	if material != _want_mat:
 		material = _want_mat
 	_check_contact()
-	# Glue plume emitters to the sprite: same rotation AND scale as the drawn sprite (draw_set_transform
-	# rotates/scales the sprite but not child nodes, so we mirror it here).
-	_update_plumes()
-	if not _plumes.is_empty():
-		var vrot := _spin if behavior == "centipede" else _facing
-		# Only re-rotate the emitters when the rotation actually moved (skips the per-frame .rotated() churn
-		# for the hundreds of near-static swarm enemies that dominate the node count).
-		if not _plume_vrot_init or absf(angle_difference(vrot, _plume_vrot_applied)) > 0.01:
-			_plume_vrot_init = true
-			_plume_vrot_applied = vrot
+	# Off-screen LOD: an enemy outside the camera-visible rect (+ margin) skips ALL its visual work — no _draw,
+	# no plume transform, and its plumes stop emitting (drain to ~0 particles). It keeps moving (physics above),
+	# so it still closes on the player; visuals resume the frame it re-enters view. This is the dominant saving
+	# at 500 enemies (the per-enemy CPUParticles2D plume sim + _draw are the heaviest per-frame costs).
+	var on_screen := true
+	var crowded := false
+	if _mgr != null and is_instance_valid(_mgr):
+		if _mgr.has_method("visible_world_rect"):
+			on_screen = (_mgr.visible_world_rect() as Rect2).grow(LOD_MARGIN).has_point(global_position)
+		if _mgr.has_method("enemy_count"):
+			crowded = _mgr.enemy_count() > PLUME_LOD_COUNT   # density LOD: too many enemies → drop plume sim
+	# Plumes emit only when on-screen AND the field isn't overcrowded; the sprite still draws while on-screen.
+	var plumes_on := on_screen and not crowded
+	if plumes_on != _lod_visible:
+		_lod_visible = plumes_on
+		if not _docked:   # docked escorts manage their own emitting via set_docked — don't fight it
 			for p: CPUParticles2D in _plumes:
 				if is_instance_valid(p):
-					p.position  = (p.get_meta("base_pos") as Vector2).rotated(vrot)
-					p.direction = (p.get_meta("base_dir") as Vector2).rotated(vrot)
-	_update_vortex_xform()   # glue vortexes to the sprite (position + scale + rotation)
+					p.emitting = plumes_on
+	if on_screen:
+		if plumes_on and not _plumes.is_empty():
+			# Glue plume emitters to the sprite: same rotation AND scale as the drawn sprite (draw_set_transform
+			# rotates/scales the sprite but not child nodes, so we mirror it here).
+			_update_plumes()
+			var vrot := _spin if behavior == "centipede" else _facing
+			# Only re-rotate the emitters when the rotation actually moved (skips the per-frame .rotated() churn
+			# for the hundreds of near-static swarm enemies that dominate the node count).
+			if not _plume_vrot_init or absf(angle_difference(vrot, _plume_vrot_applied)) > 0.01:
+				_plume_vrot_init = true
+				_plume_vrot_applied = vrot
+				for p: CPUParticles2D in _plumes:
+					if is_instance_valid(p):
+						p.position  = (p.get_meta("base_pos") as Vector2).rotated(vrot)
+						p.direction = (p.get_meta("base_dir") as Vector2).rotated(vrot)
+		_update_vortex_xform()   # glue vortexes to the sprite (position + scale + rotation)
 	if _has_eye:
 		_update_eye(delta)
 	if not _tent_template.is_empty():
 		_update_tentacle(delta)
 	if behavior == "centipede":
 		_update_centipede_chain()   # body trails the head's final (post-knockback) position
-	queue_redraw()   # bob/squash/facing animate continuously
+	if on_screen:
+		queue_redraw()   # bob/squash/facing animate continuously (skipped off-screen — last frame persists)
 
 ## Slide the tracking eye toward the player within its socket. _eye_off is in local (pre-rotation) px,
 ## relative to the socket center, smoothed so the gaze eases rather than snaps.
@@ -1388,8 +1611,8 @@ func _load_tentacle() -> void:
 	_tent_init = false
 	if _icon.is_empty() or _draw_size == Vector2.ZERO:
 		return
-	var cfg := ConfigFile.new()
-	if cfg.load("res://creep_layout.cfg") != OK or not cfg.has_section("creeps"):
+	var cfg := _creep_layout()
+	if cfg == null or not cfg.has_section("creeps"):
 		return
 	var body_name := _icon.get_file().get_basename()
 	var keys := cfg.get_section_keys("creeps")
@@ -1703,7 +1926,7 @@ func _tick_behavior(delta: float) -> void:
 				_burst_t -= delta
 				if _burst_t <= 0.0:
 					var fp_idx := sh_total - _burst_shots
-					_mgr.spawn_bullet(_muzzle(fp_idx), dir * 280.0, 5)
+					_mgr.spawn_bullet(_muzzle(fp_idx), dir * 280.0, 5, self)
 					_burst_shots -= 1
 					if _burst_shots > 0:
 						_burst_t = 0.2
@@ -1715,7 +1938,7 @@ func _tick_behavior(delta: float) -> void:
 				var base := dir.angle()
 				for k in 5:
 					var a := base + deg_to_rad(lerpf(-24.0, 24.0, float(k) / 4.0))
-					_mgr.spawn_bullet(muzzle, Vector2(cos(a), sin(a)) * 260.0, 5)
+					_mgr.spawn_bullet(muzzle, Vector2(cos(a), sin(a)) * 260.0, 5, self)
 		"beamer":
 			_standoff(dist, dir, 380.0)
 			_beamer_tick(delta, dir)
@@ -1976,7 +2199,7 @@ func _beamer_tick(delta: float, dir: Vector2) -> void:
 				var proj := (pp - beam_world).dot(_beam_dir)
 				if proj > 0.0:
 					var closest := beam_world + _beam_dir * proj
-					if closest.distance_to(pp) <= 30.0 and fmod(_timer, 0.5) < delta:
+					if _charm_t <= 0.0 and closest.distance_to(pp) <= 30.0 and fmod(_timer, 0.5) < delta:
 						GameManager.ship_take_damage(int(round(5.0 * damage_out_mult())))
 		3:
 			if _timer >= 1.5:
@@ -1999,11 +2222,15 @@ func _exit_tree() -> void:
 	_missile_volley = null
 
 # ── Contact ─────────────────────────────────────────────────────────────────────
+## Contact damages whatever this enemy is aggro'd on: the player (incl. ship-contact-back), or an enemy target
+## (a charmed ally for normal enemies, or a foe for charmed enemies). Throttled per-enemy for enemy-vs-enemy.
 func _check_contact() -> void:
 	if _ship_contact_cd > 0.0:
 		_ship_contact_cd -= get_physics_process_delta_time()
+	# Ship contact-back damage (Orbital pool) — 0 unless GameManager provides the curve.
 	var ship_cd: float = GameManager.ship_contact_damage() if GameManager.has_method("ship_contact_damage") else 0.0
-	if contact_damage <= 0 and not contact_explodes and ship_cd <= 0.0:
+	var t := _aggro_target
+	if t == null or not is_instance_valid(t):
 		return
 	# Centipede: any body segment touching the player bites (GameManager i-frames prevent multi-hits).
 	if behavior == "centipede" and not _centi_pts.is_empty():
@@ -2017,11 +2244,19 @@ func _check_contact() -> void:
 	if global_position.distance_to(_player_pos()) <= 16.0 + _radius:
 		if contact_damage > 0:
 			GameManager.ship_take_damage(int(round(contact_damage * damage_out_mult())))
+		# The player's contact (ramming) damage to the enemy — 0 by default, only > 0 with the contact-damage
+		# upgrade. The enemy does NOT die from touching the player; it just takes this (and keeps attacking).
 		if ship_cd > 0.0 and _ship_contact_cd <= 0.0:
-			take_damage(ship_cd, 0.0)        # ship hits back (Orbital pool: ship contact damage × Contact Mastery)
-			_ship_contact_cd = 0.5           # at most every 0.5s per enemy
-		if contact_explodes:
+			take_damage(ship_cd, 0.0)
+			_ship_contact_cd = 0.5
+		# Only bombs detonate + die on contact; every other enemy survives the touch.
+		if contact_explodes and (behavior == "bomb" or behavior == "thrown_bomb"):
 			_on_contact_death()
+	else:
+		# enemy-vs-enemy (charm): deal contact damage to the target, throttled.
+		if contact_damage > 0 and t.has_method("take_damage") and _ship_contact_cd <= 0.0:
+			t.take_damage(float(contact_damage) * damage_out_mult())
+			_ship_contact_cd = 0.4
 
 func _on_contact_death() -> void:
 	if (behavior == "bomb" or behavior == "thrown_bomb") and _mgr != null and _mgr.has_method("explode"):

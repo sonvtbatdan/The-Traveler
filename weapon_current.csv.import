@@ -1,17 +1,9 @@
 [remap]
 
-importer="csv_translation"
-type="Translation"
-uid="uid://cqghtynkf0gq6"
-valid=false
+importer="keep"
+uid="uid://b2l80ntyepcjj"
 
 [deps]
 
 source_file="res://weapon_current.csv"
-
-[params]
-
-compress=1
-delimiter=0
-unescape_keys=false
-unescape_translations=true
+dest_files=[]

@@ -79,10 +79,11 @@ const ORBITAL_POOL := {
 const MUZZLE_OFFSET     := 22.0     # how far ahead of the ship centre shots spawn (px)
 
 # ── Weapon acquisition (chest + pickups → up to 5 unique weapons; backs the 5-slot HUD) ──
-const MAX_WEAPONS := 5                                  # HUD slot count / acquisition cap
-const MAX_WEAPON_LEVEL := 6                             # per-item level cap (skill-point progression; max level 6)
-const WEAPON_DMG_PER_LEVEL := 0.30                      # +30% damage per level, COMPOUNDING (×1.30^(level-1))
-const CHEST_POOL  := ["gatling", "lasgun", "arc", "gauss"]   # the 4 "F12" weapons the start-of-run chest rolls from
+const MAX_WEAPONS := 4                                  # HUD slot count / acquisition cap
+const MAX_WEAPON_LEVEL := 18                            # weapon levels 1→18; each point spent = +1 level, then EVOLVE
+const FUSION_MIN_LEVEL := 15                            # both components must be ≥ this (and un-evolved) to fuse
+const WEAPON_DMG_PER_LEVEL := 0.30                      # FUSIONS ONLY: +30%/bonus-level (base weapons get no per-level damage)
+const CHEST_POOL  := ["gatling", "death_beam", "arc", "gauss"]   # the 4 "F12" weapons the start-of-run chest rolls from
 # Canonical weapon registry shared by the chest + slot HUD + F12 palette. Per kind:
 #   def_id = inventory icon source · name = full official name (matches ITEM_DEFS.name) ·
 #   label = short in-game / spawn display name · mfr = manufacturer (lore "group").
@@ -91,26 +92,26 @@ const CHEST_POOL  := ["gatling", "lasgun", "arc", "gauss"]   # the 4 "F12" weapo
 # kept with placeholder names until the sheet assigns them. See trace log 2026-06-27.
 const WEAPON_INFO := {
 	"gatling":     {"def_id": "gatling_gun",     "name": "Kinetic Auto Cannon",     "label": "Minigun",      "mfr": "Vanguard Ballistics"},
-	"lasgun":      {"def_id": "lasgun",          "name": "Solid-State Laser",       "label": "Laser",        "mfr": "Kwang Ming"},
+	"death_beam":      {"def_id": "death_beam",          "name": "Death Beam",              "label": "Death Beam",   "mfr": "Kwang Ming"},
 	"arc":         {"def_id": "arc",             "name": "Arc Lightning Chain",     "label": "Lightning",    "mfr": "Kwang Ming"},
 	"gauss":       {"def_id": "gauss_cannon",    "name": "Gauss Pulser",            "label": "Gauss",        "mfr": "Horizon Logistics x Vanguard Ballistics"},
 	"orbital":     {"def_id": "orbitals",        "name": "Orbital Impact Defense",  "label": "Defender",     "mfr": "Nebula Dynamics"},
 	"striker":     {"def_id": "swarm_host",      "name": "Orbital Impact Offense",  "label": "Striker",      "mfr": "Nebula Dynamics"},
-	"void":        {"def_id": "rift_maker",      "name": "Vacuum Decoupler",        "label": "Vacuum",       "mfr": "Horizon Logistics"},
+	"void":        {"def_id": "rift_maker",      "name": "Rift Maker",              "label": "Rift Maker",   "mfr": "Horizon Logistics"},
 	"red_x":       {"def_id": "red_x",           "name": "Thermitic Discharger",    "label": "Red X",        "mfr": "Volney Elements"},
 	"chemtrail":   {"def_id": "chemtrail",       "name": "Biocide Vaporizer",       "label": "Stink Breath", "mfr": "Volney Elements"},
-	"nuke":        {"def_id": "nuke",            "name": "Rosastro HE Mortar",      "label": "Mortal",       "mfr": "Rosastro"},
-	"fat_boy":     {"def_id": "rosastro_nuclear","name": "Rosastro Nuclear",        "label": "Fat Boy",      "mfr": "Rosastro"},
+	"little_man":        {"def_id": "little_man",            "name": "Little Man",              "label": "Little Man",   "mfr": "Rosastro"},
+	"fat_boy":     {"def_id": "rosastro_nuclear","name": "Fat Boy",                 "label": "Fat Boy",      "mfr": "Rosastro"},
 	"sonic":       {"def_id": "sonic_wave",      "name": "Sonic",                   "label": "Sonic",        "mfr": "Yongsan"},
 	"zsword":      {"def_id": "z_sword",         "name": "Jeager",                  "label": "Jeager",       "mfr": "Eisenkraft Kinematik"},
-	"ionize":      {"def_id": "ionizing_field",  "name": "Tachyon Displacer",            "label": "Black Hole",   "mfr": "Horizon Logistics"},
+	"ionize":      {"def_id": "ionizing_field",  "name": "Ionizing Field",               "label": "Ionizing Field", "mfr": "Horizon Logistics"},
 	"boomerang":   {"def_id": "boomerang",       "name": "Aliwa",                        "label": "Aliwa",        "mfr": "Nebula Dynamics"},
-	"parasite":    {"def_id": "parasite_cloud",  "name": "Bio-Corrosive Spore Launcher", "label": "Venomancer",   "mfr": "Volney Elements x Chakra Bio-Synthetics"},
+	"parasite":    {"def_id": "parasite_cloud",  "name": "Venomancer",                   "label": "Venomancer",   "mfr": "Volney Elements x Chakra Bio-Synthetics"},
 	"moroboshi":   {"def_id": "moroboshi",       "name": "Yari",                    "label": "Yari",         "mfr": "Miyamoto"},
 	"yari_jaeger": {"def_id": "yari_jaeger",     "name": "Yari Jeager",             "label": "Yari Jeager",  "mfr": "Miyamoto x Eisenkraft Kinematik"},
 	"swarm":       {"def_id": "",                "icon": "res://assets/inventory/Swarm.png", "name": "Swarm", "label": "Swarm", "mfr": "Chakra Bio-Synthetics"},
 	"snake":       {"def_id": "space_snake",     "name": "Viper",                   "label": "VIPER",        "mfr": ""},
-	"homing":      {"def_id": "homing_missile",  "name": "Homing Missile",          "label": "Homing",       "mfr": "", "group": "obsolete"},
+	"homing":      {"def_id": "homing_missile",  "name": "Homing Missile",          "label": "Homing",       "mfr": ""},
 }
 
 # ── Weapon FUSION recipes ─────────────────────────────────────────────────────────
@@ -125,19 +126,19 @@ const FUSION_DEFS := {
 	"carnage":         {"a": "red_x",   "b": "gatling",   "def_id": "gatling_gun",   "name": "Thermitic Auto Cannon", "label": "Carnage",       "mfr": "Volney Elements x Vanguard Ballistics"},
 	"vampire_host":    {"a": "sonic",   "b": "swarm",     "def_id": "swarm_host",    "icon": "res://assets/inventory/Vampire Host.png", "name": "Vampire Host",          "label": "Vampire Host",  "mfr": "Nebula Dynamics x Yongsan"},
 	"overcharger":     {"a": "arc",     "b": "gauss",     "def_id": "gauss_cannon",  "icon": "res://assets/inventory/Overcharger.png",  "name": "Overcharger",           "label": "Overcharger",   "mfr": "Kwang Ming x Horizon Logistics"},
-	"predator":        {"a": "snake",   "b": "lasgun",    "def_id": "lasgun",        "name": "Predator",              "label": "Predator",      "mfr": ""},
-	"toxic_ballistic": {"a": "homing",  "b": "chemtrail", "def_id": "homing_missile","name": "Toxic Ballistic",       "label": "Toxic Ballistic","mfr": "", "group": "obsolete"},
+	"predator":        {"a": "snake",   "b": "death_beam",    "def_id": "death_beam",        "name": "Predator",              "label": "Predator",      "mfr": ""},
+	"toxic_ballistic": {"a": "homing",  "b": "chemtrail", "def_id": "homing_missile","name": "Toxic Ballistic",       "label": "Toxic Ballistic","mfr": ""},
 	"singularities":   {"a": "void",    "b": "gauss",     "def_id": "orbitals",      "icon": "res://assets/inventory/Singularities.png", "name": "Singularities",         "label": "Singularities", "mfr": "Horizon Logistics x Vanguard Ballistics"},
 }
 const FUSION_BONUS_LEVELS := 4   # fused weapons can climb this many levels past MAX_WEAPON_LEVEL (6 → 10)
 # (Carnage / Vampire Host tunables are declared later in the file — the canonical OURS copies.)
 
 # ── TUNABLES: Batch-1 weapons (Nuke / Sonic Wave / Z-Sword / Ionizing Field) ──────
-# Mortar (Rosastro HE Mortar, code "Mortar") + Fat Boy (Rosastro Nuclear): a mouse-aimed mortarbullet that flies
+# Mortar (Little Man, code "Mortar") + Fat Boy (Fat Boy): a mouse-aimed mortarbullet that flies
 # straight and detonates an AoE explosion on the FIRST enemy it touches. Fat Boy = the full-size blast; Mortar
 # fires the same bullet but its explosion is a 5% mini version.
-const NUKE_RADIUS         := 540.0    # full explosion footprint (Fat Boy) + the full-VFX size_px base
-const NUKE_BLAST_STAGGER  := 0.6      # stagger applied to enemies caught in the blast
+const MORTAR_RADIUS         := 540.0    # full explosion footprint (Fat Boy) + the full-VFX size_px base
+const MORTAR_BLAST_STAGGER  := 0.6      # stagger applied to enemies caught in the blast
 const MORTAR_FIRE_INTERVAL := 1.0     # auto-fire cadence (1 bullet/sec, before fire-rate mult)
 const MORTAR_BULLET_SPEED  := 700.0   # px/s, straight toward the mouse
 const MORTAR_BULLET_LIFE   := 3.0     # s before an un-hit bullet is culled (no explosion on timeout)
@@ -157,6 +158,13 @@ const SONIC_DAMAGE       := 30.0
 const SONIC_BAND         := 24.0     # ring-front thickness for the hit test
 const SONIC_CONE_HALF    := 1.05     # half-angle of the forward cone the arcs fan into (~120° total)
 const SONIC_COL          := Color(0.55, 0.85, 1.0)
+const SONIC_POOL := {
+	"damage": {"name": "Resonance",  "max": 10, "per": "+10% damage",      "desc": "Louder, harder-hitting waves."},
+	"range":  {"name": "Far Cry",    "max": 5,  "per": "+15% range",       "desc": "Waves travel further."},
+	"cd":     {"name": "Rapid Pulse", "max": 10, "per": "+8% fire rate",   "desc": "Pulse more often."},
+	"cold":   {"name": "Cold Wave",  "max": 5,  "per": "+5% freeze chance", "desc": "Waves chill what they hit."},
+	"cone":   {"name": "Wide Arc",   "max": 6,  "per": "+15° cone (×AoE)", "desc": "Fan the wave across a wider arc."},
+}
 # Z-Sword (Energy) — energy blade extends from the ship and sweeps a full circle.
 const ZSWORD_COOLDOWN    := 4.0
 const ZSWORD_SWEEP_TIME  := 0.6
@@ -164,8 +172,16 @@ const ZSWORD_LENGTH      := 220.0
 const ZSWORD_ARC_HALF    := 0.314159 # ~18° half-arc hit tolerance
 const ZSWORD_DAMAGE      := 45.0
 const ZSWORD_STAGGER     := 0.1
+const ZSWORD_POOL := {
+	"damage":   {"name": "Honed Edge",     "max": 10, "per": "+10% damage",        "desc": "Sharper swings."},
+	"size":     {"name": "Long Blade",     "max": 5,  "per": "+15% blade length",   "desc": "Reach further around the ship."},
+	"cd":       {"name": "Quick Draw",     "max": 10, "per": "+8% swing rate",      "desc": "Swing more often."},
+	"crit":     {"name": "Keen Point",     "max": 5,  "per": "+5% crit chance",     "desc": "Z-Sword crits more (this weapon only)."},
+	"martial":  {"name": "Martial Mastery", "max": 10, "per": "+10% crit damage (global)", "desc": "Every weapon's crits hit harder."},
+	"divergence": {"name": "Divergence Sword", "max": 6, "per": "+5% extra-swipe chance", "desc": "Each swing may trigger another (and those can chain too)."},
+}
 # (slash visuals live in scripts/gameplay/fx/z_slash.gd; colours are ZSlash.LEAD_COL/LEAD_HOT there)
-# Black Hole (Tachyon Displacer) — always-on aura DoT around the ship; visual = 2 EnergyVortex swirls
+# Ionizing Field — always-on aura DoT around the ship; visual = 2 EnergyVortex swirls
 # (creep-edit VFX) over a Vacuum-style gravitational-lens that distorts the space background.
 const IONIZE_TICK   := 0.3
 const IONIZE_RADIUS := 170.0
@@ -451,21 +467,21 @@ void fragment() {
 "
 
 # ── TUNABLES: Lasgun (continuous tick-based beam — gained from a pickup, off until then) ──────────────────
-const LASGUN_RANGE   := 3000.0   # beam length px — runs far off-screen so it reads as "infinite"
-const LASGUN_BEAM_Z  := 90       # beam draws ON TOP of enemies (z≤4); still under the ship (z 100)
-const LASGUN_DAMAGE  := 22.0     # damage PER TICK
-const LASGUN_TICK    := 0.10     # s between damage ticks (≈ damage/sec = LASGUN_DAMAGE / this)
-const LASGUN_STAGGER := 0.15     # s stagger per tick
-const LASGUN_WIDTH   := 14.0     # beam hit width (px) — matches the beam visual
-const LASGUN_HIT_PAD := 16.0     # enemy-radius padding for the distance-to-line hit test
-const LASGUN_LIGHT        := 5.5 # dust-light value per sample point along the beam (casts light on the dust)
-const LASGUN_LIGHT_SAMPLES := 16 # number of light points sampled evenly along the beam (denser = brighter line)
-const LASGUN_CYCLE    := 5.0     # full period (s): the beam fires once every CYCLE
-const LASGUN_DURATION := 3.0     # beam-on time within each cycle (s) → fires 3s out of every 5s
-const LASGUN_CHARGE   := 1.5     # charge telegraph (s) before each burst — the orb light-gather plays over this
+const DEATHBEAM_RANGE   := 3000.0   # beam length px — runs far off-screen so it reads as "infinite"
+const DEATHBEAM_BEAM_Z  := 90       # beam draws ON TOP of enemies (z≤4); still under the ship (z 100)
+const DEATHBEAM_DAMAGE  := 22.0     # damage PER TICK
+const DEATHBEAM_TICK    := 0.10     # s between damage ticks (≈ damage/sec = DEATHBEAM_DAMAGE / this)
+const DEATHBEAM_STAGGER := 0.15     # s stagger per tick
+const DEATHBEAM_WIDTH   := 14.0     # beam hit width (px) — matches the beam visual
+const DEATHBEAM_HIT_PAD := 16.0     # enemy-radius padding for the distance-to-line hit test
+const DEATHBEAM_LIGHT        := 5.5 # dust-light value per sample point along the beam (casts light on the dust)
+const DEATHBEAM_LIGHT_SAMPLES := 16 # number of light points sampled evenly along the beam (denser = brighter line)
+const DEATHBEAM_CYCLE    := 5.0     # full period (s): the beam fires once every CYCLE
+const DEATHBEAM_DURATION := 3.0     # beam-on time within each cycle (s) → fires 3s out of every 5s
+const DEATHBEAM_CHARGE   := 1.5     # charge telegraph (s) before each burst — the orb light-gather plays over this
 
 # ── Lasgun skill-point upgrade pool (incinerate/freeze need the status system — Stage 2, not wired yet) ──
-const LASGUN_POOL := {
+const DEATHBEAM_POOL := {
 	"energy":     {"name": "Energy Mastery", "max": 0,  "per": "+10% energy damage",  "desc": "Boosts all energy weapons (global)."},
 	"damage":     {"name": "Overcharge",     "max": 10, "per": "+10% damage",         "desc": "The beam hits harder."},
 	"duration":   {"name": "Capacitor",      "max": 10, "per": "+10% duration",       "desc": "Longer Lasgun beam, Red X fire, Sonic, Gauss, Chemtrail + burn/freeze/stun."},
@@ -481,7 +497,7 @@ const CAPSTONES := {
 		{"id": "focus",   "name": "Focus Fire",     "desc": "+0.5% damage per consecutive hit on the same target (max +100%)."},
 		{"id": "healing", "name": "Healing Round",  "desc": "1 in 200 bullets heals you + the target for 5 HP."},
 	],
-	"lasgun": [
+	"death_beam": [
 		{"id": "all_in",       "name": "All-In",          "desc": "+200% damage, but you lose a weapon slot."},
 		{"id": "lights_out",   "name": "Lights-Out",      "desc": "While the beam fires, -30% cooldown for all your OTHER weapons."},
 		{"id": "ice_and_fire", "name": "Of Ice and Fire", "desc": "Applying freeze also burns, and applying burn also freezes."},
@@ -505,6 +521,21 @@ const CAPSTONES := {
 		{"id": "the_sun",      "name": "The Sun",      "desc": "Spray fire in all directions (360°), not just a cone."},
 		{"id": "heat_syphon",  "name": "Heat Syphon",  "desc": "+0.01 HP regen per currently-burning enemy (max 200 → +2/s)."},
 		{"id": "armor_melter", "name": "Armor Melter", "desc": "Enemies with heavy burn stacks take extra damage (melts their armor)."},
+	],
+	"chemtrail": [
+		{"id": "the_moon",   "name": "The Moon",   "desc": "Spew toxic fume in all directions (360°) around the ship."},
+		{"id": "healing_cloud", "name": "Healing Cloud", "desc": "Standing in your own chemtrail heals 5 HP/s (scales with Regeneration Mastery)."},
+		{"id": "saturation", "name": "Systematic Saturation", "desc": "Every 2s an enemy stays in the cloud, the chemtrail's damage to it ramps up."},
+	],
+	"zsword": [
+		{"id": "dual",      "name": "Dual Wielding", "desc": "Two blades swing back-to-back; each rolls Divergence, and each trigger swings BOTH."},
+		{"id": "cauterize", "name": "Cauterize the Wound", "desc": "On hit, convert 20% of the target's bleed stacks into burn stacks."},
+		{"id": "wiper",     "name": "Windshield Wiper", "desc": "Swings knock non-boss enemies back and slow them 99%, decaying to 0 over 0.2s."},
+	],
+	"sonic": [
+		{"id": "overload", "name": "Sensory Overload", "desc": "+20% damage for each status effect on the target."},
+		{"id": "silence",  "name": "Deafening Silence", "desc": "Waves shove enemies back and destroy all enemy projectiles."},
+		{"id": "siren",    "name": "Siren", "desc": "25% chance to charm a non-boss enemy for 5s — it fights for you."},
 	],
 }
 
@@ -551,6 +582,14 @@ const CHEMTRAIL_COL_MID   := Color(0.38, 0.48, 0.26)   # murky green transition
 const CHEMTRAIL_COL_END   := Color(0.42, 0.15, 0.50)   # sickly purple
 const CHEMTRAIL_INTENSITY := 0.2                        # -80% brightness/intensity → murky, dim
 const CHEMTRAIL_PARTICLES := 280                        # -80% density → thin, sparse haze
+const CHEMTRAIL_POOL := {
+	"intensity": {"name": "Intensity Mastery", "max": 5,  "per": "-5% tick cooldown (global)", "desc": "All DoT/tick weapons tick faster (shared skill)."},
+	"damage":    {"name": "Concentrate",       "max": 10, "per": "+10% damage",                "desc": "Stronger toxin."},
+	"duration":  {"name": "Lingering Haze",    "max": 5,  "per": "+20% trail duration",        "desc": "The cloud lasts longer."},
+	"burn":      {"name": "Chemical Burn",     "max": 5,  "per": "+5%/s burn chance",          "desc": "Toxin ignites enemies."},
+	"ms":        {"name": "Aerosol Boosters",  "max": 5,  "per": "+4% Move Speed",             "desc": "Lay trail while zipping around."},
+	"sedative":  {"name": "Sedative Scent",    "max": 5,  "per": "-2.5% enemy dmg & speed",     "desc": "Affected enemies hit softer and move slower."},
+}
 const ARC_JUMPS    := 4        # extra targets the bolt chains to after the first
 const ARC_BASE_BOUNCE := 3     # Arc pool: base chain count (Chain Reaction ranks + Lv1 add to this)
 # ── Arc skill-point pool. Stroke of Luck adds to a GLOBAL proc bonus that EVERY chance roll reads (see _proc). ──
@@ -591,8 +630,8 @@ const SFX_ENGINE_HUM: AudioStream = preload("res://assets/audio/sfx/Scifi/scifi-
 const SFX_GAUSS_FIRE: AudioStream = preload("res://assets/audio/sfx/hitimpact.wav")
 const SFX_GAUSS_IMPACT: AudioStream = preload("res://assets/audio/sfx/AstroMenace-SFX/weaponfire6.wav")
 const SFX_ORBITAL_IMPACT: AudioStream = preload("res://assets/audio/sfx/AstroMenace-SFX/weaponfire6.wav")
-const SFX_LASGUN_CHARGE: AudioStream = preload("res://assets/audio/sfx/Scifi/blg_beam_01.wav")
-const SFX_LASGUN_BEAM: AudioStream = preload("res://assets/audio/sfx/AstroMenace-SFX/weaponfire14.wav")
+const SFX_DEATHBEAM_CHARGE: AudioStream = preload("res://assets/audio/sfx/Scifi/blg_beam_01.wav")
+const SFX_DEATHBEAM_BEAM: AudioStream = preload("res://assets/audio/sfx/AstroMenace-SFX/weaponfire14.wav")
 const PickupScript := preload("res://scripts/gameplay/arena_weapon_pickup.gd")
 const OrbChargeScript := preload("res://scripts/gameplay/arena_orb_charge_fx.gd")
 const GatMuzzleScript := preload("res://scripts/gameplay/arena_gatling_muzzle.gd")
@@ -754,9 +793,9 @@ var _gat_active: bool = false
 var _gat_upg: Dictionary = {"hardened": 0, "piercing": 0, "quick": 0, "bouncing": 0, "multishot": 0, "kinetic": 0, "advance_ballistic": 0}
 var _gat_capstone: String = ""   # "" | "spray" | "focus" | "healing"
 # Lasgun upgrade ranks (from its skill-point pool) + the level-6 evolve capstone.
-var _las_upg: Dictionary = {"energy": 0, "damage": 0, "duration": 0, "cooldown": 0, "incinerate": 0, "freeze": 0}
-var _las_capstone: String = ""   # "" | "all_in" | "lights_out" | "ice_and_fire"
-var _las_is_firing: bool = false # true during the beam-on window (Lights-Out reads this)
+var _db_upg: Dictionary = {"energy": 0, "damage": 0, "duration": 0, "cooldown": 0, "incinerate": 0, "freeze": 0}
+var _db_capstone: String = ""   # "" | "all_in" | "lights_out" | "ice_and_fire"
+var _db_is_firing: bool = false # true during the beam-on window (Lights-Out reads this)
 var _slot_penalty: int = 0       # weapon-slot capacity lost (All-In capstone)
 # Arc upgrade ranks + the level-6 evolve capstone.
 var _arc_upg: Dictionary = {"luck": 0, "damage": 0, "firerate": 0, "bounce": 0, "lightning": 0, "electrocute": 0}
@@ -775,9 +814,9 @@ var _engine_hum: AudioStreamPlayer = null
 var _gauss_fire_player: AudioStreamPlayer = null
 var _gauss_impact_player: AudioStreamPlayer = null
 var _orbital_impact_player: AudioStreamPlayer = null
-var _las_charge_player: AudioStreamPlayer = null
-var _las_beam_player: AudioStreamPlayer = null
-var _las_beam_playing: bool = false
+var _db_charge_player: AudioStreamPlayer = null
+var _db_beam_player: AudioStreamPlayer = null
+var _db_beam_playing: bool = false
 var _arc_active: bool = ARC_ENABLED_DEFAULT   # turned on by the Arc pickup
 var _red_x_active: bool = false    # turned on by the Red X / Dragon's Breath pickup
 var _red_x_cd: float = 0.0         # (legacy detonation cd — Carnage X-fire still uses _spawn_red_x_fire)
@@ -791,6 +830,11 @@ var _chemtrail_puffs: Array = []      # breadcrumb DoT puffs: {pos, age, max_age
 var _chemtrail_tick_acc: float = 0.0  # weapon-level DoT tick (single damage per enemy per tick = no-stack)
 var _chemtrail_emit_acc: float = 0.0  # emit-rate accumulator (puffs shot out the back at a steady cadence)
 var _chemtrail_fx: DynamicFire = null # ONE recolored toxic-fire emitter spanning all puff centres
+var _chem_upg: Dictionary = {"intensity": 0, "damage": 0, "duration": 0, "burn": 0, "ms": 0, "sedative": 0}
+var _chem_capstone: String = ""
+var _chem_sat: Dictionary = {}        # Systematic Saturation: enemy instance_id → damage-ramp fraction
+var _chem_sat_t: float = 0.0          # 2s saturation re-check timer
+var _chem_moon_ang: float = 0.0       # The Moon: emit-direction sweep so the 360° cloud fills evenly
 var _arc_cd: float = 0.0           # Arc burst cooldown
 var _arcs: Array = []              # live lightning links: {ln, mat, tip, age, max_age, fx, fx_ttl, fx_freed}
 var _arc_thunder_tex: ImageTexture = null   # procedural tileable thunder texture (cached)
@@ -822,9 +866,9 @@ var _void_tick: float = 0.0        # damage-tick accumulator
 var _void_node: ColorRect = null   # the swirling-vortex visual
 var _void_distort: ColorRect = null   # gravitational-lens disc (screen-warp), drawn under the vortex
 # ── Batch-1 weapons (Nuke / Sonic Wave / Z-Sword / Ionizing Field) ──
-var _nuke_active: bool = false          # Mortar (Rosastro HE Mortar) — mortarbullet auto-fire
-var _nuke_cd: float = 0.0               # Mortar fire timer
-var _fat_boy_active: bool = false       # Fat Boy (Rosastro Nuclear) — same bullet, full-size blast
+var _little_man_active: bool = false          # Mortar (Little Man) — mortarbullet auto-fire
+var _little_man_cd: float = 0.0               # Mortar fire timer
+var _fat_boy_active: bool = false       # Fat Boy (Fat Boy) — same bullet, full-size blast
 var _fat_boy_cd: float = 0.0            # Fat Boy fire timer
 var _mortar_bullets: Array = []         # shared pool: {pos, vel, kind, life}
 var _mortarbullet_tex: Texture2D = null
@@ -833,6 +877,8 @@ var _sonic_cd: float = 0.0
 var _sonic_queue: float = 0.0          # stagger timer for the remaining rings of a volley
 var _sonic_left: int = 0               # rings still to spawn in the current volley
 var _sonic_rings: Array = []           # live rings: {center, age, hit:Array, maxr}
+var _sonic_upg: Dictionary = {"damage": 0, "range": 0, "cd": 0, "cold": 0, "cone": 0}
+var _sonic_capstone: String = ""
 var _zsword_active: bool = false
 var _zsword_cd: float = 0.0
 var _zsword_sweeping: bool = false
@@ -840,6 +886,9 @@ var _zslash: Node2D = null         # sweeping energy-slash crescent VFX node (ZS
 var _zsword_t: float = 0.0
 var _zsword_start: float = 0.0
 var _zsword_hit: Array = []
+var _zsword_upg: Dictionary = {"damage": 0, "size": 0, "cd": 0, "crit": 0, "martial": 0, "divergence": 0}
+var _zsword_capstone: String = ""
+var _zsword_queue: int = 0   # pending immediate swipes (Divergence / Dual Wielding)
 var _ionize_active: bool = false
 var _ionize_tick: float = 0.0
 var _ionize_clock: float = 0.0         # always-advancing clock for the aura pulse visual
@@ -922,14 +971,14 @@ var _snake_tail_tex:      Texture2D = null
 var _snake_head_plume_anchor:  Node2D = null
 var _snake_tail_plume_anchor:  Node2D = null
 var _snake_body_plume_anchors: Array  = []   # one Node2D per body segment (k=1..n-2)
-var _lasgun_active: bool = false   # turned on by the Lasgun pickup (auto-equip, accumulates with the Gatling)
+var _death_beam_active: bool = false   # turned on by the Lasgun pickup (auto-equip, accumulates with the Gatling)
 var _beam_cd: float = 0.0          # Lasgun damage-tick cooldown
 var _beam: Node2D = null           # additive beam VFX child (gameplay plane → sharp)
 var _gat_muzzle_t: float = 0.0     # Gatling muzzle-fire intensity (1 on each shot, decays)
 var _gat_muzzle_fx: Node2D = null  # additive Gatling muzzle-flash FX child
-var _las_t: float = 0.0            # Lasgun cycle clock (advances while active)
+var _db_t: float = 0.0            # Lasgun cycle clock (advances while active)
 var _charge_fx: Node2D = null      # Chromeleon-orb light-gather charge telegraph (ported _ChannelFX)
-var _las_charge_started: bool = false   # one-shot guard so the charge FX triggers once per cycle
+var _db_charge_started: bool = false   # one-shot guard so the charge FX triggers once per cycle
 var _beam_light_on: bool = false   # beam currently casting dust light
 var _beam_light_from := Vector2.ZERO
 var _beam_light_to := Vector2.ZERO
@@ -945,7 +994,7 @@ func _ready() -> void:
 		GameManager.mitigation_burst.connect(_fire_mitigation_shockwave)   # Exoskeleton Reactive Plating evo
 	_beam = BeamScript.new()
 	add_child(_beam)
-	_beam.z_index = LASGUN_BEAM_Z   # beam renders over enemy sprites
+	_beam.z_index = DEATHBEAM_BEAM_Z   # beam renders over enemy sprites
 	_charge_fx = OrbChargeScript.new()
 	add_child(_charge_fx)
 	_gat_muzzle_fx = GatMuzzleScript.new()
@@ -1034,14 +1083,14 @@ func _ready() -> void:
 	_orbital_impact_player.stream = SFX_ORBITAL_IMPACT
 	_orbital_impact_player.bus = "SFX"
 	add_child(_orbital_impact_player)
-	_las_charge_player = AudioStreamPlayer.new()
-	_las_charge_player.stream = SFX_LASGUN_CHARGE
-	_las_charge_player.bus = "SFX"
-	add_child(_las_charge_player)
-	_las_beam_player = AudioStreamPlayer.new()
-	_las_beam_player.stream = SFX_LASGUN_BEAM
-	_las_beam_player.bus = "SFX"
-	add_child(_las_beam_player)
+	_db_charge_player = AudioStreamPlayer.new()
+	_db_charge_player.stream = SFX_DEATHBEAM_CHARGE
+	_db_charge_player.bus = "SFX"
+	add_child(_db_charge_player)
+	_db_beam_player = AudioStreamPlayer.new()
+	_db_beam_player.stream = SFX_DEATHBEAM_BEAM
+	_db_beam_player.bus = "SFX"
+	add_child(_db_beam_player)
 	_engine_hum = AudioStreamPlayer.new()
 	_engine_hum.stream = SFX_ENGINE_HUM
 	_engine_hum.bus = "SFX"
@@ -1110,6 +1159,12 @@ func _load_orbital_tex() -> void:
 ## Light sources this weapon currently emits, for the dust field: one per live projectile/beam.
 ## Each: {pos: world Vector2, value: float (light strength), color: Color}.
 func get_lights() -> Array:
+	# Built once per frame and cached: both arena_dust and arena_asteroids call this every frame, and it
+	# rebuilds a dict per live bullet/orb/arc — no need to do that twice (or allocate it fresh per consumer).
+	var lf := Engine.get_process_frames()
+	if lf == _lights_frame:
+		return _lights_cache
+	_lights_frame = lf
 	var lights: Array = []
 	if _gat_active:
 		for b: Dictionary in _bullets:
@@ -1120,11 +1175,11 @@ func get_lights() -> Array:
 	if _arc_active:
 		for a: Dictionary in _arcs:
 			lights.append({"pos": a["tip"], "value": ARC_LIGHT, "color": ARC_COL})
-	if _lasgun_active and _beam_light_on:
+	if _death_beam_active and _beam_light_on:
 		# Light points sampled along the beam → the dust glows the whole length of the laser.
-		for i in LASGUN_LIGHT_SAMPLES:
-			var f := float(i) / float(maxi(1, LASGUN_LIGHT_SAMPLES - 1))
-			lights.append({"pos": _beam_light_from.lerp(_beam_light_to, f), "value": LASGUN_LIGHT, "color": _beam_light_col})
+		for i in DEATHBEAM_LIGHT_SAMPLES:
+			var f := float(i) / float(maxi(1, DEATHBEAM_LIGHT_SAMPLES - 1))
+			lights.append({"pos": _beam_light_from.lerp(_beam_light_to, f), "value": DEATHBEAM_LIGHT, "color": _beam_light_col})
 	if (_orbital_active or _singularity_active) and _player != null and is_instance_valid(_player):
 		for c: Vector2 in _orbital_positions():
 			lights.append({"pos": c, "value": ORBITAL_LIGHT, "color": ORBITAL_COL})
@@ -1151,6 +1206,7 @@ func get_lights() -> Array:
 			lights.append({"pos": u["pos"], "value": 2.0, "color": SWARM_COL})
 	if (_snake_active or _predator_active) and not _snake_pts.is_empty():
 		lights.append({"pos": _snake_pts[0], "value": 3.0, "color": SNAKE_COL})
+	_lights_cache = lights
 	return lights
 
 ## True when the equipment-driven loadout engine has a primary weapon equipped (so this default
@@ -1183,12 +1239,74 @@ var _enemy_cache_frame: int = -1
 ## times per frame; each call is O(total nodes), so with a big XP-orb / enemy population it became a real
 ## drain. This re-queries at most once per process frame. Every caller already guards is_instance_valid and
 ## arena_enemy.take_damage early-outs on dead enemies, so a within-frame-stale entry is harmless.
+## The player's targetable enemies — CHARMED enemies are excluded (your weapons can't hit your own charmed allies).
 func _enemies() -> Array[Node]:
 	var f := Engine.get_process_frames()
 	if f != _enemy_cache_frame:
 		_enemy_cache_frame = f
-		_enemy_cache = get_tree().get_nodes_in_group("arena_enemy")
+		var out: Array[Node] = []
+		for e in get_tree().get_nodes_in_group("arena_enemy"):
+			if is_instance_valid(e) and not (e.has_method("is_charmed") and e.call("is_charmed")):
+				out.append(e)
+		_enemy_cache = out
 	return _enemy_cache
+
+var _ruin_cache: Array[Node] = []
+var _ruin_cache_frame: int = -1
+
+var _lights_cache: Array = []
+var _lights_frame: int = -1
+
+## Ruins (group "arena_ruin"), cached once per frame — same rationale as _enemies(). Small group, but several
+## weapon ticks iterated it per-bullet/per-tick, so the per-call group lookup + array alloc added up.
+func _ruins() -> Array[Node]:
+	var f := Engine.get_process_frames()
+	if f != _ruin_cache_frame:
+		_ruin_cache_frame = f
+		_ruin_cache = get_tree().get_nodes_in_group("arena_ruin")
+	return _ruin_cache
+
+# ── Spatial hash grid over the enemies (rebuilt once per frame from _enemies()) ──────────────────────────
+# Point-collision weapons with MANY projectiles (gatling/gauss/orbital/mortar) used to test EVERY projectile
+# against EVERY enemy — O(projectiles × enemies), which is what collapsed the frame rate at 500 enemies. The
+# grid buckets enemies by cell so each projectile only checks the handful of enemies in nearby cells.
+const GRID_CELL := 128.0
+const ENEMY_MAX_HIT_R := 120.0   # query pad ≥ the largest enemy hit radius (+ test slack) so none is missed
+var _grid: Dictionary = {}       # Vector2i cell → Array[Node]
+var _grid_frame: int = -1
+
+func _grid_cell(p: Vector2) -> Vector2i:
+	return Vector2i(int(floor(p.x / GRID_CELL)), int(floor(p.y / GRID_CELL)))
+
+## Rebuild the enemy grid once per frame (cheap: one O(enemies) pass, shared by every projectile query).
+func _rebuild_grid() -> void:
+	var f := Engine.get_process_frames()
+	if f == _grid_frame:
+		return
+	_grid_frame = f
+	_grid.clear()
+	for e in _enemies():
+		if not is_instance_valid(e):
+			continue
+		var cell := _grid_cell((e as Node2D).global_position)
+		if _grid.has(cell):
+			(_grid[cell] as Array).append(e)
+		else:
+			_grid[cell] = [e]
+
+## Enemies in cells overlapping [pos ± radius] — a SUPERSET; the caller still does the precise distance + valid
+## test. Returns a fresh array each call (safe to iterate even if another query runs afterward).
+func _enemies_near(pos: Vector2, radius: float) -> Array:
+	_rebuild_grid()
+	var out: Array = []
+	var minc := _grid_cell(pos - Vector2(radius, radius))
+	var maxc := _grid_cell(pos + Vector2(radius, radius))
+	for cy in range(minc.y, maxc.y + 1):
+		for cx in range(minc.x, maxc.x + 1):
+			var cell := Vector2i(cx, cy)
+			if _grid.has(cell):
+				out.append_array(_grid[cell] as Array)
+	return out
 
 func _process(delta: float) -> void:
 	if _player == null or not is_instance_valid(_player):
@@ -1233,8 +1351,8 @@ func _process(delta: float) -> void:
 		_tick_striker(delta, enemy_on_screen)
 	if _void_active:
 		_tick_void(delta)
-	if _nuke_active:
-		_tick_mortar(delta, "nuke")
+	if _little_man_active:
+		_tick_mortar(delta, "little_man")
 	if _fat_boy_active:
 		_tick_mortar(delta, "fat_boy")
 	if not _mortar_bullets.is_empty():
@@ -1273,15 +1391,15 @@ func _process(delta: float) -> void:
 		_tick_toxic(delta, enemy_on_screen)
 	if _singularity_active:
 		_tick_singularity(delta)
-	if _lasgun_active:
+	if _death_beam_active:
 		if enemy_on_screen:
-			_fire_lasgun(delta)
+			_fire_death_beam(delta)
 		else:
-			_las_is_firing = false   # not firing → Lights-Out off
-			# Pause the lasgun cycle — stop beam visuals/audio but don't reset _las_t.
-			if _las_beam_playing:
-				_las_beam_player.stop()
-				_las_beam_playing = false
+			_db_is_firing = false   # not firing → Lights-Out off
+			# Pause the lasgun cycle — stop beam visuals/audio but don't reset _db_t.
+			if _db_beam_playing:
+				_db_beam_player.stop()
+				_db_beam_playing = false
 			if _beam != null:
 				_beam.set_beam(Vector2.ZERO, Vector2.ZERO, false, false)
 			_beam_light_on = false
@@ -1325,13 +1443,13 @@ func _muzzle() -> Vector2:
 # count to orbitals/boomerang, length to the snake, and damage to the yari spears.
 const AUTOMATION_KINDS := ["orbital", "parasite", "snake", "moroboshi", "yari_jaeger", "swarm"]
 # Weapons that deal CONTACT damage (touch the enemy) → boosted by Contact Mastery (mech "contact_dmg_mult").
-const CONTACT_KINDS := ["orbital", "singularities", "swarm", "snake", "boomerang", "moroboshi", "yari_jaeger"]
+const CONTACT_KINDS := ["orbital", "singularities", "swarm", "snake", "boomerang", "moroboshi", "yari_jaeger", "zsword"]
 # Weapon damage FAMILY (the 3-family taxonomy) → Art of War per-family masteries + the X-Truth evolutions.
 const WEAPON_FAMILY := {
 	"gatling": "kinetic", "orbital": "kinetic", "boomerang": "kinetic", "moroboshi": "kinetic",
-	"yari_jaeger": "kinetic", "snake": "kinetic", "swarm": "kinetic", "homing": "kinetic", "nuke": "kinetic",
+	"yari_jaeger": "kinetic", "snake": "kinetic", "swarm": "kinetic", "homing": "kinetic", "little_man": "kinetic",
 	"carnage": "kinetic",
-	"lasgun": "energy", "arc": "energy", "gauss": "energy", "sonic": "energy", "void": "energy",
+	"death_beam": "energy", "arc": "energy", "gauss": "energy", "sonic": "energy", "void": "energy",
 	"zsword": "energy", "ionize": "energy", "red_x": "energy", "singularities": "energy",
 	"overcharger": "energy", "predator": "energy",
 	"chemtrail": "biological", "parasite": "biological", "vampire_host": "biological", "toxic_ballistic": "biological",
@@ -1344,6 +1462,10 @@ func _is_automation(kind: String) -> bool:
 
 func _is_contact(kind: String) -> bool:
 	return kind in CONTACT_KINDS
+
+## Serrated Heads applies bleed only from KINETIC or CONTACT weapons.
+func _bleeds(kind: String) -> bool:
+	return _is_contact(kind) or String((WEAPON_FAMILY as Dictionary).get(kind, "")) == "kinetic"
 
 func _body_count() -> int:
 	return int(round(GameManager.mech_bonus("body_count"))) if GameManager.has_method("mech_bonus") else 0
@@ -1388,8 +1510,19 @@ func _roll_damage(base: float, kind := "") -> Dictionary:
 		# "X Truth" evo: surviving family gains +50% damage per weapon disabled.
 		if fam != "" and fam == _truth_family:
 			dmg *= 1.0 + 0.50 * float(_truth_count)
+		# Auto-Loader Charged Up evo: weapons WITH a cooldown gain +20% damage per 0.5s of base cd.
+		if GameManager.mech_bonus("charged_up") > 0.0:
+			var cd := _base_cd(kind)
+			if cd > 0.0:
+				dmg *= 1.0 + 0.20 * floorf(cd / 0.5)
+		# Auto-Loader Speed is Force evo: contact weapons add their TOTAL fire-rate bonus as damage —
+		# global fire rate + the weapon's OWN family cadence (_fam_rate already keys off this kind's family).
+		if GameManager.mech_bonus("speed_force") > 0.0 and _is_contact(kind):
+			var fr_bonus := maxf(0.0, GameManager.get_fire_rate_mult() - 1.0) + maxf(0.0, _fam_rate(kind) - 1.0)
+			dmg *= 1.0 + fr_bonus
 	var is_crit := false
-	if _proc(_crit_chance):   # crit chance + Stroke of Luck
+	var crit_ch := _crit_chance + (_zsword_crit() if kind == "zsword" else 0.0)   # Z-Sword's local (non-shared) crit
+	if _proc(crit_ch):   # crit chance + Stroke of Luck
 		dmg *= _crit_damage
 		is_crit = true
 	return {"dmg": dmg, "is_crit": is_crit}
@@ -1445,29 +1578,27 @@ func _gat_lvl() -> int:
 	return weapon_level("gatling")   # 0 if unowned, 1..7
 
 func _gat_pierce_chance() -> float:
-	return clampf(float(_gat_upg["piercing"]) * 0.10 + (0.20 if _gat_lvl() >= 2 else 0.0), 0.0, 1.0)
+	return clampf(float(_gat_upg["piercing"]) * 0.10, 0.0, 1.0)
 
 func _gat_bounce_chance() -> float:
-	return clampf(float(_gat_upg["bouncing"]) * 0.08 + (0.20 if _gat_lvl() >= 1 else 0.0), 0.0, 1.0)
+	return clampf(float(_gat_upg["bouncing"]) * 0.08, 0.0, 1.0)
 
 func _gat_fire_bonus() -> float:
-	return float(_gat_upg["quick"]) * 0.08 + (0.30 if _gat_lvl() >= 3 else 0.0)   # Lv3: +30% fire rate
+	return float(_gat_upg["quick"]) * 0.08
 
 func _gat_multishot_chance() -> float:
 	var glob: float = GameManager.mech_bonus("multishot_pct") if GameManager.has_method("mech_bonus") else 0.0
 	return float(_gat_upg["multishot"]) * 0.10 + glob   # local ranks + global (Advance Ballistic etc.)
 
 func _gat_multishot_flat() -> int:
-	return (1 if _gat_lvl() >= 4 else 0) + (2 if _gat_capstone == "spray" else 0)   # Lv4: +1 multishot
+	return 2 if _gat_capstone == "spray" else 0   # Spray and Pray capstone
 
 func _gat_spread_deg() -> float:
 	return 15.0 if _gat_capstone == "spray" else GAT_SPREAD_DEG   # Spray and Pray → much wider fan
 
-## Per-bullet base damage before crit/global mult: (base + flat) × kinetic mastery (+ Lv5 reward).
+## Per-bullet base damage before crit/global mult. Kinetic mastery is GLOBAL (applied in _roll_damage).
 func _gat_bullet_base() -> float:
-	var lvl := _gat_lvl()
-	# Kinetic mastery is now GLOBAL (applied in _roll_damage). Keep only the gatling-local Lv5 reward here.
-	return (GAT_DAMAGE + float(_gat_upg["hardened"])) * (1.0 + (0.15 if lvl >= 5 else 0.0))
+	return GAT_DAMAGE + float(_gat_upg["hardened"])
 
 func _fire_gatling() -> void:
 	# Two parallel streams from the left/right wing muzzles, plus any Multishot extra bullets fanned out from
@@ -1502,34 +1633,43 @@ func _fire_gatling() -> void:
 func pool_rank(kind: String, id: String) -> int:
 	match kind:
 		"gatling": return gat_upgrade_rank(id)
-		"lasgun":  return las_upgrade_rank(id)
+		"death_beam":  return db_upgrade_rank(id)
 		"arc":     return arc_upgrade_rank(id)
 		"gauss":   return gauss_upgrade_rank(id)
 		"orbital": return orbital_upgrade_rank(id)
 		"red_x":   return int(_red_x_upg.get(id, 0))
+		"chemtrail": return int(_chem_upg.get(id, 0))
+		"zsword":  return int(_zsword_upg.get(id, 0))
+		"sonic":   return int(_sonic_upg.get(id, 0))
 	return 0
 
 func pool_grant(kind: String, id: String) -> bool:
 	match kind:
 		"gatling": return gat_grant_upgrade(id)
-		"lasgun":  return las_grant_upgrade(id)
+		"death_beam":  return db_grant_upgrade(id)
 		"arc":     return arc_grant_upgrade(id)
 		"gauss":   return gauss_grant_upgrade(id)
 		"orbital": return orbital_grant_upgrade(id)
 		"red_x":   return red_x_grant_upgrade(id)
+		"chemtrail": return chem_grant_upgrade(id)
+		"zsword":  return zsword_grant_upgrade(id)
+		"sonic":   return sonic_grant_upgrade(id)
 	return false
 
 func pool_set_capstone(kind: String, id: String) -> void:
 	match kind:
 		"gatling": gat_set_capstone(id)
-		"lasgun":  las_set_capstone(id)
+		"death_beam":  db_set_capstone(id)
 		"arc":     arc_set_capstone(id)
 		"gauss":   gauss_set_capstone(id)
 		"orbital": orbital_set_capstone(id)
 		"red_x":   red_x_set_capstone(id)
+		"chemtrail": _chem_capstone = id
+		"zsword":  _zsword_capstone = id
+		"sonic":   _sonic_capstone = id
 	# All-In: lose a weapon slot. If you're at/over the new cap, the UI must destroy one first (it checks
 	# weapons_full() before applying); here we just lower the capacity.
-	if kind == "lasgun" and id == "all_in":
+	if kind == "death_beam" and id == "all_in":
 		_slot_penalty += 1
 
 ## The level-6 evolve options for a weapon (empty if it has none).
@@ -1540,11 +1680,14 @@ func weapon_capstones(kind: String) -> Array:
 func weapon_capstone(kind: String) -> String:
 	match kind:
 		"gatling": return _gat_capstone
-		"lasgun":  return _las_capstone
+		"death_beam":  return _db_capstone
 		"arc":     return _arc_capstone
 		"gauss":   return _gauss_capstone
 		"orbital": return _orbital_capstone
 		"red_x":   return _red_x_capstone
+		"chemtrail": return _chem_capstone
+		"zsword":  return _zsword_capstone
+		"sonic":   return _sonic_capstone
 	return ""
 
 ## True when a weapon just earned its evolve pick: at max level, has capstones, none chosen yet.
@@ -1560,16 +1703,16 @@ func destroy_weapon(kind: String) -> void:
 		_deactivate_kind(kind)
 
 # ── Lasgun upgrades: API + effective stats (ranks + level rewards). Status (incinerate/freeze) = Stage 2. ──
-func las_upgrade_rank(id: String) -> int:
-	return int(_las_upg.get(id, 0))
+func db_upgrade_rank(id: String) -> int:
+	return int(_db_upg.get(id, 0))
 
-func las_grant_upgrade(id: String) -> bool:
-	if not LASGUN_POOL.has(id):
+func db_grant_upgrade(id: String) -> bool:
+	if not DEATHBEAM_POOL.has(id):
 		return false
-	var maxr := int(LASGUN_POOL[id]["max"])
-	if maxr > 0 and int(_las_upg.get(id, 0)) >= maxr:
+	var maxr := int(DEATHBEAM_POOL[id]["max"])
+	if maxr > 0 and int(_db_upg.get(id, 0)) >= maxr:
 		return false
-	_las_upg[id] = int(_las_upg.get(id, 0)) + 1
+	_db_upg[id] = int(_db_upg.get(id, 0)) + 1
 	if GameManager.has_method("add_mech"):
 		if id == "energy":
 			GameManager.add_mech("energy_dmg", 0.10)      # GLOBAL: energy weapons read mech_bonus("energy_dmg")
@@ -1577,46 +1720,74 @@ func las_grant_upgrade(id: String) -> bool:
 			GameManager.add_mech("duration_pct", 0.10)    # GLOBAL: duration weapons read mech_bonus("duration_pct")
 	return true
 
-func las_set_capstone(id: String) -> void:
-	_las_capstone = id
+func db_set_capstone(id: String) -> void:
+	_db_capstone = id
 
-func _las_lvl() -> int:
-	return weapon_level("lasgun")
+func _db_lvl() -> int:
+	return weapon_level("death_beam")
 
-## Beam damage per tick: base × (Overcharge ranks + Lv2 +25%). Energy/all masteries applied centrally in _roll_damage.
-func _las_dmg() -> float:
-	var local := 1.0 + float(_las_upg["damage"]) * 0.10 + (0.25 if _las_lvl() >= 2 else 0.0)
-	var allin := 3.0 if _las_capstone == "all_in" else 1.0   # All-In: +200% damage
-	return LASGUN_DAMAGE * local * allin
+## Beam damage per tick: base × Overcharge ranks. Energy/all masteries applied centrally in _roll_damage.
+func _db_dmg() -> float:
+	var local := 1.0 + float(_db_upg["damage"]) * 0.10
+	var allin := 3.0 if _db_capstone == "all_in" else 1.0   # All-In: +200% damage
+	return DEATHBEAM_DAMAGE * local * allin
 
-## Firing-cycle length: Heat Sink ranks + Lv1 −20% CD (floored so it never collapses).
-func _las_cycle() -> float:
-	var reduction := float(_las_upg["cooldown"]) * 0.05 + (0.20 if _las_lvl() >= 1 else 0.0)
-	return LASGUN_CYCLE * maxf(0.25, 1.0 - reduction)
+## Firing-cycle length: Heat Sink ranks (floored so it never collapses).
+func _db_cycle() -> float:
+	var reduction := float(_db_upg["cooldown"]) * 0.05
+	return DEATHBEAM_CYCLE * maxf(0.25, 1.0 - reduction)
 
-## Beam-on time: Capacitor (global duration) + Lv3 +25%, clamped to keep a little off-time.
-func _las_duration() -> float:
+## Beam-on time: Capacitor (global duration), clamped to keep a little off-time.
+func _db_duration() -> float:
 	var dur_global: float = GameManager.mech_bonus("duration_pct") if GameManager.has_method("mech_bonus") else 0.0
-	var mult := 1.0 + dur_global + (0.25 if _las_lvl() >= 3 else 0.0)
-	return minf(LASGUN_DURATION * mult, _las_cycle() - 0.3)
+	var mult := 1.0 + dur_global
+	return minf(DEATHBEAM_DURATION * mult, _db_cycle() - 0.3)
 
-## Beam half-width multiplier (no level reward — beam AoE reward was dropped).
-func _las_width_mult() -> float:
+## Beam half-width multiplier (no level scaling).
+func _db_width_mult() -> float:
 	return 1.0
 
-## Burn-apply chance PER SECOND (Incinerate ranks + Lv4). Rolled per damage tick, scaled by the tick interval.
-func _las_incinerate_rate() -> float:
-	return float(_las_upg["incinerate"]) * 0.05 + (0.05 if _las_lvl() >= 4 else 0.0)
+## Burn-apply chance PER SECOND (Incinerate ranks). Rolled per damage tick, scaled by the tick interval.
+func _db_incinerate_rate() -> float:
+	return float(_db_upg["incinerate"]) * 0.05
 
-## Freeze-apply chance PER SECOND (Freeze ranks + Lv5).
-func _las_freeze_rate() -> float:
-	return float(_las_upg["freeze"]) * 0.05 + (0.05 if _las_lvl() >= 5 else 0.0)
+## Freeze-apply chance PER SECOND (Freeze ranks).
+func _db_freeze_rate() -> float:
+	return float(_db_upg["freeze"]) * 0.05
 
 ## Lights-Out capstone: while the Lasgun beam fires, every OTHER weapon's cooldown is scaled ×0.7 (-30%).
 func _cd_scale(kind: String) -> float:
-	if kind != "lasgun" and _lasgun_active and _las_capstone == "lights_out" and _las_is_firing:
-		return 0.7
+	var base := 0.7 if (kind != "death_beam" and _death_beam_active and _db_capstone == "lights_out" and _db_is_firing) else 1.0
+	return base / _fam_rate(kind)   # Auto-Loader per-family fire rate (faster cadence → smaller cd multiplier)
+
+## Per-family fire-rate multiplier (≥1) from Auto-Loader's kinetic/energy/bio rate masteries; 1.0 if no family.
+func _fam_rate(kind: String) -> float:
+	if not GameManager.has_method("mech_bonus"):
+		return 1.0
+	match String((WEAPON_FAMILY as Dictionary).get(kind, "")):
+		"kinetic":    return 1.0 + GameManager.mech_bonus("rate_kinetic")
+		"energy":     return 1.0 + GameManager.mech_bonus("rate_energy")
+		"biological": return 1.0 + GameManager.mech_bonus("rate_bio")
 	return 1.0
+
+## Tick-frequency multiplier (≥1) — Auto-Loader Intensity Mastery speeds up DoT/tick weapons. Divide tick intervals by this.
+func _tick_rate() -> float:
+	return 1.0 + (GameManager.mech_bonus("tick_rate") if GameManager.has_method("mech_bonus") else 0.0)
+
+## Base cooldown (s) per weapon kind — for the Charged Up evo. 0 = continuous (beam/cone/orbit) → no bonus.
+func _base_cd(kind: String) -> float:
+	match kind:
+		"gatling":     return GAT_FIRE_INTERVAL
+		"gauss":       return GAUSS_CHARGE_TIME
+		"arc":         return ARC_COOLDOWN
+		"little_man":        return MORTAR_FIRE_INTERVAL
+		"sonic":       return SONIC_COOLDOWN
+		"zsword":      return ZSWORD_COOLDOWN
+		"parasite":    return PARA_COOLDOWN
+		"moroboshi":   return MORO_ATTACK_CD
+		"yari_jaeger": return YARI_ATTACK_CD
+		"homing":      return HOMING_INTERVAL
+	return 0.0
 
 # ── Stroke of Luck (Arc): a GLOBAL additive bonus to EVERY proc chance. `_proc()` is the canonical roller. ──
 # RULE: any new chance/proc MUST roll via _proc(chance) so Stroke of Luck applies retroactively (see CLAUDE.md).
@@ -1658,9 +1829,9 @@ func arc_set_capstone(id: String) -> void:
 func _arc_lvl() -> int:
 	return weapon_level("arc")
 
-## Arc per-link damage: base × (Overvolt ranks + Lv2 +20%). Energy/all masteries applied centrally in _roll_damage.
+## Arc per-link damage: base × Overvolt ranks. Energy/all masteries applied centrally in _roll_damage.
 func _arc_dmg() -> float:
-	var local := 1.0 + float(_arc_upg["damage"]) * 0.10 + (0.20 if _arc_lvl() >= 2 else 0.0)
+	var local := 1.0 + float(_arc_upg["damage"]) * 0.10
 	var holy := 1.0
 	if _arc_capstone == "holy":
 		holy = 1.0 + 1.5 * float(maxi(0, _arc_jumps_normal()))   # all would-be bounces converted to damage
@@ -1668,7 +1839,7 @@ func _arc_dmg() -> float:
 
 ## Chain count WITHOUT the Holy Bolt override (used to compute Holy's damage bonus).
 func _arc_jumps_normal() -> int:
-	return ARC_BASE_BOUNCE + int(_arc_upg["bounce"]) + (1 if _arc_lvl() >= 1 else 0)
+	return ARC_BASE_BOUNCE + int(_arc_upg["bounce"])
 
 ## Chain count: normal, or 0 (single target) under Holy Bolt.
 func _arc_jumps() -> int:
@@ -1676,19 +1847,19 @@ func _arc_jumps() -> int:
 		return 0
 	return _arc_jumps_normal()
 
-## Fire-rate multiplier on the Arc cooldown (Rapid Discharge ranks + Lv5 +20%).
+## Fire-rate multiplier on the Arc cooldown (Rapid Discharge ranks).
 func _arc_cd_mult() -> float:
-	return 1.0 / (1.0 + float(_arc_upg["firerate"]) * 0.08 + (0.20 if _arc_lvl() >= 5 else 0.0))
+	return 1.0 / (1.0 + float(_arc_upg["firerate"]) * 0.08)
 
-## Per-hit chance to stun (Electrocute ranks + Lv4 +10%). Rolled via _proc (so Stroke of Luck applies).
+## Per-hit chance to stun (Electrocute ranks + Lightning Mastery). Rolled via _proc (so Stroke of Luck applies).
 func _arc_electrocute_chance() -> float:
 	var lm: float = GameManager.mech_bonus("lightning_stun_chance") if GameManager.has_method("mech_bonus") else 0.0
-	return float(_arc_upg["electrocute"]) * 0.05 + (0.10 if _arc_lvl() >= 4 else 0.0) + lm
+	return float(_arc_upg["electrocute"]) * 0.05 + lm
 
-## Stun duration: 0.5s normal / 0.2s boss, +0.1s from the Lv3 reward, × Lightning Mastery duration bonus.
+## Stun duration: 0.5s normal / 0.2s boss, × Lightning Mastery duration bonus.
 func _arc_stun_dur(is_boss: bool) -> float:
 	var ld: float = GameManager.mech_bonus("lightning_stun_dur") if GameManager.has_method("mech_bonus") else 0.0
-	return ((0.2 if is_boss else 0.5) + (0.1 if _arc_lvl() >= 3 else 0.0)) * (1.0 + ld)
+	return (0.2 if is_boss else 0.5) * (1.0 + ld)
 
 # ── Gauss upgrades: API + effective stats (Orb of Annihilation vulnerability = Stage 2). ──
 func gauss_upgrade_rank(id: String) -> int:
@@ -1711,31 +1882,31 @@ func gauss_set_capstone(id: String) -> void:
 func _gauss_lvl() -> int:
 	return weapon_level("gauss")
 
-## Common Gauss damage multiplier (Amplify ranks + Lv2 +25%). Energy/all masteries applied centrally in _roll_damage.
+## Common Gauss damage multiplier (Amplify ranks). Energy/all masteries applied centrally in _roll_damage.
 func _gauss_dmg_factor() -> float:
-	return 1.0 + float(_gauss_upg["damage"]) * 0.10 + (0.25 if _gauss_lvl() >= 2 else 0.0)
+	return 1.0 + float(_gauss_upg["damage"]) * 0.10
 
-## Orb damage budget (base × Amplify/Lv2/energy). Spirit Bomb's extra scaling is applied in _fire_gauss.
+## Orb damage budget. Spirit Bomb's extra scaling is applied in _fire_gauss.
 func _gauss_budget() -> float:
 	return GAUSS_DAMAGE * _gauss_dmg_factor()
 
-## Explosion DoT damage per tick: damage scaling + Lv5 +30% flat-per-tick.
+## Explosion DoT damage per tick.
 func _gauss_tick_dmg() -> float:
-	return GAUSS_TICK_DAMAGE * _gauss_dmg_factor() * (1.0 + (0.30 if _gauss_lvl() >= 5 else 0.0))
+	return GAUSS_TICK_DAMAGE * _gauss_dmg_factor()
 
-## Charge time: 5s under Spirit Bomb, else base × fire-rate (Rapid Charge + Lv1 +20%, Pew Pew +100%).
+## Charge time: 5s under Spirit Bomb, else base × fire-rate (Rapid Charge + Pew Pew +100%).
 func _gauss_charge_time() -> float:
 	if _gauss_capstone == "spirit_bomb":
 		return 5.0
-	var rate := 1.0 + float(_gauss_upg["cooldown"]) * 0.08 + (0.20 if _gauss_lvl() >= 1 else 0.0) + (1.0 if _gauss_capstone == "pew" else 0.0)
+	var rate := 1.0 + float(_gauss_upg["cooldown"]) * 0.08 + (1.0 if _gauss_capstone == "pew" else 0.0)
 	return GAUSS_CHARGE_TIME / rate
 
 func _gauss_burn_chance() -> float:
-	return float(_gauss_upg["meltdown"]) * 0.05 + (0.05 if _gauss_lvl() >= 4 else 0.0)
+	return float(_gauss_upg["meltdown"]) * 0.05
 
 func _gauss_stun_chance() -> float:
 	var lm: float = GameManager.mech_bonus("lightning_stun_chance") if GameManager.has_method("mech_bonus") else 0.0
-	return float(_gauss_upg["emp"]) * 0.05 + (0.05 if _gauss_lvl() >= 4 else 0.0) + lm
+	return float(_gauss_upg["emp"]) * 0.05 + lm
 
 ## Orb-size multiplier (Pew Pew: -75%).
 func _gauss_size_mult() -> float:
@@ -1756,58 +1927,58 @@ func _gauss_fission_count() -> int:
 func _gauss_orb_count() -> int:
 	return 1 if _gauss_capstone == "spirit_bomb" else _gauss_fission_count()
 
-func _fire_lasgun(delta: float) -> void:
-	# Duty cycle: fire for _las_duration() out of every _las_cycle() seconds, with a charge telegraph in the
-	# last LASGUN_CHARGE seconds before each burst.
-	_las_t += delta
-	var cyc := _las_cycle()
-	var dur := _las_duration()
-	var phase := fmod(_las_t, cyc)
+func _fire_death_beam(delta: float) -> void:
+	# Duty cycle: fire for _db_duration() out of every _db_cycle() seconds, with a charge telegraph in the
+	# last DEATHBEAM_CHARGE seconds before each burst.
+	_db_t += delta
+	var cyc := _db_cycle()
+	var dur := _db_duration()
+	var phase := fmod(_db_t, cyc)
 	var firing := phase < dur
-	_las_is_firing = firing   # Lights-Out reads this
+	_db_is_firing = firing   # Lights-Out reads this
 	if not firing:
-		# Charge telegraph (Chromeleon orb light-gather) in the last LASGUN_CHARGE seconds before the burst.
-		var charge_start := maxf(0.0, cyc - LASGUN_CHARGE)
+		# Charge telegraph (Chromeleon orb light-gather) in the last DEATHBEAM_CHARGE seconds before the burst.
+		var charge_start := maxf(0.0, cyc - DEATHBEAM_CHARGE)
 		if phase >= charge_start and _charge_fx != null:
 			_charge_fx.position = _muzzle()   # follow the moving nose
-			if not _las_charge_started:
-				_charge_fx.start(LASGUN_CHARGE)
-				_las_charge_player.play()
-				_las_charge_started = true
+			if not _db_charge_started:
+				_charge_fx.start(DEATHBEAM_CHARGE)
+				_db_charge_player.play()
+				_db_charge_started = true
 		if _beam != null:
 			_beam.set_beam(Vector2.ZERO, Vector2.ZERO, false, false)
 		_beam_light_on = false
 		_beam_cd = 0.0   # so the first damage tick lands the instant the burst starts
-		if _las_beam_playing:
-			_las_beam_player.stop()
-			_las_beam_playing = false
+		if _db_beam_playing:
+			_db_beam_player.stop()
+			_db_beam_playing = false
 		return
 	# Firing: kill the charge FX and arm the next cycle's telegraph.
-	_las_charge_started = false
-	if not _las_beam_playing:
-		_las_beam_player.play()
-		_las_beam_playing = true
-	elif not _las_beam_player.playing:
-		_las_beam_player.play()
+	_db_charge_started = false
+	if not _db_beam_playing:
+		_db_beam_player.play()
+		_db_beam_playing = true
+	elif not _db_beam_player.playing:
+		_db_beam_player.play()
 	if _charge_fx != null:
 		_charge_fx.stop()
 	var from := _muzzle()
 	var dir := _forward()
 	# ONLY bosses block the beam. Find the nearest boss along the line; otherwise the beam runs to max range.
-	var block_along := LASGUN_RANGE
-	var half_w := LASGUN_WIDTH * 0.5 * _las_width_mult()   # AOE → wider beam
+	var block_along := DEATHBEAM_RANGE
+	var half_w := DEATHBEAM_WIDTH * 0.5 * _db_width_mult()   # AOE → wider beam
 	for b in get_tree().get_nodes_in_group("boss"):
 		if not is_instance_valid(b):
 			continue
 		var tb: Vector2 = (b as Node2D).global_position - from
 		var balong := tb.dot(dir)
-		if balong < 0.0 or balong > LASGUN_RANGE:
+		if balong < 0.0 or balong > DEATHBEAM_RANGE:
 			continue
 		var _br = b.get("hit_radius")
-		var bw: float = half_w + (float(_br) if _br != null else LASGUN_HIT_PAD)
+		var bw: float = half_w + (float(_br) if _br != null else DEATHBEAM_HIT_PAD)
 		if (tb - dir * balong).length() <= bw and balong < block_along:
 			block_along = balong
-	var blocked := block_along < LASGUN_RANGE
+	var blocked := block_along < DEATHBEAM_RANGE
 	# Beam ends at the blocking boss, else far off-screen (looks infinite). Non-degenerate at point-blank.
 	var to_pt := from + dir * maxf(2.0, block_along)
 	if _beam != null:
@@ -1816,11 +1987,11 @@ func _fire_lasgun(delta: float) -> void:
 	_beam_light_on = true
 	_beam_light_from = from
 	_beam_light_to = to_pt
-	_beam_light_col = Color.from_hsv(fposmod(_las_t * 0.5, 1.0), 0.7, 1.0)
+	_beam_light_col = Color.from_hsv(fposmod(_db_t * 0.5, 1.0), 0.7, 1.0)
 	# Tick damage to EVERY enemy the beam touches up to the block point (pierce-all; a boss stops it).
 	_beam_cd -= delta
 	if _beam_cd <= 0.0:
-		_beam_cd = LASGUN_TICK / _rate_mult
+		_beam_cd = DEATHBEAM_TICK / _rate_mult / _fam_rate("death_beam")
 		for en in _enemies():
 			if not is_instance_valid(en):
 				continue
@@ -1829,30 +2000,30 @@ func _fire_lasgun(delta: float) -> void:
 			if along < 0.0 or along > block_along:
 				continue
 			var _en_r3 = en.get("hit_radius")
-			var hit_w: float = half_w + (float(_en_r3) if _en_r3 != null else LASGUN_HIT_PAD)
+			var hit_w: float = half_w + (float(_en_r3) if _en_r3 != null else DEATHBEAM_HIT_PAD)
 			if (to_e - dir * along).length() > hit_w:
 				continue
 			if en.has_method("take_damage"):
-				var _las_r := _roll_damage(_las_dmg(), "")   # RNG pool damage (Overcharge/Lv2/energy)
-				en.take_damage(float(_las_r["dmg"]), LASGUN_STAGGER, 0.0, "lasgun")   # keep kind for bismuth anti-magnetic
-				if bool(_las_r["is_crit"]):
-					_spawn_crit_number((en as Node2D).global_position, float(_las_r["dmg"]))
+				var _db_r := _roll_damage(_db_dmg(), "death_beam")   # "death_beam" → energy family mastery applies
+				en.take_damage(float(_db_r["dmg"]), DEATHBEAM_STAGGER, 0.0, false, _bleeds("death_beam"), bool(_db_r["is_crit"]))
+				if bool(_db_r["is_crit"]):
+					_spawn_crit_number((en as Node2D).global_position, float(_db_r["dmg"]))
 				# Incinerate / Freeze: chance/sec, rolled per tick (scaled by the tick interval).
-				var tick_dt := LASGUN_TICK / _rate_mult
-				var ice_fire := _las_capstone == "ice_and_fire"   # each status also applies the OTHER (no self-loop)
-				if _las_incinerate_rate() > 0.0 and en.has_method("apply_burn") and _proc(_las_incinerate_rate() * tick_dt):
+				var tick_dt := DEATHBEAM_TICK / _rate_mult
+				var ice_fire := _db_capstone == "ice_and_fire"   # each status also applies the OTHER (no self-loop)
+				if _db_incinerate_rate() > 0.0 and en.has_method("apply_burn") and _proc(_db_incinerate_rate() * tick_dt):
 					en.call("apply_burn", 1)
 					if ice_fire and en.has_method("apply_freeze"):
 						en.call("apply_freeze", 1)
-				if _las_freeze_rate() > 0.0 and en.has_method("apply_freeze") and _proc(_las_freeze_rate() * tick_dt):
+				if _db_freeze_rate() > 0.0 and en.has_method("apply_freeze") and _proc(_db_freeze_rate() * tick_dt):
 					en.call("apply_freeze", 1)
 					if ice_fire and en.has_method("apply_burn"):
 						en.call("apply_burn", 1)
 
 ## Called by the Lasgun pickup on collection — adds the beam to the active loadout (accumulates with Gatling).
-func activate_lasgun() -> void:
-	_lasgun_active = true
-	_las_t = maxf(0.0, _las_cycle() - LASGUN_CHARGE)   # begin in the charge window → telegraph, then the first burst
+func activate_death_beam() -> void:
+	_death_beam_active = true
+	_db_t = maxf(0.0, _db_cycle() - DEATHBEAM_CHARGE)   # begin in the charge window → telegraph, then the first burst
 
 func _on_ship_hp_changed(hp: int) -> void:
 	if not is_instance_valid(_engine_hum):
@@ -1885,8 +2056,8 @@ func _fire_arc(delta: float, kind := "arc", gauss_on_hit := false) -> void:
 			break
 		var c: Vector2 = (cur as Node2D).global_position
 		if cur.has_method("take_damage"):
-			var _arc_r := _roll_damage(_arc_dmg(), "") if is_arc else _roll_damage(ARC_DAMAGE, kind)
-			cur.take_damage(float(_arc_r["dmg"]), ARC_STAGGER, 0.0, "arc")   # keep kind for bismuth anti-magnetic
+			var _arc_r := _roll_damage(_arc_dmg(), "arc") if is_arc else _roll_damage(ARC_DAMAGE, kind)
+			cur.take_damage(float(_arc_r["dmg"]), ARC_STAGGER, 0.0, false, _bleeds(kind), bool(_arc_r["is_crit"]))
 			if bool(_arc_r["is_crit"]):
 				_spawn_crit_number(c, float(_arc_r["dmg"]))
 			if is_arc:
@@ -2154,10 +2325,10 @@ func _red_x_lvl() -> int:
 	return weapon_level("red_x")
 
 func _dragon_dps() -> float:
-	return DRAGON_DPS * (1.0 + 0.10 * float(_red_x_upg["damage"]) + (0.25 if _red_x_lvl() >= 2 else 0.0))   # Lv2 +25% dmg
+	return DRAGON_DPS * (1.0 + 0.10 * float(_red_x_upg["damage"]))
 
 func _dragon_range() -> float:
-	return DRAGON_RANGE * (1.0 + 0.10 * float(_red_x_upg["range"]) + (0.20 if _red_x_lvl() >= 1 else 0.0))   # Lv1 +20% range
+	return DRAGON_RANGE * (1.0 + 0.10 * float(_red_x_upg["range"]))
 
 ## Full cone angle (deg). Wide Spray ranks + AoE. The Sun evo → full 360°.
 func _dragon_cone_deg() -> float:
@@ -2212,7 +2383,7 @@ func _dragon_damage_tick() -> void:
 				_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
 		if en.has_method("apply_burn") and _proc(burn_ch):
 			en.call("apply_burn", 1)
-	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+	for ruin in _ruins():
 		if not is_instance_valid(ruin):
 			continue
 		var roff := (ruin as Node2D).global_position - origin
@@ -2302,7 +2473,7 @@ func _red_x_damage(kind: String, scale: float, base_angle := PI / 4.0) -> void:
 				en.take_damage(float(r["dmg"]), 0.0)
 				if bool(r["is_crit"]):
 					_spawn_crit_number(ep, float(r["dmg"]))
-	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+	for ruin in _ruins():
 		if not is_instance_valid(ruin):
 			continue
 		if center.distance_to((ruin as Node2D).global_position) <= RED_X_REACH:
@@ -2346,23 +2517,54 @@ func _spawn_red_x_fire(center: Vector2, reach: float, ship_rot: float) -> void:
 func activate_chemtrail() -> void:
 	_chemtrail_active = true
 
+# ── Chemtrail pool: API + effective stats ──
+func chem_grant_upgrade(id: String) -> bool:
+	if not CHEMTRAIL_POOL.has(id):
+		return false
+	var maxr := int(CHEMTRAIL_POOL[id]["max"])
+	if maxr > 0 and int(_chem_upg.get(id, 0)) >= maxr:
+		return false
+	_chem_upg[id] = int(_chem_upg.get(id, 0)) + 1
+	if id == "intensity" and GameManager.has_method("add_mech"):
+		GameManager.add_mech("tick_rate", 0.05)   # GLOBAL (shared Intensity Mastery)
+	elif id == "ms":
+		GameManager.add_move_speed(0.04)
+	return true
+
+func _chem_dmg_value() -> float:
+	return CHEMTRAIL_TICK_DAMAGE * (1.0 + 0.10 * float(_chem_upg["damage"]))
+func _chem_dur_mult() -> float:
+	return 1.0 + 0.20 * float(_chem_upg["duration"])
+func _chem_burn_chance() -> float:   # per second (scaled by tick interval at roll time)
+	return 0.05 * float(_chem_upg["burn"])
+func _chem_sedative() -> float:      # reduction fraction applied to enemy damage AND move speed
+	return 0.025 * float(_chem_upg["sedative"])
+
 ## Per-frame: drop a puff 300px behind the ship (no-stack via spacing), then age + expire the pool.
 ## Stage 1: emit + lifetime only (debug circles in _draw). DoT = Stage 2, recolored fire visual = Stage 3.
 func _tick_chemtrail(delta: float) -> void:
 	# Emit: the ship continuously shoots puffs out the back at a steady cadence. Each puff spawns just BEHIND
 	# the ship and travels outward (opposite facing) at CHEMTRAIL_SHOOT_SPEED, vanishing after its lifetime.
 	var back := -_forward()
+	var moon := _chem_capstone == "the_moon"
+	if moon:
+		_chem_moon_ang += delta * 7.0   # sweep the emit direction → fills a 360° toxic cloud around the ship
+	var puff_life := CHEMTRAIL_PUFF_LIFETIME * _duration_mult() * _chem_dur_mult()
 	_chemtrail_emit_acc += delta
 	while _chemtrail_emit_acc >= CHEMTRAIL_EMIT_INTERVAL:
 		_chemtrail_emit_acc -= CHEMTRAIL_EMIT_INTERVAL
-		# No cap for now (the lifetime bounds the pool on its own).
+		var dir := Vector2.from_angle(_chem_moon_ang) if moon else back   # The Moon → all directions
 		_chemtrail_puffs.append({
-			"pos": _player.global_position + back * CHEMTRAIL_SPAWN_OFFSET,
-			"vel": back * CHEMTRAIL_SHOOT_SPEED,   # captured at spawn → keeps its world-space heading
-			"age": 0.0, "max_age": CHEMTRAIL_PUFF_LIFETIME * _duration_mult(),
+			"pos": _player.global_position + dir * CHEMTRAIL_SPAWN_OFFSET,
+			"vel": dir * CHEMTRAIL_SHOOT_SPEED,   # captured at spawn → keeps its world-space heading
+			"age": 0.0, "max_age": puff_life,
 			"radius": CHEMTRAIL_PUFF_RADIUS + _mech_radius(),
 		})
 	_process_chemtrail_puffs(delta, "chemtrail")
+	# Healing Cloud: regen while standing in your own chemtrail (scales with Regeneration Mastery in hp_regen_rate).
+	if GameManager.has_method("set_chem_heal"):
+		var heal := 5.0 if (_chem_capstone == "healing_cloud" and _chemtrail_covers(_player.global_position)) else 0.0
+		GameManager.set_chem_heal(heal)
 
 ## Shared: move + age + expire the puff pool, run the DoT tick (scaled by `kind`'s level), drive the toxic-fire
 ## visual. Used by the Chemtrail weapon (ship-emitted puffs) and Toxic Ballistic (missile-emitted puffs).
@@ -2377,9 +2579,21 @@ func _process_chemtrail_puffs(delta: float, kind: String) -> void:
 		i -= 1
 	# DoT: one weapon-level tick → each enemy inside ANY puff takes damage once (no double-dip on overlap).
 	_chemtrail_tick_acc += delta
-	while _chemtrail_tick_acc >= CHEMTRAIL_TICK_INTERVAL:
-		_chemtrail_tick_acc -= CHEMTRAIL_TICK_INTERVAL
+	var ct_int := CHEMTRAIL_TICK_INTERVAL / _tick_rate()   # Intensity Mastery → faster ticks
+	while _chemtrail_tick_acc >= ct_int:
+		_chemtrail_tick_acc -= ct_int
 		_chemtrail_dot_tick(kind)
+	# Systematic Saturation: every 2s, ramp the damage on enemies STILL in the cloud (others reset).
+	if _chem_capstone == "saturation":
+		_chem_sat_t += delta
+		if _chem_sat_t >= 2.0:
+			_chem_sat_t -= 2.0
+			var next := {}
+			for en in _enemies():
+				if is_instance_valid(en) and _chemtrail_covers((en as Node2D).global_position):
+					var eid := (en as Node2D).get_instance_id()
+					next[eid] = float(_chem_sat.get(eid, 0.0)) + 0.25   # +25% ramp per 2s sustained
+			_chem_sat = next
 	# Visual: feed all live puff centres to the single recolored toxic-fire emitter.
 	_update_chemtrail_fx()
 
@@ -2388,20 +2602,32 @@ func _process_chemtrail_puffs(delta: float, kind: String) -> void:
 func _chemtrail_dot_tick(kind := "chemtrail") -> void:
 	if _chemtrail_puffs.is_empty():
 		return
+	var base := _chem_dmg_value()
+	var burn_ch := _chem_burn_chance()
+	var sed := _chem_sedative()
+	var tick_int := CHEMTRAIL_TICK_INTERVAL / _tick_rate()
+	var saturating := _chem_capstone == "saturation"
 	for en in _enemies():
 		if not is_instance_valid(en):
 			continue
 		var ep := (en as Node2D).global_position
 		if _chemtrail_covers(ep) and en.has_method("take_damage"):
-			var r := _roll_damage(CHEMTRAIL_TICK_DAMAGE, kind)
+			var dmg_base := base
+			if saturating:
+				dmg_base *= 1.0 + float(_chem_sat.get((en as Node2D).get_instance_id(), 0.0))
+			var r := _roll_damage(dmg_base, kind)
 			en.take_damage(float(r["dmg"]), 0.0)
 			if bool(r["is_crit"]):
 				_spawn_crit_number(ep, float(r["dmg"]))
-	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+			if burn_ch > 0.0 and en.has_method("apply_burn") and _proc(burn_ch * tick_int):
+				en.call("apply_burn", 1)
+			if sed > 0.0 and en.has_method("apply_sedative"):
+				en.call("apply_sedative", sed, sed)
+	for ruin in _ruins():
 		if not is_instance_valid(ruin):
 			continue
 		if _chemtrail_covers((ruin as Node2D).global_position) and ruin.has_method("take_damage"):
-			ruin.take_damage(CHEMTRAIL_TICK_DAMAGE * _dmg_mult * _lvl_mult(kind))
+			ruin.take_damage(base * _dmg_mult * _lvl_mult(kind))
 
 ## True if world point `p` is inside ANY live puff (used for single-damage-per-tick coverage).
 func _chemtrail_covers(p: Vector2) -> bool:
@@ -2664,7 +2890,7 @@ func _tick_void(delta: float) -> void:
 			if _void_pos.distance_to((en as Node2D).global_position) <= radius + VOID_HIT_PAD:
 				if en.has_method("take_damage"):
 					en.take_damage(per_tick, 0.0, 0.0, "void")
-		for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+		for ruin in _ruins():
 			if not is_instance_valid(ruin):
 				continue
 			var rr: float = radius + (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0)
@@ -2728,17 +2954,17 @@ func apply_truth(family: String) -> void:
 func _orbital_lvl() -> int:
 	return weapon_level("orbital")
 
-## Per-ball contact damage (Heavy Orbs ranks + Lv2 +20%). Contact Mastery is applied globally in _roll_damage.
+## Per-ball contact damage (Heavy Orbs ranks). Contact Mastery is applied globally in _roll_damage.
 ## Center of the Universe evo adds 100% armor + 5% Max HP on top (flat).
 func _orbital_dmg_value() -> float:
-	var dmg := ORBITAL_DAMAGE * (1.0 + 0.10 * float(_orbital_upg["damage"]) + (0.20 if _orbital_lvl() >= 2 else 0.0))
+	var dmg := ORBITAL_DAMAGE * (1.0 + 0.10 * float(_orbital_upg["damage"]))
 	if _orbital_capstone == "center":
 		dmg += float(GameManager.upg_base_defense) + 0.05 * float(GameManager.ship_max_hp)
 	return dmg
 
-## Spin multiplier (Overspin +15% + Flywheel +7% + Lv1 +15%).
+## Spin multiplier (Overspin +15% + Flywheel +7%).
 func _orbital_spin_mult() -> float:
-	return 1.0 + 0.15 * float(_orbital_upg["spin"]) + 0.07 * float(_orbital_upg["spin2"]) + (0.15 if _orbital_lvl() >= 1 else 0.0)
+	return 1.0 + 0.15 * float(_orbital_upg["spin"]) + 0.07 * float(_orbital_upg["spin2"])
 
 ## Orbit radius (Tight Orbit -10%/rank, floored so it never collapses). Pinned to base under Singularities.
 func _orbital_radius() -> float:
@@ -2746,10 +2972,10 @@ func _orbital_radius() -> float:
 		return ORBITAL_RADIUS
 	return ORBITAL_RADIUS * maxf(0.3, pow(0.90, float(_orbital_upg["tighten"])))
 
-## Ball-size multiplier (Bigger Orbs +10% + Lv4 +15%) × AoE bonus.
+## Ball-size multiplier (Bigger Orbs +10%) × AoE bonus.
 func _orbital_size_mult() -> float:
 	var aoe: float = GameManager.mech_bonus("aoe_pct") if GameManager.has_method("mech_bonus") else 0.0
-	return (1.0 + 0.10 * float(_orbital_upg["size"]) + (0.15 if _orbital_lvl() >= 4 else 0.0)) * (1.0 + aoe)
+	return (1.0 + 0.10 * float(_orbital_upg["size"])) * (1.0 + aoe)
 
 ## Avatar: assign each ball an element, spread as evenly as possible and avoiding two of the same in a row.
 func _rebuild_orbital_elements() -> void:
@@ -2785,7 +3011,6 @@ func _run_orbital(delta: float, kind: String) -> void:
 	if _orbital_capstone == "avatar" and _orbital_elements.size() != n:
 		_rebuild_orbital_elements()   # keep element list sized to the current ball count
 	var dmg_val := _orbital_dmg_value()
-	var enemies := _enemies()
 	var ruins   := get_tree().get_nodes_in_group("arena_ruin")
 	var balls := _orbital_positions()
 	# hit radius = half the visual size (× Bigger Orbs / AoE) + enemy-catchment pad
@@ -2797,13 +3022,13 @@ func _run_orbital(delta: float, kind: String) -> void:
 			continue
 		var bpos: Vector2 = balls[k]
 		var struck := false
-		for en in enemies:
+		for en in _enemies_near(bpos, hit_r):
 			if not is_instance_valid(en):
 				continue
 			if bpos.distance_to((en as Node2D).global_position) <= hit_r:
 				if en.has_method("take_damage"):
 					var _orb_r := _roll_damage(dmg_val, kind)
-					en.take_damage(float(_orb_r["dmg"]), ORBITAL_STAGGER)
+					en.take_damage(float(_orb_r["dmg"]), ORBITAL_STAGGER, 0.0, false, _bleeds(kind), bool(_orb_r["is_crit"]))
 					if bool(_orb_r["is_crit"]):
 						_spawn_crit_number((en as Node2D).global_position, float(_orb_r["dmg"]))
 				if _orbital_capstone == "avatar":
@@ -3014,7 +3239,7 @@ func _tick_striker(delta: float, enemy_on_screen: bool) -> void:
 ## Damage any enemy/ruin within STRIKER_HIT_RADIUS of `pos`. Returns true if it hit something (ends the strike).
 func _striker_impact(pos: Vector2) -> bool:
 	var hit := false
-	for en in get_tree().get_nodes_in_group("arena_enemy"):
+	for en in _enemies():
 		if not is_instance_valid(en):
 			continue
 		var er = en.get("hit_radius")
@@ -3028,7 +3253,7 @@ func _striker_impact(pos: Vector2) -> bool:
 			hit = true
 			break
 	if not hit:
-		for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+		for ruin in _ruins():
 			if not is_instance_valid(ruin):
 				continue
 			var rr: float = STRIKER_HIT_RADIUS + (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0)
@@ -3175,7 +3400,7 @@ func clear_all_weapons() -> void:
 	_acquired.clear()
 	_levels.clear()
 	_gat_active     = false
-	_lasgun_active  = false
+	_death_beam_active  = false
 	_arc_active     = false
 	_gauss_active   = false
 	_orbital_active = false
@@ -3183,7 +3408,7 @@ func clear_all_weapons() -> void:
 	_void_active     = false
 	_red_x_active    = false
 	_chemtrail_active = false
-	_nuke_active     = false
+	_little_man_active     = false
 	_fat_boy_active  = false;  _mortar_bullets.clear()
 	_sonic_active    = false
 	_zsword_active   = false
@@ -3218,8 +3443,11 @@ func level_up_weapon(kind: String) -> void:
 func weapon_level(kind: String) -> int:
 	return int(_levels.get(kind, 1)) if kind in _acquired else 0
 
+## Offerable in the level-up roll while it can still gain a level OR is maxed-but-not-yet-evolved (→ EVOLVE option).
 func weapon_can_upgrade(kind: String) -> bool:
-	return kind in _acquired and int(_levels.get(kind, 1)) < _level_cap(kind)
+	if not (kind in _acquired):
+		return false
+	return int(_levels.get(kind, 1)) < _level_cap(kind) or weapon_needs_capstone(kind)
 
 # ── Skill-point progression (level N→N+1 costs N+1 points; the first point on an unowned kind acquires it) ──
 ## Points already invested toward this kind's NEXT level (0-owned items start collecting toward level 2).
@@ -3228,63 +3456,41 @@ func weapon_points(kind: String) -> int:
 
 ## Points needed to reach the next level: current_level + 1 (0→1 = 1, 1→2 = 2, … 5→6 = 6). 0 when maxed.
 func weapon_next_cost(kind: String) -> int:
-	var lvl := weapon_level(kind)   # 0 if not yet owned
-	if lvl >= _level_cap(kind):
-		return 0
-	return lvl + 1
+	return 0 if weapon_level(kind) >= _level_cap(kind) else 1   # 1 point = 1 level now
 
-## Invest ONE skill point in `kind`. Acquires it (level 0→1) if unowned, else accumulates toward the next
-## level and auto-levels when the threshold is reached. Returns true if a level was gained this point.
+## Invest ONE skill point in `kind`: ALWAYS +1 level (acquire at 0→1). Returns true if a level was gained.
+## No milestone level rewards anymore — the perk picked alongside this is the reward; level just counts to EVOLVE.
 func spend_weapon_point(kind: String) -> bool:
 	var lvl := weapon_level(kind)
 	if lvl >= _level_cap(kind):
-		return false   # already maxed
-	var pts := int(_wpoints.get(kind, 0)) + 1
-	var cost := lvl + 1
-	if pts >= cost:
-		_wpoints[kind] = 0
-		if lvl <= 0:
-			acquire_weapon(kind)     # 0→1 (acquisition is the first invested point)
-		else:
-			level_up_weapon(kind)    # L→L+1
-		_apply_global_level_reward(kind, weapon_level(kind))
-		return true
-	_wpoints[kind] = pts
-	return false
+		return false   # already maxed (→ evolve)
+	if lvl <= 0:
+		acquire_weapon(kind)     # 0→1
+	else:
+		level_up_weapon(kind)    # L→L+1
+	return true
 
-## GLOBAL (permanent) level rewards that OTHER weapons read via mech_bonus — applied once when the level is reached.
-func _apply_global_level_reward(kind: String, new_level: int) -> void:
-	if not GameManager.has_method("add_mech"):
-		return
-	if kind == "gauss" and new_level == 3:
-		GameManager.add_mech("aoe_pct", 0.10)   # Gauss Lv3: AoE Mastery +10% (global)
-	if kind == "orbital" and new_level == 3:
-		GameManager.add_mech("contact_dmg_mult", 0.10)   # Orbital Lv3: Contact Mastery +10% (global)
-	if kind == "orbital" and new_level == 5 and GameManager.has_method("add_contact_damage"):
-		GameManager.add_contact_damage(10.0)             # Orbital Lv5: +10 base ship contact damage
-	if kind == "red_x":
-		if new_level == 3:
-			GameManager.add_mech("burn_dmg", 0.25)       # Dragon's Breath Lv3: +25% burn DoT (global)
-		elif new_level == 4:
-			GameManager.add_mech("burn_chance", 0.05)    # Lv4: +5% Fire Mastery (global)
-		elif new_level == 5:
-			GameManager.add_mech("burn_dur_add", 1.0)    # Lv5: +1s burn duration (global)
+## (Retired) milestone level rewards — kept as a no-op so any stray caller is harmless.
+func _apply_global_level_reward(_kind: String, _new_level: int) -> void:
+	pass
 
 func weapons_full() -> bool:
 	return _acquired.size() >= MAX_WEAPONS - _slot_penalty
 
-## Per-weapon damage multiplier from its level — COMPOUNDING: (1+WEAPON_DMG_PER_LEVEL)^(level-1).
-## L1 ×1.0, L2 ×1.30, L3 ×1.69, L4 ×2.20, L5 ×2.86.
+## Per-level damage multiplier. Base weapons get NONE now (levels just count toward EVOLVE; power comes from the
+## pool perks you pick each level). FUSIONS keep +30%/COMPOUNDING per level ABOVE MAX_WEAPON_LEVEL (their bonus levels).
 func _lvl_mult(kind: String) -> float:
 	if kind == "" or not (kind in _acquired):
 		return 1.0
-	return pow(1.0 + WEAPON_DMG_PER_LEVEL, float(int(_levels.get(kind, 1)) - 1))
+	if not is_fusion_kind(kind):
+		return 1.0
+	return pow(1.0 + WEAPON_DMG_PER_LEVEL, float(maxi(0, int(_levels.get(kind, 1)) - MAX_WEAPON_LEVEL)))
 
 ## Route a kind to its existing activate_<kind>() entry point.
 func _activate_kind(kind: String) -> void:
 	match kind:
 		"gatling": activate_gatling()
-		"lasgun":  activate_lasgun()
+		"death_beam":  activate_death_beam()
 		"arc":     activate_arc()
 		"gauss":   activate_gauss()
 		"orbital": activate_orbital()
@@ -3292,7 +3498,7 @@ func _activate_kind(kind: String) -> void:
 		"void":    activate_void()
 		"red_x":   activate_red_x()
 		"chemtrail": activate_chemtrail()
-		"nuke":    activate_nuke()
+		"little_man":    activate_little_man()
 		"fat_boy": activate_fat_boy()
 		"sonic":   activate_sonic()
 		"zsword":  activate_zsword()
@@ -3316,6 +3522,8 @@ func is_fusion_kind(kind: String) -> bool:
 	return FUSION_DEFS.has(kind)
 
 ## Recipe ids ready to fuse: both components owned at MAX_WEAPON_LEVEL and the fusion not already owned.
+## Fusions become available once both components reach FUSION_MIN_LEVEL (15) — UNLESS a component has already
+## evolved (chosen a capstone), which permanently locks it out of fusion.
 func available_fusions() -> Array:
 	var out: Array = []
 	for fid: String in FUSION_DEFS.keys():
@@ -3325,8 +3533,9 @@ func available_fusions() -> Array:
 		var a := String(rec["a"])
 		var b := String(rec["b"])
 		if (a in _acquired) and (b in _acquired) \
-			and int(_levels.get(a, 1)) >= MAX_WEAPON_LEVEL \
-			and int(_levels.get(b, 1)) >= MAX_WEAPON_LEVEL:
+			and int(_levels.get(a, 1)) >= FUSION_MIN_LEVEL \
+			and int(_levels.get(b, 1)) >= FUSION_MIN_LEVEL \
+			and weapon_capstone(a) == "" and weapon_capstone(b) == "":   # not yet evolved
 			out.append(fid)
 	return out
 
@@ -3349,7 +3558,7 @@ func fuse(fusion_id: String) -> bool:
 func _deactivate_kind(kind: String) -> void:
 	match kind:
 		"gatling": _gat_active = false
-		"lasgun":  _lasgun_active = false
+		"death_beam":  _death_beam_active = false
 		"arc":     _arc_active = false
 		"gauss":   _gauss_active = false
 		"orbital": _orbital_active = false
@@ -3357,7 +3566,7 @@ func _deactivate_kind(kind: String) -> void:
 		"void":    _void_active = false; _void_on = false
 		"red_x":   _red_x_active = false; _red_x_cd = 0.0
 		"chemtrail": _chemtrail_active = false
-		"nuke":    _nuke_active = false
+		"little_man":    _little_man_active = false
 		"fat_boy": _fat_boy_active = false
 		"sonic":   _sonic_active = false; _sonic_left = 0; _sonic_rings.clear()
 		"zsword":  _zsword_active = false
@@ -3389,17 +3598,17 @@ func weapon_cooldown_frac(kind: String) -> float:
 			if _void_cd <= 0.0:
 				return 1.0
 			return clampf(1.0 - _void_cd / maxf(0.01, VOID_COOLDOWN / rate), 0.0, 1.0)
-		"lasgun":
-			var lcyc := _las_cycle()
-			var ldur := _las_duration()
-			var phase := fmod(_las_t, lcyc)
+		"death_beam":
+			var lcyc := _db_cycle()
+			var ldur := _db_duration()
+			var phase := fmod(_db_t, lcyc)
 			if phase < ldur:
 				return 1.0   # firing window → ready
 			return clampf((phase - ldur) / maxf(0.01, lcyc - ldur), 0.0, 1.0)
-		"nuke":
-			if _nuke_cd <= 0.0:
+		"little_man":
+			if _little_man_cd <= 0.0:
 				return 1.0
-			return clampf(1.0 - _nuke_cd / maxf(0.01, MORTAR_FIRE_INTERVAL / rate), 0.0, 1.0)
+			return clampf(1.0 - _little_man_cd / maxf(0.01, MORTAR_FIRE_INTERVAL / rate), 0.0, 1.0)
 		"fat_boy":
 			if _fat_boy_cd <= 0.0:
 				return 1.0
@@ -3432,8 +3641,8 @@ func weapon_is_firing(kind: String) -> bool:
 		"void":    return _void_active
 		"orbital": return _orbital_active
 		"striker": return _striker_active
-		"lasgun":  return _lasgun_active and fmod(_las_t, _las_cycle()) < _las_duration()
-		"nuke":    return _nuke_active
+		"death_beam":  return _death_beam_active and fmod(_db_t, _db_cycle()) < _db_duration()
+		"little_man":    return _little_man_active
 		"fat_boy": return _fat_boy_active
 		"sonic":   return _sonic_active
 		"zsword":  return _zsword_active and _zsword_sweeping
@@ -3454,11 +3663,10 @@ func spawn_weapon_pickup(kind: String, world_pos: Vector2) -> void:
 	p.setup(world_pos, kind)
 
 ## Debug (legacy F12): drop a Lasgun pickup at a world position on the gameplay plane.
-func spawn_lasgun_pickup_near(world_pos: Vector2) -> void:
-	spawn_weapon_pickup("lasgun", world_pos)
+func spawn_death_beam_pickup_near(world_pos: Vector2) -> void:
+	spawn_weapon_pickup("death_beam", world_pos)
 
 func _tick_bullets(delta: float) -> void:
-	var enemies := _enemies()
 	var ruins   := get_tree().get_nodes_in_group("arena_ruin")
 	var i := _bullets.size() - 1
 	while i >= 0:
@@ -3477,7 +3685,7 @@ func _tick_bullets(delta: float) -> void:
 			var bk: String = b.get("kind", "gatling")   # Carnage/Red O fusion bullets tag their kind for level scaling
 			var is_gat := bk == "gatling"
 			var hits: Array = b.get("hits", [])
-			for en in enemies:
+			for en in _enemies_near(p, ENEMY_MAX_HIT_R):
 				if not is_instance_valid(en):
 					continue
 				if is_gat and en in hits:
@@ -3539,8 +3747,8 @@ func _gat_hit_enemy(b: Dictionary, en: Node, p: Vector2) -> void:
 			_gat_focus_target = en
 			_gat_focus_stacks = 0
 		base *= 1.0 + minf(float(_gat_focus_stacks) * GAT_FOCUS_STEP, GAT_FOCUS_MAX)
-	var r := _roll_damage(base, "")
-	en.take_damage(float(r["dmg"]), GAT_STAGGER, 1.0)
+	var r := _roll_damage(base, "gatling")   # "gatling" → kinetic family mastery + Serrated bleed
+	en.take_damage(float(r["dmg"]), GAT_STAGGER, 1.0, false, _bleeds("gatling"), bool(r["is_crit"]))
 	if bool(r["is_crit"]):
 		_spawn_crit_number(p, float(r["dmg"]))
 	if b.get("healing", false):
@@ -3638,7 +3846,6 @@ func _tick_orbs(delta: float) -> void:
 		while _gauss_fb_t >= gspf:
 			_gauss_fb_t -= gspf
 			_gauss_fb_idx = (_gauss_fb_idx + 1) % _gauss_frames.size()
-	var enemies := _enemies()
 	var ruins   := get_tree().get_nodes_in_group("arena_ruin")
 	var i := _orbs.size() - 1
 	while i >= 0:
@@ -3656,7 +3863,7 @@ func _tick_orbs(delta: float) -> void:
 		# explosion at the impact point. All damage now comes from the explosion DoT (_tick_explosions);
 		# the orb itself no longer deals direct damage.
 		if not dead:
-			for en in enemies:
+			for en in _enemies_near(p, ENEMY_MAX_HIT_R):
 				if not is_instance_valid(en):
 					continue
 				var _en_r = en.get("hit_radius")
@@ -3758,8 +3965,9 @@ func _tick_explosions(delta: float) -> void:
 		# DoT: damage everything within GAUSS_EXPL_RADIUS (fixed for the whole 2s — no per-frame scaling),
 		# once per enemy per tick. Each explosion has its own tick_acc → independent fields.
 		e["tick_acc"] = float(e["tick_acc"]) + delta
-		while float(e["tick_acc"]) >= GAUSS_TICK_INTERVAL:
-			e["tick_acc"] = float(e["tick_acc"]) - GAUSS_TICK_INTERVAL
+		var g_int := GAUSS_TICK_INTERVAL / _tick_rate()   # Intensity Mastery → faster ticks
+		while float(e["tick_acc"]) >= g_int:
+			e["tick_acc"] = float(e["tick_acc"]) - g_int
 			_gauss_explosion_tick(e["pos"], String(e.get("kind", "gauss")), float(e.get("size_mult", 1.0)), bool(e.get("annih", false)))
 		i -= 1
 
@@ -3775,8 +3983,8 @@ func _gauss_explosion_tick(center: Vector2, kind := "gauss", size_mult := 1.0, a
 			if annih and en.has_method("apply_vulnerable"):
 				en.call("apply_vulnerable", 0.3)   # Orb of Annihilation: +20% damage while in the orb (refreshed)
 			if en.has_method("take_damage"):
-				var r := _roll_damage(_gauss_tick_dmg(), "") if is_gauss else _roll_damage(GAUSS_TICK_DAMAGE, kind)
-				en.take_damage(float(r["dmg"]), 0.0)
+				var r := _roll_damage(_gauss_tick_dmg(), "gauss") if is_gauss else _roll_damage(GAUSS_TICK_DAMAGE, kind)
+				en.take_damage(float(r["dmg"]), 0.0, 0.0, false, _bleeds("gauss"), bool(r["is_crit"]))
 				if bool(r["is_crit"]):
 					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
 				if is_gauss:   # Meltdown (burn) / EMP (stun) — separate per-tick rolls (via _proc → Stroke of Luck)
@@ -3784,7 +3992,7 @@ func _gauss_explosion_tick(center: Vector2, kind := "gauss", size_mult := 1.0, a
 						en.call("apply_burn", 1)
 					if _gauss_stun_chance() > 0.0 and en.has_method("apply_stun") and _proc(_gauss_stun_chance() * GAUSS_TICK_INTERVAL):
 						en.call("apply_stun", 0.5 * (1.0 + (GameManager.mech_bonus("lightning_stun_dur") if GameManager.has_method("mech_bonus") else 0.0)))
-	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+	for ruin in _ruins():
 		if not is_instance_valid(ruin):
 			continue
 		var ruin_r: float = radius + (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0)
@@ -3864,10 +4072,10 @@ func _aoe_radius(base: float) -> float:
 		return base
 	return (base + GameManager.mech_bonus("radius")) * (1.0 + GameManager.mech_bonus("aoe_pct"))   # flat (Explosivo) + % (Gauss AoE Mastery, global)
 
-# ── Mortar (Rosastro HE Mortar) + Fat Boy (Rosastro Nuclear) ──────────────────────────
-func activate_nuke() -> void:
-	_nuke_active = true
-	_nuke_cd = 0.0
+# ── Mortar (Little Man) + Fat Boy (Fat Boy) ──────────────────────────
+func activate_little_man() -> void:
+	_little_man_active = true
+	_little_man_cd = 0.0
 	_ensure_mortar_tex()
 
 func activate_fat_boy() -> void:
@@ -3881,7 +4089,7 @@ func _ensure_mortar_tex() -> void:
 
 ## Mortar / Fat Boy share this: auto-fire one mortarbullet toward the mouse every MORTAR_FIRE_INTERVAL.
 func _tick_mortar(delta: float, kind: String) -> void:
-	var cd := _nuke_cd if kind == "nuke" else _fat_boy_cd
+	var cd := _little_man_cd if kind == "little_man" else _fat_boy_cd
 	cd -= delta
 	if cd <= 0.0:
 		cd = MORTAR_FIRE_INTERVAL / _rate_mult
@@ -3890,8 +4098,8 @@ func _tick_mortar(delta: float, kind: String) -> void:
 				_explode_mortar(_player.global_position, "fat_boy")   # detonate AT the ship — no projectile
 		else:
 			_fire_mortar(kind)
-	if kind == "nuke":
-		_nuke_cd = cd
+	if kind == "little_man":
+		_little_man_cd = cd
 	else:
 		_fat_boy_cd = cd
 
@@ -3915,7 +4123,7 @@ func _tick_mortar_bullets(delta: float) -> void:
 		var pos: Vector2 = (b["pos"] as Vector2) + (b["vel"] as Vector2) * delta
 		b["pos"] = pos
 		var hit := false
-		for en in get_tree().get_nodes_in_group("arena_enemy"):
+		for en in _enemies_near(pos, ENEMY_MAX_HIT_R):
 			if not is_instance_valid(en):
 				continue
 			var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 12.0
@@ -3934,18 +4142,18 @@ func _explode_mortar(pos: Vector2, kind: String) -> void:
 	var is_fat := kind == "fat_boy"
 	var dmg := FATBOY_DAMAGE if is_fat else MORTAR_DAMAGE
 	var aoe := _aoe_radius(FATBOY_AOE if is_fat else MORTAR_AOE)
-	for en in get_tree().get_nodes_in_group("arena_enemy"):
+	for en in _enemies():
 		if not is_instance_valid(en):
 			continue
 		var en2 := en as Node2D
 		var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0
 		if pos.distance_to(en2.global_position) <= aoe + enr:
 			if en.has_method("take_damage"):
-				var r := _roll_damage(dmg, kind)
-				en.take_damage(float(r["dmg"]), NUKE_BLAST_STAGGER, 1.0)
+				var r := _roll_damage(dmg, "little_man")
+				en.take_damage(float(r["dmg"]), MORTAR_BLAST_STAGGER, 1.0, false, true, bool(r["is_crit"]))   # Nuke keeps pushback
 				if bool(r["is_crit"]):
 					_spawn_crit_number(en2.global_position, float(r["dmg"]))
-	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+	for ruin in _ruins():
 		if not is_instance_valid(ruin):
 			continue
 		var rr: float = aoe + (float(ruin.get("hit_radius")) if ruin.get("hit_radius") != null else 0.0)
@@ -3953,7 +4161,7 @@ func _explode_mortar(pos: Vector2, kind: String) -> void:
 			if ruin.has_method("take_damage"):
 				ruin.take_damage(dmg * _dmg_mult * _lvl_mult(kind))
 	# Fat Boy = full-size blast; Mortar = a tiny (1%) LITE puff, 1.5× faster, no fullscreen shockwave.
-	var full_px := _aoe_radius(NUKE_RADIUS)
+	var full_px := _aoe_radius(MORTAR_RADIUS)
 	if is_fat:
 		_spawn_mortar_explosion(pos, full_px, 1.0, false)
 	else:
@@ -3985,8 +4193,8 @@ func _spawn_mortar_explosion(pos: Vector2, size_px: float, speed_mult: float = 1
 	ex.call("setup", pos, size_px)
 	if not lite:
 		var cam := get_tree().get_first_node_in_group("camera_shake")
-		if cam != null and cam.has_method("nuke_impact"):
-			cam.call("nuke_impact")
+		if cam != null and cam.has_method("mortar_impact"):
+			cam.call("mortar_impact")
 
 ## Draw in-flight mortarbullets at native aspect ratio, nose pointing along velocity.
 func _draw_mortar_bullets() -> void:
@@ -4029,14 +4237,39 @@ func activate_sonic() -> void:
 	_sonic_active = true
 	_sonic_cd = 0.0
 
+# ── Sonic pool: API + effective stats ──
+func sonic_grant_upgrade(id: String) -> bool:
+	if not SONIC_POOL.has(id):
+		return false
+	var maxr := int(SONIC_POOL[id]["max"])
+	if maxr > 0 and int(_sonic_upg.get(id, 0)) >= maxr:
+		return false
+	_sonic_upg[id] = int(_sonic_upg.get(id, 0)) + 1
+	return true
+
+func _sonic_dmg() -> float:
+	return SONIC_DAMAGE * (1.0 + 0.10 * float(_sonic_upg["damage"]))
+func _sonic_range() -> float:
+	return SONIC_MAX_RADIUS * (1.0 + 0.15 * float(_sonic_upg["range"]))
+func _sonic_cd_mult() -> float:
+	return 1.0 + 0.08 * float(_sonic_upg["cd"])
+func _sonic_freeze() -> float:
+	return 0.05 * float(_sonic_upg["cold"])
+## Cone half-angle: base + 7.5°/rank (15° per rank full), × AoE bonus.
+func _sonic_cone_half() -> float:
+	var aoe: float = GameManager.mech_bonus("aoe_pct") if GameManager.has_method("mech_bonus") else 0.0
+	return (SONIC_CONE_HALF + deg_to_rad(7.5) * float(_sonic_upg["cone"])) * (1.0 + aoe)
+
 func _tick_sonic(delta: float, enemy_on_screen: bool) -> void:
 	# Fire a fresh volley on cooldown; spawn the rest of the volley on a stagger.
 	if _sonic_left <= 0:
 		_sonic_cd -= delta
 		if _sonic_cd <= 0.0 and enemy_on_screen:
-			_sonic_cd = SONIC_COOLDOWN * _cd_scale("sonic") / _rate_mult
+			_sonic_cd = SONIC_COOLDOWN * _cd_scale("sonic") / _rate_mult / _sonic_cd_mult()
 			_sonic_left = SONIC_RINGS
 			_sonic_queue = 0.0
+			if _sonic_capstone == "silence":
+				_sonic_clear_bullets()   # Deafening Silence: destroy enemy projectiles each volley
 			_spawn_sonic_ring()
 			_sonic_left -= 1
 	else:
@@ -4061,50 +4294,109 @@ func _tick_sonic(delta: float, enemy_on_screen: bool) -> void:
 		var center: Vector2 = ring["center"]
 		var hit: Array = ring["hit"]
 		var aim: float = ring["aim"]
+		var cone := _sonic_cone_half()
+		var freeze_ch := _sonic_freeze()
+		var overload := _sonic_capstone == "overload"
+		var silence := _sonic_capstone == "silence"
+		var siren := _sonic_capstone == "siren"
 		for en in _enemies():
 			if not is_instance_valid(en) or en in hit:
 				continue
 			var off := (en as Node2D).global_position - center
 			# Hit only enemies the arc front sweeps AND that lie within the forward cone.
-			if absf(off.length() - r) <= SONIC_BAND and absf(wrapf(off.angle() - aim, -PI, PI)) <= SONIC_CONE_HALF:
+			if absf(off.length() - r) <= SONIC_BAND and absf(wrapf(off.angle() - aim, -PI, PI)) <= cone:
 				if en.has_method("take_damage"):
-					var rr := _roll_damage(SONIC_DAMAGE, "sonic")
-					en.take_damage(float(rr["dmg"]), 0.0)
+					var sdmg := _sonic_dmg()
+					if overload and en.has_method("status_count"):
+						sdmg *= 1.0 + 0.20 * float(en.call("status_count"))   # +20% per status
+					var rr := _roll_damage(sdmg, "sonic")
+					en.take_damage(float(rr["dmg"]), 0.0, 1.0 if silence else 0.0, false, false, bool(rr["is_crit"]))
 					if bool(rr["is_crit"]):
 						_spawn_crit_number((en as Node2D).global_position, float(rr["dmg"]))
+					if freeze_ch > 0.0 and en.has_method("apply_freeze") and _proc(freeze_ch):
+						en.call("apply_freeze", 1)
+					if siren and en.has_method("apply_charm") and not en.is_in_group("boss") and _proc(0.25):
+						en.call("apply_charm", 5.0)
 				hit.append(en)
 		i -= 1
 
 func _spawn_sonic_ring() -> void:
 	# Capture the aim direction at spawn so the cone fires where the ship was pointing (a forward fan).
-	_sonic_rings.append({"center": _player.global_position, "aim": _forward().angle(), "age": 0.0, "hit": [], "maxr": _aoe_radius(SONIC_MAX_RADIUS), "expand": SONIC_EXPAND_TIME * _duration_mult()})
+	_sonic_rings.append({"center": _player.global_position, "aim": _forward().angle(), "age": 0.0, "hit": [], "maxr": _aoe_radius(_sonic_range()), "expand": SONIC_EXPAND_TIME * _duration_mult()})
+
+## Deafening Silence: ask the enemy manager to wipe its projectile pool.
+func _sonic_clear_bullets() -> void:
+	var mgr := get_tree().get_first_node_in_group("enemy_manager")
+	if mgr != null and mgr.has_method("clear_bullets"):
+		mgr.call("clear_bullets")
 
 # ── Z-Sword ──────────────────────────────────────────────────────────────────────
 func activate_zsword() -> void:
 	_zsword_active = true
 	_zsword_cd = 0.0
 
+# ── Z-Sword pool: API + effective stats ──
+func zsword_grant_upgrade(id: String) -> bool:
+	if not ZSWORD_POOL.has(id):
+		return false
+	var maxr := int(ZSWORD_POOL[id]["max"])
+	if maxr > 0 and int(_zsword_upg.get(id, 0)) >= maxr:
+		return false
+	_zsword_upg[id] = int(_zsword_upg.get(id, 0)) + 1
+	if id == "martial" and GameManager.has_method("add_crit_damage"):
+		GameManager.add_crit_damage(0.10)   # GLOBAL crit damage (Martial Mastery)
+	return true
+
+func _zsword_dmg() -> float:
+	return ZSWORD_DAMAGE * (1.0 + 0.10 * float(_zsword_upg["damage"]))
+func _zsword_length() -> float:
+	return ZSWORD_LENGTH * (1.0 + 0.15 * float(_zsword_upg["size"]))
+func _zsword_cd_mult() -> float:
+	return 1.0 + 0.08 * float(_zsword_upg["cd"])
+func _zsword_crit() -> float:
+	return 0.05 * float(_zsword_upg["crit"])
+func _zsword_divergence() -> float:
+	return 0.05 * float(_zsword_upg["divergence"])
+func _zsword_swords() -> int:
+	return 2 if _zsword_capstone == "dual" else 1
+
+func _start_zsword_sweep() -> void:
+	_zsword_sweeping = true
+	_zsword_t = 0.0
+	_zsword_start = _forward().angle()
+	_zsword_hit = []
+
 func _tick_zsword(delta: float, enemy_on_screen: bool) -> void:
 	if not _zsword_sweeping:
-		_zsword_cd -= delta
-		if _zsword_cd <= 0.0 and enemy_on_screen:
-			_zsword_cd = ZSWORD_COOLDOWN * _cd_scale("zsword") / _rate_mult
-			_zsword_sweeping = true
-			_zsword_t = 0.0
-			_zsword_start = _forward().angle()   # begin the sweep from the current aim
-			_zsword_hit = []
+		if _zsword_queue > 0:
+			_zsword_queue -= 1
+			_start_zsword_sweep()   # Divergence / Dual: swing again immediately (no cooldown)
+		else:
+			_zsword_cd -= delta
+			if _zsword_cd <= 0.0 and enemy_on_screen:
+				_zsword_cd = ZSWORD_COOLDOWN * _cd_scale("zsword") / _rate_mult / _zsword_cd_mult()
+				_zsword_queue = _zsword_swords()   # Dual Wielding starts 2 swings
+				_zsword_queue -= 1
+				_start_zsword_sweep()
 		return
 	_zsword_t += delta
 	if _zsword_t >= ZSWORD_SWEEP_TIME:
 		_zsword_sweeping = false
 		if _zslash != null:
-			_zslash.fade_out()       # quick fade of the crescent when the sweep ends
+			_zslash.fade_out()
+		# Divergence rolls at the end of each swing: each sword may trigger another (full) swing.
+		var swords := _zsword_swords()
+		for _i in swords:
+			if _proc(_zsword_divergence()):
+				_zsword_queue += swords
 		return
 	var blade_ang := _zsword_start + TAU * (_zsword_t / ZSWORD_SWEEP_TIME)
-	var reach := _aoe_radius(ZSWORD_LENGTH)
+	var reach := _aoe_radius(_zsword_length())
 	var center := _player.global_position
 	if _zslash != null:
 		_zslash.set_sweep(center, reach, _zsword_start, blade_ang)   # crescent trails the leading edge
+	var wiper := _zsword_capstone == "wiper"
+	var cauter := _zsword_capstone == "cauterize"
 	for en in _enemies():
 		if not is_instance_valid(en) or en in _zsword_hit:
 			continue
@@ -4113,10 +4405,15 @@ func _tick_zsword(delta: float, enemy_on_screen: bool) -> void:
 			continue
 		if absf(wrapf(off.angle() - blade_ang, -PI, PI)) <= ZSWORD_ARC_HALF:
 			if en.has_method("take_damage"):
-				var r := _roll_damage(ZSWORD_DAMAGE, "zsword")
-				en.take_damage(float(r["dmg"]), ZSWORD_STAGGER)
+				var r := _roll_damage(_zsword_dmg(), "zsword")
+				var knock := 1.0 if (wiper and not en.is_in_group("boss")) else 0.0
+				en.take_damage(float(r["dmg"]), ZSWORD_STAGGER, knock, false, true, bool(r["is_crit"]))
 				if bool(r["is_crit"]):
 					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+				if cauter and en.has_method("cauterize"):
+					en.call("cauterize", 0.20)
+				if wiper and not en.is_in_group("boss") and en.has_method("apply_wiper"):
+					en.call("apply_wiper")
 			if _zslash != null:
 				_zslash.add_spark((en as Node2D).global_position)   # impact sparks (tutorial: sparks come last)
 			_zsword_hit.append(en)
@@ -4196,9 +4493,10 @@ func _tick_ionize(delta: float) -> void:
 		if _ionize_lens != null:
 			_ionize_lens.position = c - Vector2(IONIZE_LENS_DIAM * 0.5, IONIZE_LENS_DIAM * 0.5)
 	_ionize_tick += delta
-	if _ionize_tick < IONIZE_TICK:
+	var ion_int := IONIZE_TICK / _tick_rate()   # Intensity Mastery → faster ticks
+	if _ionize_tick < ion_int:
 		return
-	_ionize_tick -= IONIZE_TICK
+	_ionize_tick -= ion_int
 	if not _enemy_visible:
 		return
 	var center := _player.global_position
@@ -4212,7 +4510,7 @@ func _tick_ionize(delta: float) -> void:
 				en.take_damage(float(r["dmg"]), 0.0)
 				if bool(r["is_crit"]):
 					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
-	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+	for ruin in _ruins():
 		if not is_instance_valid(ruin):
 			continue
 		var rr: float = reach + (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0)
@@ -4303,7 +4601,7 @@ func _tick_boom(delta: float, _enemy_on_screen: bool) -> void:
 					hits[eid] = float(b["age"])
 					if en.has_method("take_damage"):
 						var r := _roll_damage(BOOM_DAMAGE, "boomerang")
-						en.take_damage(float(r["dmg"]), 0.0)
+						en.take_damage(float(r["dmg"]), 0.0, 0.0, false, true, bool(r["is_crit"]))
 						if bool(r["is_crit"]):
 							_spawn_crit_number(en2.global_position, float(r["dmg"]))
 		# Once per second, drop stale hit-timestamps so the dict doesn't grow over a long run.
@@ -4357,8 +4655,9 @@ func _tick_para(delta: float, enemy_on_screen: bool) -> void:
 			_pa.global_position = c["pos"]
 			_pa.rotation = float(c["ang"])
 		c["tick"] = float(c["tick"]) + delta
-		while float(c["tick"]) >= PARA_TICK:
-			c["tick"] = float(c["tick"]) - PARA_TICK
+		var para_int := PARA_TICK / _tick_rate()   # Intensity Mastery → faster ticks
+		while float(c["tick"]) >= para_int:
+			c["tick"] = float(c["tick"]) - para_int
 			var cp: Vector2 = c["pos"]
 			for en in _enemies():
 				if not is_instance_valid(en):
@@ -4444,7 +4743,7 @@ func _tick_moro(delta: float) -> void:
 				if tp.distance_to((en as Node2D).global_position) <= reach:
 					if en.has_method("take_damage"):
 						var r := _roll_damage(MORO_DAMAGE, "moroboshi")
-						en.take_damage(float(r["dmg"]), MORO_STAGGER)
+						en.take_damage(float(r["dmg"]), MORO_STAGGER, 0.0, false, true, bool(r["is_crit"]))
 						if bool(r["is_crit"]):
 							_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
 
@@ -4573,7 +4872,7 @@ func _tick_yari(delta: float) -> void:
 		var diff := wrapf(desired_facing - _yari_facing, -PI, PI)
 		_yari_facing += clampf(diff, -YARI_TURN_RATE * delta, YARI_TURN_RATE * delta)
 		if tgt != null and _yari_cd <= 0.0 and _yari_pos.distance_to((tgt as Node2D).global_position) <= YARI_ATTACK_RANGE:
-			_yari_cd = YARI_ATTACK_CD / _rate_mult / _automation_rate("yari_jaeger")
+			_yari_cd = YARI_ATTACK_CD / _rate_mult / _automation_rate("yari_jaeger") / _fam_rate("yari_jaeger")
 			_yari_sweeping = true
 			_yari_sweep_t = 0.0
 			# CCW sweep: start +90° ahead of target direction, blade_ang decreases each frame
@@ -4610,7 +4909,7 @@ func _tick_yari(delta: float) -> void:
 			if off.length() <= reach and absf(wrapf(off.angle() - blade_ang, -PI, PI)) <= YARI_ARC_HALF:
 				if en.has_method("take_damage"):
 					var r := _roll_damage(YARI_DAMAGE, "yari_jaeger")
-					en.take_damage(float(r["dmg"]), YARI_STAGGER)
+					en.take_damage(float(r["dmg"]), YARI_STAGGER, 0.0, false, true, bool(r["is_crit"]))
 					if bool(r["is_crit"]):
 						_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
 				if _yari_slash != null:
@@ -4670,7 +4969,7 @@ func _tick_swarm(delta: float) -> void:
 					if pos.distance_to(tp) <= SWARM_HIT_RADIUS + tr:
 						if t.has_method("take_damage"):
 							var r := _roll_damage(SWARM_DAMAGE, "swarm")
-							t.take_damage(float(r["dmg"]), 0.0)
+							t.take_damage(float(r["dmg"]), 0.0, 0.0, false, true, bool(r["is_crit"]))
 							if bool(r["is_crit"]):
 								_spawn_crit_number(tp, float(r["dmg"]))
 							u["dmg"] = float(u["dmg"]) + float(r["dmg"])
@@ -4830,7 +5129,7 @@ func _run_snake(delta: float, kind: String, turn_rate := SNAKE_TURN, aim_angle :
 				if seg.distance_to(ep) <= er:
 					if en.has_method("take_damage"):
 						var r := _roll_damage(SNAKE_DAMAGE, kind)
-						en.take_damage(float(r["dmg"]), 0.0)
+						en.take_damage(float(r["dmg"]), 0.0, 0.0, false, _bleeds(kind), bool(r["is_crit"]))
 					break
 	_update_snake_plumes()
 
@@ -4880,7 +5179,7 @@ func _ensure_predator_beam() -> void:
 		return
 	_predator_beam = BeamScript.new()
 	add_child(_predator_beam)
-	_predator_beam.z_index = LASGUN_BEAM_Z
+	_predator_beam.z_index = DEATHBEAM_BEAM_Z
 
 func _tick_predator(delta: float, enemy_on_screen: bool) -> void:
 	# Steer the head toward the densest beam line (only when there are enemies); otherwise default snake
@@ -4899,24 +5198,24 @@ func _tick_predator(delta: float, enemy_on_screen: bool) -> void:
 	_predator_beam_cd -= delta
 	var fire := false
 	if _predator_beam_cd <= 0.0:
-		_predator_beam_cd = LASGUN_TICK / _rate_mult
+		_predator_beam_cd = DEATHBEAM_TICK / _rate_mult / _fam_rate("predator")
 		_predator_aim = _best_beam_dir(head)
 		fire = true
 	var dir := Vector2.from_angle(_snake_dir)   # beam = the head's current facing (turning aims it)
 	# Bosses block the beam (same rule as the main Lasgun).
-	var block_along := LASGUN_RANGE
+	var block_along := DEATHBEAM_RANGE
 	for b in get_tree().get_nodes_in_group("boss"):
 		if not is_instance_valid(b):
 			continue
 		var tb: Vector2 = (b as Node2D).global_position - head
 		var balong := tb.dot(dir)
-		if balong < 0.0 or balong > LASGUN_RANGE:
+		if balong < 0.0 or balong > DEATHBEAM_RANGE:
 			continue
 		var _br = b.get("hit_radius")
-		var bw: float = LASGUN_WIDTH * 0.5 + (float(_br) if _br != null else LASGUN_HIT_PAD)
+		var bw: float = DEATHBEAM_WIDTH * 0.5 + (float(_br) if _br != null else DEATHBEAM_HIT_PAD)
 		if (tb - dir * balong).length() <= bw and balong < block_along:
 			block_along = balong
-	var blocked := block_along < LASGUN_RANGE
+	var blocked := block_along < DEATHBEAM_RANGE
 	_predator_beam.set_beam(head, head + dir * maxf(2.0, block_along), true, blocked)
 	if fire:
 		for en in _enemies():
@@ -4927,12 +5226,12 @@ func _tick_predator(delta: float, enemy_on_screen: bool) -> void:
 			if along < 0.0 or along > block_along:
 				continue
 			var _en_r = en.get("hit_radius")
-			var hit_w: float = LASGUN_WIDTH * 0.5 + (float(_en_r) if _en_r != null else LASGUN_HIT_PAD)
+			var hit_w: float = DEATHBEAM_WIDTH * 0.5 + (float(_en_r) if _en_r != null else DEATHBEAM_HIT_PAD)
 			if (to_e - dir * along).length() > hit_w:
 				continue
 			if en.has_method("take_damage"):
-				var r := _roll_damage(LASGUN_DAMAGE, "predator")
-				en.take_damage(float(r["dmg"]), LASGUN_STAGGER, 0.0, "lasgun")
+				var r := _roll_damage(DEATHBEAM_DAMAGE, "predator")
+				en.take_damage(float(r["dmg"]), DEATHBEAM_STAGGER, 0.0, "death_beam")
 				if bool(r["is_crit"]):
 					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
 
@@ -4954,10 +5253,10 @@ func _best_beam_dir(head: Vector2) -> Vector2:
 				continue
 			var to_e: Vector2 = (en as Node2D).global_position - head
 			var along := to_e.dot(dir)
-			if along < 0.0 or along > LASGUN_RANGE:
+			if along < 0.0 or along > DEATHBEAM_RANGE:
 				continue
 			var _en_r = en.get("hit_radius")
-			var hit_w: float = LASGUN_WIDTH * 0.5 + (float(_en_r) if _en_r != null else LASGUN_HIT_PAD)
+			var hit_w: float = DEATHBEAM_WIDTH * 0.5 + (float(_en_r) if _en_r != null else DEATHBEAM_HIT_PAD)
 			if (to_e - dir * along).length() <= hit_w:
 				count += 1
 		if count > best_count:
@@ -5117,7 +5416,7 @@ func _missile_explode(pos: Vector2, dmg: float, kind := "homing") -> void:
 				en.take_damage(float(r["dmg"]), 0.0)
 				if bool(r["is_crit"]):
 					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
-	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
+	for ruin in _ruins():
 		if not is_instance_valid(ruin):
 			continue
 		var rr: float = reach + (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0)
@@ -5308,7 +5607,7 @@ func activate_carnage() -> void:
 func _tick_carnage(delta: float, enemy_on_screen: bool) -> void:
 	# Gatling at its normal cadence, but each volley fires in 4 directions: the main facing (toward the mouse)
 	# plus the 3 directions 90° apart. Bullets tagged "carnage" → scale with this fusion's level.
-	var interval := GAT_FIRE_INTERVAL / _rate_mult
+	var interval := GAT_FIRE_INTERVAL / _rate_mult / _fam_rate("carnage")
 	_carnage_gat_acc += delta
 	if not enemy_on_screen:
 		_carnage_gat_acc = minf(_carnage_gat_acc, interval)   # prime ONE shot, don't bank a backlog (see _process Gatling)
@@ -5331,7 +5630,7 @@ func _tick_carnage(delta: float, enemy_on_screen: bool) -> void:
 	# so sustained DPS to a stationary target matches a single base Red X weapon (regardless of the tick rate).
 	_carnage_redx_tick -= delta
 	if _carnage_redx_tick <= 0.0 and enemy_on_screen:
-		_carnage_redx_tick = CARNAGE_REDX_TICK / _rate_mult
+		_carnage_redx_tick = CARNAGE_REDX_TICK / _rate_mult / _fam_rate("carnage")
 		_red_x_damage("carnage", CARNAGE_REDX_TICK / RED_X_INTERVAL, _forward().angle())
 
 ## Build (once) the persistent Carnage X-fire. Unlike the one-shot Red X flash, this uses a near-infinite HOLD

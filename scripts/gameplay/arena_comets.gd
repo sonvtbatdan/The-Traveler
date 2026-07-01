@@ -9,6 +9,7 @@ const ArenaPopulator := preload("res://scripts/gameplay/arena_populator.gd")
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
 const COMET_FACTOR  := 0.4        # mid depth, like the planets → distant-but-present
 const COMET_Z       := -48        # just in front of the planets (-50)
+const SPAWN_PER_FRAME := 1         # max new comets streamed in per frame (amortized to kill movement hitch)
 # Placement (cell size, rarity weight, jitter, biome density) is unified in ArenaPopulator
 # (type ArenaPopulator.COMET). Only parallax + visuals stay here.
 
@@ -34,14 +35,16 @@ func _process(_delta: float) -> void:
 	var cy0 := int(floor((vc.y - half.y) / cs))
 	var cy1 := int(ceil((vc.y + half.y) / cs))
 	var needed := {}
+	var budget := SPAWN_PER_FRAME   # amortize: cap new comets/frame so crossing cells doesn't spike (rest fill in next frames)
 	for cy in range(cy0, cy1 + 1):
 		for cx in range(cx0, cx1 + 1):
 			var key := Vector2i(cx, cy)
 			var place := ArenaPopulator.place_in_cell(ArenaPopulator.COMET, key)
 			if not place.is_empty():
-				needed[key] = true
-				if not _comets.has(key):
+				needed[key] = true   # mark needed even if deferred, so it isn't despawned before it spawns
+				if not _comets.has(key) and budget > 0:
 					_spawn_cell(key, place["pos"], place["rng"])
+					budget -= 1
 	for key: Vector2i in _comets.keys():
 		if not needed.has(key):
 			if is_instance_valid(_comets[key]):

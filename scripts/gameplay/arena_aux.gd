@@ -8,8 +8,8 @@ extends Node
 ## Per-run state lives only here (a fresh node each run) + GameManager.upg_* (zeroed by reset_run), so each run
 ## starts clean.
 
-const MAX_AUX       := 5    # aux slot count (second HUD row) / acquisition cap
-const MAX_AUX_LEVEL := 6    # per-item level cap (skill-point progression; max level 6)
+const MAX_AUX       := 4    # aux slot count (second HUD row) / acquisition cap
+const MAX_AUX_LEVEL := 18   # pooled aux level 1→18; each point spent = +1 level, then EVOLVE
 
 # ── AUX CATALOG ──────────────────────────────────────────────────────────────────
 # id        — unique key (also the effect dispatcher key in _apply_effect)
@@ -25,7 +25,7 @@ const AUX_DEFS := [
 	{"id": "speed",       "name": "Fins",                "color": Color(0.45, 0.75, 1.00), "weight": 90,  "effect": "+6% Speed"},
 	{"id": "damage",      "name": "Art of War",          "color": Color(1.00, 0.45, 0.35), "weight": 70,  "effect": "Damage masteries"},
 	{"id": "fire_rate",   "name": "Auto-Loader",         "color": Color(1.00, 0.65, 0.30), "weight": 70,  "effect": "+8% Fire Rate"},
-	{"id": "armor_pen",   "name": "Armor Penetration",   "color": Color(0.90, 0.80, 0.40), "weight": 40,  "effect": "Ignore 2 Armor"},
+	{"id": "armor_pen",   "name": "Drill Bits",          "color": Color(0.90, 0.80, 0.40), "weight": 40,  "effect": "Armor penetration + bleed"},
 	{"id": "crit",        "name": "Aim Assistor",        "color": Color(1.00, 0.35, 0.35), "weight": 50,  "effect": "+5% Crit Chance"},
 	{"id": "harmonizer",  "name": "Harmonizer",          "color": Color(0.70, 0.50, 1.00), "weight": 30,  "effect": "+Type Damage"},
 	{"id": "aoe",         "name": "Explosivo",           "color": Color(1.00, 0.55, 0.20), "weight": 40,  "effect": "+25 AoE"},
@@ -65,6 +65,21 @@ const AUX_POOL := {
 		"ex_mastery":  {"name": "Harden Mastery",    "max": 5,  "per": "+5% armor effectiveness",  "desc": "Every armor bonus counts for more."},
 		"ex_crit":     {"name": "Weak-Point Optics", "max": 5,  "per": "+5% kinetic crit chance",  "desc": "Kinetic weapons crit more often."},
 	},
+	"armor_pen": {
+		"pen_flat":      {"name": "Carbide Tips",   "max": 10, "per": "+2 flat armor penetration",  "desc": "Ignore this much enemy armor (after % pen)."},
+		"pen_pct":       {"name": "Spiral Fluting", "max": 10, "per": "+5% armor penetration",      "desc": "Ignore this % of enemy armor (applied first)."},
+		"serrated":      {"name": "Serrated Heads", "max": 1,  "per": "Bleed on kinetic/contact hit", "desc": "Each hit from a kinetic or contact weapon applies 1 bleed stack (1 dmg/stack/s, 5s, ignores armor)."},
+		"bleed_mastery": {"name": "Bleed Mastery",  "max": 5,  "per": "+50 max bleed stacks (global)", "desc": "Bleed can pile higher."},
+		"critbreak":     {"name": "Critical Break", "max": 10, "per": "Crits strip 2% of dmg as armor", "desc": "Critical hits temporarily remove armor (5s) equal to 2%/rank of the damage dealt."},
+	},
+	"fire_rate": {
+		"rate_all":     {"name": "Auto-Loader",      "max": 10, "per": "+2.5% fire rate (global)", "desc": "Every weapon fires faster."},
+		"rate_kinetic": {"name": "Kinetic Cadence",  "max": 10, "per": "+5% kinetic fire rate",    "desc": "Kinetic weapons fire faster."},
+		"rate_energy":  {"name": "Energy Cadence",   "max": 10, "per": "+5% energy fire rate",     "desc": "Energy weapons fire faster."},
+		"rate_bio":     {"name": "Biotic Cadence",   "max": 10, "per": "+5% biological fire rate", "desc": "Biological weapons fire faster."},
+		"intensity":    {"name": "Intensity Mastery", "max": 5, "per": "-5% tick cooldown (global)", "desc": "DoT/tick weapons (Chemtrail, Ionizing Field, Gauss…) tick faster."},
+		"tradeoff":     {"name": "Heavy Rounds",     "max": 5,  "per": "-2.5% fire rate, +5% damage", "desc": "Slower but harder-hitting."},
+	},
 	"damage": {
 		"kinetic": {"name": "Kinetic Mastery",      "max": 10, "per": "+10% kinetic damage", "desc": "Global: all kinetic weapons. Shares its level with Kinetic Mastery from any item."},
 		"energy":  {"name": "Energy Mastery",       "max": 10, "per": "+10% energy damage",  "desc": "Global: all energy weapons (shared skill)."},
@@ -98,6 +113,16 @@ const AUX_CAPSTONES := {
 		{"id": "fortress", "name": "Fortress",        "desc": "-30% move speed, but +1% DR per 10 armor (total DR capped at 75%)."},
 		{"id": "bastion",  "name": "Bastion",         "desc": "Gain Max HP and Max Shield each equal to half your armor."},
 		{"id": "reactive", "name": "Reactive Plating", "desc": "Every 500 damage you mitigate, erupt a 400px shockwave for 100 kinetic damage."},
+	],
+	"armor_pen": [
+		{"id": "less_than_nothing", "name": "Less Than Nothing", "desc": "Enemy armor can be driven down to -20 (negative armor amplifies your damage)."},
+		{"id": "fortification",     "name": "Fortification Knowledge", "desc": "+20% armor penetration, and gain +20% of your own armor."},
+		{"id": "hurt",              "name": "Hurt", "desc": "Your bleeds are improved by your armor penetration."},
+	],
+	"fire_rate": [
+		{"id": "charged_up",     "name": "Charged Up",     "desc": "Weapons WITH a cooldown gain +20% damage for every 0.5s of that cooldown."},
+		{"id": "absolute_focus", "name": "Absolute Focus", "desc": "+1% fire rate every 5s without taking damage (up to +60%, reset on hit)."},
+		{"id": "speed_is_force", "name": "Speed is Force",  "desc": "100% of your fire-rate bonus is also added as damage to contact weapons."},
 	],
 	"damage": [
 		{"id": "kinetic_truth", "name": "Kinetic Truth", "desc": "Disable all non-kinetic weapons. Kinetic weapons gain +50% damage for each weapon disabled this way."},
@@ -152,22 +177,19 @@ func acquire_aux(id: String) -> bool:
 		return false
 	_owned[id] = 1
 	_order.append(id)
-	if _is_pooled(id):
-		_apply_aux_level_reward(id, 1)   # pooled items grant their Lv1 reward; perks come from the pool picker
-	else:
-		_apply_effect(id)
+	if not _is_pooled(id):
+		_apply_effect(id)   # simple aux: its per-level stat IS the item. Pooled aux: the perk picker is the reward.
 	return true
 
-## Raise an owned aux item's level by one (capped) and re-apply its per-level effect. No-op otherwise.
+## Raise an owned aux item's level by one (capped). Pooled items gain NO milestone reward — the level just
+## counts toward EVOLVE; simple aux re-apply their per-level effect.
 func level_up_aux(id: String) -> void:
 	if not (id in _owned):
 		return
 	if int(_owned[id]) >= MAX_AUX_LEVEL:
 		return
 	_owned[id] = int(_owned[id]) + 1
-	if _is_pooled(id):
-		_apply_aux_level_reward(id, int(_owned[id]))
-	else:
+	if not _is_pooled(id):
 		_apply_effect(id)
 
 # ── Queries (level-up UI + slot HUD) ───────────────────────────────────────────────
@@ -177,36 +199,25 @@ func aux_level(id: String) -> int:
 func aux_can_upgrade(id: String) -> bool:
 	return id in _owned and int(_owned[id]) < MAX_AUX_LEVEL
 
-# ── Skill-point progression (mirrors arena_weapons): level N→N+1 costs N+1 points; first point acquires it ──
+# ── Skill-point progression: 1 point = 1 level (acquire at 0→1), max MAX_AUX_LEVEL, then EVOLVE ──
 func aux_points(id: String) -> int:
 	return int(_points.get(id, 0))
 
-## Points needed for the next level: current_level + 1. 0 when maxed.
 func aux_next_cost(id: String) -> int:
-	var lvl := aux_level(id)   # 0 if not owned
-	if lvl >= MAX_AUX_LEVEL:
-		return 0
-	return lvl + 1
+	return 0 if aux_level(id) >= MAX_AUX_LEVEL else 1   # 1 point = 1 level now
 
-## Invest ONE skill point. Acquires the item (0→1) if unowned, else accumulates toward + auto-levels.
-## Returns true if a level was gained this point.
+## Invest ONE skill point: ALWAYS +1 level (acquire at 0→1). Returns true if a level was gained.
 func spend_aux_point(id: String) -> bool:
 	if not _by_id.has(id):
 		return false
 	var lvl := aux_level(id)
 	if lvl >= MAX_AUX_LEVEL:
 		return false
-	var pts := int(_points.get(id, 0)) + 1
-	var cost := lvl + 1
-	if pts >= cost:
-		_points[id] = 0
-		if lvl <= 0:
-			acquire_aux(id)      # 0→1 (first invested point acquires it)
-		else:
-			level_up_aux(id)     # L→L+1
-		return true
-	_points[id] = pts
-	return false
+	if lvl <= 0:
+		acquire_aux(id)      # 0→1
+	else:
+		level_up_aux(id)     # L→L+1
+	return true
 
 func aux_slots_full() -> bool:
 	return _owned.size() >= MAX_AUX
@@ -290,6 +301,10 @@ func aux_set_capstone(id: String, cap_id: String) -> void:
 		_apply_speed_capstone(cap_id)
 	elif id == "damage":
 		_apply_damage_capstone(cap_id)
+	elif id == "fire_rate":
+		_apply_firerate_capstone(cap_id)
+	elif id == "armor_pen":
+		_apply_armorpen_capstone(cap_id)
 	_recompute_dynamic()   # Juggernaut/Calm/Will-to-Live/Bastion start applying immediately on the pick
 
 ## True when a pooled aux just earned its evolve pick: at max level, has capstones, none chosen yet.
@@ -309,6 +324,10 @@ func _apply_pool_effect(id: String, pool_id: String) -> void:
 		_apply_speed_pool_effect(pool_id)
 	elif id == "damage":
 		_apply_damage_pool_effect(pool_id)
+	elif id == "fire_rate":
+		_apply_firerate_pool_effect(pool_id)
+	elif id == "armor_pen":
+		_apply_armorpen_pool_effect(pool_id)
 
 # ── Reinforcement Plate (hp) ──
 func _apply_hp_pool_effect(pool_id: String) -> void:
@@ -370,6 +389,59 @@ func _apply_armor_pool_effect(pool_id: String) -> void:
 			GameManager.add_harden_mastery(0.05)
 		"ex_crit":
 			GameManager.add_mech("kinetic_crit_chance", 0.05)   # STUB: pending kinetic-family crit wiring
+
+# ── Drill Bits (armor_pen) — armor penetration + bleed (GLOBAL mechs read in arena_enemy.take_damage). ──
+func _apply_armorpen_pool_effect(pool_id: String) -> void:
+	match pool_id:
+		"pen_flat":
+			GameManager.add_mech("armor_pen_flat", 2.0)
+		"pen_pct":
+			GameManager.add_mech("armor_pen_pct", 0.05)
+		"serrated":
+			GameManager.add_mech("serrated", 1.0)
+		"bleed_mastery":
+			GameManager.add_mech("bleed_max_add", 50.0)
+		"critbreak":
+			GameManager.add_mech("critbreak", 0.02)
+
+## Drill Bits evolution.
+func _apply_armorpen_capstone(cap_id: String) -> void:
+	match cap_id:
+		"less_than_nothing":
+			GameManager.add_mech("less_than_nothing", 1.0)
+		"fortification":
+			GameManager.add_mech("armor_pen_pct", 0.20)
+			GameManager.add_base_defense(int(round(float(GameManager.upg_base_defense) * 0.20)))   # +20% of your armor
+		"hurt":
+			GameManager.add_mech("hurt", 1.0)
+
+# ── Auto-Loader (fire_rate) — global fire-rate + per-family cadence + tick speed (GLOBAL mechs). ──
+func _apply_firerate_pool_effect(pool_id: String) -> void:
+	match pool_id:
+		"rate_all":
+			GameManager.add_fire_rate(0.025)
+		"rate_kinetic":
+			GameManager.add_mech("rate_kinetic", 0.05)
+		"rate_energy":
+			GameManager.add_mech("rate_energy", 0.05)
+		"rate_bio":
+			GameManager.add_mech("rate_bio", 0.05)
+		"intensity":
+			GameManager.add_mech("tick_rate", 0.05)
+		"tradeoff":
+			GameManager.add_fire_rate(-0.025)
+			GameManager.add_mech("all_dmg", 0.05)
+
+## Auto-Loader evolution. Charged Up / Speed is Force are global-mech flags read in _roll_damage; Absolute
+## Focus is a GameManager fire-rate ramp.
+func _apply_firerate_capstone(cap_id: String) -> void:
+	match cap_id:
+		"charged_up":
+			GameManager.add_mech("charged_up", 1.0)
+		"speed_is_force":
+			GameManager.add_mech("speed_force", 1.0)
+		"absolute_focus":
+			GameManager.set_focus(true)
 
 # ── Art of War (damage) — masteries are GLOBAL mechs (shared by name across items). Per-item max = spawn cap. ──
 func _apply_damage_pool_effect(pool_id: String) -> void:

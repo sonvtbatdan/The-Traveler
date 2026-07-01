@@ -63,12 +63,16 @@ var money: int = 0   # green-$ currency; new game starts at 0 (Phase 2 will spen
 const BASE_XP: float = 100.0      # XP for level 1→2; the whole curve scales off this
 const GROWTH:  float = 1.12       # each level costs GROWTH× the previous (early fast, late grind)
 const MAX_LEVEL: int = 50         # level cap; XP stops accruing once reached
-const XP_PER_ASTEROID: int = 1            # flat XP per asteroid destroyed
-const XP_ASTEROID_SIZE_DIV: float = 12.0  # + round(width / this) → bigger rocks worth more
-const XP_PER_BOSS: int = 500              # one lump on a boss's FINAL defeat (the "event" reward)
+const XP_PER_ASTEROID: float = 0.05       # flat XP per asteroid destroyed (1/20 of old 1; XP is face-value now)
+const XP_ASTEROID_SIZE_DIV: float = 12.0  # + (width / this) / 20 → bigger rocks worth more
+const XP_PER_BOSS: float = 25.0           # one lump on a boss's FINAL defeat (1/20 of old 500)
+# NOTE: the old global XP_GAIN_SCALE (1/20) multiplier was removed — every XP source now carries its real,
+# face-value amount (see ENEMY_DEFS in arena_wave_director.gd). add_xp still uses a fractional accumulator so
+# sub-1 enemies (e.g. swarm at 0.2 XP) accumulate across kills instead of rounding to 0.
 
 var player_level: int = 1   # starts at 1
 var player_xp:    int = 0    # current XP toward the NEXT level (resets to 0 on each level-up)
+var _xp_frac_acc: float = 0.0   # sub-1 XP carried between add_xp calls so fractional enemy XP isn't lost to rounding
 
 ## XP required to advance FROM `level` to the next: round(BASE_XP * GROWTH^(level-1)).
 ## Accelerating, so each level is a bigger step than the last.
@@ -76,15 +80,23 @@ func xp_to_next(level: int) -> int:
 	return int(round(BASE_XP * pow(GROWTH, float(level - 1))))
 
 ## XP a destroyed asteroid is worth, scaled by its visible width (px). Small rocks ~1, big ~5.
-func xp_for_asteroid(width: float) -> int:
-	return XP_PER_ASTEROID + int(round(width / XP_ASTEROID_SIZE_DIV))
+func xp_for_asteroid(width: float) -> float:
+	return XP_PER_ASTEROID + (width / XP_ASTEROID_SIZE_DIV) / 20.0
 
 ## THE single entry point for gaining XP. Handles multiple level-ups from one big gain (e.g. a
 ## boss), caps at MAX_LEVEL, emits signals for UI/effects, and saves.
-func add_xp(amount: int) -> void:
-	if amount <= 0 or player_level >= MAX_LEVEL:
+func add_xp(amount: float) -> void:
+	if amount <= 0.0 or player_level >= MAX_LEVEL:
 		return
-	player_xp += int(round(float(amount) * upg_xp_gain_mult))   # Data Harvester aux item scales XP gain
+	# Data Harvester aux item scales XP gain. XP is face-value now (the old global 1/20 was removed and baked into
+	# the per-enemy values). Accumulate as a float and only spend whole points, carrying the fractional remainder
+	# so sub-1 enemies (e.g. swarm at 0.2 XP) still count over many kills instead of rounding to 0.
+	_xp_frac_acc += amount * upg_xp_gain_mult
+	var gain := int(_xp_frac_acc)
+	_xp_frac_acc -= float(gain)
+	if gain <= 0:
+		return
+	player_xp += gain
 	var leveled := false
 	while player_level < MAX_LEVEL and player_xp >= xp_to_next(player_level):
 		player_xp -= xp_to_next(player_level)
@@ -211,9 +223,10 @@ func armor_damage_reduction(armor: float) -> float:
 		return ENEMY_ARMOR_DR_MIN   # armor at/below the pole (-200) → max amplification
 	return clampf(ARMOR_DR_COEFF * armor / denom, ENEMY_ARMOR_DR_MIN, 0.95)
 
-# ── Shield (granted by an equipped Shield Generator in the Secondary slot) ─────
-const SHIELD_REGEN_DELAY: float = 3.0   # seconds of no damage before regen starts
-const SHIELD_REGEN_TIME:  float = 1.5   # seconds to refill 0 → capacity
+# ── Shield (base capacity always present; generators/affixes add on top) ─────
+const BASE_SHIELD_MAX:    float = 20.0  # default shield capacity (always present, even with no generator)
+const SHIELD_REGEN_DELAY: float = 20.0  # seconds of no damage before shield regen starts
+const SHIELD_REGEN_RATE:  float = 1.0   # shield points regenerated per second (flat)
 var ship_shield:       float = 0.0      # current shield points
 var _shield_max:       float = 0.0      # capacity of the equipped generator (0 = none equipped)
 var _shield_dmg_timer: float = 999.0    # time since last damage; regen once >= SHIELD_REGEN_DELAY
@@ -309,6 +322,9 @@ func ship_take_damage(dmg: int) -> void:
 	if upg_daredevil:   # Daredevil ramp resets the moment HP damage lands
 		_daredevil_t = 0.0
 		_daredevil_bonus = 0.0
+	if upg_focus:       # Absolute Focus fire-rate ramp also resets on HP damage
+		_focus_t = 0.0
+		_focus_bonus = 0.0
 	ship_hp = maxi(0, ship_hp - int(ceil(d)))
 	ship_hp_changed.emit(ship_hp)
 	if ship_hp <= 0:
@@ -378,12 +394,15 @@ func energy_regen_rate() -> float:
 ## or 0 when "Nanobots, attack!" has disabled it. Gear affixes / hull-innate / Biotech no longer contribute.
 func hp_regen_rate() -> float:
 	var base := 0.0 if upg_regen_disabled else upg_hp_regen
-	return (base + _heat_syphon_regen) * (1.0 + upg_regen_mastery) * upg_regen_wtl_mult
+	return (base + _heat_syphon_regen + _chem_heal_regen) * (1.0 + upg_regen_mastery) * upg_regen_wtl_mult
 ## Dragon's Breath Heat Syphon: regen from currently-burning enemies (set each frame by arena_weapons).
 func set_heat_syphon(v: float) -> void:
 	_heat_syphon_regen = v
+## Chemtrail Healing Cloud: regen while standing in your own chemtrail (set each frame by arena_weapons).
+func set_chem_heal(v: float) -> void:
+	_chem_heal_regen = v
 func shield_capacity_total() -> float:
-	return _equipped_shield_capacity() + sum_affix("shield_flat") + upg_force_shield_max
+	return BASE_SHIELD_MAX + _equipped_shield_capacity() + sum_affix("shield_flat") + upg_force_shield_max
 func shield_regen_bonus() -> float:
 	return sum_affix("shield_regen")   # flat shield/s added to the refill rate
 func shield_delay() -> float:
@@ -483,7 +502,7 @@ func _tick_shield(delta: float) -> void:
 	# Default: inventory generator's delay + (capacity / refill-time) rate. The Force Field aux overrides BOTH to
 	# its spec (10s delay, +1 shield/sec per level) when present — in the arena it's the only shield source.
 	var delay := shield_delay()
-	var rate := (_shield_max / SHIELD_REGEN_TIME) + shield_regen_bonus()
+	var rate := SHIELD_REGEN_RATE + shield_regen_bonus()   # flat 1 shield/sec (+ any affix bonus)
 	if upg_force_shield_max > 0.0:
 		delay = FORCE_SHIELD_DELAY
 		rate = upg_force_shield_regen
@@ -547,6 +566,12 @@ func _process(delta: float) -> void:
 		while _daredevil_t >= 3.0:
 			_daredevil_t -= 3.0
 			_daredevil_bonus = minf(1.0, _daredevil_bonus + 0.01)
+	# Absolute Focus evo: +1% fire rate every 5s without taking HP damage, up to +60% (300s) (reset on damage).
+	if upg_focus and ship_hp > 0:
+		_focus_t += delta
+		while _focus_t >= 5.0:
+			_focus_t -= 5.0
+			_focus_bonus = minf(0.60, _focus_bonus + 0.01)
 	if _shield_timer > 0.0:
 		_shield_timer -= delta
 		if _shield_timer <= 0.0:
@@ -608,8 +633,12 @@ var upg_ms_to_firerate: bool  = false     # Momentum evo: 100% of MS bonus also 
 var upg_daredevil:      bool  = false     # Daredevil evo: damage ramps while undamaged
 var _daredevil_t:       float = 0.0       # seconds since last damage (Daredevil ramp timer)
 var _daredevil_bonus:   float = 0.0       # current Daredevil damage bonus (0..1.0), reset on taking damage
+var upg_focus:          bool  = false     # Auto-Loader Absolute Focus evo: fire-rate ramps while undamaged
+var _focus_t:           float = 0.0       # seconds since last damage (Absolute Focus timer)
+var _focus_bonus:       float = 0.0       # current Absolute Focus fire-rate bonus (0..0.60), reset on damage
 var contact_dmg_base:   float = 0.0       # ship contact damage (Orbital pool grants it; base 0). × Contact Mastery
 var _heat_syphon_regen: float = 0.0       # Dragon's Breath Heat Syphon: HP/s from currently-burning enemies
+var _chem_heal_regen:   float = 0.0       # Chemtrail Healing Cloud: HP/s while standing in your own chemtrail
 var upg_fire_rate_mult: float = 1.0       # weapon fire-rate ×
 var upg_move_speed_mult: float = 1.0      # move-speed ×
 var upg_damage_mult:    float = 1.0       # weapon-damage ×
@@ -682,8 +711,9 @@ func kind_damage_mult(kinds: Array) -> float:
 func get_move_speed_mult() -> float: return upg_move_speed_mult
 func get_damage_mult() -> float:     return upg_damage_mult + _daredevil_bonus   # Daredevil ramp
 func get_fire_rate_mult() -> float:
-	# Momentum evo: 100% of the move-speed BONUS is also added to the global fire-rate multiplier.
-	return upg_fire_rate_mult + (maxf(0.0, upg_move_speed_mult - 1.0) if upg_ms_to_firerate else 0.0)
+	# Momentum evo: 100% of the move-speed BONUS is also added; Absolute Focus adds its ramped bonus.
+	return upg_fire_rate_mult + (maxf(0.0, upg_move_speed_mult - 1.0) if upg_ms_to_firerate else 0.0) + _focus_bonus
+func set_focus(on: bool) -> void: upg_focus = on; player_stats_changed.emit()
 ## Fins Speed Mastery: a fraction of the MS bonus that also speeds up weapons (projectile/minion travel speed).
 func weapon_speed_bonus() -> float:
 	return maxf(0.0, upg_move_speed_mult - 1.0) * upg_speed_mastery
@@ -783,6 +813,10 @@ func reset_run() -> void:
 	_daredevil_bonus = 0.0
 	contact_dmg_base = 0.0
 	_heat_syphon_regen = 0.0
+	_chem_heal_regen = 0.0
+	upg_focus = false
+	_focus_t = 0.0
+	_focus_bonus = 0.0
 	upg_hp_regen = 0.0
 	upg_fire_rate_mult = 1.0
 	upg_move_speed_mult = 1.0
