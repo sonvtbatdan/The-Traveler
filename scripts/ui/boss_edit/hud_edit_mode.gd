@@ -19,6 +19,7 @@ const ArenaWeapons   := preload("res://scripts/gameplay/arena_weapons.gd")
 const BAR_FILL_SHADER   := "res://assets/shaders/bar_fill.gdshader"
 const HUD_BLEND_SHADER  := "res://assets/shaders/hud_blend.gdshader"
 const INVENTORY_DIR     := "res://assets/inventory/"
+const WEAPON_HUD_ICON_DIR := "res://assets/inventory/icon/"   # dedicated per-kind weapon icons for HUD slot btns
 # Weapons whose cooldown frac stays 1.0 (continuous fire / always-on) — mirror of arena_weapons'
 # weapon_cooldown_frac match: these never light btnred/btngreen.
 const CONTINUOUS_WEAPONS := {
@@ -47,8 +48,10 @@ const SH_FILL_COL := Color(0.13, 0.48, 0.86, 1.0)   # Shield = ocean blue
 const SH_GLOW_COL := Color(0.40, 0.78, 1.00, 1.0)
 # Band sprites act as the crop-frame/mask for their bar VFX; they only show in the editor (indicators).
 const BAR_BAND_FILES := {"levelband": true, "HPband": true, "shieldband": true}
+const SHOW_CHARGE_FX  := false  # TEMP: false = hide btnred/btngreen charge overlays (icon-check mode); flip to true to restore
+const SHOW_SLOT_BTN   := false  # TEMP: false = hide the btn frame sprite; it stays in place as an invisible anchor for the icon
 const SLOT_ICON_FIT   := 0.72   # weapon/aux icon box = this fraction of the btn (leaves the frame visible)
-const SLOT_ICON_BLEND := 6      # weapon/aux icon blend mode → "Lighten" (hud_blend.gdshader mode 3)
+const SLOT_ICON_BLEND := 0      # weapon/aux icon blend mode → "Normal" (no blend material)
 
 # ── Macro groups (gameplay-only): 4 screen-edge regions built from the editor groups ────────────────
 # Each region reparents its member nodes into one Control container that is anchored to a screen edge
@@ -64,7 +67,7 @@ const GROUP_MACRO := {
 	"INV": "LV", "MENU": "LV", "LevelBarBg": "LV", "Level": "LV", "LevelBar": "LV",
 }
 const KILLCOIN_TEXTS := {"KILL": true, "COIN": true}   # Text-group sentinels that belong to KillCoin (rest → LV)
-const MACRO_MARGIN := 6.0        # gap between a region's outer edge and the screen edge
+const MACRO_MARGIN := 0.0        # gap between a region's outer edge and the screen edge (0 = flush)
 const SHRINK_SCALE := 0.70       # Weapon/Aux resting size after a change settles
 const SHRINK_DELAY := 5.0        # seconds at full size before shrinking back
 const SHRINK_DUR   := 0.30       # shrink tween duration
@@ -1650,6 +1653,7 @@ func _bind_text(ch: Dictionary) -> void:
 	})
 
 func _update_bindings() -> void:
+	_update_macro_anchors()   # hold each region flush to its edge through the shrink/pulse scaling
 	for b: Dictionary in _text_bindings:
 		_set_text_binding(b, _text_value(String(b["kind"])))
 	_update_weapons()
@@ -1707,7 +1711,7 @@ func _update_weapons() -> void:
 		if s == null:
 			continue
 		var has: bool = i < acquired.size()
-		_set_vis(s.get("btn"), has)
+		_set_vis(s.get("btn"), has and SHOW_SLOT_BTN)   # btn kept as an invisible position anchor when off
 		var icon = s.get("icon")
 		if has:
 			var kind := String(acquired[i])
@@ -1715,17 +1719,22 @@ func _update_weapons() -> void:
 				var tex := _weapon_icon_tex(kind)
 				(icon as TextureRect).texture = tex
 				(icon as TextureRect).visible = tex != null
-			var cont: bool = CONTINUOUS_WEAPONS.has(kind)
-			var firing: bool = _weapons_node.has_method("weapon_is_firing") and bool(_weapons_node.call("weapon_is_firing", kind))
-			var frac := 1.0
-			if _weapons_node.has_method("weapon_cooldown_frac"):
-				frac = float(_weapons_node.call("weapon_cooldown_frac", kind))
-			if cont:
+			if not SHOW_CHARGE_FX:
+				# Charge overlays temporarily off (icon-check mode) — keep btnred/btngreen hidden.
 				_set_vis(s.get("red"), false)
 				_set_vis(s.get("green"), false)
 			else:
-				_set_vis(s.get("green"), firing)
-				_set_vis(s.get("red"), frac < 0.999 and not firing)
+				var cont: bool = CONTINUOUS_WEAPONS.has(kind)
+				var firing: bool = _weapons_node.has_method("weapon_is_firing") and bool(_weapons_node.call("weapon_is_firing", kind))
+				var frac := 1.0
+				if _weapons_node.has_method("weapon_cooldown_frac"):
+					frac = float(_weapons_node.call("weapon_cooldown_frac", kind))
+				if cont:
+					_set_vis(s.get("red"), false)
+					_set_vis(s.get("green"), false)
+				else:
+					_set_vis(s.get("green"), firing)
+					_set_vis(s.get("red"), frac < 0.999 and not firing)
 		else:
 			_set_vis(s.get("red"), false)
 			_set_vis(s.get("green"), false)
@@ -1747,7 +1756,7 @@ func _update_aux() -> void:
 			continue
 		_set_vis(s.get("yellow"), false)   # btnyellow unused → always hidden
 		var has: bool = i < owned.size()
-		_set_vis(s.get("btn"), has)
+		_set_vis(s.get("btn"), has and SHOW_SLOT_BTN)   # btn kept as an invisible position anchor when off
 		var icon = s.get("icon")
 		if has:
 			var id := String(owned[i])
@@ -1810,16 +1819,19 @@ func _apply_blend_to(tr: TextureRect, blend_id: int) -> void:
 		_:
 			tr.material = null
 
+## HUD-btn weapon icon: prefer the dedicated set at assets/inventory/icon/<kind>.png (filenames match the
+## weapon kind), falling back to the WEAPON_INFO/FUSION_DEFS "icon" then InventoryManager.get_icon(def_id).
 func _weapon_icon_tex(kind: String) -> Texture2D:
 	if _weapon_icon_cache.has(kind):
 		return _weapon_icon_cache[kind]
-	var info: Dictionary = ArenaWeapons.WEAPON_INFO.get(kind, ArenaWeapons.FUSION_DEFS.get(kind, {}))
-	var tex: Texture2D = null
-	var icon_path := String(info.get("icon", ""))
-	if icon_path != "":
-		tex = load(icon_path) as Texture2D
+	var tex := _load_tex(WEAPON_HUD_ICON_DIR + kind + ".png")   # dedicated HUD icon set
 	if tex == null:
-		tex = InventoryManager.get_icon(String(info.get("def_id", "")))
+		var info: Dictionary = ArenaWeapons.WEAPON_INFO.get(kind, ArenaWeapons.FUSION_DEFS.get(kind, {}))
+		var icon_path := String(info.get("icon", ""))
+		if icon_path != "":
+			tex = load(icon_path) as Texture2D
+		if tex == null:
+			tex = InventoryManager.get_icon(String(info.get("def_id", "")))
 	_weapon_icon_cache[kind] = tex
 	return tex
 
@@ -1906,14 +1918,31 @@ func _build_macros() -> void:
 		var edge := String(MACRO_EDGE[k])
 		var anchor_local := _edge_anchor_local(bbox, edge)
 		var base: float = SHRINK_SCALE if String(MACRO_BEHAVIOR[k]) == "shrink" else 1.0
-		# pivot = anchor point → scaling holds it fixed; position maps the anchor onto the screen edge.
-		container.pivot_offset = anchor_local
+		# Scale about the container origin (pivot 0); position is recomputed from the CURRENT scale every
+		# frame in _update_macro_anchors so the anchor edge stays flush against the screen at any scale.
 		container.scale = Vector2(base, base)
-		container.position = _edge_anchor_screen(vp, edge) - anchor_local
-		_macros[k] = {"container": container, "edge": edge, "behavior": String(MACRO_BEHAVIOR[k]), "tween": null}
+		_macros[k] = {"container": container, "edge": edge, "anchor_local": anchor_local, "behavior": String(MACRO_BEHAVIOR[k]), "tween": null}
+	_update_macro_anchors()   # place each region flush to its edge for the initial scale
 	# Reset change-detect baselines so the first gameplay frame doesn't fire a spurious pop.
 	_last_acquired_n = _weapon_count()
 	_last_owned_n = _aux_count()
+
+## Keep each region's anchor edge flush against the screen for its CURRENT scale (called every frame so
+## it holds through the shrink/pulse tweens, and re-fits if the window size changes). With pivot 0 the
+## container scales about its origin, so position = screen_anchor − scale·anchor_local puts the region's
+## outer edge exactly on the screen edge (and its centre axis at the screen centre) at any scale.
+func _update_macro_anchors() -> void:
+	if _macros.is_empty():
+		return
+	var vp := get_viewport().get_visible_rect().size
+	for k in _macros:
+		var m: Dictionary = _macros[k]
+		var c = m.get("container")
+		if c == null or not is_instance_valid(c):
+			continue
+		var s: float = (c as Control).scale.x
+		var al: Vector2 = m.get("anchor_local", Vector2.ZERO)
+		(c as Control).position = _edge_anchor_screen(vp, String(m.get("edge", ""))) - al * s
 
 ## Take every container's children back to the objects_container at their design positions (keep_global
 ## =false preserves the local/design coords), then free the containers. Restores the editing layout.
