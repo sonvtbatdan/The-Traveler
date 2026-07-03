@@ -128,11 +128,32 @@ Thay cho scale toàn HUD. `_build_macros()` (cuối `_build_runtime_bindings`, g
 **Role convention (binder index — sprite theo filename, text theo nội dung, scope theo tên group):**
 | Group | Nội dung | Runtime |
 |-------|----------|---------|
-| `Weapon1/2/3` | sprite `WeaponFrame` (indicator) + text `Codename` | sprite weapon (`get_icon(def_id)`) = (frame−8px)×80%, center; text Codename = code name (label), center-X theo WeaponFrame; hover→sáng+5%+uiclick; click→uialert+select |
-| `Upgrade1/2/3` | text `Upgrade Name`+`Upgrade Desc` (style template) + sprite `UpgradeName`+`UpgradeDesc` (indicator = width wrap + center) | fill 1..3 option từ `_current` (thừa ẩn); label runtime wrap theo width indicator; click→`_pick`. Mặc định "Select Weapon" khi chưa chọn |
-| `WeaponDisplay` | sprite `WeaponDisplay` (indicator) + text `Codename`/`Full Name`/`Item Lore` + sprite `LoreDisplay` (indicator, khung wrap lore) | sprite weapon center; Codename=`label`, Full Name=`name` (cả 2 center-X theo WeaponDisplay); Lore=`ArenaWeapons.WEAPON_LORE[kind]` (English) wrap trong khung `LoreDisplay`, top-align. Chưa chọn→ẩn hết text |
-| `StatDisplay` | sprite indicator + text `Weapon Stat` | thay `Weapon Stat` bằng bảng stats (`_fill_stat_rows`, dùng chung panel cũ) scale 80%; sprite `StatDisplay` = indicator ẩn khi chơi |
+| `Weapon1/2/3` | sprite `WeaponFrame` (indicator) + text `Codename` | sprite weapon (`get_icon(def_id)`) = (frame−8px)×80%, center; text Codename = code name (label), center-X theo WeaponFrame; hover→sáng+5%+uiclick+grow; click→uialert+select (`_select_item`) |
+| `Upgrade1/2/3` | text `Upgrade Name` (style template) + sprite `UpgradeName` (wrap box) + sprite `UpgradeIcon` (icon/swatch box) + text `Upgrade Icon` (sentinel, ẩn — chỉ để binder tìm group) | fill 1..3 option từ `_current` (thừa → VFX đen như StatDisplay, xem §12); **hover** (`_hover_option`) = phóng to + preview UpgradeDesc/Weapon Stat, KHÔNG đổi màu VFX; **click** (`_select_option`) = chọn thật: VFX đỏ + đẩy icon lên WeaponDisplay. Mặc định "Select Weapon" khi chưa chọn |
+| `WeaponDisplay` | sprite `WeaponDisplay` (indicator) + text `Codename`/`Full Name`/`Item Lore` + sprite `LoreDisplay` (indicator, khung wrap lore) | sprite = top-level pick, HOẶC option Upgrade1-3 đang được **click** đè lên (xem §12); Codename=`label`, Full Name=`name` (cả 2 center-X theo WeaponDisplay, LUÔN theo top-level pick dù sprite bị đè); Lore=`ArenaWeapons.WEAPON_LORE[kind]` (English) wrap trong khung `LoreDisplay`, top-align. Chưa chọn→ẩn hết text |
+| `StatDisplay` | sprite indicator + text `Weapon Stat` + text `Upgrade Desc` (style template, sentinel ẩn) + sprite `UpgradeDesc` (wrap box, hiện khi chơi) | thay `Weapon Stat` bằng bảng stats (`_fill_stat_rows`) scale 80%; `UpgradeDesc` = RichTextLabel 3 phần màu (stat trắng/rank đỏ/trivia vàng, cách nhau 1 dòng trống, font style−4, center cả 2 chiều) theo option đang **hover** (`_hover_preview_idx`), KHÔNG phải option đã click; sprite `StatDisplay` = indicator ẩn khi chơi |
 
-> Sentinel text match **bỏ khoảng trắng + lowercase** ("Code Name"=="Codename"). Indicator sprites (filename trong `INDICATORS`: WeaponFrame/WeaponDisplay/UpgradeName/UpgradeDesc/StatDisplay/LoreDisplay) = edit-only. **Click được nhờ ẩn hẳn `_root`** (Control full-rect layer 100 STOP nuốt click) khi board active — input xử lý ở host layer 99 + blocker.
+> Sentinel text match **bỏ khoảng trắng + lowercase** ("Code Name"=="Codename"). Indicator sprites edit-only thật sự (`LevelUpBinder.INDICATORS`) chỉ có **`WeaponDisplay`/`StatDisplay`** — `WeaponFrame`/`CodeName`/`UpgradeName`/`UpgradeIcon`/`UpgradeDesc`/`LoreDisplay` là **FRAME_LAYERS** (chrome/khung thật, ở lại visible lúc chơi, runtime vẽ ĐÈ lên chứ không thay thế). **Click được nhờ ẩn hẳn `_root`** (Control full-rect layer 100 STOP nuốt click) khi board active — input xử lý ở host layer 99 + blocker.
 
-Indicator sprites (`WeaponFrame`/`WeaponDisplay`/`UpgradeName`/`UpgradeDesc`) = edit-only (`LevelUpBinder.is_band_file`) — ẩn khi chơi, chỉ hiện trong HUD Edit. Sprite chrome/indicator ở `assets/hud/LevelUp/`. Runtime nodes (sprite/label/button) do `arena_levelup_ui` tạo trên `binder.container()`, dọn qua `_board_clear_all`.
+`WeaponDisplay`/`StatDisplay` = edit-only thật (`LevelUpBinder.is_band_file`) — ẩn khi chơi, chỉ hiện trong HUD Edit. Sprite chrome/indicator ở `assets/hud/LevelUp/`. Runtime nodes (sprite/label/button) do `arena_levelup_ui` tạo trên `binder.container()`, dọn qua `_board_clear_all`.
+
+## 12. Level Up — aux/perk icon + hover/click select (2026-07-03)
+
+**Nguồn icon aux/perk** (`arena_levelup_ui.gd`):
+| Loại | Folder | Filename | Hàm resolve |
+|---|---|---|---|
+| Aux top-level (17 item, `AUX_DEFS`) | `assets/hud/UpgradeIcon/` | `<aux_id>.png` (vd `hp.png`, `coin.png`) | `_aux_icon_tex(id)` |
+| Aux pool perk (40 perk dưới 7 aux có pool, `AUX_POOL`) | `assets/hud/perks/` | `<perk_id>.png` (vd `regen_shield.png`) | `_perk_icon_tex(id)` |
+| Weapon (mọi kind/pool-perk/capstone) | `assets/inventory/*.png` (KHÔNG phải `assets/inventory/icon/` — đó là set riêng cho HUD slot, xem §6) | qua `ITEM_DEFS[def_id].icon` | `InventoryManager.get_icon(def_id)` |
+
+`_option_icon_tex(c)` = điểm vào DUY NHẤT resolve icon cho 1 card dict `c` bất kỳ (top-level pick / pool perk / capstone): `def_id != ""` → weapon (`InventoryManager`); else aux — nếu `cat=="aux_pool"` thử icon RIÊNG của perk trước (`_perk_icon_tex`), fallback icon **aux cha** (`_aux_icon_tex(_aux_id_for(c))`); còn lại (capstone, aux đơn) luôn dùng icon aux cha. Weapon pool-perk (53 perk dưới 9 weapon có pool, xem `GATLING_POOL`/`ARC_POOL`/... trong `arena_weapons.gd`) **CHƯA có icon riêng** — luôn hiện icon của chính weapon cha (chưa có folder tương đương `assets/hud/perks/` cho weapon).
+
+**Scale — GPU stretch, KHÔNG CPU resize:** `_contain_box(native, max_w, max_h)` tính kích thước CONTAIN-fit (giữ aspect, cả 2 chiều đều ≤ box, trục nào chặt hơn quyết định) thuần toán học; `_fit_texture_rect(tex, max_w, max_h)` dựng `TextureRect` với `expand_mode=EXPAND_IGNORE_SIZE` + `stretch_mode=STRETCH_KEEP_ASPECT_CENTERED` — **y hệt cách weapon icon vẫn làm**, để GPU tự co giãn lúc vẽ. Đã thử CPU `Image.resize()` (kể cả LANCZOS) trước — nét kém hẳn so với GPU stretch dù cùng tỉ lệ thu nhỏ lớn (so sánh trực tiếp với weapon icon, nguồn cũng to tương đương ~2000-2900px). **Đừng quay lại CPU resize** cho icon aux/perk trừ khi có bằng chứng ngược lại.
+
+**Hover vs Click trên Upgrade1-3 (mirror Weapon1-3):** 2 biến tách biệt —
+- `_hover_preview_idx` (set bởi CẢ hover lẫn click, qua `_hover_option`/`_select_option`) → chỉ lái `_board_render_updesc()` + `_board_render_stats()` (preview). Hover KHÔNG rebuild lại 3 card, chỉ refresh 2 panel này (nhẹ).
+- `_pending_pick_idx` (set CHỈ bởi click, qua `_select_option`) → lái VFX đỏ/xanh (`ucol` trong `_board_render_options`), Confirm commit target, VÀ icon trên `WeaponDisplay` (`_board_render_selected` ưu tiên `_current[_pending_pick_idx]` nếu có, fallback `_choices[_selected_idx]`). Reset về `-1` mỗi khi chuyển sang weapon/aux khác ở cột trái (`_select_item`) — tránh WeaponDisplay hiện nhầm icon perk của lựa chọn trước.
+
+**Route cache** (`_route_cache: Dictionary`, key = `ckey` "w:kind"/"a:id"): `_gen_pool_choices`/`_gen_aux_pool_choices` (có `shuffle()`) chỉ chạy 1 lần/slot/màn hình — click qua lại giữa 3 weapon/aux không reroll perk. Clear ở đầu `_show_cards()` mỗi màn hình mới.
+
+**Ô Upgrade trống** (ít hơn 3 option, pool cạn/capstone ít lựa chọn): VFX đen (`SCAN_COLOR_BLACK`) trên cả `UpgradeIcon`+`UpgradeName`, đồng bộ với cách StatDisplay/MainDisplay hiện khi "không phải item chọn được".

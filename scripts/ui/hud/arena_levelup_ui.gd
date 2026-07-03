@@ -34,9 +34,65 @@ var _pending: int = 0
 var _showing: bool = false
 var _current: Array = []   # the OPTIONS-row array that _pick() acts on (pool / capstone / destroy / single confirm)
 var _choices: Array = []   # left-column offered items (tier-1), persistent for this screen
+var _route_cache: Dictionary = {}   # ckey → generated pool-perk options, rolled once per left-slot per screen
+                                     # (re-clicking the same weapon/aux slot must show the SAME 3 perks, not reroll)
 var _selected_idx: int = -1   # which left slot is currently selected
 var _options_back: bool = false   # true while the All-In "destroy a weapon" sub-view shows (offers a back affordance)
 var _capstone_weapon: String = ""    # the weapon being evolved (for the capstone / destroy screens)
+# Board-only select-then-confirm, mirrors weapon-icon's hover/click split (Weapon1-3): HOVERING an Upgrade1-3
+# card only updates UpgradeDesc/stat-deltas (_hover_preview_idx) — no VFX colour change, matching the
+# weapon-icon cards where hover is pure-visual (grow). CLICKING actually selects it (_pending_pick_idx): VFX
+# turns red, the sprite is pushed onto WeaponDisplay (replacing whatever's shown), and the authored Confirm
+# button commits whichever index is pending. Both reset to -1 on every new options screen, auto-set to 0 when
+# there is exactly one option (single-choice screens need no extra click).
+var _pending_pick_idx: int = -1
+var _hover_preview_idx: int = -1
+
+# ── Stat-delta preview (board Confirm flow) ─────────────────────────────────────────────────
+# Hand-verified against arena_aux.gd's _apply_effect / _apply_*_pool_effect: only entries whose GameManager
+# call directly touches one of the curated "Weapon Stat" rows are listed, so a shown delta is never a lie
+# (many aux/weapon perks land on per-family or per-weapon mechs that don't have — and shouldn't get — a row).
+# id → Array[{row, amt, pct}]. amt is the raw fraction/flat added; pct=true → shown as a percent.
+const AUX_TOP_DELTAS := {
+	"force_field": [{"row": "shield", "amt": 20.0}],
+	"crit":        [{"row": "crit_chance", "amt": 0.05, "pct": true}],
+	"pickup":      [{"row": "pickup", "amt": 0.15, "pct": true}],
+	"xp":          [{"row": "xp", "amt": 0.10, "pct": true}],
+	"spawn":       [{"row": "spawn", "amt": 0.15, "pct": true}],
+	"retaliation": [{"row": "retaliation", "amt": 5.0}],
+	"coin":        [{"row": "coin", "amt": 0.25, "pct": true}],
+}
+# aux id → {pool_id → Array[{row, amt, pct}]}. Perks not listed (mechs, per-weapon, meta-multipliers,
+# STUBs) intentionally show no delta rather than an approximate/misleading one.
+const AUX_POOL_DELTAS := {
+	"hp": {
+		"plating":   [{"row": "hp", "amt": 20.0}],
+		"bulwark":   [{"row": "hp", "amt": 10.0}, {"row": "armor", "amt": 1.0}],
+		"ablative":  [{"row": "hp", "amt": 10.0}, {"row": "move_speed", "amt": 0.02, "pct": true}],
+		"sacrifice": [{"row": "hp", "amt": -0.05, "pct": true}, {"row": "damage", "amt": 0.05, "pct": true}],
+		"overall":   [{"row": "hp", "amt": 0.01, "pct": true}, {"row": "damage", "amt": 0.01, "pct": true},
+			{"row": "move_speed", "amt": 0.01, "pct": true}, {"row": "armor", "amt": 0.01, "pct": true}],
+	},
+	"regen": {
+		"regen_flat":   [{"row": "hp_regen", "amt": 0.2}],
+		"regen_hp":     [{"row": "hp_regen", "amt": 0.1}, {"row": "hp", "amt": 10.0}],
+		"regen_shield": [{"row": "hp_regen", "amt": 0.1}],
+		"overregen":    [{"row": "shield", "amt": 10.0}],
+	},
+	"armor": {
+		"ex_armor":    [{"row": "armor", "amt": 2.0}],
+		"ex_armor_hp": [{"row": "armor", "amt": 1.0}, {"row": "hp", "amt": 1.0}],
+	},
+	"fire_rate": {
+		"rate_all": [{"row": "fire_rate", "amt": 0.025, "pct": true}],
+		"tradeoff": [{"row": "fire_rate", "amt": -0.025, "pct": true}],
+	},
+	"speed": {
+		"sp_ms":      [{"row": "move_speed", "amt": 0.06, "pct": true}],
+		"sp_dodge":   [{"row": "dodge", "amt": 0.05, "pct": true}],
+		"sp_ms_fire": [{"row": "move_speed", "amt": 0.02, "pct": true}, {"row": "fire_rate", "amt": 0.02, "pct": true}],
+	},
+}
 
 # Node refs (full-screen layout).
 var _root: Control = null
@@ -55,10 +111,17 @@ var _slot_specs: Array = []          # last computed left-slot specs (shared wit
 var _rt_choices: Array = []          # runtime board nodes: weapon-choice sprites (+ click)
 var _rt_options: Array = []          # runtime board nodes: upgrade-option click targets + labels
 var _rt_stats: Array = []            # runtime board nodes: stat rows
+var _rt_updesc: Array = []           # runtime board nodes: single UpgradeDesc label (selected option's text)
 var _rt_display: Array = []          # runtime board nodes: selected-item sprite (WeaponDisplay)
 var _board_blocker: ColorRect = null # host input/darken backdrop while the board is showing
 const WEAPON_SPRITE_MARGIN := 8.0    # weapon sprite is this many px smaller than its frame (per the spec)
 const CHOICE_SPRITE_SCALE := 0.8     # Weapon1-3 choice sprites shown at 80% of the frame box
+const AUX_ICON_DIR := "res://assets/hud/UpgradeIcon/"   # per-id aux icon set (filename = AUX_DEFS id), e.g. hp.png
+const PERK_ICON_DIR := "res://assets/hud/perks/"        # per-perk icon set (filename = AUX_POOL perk id), e.g. regen_shield.png
+const AUX_ICON_SCALE := 0.8          # aux/perk icons CONTAIN-fit within 80% of BOTH width and height of their frame
+                                      # (whichever axis is tighter wins) — neither dimension may exceed 80% of the frame.
+var _aux_icon_cache: Dictionary = {} # aux id → Texture2D (or null if missing), loaded from AUX_ICON_DIR
+var _perk_icon_cache: Dictionary = {} # perk id → Texture2D (or null if missing), loaded from PERK_ICON_DIR
 
 # Full-screen layout fractions (symmetric: left/right columns equal, centered main column).
 const COL_L_LEFT  := 0.02
@@ -164,7 +227,8 @@ func _board_clear(list: Array) -> void:
 	list.clear()
 
 func _board_clear_all() -> void:
-	_board_clear(_rt_choices); _board_clear(_rt_options); _board_clear(_rt_stats); _board_clear(_rt_display)
+	_board_clear(_rt_choices); _board_clear(_rt_options); _board_clear(_rt_stats)
+	_board_clear(_rt_updesc); _board_clear(_rt_display)
 
 func _board_add(n: Control) -> void:
 	var b = _board_binder()
@@ -194,11 +258,24 @@ func _board_render_choices() -> void:
 		if frame == null or not is_instance_valid(frame):
 			continue
 		var fc := frame as Control
-		# code name of this choice, centred on the WeaponFrame then nudged +3px right (Y unchanged)
-		_board_set_text_cx(b.call("weapon_codename", i), String(spec.get("name", "")), fc.position.x + fc.size.x * 0.5, 3.0)
+		# Code name of this choice, centred on the "CodeName" indicator sprite if authored, else the WeaponFrame.
+		var cn_ind = b.call("weapon_codename_ind", i)
+		var cx := fc.position.x + fc.size.x * 0.5
+		if cn_ind != null and is_instance_valid(cn_ind):
+			cx = (cn_ind as Control).position.x + (cn_ind as Control).size.x * 0.5
+		_board_set_text_cx(b.call("weapon_codename", i), String(spec.get("name", "")), cx)
 		var node := _board_make_choice(fc, spec, int(spec["idx"]))
 		_board_add(node)
 		_rt_choices.append(node)
+		# Ambient scan VFX on WeaponFrame + CodeName — green idle, red for the currently-selected slot.
+		var wcol := SCAN_COLOR_RED if int(spec["idx"]) == _selected_idx else SCAN_COLOR_GREEN
+		var wvfx := _board_make_icon_vfx(_node_rect(fc), fc.z_index + 1, wcol)
+		_board_add(wvfx)
+		_rt_choices.append(wvfx)
+		if cn_ind != null and is_instance_valid(cn_ind):
+			var cvfx := _board_make_name_vfx(_node_rect(cn_ind), (cn_ind as CanvasItem).z_index + 1, wcol)
+			_board_add(cvfx)
+			_rt_choices.append(cvfx)
 
 func _board_make_choice(frame: Control, spec: Dictionary, idx: int) -> Control:
 	var root := Control.new()
@@ -208,9 +285,13 @@ func _board_make_choice(frame: Control, spec: Dictionary, idx: int) -> Control:
 	root.z_index = frame.z_index + 5
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var box := (frame.size - Vector2(WEAPON_SPRITE_MARGIN, WEAPON_SPRITE_MARGIN)) * CHOICE_SPRITE_SCALE
-	var tex: Texture2D = InventoryManager.get_icon(String(spec.get("def", ""))) if String(spec.get("def", "")) != "" else null
+	var def_id := String(spec.get("def", ""))
+	var aux_id := String(spec.get("aux_id", ""))
+	var tex: Texture2D = InventoryManager.get_icon(def_id) if def_id != "" else _aux_icon_tex(aux_id)
 	var content: Control
 	if tex != null:
+		if aux_id != "":
+			box = _contain_box(tex.get_size(), box.x, box.y)   # aux: CONTAIN both axes (weapon keeps its own margin box)
 		var tr := TextureRect.new()
 		tr.texture = tex
 		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -265,22 +346,38 @@ func _board_render_selected() -> void:
 	if b == null:
 		return
 	_board_clear(_rt_display)
+	# MainDisplay: ambient black scan VFX, always on — not tied to any selection state.
+	var main_disp = b.call("main_display")
+	if main_disp != null and is_instance_valid(main_disp):
+		var mvfx := _board_make_icon_vfx(_node_rect(main_disp), (main_disp as CanvasItem).z_index + 1, SCAN_COLOR_BLACK)
+		_board_add(mvfx)
+		_rt_display.append(mvfx)
 	var cn = b.call("display_codename")
 	var fn = b.call("display_fullname")
 	var lr = b.call("display_lore")
 	if _selected_idx < 0 or _selected_idx >= _choices.size():
 		_board_set_text(cn, ""); _board_set_text(fn, ""); _board_set_text(lr, "")
 		return
-	var info := _weapon_meta(_choices[_selected_idx])
+	var sel_c: Dictionary = _choices[_selected_idx]
+	var info := _weapon_meta(sel_c)   # Codename/Full Name/Lore text ALWAYS reflect the top-level pick
+	# The SPRITE, though, follows whichever Upgrade1-3 card was last CLICKED (_pending_pick_idx) — clicking
+	# an option (e.g. a perk) pushes ITS icon here, replacing the top-level pick's icon. Falls back to the
+	# top-level pick's own icon when nothing's been clicked yet (unchanged from before).
+	var icon_c := sel_c
+	if _pending_pick_idx >= 0 and _pending_pick_idx < _current.size():
+		icon_c = _current[_pending_pick_idx]
 	# WeaponDisplay centre X (frame if present, else the group) — codename/full name centre on it.
 	var disp_cx := 0.0
 	var frame = b.call("display_frame")
 	if frame != null and is_instance_valid(frame):
 		var fc := frame as Control
 		disp_cx = fc.position.x + fc.size.x * 0.5
-		var tex: Texture2D = InventoryManager.get_icon(String(info.get("def_id", ""))) if String(info.get("def_id", "")) != "" else null
+		var icon_def_id := String(icon_c.get("def_id", ""))
+		var box := fc.size - Vector2(WEAPON_SPRITE_MARGIN, WEAPON_SPRITE_MARGIN)
+		var tex := _option_icon_tex(icon_c)
 		if tex != null:
-			var box := fc.size - Vector2(WEAPON_SPRITE_MARGIN, WEAPON_SPRITE_MARGIN)
+			if icon_def_id == "":
+				box = _contain_box(tex.get_size(), box.x, box.y)   # aux: CONTAIN both axes (weapon keeps its own margin box)
 			var tr := TextureRect.new()
 			tr.texture = tex
 			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -291,6 +388,16 @@ func _board_render_selected() -> void:
 			tr.z_index = (frame as CanvasItem).z_index + 5
 			_board_add(tr)
 			_rt_display.append(tr)
+		else:
+			# No art at all (neither the clicked option's own icon nor its parent aux's) → colour swatch.
+			var sw := ColorRect.new()
+			sw.color = icon_c.get("color", Color.GRAY)
+			sw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			sw.size = box
+			sw.position = fc.position + (fc.size - box) * 0.5
+			sw.z_index = (frame as CanvasItem).z_index + 5
+			_board_add(sw)
+			_rt_display.append(sw)
 	else:
 		var dgr: Rect2 = b.call("group_rect", "WeaponDisplay")
 		disp_cx = dgr.position.x + dgr.size.x * 0.5
@@ -334,7 +441,9 @@ func _board_set_text_cx(node, s: String, center_x: float, off_x: float = 0.0) ->
 		c.position.x = center_x - c.size.x * 0.5 + off_x
 
 ## Upgrade1-3: fill from _current (1..N options, extras hidden). prompt=true → the pre-selection state
-## ("Select Weapon" in each name, desc blank, no click targets).
+## ("Select Weapon" in each name, no click targets). Clicking a card only PREVIEWS it (_select_option):
+## highlight ring + UpgradeDesc text + Weapon Stat deltas. The authored Confirm button (_board_render_confirm)
+## is what actually commits the pending pick — folded in here so every options render keeps it in sync.
 func _board_render_options(prompt: bool = false) -> void:
 	var b = _board_binder()
 	if b == null:
@@ -342,35 +451,327 @@ func _board_render_options(prompt: bool = false) -> void:
 	_board_clear(_rt_options)
 	var n := 0 if prompt else _current.size()
 	for i in 3:
-		# Hide the authored template texts (runtime wrapped labels replace them).
+		# Hide the authored template texts (runtime wrapped labels / icon replace them).
 		_board_set_vis(b.call("upg_name_text", i), false)
-		_board_set_vis(b.call("upg_desc_text", i), false)
+		_board_set_vis(b.call("upg_icon_text", i), false)
 		var name_ind = b.call("upg_name_ind", i)
-		var desc_ind = b.call("upg_desc_ind", i)
+		var icon_ind = b.call("upg_icon_ind", i)
 		if prompt:
 			var pl := _board_wrapped(name_ind, b.call("upg_name_text", i), b.call("upg_name_style", i), "Select Weapon")
 			if pl != null:
 				_rt_options.append(pl)
+			# Ambient green VFX runs even before any option is offered (no pending pick possible yet → never red).
+			if icon_ind != null and is_instance_valid(icon_ind):
+				var pivfx := _board_make_icon_vfx(_node_rect(icon_ind), (icon_ind as CanvasItem).z_index + 1, SCAN_COLOR_GREEN)
+				_board_add(pivfx)
+				_rt_options.append(pivfx)
+			if name_ind != null and is_instance_valid(name_ind):
+				var pnvfx := _board_make_name_vfx(_node_rect(name_ind), (name_ind as CanvasItem).z_index + 1, SCAN_COLOR_GREEN)
+				_board_add(pnvfx)
+				_rt_options.append(pnvfx)
 			continue
 		if i >= n:
+			# Fewer than 3 options this screen (pool ran dry, etc.) — empty slot: black ambient VFX, same
+			# treatment as MainDisplay/StatDisplay for "not a selectable item" (SCAN_COLOR_BLACK).
+			if icon_ind != null and is_instance_valid(icon_ind):
+				var bivfx := _board_make_icon_vfx(_node_rect(icon_ind), (icon_ind as CanvasItem).z_index + 1, SCAN_COLOR_BLACK)
+				_board_add(bivfx)
+				_rt_options.append(bivfx)
+			if name_ind != null and is_instance_valid(name_ind):
+				var bnvfx := _board_make_name_vfx(_node_rect(name_ind), (name_ind as CanvasItem).z_index + 1, SCAN_COLOR_BLACK)
+				_board_add(bnvfx)
+				_rt_options.append(bnvfx)
 			continue
 		var c: Dictionary = _current[i]
-		var nm := String(c.get("name", ""))
-		var dt := _default_text(c)
-		if String(c.get("desc", "")) != "":
-			dt += "\n" + String(c.get("desc", ""))
 		var slot_labels: Array = []
-		var name_lbl := _board_wrapped(name_ind, b.call("upg_name_text", i), b.call("upg_name_style", i), nm)
+		var name_lbl := _board_wrapped(name_ind, b.call("upg_name_text", i), b.call("upg_name_style", i), String(c.get("name", "")))
 		if name_lbl != null:
 			_rt_options.append(name_lbl); slot_labels.append(name_lbl)
-		var desc_lbl := _board_wrapped(desc_ind, b.call("upg_desc_text", i), b.call("upg_desc_style", i), dt)
-		if desc_lbl != null:
-			_rt_options.append(desc_lbl); slot_labels.append(desc_lbl)
-		var rect := _node_rect(name_ind).merge(_node_rect(desc_ind)) if name_ind != null and desc_ind != null else _node_rect(name_ind if name_ind != null else desc_ind)
+		if icon_ind != null and is_instance_valid(icon_ind):
+			var icon_node := _board_make_option_icon(icon_ind as Control, c)
+			_board_add(icon_node)
+			_rt_options.append(icon_node); slot_labels.append(icon_node)
+		var rect := _node_rect(name_ind).merge(_node_rect(icon_ind)) if name_ind != null and icon_ind != null else _node_rect(name_ind if name_ind != null else icon_ind)
+		# Ambient scan VFX on UpgradeIcon + UpgradeName separately — green idle, red for the pending pick.
+		var ucol := SCAN_COLOR_RED if i == _pending_pick_idx else SCAN_COLOR_GREEN
+		if icon_ind != null and is_instance_valid(icon_ind):
+			var ivfx := _board_make_icon_vfx(_node_rect(icon_ind), (icon_ind as CanvasItem).z_index + 1, ucol)
+			_board_add(ivfx)
+			_rt_options.append(ivfx)
+		if name_ind != null and is_instance_valid(name_ind):
+			var nvfx := _board_make_name_vfx(_node_rect(name_ind), (name_ind as CanvasItem).z_index + 1, ucol)
+			_board_add(nvfx)
+			_rt_options.append(nvfx)
 		if rect.size.x > 1.0:
 			var btn := _board_click(rect, i, slot_labels)
 			_board_add(btn)
 			_rt_options.append(btn)
+	_board_render_updesc()
+	_board_render_stats()
+	_board_render_confirm()
+
+## Centred icon/swatch for an Upgrade1-3 card, sized into its UpgradeIcon indicator rect. Weapon-pool-perk
+## cards keep the frame-margin box (same rule as the left-column choice sprites). Aux cards (their own pick,
+## a skill-point perk, or an evolve capstone under them) CONTAIN-fit within AUX_ICON_SCALE (80%) of the
+## indicator's width AND height (aspect kept, neither dimension exceeds 80%), centred in the rect. Pool-perk
+## cards (cat "aux_pool") try their OWN icon (PERK_ICON_DIR, filename = the perk's own id, e.g.
+## "regen_shield") first, falling back to the parent aux's icon, then a colour-swatch if neither exists.
+func _board_make_option_icon(frame: Control, c: Dictionary) -> Control:
+	var def_id := String(c.get("def_id", ""))
+	var color: Color = c.get("color", Color.GRAY)
+	var content: Control
+	var box: Vector2
+	if def_id != "":
+		box = frame.size - Vector2(WEAPON_SPRITE_MARGIN, WEAPON_SPRITE_MARGIN)
+		content = _sprite_or_swatch(def_id, color)
+	else:
+		var max_w := frame.size.x * AUX_ICON_SCALE
+		var max_h := frame.size.y * AUX_ICON_SCALE
+		var tex: Texture2D = null
+		if String(c.get("cat", "")) == "aux_pool":
+			tex = _perk_icon_tex(String(c.get("key", "")))
+		if tex == null:
+			tex = _aux_icon_tex(_aux_id_for(c))
+		if tex != null:
+			var fit := _fit_texture_rect(tex, max_w, max_h)
+			box = fit["box"]
+			content = fit["control"]
+		else:
+			box = Vector2(max_w, max_h)
+			var sw := ColorRect.new()
+			sw.color = color
+			sw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			content = sw
+	content.size = box
+	content.position = frame.position + (frame.size - box) * 0.5
+	content.z_index = (frame as CanvasItem).z_index + 5
+	return content
+
+## Ambient VFX for the level-up board — runs on EVERY cell continuously, not just the selected one. Colour
+## communicates state: green = idle, red = this cell is the currently-selected one (_selected_idx /
+## _pending_pick_idx), black = MainDisplay/StatDisplay (not a selectable item, always the same colour).
+## Two cell "kinds":
+##  - Icon cells (WeaponFrame / UpgradeIcon / MainDisplay / StatDisplay): scan+noise+border (shared/cached
+##    material per colour — these don't need per-instance variation) + an additive sweep band. The sweep
+##    material is ALWAYS per-instance with a randomised speed + start phase, so multiple cells never sweep
+##    in lockstep.
+##  - Name-plate cells (CodeName / UpgradeName): scan+noise+border only, no sweep — instead a gentle
+##    breathing flicker (also per-instance randomised phase/speed) via the same shader's flicker uniforms.
+const SCAN_SHADER := "res://assets/shaders/selection_scan.gdshader"
+const SWEEP_SHADER := "res://assets/shaders/selection_sweep.gdshader"
+const SCAN_COLOR_GREEN := Color(0.35, 1.0, 0.45, 0.5)    # idle (not selected) — 50% opacity
+const SCAN_COLOR_RED := Color(1.0, 0.30, 0.30, 1.0)
+const SCAN_COLOR_BLACK := Color(0.15, 0.15, 0.15, 1.0)   # MainDisplay/StatDisplay — +10% brightness over near-black
+const NAME_FLICKER_STRENGTH := 0.30
+var _scan_mats: Dictionary = {}    # Color → ShaderMaterial (selection_scan.gdshader, flicker off)
+
+## Shared/cached scan+noise+border material for icon cells (no flicker) — identical look, no need to desync.
+func _scan_material(color: Color) -> ShaderMaterial:
+	if not _scan_mats.has(color):
+		var m := ShaderMaterial.new()
+		m.shader = load(SCAN_SHADER) as Shader
+		m.set_shader_parameter("scan_color", color)
+		_scan_mats[color] = m
+	return _scan_mats[color]
+
+## Per-instance scan+noise+border material WITH a gentle flicker (name-plate cells) — unique per call so
+## each cell's flicker phase/speed differs and they never pulse in unison.
+func _flicker_material(color: Color) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load(SCAN_SHADER) as Shader
+	m.set_shader_parameter("scan_color", color)
+	m.set_shader_parameter("flicker_strength", NAME_FLICKER_STRENGTH)
+	m.set_shader_parameter("flicker_speed", randf_range(1.6, 2.8))
+	m.set_shader_parameter("flicker_phase", randf() * 20.0)
+	return m
+
+## Per-instance sweep material — always randomised (speed ±25%, start phase random) so icon cells' sweep
+## bands never sync up even though they share a colour.
+func _sweep_material(color: Color) -> ShaderMaterial:
+	var m := ShaderMaterial.new()
+	m.shader = load(SWEEP_SHADER) as Shader
+	m.set_shader_parameter("sweep_color", color)
+	m.set_shader_parameter("sweep_speed", 0.35 * randf_range(0.75, 1.25))
+	m.set_shader_parameter("time_offset", randf() * 20.0)
+	return m
+
+## `z` is the z_index of the frame/icon node this VFX sits on top of — callers pass frame.z_index + 1 (or the
+## icon indicator's) so the VFX always draws just above ITS OWN cell but stays below the "Frame" board-chrome
+## group (authored above every cell group in the editor's group order), matching the layering the frame art
+## is meant to have over the scan effect.
+func _board_make_icon_vfx(rect: Rect2, z: int, color: Color) -> Control:
+	var root := Control.new()
+	root.position = rect.position
+	root.size = rect.size
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.z_index = z
+	var scan := ColorRect.new()
+	scan.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scan.color = Color.WHITE
+	scan.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	scan.material = _scan_material(color)
+	root.add_child(scan)
+	var sweep := ColorRect.new()
+	sweep.set_anchors_preset(Control.PRESET_FULL_RECT)
+	sweep.color = Color.WHITE
+	sweep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sweep.z_index = 1   # relative to root (z_as_relative defaults true) — draws just above the scan layer
+	sweep.material = _sweep_material(color)
+	root.add_child(sweep)
+	return root
+
+## Name-plate cell (CodeName / UpgradeName): scan+noise+border only, no sweep, gentle randomised flicker.
+func _board_make_name_vfx(rect: Rect2, z: int, color: Color) -> Control:
+	var r := ColorRect.new()
+	r.position = rect.position
+	r.size = rect.size
+	r.color = Color.WHITE
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	r.z_index = z
+	r.material = _flicker_material(color)
+	return r
+
+## Click a card: SELECT it — VFX turns red, its sprite is pushed onto WeaponDisplay (replacing whatever's
+## shown), UpgradeDesc/stat deltas show it. Does not apply/commit yet, Confirm does that. Mirrors weapon-
+## icon's click-to-select (_select_item); hover-only preview is _hover_option, below.
+func _select_option(idx: int) -> void:
+	if idx < 0 or idx >= _current.size():
+		return
+	_hover_preview_idx = idx   # a click also counts as "previewing" it, keep desc/stats in sync
+	if idx == _pending_pick_idx:
+		return
+	_pending_pick_idx = idx
+	_board_render_options()
+	_board_render_selected()   # push the clicked option's sprite onto WeaponDisplay
+
+## Hover a card: PREVIEW only — UpgradeDesc + stat deltas update to show it. No VFX colour change and no
+## WeaponDisplay swap (those are click-only, see _select_option) — matches weapon-icon's hover, which is
+## pure-visual (grow) and never changes what's selected.
+func _hover_option(idx: int) -> void:
+	if idx < 0 or idx >= _current.size() or idx == _hover_preview_idx:
+		return
+	_hover_preview_idx = idx
+	_board_render_updesc()
+	_board_render_stats()
+
+## Single UpgradeDesc box: the currently-selected (pending confirm) option's text, split into 3 coloured
+## parts — stat/effect number (white), rank/level (red), flavour trivia (yellow) — wrapped inside the
+## "UpgradeDesc" indicator's rect, same placement pattern as LoreDisplay (indicator hidden, runtime shown).
+func _board_render_updesc() -> void:
+	var b = _board_binder()
+	if b == null:
+		return
+	_board_clear(_rt_updesc)
+	_board_set_vis(b.call("updesc_text"), false)
+	if _hover_preview_idx < 0 or _hover_preview_idx >= _current.size():
+		return
+	var c: Dictionary = _current[_hover_preview_idx]
+	var parts := _updesc_parts(c)
+	var lines: Array = []
+	if String(parts["stat"]) != "":
+		lines.append("[color=#ffffff]%s[/color]" % String(parts["stat"]))
+	if String(parts["rank"]) != "":
+		lines.append("[color=#ff4444]%s[/color]" % String(parts["rank"]))
+	if String(parts["trivia"]) != "":
+		lines.append("[color=#ffd23f]%s[/color]" % String(parts["trivia"]))
+	if lines.is_empty():
+		return
+	var ind = b.call("updesc_ind")
+	var rect := _node_rect(ind)
+	var z := ((ind as CanvasItem).z_index + 6) if ind != null and is_instance_valid(ind) else 250
+	if rect.size.x <= 1.0:
+		return
+	var style: Dictionary = b.call("updesc_style")
+	var rtl := RichTextLabel.new()
+	rtl.bbcode_enabled = true
+	rtl.fit_content = false
+	rtl.scroll_active = false
+	rtl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rtl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rtl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rtl.add_theme_font_size_override("normal_font_size", maxi(1, int(style.get("font_size", 24)) - 4))
+	var font := _font_from(style)
+	if font != null:
+		rtl.add_theme_font_override("normal_font", font)
+	rtl.text = "\n\n".join(lines)   # blank line between stat/rank/trivia so the 3 parts read as separate blocks
+	rtl.position = rect.position
+	rtl.size = rect.size
+	rtl.z_index = z
+	_board_add(rtl)
+	_rt_updesc.append(rtl)
+	# Vertical centring: RichTextLabel has no built-in vertical_alignment, so measure the wrapped content
+	# and re-centre the box in `rect` (only when shorter than the box — never push it above/overflow).
+	var ch := rtl.get_content_height()
+	if ch > 0.0 and ch < rect.size.y:
+		rtl.position.y = rect.position.y + (rect.size.y - ch) * 0.5
+
+## Split a choice's description into {stat, rank, trivia} for the 3-coloured UpgradeDesc box. Mirrors
+## _default_text's branches (same source fields), just kept separate instead of concatenated into one string.
+func _updesc_parts(c: Dictionary) -> Dictionary:
+	var lvl := int(c.get("level", 0))
+	var action := String(c.get("action", ""))
+	var cat := String(c.get("cat", ""))
+	if action == "capstone" or action == "destroy":
+		return {"stat": String(c.get("effect", "")), "rank": "", "trivia": ""}
+	if cat == "weapon" and not _weapon_pool(String(c.get("key", ""))).is_empty():
+		return {"stat": "", "rank": ("NEW" if action == "new" else "Lv %d" % lvl), "trivia": "pick a perk"}
+	if cat == "aux" and not _aux_pool(String(c.get("key", ""))).is_empty():
+		return {"stat": "", "rank": ("NEW" if action == "new" else "Lv %d" % lvl), "trivia": "pick a perk"}
+	if action == "pool":
+		var rank := int(c.get("rank", 0))
+		var maxr := int(c.get("maxr", 0))
+		var rt := ("Rank %d/%d" % [rank, maxr]) if maxr > 0 else ("Rank %d" % rank)
+		return {"stat": String(c.get("effect", "")), "rank": rt, "trivia": String(c.get("desc", ""))}
+	if action == "fuse":
+		return {"stat": String(c.get("effect", "FUSE")), "rank": "", "trivia": ""}
+	if action == "new":
+		var stat := "" if cat == "weapon" else String(c.get("effect", ""))
+		return {"stat": stat, "rank": "NEW", "trivia": ""}
+	# upgrade (simple leveled aux/weapon)
+	return {"stat": String(c.get("effect", "")), "rank": "Lv %d → %d" % [lvl, lvl + 1], "trivia": ""}
+
+## Confirm button (2-state sprite: "confirm" normal / "confirmpress" pressed). Commits whichever card is
+## currently pending (_pending_pick_idx) via _pick() — which already applies the choice, plays
+## selectconfirm3.wav, and closes/advances the board. No-op while nothing is selected.
+func _board_render_confirm() -> void:
+	var b = _board_binder()
+	if b == null:
+		return
+	var on = b.call("confirm_normal")
+	var press = b.call("confirm_press")
+	_board_set_vis(on, true)
+	_board_set_vis(press, false)
+	if on == null or not is_instance_valid(on):
+		return
+	var rect := _node_rect(on)
+	if rect.size.x <= 1.0:
+		return
+	var btn := Button.new()
+	btn.flat = true
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.position = rect.position
+	btn.size = rect.size
+	btn.z_index = (on as CanvasItem).z_index + 5
+	var empty := StyleBoxEmpty.new()
+	for s in ["normal", "hover", "pressed", "focus", "disabled"]:
+		btn.add_theme_stylebox_override(s, empty)
+	# Hover: swap to the confirmpress sprite (so it's already showing well before any click). Click: just
+	# play the confirm sfx + apply/close — no artificial delay needed since the pressed art has been
+	# visible since hover, not swapped in the same frame as the close.
+	btn.mouse_entered.connect(func() -> void:
+		_board_set_vis(on, false)
+		_board_set_vis(press, true)
+		_play_sfx("res://assets/audio/sfx/uiclick.wav"))
+	btn.mouse_exited.connect(func() -> void:
+		_board_set_vis(on, true)
+		_board_set_vis(press, false))
+	btn.pressed.connect(func() -> void:
+		if _pending_pick_idx < 0 or _pending_pick_idx >= _current.size():
+			return
+		btn.disabled = true   # swallow extra clicks
+		_pick(_pending_pick_idx))
+	_board_add(btn)
+	_rt_options.append(btn)
 
 func _board_set_vis(node, v: bool) -> void:
 	if node != null and is_instance_valid(node):
@@ -428,18 +829,21 @@ func _board_click(rect: Rect2, idx: int, labels: Array = []) -> Button:
 	var empty := StyleBoxEmpty.new()
 	for s in ["normal", "hover", "pressed", "focus", "disabled"]:
 		btn.add_theme_stylebox_override(s, empty)
-	# Hover: enlarge the slot's text 5% (from centre) + uiclick. Click: _pick (plays selectconfirm3.wav).
+	# Hover: enlarge the slot's icon/text 5% (from centre) + uiclick + preview UpgradeDesc/stat deltas
+	# (_hover_option — no VFX colour change, no WeaponDisplay swap). Click: _select_option actually selects
+	# it (VFX red + WeaponDisplay swap) — same hover/click split as the weapon-icon Weapon1-3 cards.
 	btn.mouse_entered.connect(func() -> void:
 		for l in labels:
 			if l != null and is_instance_valid(l):
 				(l as Control).pivot_offset = (l as Control).size * 0.5
 				(l as Control).scale = Vector2(1.05, 1.05)
-		_play_sfx("res://assets/audio/sfx/uiclick.wav"))
+		_play_sfx("res://assets/audio/sfx/uiclick.wav")
+		_hover_option(idx))
 	btn.mouse_exited.connect(func() -> void:
 		for l in labels:
 			if l != null and is_instance_valid(l):
 				(l as Control).scale = Vector2.ONE)
-	btn.pressed.connect(_pick.bind(idx))
+	btn.pressed.connect(_select_option.bind(idx))
 	return btn
 
 ## StatDisplay: replace the "Weapon Stat" text with the curated stats list (reuses _fill_stat_rows).
@@ -448,6 +852,12 @@ func _board_render_stats() -> void:
 	if b == null:
 		return
 	_board_clear(_rt_stats)
+	# StatDisplay: ambient black scan VFX, always on — not tied to any selection state.
+	var stat_disp = b.call("stat_display_ind")
+	if stat_disp != null and is_instance_valid(stat_disp):
+		var svfx := _board_make_icon_vfx(_node_rect(stat_disp), (stat_disp as CanvasItem).z_index + 1, SCAN_COLOR_BLACK)
+		_board_add(svfx)
+		_rt_stats.append(svfx)
 	var anchor = b.call("stat_text")
 	if anchor == null or not is_instance_valid(anchor):
 		return
@@ -465,9 +875,28 @@ func _board_render_stats() -> void:
 		vb.position = (anchor as Control).position
 	vb.position.y += 100.0   # shift the stats list down 100px (per request)
 	vb.z_index = (anchor as CanvasItem).z_index + 6
-	_fill_stat_rows(vb)
+	var preview := {}
+	if _hover_preview_idx >= 0 and _hover_preview_idx < _current.size():
+		preview = _preview_map(_current[_hover_preview_idx])
+	_fill_stat_rows(vb, preview)
 	_board_add(vb)
 	_rt_stats.append(vb)
+
+## Stat deltas for a choice dict, keyed by row id (row → {row, amt, pct}). Only aux items are mapped (see
+## AUX_TOP_DELTAS / AUX_POOL_DELTAS) — weapon perks mostly land on per-weapon or per-family mechs that don't
+## correspond 1:1 to a curated global row, so showing a number there would be a guess, not a fact.
+func _preview_map(c: Dictionary) -> Dictionary:
+	var out := {}
+	var cat := String(c.get("cat", ""))
+	var deltas: Array = []
+	if cat == "aux":
+		deltas = (AUX_TOP_DELTAS as Dictionary).get(String(c.get("key", "")), [])
+	elif cat == "aux_pool":
+		var m: Dictionary = (AUX_POOL_DELTAS as Dictionary).get(String(c.get("aux", "")), {})
+		deltas = m.get(String(c.get("key", "")), [])
+	for d: Dictionary in deltas:
+		out[String(d["row"])] = d
+	return out
 
 func _on_leveled_up(_level: int) -> void:
 	_pending += 1
@@ -488,6 +917,7 @@ func _begin() -> void:
 
 func _show_cards() -> void:
 	_choices = _generate_choices(CHOICES)
+	_route_cache.clear()   # new screen (new left-column choices) → old cached perk rolls no longer apply
 	if _choices.is_empty():
 		# Nothing left to offer (everything owned + maxed) — silently skip this level-up.
 		_pending -= 1
@@ -506,17 +936,92 @@ func _show_cards() -> void:
 	if _use_board():
 		# Authored board: render the 3 choices + stats, and wait for a weapon click ("Select Weapon" prompt).
 		_selected_idx = -1
+		_pending_pick_idx = -1
+		_hover_preview_idx = -1
 		_board_render_choices()
-		_board_render_stats()
 		_board_render_selected()
-		_board_render_options(true)
+		_board_render_options(true)   # also renders stats/UpgradeDesc/Confirm (folded in)
 	else:
 		_select_item(0)
 
-## A centered sprite for a weapon/fusion def_id, or a colour swatch fallback (aux items have no art).
+## Resolve the aux id a card dict refers to — top-level pick ("aux"), a skill-point pool perk under one
+## ("aux_pool", parent id in "aux"), or an evolve capstone ("capstone" + is_aux, parent id in "weapon").
+## "" for weapon/pool/capstone/fusion cards. Pool perks and capstones show their PARENT aux's icon (they
+## have no per-perk art of their own — same as they already share the parent's colour swatch).
+func _aux_id_for(c: Dictionary) -> String:
+	var cat := String(c.get("cat", ""))
+	if cat == "aux":
+		return String(c.get("key", ""))
+	if cat == "aux_pool":
+		return String(c.get("aux", ""))
+	if cat == "capstone" and bool(c.get("is_aux", false)):
+		return String(c.get("weapon", ""))
+	return ""
+
+## Cached aux icon (AUX_ICON_DIR + id + ".png"), or null if that id has no art yet.
+func _aux_icon_tex(id: String) -> Texture2D:
+	if id == "":
+		return null
+	if _aux_icon_cache.has(id):
+		return _aux_icon_cache[id]
+	var path := AUX_ICON_DIR + id + ".png"
+	var tex: Texture2D = (load(path) as Texture2D) if ResourceLoader.exists(path) else null
+	_aux_icon_cache[id] = tex
+	return tex
+
+## Cached raw perk icon (PERK_ICON_DIR + id + ".png"), or null if that perk has no art yet — capstones and
+## some pool perks (see the level-up docstring listing) still fall back to their parent aux's icon.
+func _perk_icon_tex(id: String) -> Texture2D:
+	if id == "":
+		return null
+	if _perk_icon_cache.has(id):
+		return _perk_icon_cache[id]
+	var path := PERK_ICON_DIR + id + ".png"
+	var tex: Texture2D = (load(path) as Texture2D) if ResourceLoader.exists(path) else null
+	_perk_icon_cache[id] = tex
+	return tex
+
+## Resolve the icon texture for ANY level-up card dict — weapon/pool/capstone via InventoryManager (def_id);
+## aux/aux_pool/capstone via _aux_id_for, with aux_pool perks preferring their OWN icon (PERK_ICON_DIR)
+## before falling back to the parent aux's. Shared by the Upgrade1-3 option icon and the WeaponDisplay
+## icon-swap-on-click (_board_render_selected) so both agree on what a card's icon is.
+func _option_icon_tex(c: Dictionary) -> Texture2D:
+	var def_id := String(c.get("def_id", ""))
+	if def_id != "":
+		return InventoryManager.get_icon(def_id)
+	var tex2: Texture2D = null
+	if String(c.get("cat", "")) == "aux_pool":
+		tex2 = _perk_icon_tex(String(c.get("key", "")))
+	if tex2 == null:
+		tex2 = _aux_icon_tex(_aux_id_for(c))
+	return tex2
+
+## CONTAIN-fit box (aspect kept) for `native` within (max_w × max_h) — neither dimension exceeds the box (the
+## tighter axis wins). Pure math, no resampling: aux/perk icons render through the SAME GPU stretch as weapon
+## icons (EXPAND_IGNORE_SIZE + STRETCH_KEEP_ASPECT_CENTERED, see _fit_texture_rect) — a CPU Image.resize() was
+## tried here first but looked visibly softer in-game than the weapon icons' GPU stretch at a similar or
+## larger downscale ratio, so this project's proven-sharp path for big source art is the GPU one, not CPU.
+func _contain_box(native: Vector2, max_w: float, max_h: float) -> Vector2:
+	var s := minf(max_w / native.x, max_h / native.y)
+	return native * s
+
+## A GPU-stretched TextureRect showing `tex` CONTAIN-fit within (max_w × max_h) — identical setup to the
+## weapon-icon TextureRects elsewhere in this file. Returns {control, box} (box = the actual on-screen size,
+## for the caller's centring math).
+func _fit_texture_rect(tex: Texture2D, max_w: float, max_h: float) -> Dictionary:
+	var box := _contain_box(tex.get_size(), max_w, max_h)
+	var tr := TextureRect.new()
+	tr.texture = tex
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tr.size = box
+	return {"control": tr, "box": box}
+
+## A centered sprite for a weapon/fusion def_id or an aux id, or a colour swatch fallback (missing art).
 ## The TextureRect keeps the texture's aspect (never stretched).
-func _sprite_or_swatch(def_id: String, color: Color) -> Control:
-	var tex: Texture2D = InventoryManager.get_icon(def_id) if def_id != "" else null
+func _sprite_or_swatch(def_id: String, color: Color, aux_id: String = "") -> Control:
+	var tex: Texture2D = InventoryManager.get_icon(def_id) if def_id != "" else _aux_icon_tex(aux_id)
 	if tex != null:
 		var tr := TextureRect.new()
 		tr.texture = tex
@@ -550,7 +1055,7 @@ func _render_left() -> void:
 	for c: Dictionary in rest:
 		if slot_specs.size() >= 3:
 			break
-		slot_specs.append({"def": String(c.get("def_id", "")), "name": c["name"], "color": c.get("color", Color.GRAY), "idx": _choices.find(c), "fusion": false})
+		slot_specs.append({"def": String(c.get("def_id", "")), "name": c["name"], "color": c.get("color", Color.GRAY), "idx": _choices.find(c), "fusion": false, "aux_id": _aux_id_for(c)})
 	_slot_specs = slot_specs   # shared with the authored-board renderer
 	for i in mini(slot_specs.size(), 3):
 		_make_slot(_slot_nodes[i], slot_specs[i])
@@ -560,7 +1065,7 @@ func _make_slot(slot: Control, spec: Dictionary) -> void:
 	var idx := int(spec["idx"])
 	var is_fusion := bool(spec["fusion"])
 	# Centered sprite (upper band of the slot).
-	var spr := _sprite_or_swatch(String(spec["def"]), spec.get("color", Color.GRAY))
+	var spr := _sprite_or_swatch(String(spec["def"]), spec.get("color", Color.GRAY), String(spec.get("aux_id", "")))
 	spr.anchor_left = 0.12; spr.anchor_right = 0.88
 	spr.anchor_top = 0.08; spr.anchor_bottom = 0.66
 	slot.add_child(spr)
@@ -603,20 +1108,27 @@ func _select_item(idx: int) -> void:
 		return
 	_selected_idx = idx
 	_options_back = false
+	# Clear any pending/hovered option from the PREVIOUS weapon/aux's options row before showing this one —
+	# otherwise _board_render_selected (below) would index into the new _current with a stale idx from the
+	# old one (wrong icon, or an out-of-range no-op that accidentally still looks right).
+	_pending_pick_idx = -1
+	_hover_preview_idx = -1
 	var c: Dictionary = _choices[idx]
 	if String(c.get("cat", "")) == "fusion":
 		_select_fusion(c)   # bespoke A-top / FUSION / B-bottom view
 		return
-	_set_selected_display(String(c.get("def_id", "")), String(c["name"]), c.get("color", Color.GRAY))
+	_set_selected_display(String(c.get("def_id", "")), String(c["name"]), c.get("color", Color.GRAY), _aux_id_for(c))
 	_title.text = String(c["name"])
 	_route_options(c)
 	_play_sfx("res://assets/audio/sfx/uiclick.wav")
+	if _use_board():
+		_board_render_choices()   # refresh the left-column scan VFX onto the newly-selected slot
 
 ## Fill the center-top panel with a big centered sprite + the item name.
-func _set_selected_display(def_id: String, item_name: String, color: Color) -> void:
+func _set_selected_display(def_id: String, item_name: String, color: Color, aux_id: String = "") -> void:
 	for ch in _selected_box.get_children():
 		ch.free()
-	var spr := _sprite_or_swatch(def_id, color)
+	var spr := _sprite_or_swatch(def_id, color, aux_id)
 	spr.anchor_left = 0.2; spr.anchor_right = 0.8
 	spr.anchor_top = 0.06; spr.anchor_bottom = 0.78
 	_selected_box.add_child(spr)
@@ -636,14 +1148,19 @@ func _set_selected_display(def_id: String, item_name: String, color: Color) -> v
 func _route_options(c: Dictionary) -> void:
 	var cat := String(c.get("cat", ""))
 	var key := String(c.get("key", ""))
+	var ckey := String(c.get("ckey", ""))
 	if cat == "weapon" and not _weapon_pool(key).is_empty():
 		var aw := get_tree().get_first_node_in_group("arena_weapons")
 		# Maxed weapon → its capstones become the options (EVOLVE). _show_capstone sets _current + renders.
 		if aw != null and bool(aw.call("weapon_needs_capstone", key)):
 			_show_capstone(key)
 			return
-		var pool_choices := _gen_pool_choices(key)
-		_current = pool_choices if not pool_choices.is_empty() else [c]
+		# Roll the 3 perk options ONCE per left-slot choice per screen (cached by ckey) — clicking back and
+		# forth between the 3 weapon/aux slots must keep showing the same options, not re-shuffle each time.
+		if not _route_cache.has(ckey):
+			var pool_choices := _gen_pool_choices(key)
+			_route_cache[ckey] = pool_choices if not pool_choices.is_empty() else [c]
+		_current = _route_cache[ckey]
 		_render_options()
 		return
 	if cat == "aux" and not _aux_pool(key).is_empty():
@@ -651,8 +1168,10 @@ func _route_options(c: Dictionary) -> void:
 		if ax != null and bool(ax.call("aux_needs_capstone", key)):
 			_show_aux_capstone(key)
 			return
-		var aux_choices := _gen_aux_pool_choices(key)
-		_current = aux_choices if not aux_choices.is_empty() else [c]
+		if not _route_cache.has(ckey):
+			var aux_choices := _gen_aux_pool_choices(key)
+			_route_cache[ckey] = aux_choices if not aux_choices.is_empty() else [c]
+		_current = _route_cache[ckey]
 		_render_options()
 		return
 	# New weapon / poolless weapon / simple aux → a single Confirm panel.
@@ -662,6 +1181,10 @@ func _route_options(c: Dictionary) -> void:
 ## Render _current into _options_box: 1 item → full-width confirm; N → N equal boxes. Adds a Back box in the
 ## All-In destroy sub-view (_options_back).
 func _render_options() -> void:
+	# Single option (new/upgrade/fuse confirm) auto-previews itself — no reason to force an extra click
+	# before Confirm works. Multi-option screens (pool perks, capstones, destroy) start with nothing pending.
+	_pending_pick_idx = 0 if _current.size() == 1 else -1
+	_hover_preview_idx = _pending_pick_idx
 	for ch in _options_box.get_children():
 		ch.free()
 	var n := _current.size()
@@ -758,6 +1281,8 @@ func _select_fusion(c: Dictionary) -> void:
 	if _use_board():
 		# Board: show the fused result in WeaponDisplay + a single FUSION option in Upgrade1 (click → fuse).
 		_current = [c]
+		_pending_pick_idx = 0
+		_hover_preview_idx = 0
 		_board_render_selected()
 		_board_render_options()
 
@@ -1306,36 +1831,56 @@ func _refresh_stats() -> void:
 	_fill_stat_rows(_stats_box)
 
 ## Build the curated, read-only global-stat rows into `box` (shared by the built-in panel + the board's
-## StatDisplay). Each entry renders only if its value resolves.
-func _fill_stat_rows(box: Container) -> void:
+## StatDisplay). Each entry renders only if its value resolves. `preview` (row id → {row, amt, pct}) comes
+## from the board's currently-selected-but-unconfirmed card (see _preview_map) — the built-in fallback panel
+## never passes one, so it always renders plain (no delta suffix).
+func _fill_stat_rows(box: Container, preview: Dictionary = {}) -> void:
 	var gm := GameManager
 	if gm.has_method("get_damage_mult"):
-		box.add_child(_make_stat_row("Damage", "x%.2f" % gm.get_damage_mult()))
+		box.add_child(_make_stat_row("Damage", "x%.2f" % gm.get_damage_mult(), "damage", preview))
 	if gm.has_method("get_fire_rate_mult"):
-		box.add_child(_make_stat_row("Fire rate", "x%.2f" % gm.get_fire_rate_mult()))
+		box.add_child(_make_stat_row("Fire rate", "x%.2f" % gm.get_fire_rate_mult(), "fire_rate", preview))
 	if gm.has_method("get_crit_chance"):
-		box.add_child(_make_stat_row("Crit chance", "%d%%" % int(round(gm.get_crit_chance() * 100.0))))
+		box.add_child(_make_stat_row("Crit chance", "%d%%" % int(round(gm.get_crit_chance() * 100.0)), "crit_chance", preview))
 	if gm.has_method("get_crit_damage"):
-		box.add_child(_make_stat_row("Crit damage", "x%.2f" % gm.get_crit_damage()))
+		box.add_child(_make_stat_row("Crit damage", "x%.2f" % gm.get_crit_damage(), "crit_damage", preview))
 	if gm.has_method("get_move_speed_mult"):
-		box.add_child(_make_stat_row("Move speed", "x%.2f" % gm.get_move_speed_mult()))
+		box.add_child(_make_stat_row("Move speed", "x%.2f" % gm.get_move_speed_mult(), "move_speed", preview))
 	if gm.has_method("get_pickup_radius"):
-		box.add_child(_make_stat_row("Pickup", "%d" % int(round(gm.get_pickup_radius()))))
+		box.add_child(_make_stat_row("Pickup", "%d" % int(round(gm.get_pickup_radius())), "pickup", preview))
 	if gm.has_method("get_base_defense"):
-		box.add_child(_make_stat_row("Armor (flat)", "%d" % gm.get_base_defense()))
+		box.add_child(_make_stat_row("Armor (flat)", "%d" % gm.get_base_defense(), "armor", preview))
 	if gm.has_method("get_momentum_mult"):
-		box.add_child(_make_stat_row("Momentum", "x%.2f" % gm.get_momentum_mult()))
+		box.add_child(_make_stat_row("Momentum", "x%.2f" % gm.get_momentum_mult(), "momentum", preview))
 	# Probe optional stats that may not exist yet (HP, AOE, armor pen). Add rows only if present.
 	if gm.has_method("get_max_hp"):
-		box.add_child(_make_stat_row("HP", "%d" % int(gm.get_max_hp())))
+		box.add_child(_make_stat_row("HP", "%d" % int(gm.get_max_hp()), "hp", preview))
 	if gm.has_method("get_aoe_mult"):
-		box.add_child(_make_stat_row("AOE", "x%.2f" % gm.get_aoe_mult()))
+		box.add_child(_make_stat_row("AOE", "x%.2f" % gm.get_aoe_mult(), "aoe", preview))
 	if gm.has_method("get_armor_pen_pct"):
-		box.add_child(_make_stat_row("Armor pen %", "%d%%" % int(round(gm.get_armor_pen_pct() * 100.0))))
+		box.add_child(_make_stat_row("Armor pen %", "%d%%" % int(round(gm.get_armor_pen_pct() * 100.0)), "armor_pen_pct", preview))
 	if gm.has_method("get_armor_pen_flat"):
-		box.add_child(_make_stat_row("Armor pen flat", "%d" % int(gm.get_armor_pen_flat())))
+		box.add_child(_make_stat_row("Armor pen flat", "%d" % int(gm.get_armor_pen_flat()), "armor_pen_flat", preview))
+	# Newer aux-granted stats: hidden at their baseline (not yet owned) unless the pending preview would
+	# grant them — then they show up early as "<base> +<delta>" so the player sees what they're about to gain.
+	if float(gm.upg_hp_regen) != 0.0 or preview.has("hp_regen"):
+		box.add_child(_make_stat_row("HP Regen", "%.1f/s" % gm.upg_hp_regen, "hp_regen", preview))
+	if float(gm.upg_force_shield_max) != 0.0 or preview.has("shield"):
+		box.add_child(_make_stat_row("Shield", "%d" % int(round(gm.upg_force_shield_max)), "shield", preview))
+	if float(gm.upg_dodge) != 0.0 or preview.has("dodge"):
+		box.add_child(_make_stat_row("Dodge", "%d%%" % int(round(gm.upg_dodge * 100.0)), "dodge", preview))
+	if float(gm.run_coin_mult) != 1.0 or preview.has("coin"):
+		box.add_child(_make_stat_row("Coin", "x%.2f" % gm.run_coin_mult, "coin", preview))
+	if float(gm.upg_xp_gain_mult) != 1.0 or preview.has("xp"):
+		box.add_child(_make_stat_row("XP", "x%.2f" % gm.upg_xp_gain_mult, "xp", preview))
+	if float(gm.upg_spawn_rate_mult) != 1.0 or preview.has("spawn"):
+		box.add_child(_make_stat_row("Spawn Rate", "x%.2f" % gm.upg_spawn_rate_mult, "spawn", preview))
+	if float(gm.upg_retaliation) != 0.0 or preview.has("retaliation"):
+		box.add_child(_make_stat_row("Retaliation", "%d" % int(round(gm.upg_retaliation)), "retaliation", preview))
 
-func _make_stat_row(label: String, value: String) -> Control:
+## row_id identifies this row for the `preview` delta lookup (see _preview_map): when present, a coloured
+## "+N" / "-N" suffix (green/red) is appended after the value — green when the change is an increase.
+func _make_stat_row(label: String, value: String, row_id: String = "", preview: Dictionary = {}) -> Control:
 	var row := HBoxContainer.new()
 	var lead := Control.new()                        # left column shifted right 10px
 	lead.custom_minimum_size = Vector2(10.0, 0.0)
@@ -1355,8 +1900,30 @@ func _make_stat_row(label: String, value: String) -> Control:
 	v.add_theme_color_override("font_color", Color(1.0, 0.95, 0.6))
 	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(v)
+	if row_id != "" and preview.has(row_id):
+		var d: Dictionary = preview[row_id]
+		var amt := float(d.get("amt", 0.0))
+		var dl := Label.new()
+		dl.text = " " + _fmt_stat_delta(amt, bool(d.get("pct", false)))
+		dl.add_theme_font_override("font", load(FONT_PATH))
+		dl.add_theme_font_size_override("font_size", 15)
+		dl.add_theme_color_override("font_color", Color(0.45, 0.85, 0.45) if amt >= 0.0 else Color(0.95, 0.35, 0.35))
+		row.add_child(dl)
 	var trail := Control.new()                       # right column shifted left 10px
 	trail.custom_minimum_size = Vector2(10.0, 0.0)
 	trail.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(trail)
 	return row
+
+## "+15%" / "-2.5%" / "+0.2" style suffix for a stat-row delta (sign always shown; percent vs flat per the
+## entry). No rounding — shows up to 2 decimals exactly, trimming only trailing zeros (never drops precision
+## the way int(round(...)) did, e.g. "-2.5% fire rate" no longer collapses to "-2%"/"-3%").
+func _fmt_stat_delta(amt: float, pct: bool) -> String:
+	var sign := "+" if amt >= 0.0 else "-"
+	var mag := absf(amt) * (100.0 if pct else 1.0)
+	var s := "%.2f" % mag
+	if s.ends_with("00"):
+		s = s.substr(0, s.length() - 3)
+	elif s.ends_with("0"):
+		s = s.substr(0, s.length() - 1)
+	return "%s%s%s" % [sign, s, ("%" if pct else "")]
