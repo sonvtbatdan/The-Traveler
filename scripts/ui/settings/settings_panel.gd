@@ -4,13 +4,20 @@ extends CanvasLayer
 ##   Volume  : master volume slider → the "Master" audio bus, i.e. the WHOLE game (music + all
 ##             SFX) in every scene including the Main Menu.
 ##   Graphic : Windowed / Fullscreen — sets the window mode the game runs/starts in.
+##   HUD     : which authored HUD layout (board_defs.gd's `hud_version` boards, e.g. "HUD 1.0" /
+##             "HUD 1.1") drives in-arena rendering. Applied live if an arena HUD surface (group
+##             "hud_edit") is already in the tree, via HudEditScript.set_home_board().
 ##   Save    : persist to user://settings.cfg + close.
-##   Reset   : restore defaults (Volume 100%, Windowed) live (persisted only if you then Save).
+##   Reset   : restore defaults (Volume 100%, Windowed, HUD 1.0) live (persisted only if you then Save).
 ##   Cancel  : revert any live change to the snapshot taken on open + close (no save).
 ##
-## Persistence lives in user://settings.cfg ([audio] sfx_volume, [display] fullscreen).
+## Persistence lives in user://settings.cfg ([audio] sfx_volume, [display] fullscreen, [hud] version).
 ## `SettingsPanel.apply_saved()` (static) applies the saved values at startup — call it from
-## the entry points (main_menu / arena_hud_buttons) since AudioManager is a locked autoload.
+## the entry points (main_menu / arena_hud_buttons) since AudioManager is a locked autoload. HUD
+## version isn't applied there (no arena HUD exists yet at that point) — `arena.gd._setup_hud_edit()`
+## reads it directly when it builds the HUD surface.
+
+const BoardDefs  := preload("res://scripts/ui/boards/board_defs.gd")
 
 const CFG_PATH   := "user://settings.cfg"
 const ASSET_DIR  := "res://assets/hud/mainmenu/"
@@ -18,14 +25,19 @@ const FONT_TITLE := "res://assets/fonts/Good Old DOS.ttf"
 const FONT_BODY  := "res://assets/fonts/Gameplay.ttf"
 const DEF_VOLUME := 1.0
 const DEF_FULLSCREEN := false
+const DEF_HUD_VERSION := "hud"   # board_defs.gd id for "HUD 1.0"
 
 # ── Static load / apply (used at startup + by this panel) ────────────────────────
 static func load_cfg() -> Dictionary:
 	var cfg := ConfigFile.new()
 	cfg.load(CFG_PATH)   # ok if missing → defaults below
+	var hud_version := String(cfg.get_value("hud", "version", DEF_HUD_VERSION))
+	if not BoardDefs.hud_version_ids().has(hud_version):
+		hud_version = DEF_HUD_VERSION   # saved id no longer exists (removed board) — fall back
 	return {
 		"volume": float(cfg.get_value("audio", "sfx_volume", DEF_VOLUME)),
 		"fullscreen": bool(cfg.get_value("display", "fullscreen", DEF_FULLSCREEN)),
+		"hud_version": hud_version,
 	}
 
 static func _apply_volume(v: float) -> void:
@@ -50,8 +62,10 @@ static func apply_saved() -> void:
 # ── Instance state ───────────────────────────────────────────────────────────────
 var _cur_vol: float = DEF_VOLUME
 var _cur_fs:  bool = DEF_FULLSCREEN
+var _cur_hud: String = DEF_HUD_VERSION
 var _snap_vol: float = DEF_VOLUME
 var _snap_fs:  bool = DEF_FULLSCREEN
+var _snap_hud: String = DEF_HUD_VERSION
 var _was_paused: bool = false
 var _updating: bool = false
 
@@ -60,6 +74,7 @@ var _slider: HSlider = null
 var _pct_lbl: Label = null
 var _win_btn: Button = null
 var _full_btn: Button = null
+var _hud_opt: OptionButton = null
 
 func _ready() -> void:
 	layer = 100
@@ -75,8 +90,10 @@ func open() -> void:
 	var s := load_cfg()
 	_cur_vol = float(s["volume"])
 	_cur_fs  = bool(s["fullscreen"])
+	_cur_hud = String(s["hud_version"])
 	_snap_vol = _cur_vol
 	_snap_fs  = _cur_fs
+	_snap_hud = _cur_hud
 	_sync_controls()
 	_apply_volume(_cur_vol)
 	_apply_fullscreen(_cur_fs)
@@ -166,6 +183,20 @@ func _build_ui() -> void:
 	_full_btn.pressed.connect(_on_mode.bind(true))
 	gfx_row.add_child(_full_btn)
 
+	# ── HUD ──
+	var hud_lbl := Label.new()
+	hud_lbl.text = "HUD"
+	_font(hud_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
+	col.add_child(hud_lbl)
+	_hud_opt = OptionButton.new()
+	_hud_opt.custom_minimum_size = Vector2(0.0, 42.0)
+	_font_btn(_hud_opt, 16)
+	for id in BoardDefs.hud_version_ids():
+		_hud_opt.add_item(BoardDefs.display_name(id))
+		_hud_opt.set_item_metadata(_hud_opt.item_count - 1, id)
+	_hud_opt.item_selected.connect(_on_hud_selected)
+	col.add_child(_hud_opt)
+
 	col.add_child(HSeparator.new())
 
 	# ── Save / Reset / Cancel (image buttons, equal width in a row) ──
@@ -213,11 +244,29 @@ func _on_mode(fullscreen: bool) -> void:
 	_apply_fullscreen(_cur_fs)
 	_update_mode_highlight()
 
+func _on_hud_selected(idx: int) -> void:
+	if _updating:
+		return
+	_cur_hud = String(_hud_opt.get_item_metadata(idx))
+	_apply_hud_version(_cur_hud)
+
+## Live-swap the arena's HUD surface (if one exists — e.g. Settings opened mid-run). No-op in the
+## Main Menu, where there's no "hud_edit" node yet; the choice still gets picked up from cfg the
+## next time `arena.gd._setup_hud_edit()` builds one.
+func _apply_hud_version(id: String) -> void:
+	var hud := get_tree().get_first_node_in_group("hud_edit")
+	if hud != null and hud.has_method("set_home_board"):
+		hud.set_home_board(id)
+
 func _sync_controls() -> void:
 	_updating = true
 	_slider.value = _cur_vol * 100.0
 	_pct_lbl.text = "%d%%" % int(round(_cur_vol * 100.0))
 	_update_mode_highlight()
+	for i in _hud_opt.item_count:
+		if String(_hud_opt.get_item_metadata(i)) == _cur_hud:
+			_hud_opt.select(i)
+			break
 	_updating = false
 
 func _update_mode_highlight() -> void:
@@ -232,20 +281,24 @@ func _on_save() -> void:
 	cfg.load(CFG_PATH)
 	cfg.set_value("audio", "sfx_volume", _cur_vol)
 	cfg.set_value("display", "fullscreen", _cur_fs)
+	cfg.set_value("hud", "version", _cur_hud)
 	cfg.save(CFG_PATH)
 	_close()
 
 func _on_reset() -> void:
 	_cur_vol = DEF_VOLUME
 	_cur_fs  = DEF_FULLSCREEN
+	_cur_hud = DEF_HUD_VERSION
 	_sync_controls()
 	_apply_volume(_cur_vol)
 	_apply_fullscreen(_cur_fs)
+	_apply_hud_version(_cur_hud)
 
 func _on_cancel() -> void:
 	# Revert live changes to the snapshot taken on open, then close without saving.
 	_apply_volume(_snap_vol)
 	_apply_fullscreen(_snap_fs)
+	_apply_hud_version(_snap_hud)
 	_close()
 
 # ── Helpers ──────────────────────────────────────────────────────────────────────

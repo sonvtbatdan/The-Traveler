@@ -205,6 +205,22 @@ func reload() -> void:
 	if _binder != null:
 		_binder.build()
 
+## Change which board this surface shows as the live HUD when the editor is closed (e.g. the player
+## picked a different HUD version in Settings). While the editor is open on some other board, just
+## remember the new home — `_close()` will load it. Otherwise swap the live surface immediately.
+func set_home_board(id: String) -> void:
+	if not BoardDefs.has(id) or id == _home_board:
+		return
+	_home_board = id
+	if _is_open:
+		return   # _close() restores _home_board when the editor exits
+	if _binder != null:
+		_binder.clear()
+	_load_board_into_container(id)
+	_set_gameplay(true)
+	if _binder != null:
+		_binder.build()
+
 func toggle() -> void:
 	if _is_open:
 		_request_close()

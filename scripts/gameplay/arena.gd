@@ -44,6 +44,7 @@ const CreepEditScript       := preload("res://scripts/ui/boss_edit/creep_edit_mo
 const WeaponEditScript      := preload("res://scripts/ui/boss_edit/weapon_edit_mode.gd")
 const FleetEditScript       := preload("res://scripts/ui/boss_edit/fleet_edit_mode.gd")
 const HudEditScript         := preload("res://scripts/ui/boss_edit/hud_edit_mode.gd")   # authored playerhud (the active HUD)
+const SettingsScript        := preload("res://scripts/ui/settings/settings_panel.gd")
 const RESET_RUN_ON_START := true   # each arena run starts a fresh VS climb (level 1, no upgrades). Flip off to keep saved level.
 const WEAPON_TEST_MODE := true     # TEST: skip the hub launch page + start-of-run weapon-pick chest; boot straight into
 								   # the arena, then auto-pause and open the F12 weapon palette. Flip off to restore normal flow.
@@ -563,7 +564,8 @@ func _setup_hud_edit() -> void:
 	var hem := HudEditScript.new()
 	add_child(hem)
 	_hud_edit = hem
-	hem.setup(oc)
+	var hud_version := String(SettingsScript.load_cfg().get("hud_version", "hud"))
+	hem.setup(oc, hud_version)
 
 ## Hide the gameplay + all HUD (HP/XP, weapon/aux slots, button clusters, debug panels, player, live enemies)
 ## while a full-screen editor (Creep / Fleet) is open, so only the editor panels + its edit objects show.

@@ -12,11 +12,19 @@ const DIR := "res://config/boards/"
 
 const BOARDS := {
 	"hud": {
-		"name": "HUD",
+		"name": "HUD 1.0",
 		"layout": "res://config/boards/hud.cfg",
 		"legacy_layout": "res://playerhud_layout.cfg",   # fallback: original location (pre-migration)
 		"assets": "res://assets/hud/Playerhud/",
 		"binder": "res://scripts/ui/boards/hud_binder.gd",
+		"hud_version": true,   # selectable as a runtime HUD in the Settings panel — see hud_version_ids()
+	},
+	"hud_1_1": {
+		"name": "HUD 1.1",
+		"layout": "res://config/boards/hud_1_1.cfg",
+		"assets": "res://assets/hud/Playerhud/",
+		"binder": "res://scripts/ui/boards/hud_binder.gd",
+		"hud_version": true,
 	},
 	"levelup": {
 		"name": "Level Up",
@@ -26,8 +34,16 @@ const BOARDS := {
 	},
 }
 
-## Dropdown / iteration order.
-const ORDER := ["hud", "levelup"]
+## Dropdown / iteration order (Board: selector in the HUD editor — every board, including Level Up).
+const ORDER := ["hud", "hud_1_1", "levelup"]
+
+## Alternate HUD layouts a player can pick between in Settings (excludes non-HUD boards like Level Up).
+static func hud_version_ids() -> Array:
+	var out: Array = []
+	for id in ORDER:
+		if bool((BOARDS.get(id, {}) as Dictionary).get("hud_version", false)):
+			out.append(id)
+	return out
 
 static func has(id: String) -> bool:
 	return BOARDS.has(id)
