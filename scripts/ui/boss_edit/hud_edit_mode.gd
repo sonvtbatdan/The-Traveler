@@ -1,5 +1,8 @@
 extends CanvasLayer
-## HUD Edit Mode — author the Player HUD as ordered GROUPS of items (sprites) and text layers.
+## BOARD Edit Mode — a generic editor that authors a "board" (HUD, Level Up, …) as ordered GROUPS of
+## items (sprites) and text layers. One editor, many boards: the "Board:" dropdown swaps which layout is
+## being authored. Board-specific RUNTIME behaviour lives in a per-board BoardBinder (e.g. hud_binder.gd);
+## this file stays board-agnostic. See scripts/ui/boards/ (board_defs.gd registry).
 ##
 ## Model (≠ creep edit's one-EO-per-file):
 ##   • GROUPS panel (left): an ordered list of named groups. Top of the list = highest Z band.
@@ -7,28 +10,19 @@ extends CanvasLayer
 ##     Drag groups up/down to reorder (Z). Drag a palette ITEM onto a group to add it.
 ##   • Each group holds an ordered list of CHILDREN — items or text layers (drag to reorder within/between).
 ##     RMB a child → Copy / Delete. An ITEM may appear any number of times (independent instances).
-##   • ITEMS palette (right): sprite files in assets/hud/Playerhud — drag sources.
+##   • ITEMS palette (right): sprite files in the active board's asset folder — drag sources.
 ##   • Selecting a TEXT child shows a style panel: text / font (assets/fonts) / size / color / outline / align.
-##   • Items and text are dragged on-screen with the mouse; placed nodes ARE the live in-game HUD.
+##   • Items and text are dragged on-screen with the mouse; placed nodes ARE the live in-game surface.
 ##
-## Saves res://playerhud_layout.cfg. Opened via the Devon-panel HUD_edit button (group "hud_edit").
+## Each board saves to config/boards/<board>.cfg (HUD falls back to res://playerhud_layout.cfg until
+## migrated). Opened via the Devon-panel HUD_edit button (group "hud_edit"); the arena instance's home
+## board is the HUD.
 
 const EditableObject := preload("res://scenes/ui/edit_mode/editable_object.tscn")
 const GifLoader      := preload("res://scripts/ui/edit_mode/gif_loader.gd")
-const ArenaWeapons   := preload("res://scripts/gameplay/arena_weapons.gd")
-const BAR_FILL_SHADER   := "res://assets/shaders/bar_fill.gdshader"
-const HUD_BLEND_SHADER  := "res://assets/shaders/hud_blend.gdshader"
-const INVENTORY_DIR     := "res://assets/inventory/"
-# Weapons whose cooldown frac stays 1.0 (continuous fire / always-on) — mirror of arena_weapons'
-# weapon_cooldown_frac match: these never light btnred/btngreen.
-const CONTINUOUS_WEAPONS := {
-	"gatling": true, "orbital": true, "striker": true, "chemtrail": true, "ionize": true,
-	"moroboshi": true, "yari_jaeger": true, "swarm": true, "snake": true, "boomerang": true,
-}
+const BoardDefs      := preload("res://scripts/ui/boards/board_defs.gd")
 
-const HUD_FOLDER   := "res://assets/hud/Playerhud/"
 const FONTS_FOLDER := "res://assets/fonts/"
-const LAYOUT_PATH  := "res://playerhud_layout.cfg"
 const LEFT_W       := 248.0
 const RIGHT_W      := 264.0
 const Z_TOP        := 240    # highest child z; descends down the list
@@ -36,48 +30,9 @@ const BLEND_NAMES  := ["Normal", "Screen", "Hard light", "Overlay", "Color Dodge
 const ZOOM_MIN     := 0.4
 const ZOOM_MAX     := 5.0
 const ZOOM_RATIO   := 1.15
-
-# Bar VFX: band sprite files that act as crop frames, + the fill/glow tones per bar.
-# All three reuse level_fill.gdshader (green default); HP + Shield just override the colors.
-const LV_FILL_COL := Color(0.18, 0.85, 0.32, 1.0)   # matches shader default (level = green)
-const LV_GLOW_COL := Color(0.45, 1.00, 0.55, 1.0)
-const HP_FILL_COL := Color(0.86, 0.15, 0.13, 1.0)   # HP = red
-const HP_GLOW_COL := Color(1.00, 0.42, 0.34, 1.0)
-const SH_FILL_COL := Color(0.13, 0.48, 0.86, 1.0)   # Shield = ocean blue
-const SH_GLOW_COL := Color(0.40, 0.78, 1.00, 1.0)
-# Band sprites act as the crop-frame/mask for their bar VFX; they only show in the editor (indicators).
-const BAR_BAND_FILES := {"levelband": true, "HPband": true, "shieldband": true}
-const SLOT_ICON_FIT   := 0.72   # weapon/aux icon box = this fraction of the btn (leaves the frame visible)
-const SLOT_ICON_BLEND := 6      # weapon/aux icon blend mode → "Lighten" (hud_blend.gdshader mode 3)
-
-# ── Macro groups (gameplay-only): 4 screen-edge regions built from the editor groups ────────────────
-# Each region reparents its member nodes into one Control container that is anchored to a screen edge
-# (centered on the perpendicular axis) and scaled as one unit for the pulse/shrink animations.
-const MACRO_KEYS     := ["Weapon", "Aux", "KillCoin", "LV"]
-const MACRO_EDGE     := {"Weapon": "left", "Aux": "right", "KillCoin": "top", "LV": "bottom"}
-const MACRO_BEHAVIOR := {"Weapon": "shrink", "Aux": "shrink", "KillCoin": "pulse", "LV": "static"}
-# Editor group name → macro key. (The "Text" group is split by sentinel: KILL/COIN → KillCoin, rest → LV.)
-const GROUP_MACRO := {
-	"Button1": "Weapon", "Button2": "Weapon", "Button3": "Weapon", "Button4": "Weapon", "Button5": "Weapon", "ActiveBar": "Weapon",
-	"Button6": "Aux", "Button7": "Aux", "Button8": "Aux", "Button9": "Aux", "Button10": "Aux", "PassiveBar": "Aux",
-	"KillBar": "KillCoin",
-	"INV": "LV", "MENU": "LV", "LevelBarBg": "LV", "Level": "LV", "LevelBar": "LV",
-}
-const KILLCOIN_TEXTS := {"KILL": true, "COIN": true}   # Text-group sentinels that belong to KillCoin (rest → LV)
-const MACRO_MARGIN := 6.0        # gap between a region's outer edge and the screen edge
-const SHRINK_SCALE := 0.70       # Weapon/Aux resting size after a change settles
-const SHRINK_DELAY := 5.0        # seconds at full size before shrinking back
-const SHRINK_DUR   := 0.30       # shrink tween duration
-const PULSE_SCALE  := 1.03       # KillCoin pop size on a value change
-const PULSE_DUR    := 0.05       # each half of the 0.1s pop
 # grow_dir option order in the GROW dropdown → shader uniform int (0=L→R,1=R→L,2=B→T,3=T→B).
+# (Only enabled when the active board's binder marks the selected item as a "bar band" — see BoardBinder.)
 const GROW_NAMES := ["→  Left → Right", "←  Right → Left", "↑  Bottom → Top", "↓  Top → Bottom"]
-# Unique-role sprite files resolved by filename anywhere in the layout (bar bands + press-button pairs).
-const ROLE_FILES := {
-	"levelband": true, "HPband": true, "shieldband": true,
-	"menubtn": true, "menubtnpress": true, "invbtn": true, "invbtnpress": true,
-	"inventory": true, "inventorypress": true,
-}
 
 # ── Data ─────────────────────────────────────────────────────────────────────────
 # _groups[i] = {"name": String, "children": Array[Dictionary]}   (i=0 → top → highest z)
@@ -107,25 +62,15 @@ var _zoom: float = 1.0
 var _drag_panel: Panel = null         # panel currently being dragged by its title bar
 var _drag_off: Vector2 = Vector2.ZERO
 
-# ── Runtime HUD binding (active in gameplay, i.e. while the editor is NOT open) ──────
-var _bindings_ready: bool = false
-var _text_bindings: Array = []        # [{node, kind, align, left, center, right, y}]
-var _wslots: Array = []               # [{btn, red, green, icon}] index 0..4 → weapon slots 1..5
-var _aslots: Array = []               # [{btn, yellow, icon}]      index 0..4 → aux slots 6..10
-# Bar VFX: a shader "fill" TextureRect masked by a band sprite (level = green xp, HP = red, shield = blue).
-var _level_fill: TextureRect = null
-var _hp_fill: TextureRect = null
-var _shield_fill: TextureRect = null
-var _runtime_extras: Array = []        # runtime-only nodes (weapon/aux icons, bar fills, press buttons) to free on edit
-var _weapons_node: Node = null
-var _aux_node: Node = null
-var _weapon_icon_cache: Dictionary = {}
-var _aux_icon_cache: Dictionary = {}
-# Macro regions (gameplay-only): key -> {container, edge, behavior, tween}. Cleared while editing.
-var _macros: Dictionary = {}
-var _last_acquired_n: int = -1   # weapon-count baseline for detecting a new weapon (→ Weapon pop)
-var _last_owned_n: int = -1      # aux-count baseline (→ Aux pop)
-var _signals_hooked: bool = false
+# ── Board (which layout / palette / binder this surface authors + shows) ─────────────
+# The editor is board-agnostic: HUD-specific runtime lives in the board's BoardBinder (e.g. hud_binder.gd).
+var _board_id: String = "hud"
+var _home_board: String = "hud"       # board restored to the live surface when the editor closes
+var _editable: bool = true            # false = runtime-only host (no authoring UI, not in the "hud_edit" group)
+var _asset_dir: String = "res://assets/hud/Playerhud/"   # palette folder for the active board
+var _layout_load: String = ""         # resolved path to load from (primary, or legacy fallback)
+var _layout_save: String = ""         # path to save to (always the primary location)
+var _binder: BoardBinder = null       # drives the placed nodes from game state while not editing
 
 # ── UI nodes ──────────────────────────────────────────────────────────────────────
 var _dim:           ColorRect     = null
@@ -134,6 +79,7 @@ var _left_panel:    Panel         = null
 var _right_panel:   Panel         = null
 var _groups_vbox:   VBoxContainer = null
 var _palette_grid:  GridContainer = null
+var _board_opt:     OptionButton  = null   # board selector (HUD / Level Up / …)
 var _ctx_menu:      PopupMenu     = null
 # transform / props
 var _x_spin:  SpinBox = null
@@ -163,38 +109,101 @@ var _align_opt:  OptionButton = null
 func _ready() -> void:
 	layer = 12
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	add_to_group("hud_edit")
 	_scan_fonts()
 	_scan_items()
 	_build_ui()
 	_set_ui_visible(false)
-	_hook_stat_signals()
 
-func setup(objects_container: Control) -> void:
+## Build the live surface for `board_id`. `editable`=true → the authoring editor (registers in "hud_edit"
+## for the dev button; the board dropdown can author any board, restoring this one on close). `editable`
+## =false → a runtime-only host that just shows one board (used e.g. for the Level-Up overlay).
+func setup(objects_container: Control, board_id: String = "hud", editable: bool = true) -> void:
 	_objects_container = objects_container
 	# The editor pauses the tree; ALWAYS lets the placed nodes still process + receive input while editing.
 	_objects_container.process_mode = Node.PROCESS_MODE_ALWAYS
+	_editable = editable
+	_home_board = board_id
+	if editable:
+		add_to_group("hud_edit")
+	_apply_board(board_id)
 	_load_layout()
 	_rebuild_nodes()
 	_reassign_z()
-	_set_gameplay(true)   # show as live HUD until the editor is opened
-	_build_runtime_bindings()   # wire the placed nodes to live game state + build the edge-anchored macro regions
+	_set_gameplay(true)   # show as the live surface until the editor is opened
+	if _binder != null:
+		_binder.build()   # wire the placed nodes to game state (macros, slots, bars, sentinels…)
 
-## Live-stat signals that drive the macro-region animations (connected once; handlers no-op if the
-## targeted region isn't built, e.g. while the editor is open).
-func _hook_stat_signals() -> void:
-	if _signals_hooked:
+## Point the surface at a board: swap the palette folder, layout paths and runtime binder. Does NOT
+## load/rebuild the nodes — callers pair this with _load_layout()+_rebuild_nodes() (see _load_board_into_container).
+func _apply_board(id: String) -> void:
+	if not BoardDefs.has(id):
+		id = "hud"
+	_board_id = id
+	_asset_dir = BoardDefs.assets_dir(id)
+	_layout_load = BoardDefs.layout_load_path(id)
+	_layout_save = BoardDefs.layout_save_path(id)
+	_scan_items()
+	if _palette_grid != null:
+		_build_palette()
+	if _binder != null and is_instance_valid(_binder):
+		_binder.queue_free()
+	_binder = BoardDefs.make_binder(id)
+	add_child(_binder)
+	_binder.setup(self)
+	_sync_board_opt()
+
+## _apply_board + reload the authored data + rebuild the canvas nodes for `id`.
+func _load_board_into_container(id: String) -> void:
+	_apply_board(id)
+	_load_layout()
+	_rebuild_nodes()
+	_reassign_z()
+
+## Dropdown: author a different board. Saves the current one if dirty, then swaps in the new board's data
+## (editor stays open; the live surface for the home board is restored on close).
+func _switch_board(id: String) -> void:
+	if id == _board_id or not _is_open:
 		return
-	_signals_hooked = true
-	if GameManager.has_signal("kills_changed"):
-		GameManager.kills_changed.connect(func(_k: int) -> void: _pulse_macro("KillCoin"))
-	if GameManager.has_signal("money_changed"):
-		GameManager.money_changed.connect(func(_m: int) -> void: _pulse_macro("KillCoin"))
-	if GameManager.has_signal("player_stats_changed"):
-		GameManager.player_stats_changed.connect(func() -> void: _trigger_shrink("Weapon"); _trigger_shrink("Aux"))
+	if _dirty:
+		_save_layout()
+	_select(-1)
+	if _binder != null:
+		_binder.clear()
+	_load_board_into_container(id)
+	_set_gameplay(false)   # editing the newly-loaded board
+	_rebuild_groups_panel()
+
+func _on_board_opt_selected(idx: int) -> void:
+	if idx >= 0 and idx < BoardDefs.ORDER.size():
+		_switch_board(String(BoardDefs.ORDER[idx]))
+
+func _sync_board_opt() -> void:
+	if _board_opt == null:
+		return
+	var i := BoardDefs.ORDER.find(_board_id)
+	if i >= 0:
+		_board_opt.select(i)
 
 func is_open() -> bool:
 	return _is_open
+
+## The active board's runtime binder (e.g. HudBinder / LevelUpBinder). Used by callers that read board
+## roles (e.g. arena_levelup_ui asks a LevelUpBinder for its slot/title rects).
+func get_binder() -> BoardBinder:
+	return _binder
+
+## Re-read the current board's layout from disk + rebuild the surface. For a runtime-only host, picks up
+## edits saved by the authoring editor (a separate instance writing the same cfg). No-op while an editor
+## is open on this instance.
+func reload() -> void:
+	if _is_open:
+		return
+	if _binder != null:
+		_binder.clear()
+	_load_board_into_container(_board_id)
+	_set_gameplay(true)
+	if _binder != null:
+		_binder.build()
 
 func toggle() -> void:
 	if _is_open:
@@ -203,18 +212,19 @@ func toggle() -> void:
 		_open()
 
 func _open() -> void:
+	if not _editable:
+		return   # runtime-only host has no authoring UI
 	_is_open = true
 	_prev_paused = get_tree().paused
 	get_tree().paused = true
 	_arena_focus(true)
 	_reset_zoom()
-	_clear_macros()           # dismantle edge regions → members return to design positions for editing
-	_clear_runtime_extras()   # remove runtime-only nodes; stop binding while editing
-	_bindings_ready = false
-	_restore_design_text()    # show the design sentinels ("200", "KILL", …) while editing
+	if _binder != null:
+		_binder.clear()   # dismantle runtime extras/macros → members return to design positions for editing
 	_set_ui_visible(true)
 	_set_gameplay(false)
 	_select(-1)
+	_sync_board_opt()
 	_rebuild_groups_panel()
 
 func _request_close() -> void:
@@ -226,12 +236,18 @@ func _close() -> void:
 	_is_open = false
 	_drag_panel = null
 	_reset_zoom()
+	# If we were authoring a different board, restore the editor's own board as the live surface.
+	if _board_id != _home_board:
+		if _binder != null:
+			_binder.clear()
+		_load_board_into_container(_home_board)
 	_set_ui_visible(false)
 	_select(-1)
 	_set_gameplay(true)
 	_arena_focus(false)
 	get_tree().paused = _prev_paused
-	_build_runtime_bindings()   # re-resolve node refs (editing may have rebuilt them) + rebuild macro regions
+	if _binder != null:
+		_binder.build()   # re-resolve node refs (editing may have rebuilt them) + rebuild runtime extras
 
 ## Hide the arena HUD + gameplay (live HUD, buttons, player, enemies) while the editor is open so only
 ## the editor panels + the placed HUD nodes show — also removes Controls that would eat canvas drags.
@@ -298,7 +314,7 @@ func _scan_fonts() -> void:
 
 func _scan_items() -> void:
 	_item_files.clear()
-	var dir := DirAccess.open(HUD_FOLDER)
+	var dir := DirAccess.open(_asset_dir)
 	if dir == null:
 		return
 	dir.list_dir_begin()
@@ -325,7 +341,7 @@ func _load_font(fname: String) -> Font:
 
 func _item_path(file: String) -> String:
 	for ext: String in ["png", "gif", "jpg", "jpeg"]:
-		var p := HUD_FOLDER + file + "." + ext
+		var p := _asset_dir + file + "." + ext
 		if ResourceLoader.exists(p) or FileAccess.file_exists(p):
 			return p
 	return ""
@@ -442,25 +458,53 @@ func _build_right_panel() -> void:
 	root.add_theme_constant_override("separation", 5)
 	scroll.add_child(root)
 
+	# Board selector — which board (HUD / Level Up / …) this editor is authoring.
+	var board_row := HBoxContainer.new()
+	board_row.add_theme_constant_override("separation", 3)
+	root.add_child(board_row)
+	var board_lbl := Label.new()
+	board_lbl.text = "Board:"
+	board_lbl.add_theme_font_size_override("font_size", 10)
+	board_lbl.custom_minimum_size = Vector2(40.0, 0.0)
+	board_row.add_child(board_lbl)
+	_board_opt = OptionButton.new()
+	for i: int in BoardDefs.ORDER.size():
+		var bid: String = BoardDefs.ORDER[i]
+		_board_opt.add_item(BoardDefs.display_name(bid), i)
+	_board_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_board_opt.item_selected.connect(_on_board_opt_selected)
+	board_row.add_child(_board_opt)
+
 	var btn_row := HBoxContainer.new()
 	btn_row.add_theme_constant_override("separation", 3)
 	root.add_child(btn_row)
 	var save_btn := Button.new()
 	save_btn.text = "Save"
+	save_btn.add_theme_font_size_override("font_size", 11)
 	save_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	save_btn.pressed.connect(_save_layout)
 	btn_row.add_child(save_btn)
 	_delete_btn = Button.new()
 	_delete_btn.text = "Delete"
+	_delete_btn.add_theme_font_size_override("font_size", 11)
 	_delete_btn.disabled = true
 	_delete_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_delete_btn.pressed.connect(_delete_selected)
 	btn_row.add_child(_delete_btn)
 	var close_btn := Button.new()
 	close_btn.text = "Close"
+	close_btn.add_theme_font_size_override("font_size", 11)
 	close_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	close_btn.pressed.connect(_request_close)
 	btn_row.add_child(close_btn)
+	# Reload: re-scan the active board's asset folder → add any NEW sprites to the ITEMS palette.
+	var reload_btn := Button.new()
+	reload_btn.text = "Reload"
+	reload_btn.tooltip_text = "Scan the board's sprite folder for new items"
+	reload_btn.add_theme_font_size_override("font_size", 11)
+	reload_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	reload_btn.pressed.connect(_reload_items)
+	btn_row.add_child(reload_btn)
 
 	# ITEMS palette
 	root.add_child(HSeparator.new())
@@ -669,6 +713,19 @@ func _build_palette() -> void:
 		cell.tooltip_text = file
 		cell.set_icon(_load_tex(_item_path(file)))
 		_palette_grid.add_child(cell)
+
+## Reload button: re-scan the active board's asset folder and rebuild the ITEMS palette so any sprites
+## added to the folder while the editor was open show up. Toasts how many new sprites were picked up.
+func _reload_items() -> void:
+	var old := _item_files.duplicate()
+	_scan_items()
+	if _palette_grid != null:
+		_build_palette()
+	var added := 0
+	for f: String in _item_files:
+		if not (f in old):
+			added += 1
+	show_toast("Reload: +%d sprite" % added if added > 0 else "Reload: no new sprite")
 
 func _set_ui_visible(v: bool) -> void:
 	_dim.visible = v
@@ -1023,7 +1080,7 @@ func _refresh_props() -> void:
 	var ch := _selected_child()
 	var is_text: bool = String(ch.get("type", "")) == "text"
 	var is_item: bool = String(ch.get("type", "")) == "item"
-	var is_band: bool = is_item and BAR_BAND_FILES.has(String(ch.get("file", "")))
+	var is_band: bool = is_item and _binder != null and _binder.is_band_file(String(ch.get("file", "")))
 	_text_section.visible = is_text
 	_blend_opt.disabled = not is_item
 	_grow_opt.disabled = not is_band
@@ -1231,7 +1288,7 @@ func _on_grow_selected(idx: int) -> void:
 	if _updating_ui:
 		return
 	var ch := _selected_child()
-	if ch.is_empty() or not BAR_BAND_FILES.has(String(ch.get("file", ""))):
+	if ch.is_empty() or _binder == null or not _binder.is_band_file(String(ch.get("file", ""))):
 		return
 	ch["grow"] = idx
 	_dirty = true
@@ -1341,7 +1398,7 @@ func _set_gameplay(on: bool) -> void:
 			eo.set_gameplay_mode(not editable)
 			# Bar bands are edit-only indicators (their masked fill is what shows in gameplay).
 			var vis := _child_visible(id)
-			if on and _is_band_node(eo):
+			if on and _binder != null and _binder.is_band_file(eo.source_path):
 				vis = false
 			eo.visible = vis
 			eo.mouse_filter = Control.MOUSE_FILTER_STOP if editable else Control.MOUSE_FILTER_IGNORE
@@ -1438,14 +1495,23 @@ func _save_layout() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("meta", "version", 1)
 	cfg.set_value("meta", "next_id", _next_id)
+	cfg.set_value("meta", "board", _board_id)
 	cfg.set_value("hud", "groups", _groups)
-	cfg.save(LAYOUT_PATH)
+	# Ensure the target folder exists (config/boards/…) before saving.
+	var save_path := _layout_save if _layout_save != "" else _layout_load
+	var dir := save_path.get_base_dir()
+	if dir != "" and not DirAccess.dir_exists_absolute(ProjectSettings.globalize_path(dir)):
+		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir))
+	cfg.save(save_path)
 	_dirty = false
-	show_toast("Saved " + LAYOUT_PATH.get_file())
+	show_toast("Saved " + save_path.get_file())
 
 func _load_layout() -> void:
 	var cfg := ConfigFile.new()
-	if cfg.load(LAYOUT_PATH) != OK:
+	var load_path := _layout_load if _layout_load != "" else _layout_save
+	if load_path == "" or cfg.load(load_path) != OK:
+		_groups = []
+		_next_id = 1
 		return
 	var data = cfg.get_value("hud", "groups", [])
 	if data is Array:
@@ -1510,534 +1576,14 @@ func _input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 
 # ════════════════════════════════════════════════════════════════════════════════════
-# RUNTIME HUD BINDING — drives the placed nodes from live game state while NOT editing.
-# (The editor's gameplay nodes ARE the player HUD; this layer makes them dynamic.)
+# RUNTIME — while NOT editing, delegate per-frame live updates to the active board's binder.
+# (The placed nodes ARE the live surface; the binder makes them dynamic — see BoardBinder.)
 # ════════════════════════════════════════════════════════════════════════════════════
 
 func _process(_delta: float) -> void:
-	if _is_open or not _bindings_ready:
+	if _is_open or _binder == null:
 		return
-	_update_bindings()
-
-## Resolve role nodes from the loaded layout and create the runtime-only extras (weapon/aux icons,
-## bar fills, menu/inv press-buttons). Called on first setup and whenever the editor closes
-## (editing may have rebuilt nodes).
-func _build_runtime_bindings() -> void:
-	_clear_runtime_extras()
-	_bindings_ready = false
-	_text_bindings.clear()
-	_wslots.clear(); _wslots.resize(5)
-	_aslots.clear(); _aslots.resize(5)
-	_weapons_node = get_tree().get_first_node_in_group("arena_weapons")
-	_aux_node = get_tree().get_first_node_in_group("arena_aux")
-	# First occurrence of each unique-role sprite file (bar bands + press-button pairs), any group.
-	var roles: Dictionary = {}
-	for g: Dictionary in _groups:
-		var gname := String(g.get("name", ""))
-		var children: Array = g.get("children", [])
-		if gname == "Text":
-			for ch: Dictionary in children:
-				if String(ch.get("type", "")) == "text":
-					_bind_text(ch)
-		elif gname.begins_with("Button"):
-			var num := int(gname.substr(6))
-			var brk := {}
-			for ch: Dictionary in children:
-				if String(ch.get("type", "")) == "item":
-					brk[String(ch.get("file", ""))] = _nodes.get(int(ch.get("id", -1)))
-			if num >= 1 and num <= 5:
-				var wbtn = brk.get("btn")
-				_wslots[num - 1] = {"btn": wbtn, "red": brk.get("btnred"), "green": brk.get("btngreen"), "icon": _make_slot_icon(wbtn, "Weapon")}
-			elif num >= 6 and num <= 10:
-				var abtn = brk.get("btn")
-				_aslots[num - 6] = {"btn": abtn, "yellow": brk.get("btnyellow"), "icon": _make_slot_icon(abtn, "Aux")}
-		# Collect unique-role item CHILDREN (bands / buttons) from every group, regardless of group name.
-		for ch: Dictionary in children:
-			if String(ch.get("type", "")) == "item":
-				var f := String(ch.get("file", ""))
-				if ROLE_FILES.has(f) and not roles.has(f):
-					roles[f] = ch
-	# Bar VFX — a masked shader fill in each band silhouette (level = green, HP = red, shield = blue).
-	if roles.has("levelband"):
-		_level_fill = _make_bar_fill(roles["levelband"], LV_FILL_COL, LV_GLOW_COL)
-	if roles.has("HPband"):
-		_hp_fill = _make_bar_fill(roles["HPband"], HP_FILL_COL, HP_GLOW_COL)
-	if roles.has("shieldband"):
-		_shield_fill = _make_bar_fill(roles["shieldband"], SH_FILL_COL, SH_GLOW_COL)
-	# Menu / Inv buttons — normal sprite, "…press" while held, action on release.
-	_setup_press_pair(_role_node(roles, "menubtn"), _role_node(roles, "menubtnpress"), _open_menu, "LV")
-	_setup_press_pair(_role_node(roles, "invbtn"),  _role_node(roles, "invbtnpress"),  _open_inventory, "LV")
-	# Legacy Equip pair (kept harmless if the layout still uses inventory/inventorypress sprites).
-	_setup_press_pair(_role_node(roles, "inventory"), _role_node(roles, "inventorypress"), _open_inventory, "LV")
-	_build_macros()   # reparent everything into the 4 edge-anchored regions (gameplay only)
-	_bindings_ready = true
-
-## Live node for a role child dict stored in `roles`, or null.
-func _role_node(roles: Dictionary, key: String) -> Node:
-	var ch = roles.get(key)
-	if ch == null:
-		return null
-	return _nodes.get(int((ch as Dictionary).get("id", -1)))
-
-func _is_band_node(eo: EditableObjectNode) -> bool:
-	return BAR_BAND_FILES.has(eo.source_path)
-
-## A press-toggle button pair over a HUD sprite: show `normal`; while held show `press`; fire `action`
-## on release inside. A transparent Button catches the input (the sprites themselves stay non-interactive).
-func _setup_press_pair(normal, press, action: Callable, macro_key: String = "") -> void:
-	if normal == null or not is_instance_valid(normal):
-		return
-	var nc := normal as Control
-	_set_press_pair(normal, press, false)   # default: show normal, hide press
-	var b := Button.new()
-	b.flat = true
-	b.focus_mode = Control.FOCUS_NONE
-	b.mouse_filter = Control.MOUSE_FILTER_STOP
-	var empty := StyleBoxEmpty.new()
-	for s in ["normal", "hover", "pressed", "focus", "disabled"]:
-		b.add_theme_stylebox_override(s, empty)
-	b.position = nc.position
-	b.size = nc.size
-	b.z_index = (normal as CanvasItem).z_index + 1
-	b.button_down.connect(func() -> void: _set_press_pair(normal, press, true))
-	b.button_up.connect(func() -> void: _set_press_pair(normal, press, false))
-	if action.is_valid():
-		b.pressed.connect(action)
-	b.set_meta("macro_key", macro_key)   # ride along with its region (e.g. LV) when reparented
-	_objects_container.add_child(b)
-	_runtime_extras.append(b)
-
-func _set_press_pair(normal, press, pressed: bool) -> void:
-	if normal != null and is_instance_valid(normal):
-		(normal as CanvasItem).visible = not pressed
-	if press != null and is_instance_valid(press):
-		(press as CanvasItem).visible = pressed
-
-## Menu button → open the shared Settings/Menu panel (instanced by arena_hud_buttons, group "settings_panel").
-func _open_menu() -> void:
-	var s := get_tree().get_first_node_in_group("settings_panel")
-	if s != null and is_instance_valid(s) and s.has_method("open"):
-		s.call("open")
-
-## Inv button → open the inventory (the panel itself is implemented later; no-ops until then).
-func _open_inventory() -> void:
-	var inv := get_tree().get_first_node_in_group("inventory_ui")
-	if inv != null and is_instance_valid(inv) and inv.has_method("toggle"):
-		inv.call("toggle")
-
-func _bind_text(ch: Dictionary) -> void:
-	var node = _nodes.get(int(ch.get("id", -1)))
-	if node == null or not is_instance_valid(node):
-		return
-	var kind := ""
-	match String(ch.get("text", "")):
-		"200": kind = "hp_cur"
-		"300": kind = "hp_max"
-		"50":  kind = "sh_cur"
-		"100": kind = "sh_max"
-		"KILL": kind = "kill"
-		"COIN": kind = "coin"
-		"LV. 3": kind = "level"
-	if kind == "":
-		return
-	if node is _HudText:
-		(node as _HudText).apply(ch, _load_font(String(ch.get("font", ""))))   # design text → measure anchor
-	var pos: Vector2 = (node as Control).position
-	var sz: Vector2 = (node as Control).size
-	_text_bindings.append({
-		"node": node, "kind": kind, "align": int(ch.get("align", 0)),
-		"left": pos.x, "center": pos.x + sz.x * 0.5, "right": pos.x + sz.x, "y": pos.y,
-	})
-
-func _update_bindings() -> void:
-	for b: Dictionary in _text_bindings:
-		_set_text_binding(b, _text_value(String(b["kind"])))
-	_update_weapons()
-	_update_aux()
-	var need := GameManager.xp_to_next(GameManager.player_level)
-	_set_fill_progress(_level_fill, float(GameManager.player_xp), float(need))
-	_set_fill_progress(_hp_fill, float(GameManager.ship_hp), float(GameManager.ship_max_hp))
-	_set_fill_progress(_shield_fill, GameManager.ship_shield, GameManager.shield_capacity_total())
-
-## Drive a bar fill's shader `progress` from cur/maxv (clamped 0..1; 0 when maxv <= 0).
-func _set_fill_progress(fill: TextureRect, cur: float, maxv: float) -> void:
-	if fill == null or not is_instance_valid(fill):
-		return
-	var mat := fill.material as ShaderMaterial
-	if mat == null:
-		return
-	var frac := clampf(cur / maxv, 0.0, 1.0) if maxv > 0.0 else 0.0
-	mat.set_shader_parameter("progress", frac)
-
-func _text_value(kind: String) -> String:
-	match kind:
-		"hp_cur": return str(GameManager.ship_hp)
-		"hp_max": return str(GameManager.ship_max_hp)
-		"sh_cur": return str(int(round(GameManager.ship_shield)))
-		"sh_max": return str(int(round(GameManager.shield_capacity_total())))
-		"kill":   return str(GameManager.run_kills)
-		"coin":   return str(GameManager.money)
-		"level":  return "LV. %d" % GameManager.player_level
-	return ""
-
-func _set_text_binding(b: Dictionary, s: String) -> void:
-	var node = b["node"]
-	if node == null or not is_instance_valid(node) or not (node is _HudText):
-		return
-	(node as _HudText).set_text_value(s)
-	var w: float = (node as Control).size.x
-	var x: float
-	match int(b["align"]):
-		1: x = float(b["center"]) - w * 0.5
-		2: x = float(b["right"]) - w
-		_: x = float(b["left"])
-	(node as Control).position = Vector2(x, float(b["y"]))
-
-func _update_weapons() -> void:
-	if _weapons_node == null or not is_instance_valid(_weapons_node):
-		_weapons_node = get_tree().get_first_node_in_group("arena_weapons")
-	var acquired: Array = []
-	if _weapons_node != null and is_instance_valid(_weapons_node) and _weapons_node.has_method("acquired_weapons"):
-		acquired = _weapons_node.call("acquired_weapons")
-	if _last_acquired_n >= 0 and acquired.size() > _last_acquired_n:
-		_trigger_shrink("Weapon")   # a new weapon → pop the Weapon region to full, then re-shrink
-	_last_acquired_n = acquired.size()
-	for i in _wslots.size():
-		var s = _wslots[i]
-		if s == null:
-			continue
-		var has: bool = i < acquired.size()
-		_set_vis(s.get("btn"), has)
-		var icon = s.get("icon")
-		if has:
-			var kind := String(acquired[i])
-			if icon != null and is_instance_valid(icon):
-				var tex := _weapon_icon_tex(kind)
-				(icon as TextureRect).texture = tex
-				(icon as TextureRect).visible = tex != null
-			var cont: bool = CONTINUOUS_WEAPONS.has(kind)
-			var firing: bool = _weapons_node.has_method("weapon_is_firing") and bool(_weapons_node.call("weapon_is_firing", kind))
-			var frac := 1.0
-			if _weapons_node.has_method("weapon_cooldown_frac"):
-				frac = float(_weapons_node.call("weapon_cooldown_frac", kind))
-			if cont:
-				_set_vis(s.get("red"), false)
-				_set_vis(s.get("green"), false)
-			else:
-				_set_vis(s.get("green"), firing)
-				_set_vis(s.get("red"), frac < 0.999 and not firing)
-		else:
-			_set_vis(s.get("red"), false)
-			_set_vis(s.get("green"), false)
-			if icon != null and is_instance_valid(icon):
-				(icon as CanvasItem).visible = false
-
-func _update_aux() -> void:
-	if _aux_node == null or not is_instance_valid(_aux_node):
-		_aux_node = get_tree().get_first_node_in_group("arena_aux")
-	var owned: Array = []
-	if _aux_node != null and is_instance_valid(_aux_node) and _aux_node.has_method("owned_aux"):
-		owned = _aux_node.call("owned_aux")
-	if _last_owned_n >= 0 and owned.size() > _last_owned_n:
-		_trigger_shrink("Aux")   # a new aux → pop the Aux region to full, then re-shrink
-	_last_owned_n = owned.size()
-	for i in _aslots.size():
-		var s = _aslots[i]
-		if s == null:
-			continue
-		_set_vis(s.get("yellow"), false)   # btnyellow unused → always hidden
-		var has: bool = i < owned.size()
-		_set_vis(s.get("btn"), has)
-		var icon = s.get("icon")
-		if has:
-			var id := String(owned[i])
-			var d: Dictionary = {}
-			if _aux_node.has_method("def_for"):
-				d = _aux_node.call("def_for", id)
-			if icon != null and is_instance_valid(icon):
-				var tex := _aux_icon_tex(id, d)
-				(icon as TextureRect).texture = tex
-				(icon as TextureRect).visible = tex != null
-		elif icon != null and is_instance_valid(icon):
-			(icon as CanvasItem).visible = false
-
-func _set_vis(n, v: bool) -> void:
-	if n != null and is_instance_valid(n):
-		(n as CanvasItem).visible = v
-
-## A weapon/aux icon TextureRect over `btn`: sized to SLOT_ICON_FIT of the btn (leaves the button frame
-## visible), aspect-kept + centered so no weapon sprite is ever stretched, Lighten blend so the icon
-## reads as part of the button without darkening it, z just above the btn (below btnred/btngreen higher z).
-func _make_slot_icon(btn, macro_key: String) -> TextureRect:
-	if btn == null or not is_instance_valid(btn):
-		return null
-	var bc := btn as Control
-	var tr := TextureRect.new()
-	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var box := bc.size * SLOT_ICON_FIT
-	tr.size = box
-	tr.position = bc.position + (bc.size - box) * 0.5   # centered inside the btn
-	tr.z_index = (btn as CanvasItem).z_index
-	tr.visible = false
-	tr.set_meta("macro_key", macro_key)   # follow its btn's region (Weapon/Aux)
-	_apply_blend_to(tr, SLOT_ICON_BLEND)   # Lighten
-	_objects_container.add_child(tr)
-	_runtime_extras.append(tr)
-	return tr
-
-func _apply_blend_to(tr: TextureRect, blend_id: int) -> void:
-	match blend_id:
-		4:
-			var ma := CanvasItemMaterial.new()
-			ma.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-			tr.material = ma
-		5:
-			var mm := CanvasItemMaterial.new()
-			mm.blend_mode = CanvasItemMaterial.BLEND_MODE_MUL
-			tr.material = mm
-		1, 2, 3:
-			var sm := ShaderMaterial.new()
-			sm.shader = load(HUD_BLEND_SHADER)
-			sm.set_shader_parameter("mode", blend_id - 1)   # 1→Screen(0), 2→HardLight(1), 3→Overlay(2)
-			tr.material = sm
-		6:
-			var sl := ShaderMaterial.new()
-			sl.shader = load(HUD_BLEND_SHADER)
-			sl.set_shader_parameter("mode", 3)               # Lighten
-			tr.material = sl
-		_:
-			tr.material = null
-
-func _weapon_icon_tex(kind: String) -> Texture2D:
-	if _weapon_icon_cache.has(kind):
-		return _weapon_icon_cache[kind]
-	var info: Dictionary = ArenaWeapons.WEAPON_INFO.get(kind, ArenaWeapons.FUSION_DEFS.get(kind, {}))
-	var tex: Texture2D = null
-	var icon_path := String(info.get("icon", ""))
-	if icon_path != "":
-		tex = load(icon_path) as Texture2D
-	if tex == null:
-		tex = InventoryManager.get_icon(String(info.get("def_id", "")))
-	_weapon_icon_cache[kind] = tex
-	return tex
-
-func _aux_icon_tex(id: String, d: Dictionary) -> Texture2D:
-	if _aux_icon_cache.has(id):
-		return _aux_icon_cache[id]
-	var tex: Texture2D = null
-	var path := String(d.get("icon", ""))
-	if path != "" and ResourceLoader.exists(path):
-		tex = load(path) as Texture2D
-	_aux_icon_cache[id] = tex
-	return tex
-
-## A shader "fill" TextureRect that occupies the band's exact rect and is MASKED by the band texture's
-## alpha (bar_fill.gdshader), so the fill paints only the band silhouette and never spills past it. The
-## band itself is edit-only (hidden in gameplay); this masked fill is the visible bar. `grow` (per band)
-## sets the direction the wave grows. fill/glow tones = the bar color (level=green, HP=red, shield=blue).
-func _make_bar_fill(ch: Dictionary, fill_col: Color, glow_col: Color) -> TextureRect:
-	var id := int(ch.get("id", -1))
-	var band = _nodes.get(id)
-	if band == null or not is_instance_valid(band):
-		return null
-	var bc := band as Control
-	var tr := TextureRect.new()
-	tr.texture = _load_tex(_item_path(String(ch.get("file", ""))))
-	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	tr.stretch_mode = TextureRect.STRETCH_SCALE   # texture fills the rect → shader UV spans 0..1 over the band
-	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tr.position = bc.position
-	tr.size = bc.size
-	tr.z_index = (band as CanvasItem).z_index
-	tr.visible = _child_visible(id)   # follow the band's eye-toggle (design intent), not its edit-only hide
-	tr.set_meta("macro_key", "LV")    # bars live in the bottom LV region
-	var mat := ShaderMaterial.new()
-	mat.shader = load(BAR_FILL_SHADER)
-	mat.set_shader_parameter("fill_color", fill_col)
-	mat.set_shader_parameter("glow_color", glow_col)
-	mat.set_shader_parameter("grow_dir", int(ch.get("grow", 0)))
-	tr.material = mat
-	_objects_container.add_child(tr)
-	_runtime_extras.append(tr)
-	return tr
-
-# ── Macro regions (gameplay only): edge-anchored, uniformly-scalable groups ──────────────────────────
-# Gathers each region's member nodes (design items/texts + their runtime extras), reparents them under
-# one Control container, then anchors that container to a screen edge (centered on the other axis). The
-# container is the single unit that the pulse/shrink tweens scale — about its edge anchor, so it stays
-# glued to the edge. Built in gameplay (_build_runtime_bindings); torn down while editing (_clear_macros).
-
-func _build_macros() -> void:
-	_clear_macros()
-	if _objects_container == null or not is_instance_valid(_objects_container):
-		return
-	var vp := get_viewport().get_visible_rect().size
-	var members: Dictionary = {}
-	for k: String in MACRO_KEYS:
-		members[k] = []
-	# Design nodes → region by their editor group (Text group split by sentinel).
-	for id in _nodes:
-		var n = _nodes[id]
-		if n == null or not is_instance_valid(n):
-			continue
-		var mk := _macro_for_child(int(id))
-		if members.has(mk):
-			(members[mk] as Array).append(n)
-	# Runtime extras (icons/fills/buttons) → region by the tag set when they were created.
-	for ex in _runtime_extras:
-		if ex == null or not is_instance_valid(ex):
-			continue
-		var mk2 := String((ex as Node).get_meta("macro_key", ""))
-		if members.has(mk2):
-			(members[mk2] as Array).append(ex)
-	for k: String in MACRO_KEYS:
-		var mem: Array = members[k]
-		if mem.is_empty():
-			continue
-		var container := Control.new()
-		container.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_objects_container.add_child(container)
-		# Container starts at identity, so keep_global_transform=true makes local pos == design pos.
-		for n in mem:
-			(n as Node).reparent(container, true)
-		var bbox := _members_local_bbox(mem)
-		var edge := String(MACRO_EDGE[k])
-		var anchor_local := _edge_anchor_local(bbox, edge)
-		var base: float = SHRINK_SCALE if String(MACRO_BEHAVIOR[k]) == "shrink" else 1.0
-		# pivot = anchor point → scaling holds it fixed; position maps the anchor onto the screen edge.
-		container.pivot_offset = anchor_local
-		container.scale = Vector2(base, base)
-		container.position = _edge_anchor_screen(vp, edge) - anchor_local
-		_macros[k] = {"container": container, "edge": edge, "behavior": String(MACRO_BEHAVIOR[k]), "tween": null}
-	# Reset change-detect baselines so the first gameplay frame doesn't fire a spurious pop.
-	_last_acquired_n = _weapon_count()
-	_last_owned_n = _aux_count()
-
-## Take every container's children back to the objects_container at their design positions (keep_global
-## =false preserves the local/design coords), then free the containers. Restores the editing layout.
-func _clear_macros() -> void:
-	for k in _macros:
-		var m: Dictionary = _macros[k]
-		var tw = m.get("tween")
-		if tw != null and is_instance_valid(tw):
-			(tw as Tween).kill()
-		var c = m.get("container")
-		if c == null or not is_instance_valid(c):
-			continue
-		for kid in (c as Node).get_children():
-			(kid as Node).reparent(_objects_container, false)
-		(c as Node).queue_free()
-	_macros.clear()
-
-## Which macro region a design child belongs to ("" = none). The "Text" group is split by sentinel.
-func _macro_for_child(child_id: int) -> String:
-	var loc := _find_child(child_id)
-	if loc.x < 0:
-		return ""
-	var g: Dictionary = _groups[loc.x]
-	var gname := String(g.get("name", ""))
-	if gname == "Text":
-		var ch: Dictionary = (g["children"] as Array)[loc.y]
-		return "KillCoin" if KILLCOIN_TEXTS.has(String(ch.get("text", ""))) else "LV"
-	return String(GROUP_MACRO.get(gname, ""))
-
-## Union rect of member nodes in their (design) local coords; individual node scale is 1 here.
-func _members_local_bbox(mem: Array) -> Rect2:
-	var mn := Vector2(INF, INF)
-	var mx := Vector2(-INF, -INF)
-	for n in mem:
-		var c := n as Control
-		if c == null:
-			continue
-		var p := c.position
-		var sz := c.size * c.scale
-		mn.x = minf(mn.x, p.x); mn.y = minf(mn.y, p.y)
-		mx.x = maxf(mx.x, p.x + sz.x); mx.y = maxf(mx.y, p.y + sz.y)
-	if mn.x == INF:
-		return Rect2()
-	return Rect2(mn, mx - mn)
-
-## The bbox point that pins to the screen edge (outer edge on the anchor axis, centre on the other).
-func _edge_anchor_local(b: Rect2, edge: String) -> Vector2:
-	match edge:
-		"left":   return Vector2(b.position.x, b.position.y + b.size.y * 0.5)
-		"right":  return Vector2(b.position.x + b.size.x, b.position.y + b.size.y * 0.5)
-		"top":    return Vector2(b.position.x + b.size.x * 0.5, b.position.y)
-		_:        return Vector2(b.position.x + b.size.x * 0.5, b.position.y + b.size.y)   # bottom
-
-## Where that anchor lands on screen: flush to the edge (minus margin), centred on the other axis.
-func _edge_anchor_screen(vp: Vector2, edge: String) -> Vector2:
-	match edge:
-		"left":   return Vector2(MACRO_MARGIN, vp.y * 0.5)
-		"right":  return Vector2(vp.x - MACRO_MARGIN, vp.y * 0.5)
-		"top":    return Vector2(vp.x * 0.5, MACRO_MARGIN)
-		_:        return Vector2(vp.x * 0.5, vp.y - MACRO_MARGIN)   # bottom
-
-## Weapon/Aux: snap to full size, hold 5s, then ease back to SHRINK_SCALE. Restarts on each trigger.
-func _trigger_shrink(key: String) -> void:
-	var m = _macros.get(key)
-	if m == null or String((m as Dictionary).get("behavior", "")) != "shrink":
-		return
-	var c = (m as Dictionary).get("container")
-	if c == null or not is_instance_valid(c):
-		return
-	var old = (m as Dictionary).get("tween")
-	if old != null and is_instance_valid(old):
-		(old as Tween).kill()
-	(c as Control).scale = Vector2.ONE
-	var tw := create_tween()
-	tw.tween_interval(SHRINK_DELAY)
-	tw.tween_property(c, "scale", Vector2(SHRINK_SCALE, SHRINK_SCALE), SHRINK_DUR)
-	(m as Dictionary)["tween"] = tw
-
-## KillCoin: quick 0.1s pop to PULSE_SCALE and back on each value change.
-func _pulse_macro(key: String) -> void:
-	var m = _macros.get(key)
-	if m == null:
-		return
-	var c = (m as Dictionary).get("container")
-	if c == null or not is_instance_valid(c):
-		return
-	var old = (m as Dictionary).get("tween")
-	if old != null and is_instance_valid(old):
-		(old as Tween).kill()
-	(c as Control).scale = Vector2.ONE
-	var tw := create_tween()
-	tw.tween_property(c, "scale", Vector2(PULSE_SCALE, PULSE_SCALE), PULSE_DUR)
-	tw.tween_property(c, "scale", Vector2.ONE, PULSE_DUR)
-	(m as Dictionary)["tween"] = tw
-
-func _weapon_count() -> int:
-	if _weapons_node != null and is_instance_valid(_weapons_node) and _weapons_node.has_method("acquired_weapons"):
-		return (_weapons_node.call("acquired_weapons") as Array).size()
-	return 0
-
-func _aux_count() -> int:
-	if _aux_node != null and is_instance_valid(_aux_node) and _aux_node.has_method("owned_aux"):
-		return (_aux_node.call("owned_aux") as Array).size()
-	return 0
-
-func _clear_runtime_extras() -> void:
-	for n in _runtime_extras:
-		if n != null and is_instance_valid(n):
-			n.queue_free()
-	_runtime_extras.clear()
-	_level_fill = null
-	_hp_fill = null
-	_shield_fill = null
-
-## Re-show the design sentinel text ("200", "KILL", …) on the text nodes while editing.
-func _restore_design_text() -> void:
-	for g: Dictionary in _groups:
-		if String(g.get("name", "")) != "Text":
-			continue
-		for ch: Dictionary in g.get("children", []):
-			if String(ch.get("type", "")) == "text":
-				var n = _nodes.get(int(ch.get("id", -1)))
-				if n != null and is_instance_valid(n) and n is _HudText:
-					(n as _HudText).apply(ch, _load_font(String(ch.get("font", ""))))
+	_binder.update(_delta)
 
 # ════════════════════════════════════════════════════════════════════════════════════
 # Inner UI classes

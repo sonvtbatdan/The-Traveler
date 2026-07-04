@@ -39,7 +39,9 @@ static func _load_hud_rect(key: String) -> Rect2: ...  # đọc từ user://hud_
 
 > Khác hẳn F6 `hud_edit_overlay.gd` ở trên (cái đó drag widget HUD có sẵn). Đây là editor **standalone** (extends CanvasLayer, KHÔNG subclass creep) để dựng Player-HUD từ **GROUPS**.
 
-**Mô hình dữ liệu** (lưu `res://playerhud_layout.cfg`, section `[hud] groups`):
+> **2026-07-02 — generic board editor:** file này giờ author nhiều "board" (HUD, Level Up…) qua dropdown "Board:". Runtime từng board tách ra `scripts/ui/boards/<x>_binder.gd`; registry ở `board_defs.gd`. Xem [`hud.md` §11](hud.md).
+
+**Mô hình dữ liệu** (lưu `res://config/boards/<board>.cfg`, section `[hud] groups`):
 - `_groups: Array` — danh sách nhóm có thứ tự; **index 0 = trên cùng panel = Z cao nhất**.
 - Mỗi group = `{name, children: Array}`. Mỗi child có `id` duy nhất (`_next_id`), `type` = `"item"` hoặc `"text"`.
   - item: `file` (basename trong Playerhud), `pos`, `size`, `blend`.
@@ -71,7 +73,8 @@ static func _load_hud_rect(key: String) -> Rect2: ...  # đọc từ user://hud_
 > - **Weapon** = Button1-5 + ActiveBar → cạnh trái, giữa dọc. **Aux** = Button6-10 + PassiveBar → cạnh phải, giữa dọc. **KillCoin** = text KILL/COIN + KillBar → cạnh trên, giữa ngang. **LV** = INV/MENU/LevelBarBg/Level/LevelBar + text HP/Shield/LV → cạnh dưới, giữa ngang.
 > - **Weapon/Aux** resting = `SHRINK_SCALE` (70%). `_trigger_shrink`: về 100% → chờ `SHRINK_DELAY`(5s) → ease về 70%. Trigger: `GameManager.player_stats_changed` (upgrade) + đếm `acquired_weapons()`/`owned_aux()` tăng (item mới) trong `_update_weapons/_update_aux`.
 > - **KillCoin** `_pulse_macro`: pop `PULSE_SCALE`(103%) trong 0.1s rồi về 100%. Trigger: `GameManager.kills_changed` / `money_changed`. Signals hook 1 lần ở `_ready`→`_hook_stat_signals`.
-> - Reparent giữ z (z_as_relative, container z_index=0); `_clear_macros` reparent members về objects_container (keep_global=false = giữ toạ độ design) để sửa trong editor. Anchor tính theo viewport lúc build (không auto theo resize).
+> - Reparent giữ z (z_as_relative, container z_index=0); `_clear_macros` reparent members về objects_container (keep_global=false = giữ toạ độ design) để sửa trong editor.
+> - **Anchor (2026-07-01, robust):** container scale về gốc (pivot 0), `_update_macro_anchors()` chạy MỖI FRAME set `position = screen_anchor − scale·anchor_local` → mép region dính cạnh ở MỌI mức scale (giữ flush suốt tween shrink/pulse) và tự re-fit khi đổi kích thước cửa sổ. `MACRO_MARGIN=0` (sát hẳn).
 
 > ⚠️ **GOTCHA drag-reorder:** chọn group/child (`_select`/`_select_group`) chỉ được gọi `_update_row_selection()` (đổi highlight tại chỗ), **TUYỆT ĐỐI KHÔNG** `_rebuild_groups_panel()` — rebuild khi nhấn sẽ free row ngay lúc bấm → Godot không kịp khởi tạo `_get_drag_data` → hỏng kéo-thả đổi Z. Chỉ rebuild khi đổi cấu trúc (add/delete/reorder/collapse/lock/rename/visible).
 

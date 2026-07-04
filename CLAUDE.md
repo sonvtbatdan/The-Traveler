@@ -25,6 +25,7 @@ CLAUDE.md này (router) luôn được đọc mỗi session. Chi tiết từng h
 
 | Bạn đang làm... | Đọc file |
 |-----------------|----------|
+| **HUD in-game** (playerhud sống, thanh HP/Shield/Level, slot weapon/aux, nút Menu/Inv, coin/kill, macro regions, cockpit HUD ẩn) — bao gồm cả board **Level Up** (aux/perk icon, hover/click select, WeaponDisplay) | [`docs/hud.md`](docs/hud.md) |
 | Weapon / firing / inventory / affixes / ship visual / arena weapons (+VFX của vũ khí: arc, z-sword) | [`docs/weapon.md`](docs/weapon.md) |
 | Enemy / boss / wave / arena enemy / ruin / enemy panel | [`docs/enemy.md`](docs/enemy.md) |
 | VFX chung: scrolling bg, sprite-sheet/GIF, dynamic fire, explosion, plume, thrust, rescale | [`docs/vfx.md`](docs/vfx.md) |
