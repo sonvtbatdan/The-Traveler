@@ -123,6 +123,20 @@ const AUX_ICON_SCALE := 0.8          # aux/perk icons CONTAIN-fit within 80% of 
 var _aux_icon_cache: Dictionary = {} # aux id → Texture2D (or null if missing), loaded from AUX_ICON_DIR
 var _perk_icon_cache: Dictionary = {} # perk id → Texture2D (or null if missing), loaded from PERK_ICON_DIR
 
+# Weapon skill-point pool perk icons — one subfolder per weapon kind (folder names are the artist's informal
+# label, NOT WEAPON_INFO.label/name — kept as authored rather than renaming their folders).
+const WEAPON_PERK_ICON_DIR := "res://assets/hud/weapon perks/"
+const WEAPON_PERK_FOLDER := {
+	"gatling": "Minigun", "death_beam": "Death Beam", "arc": "Arc Lightning", "gauss": "Gauss Pulser",
+	"orbital": "Orbital Defender", "red_x": "red X", "chemtrail": "Chemtrail", "zsword": "Z-Sword", "sonic": "sonic",
+}
+# A few files were authored with a shorthand name instead of the exact pool id — tolerate those instead of
+# requiring a rename: GAUSS_POOL "aoe_mastery" → aoe.png; ZSWORD_POOL/SONIC_POOL "cd" → cooldown.png;
+# CHEMTRAIL_POOL "ms" → movespeed.png; DRAGON_POOL "armor_reduction" → "armor reduction.png" (space, as
+# authored). See docs/hud.md §12 for the full audit of this art pass.
+const WEAPON_PERK_ID_ALIAS := {"aoe_mastery": "aoe", "cd": "cooldown", "ms": "movespeed", "armor_reduction": "armor reduction"}
+var _weapon_perk_icon_cache: Dictionary = {} # "kind/perk_id" → Texture2D (or null if missing)
+
 # Full-screen layout fractions (symmetric: left/right columns equal, centered main column).
 const COL_L_LEFT  := 0.02
 const COL_L_RIGHT := 0.23
@@ -510,12 +524,14 @@ func _board_render_options(prompt: bool = false) -> void:
 	_board_render_stats()
 	_board_render_confirm()
 
-## Centred icon/swatch for an Upgrade1-3 card, sized into its UpgradeIcon indicator rect. Weapon-pool-perk
-## cards keep the frame-margin box (same rule as the left-column choice sprites). Aux cards (their own pick,
-## a skill-point perk, or an evolve capstone under them) CONTAIN-fit within AUX_ICON_SCALE (80%) of the
-## indicator's width AND height (aspect kept, neither dimension exceeds 80%), centred in the rect. Pool-perk
-## cards (cat "aux_pool") try their OWN icon (PERK_ICON_DIR, filename = the perk's own id, e.g.
-## "regen_shield") first, falling back to the parent aux's icon, then a colour-swatch if neither exists.
+## Centred icon/swatch for an Upgrade1-3 card, sized into its UpgradeIcon indicator rect. Weapon cards (new/
+## capstone/fusion, and pool-perk cards that have no dedicated icon) keep the frame-margin box (same rule as
+## the left-column choice sprites) — pool-perk cards (cat "pool") try their OWN icon (WEAPON_PERK_ICON_DIR)
+## first, falling back to the parent weapon's icon. Aux cards (their own pick, a skill-point perk, or an
+## evolve capstone under them) CONTAIN-fit within AUX_ICON_SCALE (80%) of the indicator's width AND height
+## (aspect kept, neither dimension exceeds 80%), centred in the rect. Aux pool-perk cards (cat "aux_pool")
+## try their OWN icon (PERK_ICON_DIR, filename = the perk's own id, e.g. "regen_shield") first, falling back
+## to the parent aux's icon, then a colour-swatch if neither exists.
 func _board_make_option_icon(frame: Control, c: Dictionary) -> Control:
 	var def_id := String(c.get("def_id", ""))
 	var color: Color = c.get("color", Color.GRAY)
@@ -523,7 +539,19 @@ func _board_make_option_icon(frame: Control, c: Dictionary) -> Control:
 	var box: Vector2
 	if def_id != "":
 		box = frame.size - Vector2(WEAPON_SPRITE_MARGIN, WEAPON_SPRITE_MARGIN)
-		content = _sprite_or_swatch(def_id, color)
+		var wtex := _option_icon_tex(c)   # weapon-perk icon for "pool" cards, else the weapon's own icon
+		if wtex != null:
+			var wtr := TextureRect.new()
+			wtr.texture = wtex
+			wtr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			wtr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			wtr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			content = wtr
+		else:
+			var wsw := ColorRect.new()
+			wsw.color = color
+			wsw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			content = wsw
 	else:
 		var max_w := frame.size.x * AUX_ICON_SCALE
 		var max_h := frame.size.y * AUX_ICON_SCALE
@@ -981,16 +1009,40 @@ func _perk_icon_tex(id: String) -> Texture2D:
 	_perk_icon_cache[id] = tex
 	return tex
 
-## Resolve the icon texture for ANY level-up card dict — weapon/pool/capstone via InventoryManager (def_id);
-## aux/aux_pool/capstone via _aux_id_for, with aux_pool perks preferring their OWN icon (PERK_ICON_DIR)
-## before falling back to the parent aux's. Shared by the Upgrade1-3 option icon and the WeaponDisplay
-## icon-swap-on-click (_board_render_selected) so both agree on what a card's icon is.
+## Cached weapon skill-point pool perk icon (WEAPON_PERK_ICON_DIR + WEAPON_PERK_FOLDER[kind] + "/" + perk_id +
+## ".png", falling back to WEAPON_PERK_ID_ALIAS[perk_id] as the filename if the exact id has no file) — null
+## if that weapon has no perk-icon folder, or this specific perk has no art (weapon capstones + any weapon
+## with no folder yet fall back to the parent weapon's own icon, same as before this art pass).
+func _weapon_perk_icon_tex(kind: String, perk_id: String) -> Texture2D:
+	if kind == "" or perk_id == "" or not WEAPON_PERK_FOLDER.has(kind):
+		return null
+	var cache_key := kind + "/" + perk_id
+	if _weapon_perk_icon_cache.has(cache_key):
+		return _weapon_perk_icon_cache[cache_key]
+	var dir := WEAPON_PERK_ICON_DIR + String(WEAPON_PERK_FOLDER[kind]) + "/"
+	var fname := String(WEAPON_PERK_ID_ALIAS.get(perk_id, perk_id))
+	var path := dir + fname + ".png"
+	var tex: Texture2D = (load(path) as Texture2D) if ResourceLoader.exists(path) else null
+	_weapon_perk_icon_cache[cache_key] = tex
+	return tex
+
+## Resolve the icon texture for ANY level-up card dict — weapon pool perks (cat "pool") prefer their OWN icon
+## (WEAPON_PERK_ICON_DIR) before falling back to the parent weapon's; other weapon cards (new/capstone/
+## fusion) via InventoryManager (def_id); aux/aux_pool/capstone via _aux_id_for, with aux_pool perks
+## preferring their OWN icon (PERK_ICON_DIR) before falling back to the parent aux's. Shared by the
+## Upgrade1-3 option icon and the WeaponDisplay icon-swap-on-click (_board_render_selected) so both agree on
+## what a card's icon is.
 func _option_icon_tex(c: Dictionary) -> Texture2D:
+	var cat := String(c.get("cat", ""))
+	if cat == "pool":
+		var wtex := _weapon_perk_icon_tex(String(c.get("weapon", "")), String(c.get("key", "")))
+		if wtex != null:
+			return wtex
 	var def_id := String(c.get("def_id", ""))
 	if def_id != "":
 		return InventoryManager.get_icon(def_id)
 	var tex2: Texture2D = null
-	if String(c.get("cat", "")) == "aux_pool":
+	if cat == "aux_pool":
 		tex2 = _perk_icon_tex(String(c.get("key", "")))
 	if tex2 == null:
 		tex2 = _aux_icon_tex(_aux_id_for(c))

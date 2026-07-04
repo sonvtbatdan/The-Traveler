@@ -74,6 +74,7 @@ const ORBITAL_POOL := {
 	"tighten": {"name": "Tight Orbit",     "max": 5,  "per": "-10% orbit distance",         "desc": "Balls hug the ship — faster sweeps, closer guard."},
 	"spin":    {"name": "Overspin",        "max": 5,  "per": "+15% spin speed",             "desc": "Orbit faster."},
 	"spin2":   {"name": "Flywheel",        "max": 10, "per": "+7% spin speed",              "desc": "Orbit a little faster."},
+	"widen":   {"name": "Widen",           "max": 5,  "per": "+5% orbit distance, +7.5% damage", "desc": "Wider swings hit harder."},
 }
 
 const MUZZLE_OFFSET     := 22.0     # how far ahead of the ship centre shots spawn (px)
@@ -595,6 +596,9 @@ const DRAGON_POOL := {
 	"prolong": {"name": "Prolonged Flame", "max": 5,  "per": "+0.2s burn duration (global)", "desc": "Burns linger longer."},
 	"range":   {"name": "Long Reach",      "max": 5,  "per": "+10% range",             "desc": "Reach further."},
 	"cone":    {"name": "Wide Spray",      "max": 5,  "per": "+15% cone angle (×AoE)",  "desc": "Wider fan of fire."},
+	# NOTE: data + icon only — no gameplay effect wired yet (needs an enemy-armor-reduction hook keyed off
+	# _burn_stacks; not implemented). Picking/ranking this currently does nothing mechanically.
+	"armor_reduction": {"name": "Melting Steel Beam", "max": 10, "per": "Reduce armor equal to 0.02 stack of burn per rank", "desc": "The heat softens their plating."},
 }
 
 # ── Chemtrail (Biological): breadcrumb DoT puff-pool dropped behind the moving ship ──
@@ -852,7 +856,7 @@ var _arc_active: bool = ARC_ENABLED_DEFAULT   # turned on by the Arc pickup
 var _red_x_active: bool = false    # turned on by the Red X / Dragon's Breath pickup
 var _red_x_cd: float = 0.0         # (legacy detonation cd — Carnage X-fire still uses _spawn_red_x_fire)
 var _red_x_fx: DynamicFire = null  # pooled fire visual
-var _red_x_upg: Dictionary = {"damage": 0, "fire": 0, "prolong": 0, "range": 0, "cone": 0}
+var _red_x_upg: Dictionary = {"damage": 0, "fire": 0, "prolong": 0, "range": 0, "cone": 0, "armor_reduction": 0}
 var _red_x_capstone: String = ""
 var _red_x_tick_acc: float = 0.0   # Dragon's Breath damage-tick accumulator
 var _sun_spin: float = 0.0         # The Sun: rotation accumulator for the swirling fire ring
@@ -875,7 +879,7 @@ var _orbital_angle: float = 0.0    # current orbit angle (deg)
 var _orbital_self_angle: float = 0.0  # sprite self-rotation angle (deg), driven by ORBITAL_SELF_RPM
 var _orbital_t: float = 0.0        # time accumulator for the electric-arc crackle
 var _orbital_cd: Array = []        # per-ball hit cooldown timers
-var _orbital_upg: Dictionary = {"contact": 0, "size": 0, "damage": 0, "tighten": 0, "spin": 0, "spin2": 0}
+var _orbital_upg: Dictionary = {"contact": 0, "size": 0, "damage": 0, "tighten": 0, "spin": 0, "spin2": 0, "widen": 0}
 var _orbital_capstone: String = ""
 var _orbital_elements: Array = []  # Avatar: per-ball element ("fire"/"ice"/"lightning"); rebuilt on count change
 var _truth_family: String = ""     # Art of War "X Truth" evo: the surviving weapon family ("" = none)
@@ -2985,10 +2989,10 @@ func apply_truth(family: String) -> void:
 func _orbital_lvl() -> int:
 	return weapon_level("orbital")
 
-## Per-ball contact damage (Heavy Orbs ranks). Contact Mastery is applied globally in _roll_damage.
-## Center of the Universe evo adds 100% armor + 5% Max HP on top (flat).
+## Per-ball contact damage (Heavy Orbs ranks + Widen's damage half). Contact Mastery is applied globally in
+## _roll_damage. Center of the Universe evo adds 100% armor + 5% Max HP on top (flat).
 func _orbital_dmg_value() -> float:
-	var dmg := ORBITAL_DAMAGE * (1.0 + 0.10 * float(_orbital_upg["damage"]))
+	var dmg := ORBITAL_DAMAGE * (1.0 + 0.10 * float(_orbital_upg["damage"]) + 0.075 * float(_orbital_upg["widen"]))
 	if _orbital_capstone == "center":
 		dmg += float(GameManager.upg_base_defense) + 0.05 * float(GameManager.ship_max_hp)
 	return dmg
@@ -2997,11 +3001,13 @@ func _orbital_dmg_value() -> float:
 func _orbital_spin_mult() -> float:
 	return 1.0 + 0.15 * float(_orbital_upg["spin"]) + 0.07 * float(_orbital_upg["spin2"])
 
-## Orbit radius (Tight Orbit -10%/rank, floored so it never collapses). Pinned to base under Singularities.
+## Orbit radius (Tight Orbit -10%/rank vs Widen +5%/rank — opposing dials — floored so it never collapses).
+## Pinned to base under Singularities.
 func _orbital_radius() -> float:
 	if _singularity_active:
 		return ORBITAL_RADIUS
-	return ORBITAL_RADIUS * maxf(0.3, pow(0.90, float(_orbital_upg["tighten"])))
+	var mult := pow(0.90, float(_orbital_upg["tighten"])) * (1.0 + 0.05 * float(_orbital_upg["widen"]))
+	return ORBITAL_RADIUS * maxf(0.3, mult)
 
 ## Ball-size multiplier (Bigger Orbs +10%) × AoE bonus.
 func _orbital_size_mult() -> float:
