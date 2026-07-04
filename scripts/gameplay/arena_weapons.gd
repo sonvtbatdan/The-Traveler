@@ -100,7 +100,7 @@ const WEAPON_INFO := {
 	"void":        {"def_id": "rift_maker",      "name": "Rift Maker",              "label": "Rift Maker",   "mfr": "Horizon Logistics"},
 	"red_x":       {"def_id": "red_x",           "name": "Thermitic Discharger",    "label": "Red X",        "mfr": "Volney Elements"},
 	"chemtrail":   {"def_id": "chemtrail",       "name": "Biocide Vaporizer",       "label": "Stink Breath", "mfr": "Volney Elements"},
-	"little_man":        {"def_id": "little_man",            "name": "Little Man",              "label": "Little Man",   "mfr": "Rosastro"},
+	"mortar":        {"def_id": "mortar",            "name": "Mortar",                  "label": "Mortar",       "mfr": "Rosastro"},
 	"fat_boy":     {"def_id": "rosastro_nuclear","name": "Fat Boy",                 "label": "Fat Boy",      "mfr": "Rosastro"},
 	"sonic":       {"def_id": "sonic_wave",      "name": "Sonic",                   "label": "Sonic",        "mfr": "Yongsan"},
 	"zsword":      {"def_id": "z_sword",         "name": "Jeager",                  "label": "Jeager",       "mfr": "Eisenkraft Kinematik"},
@@ -146,8 +146,28 @@ const MORTAR_BULLET_LEN    := 28.0    # drawn bullet length (px); width derived 
 const MORTAR_DAMAGE        := 20.0    # Mortar AoE damage
 const MORTAR_AOE           := 90.0    # Mortar blast radius (small)
 const MORTAR_VFX_SCALE     := 0.01    # Mortar explosion = 1% of the full (Fat Boy) explosion (lite mode, 1.5× faster)
-const FATBOY_DAMAGE        := 200.0   # Fat Boy AoE damage
-const FATBOY_AOE           := 540.0   # Fat Boy blast radius (= full)
+# ── Mortar skill-point pool ──
+const MORTAR_POOL := {
+	"damage":       {"name": "Bigger Payload",   "max": 10, "per": "+10% damage",                "desc": "Each shell hits harder."},
+	"firerate":     {"name": "Rapid Reload",      "max": 10, "per": "+8% fire rate",              "desc": "Lob shells more often."},
+	"aoe":          {"name": "Wider Blast",       "max": 10, "per": "+10% blast radius",          "desc": "A bigger explosion footprint."},
+	"concentrated": {"name": "Concentrated Fire", "max": 5,  "per": "-10% AoE, +15% damage",      "desc": "Focus the blast: smaller radius, harder hit."},
+	"kinetic":      {"name": "Kinetic Mastery",   "max": 5,  "per": "+5% kinetic damage (global)","desc": "Boosts all kinetic weapons."},
+	"wasteland":    {"name": "Waste Land",        "max": 10, "per": "damaging + slowing crater",  "desc": "Each blast leaves a 3s crater: 20%/rank of the shot's damage over 3s + 25% slow. Craters stack."},
+}
+# Evolve capstones = multipliers on the base Mortar shot (Fusion Reactor instead deactivates it → passive core).
+const FATBOY_DMG_MULT   := 6.0    # Fat Boy: +500% damage
+const FATBOY_AOE_MULT   := 2.5    # Fat Boy: +150% AoE
+const FATBOY_RATE_MULT  := 0.15   # Fat Boy: -85% fire rate
+const LILMAN_DMG_MULT   := 0.5    # Little Man: -50% damage
+const LILMAN_AOE_MULT   := 0.25   # Little Man: -75% AoE
+const LILMAN_RATE_MULT  := 4.0    # Little Man: +300% fire rate
+# Waste Land crater tuning.
+const WASTELAND_DUR       := 3.0    # s each crater lasts
+const WASTELAND_TICK      := 0.25   # s between crater damage ticks
+const WASTELAND_SLOW      := 0.25   # fixed move-speed reduction inside a crater (does not scale with rank)
+const WASTELAND_DMG_FRAC  := 0.20   # per rank: total crater damage over its life = frac × rank × the shot's damage
+const WASTELAND_MAX_ZONES := 30     # leak guard (oldest crater is dropped past this)
 # Sonic Wave (Energy) — 3 expanding rings; each ring damages every enemy its front passes, once.
 const SONIC_COOLDOWN     := 3.0
 const SONIC_RINGS        := 3
@@ -211,6 +231,16 @@ const BOOM_SPIN       := 12.566     # visual self-spin rad/s (120 RPM = 4π)
 const BOOM_COL        := Color(0.95, 0.85, 0.5)
 const BOOM_DRAW       := 19.5       # on-screen boomerang sprite width (px); height aspect-locked per texture
 const BOOM_TEX: Texture2D = preload("res://assets/weaponry/ND-Aliwa-Bmr.png")
+# ── Boomerang (Aliwa, kinetic + contact) skill-point pool + evolves ──
+const BOOM_POOL := {
+	"damage":     {"name": "Sharpened Edge",     "max": 10, "per": "+10% damage",         "desc": "A keener blade."},
+	"speed":      {"name": "Aerofoil",           "max": 10, "per": "+10% throw speed",     "desc": "The blade travels its arc faster."},
+	"size":       {"name": "Heavy Blade",        "max": 10, "per": "+10% blade size",      "desc": "A bigger blade with a wider hit."},
+	"count":      {"name": "Split Blade",        "max": 3,  "per": "+1 boomerang",         "desc": "Another blade joins the flock. Unlocks at weapon level 6 / 11 / 16.", "gate": [6, 11, 16]},
+	"bleed":      {"name": "Laceration",         "max": 10, "per": "+2 bleed stacks/hit",  "desc": "Every hit rends: 2 guaranteed bleed stacks per rank."},
+	"hemorrhage": {"name": "Hemorrhage Mastery", "max": 10, "per": "+20% bleed dmg (global)", "desc": "All bleed effects bleed harder."},
+}
+const DEATHROLL_PULL := 32.0   # px an enemy is dragged toward the blade per hit (Death Roll evolve)
 # Parasite Cloud (Biological) — fast blob that decelerates into a lingering damage cloud.
 const PARA_COOLDOWN   := 2.6
 const PARA_SPEED      := 520.0
@@ -222,6 +252,21 @@ const PARA_DAMAGE     := 10.0       # per tick to everything inside
 const PARA_COL        := Color(0.6, 0.95, 0.45)
 const PARA_GAS_LIFETIME := 4.0   # seconds gas cloud lingers after spore expires
 const PARA_GAS_PUFF_N   := 7     # puffs per expired spore (1 centre + 6 ring)
+# ── Parasite Cloud (Venomancer, biological) skill-point pool + evolves ──
+const PARA_POOL := {
+	"aoe":              {"name": "Contagion Radius",         "max": 10, "per": "+10% cloud radius",         "desc": "The infection spreads wider."},
+	"damage":           {"name": "Virulence",                "max": 10, "per": "+10% damage",               "desc": "A deadlier strain."},
+	"duration":         {"name": "Persistence",              "max": 5,  "per": "+20% cloud lifetime",       "desc": "Clouds linger longer."},
+	"metal_eater":      {"name": "Metal Eater",              "max": 5,  "per": "-1 armor/s in cloud",       "desc": "Affected enemies corrode: -1/s per rank for 5s (cap -5×rank)."},
+	"armor_mastery":    {"name": "Armor Stripping Mastery",  "max": 5,  "per": "-10 min armor (global)",    "desc": "Unlocks the armor floor so stripping drives armor NEGATIVE — all armor-strip sources."},
+	"stolen_fortitude": {"name": "Stolen Fortitude",         "max": 5,  "per": "+4% stripped armor → you",  "desc": "Gain armor from a share of the most-corroded enemy's stripped armor."},
+}
+const PARA_METAL_EATER_PER_RANK := 1.0    # armor/sec corroded per Metal Eater rank
+const PARA_METAL_EATER_DUR      := 5.0    # s the corrosion lingers after leaving the cloud
+const PARA_STOLEN_PER_RANK      := 0.04   # fraction of the top enemy's stripped armor gained per rank
+const PARA_STOLEN_LINGER        := 5.0    # s your stolen armor holds after the source reduction is gone
+const PARA_RECON_BONUS          := 0.75   # Perfect Reconstruction evolve: +75% conversion
+const PARA_AUTO_SPEED           := 150.0  # Full Automation evolve: cloud drift speed (px/s)
 # Moroboshi-M1 (Biological) — winged-golem familiar that chases enemies and punches (AoE + stagger).
 const MORO_FOLLOW_DIST := 90.0      # rests this far behind the ship when idle
 const MORO_MOVE_SPEED  := 240.0
@@ -257,7 +302,7 @@ const SWARM_HEAL_FRAC  := 0.25      # heal the player for this fraction of damag
 const SWARM_IDLE_R     := 70.0      # orbit radius near the ship when idle
 const SWARM_COL        := Color(0.95, 0.6, 0.85)
 # Space Snake (Biological) — fire-snake familiar; head chases enemies, body trails, contact DoT.
-const SNAKE_SEGMENTS   := 9        # 1 head + 7 body + 1 tail
+const SNAKE_SEGMENTS   := 5        # 1 head + 3 body + 1 tail (short at first; grows via the Length pool + Primordial God)
 const SNAKE_SPACING    := 25.2     # px between centres = body segment size (zero gap)
 const SNAKE_SPEED      := 300.0
 const SNAKE_TURN       := 3.0       # max turn rad/s (head minimises turn angle)
@@ -266,6 +311,17 @@ const SNAKE_TICK       := 0.2
 const SNAKE_DAMAGE     := 8.0       # per tick per enemy in contact with any segment
 const SNAKE_HIT_RADIUS := 22.0
 const SNAKE_COL        := Color(1.0, 0.6, 0.3)
+# ── Space Snake (VIPER, kinetic + contact + automation) skill-point pool + evolves ──
+const SNAKE_POOL := {
+	"damage":         {"name": "Venom Glands",       "max": 10, "per": "+10% damage",              "desc": "A more toxic bite."},
+	"length":         {"name": "Elongate",           "max": 8,  "per": "+1 segment",               "desc": "A longer serpent covers more ground."},
+	"speed":          {"name": "Slither",            "max": 10, "per": "+10% move speed",          "desc": "The snake hunts faster."},
+	"serrated_fang":  {"name": "Serrated Fang",       "max": 10, "per": "+10 bleed stacks (head)",  "desc": "Head bites rend: 10 bleed stacks/rank when the HEAD hits (guaranteed)."},
+	"serrated_scale": {"name": "Serrated Scale",      "max": 10, "per": "+2 bleed stacks/body seg", "desc": "The scaled body rends: 2 bleed stacks/rank per body/tail segment touching (each counts separately)."},
+	"hemophilia":     {"name": "Hemophilia Mastery",  "max": 5,  "per": "+20% bleed duration (global)", "desc": "Bleeds last longer everywhere."},
+}
+const SNAKE_KILLS_PER_SEG := 1000   # Primordial God: enemies the snake must kill per +1 body segment
+const SNAKE_PRIMORDIAL_CAP := 50    # Primordial God: max body segments gained from kills (reached at 50k kills)
 
 # ── TUNABLES: Swarm (Chakra Bio-Synthetics) — 8 swarmballs launch out, loiter to acquire a target, then ram it
 # as swarmbots and explode. (The old dart+heal familiar mechanic now belongs to Vampire Host.) ──
@@ -536,6 +592,26 @@ const CAPSTONES := {
 		{"id": "overload", "name": "Sensory Overload", "desc": "+20% damage for each status effect on the target."},
 		{"id": "silence",  "name": "Deafening Silence", "desc": "Waves shove enemies back and destroy all enemy projectiles."},
 		{"id": "siren",    "name": "Siren", "desc": "25% chance to charm a non-boss enemy for 5s — it fights for you."},
+	],
+	"mortar": [
+		{"id": "fat_boy",        "name": "Fat Boy",        "desc": "-85% fire rate, +500% damage, +150% AoE. One devastating shell."},
+		{"id": "little_man",     "name": "Little Man",     "desc": "+300% fire rate, -75% AoE, -50% damage. A rapid patter of tiny shells."},
+		{"id": "fusion_reactor", "name": "Fusion Reactor", "desc": "Deactivate the Mortar → passive core: +5 HP regen, +5 shield regen, +10% move speed, +10% fire rate & damage to ALL weapons."},
+	],
+	"parasite": [
+		{"id": "full_automation",        "name": "Full Automation",        "desc": "The cloud detaches and roams free (150 px/s), parking over the densest enemy cluster. Gains automation tags."},
+		{"id": "perfect_reconstruction", "name": "Perfect Reconstruction", "desc": "+75% Stolen Fortitude conversion."},
+		{"id": "strip_naked",            "name": "Strip Naked",            "desc": "+50 to the maximum armor reduction — strip enemies deep into negative armor."},
+	],
+	"boomerang": [
+		{"id": "bleed_more", "name": "Bleed!",     "desc": "Each hit applies an ADDITIONAL 10% of the target's max bleed stacks."},
+		{"id": "chaos",      "name": "Chaos",      "desc": "+3 boomerangs."},
+		{"id": "death_roll", "name": "Death Roll", "desc": "-70% throw speed (snaps back if it strays too far), +100% damage, and the blade now DRAGS enemies into itself."},
+	],
+	"snake": [
+		{"id": "primordial_god", "name": "Primordial God", "desc": "The snake grows: +1 body segment per 1000 enemies it kills (up to +50 at 50,000 kills)."},
+		{"id": "more_snakes",    "name": "More Snakes",     "desc": "+1 snake — a second serpent with identical stats."},
+		{"id": "anemia",         "name": "Anemia",          "desc": "Enemies take +1% damage from ALL sources per 10 bleed stacks on them."},
 	],
 }
 
@@ -866,11 +942,12 @@ var _void_tick: float = 0.0        # damage-tick accumulator
 var _void_node: ColorRect = null   # the swirling-vortex visual
 var _void_distort: ColorRect = null   # gravitational-lens disc (screen-warp), drawn under the vortex
 # ── Batch-1 weapons (Nuke / Sonic Wave / Z-Sword / Ionizing Field) ──
-var _little_man_active: bool = false          # Mortar (Little Man) — mortarbullet auto-fire
-var _little_man_cd: float = 0.0               # Mortar fire timer
-var _fat_boy_active: bool = false       # Fat Boy (Fat Boy) — same bullet, full-size blast
-var _fat_boy_cd: float = 0.0            # Fat Boy fire timer
-var _mortar_bullets: Array = []         # shared pool: {pos, vel, kind, life}
+var _mortar_active: bool = false          # Mortar — mortarbullet auto-fire toward the cursor
+var _mortar_cd: float = 0.0               # Mortar fire timer
+var _mortar_upg: Dictionary = {"damage": 0, "firerate": 0, "aoe": 0, "concentrated": 0, "kinetic": 0, "wasteland": 0}
+var _mortar_capstone: String = ""         # "" | "fat_boy" | "little_man" | "fusion_reactor"
+var _mortar_bullets: Array = []         # shared pool: {pos, vel, life}
+var _wasteland_zones: Array = []        # Waste Land craters: {pos, radius, dmg, age, tick}
 var _mortarbullet_tex: Texture2D = null
 var _sonic_active: bool = false
 var _sonic_cd: float = 0.0
@@ -900,9 +977,15 @@ var _boom_active: bool = false
 var _boom_init: bool = false
 var _boom_center: Vector2 = Vector2.ZERO   # trailing centre of the rose pattern (lags the ship)
 var _booms: Array = []                 # perpetual blades: {theta, spin, age, pos, hits:{}}
+var _boom_upg: Dictionary = {"damage": 0, "speed": 0, "size": 0, "count": 0, "bleed": 0, "hemorrhage": 0}
+var _boom_capstone: String = ""        # "" | "bleed_more" | "chaos" | "death_roll"
 var _para_active: bool = false
 var _para_cd: float = 0.0
-var _para_clouds: Array = []           # {pos, vel, age, tick, plume}
+var _para_clouds: Array = []           # {pos, vel, age, tick, plume, auto}
+var _para_upg: Dictionary = {"aoe": 0, "damage": 0, "duration": 0, "metal_eater": 0, "armor_mastery": 0, "stolen_fortitude": 0}
+var _para_capstone: String = ""        # "" | "full_automation" | "perfect_reconstruction" | "strip_naked"
+var _stolen_armor: float = 0.0         # current Stolen Fortitude bonus armor (fed to GameManager per-frame)
+var _stolen_armor_t: float = 0.0       # linger timer for the stolen armor
 var _para_gas_puffs: Array = []        # [{pos, age, max_age}] — DynamicFire puffs from expired spores
 var _para_gas_fx: DynamicFire = null   # recolored toxic-fire emitter for gas clouds
 var _para_tex: Texture2D = null
@@ -942,6 +1025,13 @@ var _snake_init: bool = false
 var _snake_pts: Array = []             # head-first list of segment positions (Vector2)
 var _snake_dir: float = 0.0
 var _snake_tick: float = 0.0
+var _snake_upg: Dictionary = {"damage": 0, "length": 0, "speed": 0, "serrated_fang": 0, "serrated_scale": 0, "hemophilia": 0}
+var _snake_capstone: String = ""       # "" | "primordial_god" | "more_snakes" | "anemia"
+var _snake_kills: int = 0              # enemies killed by a direct snake bite (Primordial God growth)
+var _snake2_init: bool = false         # second snake (More Snakes evolve) — own chain, no plume VFX
+var _snake2_pts: Array = []
+var _snake2_dir: float = 0.0
+var _snake2_tick: float = 0.0
 var _homing_active: bool = false
 var _homing_acc: float = 0.0
 var _missiles: Array = []          # {pos, vel, speed, dmg, target_enemy, target, seek_t, life, facing, emit_acc}
@@ -1351,12 +1441,12 @@ func _process(delta: float) -> void:
 		_tick_striker(delta, enemy_on_screen)
 	if _void_active:
 		_tick_void(delta)
-	if _little_man_active:
-		_tick_mortar(delta, "little_man")
-	if _fat_boy_active:
-		_tick_mortar(delta, "fat_boy")
+	if _mortar_active:
+		_tick_mortar(delta)
 	if not _mortar_bullets.is_empty():
 		_tick_mortar_bullets(delta)
+	if not _wasteland_zones.is_empty():
+		_tick_wasteland(delta)
 	if _sonic_active:
 		_tick_sonic(delta, enemy_on_screen)
 	if _zsword_active:
@@ -1447,7 +1537,7 @@ const CONTACT_KINDS := ["orbital", "singularities", "swarm", "snake", "boomerang
 # Weapon damage FAMILY (the 3-family taxonomy) → Art of War per-family masteries + the X-Truth evolutions.
 const WEAPON_FAMILY := {
 	"gatling": "kinetic", "orbital": "kinetic", "boomerang": "kinetic", "moroboshi": "kinetic",
-	"yari_jaeger": "kinetic", "snake": "kinetic", "swarm": "kinetic", "homing": "kinetic", "little_man": "kinetic",
+	"yari_jaeger": "kinetic", "snake": "kinetic", "swarm": "kinetic", "homing": "kinetic", "mortar": "kinetic",
 	"carnage": "kinetic",
 	"death_beam": "energy", "arc": "energy", "gauss": "energy", "sonic": "energy", "void": "energy",
 	"zsword": "energy", "ionize": "energy", "red_x": "energy", "singularities": "energy",
@@ -1477,9 +1567,42 @@ func _orbital_count() -> int:
 func _orbital_n() -> int:
 	return ORBITAL_BALLS if _singularity_active else _orbital_count()
 
-## Snake segment count: base + 25% length per body (rounded). Bodies make the Red Viper longer.
+## Snake segment count: base + Elongate pool + Primordial God kill-growth + 25% length per Nanobots Body.
 func _snake_len() -> int:
-	return SNAKE_SEGMENTS + int(round(float(SNAKE_SEGMENTS) * BODY_SNAKE_LEN * float(_body_count())))
+	var n := SNAKE_SEGMENTS + int(_snake_upg["length"]) + _snake_primordial_segs()
+	n += int(round(float(SNAKE_SEGMENTS) * BODY_SNAKE_LEN * float(_body_count())))
+	return n
+
+## Primordial God: +1 body segment per SNAKE_KILLS_PER_SEG snake-kills, capped at SNAKE_PRIMORDIAL_CAP.
+func _snake_primordial_segs() -> int:
+	if _snake_capstone != "primordial_god":
+		return 0
+	return mini(SNAKE_PRIMORDIAL_CAP, _snake_kills / SNAKE_KILLS_PER_SEG)
+
+# ── Snake upgrade API (pool ranks + evolve capstone) ──
+func snake_upgrade_rank(id: String) -> int:
+	return int(_snake_upg.get(id, 0))
+
+func snake_grant_upgrade(id: String) -> bool:
+	if not SNAKE_POOL.has(id):
+		return false
+	var maxr := int(SNAKE_POOL[id]["max"])
+	if maxr > 0 and int(_snake_upg.get(id, 0)) >= maxr:
+		return false
+	_snake_upg[id] = int(_snake_upg.get(id, 0)) + 1
+	if id == "hemophilia" and GameManager.has_method("add_mech"):
+		GameManager.add_mech("bleed_dur_pct", 0.20)   # GLOBAL: +20% bleed duration per rank
+	return true
+
+func snake_set_capstone(id: String) -> void:
+	_snake_capstone = id
+	if id == "anemia" and GameManager.has_method("add_mech"):
+		GameManager.add_mech("anemia_vuln", 1.0)   # flag: enemies take +1% dmg per 10 bleed stacks (enemy-side)
+
+func _snake_dmg() -> float:
+	return SNAKE_DAMAGE * (1.0 + 0.10 * float(_snake_upg["damage"]))
+func _snake_speed_mult() -> float:
+	return 1.0 + 0.10 * float(_snake_upg["speed"])
 
 ## Speed multiplier (≥1) for an automation weapon's attack/move/spin rate; 1.0 for non-automation weapons.
 func _automation_rate(kind: String) -> float:
@@ -1641,6 +1764,10 @@ func pool_rank(kind: String, id: String) -> int:
 		"chemtrail": return int(_chem_upg.get(id, 0))
 		"zsword":  return int(_zsword_upg.get(id, 0))
 		"sonic":   return int(_sonic_upg.get(id, 0))
+		"mortar":  return mortar_upgrade_rank(id)
+		"parasite": return para_upgrade_rank(id)
+		"boomerang": return boom_upgrade_rank(id)
+		"snake":    return snake_upgrade_rank(id)
 	return 0
 
 func pool_grant(kind: String, id: String) -> bool:
@@ -1654,6 +1781,10 @@ func pool_grant(kind: String, id: String) -> bool:
 		"chemtrail": return chem_grant_upgrade(id)
 		"zsword":  return zsword_grant_upgrade(id)
 		"sonic":   return sonic_grant_upgrade(id)
+		"mortar":  return mortar_grant_upgrade(id)
+		"parasite": return para_grant_upgrade(id)
+		"boomerang": return boom_grant_upgrade(id)
+		"snake":    return snake_grant_upgrade(id)
 	return false
 
 func pool_set_capstone(kind: String, id: String) -> void:
@@ -1667,6 +1798,10 @@ func pool_set_capstone(kind: String, id: String) -> void:
 		"chemtrail": _chem_capstone = id
 		"zsword":  _zsword_capstone = id
 		"sonic":   _sonic_capstone = id
+		"mortar":  mortar_set_capstone(id)
+		"parasite": para_set_capstone(id)
+		"boomerang": boom_set_capstone(id)
+		"snake":    snake_set_capstone(id)
 	# All-In: lose a weapon slot. If you're at/over the new cap, the UI must destroy one first (it checks
 	# weapons_full() before applying); here we just lower the capacity.
 	if kind == "death_beam" and id == "all_in":
@@ -1688,6 +1823,10 @@ func weapon_capstone(kind: String) -> String:
 		"chemtrail": return _chem_capstone
 		"zsword":  return _zsword_capstone
 		"sonic":   return _sonic_capstone
+		"mortar":  return _mortar_capstone
+		"parasite": return _para_capstone
+		"boomerang": return _boom_capstone
+		"snake":    return _snake_capstone
 	return ""
 
 ## True when a weapon just earned its evolve pick: at max level, has capstones, none chosen yet.
@@ -1780,7 +1919,7 @@ func _base_cd(kind: String) -> float:
 		"gatling":     return GAT_FIRE_INTERVAL
 		"gauss":       return GAUSS_CHARGE_TIME
 		"arc":         return ARC_COOLDOWN
-		"little_man":        return MORTAR_FIRE_INTERVAL
+		"mortar":        return MORTAR_FIRE_INTERVAL
 		"sonic":       return SONIC_COOLDOWN
 		"zsword":      return ZSWORD_COOLDOWN
 		"parasite":    return PARA_COOLDOWN
@@ -3408,8 +3547,7 @@ func clear_all_weapons() -> void:
 	_void_active     = false
 	_red_x_active    = false
 	_chemtrail_active = false
-	_little_man_active     = false
-	_fat_boy_active  = false;  _mortar_bullets.clear()
+	_mortar_active     = false;  _mortar_bullets.clear();  _wasteland_zones.clear()
 	_sonic_active    = false
 	_zsword_active   = false
 	_ionize_active   = false;  _ionize_set_visible(false)
@@ -3419,6 +3557,9 @@ func clear_all_weapons() -> void:
 		if _pa != null and is_instance_valid(_pa):
 			_pa.queue_free()
 	_para_active = false;  _para_clouds.clear();  _para_gas_puffs.clear()
+	_stolen_armor = 0.0;  _stolen_armor_t = 0.0
+	if GameManager.has_method("set_stolen_armor"):
+		GameManager.set_stolen_armor(0.0)
 	if _para_gas_fx != null and is_instance_valid(_para_gas_fx):
 		_para_gas_fx.visible = false
 	_moro_active     = false;  _moro_init = false
@@ -3429,6 +3570,7 @@ func clear_all_weapons() -> void:
 			if is_instance_valid(anchor):
 				anchor.visible = false
 	_snake_active    = false;  _snake_init = false;  _snake_pts.clear()
+	_snake2_init = false;  _snake2_pts.clear();  _snake_kills = 0
 
 # ── Weapon levels (level-up upgrades) ────────────────────────────────────────────
 ## Per-kind level cap — fused weapons get FUSION_BONUS_LEVELS extra levels above MAX_WEAPON_LEVEL.
@@ -3498,7 +3640,7 @@ func _activate_kind(kind: String) -> void:
 		"void":    activate_void()
 		"red_x":   activate_red_x()
 		"chemtrail": activate_chemtrail()
-		"little_man":    activate_little_man()
+		"mortar":    activate_mortar()
 		"fat_boy": activate_fat_boy()
 		"sonic":   activate_sonic()
 		"zsword":  activate_zsword()
@@ -3566,13 +3708,16 @@ func _deactivate_kind(kind: String) -> void:
 		"void":    _void_active = false; _void_on = false
 		"red_x":   _red_x_active = false; _red_x_cd = 0.0
 		"chemtrail": _chemtrail_active = false
-		"little_man":    _little_man_active = false
-		"fat_boy": _fat_boy_active = false
+		"mortar", "fat_boy":  _mortar_active = false
 		"sonic":   _sonic_active = false; _sonic_left = 0; _sonic_rings.clear()
 		"zsword":  _zsword_active = false
 		"ionize":  _ionize_active = false; _ionize_set_visible(false)
 		"boomerang": _boom_active = false
-		"parasite":  _para_active = false
+		"parasite":
+			_para_active = false
+			_stolen_armor = 0.0
+			if GameManager.has_method("set_stolen_armor"):
+				GameManager.set_stolen_armor(0.0)
 		"moroboshi": _moro_active = false
 		"swarm":     _swarm_active = false; _swarm_init = false; _swarm_units.clear()
 		"snake":     _snake_active = false
@@ -3605,14 +3750,10 @@ func weapon_cooldown_frac(kind: String) -> float:
 			if phase < ldur:
 				return 1.0   # firing window → ready
 			return clampf((phase - ldur) / maxf(0.01, lcyc - ldur), 0.0, 1.0)
-		"little_man":
-			if _little_man_cd <= 0.0:
+		"mortar", "fat_boy":
+			if _mortar_cd <= 0.0:
 				return 1.0
-			return clampf(1.0 - _little_man_cd / maxf(0.01, MORTAR_FIRE_INTERVAL / rate), 0.0, 1.0)
-		"fat_boy":
-			if _fat_boy_cd <= 0.0:
-				return 1.0
-			return clampf(1.0 - _fat_boy_cd / maxf(0.01, MORTAR_FIRE_INTERVAL / rate), 0.0, 1.0)
+			return clampf(1.0 - _mortar_cd / maxf(0.01, MORTAR_FIRE_INTERVAL / rate), 0.0, 1.0)
 		"sonic":
 			if _sonic_cd <= 0.0:
 				return 1.0
@@ -3642,8 +3783,7 @@ func weapon_is_firing(kind: String) -> bool:
 		"orbital": return _orbital_active
 		"striker": return _striker_active
 		"death_beam":  return _death_beam_active and fmod(_db_t, _db_cycle()) < _db_duration()
-		"little_man":    return _little_man_active
-		"fat_boy": return _fat_boy_active
+		"mortar", "fat_boy":  return _mortar_active
 		"sonic":   return _sonic_active
 		"zsword":  return _zsword_active and _zsword_sweeping
 		"ionize":  return _ionize_active
@@ -4073,45 +4213,94 @@ func _aoe_radius(base: float) -> float:
 	return (base + GameManager.mech_bonus("radius")) * (1.0 + GameManager.mech_bonus("aoe_pct"))   # flat (Explosivo) + % (Gauss AoE Mastery, global)
 
 # ── Mortar (Little Man) + Fat Boy (Fat Boy) ──────────────────────────
-func activate_little_man() -> void:
-	_little_man_active = true
-	_little_man_cd = 0.0
+func activate_mortar() -> void:
+	_mortar_active = true
+	_mortar_cd = 0.0
 	_ensure_mortar_tex()
 
 func activate_fat_boy() -> void:
-	_fat_boy_active = true
-	_fat_boy_cd = 0.0
-	_ensure_mortar_tex()
+	# Fat Boy is now the Mortar's evolve — the F12 debug entry activates the Mortar already evolved.
+	activate_mortar()
+	_mortar_capstone = "fat_boy"
 
 func _ensure_mortar_tex() -> void:
 	if _mortarbullet_tex == null:
 		_mortarbullet_tex = load("res://assets/weaponry/mortarbullet.png") as Texture2D
 
-## Mortar / Fat Boy share this: auto-fire one mortarbullet toward the mouse every MORTAR_FIRE_INTERVAL.
-func _tick_mortar(delta: float, kind: String) -> void:
-	var cd := _little_man_cd if kind == "little_man" else _fat_boy_cd
-	cd -= delta
-	if cd <= 0.0:
-		cd = MORTAR_FIRE_INTERVAL / _rate_mult
-		if kind == "fat_boy":
-			if _player != null:
-				_explode_mortar(_player.global_position, "fat_boy")   # detonate AT the ship — no projectile
-		else:
-			_fire_mortar(kind)
-	if kind == "little_man":
-		_little_man_cd = cd
-	else:
-		_fat_boy_cd = cd
+# ── Mortar upgrade API (pool ranks + evolve capstone) ──
+func mortar_upgrade_rank(id: String) -> int:
+	return int(_mortar_upg.get(id, 0))
+
+func mortar_grant_upgrade(id: String) -> bool:
+	if not MORTAR_POOL.has(id):
+		return false
+	var maxr := int(MORTAR_POOL[id]["max"])
+	if maxr > 0 and int(_mortar_upg.get(id, 0)) >= maxr:
+		return false
+	_mortar_upg[id] = int(_mortar_upg.get(id, 0)) + 1
+	if id == "kinetic" and GameManager.has_method("add_mech"):
+		GameManager.add_mech("kinetic_dmg", 0.05)   # GLOBAL: shared Kinetic Mastery (same key as Gatling's)
+	return true
+
+func mortar_set_capstone(id: String) -> void:
+	_mortar_capstone = id
+	if id == "fusion_reactor":
+		# Deactivate the Mortar → passive reactor: permanent global buffs (applied once, like All-In).
+		if GameManager.has_method("add_hp_regen"):     GameManager.add_hp_regen(5.0)
+		if GameManager.has_method("add_shield_regen"): GameManager.add_shield_regen(5.0)
+		if GameManager.has_method("add_move_speed"):   GameManager.add_move_speed(0.10)
+		if GameManager.has_method("add_fire_rate"):    GameManager.add_fire_rate(0.10)
+		if GameManager.has_method("add_mech"):         GameManager.add_mech("all_dmg", 0.10)
+
+# ── Mortar effective stats (pool + capstone) ──
+func _mortar_cap_dmg_mult() -> float:
+	if _mortar_capstone == "fat_boy":    return FATBOY_DMG_MULT
+	if _mortar_capstone == "little_man": return LILMAN_DMG_MULT
+	return 1.0
+
+func _mortar_cap_aoe_mult() -> float:
+	if _mortar_capstone == "fat_boy":    return FATBOY_AOE_MULT
+	if _mortar_capstone == "little_man": return LILMAN_AOE_MULT
+	return 1.0
+
+func _mortar_cap_rate_mult() -> float:
+	if _mortar_capstone == "fat_boy":    return FATBOY_RATE_MULT
+	if _mortar_capstone == "little_man": return LILMAN_RATE_MULT
+	return 1.0
+
+## Per-shot damage (Bigger Payload + Concentrated Fire + capstone; global/family/crit added by _roll_damage).
+func _mortar_shot_damage() -> float:
+	var m := 1.0 + 0.10 * float(_mortar_upg["damage"]) + 0.15 * float(_mortar_upg["concentrated"])
+	return MORTAR_DAMAGE * m * _mortar_cap_dmg_mult()
+
+## Blast radius (Wider Blast + Concentrated Fire trade-off + capstone + global AoE mods).
+func _mortar_blast_radius() -> float:
+	var m := maxf(0.05, 1.0 + 0.10 * float(_mortar_upg["aoe"]) - 0.10 * float(_mortar_upg["concentrated"]))
+	return _aoe_radius(MORTAR_AOE * m * _mortar_cap_aoe_mult())
+
+## Fire interval (Rapid Reload + capstone + global fire-rate).
+func _mortar_interval() -> float:
+	var fr := _rate_mult * (1.0 + 0.08 * float(_mortar_upg["firerate"])) * _mortar_cap_rate_mult()
+	return MORTAR_FIRE_INTERVAL / maxf(0.01, fr)
+
+## Mortar: auto-fire one mortarbullet toward the mouse. The Fusion Reactor evolve turns it off (passive core).
+func _tick_mortar(delta: float) -> void:
+	if _mortar_capstone == "fusion_reactor":
+		return
+	_mortar_cd -= delta
+	if _mortar_cd <= 0.0:
+		_mortar_cd = _mortar_interval()
+		_fire_mortar()
 
 ## Launch one mortarbullet from the ship straight toward the current mouse position.
-func _fire_mortar(kind: String) -> void:
+func _fire_mortar() -> void:
 	if _player == null:
 		return
 	var origin := _player.global_position
 	var dir := get_global_mouse_position() - origin
 	dir = dir.normalized() if dir.length() > 0.01 else _forward()
 	_mortar_bullets.append({
-		"pos": origin + dir * MUZZLE_OFFSET, "vel": dir * MORTAR_BULLET_SPEED, "kind": kind, "life": 0.0,
+		"pos": origin + dir * MUZZLE_OFFSET, "vel": dir * MORTAR_BULLET_SPEED, "life": 0.0,
 	})
 
 ## Move bullets; the FIRST enemy a bullet touches → detonate (AoE damage + scaled explosion VFX). Cull on timeout.
@@ -4131,17 +4320,17 @@ func _tick_mortar_bullets(delta: float) -> void:
 				hit = true
 				break
 		if hit:
-			_explode_mortar(pos, String(b["kind"]))
+			_explode_mortar(pos)
 			_mortar_bullets.remove_at(i)
 		elif float(b["life"]) >= MORTAR_BULLET_LIFE:
 			_mortar_bullets.remove_at(i)
 		i -= 1
 
-## AoE detonation at `pos`: damage every enemy/ruin in radius once + spawn the (scaled) explosion VFX.
-func _explode_mortar(pos: Vector2, kind: String) -> void:
-	var is_fat := kind == "fat_boy"
-	var dmg := FATBOY_DAMAGE if is_fat else MORTAR_DAMAGE
-	var aoe := _aoe_radius(FATBOY_AOE if is_fat else MORTAR_AOE)
+## AoE detonation at `pos`: damage every enemy/ruin in radius once + spawn the explosion VFX (+ a Waste Land crater).
+func _explode_mortar(pos: Vector2) -> void:
+	var is_big := _mortar_capstone == "fat_boy"
+	var dmg := _mortar_shot_damage()
+	var aoe := _mortar_blast_radius()
 	for en in _enemies():
 		if not is_instance_valid(en):
 			continue
@@ -4149,8 +4338,8 @@ func _explode_mortar(pos: Vector2, kind: String) -> void:
 		var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0
 		if pos.distance_to(en2.global_position) <= aoe + enr:
 			if en.has_method("take_damage"):
-				var r := _roll_damage(dmg, "little_man")
-				en.take_damage(float(r["dmg"]), MORTAR_BLAST_STAGGER, 1.0, false, true, bool(r["is_crit"]))   # Nuke keeps pushback
+				var r := _roll_damage(dmg, "mortar")
+				en.take_damage(float(r["dmg"]), MORTAR_BLAST_STAGGER, 1.0, false, true, bool(r["is_crit"]))   # Mortar keeps pushback
 				if bool(r["is_crit"]):
 					_spawn_crit_number(en2.global_position, float(r["dmg"]))
 	for ruin in _ruins():
@@ -4159,13 +4348,53 @@ func _explode_mortar(pos: Vector2, kind: String) -> void:
 		var rr: float = aoe + (float(ruin.get("hit_radius")) if ruin.get("hit_radius") != null else 0.0)
 		if pos.distance_to((ruin as Node2D).global_position) <= rr:
 			if ruin.has_method("take_damage"):
-				ruin.take_damage(dmg * _dmg_mult * _lvl_mult(kind))
-	# Fat Boy = full-size blast; Mortar = a tiny (1%) LITE puff, 1.5× faster, no fullscreen shockwave.
-	var full_px := _aoe_radius(MORTAR_RADIUS)
-	if is_fat:
+				ruin.take_damage(dmg * _dmg_mult * _lvl_mult("mortar"))
+	# Waste Land: leave a lingering damaging + slowing crater (radius = this shot's blast).
+	if int(_mortar_upg["wasteland"]) > 0:
+		_spawn_wasteland(pos, aoe, dmg)
+	# Fat Boy = full-size blast; otherwise a tiny (1%) LITE puff, 1.5× faster, no fullscreen shockwave.
+	var full_px := _aoe_radius(MORTAR_RADIUS) * _mortar_cap_aoe_mult()
+	if is_big:
 		_spawn_mortar_explosion(pos, full_px, 1.0, false)
 	else:
 		_spawn_mortar_explosion(pos, full_px * MORTAR_VFX_SCALE, 1.5, true)
+
+## Waste Land crater: total damage over its life = frac × rank × the shot's damage, split evenly across ticks. Stacks.
+func _spawn_wasteland(pos: Vector2, radius: float, shot_dmg: float) -> void:
+	var rank := int(_mortar_upg["wasteland"])
+	var total := WASTELAND_DMG_FRAC * float(rank) * shot_dmg
+	var per_tick := total * (WASTELAND_TICK / WASTELAND_DUR)
+	_wasteland_zones.append({"pos": pos, "radius": radius, "dmg": per_tick, "age": 0.0, "tick": 0.0})
+	if _wasteland_zones.size() > WASTELAND_MAX_ZONES:
+		_wasteland_zones.remove_at(0)
+
+## Tick every crater: damage + 25% slow to enemies inside; expire after WASTELAND_DUR. Craters damage independently.
+func _tick_wasteland(delta: float) -> void:
+	var i := _wasteland_zones.size() - 1
+	while i >= 0:
+		var z: Dictionary = _wasteland_zones[i]
+		z["age"] = float(z["age"]) + delta
+		if float(z["age"]) >= WASTELAND_DUR:
+			_wasteland_zones.remove_at(i)
+			i -= 1
+			continue
+		z["tick"] = float(z["tick"]) + delta
+		var zr: float = z["radius"]
+		var zp: Vector2 = z["pos"]
+		while float(z["tick"]) >= WASTELAND_TICK:
+			z["tick"] = float(z["tick"]) - WASTELAND_TICK
+			for en in _enemies():
+				if not is_instance_valid(en):
+					continue
+				var en2 := en as Node2D
+				var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0
+				if zp.distance_to(en2.global_position) <= zr + enr:
+					if en.has_method("take_damage"):
+						var r := _roll_damage(float(z["dmg"]), "mortar")
+						en.take_damage(float(r["dmg"]), 0.0, 0.0, false, true, bool(r["is_crit"]))
+					if en.has_method("apply_sedative"):
+						en.apply_sedative(0.0, WASTELAND_SLOW, WASTELAND_TICK * 1.6)
+		i -= 1
 
 ## Composite explosion VFX (extracted from the old Nuke detonation), sized by size_px.
 ## speed_mult > 1 plays it faster; `lite` = a cheap small puff (no fullscreen shockwave, fewer particles, no shake)
@@ -4211,6 +4440,16 @@ func _draw_mortar_bullets() -> void:
 		draw_set_transform(b["pos"], ang, Vector2.ONE)
 		draw_texture_rect(_mortarbullet_tex, Rect2(-bw * 0.5, -bl * 0.5, bw, bl), false)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+## Waste Land craters: a smouldering toxic-orange disc that fades as it expires (fill + hot rim + inner glow).
+func _draw_wasteland() -> void:
+	for z: Dictionary in _wasteland_zones:
+		var p: Vector2 = z["pos"]
+		var r: float = z["radius"]
+		var life := clampf(1.0 - float(z["age"]) / WASTELAND_DUR, 0.0, 1.0)   # 1 → 0 over its life
+		draw_circle(p, r, Color(0.85, 0.35, 0.10, 0.16 * life))          # smouldering fill
+		draw_circle(p, r * 0.55, Color(1.0, 0.55, 0.15, 0.12 * life))     # hotter core glow
+		draw_arc(p, r, 0.0, TAU, 40, Color(1.0, 0.45, 0.15, 0.5 * life), 2.5, true)   # ember rim
 
 # ── Reactive Plating (Exoskeleton evo): every 500 mitigated damage erupts a shockwave ──────────────────────
 const REACTIVE_RADIUS := 400.0
@@ -4564,30 +4803,89 @@ func _approach_angle(cur: float, target: float, max_step: float) -> float:
 func activate_boomerang() -> void:
 	_boom_active = true
 
-## Spawn the perpetual blade(s) once, phase-offset so multiple blades spread across the rose. Count = base +
-## Nanobots "+Bodies" (counted at spawn time).
+# ── Boomerang upgrade API (pool ranks + evolve capstone) ──
+func boom_upgrade_rank(id: String) -> int:
+	return int(_boom_upg.get(id, 0))
+
+func boom_grant_upgrade(id: String) -> bool:
+	if not BOOM_POOL.has(id):
+		return false
+	var maxr := int(BOOM_POOL[id]["max"])
+	var rk := int(_boom_upg.get(id, 0))
+	if maxr > 0 and rk >= maxr:
+		return false
+	if BOOM_POOL[id].has("gate"):   # Split Blade: rank r requires weapon level ≥ gate[r]
+		var gates: Array = BOOM_POOL[id]["gate"]
+		if rk < gates.size() and weapon_level("boomerang") < int(gates[rk]):
+			return false
+	_boom_upg[id] = rk + 1
+	if id == "hemorrhage" and GameManager.has_method("add_mech"):
+		GameManager.add_mech("bleed_dmg", 0.20)   # GLOBAL: +20% bleed damage per rank
+	return true
+
+func boom_set_capstone(id: String) -> void:
+	_boom_capstone = id
+
+# ── Boomerang effective stats (pool + capstone) ──
+func _boom_dmg() -> float:
+	var m := 1.0 + 0.10 * float(_boom_upg["damage"])
+	if _boom_capstone == "death_roll":
+		m *= 2.0   # Death Roll: +100% damage
+	return BOOM_DAMAGE * m
+func _boom_speed_mult() -> float:
+	var m := 1.0 + 0.10 * float(_boom_upg["speed"])
+	if _boom_capstone == "death_roll":
+		m *= 0.30   # Death Roll: -70% throw speed
+	return m
+func _boom_size_mult() -> float:
+	return 1.0 + 0.10 * float(_boom_upg["size"])
+## Target blade count: base + Nanobots Bodies + Split Blade picks + Chaos evolve.
+func _boom_target_count() -> int:
+	var n := BOOM_COUNT + _body_count() + int(_boom_upg["count"])
+	if _boom_capstone == "chaos":
+		n += 3
+	return maxi(1, n)
+
+## Spawn the perpetual blade(s) once, phase-offset so multiple blades spread across the rose.
 func _spawn_boomerangs() -> void:
 	_boom_center = _player.global_position
-	var n := maxi(1, BOOM_COUNT + _body_count())
+	var n := _boom_target_count()
 	for k in n:
 		_booms.append({"theta": TAU * float(k) / float(n), "spin": 0.0, "age": 0.0, "pos": _boom_center, "hits": {}})
+
+## Add/remove blades live when the target count changes (Split Blade pick, Chaos evolve, +Bodies aux).
+func _boom_resync(target: int) -> void:
+	while _booms.size() < target:
+		_booms.append({"theta": TAU * float(_booms.size()) / float(maxi(1, target)), "spin": 0.0, "age": 0.0, "pos": _boom_center, "hits": {}})
+	while _booms.size() > target:
+		_booms.pop_back()
 
 func _tick_boom(delta: float, _enemy_on_screen: bool) -> void:
 	if not _boom_init:
 		_spawn_boomerangs()
 		_boom_init = true
+	var target := _boom_target_count()
+	if _booms.size() != target:
+		_boom_resync(target)
 	# The pattern centre trails the ship → flying drags the flower behind you.
 	_boom_center = _boom_center.lerp(_player.global_position, clampf(BOOM_CENTER_LAG * delta, 0.0, 1.0))
+	var death_roll := _boom_capstone == "death_roll"
+	var hit_r := BOOM_HIT_RADIUS * _boom_size_mult()
+	var bleed_rank := int(_boom_upg["bleed"])
 	for b: Dictionary in _booms:
 		b["spin"] = float(b["spin"]) + BOOM_SPIN * delta
 		var prev_age := float(b["age"])
 		b["age"] = prev_age + delta
-		b["theta"] = float(b["theta"]) + BOOM_ROSE_SPEED * _weapon_speed_mult() * delta
+		b["theta"] = float(b["theta"]) + BOOM_ROSE_SPEED * _weapon_speed_mult() * _boom_speed_mult() * delta
 		var th := float(b["theta"])
 		# 3-petal rose: r = SIZE·cos(3θ). Negative r flips to the opposite side → the blade loops out into a
 		# petal, back through the centre, out the next petal, tracing the trinity/triquetra flower forever.
 		var rr := BOOM_SIZE * cos(3.0 * th)
 		var pos := _boom_center + Vector2(cos(th), sin(th)) * rr
+		# Death Roll: the slow blade can lag behind a fleeing ship — snap the whole pattern back if it strays.
+		if death_roll and pos.distance_to(_player.global_position) > BOOM_SIZE * 1.6:
+			_boom_center = _player.global_position
+			pos = _boom_center + Vector2(cos(th), sin(th)) * rr
 		b["pos"] = pos
 		var hits: Dictionary = b["hits"]
 		for en in _enemies():
@@ -4595,15 +4893,24 @@ func _tick_boom(delta: float, _enemy_on_screen: bool) -> void:
 				continue
 			var en2 := en as Node2D
 			var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0
-			if pos.distance_to(en2.global_position) <= BOOM_HIT_RADIUS + enr:
+			if pos.distance_to(en2.global_position) <= hit_r + enr:
 				var eid := en.get_instance_id()
 				if float(b["age"]) - float(hits.get(eid, -999.0)) >= BOOM_HIT_CD:
 					hits[eid] = float(b["age"])
 					if en.has_method("take_damage"):
-						var r := _roll_damage(BOOM_DAMAGE, "boomerang")
+						var r := _roll_damage(_boom_dmg(), "boomerang")
 						en.take_damage(float(r["dmg"]), 0.0, 0.0, false, true, bool(r["is_crit"]))
 						if bool(r["is_crit"]):
 							_spawn_crit_number(en2.global_position, float(r["dmg"]))
+					# Laceration: 2 guaranteed bleed stacks per rank.
+					if bleed_rank > 0 and en.has_method("apply_bleed"):
+						en.apply_bleed(2 * bleed_rank)
+					# Bleed! evolve: an extra 10% of the target's max bleed stacks per hit.
+					if _boom_capstone == "bleed_more" and en.has_method("apply_bleed") and en.has_method("bleed_max"):
+						en.apply_bleed(maxi(1, int(ceil(0.10 * float(en.bleed_max())))))
+					# Death Roll: drag the enemy toward the blade (non-boss only).
+					if death_roll and not en2.is_in_group("boss"):
+						en2.global_position = en2.global_position.move_toward(pos, DEATHROLL_PULL)
 		# Once per second, drop stale hit-timestamps so the dict doesn't grow over a long run.
 		if int(b["age"]) != int(prev_age):
 			var cutoff := float(b["age"]) - BOOM_HIT_CD
@@ -4616,36 +4923,79 @@ func activate_parasite() -> void:
 	_para_active = true
 	_para_cd = 0.0
 
+# ── Parasite upgrade API (pool ranks + evolve capstone) ──
+func para_upgrade_rank(id: String) -> int:
+	return int(_para_upg.get(id, 0))
+
+func para_grant_upgrade(id: String) -> bool:
+	if not PARA_POOL.has(id):
+		return false
+	var maxr := int(PARA_POOL[id]["max"])
+	if maxr > 0 and int(_para_upg.get(id, 0)) >= maxr:
+		return false
+	_para_upg[id] = int(_para_upg.get(id, 0)) + 1
+	if id == "armor_mastery" and GameManager.has_method("add_mech"):
+		GameManager.add_mech("armor_floor", 10.0)   # GLOBAL: lets stripped armor go 10 further negative per rank
+	return true
+
+func para_set_capstone(id: String) -> void:
+	_para_capstone = id
+	if id == "strip_naked" and GameManager.has_method("add_mech"):
+		GameManager.add_mech("armor_floor", 50.0)   # +50 to the max armor reduction (floor further negative)
+
+# ── Parasite effective stats (pool ranks) ──
+func _para_dmg() -> float:
+	return PARA_DAMAGE * (1.0 + 0.10 * float(_para_upg["damage"]))
+func _para_radius() -> float:
+	return _aoe_radius(PARA_RADIUS * (1.0 + 0.10 * float(_para_upg["aoe"])))
+func _para_lifetime() -> float:
+	return PARA_LIFETIME * (1.0 + 0.20 * float(_para_upg["duration"]))
+
 func _tick_para(delta: float, enemy_on_screen: bool) -> void:
-	_para_cd -= delta
-	if _para_cd <= 0.0 and enemy_on_screen:
-		_para_cd = PARA_COOLDOWN * _cd_scale("parasite") / _rate_mult / _automation_rate("parasite")
-		var dir := _forward()
-		var tgt := _nearest_enemy(_player.global_position, INF, [])
-		if tgt != null:
-			dir = ((tgt as Node2D).global_position - _muzzle()).normalized()
-		_para_clouds.append({"pos": _muzzle(), "vel": dir * PARA_SPEED * _weapon_speed_mult(), "age": 0.0, "tick": 0.0,
-				"ang": dir.angle(), "plume": _make_para_cloud_plume()})
-	var reach := _aoe_radius(PARA_RADIUS)
+	var auto := _para_capstone == "full_automation"
+	var reach := _para_radius()
+	var life := _para_lifetime()
+	if auto:
+		# Full Automation: one persistent free-floating cloud that hunts the densest enemy cluster (150 px/s).
+		if _para_clouds.is_empty():
+			_para_clouds.append({"pos": _muzzle(), "vel": Vector2.ZERO, "age": 0.0, "tick": 0.0,
+					"ang": 0.0, "plume": _make_para_cloud_plume(), "auto": true})
+	else:
+		_para_cd -= delta
+		if _para_cd <= 0.0 and enemy_on_screen:
+			_para_cd = PARA_COOLDOWN * _cd_scale("parasite") / _rate_mult / _automation_rate("parasite")
+			var dir := _forward()
+			var tgt := _nearest_enemy(_player.global_position, INF, [])
+			if tgt != null:
+				dir = ((tgt as Node2D).global_position - _muzzle()).normalized()
+			_para_clouds.append({"pos": _muzzle(), "vel": dir * PARA_SPEED * _weapon_speed_mult(), "age": 0.0, "tick": 0.0,
+					"ang": dir.angle(), "plume": _make_para_cloud_plume(), "auto": false})
+	var me_rank := int(_para_upg["metal_eater"])
 	var i := _para_clouds.size() - 1
 	while i >= 0:
 		var c: Dictionary = _para_clouds[i]
+		var is_auto: bool = bool(c.get("auto", false))
 		c["age"] = float(c["age"]) + delta
-		if float(c["age"]) >= PARA_LIFETIME:
-			var _pa: Node2D = c.get("plume")
-			if _pa != null and is_instance_valid(_pa):
-				_pa.queue_free()
+		if not is_auto and float(c["age"]) >= life:
+			var _pa0: Node2D = c.get("plume")
+			if _pa0 != null and is_instance_valid(_pa0):
+				_pa0.queue_free()
 			var _gp: Vector2 = c["pos"]
 			_para_gas_puffs.append({"pos": _gp, "age": 0.0, "max_age": PARA_GAS_LIFETIME})
 			for _gi in 6:
 				var _ga := TAU * float(_gi) / 6.0
-				var _gr := _aoe_radius(PARA_RADIUS) * 0.55
-				_para_gas_puffs.append({"pos": _gp + Vector2(cos(_ga), sin(_ga)) * _gr,
+				_para_gas_puffs.append({"pos": _gp + Vector2(cos(_ga), sin(_ga)) * reach * 0.55,
 						"age": 0.0, "max_age": PARA_GAS_LIFETIME})
 			_para_clouds.remove_at(i)
 			i -= 1
 			continue
-		c["vel"] = (c["vel"] as Vector2).lerp(Vector2.ZERO, clampf(PARA_DRAG * delta, 0.0, 1.0))
+		if is_auto:
+			var target := _para_best_target((c["pos"] as Vector2), reach)
+			var to := target - (c["pos"] as Vector2)
+			var desired := (to.normalized() * PARA_AUTO_SPEED) if to.length() > 4.0 else Vector2.ZERO
+			c["vel"] = (c["vel"] as Vector2).lerp(desired, clampf(3.0 * delta, 0.0, 1.0))
+		else:
+			c["vel"] = (c["vel"] as Vector2).lerp(Vector2.ZERO, clampf(PARA_DRAG * delta, 0.0, 1.0))
 		c["pos"] = (c["pos"] as Vector2) + (c["vel"] as Vector2) * delta
 		var _vel: Vector2 = c["vel"]
 		if _vel.length_squared() > 1.0:
@@ -4664,9 +5014,61 @@ func _tick_para(delta: float, enemy_on_screen: bool) -> void:
 					continue
 				if cp.distance_to((en as Node2D).global_position) <= reach:
 					if en.has_method("take_damage"):
-						var r := _roll_damage(PARA_DAMAGE, "parasite")
+						var r := _roll_damage(_para_dmg(), "parasite")
 						en.take_damage(float(r["dmg"]), 0.0)
+					if me_rank > 0 and en.has_method("apply_corrode"):
+						# Ramp -1×rank armor/sec (add = rate × tick dt), capped at -5×rank, lingering 5s.
+						en.apply_corrode(PARA_METAL_EATER_PER_RANK * float(me_rank) * para_int,
+								PARA_METAL_EATER_PER_RANK * 5.0 * float(me_rank), PARA_METAL_EATER_DUR)
 		i -= 1
+	_update_stolen_fortitude(delta)
+
+## Steer target for Full Automation: the enemy whose neighbourhood (within `reach`) holds the most enemies —
+## i.e. park the cloud over the densest cluster to maximise the number affected. Falls back to hovering in place.
+func _para_best_target(from: Vector2, reach: float) -> Vector2:
+	var list := _enemies()
+	var best := from
+	var best_n := -1
+	for en in list:
+		if not is_instance_valid(en):
+			continue
+		var ep: Vector2 = (en as Node2D).global_position
+		var n := 0
+		for other in list:
+			if is_instance_valid(other) and ep.distance_to((other as Node2D).global_position) <= reach:
+				n += 1
+		if n > best_n:
+			best_n = n
+			best = ep
+	return best
+
+## Stolen Fortitude: gain armor from a share of the SINGLE most-corroded enemy; the bonus lingers 5s after that
+## enemy's reduction is gone, then falls to the current value. Fed to GameManager.total_armor() per frame.
+func _update_stolen_fortitude(delta: float) -> void:
+	var rank := int(_para_upg["stolen_fortitude"])
+	if rank <= 0:
+		if _stolen_armor != 0.0:
+			_stolen_armor = 0.0
+			if GameManager.has_method("set_stolen_armor"):
+				GameManager.set_stolen_armor(0.0)
+		return
+	var pct := PARA_STOLEN_PER_RANK * float(rank)
+	if _para_capstone == "perfect_reconstruction":
+		pct *= (1.0 + PARA_RECON_BONUS)
+	var top := 0.0
+	for en in _enemies():
+		if is_instance_valid(en) and en.has_method("armor_reduction_total"):
+			top = maxf(top, float(en.armor_reduction_total()))
+	var desired := top * pct
+	if desired >= _stolen_armor:
+		_stolen_armor = desired
+		_stolen_armor_t = PARA_STOLEN_LINGER
+	else:
+		_stolen_armor_t -= delta
+		if _stolen_armor_t <= 0.0:
+			_stolen_armor = desired
+	if GameManager.has_method("set_stolen_armor"):
+		GameManager.set_stolen_armor(_stolen_armor)
 
 func _update_para_gas_fx(delta: float) -> void:
 	var idx := _para_gas_puffs.size() - 1
@@ -5079,8 +5481,8 @@ func _load_snake_plume() -> void:
 func _tick_snake(delta: float) -> void:
 	_run_snake(delta, "snake")
 
-## Shared Space Snake movement + per-segment contact damage. `kind` selects the damage scaling (the Predator
-## fusion reuses this with kind "predator" so the snake's contact bite scales with the fused level).
+## The primary Space Snake (chain 0). `kind` selects the damage scaling (the Predator fusion reuses this with
+## kind "predator"). Movement + bite are shared with the 2nd snake (More Snakes evolve) via helpers.
 func _run_snake(delta: float, kind: String, turn_rate := SNAKE_TURN, aim_angle := INF) -> void:
 	if not _snake_init:
 		_snake_pts.clear()
@@ -5089,49 +5491,97 @@ func _run_snake(delta: float, kind: String, turn_rate := SNAKE_TURN, aim_angle :
 			_snake_pts.append(base - Vector2(SNAKE_SPACING * float(k), 0.0))
 		_snake_dir = 0.0
 		_snake_init = true
-	# Grow the tail if +Bodies were gained after the snake spawned (the chain spaces the new links out over time).
+	# Grow the tail if the snake got longer after spawning (Elongate pick, Primordial God, +Bodies).
 	while _snake_pts.size() < _snake_len():
 		_snake_pts.append(_snake_pts[_snake_pts.size() - 1])
 	if _snake_pts.is_empty():
 		return
-	var head: Vector2 = _snake_pts[0]
-	var desired := _snake_dir
+	_snake_dir = _snake_move(_snake_pts, _snake_dir, turn_rate, aim_angle, delta)
+	_snake_tick += delta
+	while _snake_tick >= SNAKE_TICK:
+		_snake_tick -= SNAKE_TICK
+		_snake_bite(_snake_pts, kind)
+	_update_snake_plumes()
+	# More Snakes evolve: a 2nd identical serpent (own chain; no plume VFX).
+	if _snake_capstone == "more_snakes":
+		_run_snake2(delta)
+
+## Second snake for the More Snakes evolve — same stats/behaviour, separate chain, no plume anchors.
+func _run_snake2(delta: float) -> void:
+	if not _snake2_init:
+		_snake2_pts.clear()
+		var base := _player.global_position + Vector2(0.0, 48.0)
+		for k in _snake_len():
+			_snake2_pts.append(base - Vector2(SNAKE_SPACING * float(k), 0.0))
+		_snake2_dir = PI
+		_snake2_init = true
+	while _snake2_pts.size() < _snake_len():
+		_snake2_pts.append(_snake2_pts[_snake2_pts.size() - 1])
+	if _snake2_pts.is_empty():
+		return
+	_snake2_dir = _snake_move(_snake2_pts, _snake2_dir, SNAKE_TURN, INF, delta)
+	_snake2_tick += delta
+	while _snake2_tick >= SNAKE_TICK:
+		_snake2_tick -= SNAKE_TICK
+		_snake_bite(_snake2_pts, "snake")
+
+## Move a snake chain one frame: head steers toward the nearest enemy (or a given aim), body follows. Returns dir.
+func _snake_move(pts: Array, dir_in: float, turn_rate: float, aim_angle: float, delta: float) -> float:
+	var head: Vector2 = pts[0]
+	var desired := dir_in
 	if is_finite(aim_angle):
-		desired = aim_angle   # caller-provided heading (Predator: steer toward the densest beam line)
+		desired = aim_angle
 	else:
 		var tgt := _nearest_enemy(head, INF, [])
 		if tgt != null:
 			desired = ((tgt as Node2D).global_position - head).angle()
 		else:
 			desired = (head - _player.global_position).angle() + PI * 0.5   # idle: circle the ship
-	_snake_dir = _approach_angle(_snake_dir, desired, turn_rate * delta)
-	head += Vector2(cos(_snake_dir), sin(_snake_dir)) * SNAKE_SPEED * _automation_rate("snake") * _weapon_speed_mult() * delta
-	var _head_dp := head - _player.global_position
-	if _head_dp.length() > 1000.0:
-		head = _player.global_position + _head_dp.normalized() * 1000.0
-	_snake_pts[0] = head
-	for k in range(1, _snake_pts.size()):
-		var prev: Vector2 = _snake_pts[k - 1]
-		var cur: Vector2 = _snake_pts[k]
+	var new_dir := _approach_angle(dir_in, desired, turn_rate * delta)
+	head += Vector2(cos(new_dir), sin(new_dir)) * SNAKE_SPEED * _snake_speed_mult() * _automation_rate("snake") * _weapon_speed_mult() * delta
+	var dp := head - _player.global_position
+	if dp.length() > 1000.0:
+		head = _player.global_position + dp.normalized() * 1000.0
+	pts[0] = head
+	for k in range(1, pts.size()):
+		var prev: Vector2 = pts[k - 1]
+		var cur: Vector2 = pts[k]
 		var d := prev - cur
 		if d.length() > SNAKE_SPACING:
 			cur = prev - d.normalized() * SNAKE_SPACING
-		_snake_pts[k] = cur
-	_snake_tick += delta
-	while _snake_tick >= SNAKE_TICK:
-		_snake_tick -= SNAKE_TICK
-		for en in _enemies():
-			if not is_instance_valid(en):
-				continue
-			var ep := (en as Node2D).global_position
-			var er: float = SNAKE_HIT_RADIUS + (float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0)
-			for seg: Vector2 in _snake_pts:
-				if seg.distance_to(ep) <= er:
-					if en.has_method("take_damage"):
-						var r := _roll_damage(SNAKE_DAMAGE, kind)
-						en.take_damage(float(r["dmg"]), 0.0, 0.0, false, _bleeds(kind), bool(r["is_crit"]))
-					break
-	_update_snake_plumes()
+		pts[k] = cur
+	return new_dir
+
+## One bite tick for a chain: base contact damage once per enemy + Serrated Fang (head) / Serrated Scale (per
+## body segment) bleed + Primordial God kill-count.
+func _snake_bite(pts: Array, kind: String) -> void:
+	var fang := int(_snake_upg["serrated_fang"])
+	var scale := int(_snake_upg["serrated_scale"])
+	for en in _enemies():
+		if not is_instance_valid(en):
+			continue
+		var ep := (en as Node2D).global_position
+		var er: float = SNAKE_HIT_RADIUS + (float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0)
+		var head_hit := false
+		var body_contacts := 0
+		for k in pts.size():
+			if (pts[k] as Vector2).distance_to(ep) <= er:
+				if k == 0:
+					head_hit = true
+				else:
+					body_contacts += 1
+		if not head_hit and body_contacts == 0:
+			continue
+		var was_alive: bool = not (en.has_method("is_dead") and en.is_dead())
+		if en.has_method("take_damage"):
+			var r := _roll_damage(_snake_dmg(), kind)
+			en.take_damage(float(r["dmg"]), 0.0, 0.0, false, _bleeds(kind), bool(r["is_crit"]))
+		if head_hit and fang > 0 and en.has_method("apply_bleed"):
+			en.apply_bleed(10 * fang)                       # Serrated Fang: head bite
+		if body_contacts > 0 and scale > 0 and en.has_method("apply_bleed"):
+			en.apply_bleed(2 * scale * body_contacts)       # Serrated Scale: each body segment counts separately
+		if was_alive and en.has_method("is_dead") and en.is_dead():
+			_snake_kills += 1                                # Primordial God growth
 
 func _update_snake_plumes() -> void:
 	if _snake_pts.is_empty():
@@ -5451,21 +5901,22 @@ func _draw_missiles() -> void:
 func _draw_boomerang(b: Dictionary) -> void:
 	var p: Vector2 = b["pos"]
 	var s := float(b["spin"])
+	var vs := _boom_size_mult()   # Heavy Blade → the blade renders bigger, matching its wider hit
 	var tex: Texture2D = BOOM_TEX
 	if tex != null:
 		# Spin the boomerang sprite about its centre at the projectile position (aspect-locked, never stretched).
 		var ts := tex.get_size()
 		var sz := Vector2(BOOM_DRAW, BOOM_DRAW * ts.y / ts.x if ts.x > 0.0 else BOOM_DRAW)
-		draw_set_transform(p, s, Vector2.ONE)
+		draw_set_transform(p, s, Vector2.ONE * vs)
 		draw_texture_rect(tex, Rect2(-sz * 0.5, sz), false)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		return
 	# Procedural fallback (if the sprite is missing).
 	for off: float in [0.0, PI * 0.5]:
 		var a := s + off
-		var d := Vector2(cos(a), sin(a)) * BOOM_BLADE
+		var d := Vector2(cos(a), sin(a)) * BOOM_BLADE * vs
 		draw_line(p - d, p + d, Color(BOOM_COL.r, BOOM_COL.g, BOOM_COL.b, 0.9), 5.0, true)
-	draw_circle(p, BOOM_BLADE * 0.18, Color(1, 1, 1, 0.85))
+	draw_circle(p, BOOM_BLADE * 0.18 * vs, Color(1, 1, 1, 0.85))
 
 func _draw_para_cloud(c: Dictionary) -> void:
 	var p: Vector2 = c["pos"]
@@ -5535,20 +5986,25 @@ func _draw_swarm() -> void:
 			draw_circle(p, w * 0.5, Color(SBALL_COL.r, SBALL_COL.g, SBALL_COL.b, 0.9))
 
 func _draw_snake() -> void:
-	var n := _snake_pts.size()
+	_draw_snake_chain(_snake_pts, _snake_dir)
+	if _snake_capstone == "more_snakes" and not _snake2_pts.is_empty():
+		_draw_snake_chain(_snake2_pts, _snake2_dir)
+
+func _draw_snake_chain(pts: Array, dir: float) -> void:
+	var n := pts.size()
 	if n < 2:
 		return
 	# Draw tail → head so head renders on top.
 	for k in range(n - 1, -1, -1):
-		var pos: Vector2 = _snake_pts[k]
+		var pos: Vector2 = pts[k]
 		# Angle = direction from this segment toward the one closer to head (travel direction).
 		var ang: float
 		if k == 0:
-			ang = _snake_dir
+			ang = dir
 		elif k == n - 1:
-			ang = ((_snake_pts[k - 1] as Vector2) - pos).angle()
+			ang = ((pts[k - 1] as Vector2) - pos).angle()
 		else:
-			ang = ((_snake_pts[k - 1] as Vector2) - (_snake_pts[k + 1] as Vector2)).angle()  # smoothed bisector
+			ang = ((pts[k - 1] as Vector2) - (pts[k + 1] as Vector2)).angle()  # smoothed bisector
 		if k == 0:
 			_draw_snake_head(pos, ang)
 		elif k == n - 1:
@@ -5805,6 +6261,8 @@ func _draw() -> void:
 		_draw_snake()
 	if not _missiles.is_empty():
 		_draw_missiles()
+	if not _wasteland_zones.is_empty():
+		_draw_wasteland()
 	if not _mortar_bullets.is_empty():
 		_draw_mortar_bullets()
 	if _vampire_active:

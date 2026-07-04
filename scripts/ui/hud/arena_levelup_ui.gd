@@ -21,7 +21,7 @@ const OWNED_UPGRADE_CHANCE := 0.65
 const WEAPON_WEIGHTS := {
 	"gatling": 100, "death_beam": 80, "arc": 80, "gauss": 70,
 	"orbital": 50, "void": 40, "red_x": 30, "chemtrail": 40,
-	"little_man": 20, "sonic": 60, "zsword": 50, "ionize": 70,
+	"mortar": 20, "sonic": 60, "zsword": 50, "ionize": 70,
 	"boomerang": 50, "parasite": 50, "moroboshi": 30, "swarm": 40, "snake": 30,
 	"homing": 60,
 }
@@ -42,6 +42,7 @@ var _selected_box: Control = null  # center-top big-sprite panel
 var _options_box: Control = null   # center-bottom options container
 var _stats_box: VBoxContainer = null
 var _title: Label = null
+var _pool_cache: Dictionary = {}   # per-level-up cache of each item's perk options → re-clicking an item never re-rolls
 
 # Full-screen layout fractions (symmetric: left/right columns equal, centered main column).
 const COL_L_LEFT  := 0.02
@@ -85,6 +86,7 @@ func _begin() -> void:
 
 func _show_cards() -> void:
 	_choices = _generate_choices(CHOICES)
+	_pool_cache.clear()   # freeze this level-up's perk options
 	if _choices.is_empty():
 		# Nothing left to offer (everything owned + maxed) — silently skip this level-up.
 		_pending -= 1
@@ -227,7 +229,10 @@ func _route_options(c: Dictionary) -> void:
 		if aw != null and bool(aw.call("weapon_needs_capstone", key)):
 			_show_capstone(key)
 			return
-		var pool_choices := _gen_pool_choices(key)
+		var _wck := "w:" + key
+		if not _pool_cache.has(_wck):
+			_pool_cache[_wck] = _gen_pool_choices(key)
+		var pool_choices: Array = _pool_cache[_wck]
 		_current = pool_choices if not pool_choices.is_empty() else [c]
 		_render_options()
 		return
@@ -236,7 +241,10 @@ func _route_options(c: Dictionary) -> void:
 		if ax != null and bool(ax.call("aux_needs_capstone", key)):
 			_show_aux_capstone(key)
 			return
-		var aux_choices := _gen_aux_pool_choices(key)
+		var _ack := "a:" + key
+		if not _pool_cache.has(_ack):
+			_pool_cache[_ack] = _gen_aux_pool_choices(key)
+		var aux_choices: Array = _pool_cache[_ack]
 		_current = aux_choices if not aux_choices.is_empty() else [c]
 		_render_options()
 		return
@@ -530,6 +538,14 @@ func _weapon_pool(kind: String) -> Dictionary:
 		return ArenaWeapons.ZSWORD_POOL
 	if kind == "sonic":
 		return ArenaWeapons.SONIC_POOL
+	if kind == "mortar":
+		return ArenaWeapons.MORTAR_POOL
+	if kind == "parasite":
+		return ArenaWeapons.PARA_POOL
+	if kind == "boomerang":
+		return ArenaWeapons.BOOM_POOL
+	if kind == "snake":
+		return ArenaWeapons.SNAKE_POOL
 	return {}
 
 func _gen_pool_choices(kind: String) -> Array:
@@ -541,6 +557,12 @@ func _gen_pool_choices(kind: String) -> Array:
 		var rank: int = int(aw.call("pool_rank", kind, id)) if aw != null else 0
 		if maxr > 0 and rank >= maxr:
 			continue   # this upgrade is maxed → don't offer it
+		# Per-rank level gate (e.g. boomerang "Split Blade" unlocks at weapon level 6/11/16).
+		if (pool[id] as Dictionary).has("gate") and aw != null:
+			var gates: Array = pool[id]["gate"]
+			var lvl := int(aw.call("weapon_level", kind))
+			if rank < gates.size() and lvl < int(gates[rank]):
+				continue
 		avail.append(id)
 	avail.shuffle()
 	var out: Array = []
@@ -603,6 +625,11 @@ func _pick_capstone(c: Dictionary) -> void:
 			ax.call("aux_set_capstone", String(c["weapon"]), String(c["key"]))
 		_finish_capstone()
 		return
+	# Weapon evolve is PERMANENT — it locks the weapon out of fusion forever. Warn before committing.
+	_confirm_evolve(c)
+
+## The actual weapon-capstone application, run only after the player confirms the "no more fusion" warning.
+func _apply_weapon_capstone(c: Dictionary) -> void:
 	var aw := get_tree().get_first_node_in_group("arena_weapons")
 	var wk := String(c["weapon"])
 	var cap := String(c["key"])
@@ -614,6 +641,74 @@ func _pick_capstone(c: Dictionary) -> void:
 	if aw != null:
 		aw.call("pool_set_capstone", wk, cap)
 	_finish_capstone()
+
+## Modal warning: evolving forfeits the ability to fuse this weapon. Yes → evolve; No → back to the evolve choices.
+func _confirm_evolve(c: Dictionary) -> void:
+	var wk := String(c["weapon"])
+	var info: Dictionary = (ArenaWeapons.WEAPON_INFO as Dictionary).get(wk, {})
+	var wname := String(info.get("label", wk))
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.62)
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP   # block clicks to the cards behind
+	add_child(overlay)
+
+	var panel := Panel.new()
+	panel.anchor_left = 0.5; panel.anchor_right = 0.5; panel.anchor_top = 0.5; panel.anchor_bottom = 0.5
+	var pw := 540.0; var ph := 220.0
+	panel.offset_left = -pw * 0.5; panel.offset_right = pw * 0.5
+	panel.offset_top = -ph * 0.5; panel.offset_bottom = ph * 0.5
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.11, 0.07, 0.06, 0.98)
+	sb.set_border_width_all(2); sb.border_color = Color(1.0, 0.55, 0.2, 0.95); sb.set_corner_radius_all(10)
+	panel.add_theme_stylebox_override("panel", sb)
+	overlay.add_child(panel)
+
+	var vb := VBoxContainer.new()
+	vb.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vb.offset_left = 22; vb.offset_top = 18; vb.offset_right = -22; vb.offset_bottom = -18
+	vb.add_theme_constant_override("separation", 14)
+	panel.add_child(vb)
+
+	var title := Label.new()
+	title.text = "⚠  EVOLVE IS PERMANENT"
+	title.add_theme_font_override("font", load(FONT_PATH))
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Color(1.0, 0.72, 0.32))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(title)
+
+	var msg := Label.new()
+	msg.text = "Evolving %s locks it in — it can NEVER be fused again.\nProceed?" % wname
+	msg.add_theme_font_override("font", load(FONT_PATH))
+	msg.add_theme_font_size_override("font_size", 16)
+	msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	msg.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vb.add_child(msg)
+
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 28)
+	vb.add_child(row)
+
+	var yes := Button.new()
+	yes.text = "Yes, evolve"
+	yes.custom_minimum_size = Vector2(170, 46)
+	yes.pressed.connect(func() -> void:
+		overlay.queue_free()
+		_apply_weapon_capstone(c))
+	row.add_child(yes)
+
+	var no := Button.new()
+	no.text = "No, keep it fusable"
+	no.custom_minimum_size = Vector2(170, 46)
+	no.pressed.connect(func() -> void:
+		overlay.queue_free()
+		_show_capstone(wk))   # back to the evolve choices
+	row.add_child(no)
+
+	_play_sfx("res://assets/audio/sfx/uialert.wav")
 
 func _finish_capstone() -> void:
 	_options_back = false

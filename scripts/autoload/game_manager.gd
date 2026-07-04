@@ -344,6 +344,7 @@ func total_armor() -> int:
 		for a: Dictionary in InventoryManager.item_affixes(uid):
 			if String(a.get("id", "")) == "armor":
 				total += int(round(float(a.get("value", 0.0))))
+	total += int(round(_stolen_armor_bonus))   # Parasite Stolen Fortitude (arena, set per-frame; 0 otherwise)
 	return total
 
 ## Player damage-reduction fraction from total armor (player armor is ≥0). Uses the shared curve.
@@ -507,6 +508,7 @@ func _tick_shield(delta: float) -> void:
 		delay = FORCE_SHIELD_DELAY
 		rate = upg_force_shield_regen
 	rate *= (1.0 + upg_regen_mastery)   # Nanobots: Regeneration Mastery boosts shield regen too
+	rate += upg_shield_regen_bonus      # Fusion Reactor evolve (flat shield/sec, always on)
 	if _shield_dmg_timer >= delay and ship_shield < _shield_max:
 		ship_shield = minf(_shield_max, ship_shield + rate * delta)
 		ship_shield_changed.emit(ship_shield)
@@ -616,6 +618,8 @@ const PICKUP_RADIUS_BASE: float = 90.0    # base XP-orb magnet radius (px) befor
 var upg_max_hp_bonus:   int   = 0         # flat +max HP (into recompute_max_hp)
 var upg_base_defense:   int   = 0         # flat armor: subtracted after the % DR (× Harden Mastery)
 var upg_hp_regen:       float = 0.0       # flat HP/sec (into hp_regen_rate)
+var upg_shield_regen_bonus: float = 0.0   # flat shield/sec from the Mortar's Fusion Reactor evolve
+var _stolen_armor_bonus:    float = 0.0   # Parasite Stolen Fortitude: bonus armor (set per-frame by arena_weapons)
 # Exoskeleton (armor aux) — % DR layers + the three evolutions. All no-ops at base.
 var upg_pre_dr:         float = 0.0       # pre-armor-mitigation % damage reduction (Exoskeleton)
 var upg_harden_mastery: float = 0.0       # Harden Mastery: flat armor is this much MORE effective (×)
@@ -753,6 +757,8 @@ func add_move_speed(p: float) -> void:  upg_move_speed_mult += p;     player_sta
 func add_damage(p: float) -> void:      upg_damage_mult += p;         player_stats_changed.emit()
 func add_momentum(p: float) -> void:    upg_momentum_mult += p;       player_stats_changed.emit()
 func add_hp_regen(f: float) -> void:    upg_hp_regen += f;            player_stats_changed.emit()
+func add_shield_regen(f: float) -> void: upg_shield_regen_bonus += f;  player_stats_changed.emit()
+func set_stolen_armor(f: float) -> void: _stolen_armor_bonus = maxf(0.0, f)   # per-frame; no signal (hot path)
 func add_pickup_radius(p: float) -> void: upg_pickup_mult += p;       player_stats_changed.emit()
 func add_crit_chance(p: float) -> void: upg_crit_chance += p;         player_stats_changed.emit()
 func add_crit_damage(p: float) -> void: upg_crit_damage += p;         player_stats_changed.emit()
@@ -818,6 +824,8 @@ func reset_run() -> void:
 	_focus_t = 0.0
 	_focus_bonus = 0.0
 	upg_hp_regen = 0.0
+	upg_shield_regen_bonus = 0.0
+	_stolen_armor_bonus = 0.0
 	upg_fire_rate_mult = 1.0
 	upg_move_speed_mult = 1.0
 	upg_damage_mult = 1.0

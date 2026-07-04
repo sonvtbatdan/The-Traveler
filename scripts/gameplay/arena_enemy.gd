@@ -331,6 +331,8 @@ var _sed_dmg: float = 0.0     # sedative outgoing-damage reduction (0..)
 var _sed_slow: float = 0.0    # sedative move-speed reduction (0..)
 var _armor_reduce: float = 0.0  # Critical Break (Drill Bits): temporary armor stripped off this enemy
 var _armor_reduce_t: float = 0.0
+var _corrode_reduce: float = 0.0  # Metal Eater (Parasite): armor corroded off, capped, separate from Critical Break
+var _corrode_t: float = 0.0
 var _wiper_t: float = 0.0     # Windshield Wiper (Z-Sword): brief 99%→0% slow over 0.2s
 var _charm_t: float = 0.0     # Siren (Sonic): while > 0 this enemy fights for the player (targets other enemies)
 var _aggro_target: Node = null  # who this enemy is chasing/attacking this frame (player, or a charmed enemy, or — if charmed — a foe)
@@ -858,6 +860,10 @@ func _dur_mult() -> float:
 func is_burning() -> bool:
 	return _burn_stacks > 0
 
+## Public death flag (Space Snake's Primordial God counts kills it lands).
+func is_dead() -> bool:
+	return _dead
+
 ## Apply burn stack(s): % current-HP DoT per stack for BURN_DURATION (refreshed). No hard stack cap.
 func apply_burn(stacks: int = 1) -> void:
 	if _dead:
@@ -900,20 +906,32 @@ func apply_sedative(dmg_red: float, ms_red: float, duration: float = 0.4) -> voi
 	_sed_slow = ms_red
 	_sed_t = maxf(_sed_t, duration)
 
-## Effective armor for a hit: (base − temp reduction) × (1 − %pen), then − flat pen, clamped to the floor
-## (0 normally; −20 under the Less Than Nothing evo so it amplifies damage).
+## Effective armor for a hit: (base − temp reductions) × (1 − %pen), then − flat pen, clamped to the floor.
+## Floor is 0 normally; −20 under Less Than Nothing; and Parasite's Armor Stripping Mastery / Strip Naked drive
+## it further negative via the "armor_floor" mech (magnitude), letting stripped armor amplify damage.
 func _hit_armor() -> float:
 	if not GameManager.has_method("mech_bonus"):
 		return armor
-	var a := armor - _armor_reduce
+	var a := armor - _armor_reduce - _corrode_reduce
 	a = a * (1.0 - GameManager.mech_bonus("armor_pen_pct")) - GameManager.mech_bonus("armor_pen_flat")
-	var fl := -20.0 if GameManager.mech_bonus("less_than_nothing") > 0.0 else 0.0
-	return maxf(fl, a)
+	var floor_mag := maxf(20.0 if GameManager.mech_bonus("less_than_nothing") > 0.0 else 0.0, GameManager.mech_bonus("armor_floor"))
+	return maxf(-floor_mag, a)
+
+## Total temporary armor stripped off this enemy right now (Critical Break + Metal Eater). For Stolen Fortitude.
+func armor_reduction_total() -> float:
+	return _armor_reduce + _corrode_reduce
 
 ## Critical Break: temporarily strip `amt` armor for `dur` s (accumulates; timer refreshed).
 func _reduce_armor(amt: float, dur: float) -> void:
 	_armor_reduce += amt
 	_armor_reduce_t = maxf(_armor_reduce_t, dur)
+
+## Metal Eater (Parasite): corrode `add` armor per call, capped at `cap` total; refreshes the `dur` timer.
+func apply_corrode(add: float, cap: float, dur: float) -> void:
+	if _dead:
+		return
+	_corrode_reduce = minf(_corrode_reduce + add, cap)
+	_corrode_t = maxf(_corrode_t, dur)
 
 ## Max bleed stacks: base 50 + Bleed Mastery (global) + Hurt evo (+3 per flat armor-pen point).
 func _bleed_max() -> int:
@@ -924,11 +942,16 @@ func _bleed_max() -> int:
 			m += int(GameManager.mech_bonus("armor_pen_flat") * 3.0)
 	return m
 
+## Public max-bleed accessor (Boomerang's Bleed! evolve applies a % of this per hit).
+func bleed_max() -> int:
+	return _bleed_max()
+
 func apply_bleed(stacks: int = 1) -> void:
 	if _dead:
 		return
 	_bleed_stacks = mini(_bleed_stacks + maxi(1, stacks), _bleed_max())
-	_bleed_t = BLEED_DURATION
+	var dur_pct: float = GameManager.mech_bonus("bleed_dur_pct") if GameManager.has_method("mech_bonus") else 0.0   # Hemophilia Mastery
+	_bleed_t = BLEED_DURATION * (1.0 + dur_pct)
 
 ## Cauterize the Wound (Z-Sword): convert a fraction of current bleed stacks into burn stacks.
 func cauterize(frac: float) -> void:
@@ -1027,7 +1050,8 @@ func _tick_status(delta: float) -> void:
 			while _bleed_acc >= BLEED_TICK:
 				_bleed_acc -= BLEED_TICK
 				var hurt: float = (GameManager.mech_bonus("armor_pen_pct") if (GameManager.has_method("mech_bonus") and GameManager.mech_bonus("hurt") > 0.0) else 0.0)
-				take_damage(float(_bleed_stacks) * (1.0 + hurt), 0.0, 0.0, true)
+				var hem: float = GameManager.mech_bonus("bleed_dmg") if GameManager.has_method("mech_bonus") else 0.0   # Hemorrhage Mastery
+				take_damage(float(_bleed_stacks) * (1.0 + hurt + hem), 0.0, 0.0, true)
 				if _dead:
 					return
 	if _freeze_stacks > 0:
@@ -1045,6 +1069,10 @@ func _tick_status(delta: float) -> void:
 		_armor_reduce_t = maxf(0.0, _armor_reduce_t - delta)
 		if _armor_reduce_t <= 0.0:
 			_armor_reduce = 0.0
+	if _corrode_t > 0.0:
+		_corrode_t = maxf(0.0, _corrode_t - delta)
+		if _corrode_t <= 0.0:
+			_corrode_reduce = 0.0
 	if _wiper_t > 0.0:
 		_wiper_t = maxf(0.0, _wiper_t - delta)
 	if _charm_t > 0.0:
@@ -1089,6 +1117,9 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore
 		_flash_color = HIT_FLASH_COLOR
 		queue_redraw()
 		return
+	# Anemia (Snake evolve): the target takes +1% damage from ALL sources per 10 bleed stacks on it.
+	if _bleed_stacks >= 10 and GameManager.has_method("mech_bonus") and GameManager.mech_bonus("anemia_vuln") > 0.0:
+		amount *= 1.0 + 0.01 * float(_bleed_stacks / 10)
 	# Armor damage reduction — RNG's GameManager curve (fallback to the inline formula if unavailable).
 	var dr := 0.0
 	if GameManager.has_method("armor_damage_reduction"):

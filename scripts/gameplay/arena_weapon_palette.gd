@@ -15,7 +15,7 @@ const WEAPONS := [
 	{"kind": "void",    "def_id": "rift_maker",   "label": "Rift Maker"},
 	{"kind": "red_x",   "def_id": "red_x",        "label": "Red X"},
 	{"kind": "chemtrail", "def_id": "chemtrail",  "label": "Stink Breath"},
-	{"kind": "little_man",      "def_id": "little_man",          "label": "Little Man"},
+	{"kind": "mortar",      "def_id": "mortar",          "label": "Little Man"},
 	{"kind": "sonic",     "def_id": "sonic_wave",    "label": "Sonic"},
 	{"kind": "zsword",    "def_id": "z_sword",       "label": "Jeager"},
 	{"kind": "ionize",    "def_id": "ionizing_field","label": "Ionizer"},
