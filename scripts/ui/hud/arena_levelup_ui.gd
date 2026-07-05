@@ -24,9 +24,9 @@ const OWNED_UPGRADE_CHANCE := 0.65
 const WEAPON_WEIGHTS := {
 	"gatling": 100, "death_beam": 80, "arc": 80, "gauss": 70,
 	"orbital": 50, "void": 40, "red_x": 30, "chemtrail": 40,
-	"little_man": 20, "sonic": 60, "zsword": 50, "ionize": 70,
+	"mortar": 20, "sonic": 60, "zsword": 50, "ionize": 70,
 	"boomerang": 50, "parasite": 50, "moroboshi": 30, "swarm": 40, "snake": 30,
-	"homing": 60,
+	"homing": 60, "striker": 45,
 }
 const WEAPON_FALLBACK_COLOR := Color(0.55, 0.62, 0.72)   # placeholder swatch if a weapon icon fails to load
 
@@ -35,7 +35,7 @@ var _showing: bool = false
 var _current: Array = []   # the OPTIONS-row array that _pick() acts on (pool / capstone / destroy / single confirm)
 var _choices: Array = []   # left-column offered items (tier-1), persistent for this screen
 var _route_cache: Dictionary = {}   # ckey → generated pool-perk options, rolled once per left-slot per screen
-                                     # (re-clicking the same weapon/aux slot must show the SAME 3 perks, not reroll)
+									 # (re-clicking the same weapon/aux slot must show the SAME 3 perks, not reroll)
 var _selected_idx: int = -1   # which left slot is currently selected
 var _options_back: bool = false   # true while the All-In "destroy a weapon" sub-view shows (offers a back affordance)
 var _capstone_weapon: String = ""    # the weapon being evolved (for the capstone / destroy screens)
@@ -119,7 +119,7 @@ const CHOICE_SPRITE_SCALE := 0.8     # Weapon1-3 choice sprites shown at 80% of 
 const AUX_ICON_DIR := "res://assets/hud/UpgradeIcon/"   # per-id aux icon set (filename = AUX_DEFS id), e.g. hp.png
 const PERK_ICON_DIR := "res://assets/hud/perks/"        # per-perk icon set (filename = AUX_POOL perk id), e.g. regen_shield.png
 const AUX_ICON_SCALE := 0.8          # aux/perk icons CONTAIN-fit within 80% of BOTH width and height of their frame
-                                      # (whichever axis is tighter wins) — neither dimension may exceed 80% of the frame.
+									  # (whichever axis is tighter wins) — neither dimension may exceed 80% of the frame.
 var _aux_icon_cache: Dictionary = {} # aux id → Texture2D (or null if missing), loaded from AUX_ICON_DIR
 var _perk_icon_cache: Dictionary = {} # perk id → Texture2D (or null if missing), loaded from PERK_ICON_DIR
 
@@ -945,7 +945,7 @@ func _begin() -> void:
 
 func _show_cards() -> void:
 	_choices = _generate_choices(CHOICES)
-	_route_cache.clear()   # new screen (new left-column choices) → old cached perk rolls no longer apply
+	_route_cache.clear()   # freeze this level-up's perk options
 	if _choices.is_empty():
 		# Nothing left to offer (everything owned + maxed) — silently skip this level-up.
 		_pending -= 1
@@ -1529,6 +1529,20 @@ func _weapon_pool(kind: String) -> Dictionary:
 		return ArenaWeapons.ZSWORD_POOL
 	if kind == "sonic":
 		return ArenaWeapons.SONIC_POOL
+	if kind == "mortar":
+		return ArenaWeapons.MORTAR_POOL
+	if kind == "parasite":
+		return ArenaWeapons.PARA_POOL
+	if kind == "boomerang":
+		return ArenaWeapons.BOOM_POOL
+	if kind == "snake":
+		return ArenaWeapons.SNAKE_POOL
+	if kind == "striker":
+		return ArenaWeapons.STRIKER_POOL
+	if kind == "ionize":
+		return ArenaWeapons.IONIZE_POOL
+	if kind == "player_2":
+		return ArenaWeapons.PLAYER2_POOL
 	return {}
 
 func _gen_pool_choices(kind: String) -> Array:
@@ -1540,6 +1554,12 @@ func _gen_pool_choices(kind: String) -> Array:
 		var rank: int = int(aw.call("pool_rank", kind, id)) if aw != null else 0
 		if maxr > 0 and rank >= maxr:
 			continue   # this upgrade is maxed → don't offer it
+		# Per-rank level gate (e.g. boomerang "Split Blade" unlocks at weapon level 6/11/16).
+		if (pool[id] as Dictionary).has("gate") and aw != null:
+			var gates: Array = pool[id]["gate"]
+			var lvl := int(aw.call("weapon_level", kind))
+			if rank < gates.size() and lvl < int(gates[rank]):
+				continue
 		avail.append(id)
 	avail.shuffle()
 	var out: Array = []
@@ -1575,6 +1595,11 @@ func _gen_aux_pool_choices(id: String) -> Array:
 		var rank: int = int(ax.call("aux_pool_rank", id, pid)) if ax != null else 0
 		if maxr > 0 and rank >= maxr:
 			continue   # maxed perk → don't offer it
+		# Level-gated perk (Beacon "Rival Beacon"): rank r needs aux level ≥ gate_first + gate_step×r.
+		if (pool[pid] as Dictionary).has("gate_first") and ax != null:
+			var need := int(pool[pid]["gate_first"]) + int(pool[pid].get("gate_step", 5)) * rank
+			if int(ax.call("aux_level", id)) < need:
+				continue
 		avail.append(pid)
 	avail.shuffle()
 	var out: Array = []
@@ -1602,6 +1627,11 @@ func _pick_capstone(c: Dictionary) -> void:
 			ax.call("aux_set_capstone", String(c["weapon"]), String(c["key"]))
 		_finish_capstone()
 		return
+	# Weapon evolve is PERMANENT — it locks the weapon out of fusion forever. Warn before committing.
+	_confirm_evolve(c)
+
+## The actual weapon-capstone application, run only after the player confirms the "no more fusion" warning.
+func _apply_weapon_capstone(c: Dictionary) -> void:
 	var aw := get_tree().get_first_node_in_group("arena_weapons")
 	var wk := String(c["weapon"])
 	var cap := String(c["key"])
@@ -1613,6 +1643,74 @@ func _pick_capstone(c: Dictionary) -> void:
 	if aw != null:
 		aw.call("pool_set_capstone", wk, cap)
 	_finish_capstone()
+
+## Modal warning: evolving forfeits the ability to fuse this weapon. Yes → evolve; No → back to the evolve choices.
+func _confirm_evolve(c: Dictionary) -> void:
+	var wk := String(c["weapon"])
+	var info: Dictionary = (ArenaWeapons.WEAPON_INFO as Dictionary).get(wk, {})
+	var wname := String(info.get("label", wk))
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.62)
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP   # block clicks to the cards behind
+	add_child(overlay)
+
+	var panel := Panel.new()
+	panel.anchor_left = 0.5; panel.anchor_right = 0.5; panel.anchor_top = 0.5; panel.anchor_bottom = 0.5
+	var pw := 540.0; var ph := 220.0
+	panel.offset_left = -pw * 0.5; panel.offset_right = pw * 0.5
+	panel.offset_top = -ph * 0.5; panel.offset_bottom = ph * 0.5
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.11, 0.07, 0.06, 0.98)
+	sb.set_border_width_all(2); sb.border_color = Color(1.0, 0.55, 0.2, 0.95); sb.set_corner_radius_all(10)
+	panel.add_theme_stylebox_override("panel", sb)
+	overlay.add_child(panel)
+
+	var vb := VBoxContainer.new()
+	vb.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vb.offset_left = 22; vb.offset_top = 18; vb.offset_right = -22; vb.offset_bottom = -18
+	vb.add_theme_constant_override("separation", 14)
+	panel.add_child(vb)
+
+	var title := Label.new()
+	title.text = "⚠  EVOLVE IS PERMANENT"
+	title.add_theme_font_override("font", load(FONT_PATH))
+	title.add_theme_font_size_override("font_size", 22)
+	title.add_theme_color_override("font_color", Color(1.0, 0.72, 0.32))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(title)
+
+	var msg := Label.new()
+	msg.text = "Evolving %s locks it in — it can NEVER be fused again.\nProceed?" % wname
+	msg.add_theme_font_override("font", load(FONT_PATH))
+	msg.add_theme_font_size_override("font_size", 16)
+	msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	msg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	msg.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vb.add_child(msg)
+
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 28)
+	vb.add_child(row)
+
+	var yes := Button.new()
+	yes.text = "Yes, evolve"
+	yes.custom_minimum_size = Vector2(170, 46)
+	yes.pressed.connect(func() -> void:
+		overlay.queue_free()
+		_apply_weapon_capstone(c))
+	row.add_child(yes)
+
+	var no := Button.new()
+	no.text = "No, keep it fusable"
+	no.custom_minimum_size = Vector2(170, 46)
+	no.pressed.connect(func() -> void:
+		overlay.queue_free()
+		_show_capstone(wk))   # back to the evolve choices
+	row.add_child(no)
+
+	_play_sfx("res://assets/audio/sfx/uialert.wav")
 
 func _finish_capstone() -> void:
 	_options_back = false

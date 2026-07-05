@@ -26,7 +26,7 @@ const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")   # for
 # `kind` = arena_weapons code kind (spawnable on click). Entries with "ph": true are PLACEHOLDERS — the weapon
 # isn't implemented yet, so the cell renders dimmed + non-spawnable (a gray placeholder icon) until it lands.
 # `from` (optional) = the source recipe, shown in the tooltip. NOTE: a few PDF→code kind mappings are
-# best-guess (Jeager→zsword, Little Man→little_man, Viper→snake) — relabel if wrong.
+# best-guess (Jeager→zsword, Little Man→mortar, Viper→snake) — relabel if wrong.
 const WEAPON_TABS := {
 	"drop": [
 		{"kind": "gatling",   "def_id": "gatling_gun",  "label": "Kinetic Auto Cannon"},
@@ -38,7 +38,7 @@ const WEAPON_TABS := {
 		{"kind": "arc",       "def_id": "arc",           "label": "Arc Lightning Chain"},
 		{"kind": "moroboshi", "def_id": "moroboshi",     "label": "Yari"},
 		{"kind": "zsword",    "def_id": "z_sword",       "label": "Jeager"},
-		{"kind": "little_man",      "def_id": "little_man",          "label": "Little Man"},
+		{"kind": "mortar",      "def_id": "mortar",          "label": "Little Man"},
 		{"kind": "red_x",     "def_id": "red_x",         "label": "Thermitic Discharger"},
 		{"kind": "boomerang", "def_id": "boomerang",     "label": "Aliwa"},
 		{"kind": "gauss",     "def_id": "gauss_cannon",  "label": "Gauss Pulser"},

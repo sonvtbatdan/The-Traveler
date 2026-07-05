@@ -331,6 +331,11 @@ func _tick_streams(delta: float) -> void:
 func _queue_or_spawn(type_id: String, pos: Vector2, is_boss: bool, draw_w: float = 0.0) -> void:
 	if is_boss:
 		_spawn(type_id, pos, true, draw_w)
+		# Beacon "+1 boss": spawn extra copies of this boss around the original.
+		var extra := int(GameManager.mech_bonus("extra_bosses")) if GameManager.has_method("mech_bonus") else 0
+		for i in extra:
+			var a := TAU * float(i + 1) / float(extra + 1)
+			_spawn(type_id, pos + Vector2(cos(a), sin(a)) * 160.0, true, draw_w)
 		return
 	var src: Dictionary = ENEMY_DEFS.get(type_id, {})
 	var blob := int(src.get("blob", 1))

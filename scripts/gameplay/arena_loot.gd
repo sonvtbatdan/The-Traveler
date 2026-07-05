@@ -14,6 +14,7 @@ const SPEED_MIN      := 20.0
 const SPEED_MAX      := 50.0
 
 var _type: String = "coin"
+var _value: int = 50   # money this coin is worth (Credit Extractor rolls variable values)
 var _tex: Texture2D = null
 var _draw_size: Vector2 = Vector2.ZERO
 var _vel: Vector2 = Vector2.ZERO
@@ -21,10 +22,11 @@ var _t: float = 0.0
 var _player: Node2D = null
 var _dead: bool = false
 
-func setup(world_pos: Vector2, type: String) -> void:
+func setup(world_pos: Vector2, type: String, value: int = 50) -> void:
 	add_to_group("arena_loot")
 	global_position = world_pos
 	_type = type
+	_value = value
 	_load_tex()
 	var speed := randf_range(SPEED_MIN, SPEED_MAX)
 	var angle := randf() * TAU
@@ -62,7 +64,9 @@ func _collect() -> void:
 			if GameManager.has_method("add_money"):
 				var mult: float = GameManager.run_coin_mult if "run_coin_mult" in GameManager else 1.0
 				mult += GameManager.run_luck if "run_luck" in GameManager else 0.0   # Lucky drone boosts coins too
-				GameManager.add_money(int(round(50.0 * mult)))   # Scavenger passive + luck scale pickups
+				GameManager.add_money(int(round(float(_value) * mult)))   # coin's rolled value × Scavenger/luck
+			if GameManager.has_method("on_coin_pickup"):
+				GameManager.on_coin_pickup()   # Credit Extractor on-coin buffs
 		"heart":
 			if GameManager.has_method("heal"):
 				GameManager.heal(25)

@@ -479,19 +479,6 @@ const ITEM_DEFS: Dictionary = {
 		"desc": "Charge, then launch a hypersonic slug that punches clean through a line of enemies. Snipe whole rows.",
 		"stats": { "damage": 140, "cooldown_sec": 1.2, "pierce": 5, "weight": 8, "energy_per_shot": 14 },
 	},
-	"mortar": {
-		"name": "Mortar",
-		"icon": "",
-		"size": Vector2i(2, 2),
-		"tags": ["weapon"],
-		"fire_mode": "repeat",
-		"fire_type": "projectile",
-		"rarity": "uncommon",
-		"group": "explosive",
-		"damage_kind": ["explosive", "fire"],
-		"desc": "Lobs shells toward the cursor that detonate in a fiery blast. Splash damage rules the crowd.",
-		"stats": { "damage": 30, "cooldown_sec": 1.0, "splash_radius": 95, "weight": 6 },
-	},
 	"splash_hammer": {
 		"name": "Splash Hammer",
 		"icon": "",
@@ -835,8 +822,8 @@ const ITEM_DEFS: Dictionary = {
 			"weight": 4,
 		},
 	},
-	"little_man": {
-		"name": "Little Man",
+	"mortar": {
+		"name": "Mortar",
 		"icon": "res://assets/inventory/R-HPM-IV.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
