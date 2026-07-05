@@ -113,7 +113,18 @@ const WEAPON_INFO := {
 	"swarm":       {"def_id": "",                "icon": "res://assets/inventory/Swarm.png", "name": "Swarm", "label": "Swarm", "mfr": "Chakra Bio-Synthetics"},
 	"snake":       {"def_id": "space_snake",     "name": "Viper",                   "label": "VIPER",        "mfr": ""},
 	"homing":      {"def_id": "homing_missile",  "name": "Homing Missile",          "label": "Homing",       "mfr": ""},
+	"player_2":    {"def_id": "player_2",        "icon": "res://assets/screen/Spaceship.png", "name": "Player 2", "label": "Player 2", "mfr": "You (negative)"},
 }
+# ── Player 2 companion skill-point pool + evolves ──
+const PLAYER2_POOL := {
+	"damage":      {"name": "Overclock",              "max": 10, "per": "+5% damage",          "desc": "Player 2 hits harder (on top of its 25% copy)."},
+	"kinetic":     {"name": "Kinetic Coat",           "max": 5,  "per": "+10% kinetic damage",  "desc": "Player 2 does +10%/rank when the copied weapon is kinetic."},
+	"energy":      {"name": "Energy Coat",            "max": 5,  "per": "+10% energy damage",   "desc": "Player 2 does +10%/rank when the copied weapon is energy."},
+	"biochemical": {"name": "Biochemical Coat",       "max": 5,  "per": "+10% bio damage",      "desc": "Player 2 does +10%/rank when the copied weapon is biological."},
+	"proactive":   {"name": "Proactive Intelligence", "max": 3,  "per": "copy 1 more weapon",   "desc": "Player 2 also copies your next-highest weapon. Unlocks at weapon level 6 / 11 / 16.", "gate": [6, 11, 16]},
+	"diversify":   {"name": "Diversification Mastery","max": 10, "per": "+1.25% dmg / weapon owned", "desc": "Player 2 gains +1.25%/rank overall damage for EACH different weapon you own."},
+}
+const PLAYER2_PHOENIX_CD := 600.0   # Project Phoenix: Player 2 stays shut down this long (s) after a revive
 
 # ── Weapon FUSION recipes ─────────────────────────────────────────────────────────
 # Keyed by the FUSED kind (matches _activate_kind / activate_<fused>). `a`+`b` = the two component kinds, each
@@ -246,6 +257,20 @@ const IONIZE_LENS_BRIGHTNESS := 0.3  # <1 → the lens DARKENS the warped interi
 const IONIZE_RIM_COL := Color(0.945, 0.459, 0.0)   # orange swirl rim = vortex1 core (#f17500)
 const IONIZE_RIM_SPIN := 2.2         # rim swirl rotation (rad/s)
 const IONIZE_GROUP_OPACITY := 0.75   # overall opacity of the whole Black Hole group (vortex + lens + rim)
+const IONIZE_STUN_DUR := 0.5         # Shocking Field electrocute duration (s)
+# ── Ionizing Field (Black Hole) skill-point pool + evolves ──
+const IONIZE_POOL := {
+	"damage":    {"name": "Field Density",     "max": 10, "per": "+10% damage",            "desc": "A more punishing field."},
+	"aoe":       {"name": "Event Horizon",     "max": 10, "per": "+10% radius",            "desc": "A wider field."},
+	"proximity": {"name": "Proximity Mastery", "max": 5,  "per": "+10% close-range damage (global)", "desc": "GLOBAL: ALL weapons deal up to +10%/rank more damage to targets near you (max at 50px, none past 400px)."},
+	"freezing":  {"name": "Freezing Field",    "max": 5,  "per": "+1%/tick freeze chance",  "desc": "The field chills enemies inside it."},
+	"burning":   {"name": "Burning Field",     "max": 5,  "per": "+1%/tick burn chance",    "desc": "The field ignites enemies inside it."},
+	"shocking":  {"name": "Shocking Field",     "max": 5,  "per": "+1%/tick stun chance",    "desc": "The field electrocutes enemies inside it (~3.3 ticks/s)."},
+}
+const IONIZE_ABSOLUTION_DMG := 4.0    # Zone of Absolution: +300% damage
+const IONIZE_ABSOLUTION_AOE := 0.30   # Zone of Absolution: -70% AoE
+const IONIZE_WAR_MAXHP := 100         # Zone of War: flat +Max HP
+const IONIZE_WAR_DMG_PER_HP := 0.001  # Zone of War: +1% field damage per 10 Max HP
 
 # ── TUNABLES: Batch-2 weapons (Boomerang / Parasite Cloud / Moroboshi-M1 / Swarm Host / Space Snake) ──
 # Boomerang (Kinetic) — a single PERPETUAL blade flying a 3-petal "trinity"/rose path around the ship: it loops
@@ -432,20 +457,36 @@ const streak_len_max       := 60.0    # streak length at full blur (px)
 const streak_width         := 18.0    # streak thickness (px)
 const streak_alpha         := 0.5
 
-# ── TUNABLES: Striker (Orbital Impact OFFENSE) — orbs circle the ship, then LAUNCH out to impact enemies ──
-const STRIKER_BALLS        := 3        # orbs orbiting the ship
-const STRIKER_RADIUS       := 90.0     # orbit radius (px)
-const STRIKER_SPIN         := 110.0    # deg/sec orbit
-const STRIKER_CHARGE       := 1.3      # s an orb orbits before it launches a strike
-const STRIKER_SPEED        := 660.0    # strike fly speed (px/s)
-const STRIKER_FLIGHT_MAX   := 0.75     # s max strike flight before it gives up + returns
-const STRIKER_HIT_RADIUS   := 28.0     # strike impact radius (px)
-const STRIKER_DAMAGE       := 30.0     # damage per impact (× mult, crit-rollable)
-const STRIKER_RANGE        := 560.0    # max target-acquisition range from the orb
-const STRIKER_RETURN_LERP  := 9.0      # how fast an orb eases back onto the orbit after a strike
-const STRIKER_STAGGER      := 0.18     # extra stagger applied to struck enemies
-const STRIKER_COL          := Color(1.0, 0.66, 0.22)   # orange-gold energy
-const STRIKER_LIGHT        := 2.5      # dust-light value per orb
+# ── TUNABLES: Striker (Orbital Impact OFFENSE) — rear-guard turrets that fire 3-bolt laser bursts at the nearest enemy ──
+const STRIKER_BASE_ORBS   := 2        # base turrets (anchor at 8 & 4 o'clock behind the ship)
+const STRIKER_BACK_DIST   := 54.0     # px the turrets hover from the ship centre (~1cm back)
+const STRIKER_MOVE_LERP   := 12.0     # how fast a turret eases to its slot as the ship turns / count changes
+const STRIKER_BURST       := 3        # bolts per burst
+const STRIKER_BURST_GAP   := 0.09     # s between bolts within one burst
+const STRIKER_COOLDOWN    := 1.0      # s between bursts per turret (before fire-rate)
+const STRIKER_ORB_STAGGER := 0.14     # dramatic cadence offset between turrets
+const STRIKER_RANGE       := 620.0    # target-acquisition range from a turret
+const STRIKER_DAMAGE      := 24.0     # damage per bolt (× mult, crit-rollable)
+const STRIKER_BOLT_SPEED  := 920.0    # bolt fly speed (px/s)
+const STRIKER_BOLT_LIFE   := 1.2      # s before a bolt is culled
+const STRIKER_BOLT_LEN    := 40.0     # bolt length (px) — ref 2.5mm : 0.5mm ⇒ 5:1
+const STRIKER_BOLT_W      := 8.0      # bolt width (px)
+const STRIKER_BOLT_HIT    := 12.0     # bolt hit-radius padding
+const STRIKER_STAGGER     := 0.12     # stagger applied to struck enemies
+const STRIKER_COL         := Color(1.0, 0.18, 0.14)   # laser red (outline)
+const STRIKER_LIGHT       := 2.0      # dust-light value per turret
+const STRIKER_AVATAR_CHANCE := 0.05   # Avatar 2 element proc PER BOLT (low — bolts come in bursts × many turrets)
+const STRIKER_SPRITE      := "res://assets/inventory/ND-OIF-F.png"   # ND-OIO-F: the Orbital Impact OFFENSE orb
+const STRIKER_DRAW        := 30.0     # turret sprite width on screen (px; height aspect-locked)
+# ── Striker skill-point pool + evolves ──
+const STRIKER_POOL := {
+	"morebital":  {"name": "More-bital",         "max": 10, "per": "+1 orbital",              "desc": "Another turret. Extra turrets fan up over the top between the 8 & 4 o'clock anchors."},
+	"damage":     {"name": "Focused Lens",        "max": 10, "per": "+10% damage",             "desc": "Hotter bolts."},
+	"firerate":   {"name": "Rapid Cycling",       "max": 10, "per": "+8% fire rate",           "desc": "Burst more often."},
+	"multishot":  {"name": "Scatter Volley",      "max": 10, "per": "+8% extra-burst chance",  "desc": "Chance to fire a bonus burst."},
+	"automation": {"name": "Automation Mastery",  "max": 5,  "per": "+5% automation damage",   "desc": "Boosts ALL automation weapons (Defender, Yari, Snake, Striker, Parasite)."},
+	"crit":       {"name": "Critical Shot",       "max": 10, "per": "+5% crit (this weapon)",  "desc": "Striker bolts crit more often."},
+}
 
 # ── TUNABLES: Void gun (Rift Maker — auto-casts a growing void on the nearest enemy; ported from weapon_system.gd) ──
 const VOID_COOLDOWN     := 5.0     # s between casts (measured from cast start)
@@ -644,6 +685,21 @@ const CAPSTONES := {
 		{"id": "primordial_god", "name": "Primordial God", "desc": "The snake grows: +1 body segment per 1000 enemies it kills (up to +50 at 50,000 kills)."},
 		{"id": "more_snakes",    "name": "More Snakes",     "desc": "+1 snake — a second serpent with identical stats."},
 		{"id": "anemia",         "name": "Anemia",          "desc": "Enemies take +1% damage from ALL sources per 10 bleed stacks on them."},
+	],
+	"striker": [
+		{"id": "avatar2",           "name": "Avatar 2",          "desc": "Infuse the turrets with fire/ice/lightning (one each, spread evenly). Bolts have 25% to burn/freeze/stun."},
+		{"id": "the_fleet",         "name": "The Fleet",         "desc": "+5 more offensive orbitals."},
+		{"id": "piercing_vanguard", "name": "Piercing Vanguard", "desc": "Bolts pierce — they pass through every enemy in line (100% pierce)."},
+	],
+	"ionize": [
+		{"id": "zone_of_war",        "name": "Zone of War",        "desc": "+100 Max HP, and the field gains +1% damage per 10 of your Max HP."},
+		{"id": "zone_of_absolution", "name": "Zone of Absolution", "desc": "-70% radius, +300% damage — a tiny, brutal core."},
+		{"id": "zone_of_peace",      "name": "Zone of Peace",      "desc": "ALL enemies deal -20% damage & move -20% slower (their projectiles too)."},
+	],
+	"player_2": [
+		{"id": "ready_player_3",  "name": "Ready Player 3",  "desc": "Add a second companion ship — same copies, same bonuses."},
+		{"id": "full_sync",       "name": "Full Sync",       "desc": "The companion ships can now PROC status effects + crit (normally they deal only their % damage)."},
+		{"id": "project_phoenix", "name": "Project Phoenix", "desc": "When you would die, revive to full HP instead — but Player 2 shuts down for 10 minutes."},
 	],
 }
 
@@ -862,7 +918,7 @@ void fragment(){
 	col += core_color.rgb * core * core_bright;
 
 	vec2 np = vec2(p.x * light_density * 0.6 + TIME * crackle_speed * 0.35,
-	               p.y * light_density + TIME * crackle_speed);
+				   p.y * light_density + TIME * crackle_speed);
 	float n = fbm(np);
 	float arc = smoothstep(0.05, 0.0, abs(fract(n * 3.0) - 0.5) - 0.02);
 	float rim = exp(-pow(d / 0.06, 2.0));
@@ -879,6 +935,18 @@ void fragment(){
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 var _player: Node2D = null
+# ── Companion mode (Player 2): a 2nd ArenaWeapons instance bound to the P2 ship, firing ONE copied weapon at a
+# reduced damage scale. Set these BEFORE add_child() so _ready() picks them up. _companion skips the singleton
+# group registration + player-only signal hooks; _player_ref overrides the "player"-group lookup. ──
+var _companion: bool = false
+var _player_ref: Node2D = null
+var _dmg_scale: float = 1.0
+var _p2_fam_bonus: Dictionary = {}   # companion: family ("kinetic"/"energy"/"biological") → bonus frac (P2 colour coats)
+var _procs_enabled: bool = true      # companion: false suppresses ALL chance procs + crit (Player-2 default; on via Full Sync)
+var _p2_nodes: Array = []        # (main instance only) live ArenaPlayer2 companions (1, or 2 with Ready Player 3)
+var _player2_upg: Dictionary = {"damage": 0, "kinetic": 0, "energy": 0, "biochemical": 0, "proactive": 0, "diversify": 0}
+var _player2_capstone: String = ""     # "" | "ready_player_3" | "full_sync" | "project_phoenix"
+var _player2_phoenix_cd: float = 0.0   # >0 → Player 2 is shut down (Project Phoenix cooldown)
 var _gat_acc: float = 0.0
 var _gauss_charge: float = 0.0
 var _dmg_mult: float = 1.0    # GameManager.get_damage_mult(), refreshed each frame (Damage upgrade cards)
@@ -966,7 +1034,12 @@ var _orbital_damage: float = ORBITAL_DAMAGE
 # Striker (offensive orbital): orbs orbit, then strike out at enemies.
 var _striker_active: bool = false
 var _striker_init: bool = false
-var _striker_orbs: Array = []      # [{state:"orbit"|"strike", ang, pos, vel, t}]
+var _striker_orbs: Array = []      # turrets: [{pos, cd, burst_left, gap}]
+var _striker_bolts: Array = []     # laser bolts: [{pos, vel, life, hits:{}}]
+var _striker_upg: Dictionary = {"morebital": 0, "damage": 0, "firerate": 0, "multishot": 0, "automation": 0, "crit": 0}
+var _striker_capstone: String = ""     # "" | "avatar2" | "the_fleet" | "piercing_vanguard"
+var _striker_elements: Array = []      # Avatar 2: per-turret element ("fire"/"ice"/"lightning")
+var _striker_tex: Texture2D = null     # ND-OIO-F offense-orb sprite
 var _plume_registry: Array = []    # [{cfg_key, count, ds, provider, anchors}] — generic plume system
 var _void_active: bool = false     # turned on by the Void pickup
 var _void_cd: float = 0.0          # cast cooldown (ready when <= 0)
@@ -1003,6 +1076,8 @@ var _zsword_capstone: String = ""
 var _zsword_queue: int = 0   # pending immediate swipes (Divergence / Dual Wielding)
 var _ionize_active: bool = false
 var _ionize_tick: float = 0.0
+var _ionize_upg: Dictionary = {"damage": 0, "aoe": 0, "proximity": 0, "freezing": 0, "burning": 0, "shocking": 0}
+var _ionize_capstone: String = ""      # "" | "zone_of_war" | "zone_of_absolution" | "zone_of_peace"
 var _ionize_clock: float = 0.0         # always-advancing clock for the aura pulse visual
 var _ionize_vortex1: Node2D = null     # Black Hole: outer orange EnergyVortex swirl
 var _ionize_vortex2: Node2D = null     # Black Hole: inner violet EnergyVortex swirl (on top of vortex1)
@@ -1113,10 +1188,13 @@ var _crit_layer: CanvasLayer = null
 var _crit_host: Control = null
 
 func _ready() -> void:
-	add_to_group("arena_weapons")   # arena_dust queries get_lights() each frame
-	_player = get_tree().get_first_node_in_group("player")
-	if GameManager.has_signal("mitigation_burst"):
-		GameManager.mitigation_burst.connect(_fire_mitigation_shockwave)   # Exoskeleton Reactive Plating evo
+	if not _companion:
+		add_to_group("arena_weapons")   # arena_dust queries get_lights() each frame — only the MAIN instance
+	_player = _player_ref if (_companion and _player_ref != null) else get_tree().get_first_node_in_group("player")
+	if not _companion and GameManager.has_signal("mitigation_burst"):
+		GameManager.mitigation_burst.connect(_fire_mitigation_shockwave)   # Exoskeleton Reactive Plating evo (player only)
+	if not _companion and GameManager.has_signal("leveled_up"):
+		GameManager.leveled_up.connect(_on_harvest_levelup)   # Data Harvester: heal + AoE blast on level-up
 	_beam = BeamScript.new()
 	add_child(_beam)
 	_beam.z_index = DEATHBEAM_BEAM_Z   # beam renders over enemy sprites
@@ -1134,6 +1212,7 @@ func _ready() -> void:
 	_load_gauss_frames()
 	_load_gauss_explosion_frames()
 	_load_orbital_tex()
+	_striker_tex = load(STRIKER_SPRITE) as Texture2D
 	_load_swarm_tex()
 	_load_para_tex()
 	_load_para_plume_data()
@@ -1435,9 +1514,17 @@ func _enemies_near(pos: Vector2, radius: float) -> Array:
 
 func _process(delta: float) -> void:
 	if _player == null or not is_instance_valid(_player):
-		_player = get_tree().get_first_node_in_group("player")
+		if _companion and _player_ref != null and is_instance_valid(_player_ref):
+			_player = _player_ref
+		else:
+			_player = get_tree().get_first_node_in_group("player")
 		if _player == null:
 			return
+	# Project Phoenix: count down the 10-minute Player-2 shutdown, then bring the companions back.
+	if not _companion and _player2_phoenix_cd > 0.0:
+		_player2_phoenix_cd = maxf(0.0, _player2_phoenix_cd - delta)
+		if _player2_phoenix_cd <= 0.0:
+			_respawn_player2()
 	# Player-stat multipliers (base values 1.0 → identical to before).
 	_dmg_mult = GameManager.get_damage_mult() if GameManager.has_method("get_damage_mult") else 1.0
 	_rate_mult = maxf(0.01, GameManager.get_fire_rate_mult()) if GameManager.has_method("get_fire_rate_mult") else 1.0
@@ -1566,7 +1653,7 @@ func _muzzle() -> Vector2:
 # Automation weapons benefit from Nanobots' Automation Speed perk (mech "automation_speed" → attack/move speed)
 # and the Nanobots-Attack! evolution (mech "automation_dmg" → damage). "+2 Bodies" (mech "body_count") adds
 # count to orbitals/boomerang, length to the snake, and damage to the yari spears.
-const AUTOMATION_KINDS := ["orbital", "parasite", "snake", "moroboshi", "yari_jaeger", "swarm"]
+const AUTOMATION_KINDS := ["orbital", "parasite", "snake", "moroboshi", "yari_jaeger", "swarm", "striker"]
 # Weapons that deal CONTACT damage (touch the enemy) → boosted by Contact Mastery (mech "contact_dmg_mult").
 const CONTACT_KINDS := ["orbital", "singularities", "swarm", "snake", "boomerang", "moroboshi", "yari_jaeger", "zsword"]
 # Weapon damage FAMILY (the 3-family taxonomy) → Art of War per-family masteries + the X-Truth evolutions.
@@ -1578,7 +1665,10 @@ const WEAPON_FAMILY := {
 	"zsword": "energy", "ionize": "energy", "red_x": "energy", "singularities": "energy",
 	"overcharger": "energy", "predator": "energy",
 	"chemtrail": "biological", "parasite": "biological", "vampire_host": "biological", "toxic_ballistic": "biological",
+	"chain": "kinetic",   # Explosivo Chain Reaction blast (kinetic family so kinetic/all/crit buffs apply)
 }
+# Weapons that deal AREA/splash damage → get the Explosivo "Bombardment Mastery" bonus (mech "bombardment_dmg").
+const AOE_KINDS := ["mortar", "gauss", "ionize", "sonic", "red_x", "chemtrail", "parasite", "void", "homing"]
 const BODY_SNAKE_LEN := 0.25   # +25% snake length per body (≈ +50% at +2 Bodies)
 const BODY_YARI_DMG  := 0.50   # +50% yari damage per body (+100% at +2 Bodies)
 
@@ -1650,7 +1740,11 @@ func _weapon_speed_mult() -> float:
 	return 1.0 + (GameManager.weapon_speed_bonus() if GameManager.has_method("weapon_speed_bonus") else 0.0)
 
 func _roll_damage(base: float, kind := "") -> Dictionary:
-	var dmg := base * _dmg_mult * _lvl_mult(kind)
+	var dmg := base * _dmg_mult * _lvl_mult(kind) * _dmg_scale   # _dmg_scale = 0.25× (× P2 Overclock) on the companion
+	if not _p2_fam_bonus.is_empty():                              # Player-2 colour coats: +% for the copied weapon's family
+		dmg *= 1.0 + float(_p2_fam_bonus.get(String(WEAPON_FAMILY.get(kind, "")), 0.0))
+	if kind in AOE_KINDS:                                         # Explosivo Bombardment Mastery
+		dmg *= 1.0 + (GameManager.mech_bonus("bombardment_dmg") if GameManager.has_method("mech_bonus") else 0.0)
 	if _is_automation(kind):
 		dmg *= 1.0 + (GameManager.mech_bonus("automation_dmg") if GameManager.has_method("mech_bonus") else 0.0)
 	if _is_contact(kind):
@@ -1679,10 +1773,20 @@ func _roll_damage(base: float, kind := "") -> Dictionary:
 			var fr_bonus := maxf(0.0, GameManager.get_fire_rate_mult() - 1.0) + maxf(0.0, _fam_rate(kind) - 1.0)
 			dmg *= 1.0 + fr_bonus
 	var is_crit := false
-	var crit_ch := _crit_chance + (_zsword_crit() if kind == "zsword" else 0.0)   # Z-Sword's local (non-shared) crit
+	var local_crit := (_zsword_crit() if kind == "zsword" else 0.0) + (_striker_crit() if kind == "striker" else 0.0)
+	var crit_ch := _crit_chance + local_crit   # local (non-shared) crit
+	var crit_dmg := _crit_damage
+	# Deadly (Aim Assistor evo): use the UNCLAMPED crit chance — anything over 100% becomes bonus crit damage.
+	if GameManager.has_method("mech_bonus") and GameManager.mech_bonus("crit_overflow") > 0.0:
+		var raw := BASE_CRIT_CHANCE + GameManager.upg_crit_chance + local_crit
+		if raw > 1.0:
+			crit_dmg += raw - 1.0
+		crit_ch = raw
 	if _proc(crit_ch):   # crit chance + Stroke of Luck
-		dmg *= _crit_damage
+		dmg *= crit_dmg
 		is_crit = true
+		if not _companion and GameManager.has_method("add_fervor"):
+			GameManager.add_fervor()   # Challenge Accepted: a crit builds a Fervor stack (no-op unless evolved)
 	return {"dmg": dmg, "is_crit": is_crit}
 
 func _spawn_crit_number(world_pos: Vector2, amount: float) -> void:
@@ -1803,6 +1907,9 @@ func pool_rank(kind: String, id: String) -> int:
 		"parasite": return para_upgrade_rank(id)
 		"boomerang": return boom_upgrade_rank(id)
 		"snake":    return snake_upgrade_rank(id)
+		"striker":  return striker_upgrade_rank(id)
+		"ionize":   return ionize_upgrade_rank(id)
+		"player_2": return player2_upgrade_rank(id)
 	return 0
 
 func pool_grant(kind: String, id: String) -> bool:
@@ -1820,6 +1927,9 @@ func pool_grant(kind: String, id: String) -> bool:
 		"parasite": return para_grant_upgrade(id)
 		"boomerang": return boom_grant_upgrade(id)
 		"snake":    return snake_grant_upgrade(id)
+		"striker":  return striker_grant_upgrade(id)
+		"ionize":   return ionize_grant_upgrade(id)
+		"player_2": return player2_grant_upgrade(id)
 	return false
 
 func pool_set_capstone(kind: String, id: String) -> void:
@@ -1837,6 +1947,9 @@ func pool_set_capstone(kind: String, id: String) -> void:
 		"parasite": para_set_capstone(id)
 		"boomerang": boom_set_capstone(id)
 		"snake":    snake_set_capstone(id)
+		"striker":  striker_set_capstone(id)
+		"ionize":   ionize_set_capstone(id)
+		"player_2": player2_set_capstone(id)
 	# All-In: lose a weapon slot. If you're at/over the new cap, the UI must destroy one first (it checks
 	# weapons_full() before applying); here we just lower the capacity.
 	if kind == "death_beam" and id == "all_in":
@@ -1862,6 +1975,9 @@ func weapon_capstone(kind: String) -> String:
 		"parasite": return _para_capstone
 		"boomerang": return _boom_capstone
 		"snake":    return _snake_capstone
+		"striker":  return _striker_capstone
+		"ionize":   return _ionize_capstone
+		"player_2": return _player2_capstone
 	return ""
 
 ## True when a weapon just earned its evolve pick: at max level, has capstones, none chosen yet.
@@ -1974,6 +2090,8 @@ func _duration_mult() -> float:
 	return 1.0 + (GameManager.mech_bonus("duration_pct") if GameManager.has_method("mech_bonus") else 0.0)
 
 func _proc(chance: float) -> bool:
+	if _companion and not _procs_enabled:
+		return false   # Player 2 deals only its % copy — no crit, no status procs (until the Full Sync evolve)
 	return randf() < (chance + _proc_luck())
 
 # ── Arc upgrades: API + effective stats (ranks + level rewards). Stun/overflow/capstone mechanics = Stage 2/3. ──
@@ -3372,17 +3490,59 @@ func activate_striker() -> void:
 	_striker_active = true
 	_striker_init = false
 
+# ── Striker upgrade API (pool ranks + evolve capstone) ──
+func striker_upgrade_rank(id: String) -> int:
+	return int(_striker_upg.get(id, 0))
+
+func striker_grant_upgrade(id: String) -> bool:
+	if not STRIKER_POOL.has(id):
+		return false
+	var maxr := int(STRIKER_POOL[id]["max"])
+	if maxr > 0 and int(_striker_upg.get(id, 0)) >= maxr:
+		return false
+	_striker_upg[id] = int(_striker_upg.get(id, 0)) + 1
+	if id == "automation" and GameManager.has_method("add_mech"):
+		GameManager.add_mech("automation_dmg", 0.05)   # GLOBAL: +5% to all automation weapons
+	return true
+
+func striker_set_capstone(id: String) -> void:
+	_striker_capstone = id
+	if id == "avatar2":
+		_striker_rebuild_elements()
+
+func _striker_dmg() -> float:
+	return STRIKER_DAMAGE * (1.0 + 0.10 * float(_striker_upg["damage"]))
+func _striker_crit() -> float:
+	return 0.05 * float(_striker_upg["crit"])   # local crit (folded into _roll_damage for kind "striker")
+func _striker_count() -> int:
+	var n := STRIKER_BASE_ORBS + int(_striker_upg["morebital"])
+	if _striker_capstone == "the_fleet":
+		n += 5
+	return maxi(1, n)
+
+## Round-robin fire/ice/lightning per turret (Avatar 2), rebuilt whenever the count changes.
+func _striker_rebuild_elements() -> void:
+	const ELS := ["fire", "ice", "lightning"]
+	_striker_elements.clear()
+	for k in _striker_count():
+		_striker_elements.append(ELS[k % ELS.size()])
+
+## Slot for turret i of n: base 2 anchor at 8 & 4 o'clock; extra turrets fan UP over the top (through 12)
+## between those anchors. Angles are SCREEN-fixed (clockwise from screen-up), NOT the ship's facing — the
+## turrets keep the same on-screen positions regardless of which way the ship points.
+func _striker_slot_pos(i: int, n: int) -> Vector2:
+	var deg := 240.0   # 8 o'clock (single-turret fallback)
+	if n >= 2:
+		deg = 240.0 + float(i) * (240.0 / float(n - 1))   # 8 o'clock → up → 4 o'clock
+	return _player.global_position + Vector2.UP.rotated(deg_to_rad(deg)) * STRIKER_BACK_DIST
+
 func _init_striker() -> void:
 	_striker_orbs.clear()
-	for k in STRIKER_BALLS:
-		var ang := 360.0 * float(k) / float(STRIKER_BALLS)
-		_striker_orbs.append({
-			"state": "orbit",
-			"ang":   ang,
-			"pos":   _player.global_position + Vector2.RIGHT.rotated(deg_to_rad(ang)) * STRIKER_RADIUS,
-			"vel":   Vector2.ZERO,
-			"t":     -STRIKER_CHARGE * float(k) / float(STRIKER_BALLS),   # stagger so they don't all fire at once
-		})
+	var n := _striker_count()
+	for k in n:
+		_striker_orbs.append({"pos": _striker_slot_pos(k, n), "cd": STRIKER_ORB_STAGGER * float(k), "burst_left": 0, "gap": 0.0})
+	if _striker_capstone == "avatar2":
+		_striker_rebuild_elements()
 	_striker_init = true
 
 func _tick_striker(delta: float, enemy_on_screen: bool) -> void:
@@ -3390,68 +3550,143 @@ func _tick_striker(delta: float, enemy_on_screen: bool) -> void:
 		return
 	if not _striker_init:
 		_init_striker()
-	var center := _player.global_position
-	for orb: Dictionary in _striker_orbs:
-		orb["ang"] = fmod(float(orb["ang"]) + STRIKER_SPIN * delta, 360.0)
-		var orbit_pos := center + Vector2.RIGHT.rotated(deg_to_rad(float(orb["ang"]))) * STRIKER_RADIUS
-		match String(orb["state"]):
-			"orbit":
-				orb["pos"] = (orb["pos"] as Vector2).lerp(orbit_pos, clampf(STRIKER_RETURN_LERP * delta, 0.0, 1.0))
-				orb["t"] = float(orb["t"]) + delta
-				if enemy_on_screen and float(orb["t"]) >= STRIKER_CHARGE:
-					var tgt := _nearest_enemy(orb["pos"] as Vector2, STRIKER_RANGE, [])
-					if tgt != null and is_instance_valid(tgt):
-						var dir := ((tgt as Node2D).global_position - (orb["pos"] as Vector2))
-						orb["vel"] = (dir.normalized() if dir.length() > 0.01 else Vector2.UP) * STRIKER_SPEED
-						orb["state"] = "strike"
-						orb["t"] = 0.0
-			"strike":
-				orb["pos"] = (orb["pos"] as Vector2) + (orb["vel"] as Vector2) * delta
-				orb["t"] = float(orb["t"]) + delta
-				if _striker_impact(orb["pos"] as Vector2) or float(orb["t"]) >= STRIKER_FLIGHT_MAX:
-					orb["state"] = "orbit"
-					orb["t"] = 0.0
-
-## Damage any enemy/ruin within STRIKER_HIT_RADIUS of `pos`. Returns true if it hit something (ends the strike).
-func _striker_impact(pos: Vector2) -> bool:
-	var hit := false
-	for en in _enemies():
-		if not is_instance_valid(en):
+	var n := _striker_count()
+	while _striker_orbs.size() < n:   # More-bital / The Fleet grew the fleet
+		var k := _striker_orbs.size()
+		_striker_orbs.append({"pos": _striker_slot_pos(k, n), "cd": STRIKER_ORB_STAGGER * float(k), "burst_left": 0, "gap": 0.0})
+	while _striker_orbs.size() > n:
+		_striker_orbs.pop_back()
+	if _striker_capstone == "avatar2" and _striker_elements.size() != n:
+		_striker_rebuild_elements()
+	var rate := maxf(0.01, _rate_mult * (1.0 + 0.08 * float(_striker_upg["firerate"])))
+	for i in _striker_orbs.size():
+		var orb: Dictionary = _striker_orbs[i]
+		orb["pos"] = _striker_slot_pos(i, n)   # locked to the ship — no trailing/lag
+		if int(orb["burst_left"]) > 0:                       # continue an in-progress burst
+			orb["gap"] = float(orb["gap"]) - delta
+			if float(orb["gap"]) <= 0.0:
+				_striker_fire_bolt(orb["pos"] as Vector2, i)
+				orb["burst_left"] = int(orb["burst_left"]) - 1
+				orb["gap"] = STRIKER_BURST_GAP
 			continue
-		var er = en.get("hit_radius")
-		var hr: float = (float(er) if er != null else 16.0) + STRIKER_HIT_RADIUS
-		if pos.distance_to((en as Node2D).global_position) <= hr:
-			if en.has_method("take_damage"):
-				var r := _roll_damage(STRIKER_DAMAGE, "striker")
-				en.take_damage(float(r["dmg"]), STRIKER_STAGGER)
-				if bool(r["is_crit"]):
-					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
-			hit = true
-			break
-	if not hit:
-		for ruin in _ruins():
-			if not is_instance_valid(ruin):
-				continue
-			var rr: float = STRIKER_HIT_RADIUS + (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0)
-			if pos.distance_to((ruin as Node2D).global_position) <= rr:
-				if ruin.has_method("take_damage"):
-					ruin.take_damage(STRIKER_DAMAGE * _dmg_mult * _lvl_mult("striker"))
-				hit = true
-				break
-	return hit
+		orb["cd"] = float(orb["cd"]) - delta
+		if float(orb["cd"]) <= 0.0 and enemy_on_screen:      # start a burst if a target is in range
+			var tgt := _nearest_enemy(orb["pos"] as Vector2, STRIKER_RANGE, [])
+			if tgt != null and is_instance_valid(tgt):
+				var bursts := 1
+				if _proc(0.08 * float(_striker_upg["multishot"])):
+					bursts += 1                              # Scatter Volley: a bonus burst
+				orb["burst_left"] = STRIKER_BURST * bursts
+				orb["gap"] = 0.0
+				orb["cd"] = STRIKER_COOLDOWN / rate
+	_tick_striker_bolts(delta)
+
+## Spawn one laser bolt from a turret toward the current nearest enemy.
+func _striker_fire_bolt(from: Vector2, orb_idx: int) -> void:
+	var tgt := _nearest_enemy(from, STRIKER_RANGE, [])
+	var dir := _forward()
+	if tgt != null and is_instance_valid(tgt):
+		var d := (tgt as Node2D).global_position - from
+		dir = d.normalized() if d.length() > 0.01 else _forward()
+	_striker_bolts.append({"pos": from, "vel": dir * STRIKER_BOLT_SPEED, "life": 0.0, "orb": orb_idx, "hits": {}})
+
+## Move bolts; damage the first enemy each touches (or ALL, under Piercing Vanguard). Cull on lifetime.
+func _tick_striker_bolts(delta: float) -> void:
+	var pierce := _striker_capstone == "piercing_vanguard"
+	var i := _striker_bolts.size() - 1
+	while i >= 0:
+		var b: Dictionary = _striker_bolts[i]
+		b["life"] = float(b["life"]) + delta
+		var pos: Vector2 = (b["pos"] as Vector2) + (b["vel"] as Vector2) * delta
+		b["pos"] = pos
+		var dead := float(b["life"]) >= STRIKER_BOLT_LIFE
+		if not dead:
+			var hits: Dictionary = b["hits"]
+			for en in _enemies():
+				if not is_instance_valid(en):
+					continue
+				var eid := en.get_instance_id()
+				if hits.has(eid):
+					continue
+				var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 12.0
+				if pos.distance_to((en as Node2D).global_position) <= STRIKER_BOLT_HIT + enr:
+					if en.has_method("take_damage"):
+						var r := _roll_damage(_striker_dmg(), "striker")
+						en.take_damage(float(r["dmg"]), STRIKER_STAGGER, 0.0, false, false, bool(r["is_crit"]))
+						if bool(r["is_crit"]):
+							_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+					if _striker_capstone == "avatar2":
+						_striker_avatar_strike(en, int(b["orb"]))
+					hits[eid] = true
+					if not pierce:
+						dead = true
+						break
+		if dead:
+			_striker_bolts.remove_at(i)
+		i -= 1
+
+## Avatar 2: per-turret element proc on a bolt hit (mirrors the Defender's Avatar).
+func _striker_avatar_strike(en, orb_idx: int) -> void:
+	if orb_idx < 0 or orb_idx >= _striker_elements.size():
+		return
+	var el := String(_striker_elements[orb_idx])
+	var extra := 0.0
+	if GameManager.has_method("mech_bonus"):
+		if el == "lightning":
+			extra = GameManager.mech_bonus("lightning_stun_chance")
+		elif el == "fire":
+			extra = GameManager.mech_bonus("burn_chance")
+	if not _proc(STRIKER_AVATAR_CHANCE + extra):
+		return
+	match el:
+		"fire":
+			if en.has_method("apply_burn"): en.apply_burn(1)
+		"ice":
+			if en.has_method("apply_freeze"): en.apply_freeze(1)
+		"lightning":
+			if en.has_method("apply_stun"):
+				var dur_b: float = GameManager.mech_bonus("lightning_stun_dur") if GameManager.has_method("mech_bonus") else 0.0
+				en.apply_stun(AVATAR_STUN_DUR * (1.0 + dur_b))
 
 func _draw_striker() -> void:
+	# Turrets: the ND-OIO-F offense orb sprite (aspect-locked), with a soft red under-glow.
+	var sz := Vector2(STRIKER_DRAW, STRIKER_DRAW)
+	if _striker_tex != null:
+		var ts := _striker_tex.get_size()
+		if ts.x > 0.0:
+			sz = Vector2(STRIKER_DRAW, STRIKER_DRAW * ts.y / ts.x)
 	for orb: Dictionary in _striker_orbs:
 		var p: Vector2 = orb["pos"]
-		if String(orb["state"]) == "strike":
-			var v: Vector2 = orb["vel"]
-			if v.length() > 0.01:
-				var tail := p - v.normalized() * 30.0
-				draw_line(tail, p, Color(STRIKER_COL.r, STRIKER_COL.g, STRIKER_COL.b, 0.55), 4.0, true)
-		# Glow layers → crisp hot core.
-		draw_circle(p, 12.0, Color(STRIKER_COL.r, STRIKER_COL.g, STRIKER_COL.b, 0.16))
-		draw_circle(p, 7.5,  Color(STRIKER_COL.r, STRIKER_COL.g, STRIKER_COL.b, 0.42))
-		draw_circle(p, 4.0,  Color(1.0, 0.95, 0.8, 0.95))
+		draw_circle(p, STRIKER_DRAW * 0.55, Color(STRIKER_COL.r, STRIKER_COL.g, STRIKER_COL.b, 0.16))
+		if _striker_tex != null:
+			draw_texture_rect(_striker_tex, Rect2(p - sz * 0.5, sz), false)
+		else:
+			draw_circle(p, 5.5, Color(STRIKER_COL.r, STRIKER_COL.g, STRIKER_COL.b, 0.5))
+			draw_circle(p, 2.6, Color(1.0, 0.92, 0.9, 0.95))
+	# Bolts: elongated red laser with a hot white core (rounded head, tapered tail).
+	for b: Dictionary in _striker_bolts:
+		_draw_striker_bolt(b["pos"] as Vector2, (b["vel"] as Vector2).angle())
+
+## One bolt at `pos` along `ang`: soft glow → red shell → white core, all teardrop-shaped.
+func _draw_striker_bolt(pos: Vector2, ang: float) -> void:
+	draw_set_transform(pos, ang, Vector2.ONE)
+	draw_colored_polygon(_striker_bolt_shape(STRIKER_BOLT_LEN, STRIKER_BOLT_W), Color(STRIKER_COL.r, STRIKER_COL.g, STRIKER_COL.b, 0.28))
+	draw_colored_polygon(_striker_bolt_shape(STRIKER_BOLT_LEN * 0.92, STRIKER_BOLT_W * 0.72), Color(1.0, 0.20, 0.15, 0.95))
+	draw_colored_polygon(_striker_bolt_shape(STRIKER_BOLT_LEN * 0.80, STRIKER_BOLT_W * 0.40), Color(1.0, 0.97, 0.95, 0.98))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+## Teardrop polygon (local, +X = travel dir): rounded nose at +X, tapered point at -X.
+func _striker_bolt_shape(length: float, width: float) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	var hw := width * 0.5
+	var nose := length * 0.5
+	var arc_c := nose - hw          # centre of the rounded head
+	pts.push_back(Vector2(-length * 0.5, 0.0))   # tail point
+	var steps := 8
+	for s in range(steps + 1):      # rounded nose, top → tip → bottom
+		var a := -PI * 0.5 + PI * float(s) / float(steps)
+		pts.push_back(Vector2(arc_c + cos(a) * hw, sin(a) * hw))
+	return pts
 
 ## Per ball, drawn BACK→FRONT: tangent streak glow → afterimage ghosts → crisp body. The orbit is
 ## deterministic, so past ghost positions are just θ stepped back along the arc (no history buffer).
@@ -3557,6 +3792,9 @@ func activate_gauss() -> void:
 ## Acquire a weapon `kind`: add it to the ordered slot list (if new and below the cap) and turn it on.
 ## Returns true when a NEW slot was filled (false if a duplicate or the cap is already reached).
 func acquire_weapon(kind: String) -> bool:
+	# Player 2 can't be picked up unless you already own a weapon for it to copy (dev/test bypasses via force_spawn_player2).
+	if kind == "player_2" and not _companion and not _p2_eligible():
+		return false
 	var newly := false
 	if not (kind in _acquired):
 		if _acquired.size() >= MAX_WEAPONS:
@@ -3565,7 +3803,118 @@ func acquire_weapon(kind: String) -> bool:
 		_levels[kind] = 1
 		newly = true
 	_activate_kind(kind)   # idempotent: also re-arms a kind already owned
+	# A new weapon changes Player 2's copy-list (Proactive) + Diversification count → refresh the companion(s).
+	if newly and not _companion and kind != "player_2" and ("player_2" in _acquired) and _player2_phoenix_cd <= 0.0:
+		_respawn_player2()
 	return newly
+
+## Player 2 needs at least one OTHER weapon to copy.
+func _p2_eligible() -> bool:
+	for k: String in _acquired:
+		if k != "player_2":
+			return true
+	return false
+
+# ── Player 2 upgrade API (pool ranks + evolve capstone) ──
+func player2_upgrade_rank(id: String) -> int:
+	return int(_player2_upg.get(id, 0))
+
+func player2_grant_upgrade(id: String) -> bool:
+	if not PLAYER2_POOL.has(id):
+		return false
+	var maxr := int(PLAYER2_POOL[id]["max"])
+	var rk := int(_player2_upg.get(id, 0))
+	if maxr > 0 and rk >= maxr:
+		return false
+	if PLAYER2_POOL[id].has("gate"):   # Proactive Intelligence: rank r needs weapon level ≥ gate[r]
+		var gates: Array = PLAYER2_POOL[id]["gate"]
+		if rk < gates.size() and weapon_level("player_2") < int(gates[rk]):
+			return false
+	_player2_upg[id] = rk + 1
+	_respawn_player2()   # push the new config to the companion(s)
+	return true
+
+func player2_set_capstone(id: String) -> void:
+	_player2_capstone = id
+	_respawn_player2()
+
+# ── Player 2 config (read by _respawn_player2 → pushed to the companions) ──
+## Number of DIFFERENT weapons you own (excluding Player 2 itself) — drives Diversification Mastery.
+func _player2_weapon_count() -> int:
+	var c := 0
+	for k: String in _acquired:
+		if k != "player_2":
+			c += 1
+	return c
+func _player2_dmg_scale() -> float:
+	var m := 1.0 + 0.05 * float(_player2_upg["damage"])                                    # Overclock
+	m *= 1.0 + 0.0125 * float(_player2_upg["diversify"]) * float(_player2_weapon_count())  # Diversification Mastery
+	return 0.25 * m
+func _player2_fam_bonus() -> Dictionary:
+	return {
+		"kinetic":    0.10 * float(_player2_upg["kinetic"]),
+		"energy":     0.10 * float(_player2_upg["energy"]),
+		"biological": 0.10 * float(_player2_upg["biochemical"]),
+	}
+## The weapons Player 2 copies = the top (1 + Proactive rank) by level, highest first (excluding P2 itself).
+func _player2_copy_list() -> Array:
+	var kinds: Array = []
+	for k: String in _acquired:
+		if k != "player_2":
+			kinds.append(k)
+	kinds.sort_custom(func(a, b): return int(_levels.get(a, 1)) > int(_levels.get(b, 1)))
+	var n := 1 + int(_player2_upg["proactive"])
+	return kinds.slice(0, mini(n, kinds.size()))
+func _player2_ship_count() -> int:
+	return 2 if _player2_capstone == "ready_player_3" else 1
+
+## (Re)spawn the Player-2 companion ship(s) with the current config. Called on pickup + on every P2 upgrade.
+func force_spawn_player2() -> void:
+	_respawn_player2()
+
+func _respawn_player2() -> void:
+	if _companion:
+		return   # a companion never spawns its own companions (no recursion)
+	despawn_player2()
+	if _player2_phoenix_cd > 0.0:
+		return   # shut down during the Project Phoenix cooldown
+	var kinds := _player2_copy_list()
+	if kinds.is_empty():
+		return   # no weapon to copy → no ship
+	var P2 := load("res://scripts/gameplay/arena_player2.gd")
+	if P2 == null:
+		return
+	var scale := _player2_dmg_scale()
+	var fam := _player2_fam_bonus()
+	var procs := _player2_capstone == "full_sync"
+	for i in _player2_ship_count():
+		var node: Node = P2.new()
+		node.set("copied_kinds", kinds.duplicate())
+		node.set("dmg_scale", scale)
+		node.set("fam_bonus", fam)
+		node.set("procs_enabled", procs)
+		node.set("ship_index", i)
+		get_parent().add_child(node)
+		_p2_nodes.append(node)
+
+## Remove all live Player-2 companion ships (re-spawn to apply new config / a different copied weapon).
+func despawn_player2() -> void:
+	for n in _p2_nodes:
+		if n != null and is_instance_valid(n):
+			n.queue_free()
+	_p2_nodes.clear()
+
+## Project Phoenix (called from the arena death flow): if evolved + off cooldown, revive to full HP and shut
+## Player 2 down for 10 minutes. Returns true if it consumed the death.
+func player2_phoenix_try() -> bool:
+	if _player2_capstone != "project_phoenix" or _player2_phoenix_cd > 0.0:
+		return false
+	GameManager.ship_hp = GameManager.ship_max_hp
+	if GameManager.has_signal("ship_hp_changed"):
+		GameManager.ship_hp_changed.emit(GameManager.ship_hp)
+	_player2_phoenix_cd = PLAYER2_PHOENIX_CD
+	despawn_player2()
+	return true
 
 ## Ordered copy of the acquired weapon kinds — read by the slot HUD.
 func acquired_weapons() -> Array:
@@ -3580,7 +3929,7 @@ func clear_all_weapons() -> void:
 	_arc_active     = false
 	_gauss_active   = false
 	_orbital_active = false
-	_striker_active = false;  _striker_init = false;  _striker_orbs.clear()
+	_striker_active = false;  _striker_init = false;  _striker_orbs.clear();  _striker_bolts.clear()
 	_void_active     = false
 	_red_x_active    = false
 	_chemtrail_active = false
@@ -3695,6 +4044,7 @@ func _activate_kind(kind: String) -> void:
 		"predator":     activate_predator()
 		"toxic_ballistic": activate_toxic()
 		"singularities": activate_singularity()
+		"player_2":      force_spawn_player2()
 
 # ── Weapon FUSION API ─────────────────────────────────────────────────────────────
 func is_fusion_kind(kind: String) -> bool:
@@ -3741,7 +4091,7 @@ func _deactivate_kind(kind: String) -> void:
 		"arc":     _arc_active = false
 		"gauss":   _gauss_active = false
 		"orbital": _orbital_active = false
-		"striker": _striker_active = false; _striker_init = false; _striker_orbs.clear()
+		"striker": _striker_active = false; _striker_init = false; _striker_orbs.clear(); _striker_bolts.clear()
 		"void":    _void_active = false; _void_on = false
 		"red_x":   _red_x_active = false; _red_x_cd = 0.0
 		"chemtrail": _chemtrail_active = false
@@ -4396,6 +4746,74 @@ func _explode_mortar(pos: Vector2) -> void:
 	else:
 		_spawn_mortar_explosion(pos, full_px * MORTAR_VFX_SCALE, 1.5, true)
 
+## Barbed Wire: the ship's contact damage vs an enemy — rolled as KINETIC (so crit/kinetic/global apply), plus
+## the contact-bleed perk and the Blood Thirsty lifesteal. Called from arena_enemy._check_contact (throttled 0.5s).
+func apply_ship_contact(en) -> void:
+	if not is_instance_valid(en) or not en.has_method("take_damage"):
+		return
+	var base := GameManager.ship_contact_damage() if GameManager.has_method("ship_contact_damage") else 0.0
+	if base <= 0.0:
+		return
+	var r := _roll_damage(base, "chain")   # "chain" = kinetic family → kinetic/all/crit buffs apply
+	en.take_damage(float(r["dmg"]), 0.0, 0.0, false, false, bool(r["is_crit"]))
+	var cb := int(GameManager.mech_bonus("contact_bleed")) if GameManager.has_method("mech_bonus") else 0
+	if cb > 0 and en.has_method("apply_bleed"):
+		en.apply_bleed(cb)
+	if GameManager.upg_blood_thirsty and GameManager.has_method("heal"):
+		GameManager.heal(int(round(float(r["dmg"]) * 0.05)))
+	if bool(r["is_crit"]):
+		_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+
+## Number of contact-damage weapons owned (Barbed Wire "Fortify" reads this).
+func contact_source_count() -> int:
+	var n := 0
+	for k: String in _acquired:
+		if k in CONTACT_KINDS:
+			n += 1
+	return n
+
+## Data Harvester: on level-up, heal a % of Max HP + detonate a kinetic AoE blast (200px × AoE) around the ship.
+func _on_harvest_levelup(_lvl: int) -> void:
+	if _companion or GameManager.upg_harvester_off:
+		return
+	var hp_pct := GameManager.mech_bonus("levelup_heal")
+	if hp_pct > 0.0 and GameManager.has_method("heal"):
+		GameManager.heal(int(round(hp_pct * float(GameManager.ship_max_hp))))
+	var dmg := GameManager.mech_bonus("levelup_dmg")
+	if dmg > 0.0 and _player != null and is_instance_valid(_player):
+		var pos := _player.global_position
+		var aoe := _aoe_radius(200.0)
+		for en in _enemies():
+			if not is_instance_valid(en):
+				continue
+			var en2 := en as Node2D
+			var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0
+			if pos.distance_to(en2.global_position) <= aoe + enr:
+				if en.has_method("take_damage"):
+					var r := _roll_damage(dmg, "chain")
+					en.take_damage(float(r["dmg"]), 0.0, 0.0, false, false, bool(r["is_crit"]))
+					if bool(r["is_crit"]):
+						_spawn_crit_number(en2.global_position, float(r["dmg"]))
+		_spawn_mortar_explosion(pos, aoe * 1.3, 1.3, true)
+
+## Explosivo "Chain Reaction" evolve: a slain enemy detonates for 50 kinetic damage in a small (AoE-scaled) blast.
+## Called from arena_enemy._die() (which already rolled the 25% chance). Routes through _roll_damage so global /
+## crit / kinetic bonuses apply.
+func chain_reaction_explode(pos: Vector2) -> void:
+	var aoe := _aoe_radius(50.0)
+	for en in _enemies():
+		if not is_instance_valid(en):
+			continue
+		var en2 := en as Node2D
+		var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0
+		if pos.distance_to(en2.global_position) <= aoe + enr:
+			if en.has_method("take_damage"):
+				var r := _roll_damage(50.0, "chain")
+				en.take_damage(float(r["dmg"]), 0.0, 0.0, false, false, bool(r["is_crit"]))
+				if bool(r["is_crit"]):
+					_spawn_crit_number(en2.global_position, float(r["dmg"]))
+	_spawn_mortar_explosion(pos, aoe * 1.6, 1.6, true)   # small lite blast VFX
+
 ## Waste Land crater: total damage over its life = frac × rank × the shot's damage, split evenly across ticks. Stacks.
 func _spawn_wasteland(pos: Vector2, radius: float, shot_dmg: float) -> void:
 	var rank := int(_mortar_upg["wasteland"])
@@ -4698,6 +5116,46 @@ func _tick_zsword(delta: float, enemy_on_screen: bool) -> void:
 func activate_ionize() -> void:
 	_ionize_active = true
 	_ionize_tick = 0.0
+
+# ── Ionizing Field upgrade API (pool ranks + evolve capstone) ──
+func ionize_upgrade_rank(id: String) -> int:
+	return int(_ionize_upg.get(id, 0))
+
+func ionize_grant_upgrade(id: String) -> bool:
+	if not IONIZE_POOL.has(id):
+		return false
+	var maxr := int(IONIZE_POOL[id]["max"])
+	if maxr > 0 and int(_ionize_upg.get(id, 0)) >= maxr:
+		return false
+	_ionize_upg[id] = int(_ionize_upg.get(id, 0)) + 1
+	if id == "proximity" and GameManager.has_method("add_mech"):
+		GameManager.add_mech("proximity_dmg", 0.10)   # GLOBAL: closer targets take more damage (enemy-side)
+	return true
+
+func ionize_set_capstone(id: String) -> void:
+	_ionize_capstone = id
+	if id == "zone_of_war":
+		GameManager.upg_max_hp_bonus += IONIZE_WAR_MAXHP
+		if GameManager.has_method("recompute_max_hp"):
+			GameManager.recompute_max_hp()
+	elif id == "zone_of_peace" and GameManager.has_method("add_mech"):
+		GameManager.add_mech("zone_of_peace", 1.0)   # GLOBAL enemy debuff: -20% dmg-out, -20% speed, -20% bullet speed
+
+## Field damage per tick (Field Density + Zone evolves).
+func _ionize_dmg() -> float:
+	var d := IONIZE_DAMAGE * (1.0 + 0.10 * float(_ionize_upg["damage"]))
+	if _ionize_capstone == "zone_of_absolution":
+		d *= IONIZE_ABSOLUTION_DMG
+	elif _ionize_capstone == "zone_of_war":
+		d *= 1.0 + IONIZE_WAR_DMG_PER_HP * float(GameManager.ship_max_hp)   # +1% per 10 Max HP
+	return d
+
+## Field radius (Event Horizon + Zone of Absolution + global AoE mods).
+func _ionize_field_radius() -> float:
+	var m := 1.0 + 0.10 * float(_ionize_upg["aoe"])
+	if _ionize_capstone == "zone_of_absolution":
+		m *= IONIZE_ABSOLUTION_AOE
+	return _aoe_radius(IONIZE_RADIUS * m)
 	if _ionize_vortex1 == null:
 		# Two stacked EnergyVortex swirls (the creep-edit VFX) — outer orange + inner violet.
 		# NOTE: EnergyVortex._ready() sets its own z_index, so override z AFTER add_child.
@@ -4776,23 +5234,34 @@ func _tick_ionize(delta: float) -> void:
 	if not _enemy_visible:
 		return
 	var center := _player.global_position
-	var reach := _aoe_radius(IONIZE_RADIUS)
+	var reach := _ionize_field_radius()
+	var base_dmg := _ionize_dmg()
+	var frz := int(_ionize_upg["freezing"])
+	var brn := int(_ionize_upg["burning"])
+	var shk := int(_ionize_upg["shocking"])
 	for en in _enemies():
 		if not is_instance_valid(en):
 			continue
 		if center.distance_to((en as Node2D).global_position) <= reach:
 			if en.has_method("take_damage"):
-				var r := _roll_damage(IONIZE_DAMAGE, "ionize")
+				var r := _roll_damage(base_dmg, "ionize")
 				en.take_damage(float(r["dmg"]), 0.0)
 				if bool(r["is_crit"]):
 					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+			# Field status procs (per tick, ~3.3/s): 1%/rank each, + Stroke of Luck via _proc.
+			if frz > 0 and en.has_method("apply_freeze") and _proc(0.01 * float(frz)):
+				en.apply_freeze(1)
+			if brn > 0 and en.has_method("apply_burn") and _proc(0.01 * float(brn)):
+				en.apply_burn(1)
+			if shk > 0 and en.has_method("apply_stun") and _proc(0.01 * float(shk)):
+				en.apply_stun(IONIZE_STUN_DUR)
 	for ruin in _ruins():
 		if not is_instance_valid(ruin):
 			continue
 		var rr: float = reach + (ruin.get("hit_radius") if ruin.get("hit_radius") != null else 0.0)
 		if center.distance_to((ruin as Node2D).global_position) <= rr:
 			if ruin.has_method("take_damage"):
-				ruin.take_damage(IONIZE_DAMAGE * _dmg_mult * _lvl_mult("ionize"))
+				ruin.take_damage(base_dmg * _dmg_mult * _lvl_mult("ionize"))
 
 # ── Batch-1 draw helpers (this Node2D draws in world space) ─────────────────────────
 ## Energy-wave VFX: a rippling crest + a trailing wave train fanning into the forward cone. Each crest is a
@@ -6283,7 +6752,7 @@ func _draw() -> void:
 	# Z-Sword slash is rendered by the additive ZSlash crescent node (driven in _tick_zsword) — no draw here.
 	if _ionize_active and _player != null and is_instance_valid(_player):
 		# Damage-range boundary, drawn as the orange swirl ring (rotating at IONIZE_RIM_SPIN).
-		_draw_ionize_rim(_player.global_position, _aoe_radius(IONIZE_RADIUS))
+		_draw_ionize_rim(_player.global_position, _ionize_field_radius())
 	for boom: Dictionary in _booms:
 		_draw_boomerang(boom)
 	for pc: Dictionary in _para_clouds:

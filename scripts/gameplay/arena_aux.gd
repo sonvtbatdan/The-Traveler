@@ -95,6 +95,66 @@ const AUX_POOL := {
 		"sp_ms_fire": {"name": "Overdrive",      "max": 10, "per": "+2% Move Speed, +2% Fire Rate", "desc": "A bit of speed and a bit of rate."},
 		"sp_mastery": {"name": "Speed Mastery",  "max": 5,  "per": "+15% of MS → weapon speed", "desc": "Part of your move-speed bonus speeds up projectiles + orbiting minions."},
 	},
+	"force_field": {
+		"ff_max":     {"name": "Capacitor Bank",  "max": 10, "per": "+15 Max Shield",          "desc": "A bigger shield reservoir."},
+		"ff_regen":   {"name": "Recharge Coils",  "max": 10, "per": "+0.5 shield/s regen",     "desc": "The shield refills faster."},
+		"ff_delay":   {"name": "Fast Boot",       "max": 10, "per": "-0.5s regen delay",       "desc": "The shield starts recharging sooner after a hit."},
+		"ff_mastery": {"name": "Shield Mastery",  "max": 10, "per": "+5% total shield",        "desc": "Multiplies your whole shield capacity."},
+		"ff_quick":   {"name": "Quick Shield",    "max": 5,  "per": "-15 Max Shield, ++regen & boot", "desc": "Trade capacity for a shield that snaps back FAST (2× the normal regen + boot perks)."},
+		"ff_panic":   {"name": "Panic Button",    "max": 10, "per": "+0.5s i-frames on break", "desc": "When your shield breaks, gain 0.5s/rank of invulnerability. 60s cooldown."},
+	},
+	"crit": {
+		"cc_chance": {"name": "Steady Aim",      "max": 10, "per": "+5% crit chance",   "desc": "Land criticals more often."},
+		"cc_dmg":    {"name": "Killing Blow",    "max": 10, "per": "+10% crit damage",  "desc": "Criticals hit harder."},
+		"cc_bleed":  {"name": "Critical Bleed",  "max": 10, "per": "+2 bleed on crit",  "desc": "Every critical applies 2 bleed stacks per rank."},
+		"cc_burn":   {"name": "Ignition Rounds", "max": 5,  "per": "burn on crit",      "desc": "Criticals apply 1 burn stack per rank."},
+		"cc_freeze": {"name": "Cryo Rounds",     "max": 5,  "per": "freeze on crit",    "desc": "Criticals apply 1 freeze stack per rank."},
+		"cc_shock":  {"name": "Shock Rounds",    "max": 5,  "per": "stun on crit",      "desc": "Criticals stun for 0.3s per rank."},
+	},
+	"aoe": {
+		"ao_wider":   {"name": "Wider Blast",         "max": 10, "per": "+5% AoE",                     "desc": "Every explosion / field / cloud is bigger."},
+		"ao_cadence": {"name": "Concussive Cadence",  "max": 5,  "per": "-3% AoE, +5% DoT tick speed", "desc": "Trade blast size for faster damage-over-time ticks (chemtrail/ionize/parasite/dragon/gauss)."},
+		"ao_frag":    {"name": "Frag Rounds",         "max": 10, "per": "+2.5% AoE, +3% fire rate",    "desc": "A little more area and a little more rate."},
+		"ao_bombard": {"name": "Bombardment Mastery", "max": 5,  "per": "+5% AoE-weapon damage",       "desc": "AoE weapons (Mortar/Gauss/Ionizer/Sonic/Dragon/Chemtrail/Parasite/Rift Maker/Homing) hit harder."},
+	},
+	"pickup": {
+		"pk_range":  {"name": "Wider Reach",       "max": 10, "per": "+10% pickup range",             "desc": "Vacuum items from further out."},
+		"pk_pulse":  {"name": "Singularity Pulse", "max": 5,  "per": "-1 min pulse cooldown",         "desc": "Periodically yank EVERY item in the arena to you. 10-minute cooldown, -1 min per rank."},
+		"pk_heal":   {"name": "Recovery Field",    "max": 5,  "per": "+0.1 HP/s for 5s on pickup",    "desc": "Collecting anything grants brief HP regen."},
+		"pk_dmg":    {"name": "Power Surge",       "max": 5,  "per": "+1% damage for 5s on pickup",   "desc": "Collecting anything briefly boosts your damage."},
+		"pk_rev":    {"name": "Reverse Polarity",  "max": 5,  "per": "-5% enemy speed in range",      "desc": "Enemies inside your pickup range are slowed."},
+		"pk_shield": {"name": "Shield Recovery",   "max": 5,  "per": "+0.1 shield/s for 5s on pickup","desc": "Collecting anything grants brief shield regen."},
+	},
+	"xp": {
+		"xp_gain":   {"name": "Deep Learning",   "max": 10, "per": "+2% EXP",                    "desc": "Gain more experience."},
+		"xp_req":    {"name": "Efficient Study", "max": 10, "per": "-2% EXP to level",           "desc": "Each level needs less EXP."},
+		"xp_double": {"name": "Data Mining",     "max": 10, "per": "+2% double-orb chance",      "desc": "Enemies may drop a double-value EXP orb (boosted by Stroke of Luck)."},
+		"xp_heal":   {"name": "Eureka",          "max": 5,  "per": "heal 20% on level up",       "desc": "Leveling up heals 20%/rank of Max HP."},
+		"xp_blast":  {"name": "Knowledge Bomb",  "max": 10, "per": "50 kinetic AoE on level up", "desc": "Leveling up detonates 50/rank kinetic damage in 200px (scales with AoE)."},
+	},
+	"spawn": {
+		"sp_rate":  {"name": "Broadcast",       "max": 0, "per": "+15% enemy spawns",     "desc": "More enemies — more XP + loot. No cap."},
+		"sp_hp":    {"name": "Reinforced Foes", "max": 0, "per": "+10% enemy HP",         "desc": "Enemies are tougher. No cap."},
+		"sp_dmg":   {"name": "Armed Foes",      "max": 0, "per": "+10% enemy damage",     "desc": "Enemies hit harder. No cap."},
+		"sp_speed": {"name": "Frenzy",          "max": 0, "per": "+5% enemy speed",       "desc": "Enemies move faster. No cap."},
+		"sp_boss":  {"name": "Rival Beacon",    "max": 0, "per": "+1 boss per boss fight", "desc": "Each boss fight spawns 1 extra boss per rank. Unlocks every 5 Beacon levels (6, 11, 16…).", "gate_first": 6, "gate_step": 5},
+	},
+	"retaliation": {
+		"bw_armor":     {"name": "Plating",          "max": 10, "per": "+2 Armor",              "desc": "Flat damage reduction."},
+		"bw_contact":   {"name": "Spiked Hull",      "max": 10, "per": "+5 contact damage",      "desc": "Ramming enemies deals more (kinetic) damage."},
+		"bw_bleed":     {"name": "Barbs",            "max": 5,  "per": "+2 bleed on contact",    "desc": "Hull contact applies 2 bleed stacks/rank (contact hits twice a second)."},
+		"bw_dr":        {"name": "Riot Shielding",   "max": 5,  "per": "+2% damage reduction",   "desc": "Take less damage."},
+		"bw_reflect":   {"name": "Retaliation",      "max": 10, "per": "reflect 100% of damage taken", "desc": "When hit, reflect 100%/rank of the damage as kinetic AoE in 200px (scales with AoE)."},
+		"bw_proximity": {"name": "Proximity Mastery","max": 5,  "per": "+10% close-range damage (global)", "desc": "ALL weapons deal more damage to targets near you (same as the Ionizer perk)."},
+	},
+	"coin": {
+		"co_mult":   {"name": "Extraction",   "max": 5,  "per": "+5% coin value",                       "desc": "Every coin is worth more."},
+		"co_magic":  {"name": "Magic Find",   "max": 10, "per": "+5% coin drop (×), +5% enemy HP",      "desc": "Enemies drop coins more often (multiplicative) — but grow tougher."},
+		"co_skew":   {"name": "Higher Yield", "max": 10, "per": "richer coins",                         "desc": "Coins are likelier to roll a high value (up to 50)."},
+		"co_heal":   {"name": "Blood Money",  "max": 5,  "per": "+0.1 HP/s for 5s on coin",             "desc": "Grabbing a coin grants brief HP regen."},
+		"co_shield": {"name": "Insurance",    "max": 5,  "per": "+0.1 shield/s for 5s on coin",         "desc": "Grabbing a coin grants brief shield regen."},
+		"co_haste":  {"name": "Adrenaline",   "max": 5,  "per": "+5% speed & fire rate for 5s on coin", "desc": "Grabbing a coin briefly hastens you."},
+	},
 }
 
 # Evolution (level-6) options per aux id → [ {id, name, desc} ].
@@ -134,6 +194,39 @@ const AUX_CAPSTONES := {
 		{"id": "daredevil", "name": "Daredevil",     "desc": "Take +20% damage, but gain +1% damage every 3s without being hit (up to +100%, reset on hit)."},
 		{"id": "momentum",  "name": "Momentum",      "desc": "100% of your move-speed bonus is also added to global fire rate."},
 	],
+	"force_field": [
+		{"id": "void_shield", "name": "Void Shield",         "desc": "Your hull deals contact damage each tick equal to 10% of your current shield."},
+		{"id": "impervious",  "name": "Impervious",          "desc": "While your shield is up, take 20% less damage."},
+		{"id": "energy_guns", "name": "Energy to the Guns!", "desc": "Disable your shield entirely — but energy weapons gain +50% fire rate."},
+	],
+	"crit": [
+		{"id": "deadly",    "name": "Deadly",             "desc": "+100% crit chance; any crit chance over 100% is converted into crit damage."},
+		{"id": "challenge", "name": "Challenge Accepted", "desc": "-20% crit chance, but each critical grants a Fervor stack: +5% damage for 5s (max 5)."},
+	],
+	"aoe": [
+		{"id": "saturation",     "name": "Saturation",     "desc": "-50% AoE, but damage-over-time ticks twice as fast (+100% intensity)."},
+		{"id": "chain_reaction", "name": "Chain Reaction", "desc": "A slain enemy has a 25% chance to explode for 50 kinetic damage in a small area."},
+		{"id": "overpressure",   "name": "Overpressure",   "desc": "+30% AoE."},
+	],
+	"pickup": [
+		{"id": "wide_net", "name": "Wide Net",           "desc": "+30% pickup range."},
+		{"id": "refuel",   "name": "Next Gen Refueling", "desc": "Collecting anything grants +1 HP regen, +1 shield regen, and +10% damage for 5s."},
+		{"id": "treasure", "name": "Treasure",           "desc": "-70% pickup range, but +30% EXP gain."},
+	],
+	"xp": [
+		{"id": "applied_learning", "name": "Applied Learning", "desc": "Gain +0.2% damage per player level."},
+		{"id": "unlearn",          "name": "Unlearn",          "desc": "Disable this item and drop your level by 15 (you keep every upgrade) — re-level for the rewards."},
+		{"id": "xp_boost",         "name": "Overclocked Mind", "desc": "+25% EXP."},
+	],
+	"retaliation": [
+		{"id": "blood_thirsty", "name": "Blood Thirsty",     "desc": "Heal for 5% of the contact damage you deal."},
+		{"id": "contact_boost", "name": "Overdriven Spikes", "desc": "+30% contact damage."},
+		{"id": "fortify",       "name": "Fortify",           "desc": "+5 flat damage reduction for each contact-damage weapon you own."},
+	],
+	"coin": [
+		{"id": "greedisgood",   "name": "Greedisgood",   "desc": "+50% coin value."},
+		{"id": "whosyourdaddy", "name": "Whosyourdaddy", "desc": "Enemies drop far more coins — but gain +50% HP and +50% damage."},
+	],
 }
 
 var _owned: Dictionary = {}   # id → level (1..MAX_AUX_LEVEL)
@@ -167,6 +260,14 @@ func _ready() -> void:
 		GameManager.player_stats_changed.connect(_recompute_dynamic)
 	if GameManager.has_signal("ship_hp_changed"):
 		GameManager.ship_hp_changed.connect(func(_hp: int) -> void: _recompute_dynamic())
+	if GameManager.has_signal("rebirth_used"):
+		GameManager.rebirth_used.connect(_on_rebirth_used)
+
+## Backup Image is consumed when a revive charge is spent — destroy the item.
+func _on_rebirth_used() -> void:
+	if "revival" in _owned:
+		_owned.erase("revival")
+		_order.erase("revival")
 
 # ── Acquisition / leveling ────────────────────────────────────────────────────────
 ## Acquire a NEW aux item (level 1) and apply its effect once. No-op if already owned or slots are full.
@@ -179,6 +280,10 @@ func acquire_aux(id: String) -> bool:
 	_order.append(id)
 	if not _is_pooled(id):
 		_apply_effect(id)   # simple aux: its per-level stat IS the item. Pooled aux: the perk picker is the reward.
+	elif id == "force_field":
+		_apply_effect(id)   # Force Field grants its base shield on acquire so it works immediately (the pool adds MORE)
+	elif id == "coin":
+		GameManager.upg_coin_drop = 1.0   # Credit Extractor: enemies begin dropping coins the moment it's picked up
 	return true
 
 ## Raise an owned aux item's level by one (capped). Pooled items gain NO milestone reward — the level just
@@ -197,6 +302,8 @@ func aux_level(id: String) -> int:
 	return int(_owned.get(id, 0))
 
 func aux_can_upgrade(id: String) -> bool:
+	if id == "revival":
+		return false   # Backup Image is a one-shot — it never ranks up
 	return id in _owned and int(_owned[id]) < MAX_AUX_LEVEL
 
 # ── Skill-point progression: 1 point = 1 level (acquire at 0→1), max MAX_AUX_LEVEL, then EVOLVE ──
@@ -273,9 +380,14 @@ func aux_pool_grant(id: String, pool_id: String) -> bool:
 		return false
 	var maxr := int(pool[pool_id]["max"])
 	var ranks: Dictionary = _pool.get(id, {})
-	if maxr > 0 and int(ranks.get(pool_id, 0)) >= maxr:
+	var cur := int(ranks.get(pool_id, 0))
+	if maxr > 0 and cur >= maxr:
 		return false
-	ranks[pool_id] = int(ranks.get(pool_id, 0)) + 1
+	# Level-gated perk (Beacon "Rival Beacon"): rank r needs aux level ≥ gate_first + gate_step×r.
+	if pool[pool_id].has("gate_first"):
+		if aux_level(id) < int(pool[pool_id]["gate_first"]) + int(pool[pool_id].get("gate_step", 5)) * cur:
+			return false
+	ranks[pool_id] = cur + 1
 	_pool[id] = ranks
 	_apply_pool_effect(id, pool_id)
 	return true
@@ -305,6 +417,20 @@ func aux_set_capstone(id: String, cap_id: String) -> void:
 		_apply_firerate_capstone(cap_id)
 	elif id == "armor_pen":
 		_apply_armorpen_capstone(cap_id)
+	elif id == "force_field":
+		_apply_forcefield_capstone(cap_id)
+	elif id == "crit":
+		_apply_crit_capstone(cap_id)
+	elif id == "aoe":
+		_apply_aoe_capstone(cap_id)
+	elif id == "pickup":
+		_apply_pickup_capstone(cap_id)
+	elif id == "xp":
+		_apply_xp_capstone(cap_id)
+	elif id == "retaliation":
+		_apply_retaliation_capstone(cap_id)
+	elif id == "coin":
+		_apply_coin_capstone(cap_id)
 	_recompute_dynamic()   # Juggernaut/Calm/Will-to-Live/Bastion start applying immediately on the pick
 
 ## True when a pooled aux just earned its evolve pick: at max level, has capstones, none chosen yet.
@@ -328,6 +454,172 @@ func _apply_pool_effect(id: String, pool_id: String) -> void:
 		_apply_firerate_pool_effect(pool_id)
 	elif id == "armor_pen":
 		_apply_armorpen_pool_effect(pool_id)
+	elif id == "force_field":
+		_apply_forcefield_pool_effect(pool_id)
+	elif id == "crit":
+		_apply_crit_pool_effect(pool_id)
+	elif id == "aoe":
+		_apply_aoe_pool_effect(pool_id)
+	elif id == "pickup":
+		_apply_pickup_pool_effect(pool_id)
+	elif id == "xp":
+		_apply_xp_pool_effect(pool_id)
+	elif id == "spawn":
+		_apply_spawn_pool_effect(pool_id)
+	elif id == "retaliation":
+		_apply_retaliation_pool_effect(pool_id)
+	elif id == "coin":
+		_apply_coin_pool_effect(pool_id)
+
+## One rank of a Credit Extractor perk → coin value / drop / on-coin buffs.
+func _apply_coin_pool_effect(pool_id: String) -> void:
+	match pool_id:
+		"co_mult":   GameManager.add_coin_mult(0.05)
+		"co_magic":
+			GameManager.upg_coin_drop = maxf(1.0, GameManager.upg_coin_drop) * 1.05   # multiplicative magic find
+			GameManager.add_mech("enemy_hp_mult", 0.05)
+		"co_skew":   GameManager.add_mech("coin_skew", 0.1)
+		"co_heal":   GameManager.upg_coin_heal += 0.1
+		"co_shield": GameManager.upg_coin_shield += 0.1
+		"co_haste":  GameManager.upg_coin_haste += 0.05
+
+func _apply_coin_capstone(cap_id: String) -> void:
+	match cap_id:
+		"greedisgood": GameManager.add_coin_mult(0.50)
+		"whosyourdaddy":
+			GameManager.upg_coin_drop = maxf(1.0, GameManager.upg_coin_drop) * 3.0
+			GameManager.add_mech("enemy_hp_mult", 0.50)
+			GameManager.add_mech("enemy_dmg_mult", 0.50)
+
+## One rank of a Barbed Wire perk → armor / contact / reflect / proximity.
+func _apply_retaliation_pool_effect(pool_id: String) -> void:
+	match pool_id:
+		"bw_armor":      GameManager.add_base_defense(2)
+		"bw_contact":    GameManager.add_contact_damage(5.0)
+		"bw_bleed":      GameManager.add_mech("contact_bleed", 2)
+		"bw_dr":         GameManager.add_pre_dr(0.02)
+		"bw_reflect":    GameManager.add_mech("reflect_taken", 1.0)
+		"bw_proximity":  GameManager.add_mech("proximity_dmg", 0.10)
+
+func _apply_retaliation_capstone(cap_id: String) -> void:
+	match cap_id:
+		"blood_thirsty": GameManager.upg_blood_thirsty = true
+		"contact_boost": GameManager.add_mech("contact_dmg_mult", 0.30)
+		"fortify":
+			var n := 1   # +1 for the ship's own contact
+			var aw = get_tree().get_first_node_in_group("arena_weapons")
+			if aw != null and aw.has_method("contact_source_count"):
+				n += int(aw.call("contact_source_count"))
+			GameManager.add_base_defense(5 * n)   # snapshot at pick time
+
+## One rank of a Beacon perk → risk/reward enemy buffs (unlimited ranks; no evolution).
+func _apply_spawn_pool_effect(pool_id: String) -> void:
+	match pool_id:
+		"sp_rate":  GameManager.add_spawn_rate(0.15)
+		"sp_hp":    GameManager.add_mech("enemy_hp_mult", 0.10)
+		"sp_dmg":   GameManager.add_mech("enemy_dmg_mult", 0.10)
+		"sp_speed": GameManager.add_mech("enemy_speed_mult", 0.05)
+		"sp_boss":  GameManager.add_mech("extra_bosses", 1)
+
+## One rank of a Data Harvester perk → GameManager XP stats / level-up procs.
+func _apply_xp_pool_effect(pool_id: String) -> void:
+	match pool_id:
+		"xp_gain":   GameManager.add_xp_gain(0.02)
+		"xp_req":    GameManager.upg_xp_req_reduction += 0.02
+		"xp_double": GameManager.add_mech("double_xp_chance", 0.02)
+		"xp_heal":   GameManager.add_mech("levelup_heal", 0.20)
+		"xp_blast":  GameManager.add_mech("levelup_dmg", 50.0)
+
+func _apply_xp_capstone(cap_id: String) -> void:
+	match cap_id:
+		"applied_learning": GameManager.upg_applied_learning = true
+		"unlearn":
+			GameManager.upg_harvester_off = true
+			GameManager.player_level = maxi(1, GameManager.player_level - 15)
+			if GameManager.has_signal("level_changed"):
+				GameManager.level_changed.emit(GameManager.player_level)
+		"xp_boost": GameManager.add_xp_gain(0.25)
+
+## One rank of a Magnet perk → GameManager pickup stats / on-pickup buffs.
+func _apply_pickup_pool_effect(pool_id: String) -> void:
+	match pool_id:
+		"pk_range":  GameManager.add_pickup_radius(0.10)
+		"pk_pulse":
+			GameManager.upg_magnet_pulse_rank += 1
+			GameManager._magnet_pulse_cd = float(10 - GameManager.upg_magnet_pulse_rank) * 60.0   # wait the full cd first
+		"pk_heal":   GameManager.upg_pickup_heal += 0.1
+		"pk_dmg":    GameManager.upg_pickup_dmg += 0.01
+		"pk_rev":    GameManager.add_mech("reverse_polarity", 0.05)
+		"pk_shield": GameManager.upg_pickup_shield += 0.1
+
+func _apply_pickup_capstone(cap_id: String) -> void:
+	match cap_id:
+		"wide_net":  GameManager.add_pickup_radius(0.30)
+		"refuel":    GameManager.upg_refuel = true
+		"treasure":
+			GameManager.add_pickup_radius(-0.70)
+			GameManager.add_xp_gain(0.30)
+
+## One rank of an Explosivo perk → GameManager AoE / DoT-tick / bombardment mechs.
+func _apply_aoe_pool_effect(pool_id: String) -> void:
+	match pool_id:
+		"ao_wider":   GameManager.add_mech("aoe_pct", 0.05)
+		"ao_cadence":
+			GameManager.add_mech("aoe_pct", -0.03)
+			GameManager.add_mech("tick_rate", 0.05)
+		"ao_frag":
+			GameManager.add_mech("aoe_pct", 0.025)
+			GameManager.add_fire_rate(0.03)
+		"ao_bombard": GameManager.add_mech("bombardment_dmg", 0.05)
+
+func _apply_aoe_capstone(cap_id: String) -> void:
+	match cap_id:
+		"saturation":
+			GameManager.add_mech("aoe_pct", -0.5)
+			GameManager.add_mech("tick_rate", 1.0)
+		"chain_reaction": GameManager.add_mech("chain_reaction", 1.0)
+		"overpressure":   GameManager.add_mech("aoe_pct", 0.30)
+
+## One rank of an Aim Assistor perk → GameManager crit stats / crit-status mechs.
+func _apply_crit_pool_effect(pool_id: String) -> void:
+	match pool_id:
+		"cc_chance": GameManager.add_crit_chance(0.05)
+		"cc_dmg":    GameManager.add_crit_damage(0.10)
+		"cc_bleed":  GameManager.add_mech("crit_bleed", 2)
+		"cc_burn":   GameManager.add_mech("crit_burn", 1)
+		"cc_freeze": GameManager.add_mech("crit_freeze", 1)
+		"cc_shock":  GameManager.add_mech("crit_shock", 0.3)
+
+func _apply_crit_capstone(cap_id: String) -> void:
+	match cap_id:
+		"deadly":
+			GameManager.add_crit_chance(1.0)
+			GameManager.add_mech("crit_overflow", 1.0)   # flag: crit% over 100 → crit damage (in _roll_damage)
+		"challenge":
+			GameManager.add_crit_chance(-0.2)
+			GameManager.upg_fervor = true
+
+## One rank of a Force Field perk → GameManager shield stats.
+func _apply_forcefield_pool_effect(pool_id: String) -> void:
+	match pool_id:
+		"ff_max":     GameManager.upg_force_shield_max += 15.0
+		"ff_regen":   GameManager.upg_force_shield_regen += 0.5
+		"ff_delay":   GameManager.upg_force_shield_delay_red += 0.5
+		"ff_mastery": GameManager.upg_shield_mastery += 0.05
+		"ff_quick":   # trade capacity for a much snappier shield (2× the normal regen + boot steps)
+			GameManager.upg_force_shield_max -= 15.0
+			GameManager.upg_force_shield_regen += 1.0
+			GameManager.upg_force_shield_delay_red += 1.0
+		"ff_panic":   GameManager.upg_panic_rank += 1
+
+func _apply_forcefield_capstone(cap_id: String) -> void:
+	match cap_id:
+		"void_shield": GameManager.upg_void_shield = true
+		"impervious":  GameManager.upg_impervious = true
+		"energy_guns":
+			GameManager.upg_shield_disabled = true
+			if GameManager.has_method("add_mech"):
+				GameManager.add_mech("rate_energy", 0.5)   # +50% energy fire rate
 
 # ── Reinforcement Plate (hp) ──
 func _apply_hp_pool_effect(pool_id: String) -> void:

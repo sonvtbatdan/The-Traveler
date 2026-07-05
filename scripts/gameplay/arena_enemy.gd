@@ -355,7 +355,8 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	# "lvl": true → HP & XP in the def are PER-PLAYER-LEVEL bases (the table's "15*"); multiply by the
 	# player's level snapshotted at spawn. Other stats (speed/size/contact/armor) are flat.
 	var lvl_mult: int = GameManager.player_level if bool(d.get("lvl", false)) else 1
-	hp_max           = float(d.get("hp", 30.0)) * float(lvl_mult)
+	var beacon_hp := (1.0 + GameManager.mech_bonus("enemy_hp_mult")) if GameManager.has_method("mech_bonus") else 1.0   # Beacon
+	hp_max           = float(d.get("hp", 30.0)) * float(lvl_mult) * beacon_hp
 	hp               = hp_max
 	armor            = float(d.get("armor", 0.0))
 	speed            = float(d.get("speed", 95.0))
@@ -1011,6 +1012,10 @@ func damage_out_mult() -> float:
 	var m := 0.5 if _weaken_t > 0.0 else 1.0
 	if _sed_t > 0.0:
 		m *= (1.0 - _sed_dmg)
+	if GameManager.has_method("mech_bonus") and GameManager.mech_bonus("zone_of_peace") > 0.0:
+		m *= 0.8   # Zone of Peace (Ionizing Field evolve)
+	if GameManager.has_method("mech_bonus"):
+		m *= 1.0 + GameManager.mech_bonus("enemy_dmg_mult")   # Beacon: stronger enemies
 	return m
 
 ## Orb of Annihilation: this enemy takes +20% damage from all sources for `duration` s (refreshed while in the orb).
@@ -1120,6 +1125,16 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore
 	# Anemia (Snake evolve): the target takes +1% damage from ALL sources per 10 bleed stacks on it.
 	if _bleed_stacks >= 10 and GameManager.has_method("mech_bonus") and GameManager.mech_bonus("anemia_vuln") > 0.0:
 		amount *= 1.0 + 0.01 * float(_bleed_stacks / 10)
+	# Proximity Mastery (Ionizing Field, GLOBAL): closer-to-the-ship targets take more damage. Distance bands:
+	# >400px none, 300-400 → 25%, 150-300 → 75%, <150 → 100% of the per-rank bonus (max at 50px).
+	var prox: float = GameManager.mech_bonus("proximity_dmg") if GameManager.has_method("mech_bonus") else 0.0
+	if prox > 0.0 and is_instance_valid(_target):
+		var pd := global_position.distance_to((_target as Node2D).global_position)
+		var f := 0.0
+		if pd <= 150.0: f = 1.0
+		elif pd <= 300.0: f = 0.75
+		elif pd <= 400.0: f = 0.25
+		amount *= 1.0 + prox * f
 	# Armor damage reduction — RNG's GameManager curve (fallback to the inline formula if unavailable).
 	var dr := 0.0
 	if GameManager.has_method("armor_damage_reduction"):
@@ -1144,6 +1159,20 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore
 			apply_bleed(1)
 		if was_crit and GameManager.mech_bonus("critbreak") > 0.0:
 			_reduce_armor(GameManager.mech_bonus("critbreak") * amount, 5.0)
+		# Aim Assistor crit-status perks: a crit applies bleed/burn/freeze/stun per its ranks.
+		if was_crit:
+			var cb := int(GameManager.mech_bonus("crit_bleed"))
+			if cb > 0:
+				apply_bleed(cb)
+			var bu := int(GameManager.mech_bonus("crit_burn"))
+			if bu > 0:
+				apply_burn(bu)
+			var fz := int(GameManager.mech_bonus("crit_freeze"))
+			if fz > 0:
+				apply_freeze(fz)
+			var sk := GameManager.mech_bonus("crit_shock")
+			if sk > 0.0:
+				apply_stun(sk)
 	# Hit reaction: flash (red if this blow kills, else white) + squash pulse + (optional) knockback + stagger.
 	_flash_color = KILL_FLASH_COLOR if hp <= 0.0 else HIT_FLASH_COLOR
 	_stagger_t = maxf(_stagger_t, stagger)
@@ -1163,6 +1192,11 @@ func _die() -> void:
 	if _dead:
 		return
 	_dead = true
+	# Explosivo "Chain Reaction" evolve: 25% chance a slain enemy detonates for 50 kinetic AoE damage.
+	if GameManager.has_method("mech_bonus") and GameManager.mech_bonus("chain_reaction") > 0.0 and randf() < 0.25:
+		var aw := get_tree().get_first_node_in_group("arena_weapons")
+		if aw != null and aw.has_method("chain_reaction_explode"):
+			aw.call("chain_reaction_explode", global_position)
 	# Carrier destroyed → set its docked escorts free so they don't freeze where they were pinned.
 	if behavior == "mothership":
 		for e: Dictionary in _ms_dock:
@@ -1180,10 +1214,21 @@ func _die() -> void:
 		_squid_detach()   # stop slowing the ship the instant this squid dies
 	# Drop a collectible XP orb (the player magnetizes + collects it) instead of granting XP instantly.
 	if xp > 0:
+		# Data Harvester "double orb": a chance (× Stroke of Luck) to drop double XP.
+		if GameManager.has_method("mech_bonus") and randf() < (GameManager.mech_bonus("double_xp_chance") + GameManager.mech_bonus("proc_luck")):
+			xp *= 2
 		if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("spawn_xp_orb"):
 			_mgr.spawn_xp_orb(global_position, xp)
 		elif GameManager.has_method("add_xp"):
 			GameManager.add_xp(xp)   # fallback if no manager is wired
+	# Credit Extractor: chance to drop coin(s), scaled by this enemy's Max HP (≈1 per 900 HP × drop weight);
+	# each coin's value is rolled from [1..50], skewed low + scaled by HP. 0 unless Credit Extractor is owned.
+	if GameManager.has_method("mech_bonus") and GameManager.upg_coin_drop > 0.0 and _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("spawn_loot"):
+		var expected := hp_max / 900.0 * GameManager.upg_coin_drop
+		var coins := int(expected) + (1 if randf() < (expected - float(int(expected))) else 0)
+		var skew: float = GameManager.mech_bonus("coin_skew")
+		for _c in mini(coins, 20):
+			_mgr.spawn_loot(global_position, "coin", GameManager.roll_coin_value(hp_max, skew))
 	# Explosion VFX + random boom SFX
 	_spawn_explosion(maxf(_draw_size.x, _radius * 2.0))
 	_play_boom()
@@ -1536,7 +1581,15 @@ func _physics_process(delta: float) -> void:
 	if _base_speed < 0.0:
 		_base_speed = speed                      # capture the configured base once
 	var wiper_slow := 0.99 * (_wiper_t / 0.2) if _wiper_t > 0.0 else 0.0   # Windshield Wiper: 99%→0 over 0.2s
-	speed = _base_speed * (1.0 - _move_slow) * (1.0 - (_sed_slow if _sed_t > 0.0 else 0.0)) * (1.0 - wiper_slow)
+	var zop := 0.8 if (GameManager.has_method("mech_bonus") and GameManager.mech_bonus("zone_of_peace") > 0.0) else 1.0   # Zone of Peace
+	# Magnet "Reverse Polarity": slow enemies inside the player's pickup range.
+	var rpz := 1.0
+	if GameManager.has_method("mech_bonus"):
+		var rp := GameManager.mech_bonus("reverse_polarity")
+		if rp > 0.0 and is_instance_valid(_target) and global_position.distance_to((_target as Node2D).global_position) <= GameManager.get_pickup_radius():
+			rpz = maxf(0.0, 1.0 - rp)
+	var beacon_spd := (1.0 + GameManager.mech_bonus("enemy_speed_mult")) if GameManager.has_method("mech_bonus") else 1.0   # Beacon
+	speed = _base_speed * (1.0 - _move_slow) * (1.0 - (_sed_slow if _sed_t > 0.0 else 0.0)) * (1.0 - wiper_slow) * zop * rpz * beacon_spd
 	if not _init_done:
 		_init_behavior()
 		_init_done = true
@@ -2278,7 +2331,11 @@ func _check_contact() -> void:
 		# The player's contact (ramming) damage to the enemy — 0 by default, only > 0 with the contact-damage
 		# upgrade. The enemy does NOT die from touching the player; it just takes this (and keeps attacking).
 		if ship_cd > 0.0 and _ship_contact_cd <= 0.0:
-			take_damage(ship_cd, 0.0)
+			var aw := get_tree().get_first_node_in_group("arena_weapons")
+			if aw != null and aw.has_method("apply_ship_contact"):
+				aw.call("apply_ship_contact", self)   # kinetic + contact-bleed + Blood Thirsty
+			else:
+				take_damage(ship_cd, 0.0)
 			_ship_contact_cd = 0.5
 		# Only bombs detonate + die on contact; every other enemy survives the touch.
 		if contact_explodes and (behavior == "bomb" or behavior == "thrown_bomb"):

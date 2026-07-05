@@ -172,6 +172,8 @@ func take_wanderer_y_offset() -> float:
 # ── Enemy bullets ───────────────────────────────────────────────────────────────
 func spawn_bullet(pos: Vector2, vel: Vector2, dmg: int, owner: Node = null) -> void:
 	var oid := owner.get_instance_id() if owner != null else 0
+	if GameManager.has_method("mech_bonus") and GameManager.mech_bonus("zone_of_peace") > 0.0:
+		vel *= 0.8   # Zone of Peace (Ionizing Field evolve): -20% enemy projectile speed
 	_bullets.append({"pos": pos, "vel": vel, "dmg": dmg, "life": 0.0, "start": pos, "owner": oid})
 
 ## Destroy every live enemy projectile (Sonic's Deafening Silence evolution).
@@ -280,10 +282,10 @@ func spawn_xp_orb(pos: Vector2, value: float) -> void:
 		mgr.spawn(pos, value)
 
 ## Drop a loot item (coin / diamond / heart / magnetic / shield) at a world position.
-func spawn_loot(pos: Vector2, type: String) -> void:
+func spawn_loot(pos: Vector2, type: String, value: int = 50) -> void:
 	var l := LootScript.new()
 	get_parent().add_child(l)
-	l.setup(pos, type)
+	l.setup(pos, type, value)
 
 ## Drop a bomb enemy at a world position (falls toward the player, explodes on contact/death).
 func spawn_bomb(pos: Vector2) -> void:
@@ -318,15 +320,19 @@ func _play_hit() -> void:
 		_hit_player.stop()
 		_hit_player.play()
 	_hit_flash_t = HIT_FLASH_DUR
-	# Barbed Wire aux item: return flat damage to nearby enemies whenever the player is hit.
+	# Barbed Wire: flat retaliation + the reflect perk (100%/rank of the damage taken) as a kinetic AoE blast.
 	var retal: float = GameManager.upg_retaliation if "upg_retaliation" in GameManager else 0.0
-	if retal > 0.0:
+	var reflect: float = GameManager._last_hp_dmg * GameManager.mech_bonus("reflect_taken") if GameManager.has_method("mech_bonus") else 0.0
+	var total := retal + reflect
+	if total > 0.0:
 		var center := ship_center()
+		var aoe: float = GameManager.mech_bonus("aoe_pct") if GameManager.has_method("mech_bonus") else 0.0
+		var radius := maxf(RETALIATION_RADIUS, 200.0 * (1.0 + aoe))
 		for en in get_tree().get_nodes_in_group("arena_enemy"):
 			if not is_instance_valid(en):
 				continue
-			if (en as Node2D).global_position.distance_to(center) <= RETALIATION_RADIUS and en.has_method("take_damage"):
-				en.take_damage(retal)
+			if (en as Node2D).global_position.distance_to(center) <= radius and en.has_method("take_damage"):
+				en.take_damage(total)
 
 # ── Draw bullets + explosion rings (world space) ───────────────────────────────
 func _draw() -> void:

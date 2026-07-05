@@ -13,6 +13,7 @@ signal ship_ammo_changed(ammo: float)
 signal ship_shield_changed(shield: float)
 signal ship_destroyed
 signal mitigation_burst   # Exoskeleton Reactive evo: fired each time 500 mitigated damage accumulates
+signal rebirth_used       # a revive charge was just spent (Backup Image is consumed on this)
 signal money_changed(amount: int)   # green-$ player currency
 signal kills_changed(kills: int)    # enemies killed this run (arena HUD counter)
 
@@ -77,7 +78,7 @@ var _xp_frac_acc: float = 0.0   # sub-1 XP carried between add_xp calls so fract
 ## XP required to advance FROM `level` to the next: round(BASE_XP * GROWTH^(level-1)).
 ## Accelerating, so each level is a bigger step than the last.
 func xp_to_next(level: int) -> int:
-	return int(round(BASE_XP * pow(GROWTH, float(level - 1))))
+	return maxi(1, int(round(BASE_XP * pow(GROWTH, float(level - 1)) * (1.0 - upg_xp_req_reduction))))   # Data Harvester -req%
 
 ## XP a destroyed asteroid is worth, scaled by its visible width (px). Small rocks ~1, big ~5.
 func xp_for_asteroid(width: float) -> float:
@@ -86,6 +87,8 @@ func xp_for_asteroid(width: float) -> float:
 ## THE single entry point for gaining XP. Handles multiple level-ups from one big gain (e.g. a
 ## boss), caps at MAX_LEVEL, emits signals for UI/effects, and saves.
 func add_xp(amount: float) -> void:
+	if amount > 0.0:
+		_pickup_buff_t = 5.0   # Magnet: collecting anything refreshes the 5s on-pickup buffs
 	if amount <= 0.0 or player_level >= MAX_LEVEL:
 		return
 	# Data Harvester aux item scales XP gain. XP is face-value now (the old global 1/20 was removed and baked into
@@ -234,6 +237,14 @@ var _shield_dmg_timer: float = 999.0    # time since last damage; regen once >= 
 const FORCE_SHIELD_DELAY := 10.0        # s of no damage before the Force Field starts regenerating
 var upg_force_shield_max:   float = 0.0 # extra shield capacity from the Force Field aux (folds into the shield)
 var upg_force_shield_regen: float = 0.0 # Force Field regen (shield/sec) once the delay has elapsed
+# ── Force Field aux POOL + evolves ──
+var upg_shield_mastery:     float = 0.0  # Shield Mastery: +% total shield capacity
+var upg_force_shield_delay_red: float = 0.0 # seconds shaved off the Force Field regen delay
+var upg_shield_disabled:    bool  = false # Energy to the Guns! evo: no shield at all
+var upg_impervious:         bool  = false # Impervious evo: -20% damage while shield is up
+var upg_void_shield:        bool  = false # Void Shield evo: ship contact damage = 10% of current shield
+var upg_panic_rank:         int   = 0     # Panic Button: 0.5s i-frames/rank when shield breaks (60s CD)
+var _panic_cd:              float = 0.0   # Panic Button cooldown timer
 # Nanobots (regen aux) — regen modifiers. Mastery boosts HP+shield regen; WtL ×3 HP regen at low HP; the
 # "attack!" evolution forces HP regen to 0; over-regen routes wasted HP regen into the shield when HP is full.
 var upg_regen_mastery:    float = 0.0   # Regeneration Mastery (× applied to HP + shield regen)
@@ -267,6 +278,10 @@ func add_money(amount: int) -> void:
 	money += amount
 	money_changed.emit(money)
 	save_game()
+
+## Credit Extractor: called by arena_loot when a coin is collected → refreshes the 5s on-coin buffs.
+func on_coin_pickup() -> void:
+	_coin_buff_t = 5.0
 
 func can_afford(amount: int) -> bool:
 	return money >= amount
@@ -303,6 +318,9 @@ func ship_take_damage(dmg: int) -> void:
 	var d := incoming * (1.0 - player_total_dr())
 	# Flat arena armor (× Harden Mastery) subtracts AFTER the % DR — a separate flat layer.
 	d = maxf(0.0, d - effective_base_defense())
+	# Impervious evo: -20% damage while the shield is still up.
+	if upg_impervious and ship_shield > 0.0:
+		d *= 0.8
 	# Reactive evo: every 500 damage stopped by DR + flat armor fires a shockwave (the arena listens + spawns it).
 	if upg_mitigation_shockwave:
 		_mitigation_acc += incoming - d
@@ -315,9 +333,14 @@ func ship_take_damage(dmg: int) -> void:
 		ship_shield -= absorbed
 		d -= absorbed
 		ship_shield_changed.emit(ship_shield)
+		# Panic Button: the hit that DROPS the shield to 0 grants 0.5s i-frames/rank (60s cooldown).
+		if ship_shield <= 0.0 and upg_panic_rank > 0 and _panic_cd <= 0.0:
+			_iframe_timer = maxf(_iframe_timer, 0.5 * float(upg_panic_rank))
+			_panic_cd = 60.0
 	_shield_dmg_timer = 0.0   # any damage (even fully absorbed) restarts the regen delay
 	if d <= 0.0:
 		return
+	_last_hp_dmg = d    # Barbed Wire reflect reads this in the player_hit handler
 	player_hit.emit()   # only fires when actual HP damage goes through
 	if upg_daredevil:   # Daredevil ramp resets the moment HP damage lands
 		_daredevil_t = 0.0
@@ -377,7 +400,8 @@ func sum_affix(id: String) -> float:
 func effective_move_speed() -> float:
 	# Maneuverability adds a flat %/pt fly-speed bonus on top of the gear affixes.
 	var maneuver := 1.0 + MAN_FLYSPEED_PER_PT * float(attr("maneuverability"))
-	return (SHIP_MOVE_SPD + sum_affix("faster_run_flat")) * (1.0 + sum_affix("faster_run_percentage") / 100.0) * maneuver
+	var coin := (1.0 + upg_coin_haste) if _coin_buff_t > 0.0 else 1.0   # Credit Extractor on-coin speed boost
+	return (SHIP_MOVE_SPD + sum_affix("faster_run_flat")) * (1.0 + sum_affix("faster_run_percentage") / 100.0) * maneuver * coin
 func effective_dash_cd() -> float:
 	return DASH_CD * clampf(1.0 - sum_affix("dash_cooldown_reduction") / 100.0, 0.1, 1.0)
 func effective_dash_speed() -> float:
@@ -395,7 +419,9 @@ func energy_regen_rate() -> float:
 ## or 0 when "Nanobots, attack!" has disabled it. Gear affixes / hull-innate / Biotech no longer contribute.
 func hp_regen_rate() -> float:
 	var base := 0.0 if upg_regen_disabled else upg_hp_regen
-	return (base + _heat_syphon_regen + _chem_heal_regen) * (1.0 + upg_regen_mastery) * upg_regen_wtl_mult
+	var pickup := (upg_pickup_heal + (1.0 if upg_refuel else 0.0)) if _pickup_buff_t > 0.0 else 0.0   # Magnet on-pickup heal
+	var coin := upg_coin_heal if _coin_buff_t > 0.0 else 0.0   # Credit Extractor on-coin heal
+	return (base + _heat_syphon_regen + _chem_heal_regen + pickup + coin) * (1.0 + upg_regen_mastery) * upg_regen_wtl_mult
 ## Dragon's Breath Heat Syphon: regen from currently-burning enemies (set each frame by arena_weapons).
 func set_heat_syphon(v: float) -> void:
 	_heat_syphon_regen = v
@@ -403,7 +429,9 @@ func set_heat_syphon(v: float) -> void:
 func set_chem_heal(v: float) -> void:
 	_chem_heal_regen = v
 func shield_capacity_total() -> float:
-	return BASE_SHIELD_MAX + _equipped_shield_capacity() + sum_affix("shield_flat") + upg_force_shield_max
+	if upg_shield_disabled:
+		return 0.0   # Energy to the Guns! — no shield
+	return maxf(0.0, (BASE_SHIELD_MAX + _equipped_shield_capacity() + sum_affix("shield_flat") + upg_force_shield_max) * (1.0 + upg_shield_mastery))
 func shield_regen_bonus() -> float:
 	return sum_affix("shield_regen")   # flat shield/s added to the refill rate
 func shield_delay() -> float:
@@ -505,12 +533,22 @@ func _tick_shield(delta: float) -> void:
 	var delay := shield_delay()
 	var rate := SHIELD_REGEN_RATE + shield_regen_bonus()   # flat 1 shield/sec (+ any affix bonus)
 	if upg_force_shield_max > 0.0:
-		delay = FORCE_SHIELD_DELAY
+		delay = maxf(0.5, FORCE_SHIELD_DELAY - upg_force_shield_delay_red)   # Force Field delay − pool reductions
 		rate = upg_force_shield_regen
 	rate *= (1.0 + upg_regen_mastery)   # Nanobots: Regeneration Mastery boosts shield regen too
 	rate += upg_shield_regen_bonus      # Fusion Reactor evolve (flat shield/sec, always on)
 	if _shield_dmg_timer >= delay and ship_shield < _shield_max:
 		ship_shield = minf(_shield_max, ship_shield + rate * delta)
+		ship_shield_changed.emit(ship_shield)
+	# Magnet on-pickup shield regen — ignores the post-hit delay (a burst top-up while the buff is active).
+	if _pickup_buff_t > 0.0 and ship_shield < _shield_max:
+		var pu := upg_pickup_shield + (1.0 if upg_refuel else 0.0)
+		if pu > 0.0:
+			ship_shield = minf(_shield_max, ship_shield + pu * delta)
+			ship_shield_changed.emit(ship_shield)
+	# Credit Extractor on-coin shield regen — same idea.
+	if _coin_buff_t > 0.0 and upg_coin_shield > 0.0 and ship_shield < _shield_max:
+		ship_shield = minf(_shield_max, ship_shield + upg_coin_shield * delta)
 		ship_shield_changed.emit(ship_shield)
 
 # ── Hit-stop (crit micro-freeze) ──────────────────────────────────────────────
@@ -537,6 +575,25 @@ func _process(delta: float) -> void:
 		_hitstop_until_ms = 0
 		Engine.time_scale = 1.0
 	_iframe_timer = maxf(0.0, _iframe_timer - delta)
+	if _panic_cd > 0.0:
+		_panic_cd = maxf(0.0, _panic_cd - delta)   # Panic Button cooldown
+	if _fervor_t > 0.0:
+		_fervor_t = maxf(0.0, _fervor_t - delta)   # Fervor stacks decay together after 5s
+		if _fervor_t <= 0.0:
+			_fervor_stacks = 0
+	if _pickup_buff_t > 0.0:
+		_pickup_buff_t = maxf(0.0, _pickup_buff_t - delta)   # Magnet on-pickup buffs (5s)
+	if _coin_buff_t > 0.0:
+		_coin_buff_t = maxf(0.0, _coin_buff_t - delta)       # Credit Extractor on-coin buffs (5s)
+	# Magnet "pick up everything" pulse: every (10 − rank) min, vacuum all XP orbs to the player.
+	if upg_magnet_pulse_rank > 0:
+		_magnet_pulse_cd = maxf(0.0, _magnet_pulse_cd - delta)
+		if _magnet_pulse_cd <= 0.0:
+			_magnet_pulse_cd = float(10 - upg_magnet_pulse_rank) * 60.0
+			var mgr := get_tree().get_first_node_in_group("arena_xp_orb_mgr")
+			var pl := get_tree().get_first_node_in_group("player")
+			if mgr != null and pl != null and mgr.has_method("magnetize_all_within"):
+				mgr.call("magnetize_all_within", (pl as Node2D).global_position, 100000.0)
 	var energy_cap := max_energy()
 	if ship_energy < energy_cap:
 		ship_energy = minf(energy_cap, ship_energy + energy_regen_rate() * delta)
@@ -648,12 +705,30 @@ var upg_move_speed_mult: float = 1.0      # move-speed ×
 var upg_damage_mult:    float = 1.0       # weapon-damage ×
 var upg_momentum_mult:  float = 1.0       # knockback (+ future weapon scaling) ×
 var upg_pickup_mult:    float = 1.0       # pickup-radius ×
+# ── Magnet aux POOL + evolves ──
+var upg_pickup_heal:    float = 0.0       # HP/s regen granted for 5s after a pickup (0.1/rank)
+var upg_pickup_shield:  float = 0.0       # shield/s regen granted for 5s after a pickup (0.1/rank)
+var upg_pickup_dmg:     float = 0.0       # +damage granted for 5s after a pickup (0.01/rank)
+var upg_refuel:         bool  = false     # Next Gen Refueling evo: pickup grants +1 HP/+1 shield regen/+10% dmg
+var _pickup_buff_t:     float = 0.0       # >0 → the on-pickup buffs are active (refreshed each pickup)
+var upg_magnet_pulse_rank: int = 0        # "pick up everything" pulse: cd = (10 − rank) min
+var _magnet_pulse_cd:   float = 0.0       # pulse cooldown timer
+# ── Data Harvester aux POOL + evolves ──
+var upg_xp_req_reduction: float = 0.0     # -% XP needed per level (in xp_to_next)
+var upg_applied_learning: bool  = false   # Applied Learning evo: +0.2% damage per player level
+var upg_harvester_off:    bool  = false   # Unlearn evo: Data Harvester's level-up procs disabled
 var upg_crit_chance:    float = 0.0       # crit probability 0..1 (0 = no crits → non-destructive at base)
 var upg_crit_damage:    float = 1.5       # crit damage multiplier (a crit deals damage × this)
+# Aim Assistor "Challenge Accepted" evo: each crit grants a Fervor stack (+5% dmg, 5s, max 5).
+var upg_fervor:         bool  = false
+var _fervor_stacks:     int   = 0
+var _fervor_t:          float = 0.0
 # Auxiliary-item run stats (arena_aux.gd). Base values are no-ops; aux items stack onto them per level.
 var upg_xp_gain_mult:    float = 1.0      # Data Harvester: XP gained × (applied in add_xp)
 var upg_spawn_rate_mult: float = 1.0      # Beacon: enemy spawn cadence/cap × (read by arena_wave_director)
 var upg_retaliation:     float = 0.0      # Barbed Wire: flat damage dealt back to nearby enemies when hit
+var upg_blood_thirsty:   bool  = false    # Barbed Wire evo: heal 5% of contact damage dealt
+var _last_hp_dmg:        float = 0.0       # HP damage from the most recent hit (Barbed Wire reflect reads it)
 # Per-weapon-group and per-damage-kind run multipliers — populated by the group-scoped level-up cards
 # (Phase 4). Empty = every group/kind at ×1.0 (no-op at base). The shared firing engines read these via
 # group_damage_mult() / kind_damage_mult() so a "boost the energy group" card lifts every energy weapon.
@@ -680,6 +755,21 @@ func add_mech(key: String, amt: float) -> void:
 # Permanent-passive run state (set by MetaManager.apply_run_start each run; reset_run clears to base).
 var rebirth_charges: int = 0              # Phoenix Core: revive-on-death charges available THIS run
 var run_coin_mult:   float = 1.0          # Scavenger: multiplies in-run coin pickups (arena_loot reads this)
+# ── Credit Extractor aux POOL + evolves ──
+var upg_coin_drop:   float = 0.0          # coin-drop weight (0 = no CE; base 1.0 on acquire, ×1.05/magic-find rank)
+var upg_coin_heal:   float = 0.0          # HP/s regen for 5s after a COIN pickup (0.1/rank)
+var upg_coin_shield: float = 0.0          # shield/s regen for 5s after a coin pickup
+var upg_coin_haste:  float = 0.0          # +speed & +fire-rate for 5s after a coin pickup (0.05/rank)
+var _coin_buff_t:    float = 0.0          # >0 → the on-coin buffs are active
+
+## Credit Extractor coin value: pick from [1,2,5,10,25,50], heavily skewed to the low end; `hp` (enemy Max HP)
+## and `skew` (Higher Yield rank fraction) raise how far right the roll can reach. Returns the coin's value.
+func roll_coin_value(hp: float, skew: float) -> int:
+	const VALS := [1, 2, 5, 10, 25, 50]
+	var reach := clampf(log(maxf(hp, 1.0)) / 11.0 + skew, 0.0, 1.0)   # 0 (tiny foe) → 1 (huge foe / maxed skew)
+	var t := randf()
+	var idx := int(floor(pow(t, 6.0 - 5.0 * reach) * float(VALS.size())))   # pow>1 crushes toward index 0
+	return VALS[clampi(idx, 0, VALS.size() - 1)]
 var run_luck:        float = 0.0          # Lucky drone: additive luck this run (drop/fragment/coin chance)
 var run_kills:       int   = 0            # enemies killed this run (arena HUD; reset each run)
 
@@ -697,8 +787,10 @@ func try_rebirth() -> bool:
 	if rebirth_charges <= 0:
 		return false
 	rebirth_charges -= 1
-	ship_hp = maxi(1, int(ship_max_hp / 2))
+	ship_hp = maxi(1, int(ship_max_hp / 2))   # revive at 50% HP
 	ship_hp_changed.emit(ship_hp)
+	_iframe_timer = maxf(_iframe_timer, 3.0)   # Backup Image: 3s of invulnerability on revive
+	rebirth_used.emit()                        # Backup Image is consumed
 	return true
 
 ## Run damage multiplier for a weapon group ("ballistic"/"energy"/…). 1.0 when no card boosts it.
@@ -713,17 +805,26 @@ func kind_damage_mult(kinds: Array) -> float:
 	return 1.0 + bonus
 
 func get_move_speed_mult() -> float: return upg_move_speed_mult
-func get_damage_mult() -> float:     return upg_damage_mult + _daredevil_bonus   # Daredevil ramp
+func get_damage_mult() -> float:     return upg_damage_mult + _daredevil_bonus + 0.05 * float(_fervor_stacks) + ((upg_pickup_dmg + (0.10 if upg_refuel else 0.0)) if _pickup_buff_t > 0.0 else 0.0) + (0.002 * float(player_level) if upg_applied_learning else 0.0)   # + Applied Learning
+## Challenge Accepted: a crit adds a Fervor stack (+5% dmg, refreshed 5s, cap 5). No-op unless the evo is taken.
+func add_fervor() -> void:
+	if not upg_fervor:
+		return
+	_fervor_stacks = mini(5, _fervor_stacks + 1)
+	_fervor_t = 5.0
 func get_fire_rate_mult() -> float:
 	# Momentum evo: 100% of the move-speed BONUS is also added; Absolute Focus adds its ramped bonus.
-	return upg_fire_rate_mult + (maxf(0.0, upg_move_speed_mult - 1.0) if upg_ms_to_firerate else 0.0) + _focus_bonus
+	return upg_fire_rate_mult + (maxf(0.0, upg_move_speed_mult - 1.0) if upg_ms_to_firerate else 0.0) + _focus_bonus + (upg_coin_haste if _coin_buff_t > 0.0 else 0.0)   # + Credit Extractor on-coin haste
 func set_focus(on: bool) -> void: upg_focus = on; player_stats_changed.emit()
 ## Fins Speed Mastery: a fraction of the MS bonus that also speeds up weapons (projectile/minion travel speed).
 func weapon_speed_bonus() -> float:
 	return maxf(0.0, upg_move_speed_mult - 1.0) * upg_speed_mastery
 ## Ship contact damage dealt to enemies that touch the hull — base × Contact Mastery (global). 0 at base.
 func ship_contact_damage() -> float:
-	return contact_dmg_base * (1.0 + mech_bonus("contact_dmg_mult"))
+	var base := contact_dmg_base
+	if upg_void_shield:
+		base += 0.10 * ship_shield   # Void Shield evo: contact damage = 10% of current shield
+	return base * (1.0 + mech_bonus("contact_dmg_mult"))
 func add_contact_damage(n: float) -> void: contact_dmg_base += n; player_stats_changed.emit()
 func get_momentum_mult() -> float:   return upg_momentum_mult
 func get_base_defense() -> int:      return upg_base_defense
@@ -818,6 +919,13 @@ func reset_run() -> void:
 	_daredevil_t = 0.0
 	_daredevil_bonus = 0.0
 	contact_dmg_base = 0.0
+	upg_shield_mastery = 0.0
+	upg_force_shield_delay_red = 0.0
+	upg_shield_disabled = false
+	upg_impervious = false
+	upg_void_shield = false
+	upg_panic_rank = 0
+	_panic_cd = 0.0
 	_heat_syphon_regen = 0.0
 	_chem_heal_regen = 0.0
 	upg_focus = false
@@ -831,11 +939,26 @@ func reset_run() -> void:
 	upg_damage_mult = 1.0
 	upg_momentum_mult = 1.0
 	upg_pickup_mult = 1.0
+	upg_pickup_heal = 0.0
+	upg_pickup_shield = 0.0
+	upg_pickup_dmg = 0.0
+	upg_refuel = false
+	_pickup_buff_t = 0.0
+	upg_magnet_pulse_rank = 0
+	_magnet_pulse_cd = 0.0
+	upg_xp_req_reduction = 0.0
+	upg_applied_learning = false
+	upg_harvester_off = false
 	upg_crit_chance = 0.0
 	upg_crit_damage = 1.5
+	upg_fervor = false
+	_fervor_stacks = 0
+	_fervor_t = 0.0
 	upg_xp_gain_mult = 1.0
 	upg_spawn_rate_mult = 1.0
 	upg_retaliation = 0.0
+	upg_blood_thirsty = false
+	_last_hp_dmg = 0.0
 	upg_force_shield_max = 0.0
 	upg_force_shield_regen = 0.0
 	upg_regen_mastery = 0.0
@@ -847,6 +970,11 @@ func reset_run() -> void:
 	upg_mech = {}
 	rebirth_charges = 0
 	run_coin_mult = 1.0
+	upg_coin_drop = 0.0
+	upg_coin_heal = 0.0
+	upg_coin_shield = 0.0
+	upg_coin_haste = 0.0
+	_coin_buff_t = 0.0
 	run_luck = 0.0
 	run_kills = 0
 	recompute_max_hp()

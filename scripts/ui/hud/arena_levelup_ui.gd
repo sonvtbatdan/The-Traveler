@@ -26,7 +26,7 @@ const WEAPON_WEIGHTS := {
 	"orbital": 50, "void": 40, "red_x": 30, "chemtrail": 40,
 	"mortar": 20, "sonic": 60, "zsword": 50, "ionize": 70,
 	"boomerang": 50, "parasite": 50, "moroboshi": 30, "swarm": 40, "snake": 30,
-	"homing": 60,
+	"homing": 60, "striker": 45,
 }
 const WEAPON_FALLBACK_COLOR := Color(0.55, 0.62, 0.72)   # placeholder swatch if a weapon icon fails to load
 
@@ -35,7 +35,7 @@ var _showing: bool = false
 var _current: Array = []   # the OPTIONS-row array that _pick() acts on (pool / capstone / destroy / single confirm)
 var _choices: Array = []   # left-column offered items (tier-1), persistent for this screen
 var _route_cache: Dictionary = {}   # ckey → generated pool-perk options, rolled once per left-slot per screen
-                                     # (re-clicking the same weapon/aux slot must show the SAME 3 perks, not reroll)
+									 # (re-clicking the same weapon/aux slot must show the SAME 3 perks, not reroll)
 var _selected_idx: int = -1   # which left slot is currently selected
 var _options_back: bool = false   # true while the All-In "destroy a weapon" sub-view shows (offers a back affordance)
 var _capstone_weapon: String = ""    # the weapon being evolved (for the capstone / destroy screens)
@@ -119,7 +119,7 @@ const CHOICE_SPRITE_SCALE := 0.8     # Weapon1-3 choice sprites shown at 80% of 
 const AUX_ICON_DIR := "res://assets/hud/UpgradeIcon/"   # per-id aux icon set (filename = AUX_DEFS id), e.g. hp.png
 const PERK_ICON_DIR := "res://assets/hud/perks/"        # per-perk icon set (filename = AUX_POOL perk id), e.g. regen_shield.png
 const AUX_ICON_SCALE := 0.8          # aux/perk icons CONTAIN-fit within 80% of BOTH width and height of their frame
-                                      # (whichever axis is tighter wins) — neither dimension may exceed 80% of the frame.
+									  # (whichever axis is tighter wins) — neither dimension may exceed 80% of the frame.
 var _aux_icon_cache: Dictionary = {} # aux id → Texture2D (or null if missing), loaded from AUX_ICON_DIR
 var _perk_icon_cache: Dictionary = {} # perk id → Texture2D (or null if missing), loaded from PERK_ICON_DIR
 
@@ -945,7 +945,7 @@ func _begin() -> void:
 
 func _show_cards() -> void:
 	_choices = _generate_choices(CHOICES)
-	_pool_cache.clear()   # freeze this level-up's perk options
+	_route_cache.clear()   # freeze this level-up's perk options
 	if _choices.is_empty():
 		# Nothing left to offer (everything owned + maxed) — silently skip this level-up.
 		_pending -= 1
@@ -1537,6 +1537,12 @@ func _weapon_pool(kind: String) -> Dictionary:
 		return ArenaWeapons.BOOM_POOL
 	if kind == "snake":
 		return ArenaWeapons.SNAKE_POOL
+	if kind == "striker":
+		return ArenaWeapons.STRIKER_POOL
+	if kind == "ionize":
+		return ArenaWeapons.IONIZE_POOL
+	if kind == "player_2":
+		return ArenaWeapons.PLAYER2_POOL
 	return {}
 
 func _gen_pool_choices(kind: String) -> Array:
@@ -1589,6 +1595,11 @@ func _gen_aux_pool_choices(id: String) -> Array:
 		var rank: int = int(ax.call("aux_pool_rank", id, pid)) if ax != null else 0
 		if maxr > 0 and rank >= maxr:
 			continue   # maxed perk → don't offer it
+		# Level-gated perk (Beacon "Rival Beacon"): rank r needs aux level ≥ gate_first + gate_step×r.
+		if (pool[pid] as Dictionary).has("gate_first") and ax != null:
+			var need := int(pool[pid]["gate_first"]) + int(pool[pid].get("gate_step", 5)) * rank
+			if int(ax.call("aux_level", id)) < need:
+				continue
 		avail.append(pid)
 	avail.shuffle()
 	var out: Array = []

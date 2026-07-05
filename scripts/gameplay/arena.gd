@@ -602,6 +602,10 @@ func _on_run_ended() -> void:
 	# Phoenix Core passive: spend a revive charge and keep playing instead of ending the run.
 	if GameManager.has_method("try_rebirth") and GameManager.try_rebirth():
 		return
+	# Project Phoenix (Player 2 evolve): revive to full HP + shut Player 2 down for 10 minutes.
+	var aw := get_tree().get_first_node_in_group("arena_weapons")
+	if aw != null and aw.has_method("player2_phoenix_try") and bool(aw.call("player2_phoenix_try")):
+		return
 	if _run_over_shown:
 		return
 	_run_over_shown = true
