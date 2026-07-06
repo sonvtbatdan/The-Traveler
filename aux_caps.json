@@ -1,0 +1,1216 @@
+{
+ "aux": {
+  "hp": [
+   [
+    "plating",
+    "Reinforced Plating",
+    "+20 Max HP",
+    "10",
+    "Flat hull reinforcement (boosted by Mastery)."
+   ],
+   [
+    "bulwark",
+    "Bulwark",
+    "+10 HP, +1 Armor",
+    "10",
+    "Durability plus flat damage reduction."
+   ],
+   [
+    "ablative",
+    "Ablative Layer",
+    "+10 HP, +2% Speed",
+    "10",
+    "Stay tanky without slowing down."
+   ],
+   [
+    "sacrifice",
+    "Sacrificial Armor",
+    "-5% Max HP, +5% Damage",
+    "5",
+    "Trade hull integrity for firepower."
+   ],
+   [
+    "mastery",
+    "Reinforcement Mastery",
+    "+5% to all HP gains",
+    "5",
+    "Every HP-gain effect gives more (retroactive)."
+   ],
+   [
+    "overall",
+    "Overall Improvement",
+    "+1% HP/Dmg/Speed/Armor",
+    "5",
+    "A little of everything."
+   ]
+  ],
+  "regen": [
+   [
+    "regen_flat",
+    "Repair Swarm",
+    "+0.2 HP regen/s",
+    "10",
+    "More nanobots, faster mending."
+   ],
+   [
+    "regen_hp",
+    "Mending Cloud",
+    "+0.1 HP regen, +10 HP",
+    "10",
+    "Regen plus a bit of bulk."
+   ],
+   [
+    "regen_shield",
+    "Shield Weavers",
+    "+0.1 HP regen, +0.1 shield/s",
+    "10",
+    "Mend hull and shield together."
+   ],
+   [
+    "regen_mastery",
+    "Regeneration Mastery",
+    "+5% to ALL regen",
+    "5",
+    "Every regen bonus (HP + shield) gives more."
+   ],
+   [
+    "automation",
+    "Automation Speed",
+    "+5% automation wpn speed",
+    "5",
+    "Auto-firing weapons attack faster."
+   ],
+   [
+    "overregen",
+    "Overflow Plating",
+    "Over-regen → shield, +10 Max Shield",
+    "5",
+    "Wasted HP regen refills your shield."
+   ]
+  ],
+  "armor": [
+   [
+    "ex_armor",
+    "Plate Layering",
+    "+2 Armor",
+    "10",
+    "Flat armor (subtracted after % DR)."
+   ],
+   [
+    "ex_armor_hp",
+    "Reinforced Joints",
+    "+1 Armor, +1 HP",
+    "10",
+    "Armor plus a little hull."
+   ],
+   [
+    "ex_predr",
+    "Damping Mesh",
+    "+3% DR (pre-armor)",
+    "5",
+    "Flat % reduction BEFORE armor mitigation."
+   ],
+   [
+    "ex_reflect",
+    "Caltrop Plating",
+    "+8% projectile reflect",
+    "5",
+    "Chance to bounce enemy shots back."
+   ],
+   [
+    "ex_mastery",
+    "Harden Mastery",
+    "+5% armor effectiveness",
+    "5",
+    "Every armor bonus counts for more."
+   ],
+   [
+    "ex_crit",
+    "Weak-Point Optics",
+    "+5% kinetic crit chance",
+    "5",
+    "Kinetic weapons crit more often."
+   ]
+  ],
+  "armor_pen": [
+   [
+    "pen_flat",
+    "Carbide Tips",
+    "+2 flat armor penetration",
+    "10",
+    "Ignore this much enemy armor (after % pen)."
+   ],
+   [
+    "pen_pct",
+    "Spiral Fluting",
+    "+5% armor penetration",
+    "10",
+    "Ignore this % of enemy armor (applied first)."
+   ],
+   [
+    "serrated",
+    "Serrated Heads",
+    "Bleed on kinetic/contact hit",
+    "1",
+    "Each hit from a kinetic or contact weapon applies 1 bleed stack (1 dmg/stack/s, 5s, ignores armor)."
+   ],
+   [
+    "bleed_mastery",
+    "Bleed Mastery",
+    "+50 max bleed stacks (global)",
+    "5",
+    "Bleed can pile higher."
+   ],
+   [
+    "critbreak",
+    "Critical Break",
+    "Crits strip 2% of dmg as armor",
+    "10",
+    "Critical hits temporarily remove armor (5s) equal to 2%/rank of the damage dealt."
+   ]
+  ],
+  "fire_rate": [
+   [
+    "rate_all",
+    "Auto-Loader",
+    "+2.5% fire rate (global)",
+    "10",
+    "Every weapon fires faster."
+   ],
+   [
+    "rate_kinetic",
+    "Kinetic Cadence",
+    "+5% kinetic fire rate",
+    "10",
+    "Kinetic weapons fire faster."
+   ],
+   [
+    "rate_energy",
+    "Energy Cadence",
+    "+5% energy fire rate",
+    "10",
+    "Energy weapons fire faster."
+   ],
+   [
+    "rate_bio",
+    "Biotic Cadence",
+    "+5% biological fire rate",
+    "10",
+    "Biological weapons fire faster."
+   ],
+   [
+    "intensity",
+    "Intensity Mastery",
+    "-5% tick cooldown (global)",
+    "5",
+    "DoT/tick weapons (Chemtrail, Ionizing Field, Gauss…) tick faster."
+   ],
+   [
+    "tradeoff",
+    "Heavy Rounds",
+    "-2.5% fire rate, +5% damage",
+    "5",
+    "Slower but harder-hitting."
+   ]
+  ],
+  "damage": [
+   [
+    "kinetic",
+    "Kinetic Mastery",
+    "+10% kinetic damage",
+    "10",
+    "Global: all kinetic weapons. Shares its level with Kinetic Mastery from any item."
+   ],
+   [
+    "energy",
+    "Energy Mastery",
+    "+10% energy damage",
+    "10",
+    "Global: all energy weapons (shared skill)."
+   ],
+   [
+    "bio",
+    "Biochemical Mastery",
+    "+10% bio damage",
+    "10",
+    "Global: all biological weapons (shared skill)."
+   ],
+   [
+    "general",
+    "General Weapon Mastery",
+    "+2.5% ALL damage",
+    "10",
+    "Global: every weapon, any family."
+   ],
+   [
+    "luck",
+    "Stroke of Luck",
+    "+1% to ALL proc chances",
+    "5",
+    "Global luck (shared with Arc's Stroke of Luck)."
+   ]
+  ],
+  "speed": [
+   [
+    "sp_ms",
+    "Streamlining",
+    "+6% Move Speed",
+    "10",
+    "Faster all-around."
+   ],
+   [
+    "sp_dodge",
+    "Evasion Thrusters",
+    "+5% Dodge",
+    "5",
+    "Chance to fully avoid a hit."
+   ],
+   [
+    "sp_shrink",
+    "Compact Frame",
+    "-3% ship size",
+    "5",
+    "Smaller = harder to hit."
+   ],
+   [
+    "sp_iframe",
+    "Reflex Booster",
+    "+20% i-frame duration",
+    "5",
+    "Longer invulnerability after a hit."
+   ],
+   [
+    "sp_ms_fire",
+    "Overdrive",
+    "+2% Move Speed, +2% Fire Rate",
+    "10",
+    "A bit of speed and a bit of rate."
+   ],
+   [
+    "sp_mastery",
+    "Speed Mastery",
+    "+15% of MS → weapon speed",
+    "5",
+    "Part of your move-speed bonus speeds up projectiles + orbiting minions."
+   ]
+  ],
+  "force_field": [
+   [
+    "ff_max",
+    "Capacitor Bank",
+    "+15 Max Shield",
+    "10",
+    "A bigger shield reservoir."
+   ],
+   [
+    "ff_regen",
+    "Recharge Coils",
+    "+0.5 shield/s regen",
+    "10",
+    "The shield refills faster."
+   ],
+   [
+    "ff_delay",
+    "Fast Boot",
+    "-0.5s regen delay",
+    "10",
+    "The shield starts recharging sooner after a hit."
+   ],
+   [
+    "ff_mastery",
+    "Shield Mastery",
+    "+5% total shield",
+    "10",
+    "Multiplies your whole shield capacity."
+   ],
+   [
+    "ff_quick",
+    "Quick Shield",
+    "-15 Max Shield, ++regen & boot",
+    "5",
+    "Trade capacity for a shield that snaps back FAST (2× the normal regen + boot perks)."
+   ],
+   [
+    "ff_panic",
+    "Panic Button",
+    "+0.5s i-frames on break",
+    "10",
+    "When your shield breaks, gain 0.5s/rank of invulnerability. 60s cooldown."
+   ]
+  ],
+  "crit": [
+   [
+    "cc_chance",
+    "Steady Aim",
+    "+5% crit chance",
+    "10",
+    "Land criticals more often."
+   ],
+   [
+    "cc_dmg",
+    "Killing Blow",
+    "+10% crit damage",
+    "10",
+    "Criticals hit harder."
+   ],
+   [
+    "cc_bleed",
+    "Critical Bleed",
+    "+2 bleed on crit",
+    "10",
+    "Every critical applies 2 bleed stacks per rank."
+   ],
+   [
+    "cc_burn",
+    "Ignition Rounds",
+    "burn on crit",
+    "5",
+    "Criticals apply 1 burn stack per rank."
+   ],
+   [
+    "cc_freeze",
+    "Cryo Rounds",
+    "freeze on crit",
+    "5",
+    "Criticals apply 1 freeze stack per rank."
+   ],
+   [
+    "cc_shock",
+    "Shock Rounds",
+    "stun on crit",
+    "5",
+    "Criticals stun for 0.3s per rank."
+   ]
+  ],
+  "aoe": [
+   [
+    "ao_wider",
+    "Wider Blast",
+    "+5% AoE",
+    "10",
+    "Every explosion / field / cloud is bigger."
+   ],
+   [
+    "ao_cadence",
+    "Concussive Cadence",
+    "-3% AoE, +5% DoT tick speed",
+    "5",
+    "Trade blast size for faster damage-over-time ticks (chemtrail/ionize/parasite/dragon/gauss)."
+   ],
+   [
+    "ao_frag",
+    "Frag Rounds",
+    "+2.5% AoE, +3% fire rate",
+    "10",
+    "A little more area and a little more rate."
+   ],
+   [
+    "ao_bombard",
+    "Bombardment Mastery",
+    "+5% AoE-weapon damage",
+    "5",
+    "AoE weapons (Mortar/Gauss/Ionizer/Sonic/Dragon/Chemtrail/Parasite/Rift Maker/Homing) hit harder."
+   ]
+  ],
+  "pickup": [
+   [
+    "pk_range",
+    "Wider Reach",
+    "+10% pickup range",
+    "10",
+    "Vacuum items from further out."
+   ],
+   [
+    "pk_pulse",
+    "Singularity Pulse",
+    "-1 min pulse cooldown",
+    "5",
+    "Periodically yank EVERY item in the arena to you. 10-minute cooldown, -1 min per rank."
+   ],
+   [
+    "pk_heal",
+    "Recovery Field",
+    "+0.1 HP/s for 5s on pickup",
+    "5",
+    "Collecting anything grants brief HP regen."
+   ],
+   [
+    "pk_dmg",
+    "Power Surge",
+    "+1% damage for 5s on pickup",
+    "5",
+    "Collecting anything briefly boosts your damage."
+   ],
+   [
+    "pk_rev",
+    "Reverse Polarity",
+    "-5% enemy speed in range",
+    "5",
+    "Enemies inside your pickup range are slowed."
+   ],
+   [
+    "pk_shield",
+    "Shield Recovery",
+    "+0.1 shield/s for 5s on pickup",
+    "5",
+    "Collecting anything grants brief shield regen."
+   ]
+  ],
+  "xp": [
+   [
+    "xp_gain",
+    "Deep Learning",
+    "+2% EXP",
+    "10",
+    "Gain more experience."
+   ],
+   [
+    "xp_req",
+    "Efficient Study",
+    "-2% EXP to level",
+    "10",
+    "Each level needs less EXP."
+   ],
+   [
+    "xp_double",
+    "Data Mining",
+    "+2% double-orb chance",
+    "10",
+    "Enemies may drop a double-value EXP orb (boosted by Stroke of Luck)."
+   ],
+   [
+    "xp_heal",
+    "Eureka",
+    "heal 20% on level up",
+    "5",
+    "Leveling up heals 20%/rank of Max HP."
+   ],
+   [
+    "xp_blast",
+    "Knowledge Bomb",
+    "50 kinetic AoE on level up",
+    "10",
+    "Leveling up detonates 50/rank kinetic damage in 200px (scales with AoE)."
+   ]
+  ],
+  "spawn": [
+   [
+    "sp_rate",
+    "Broadcast",
+    "+15% enemy spawns",
+    "0",
+    "More enemies — more XP + loot. No cap."
+   ],
+   [
+    "sp_hp",
+    "Reinforced Foes",
+    "+10% enemy HP",
+    "0",
+    "Enemies are tougher. No cap."
+   ],
+   [
+    "sp_dmg",
+    "Armed Foes",
+    "+10% enemy damage",
+    "0",
+    "Enemies hit harder. No cap."
+   ],
+   [
+    "sp_speed",
+    "Frenzy",
+    "+5% enemy speed",
+    "0",
+    "Enemies move faster. No cap."
+   ],
+   [
+    "sp_boss",
+    "Rival Beacon",
+    "+1 boss per boss fight",
+    "0",
+    "Each boss fight spawns 1 extra boss per rank. Unlocks every 5 Beacon levels (6, 11, 16…)."
+   ]
+  ],
+  "retaliation": [
+   [
+    "bw_armor",
+    "Plating",
+    "+2 Armor",
+    "10",
+    "Flat damage reduction."
+   ],
+   [
+    "bw_contact",
+    "Spiked Hull",
+    "+5 contact damage",
+    "10",
+    "Ramming enemies deals more (kinetic) damage."
+   ],
+   [
+    "bw_bleed",
+    "Barbs",
+    "+2 bleed on contact",
+    "5",
+    "Hull contact applies 2 bleed stacks/rank (contact hits twice a second)."
+   ],
+   [
+    "bw_dr",
+    "Riot Shielding",
+    "+2% damage reduction",
+    "5",
+    "Take less damage."
+   ],
+   [
+    "bw_reflect",
+    "Retaliation",
+    "reflect 100% of damage taken",
+    "10",
+    "When hit, reflect 100%/rank of the damage as kinetic AoE in 200px (scales with AoE)."
+   ],
+   [
+    "bw_proximity",
+    "Proximity Mastery",
+    "+10% close-range damage (global)",
+    "5",
+    "ALL weapons deal more damage to targets near you (same as the Ionizer perk)."
+   ]
+  ],
+  "coin": [
+   [
+    "co_mult",
+    "Extraction",
+    "+5% coin value",
+    "5",
+    "Every coin is worth more."
+   ],
+   [
+    "co_magic",
+    "Magic Find",
+    "+5% coin drop (×), +5% enemy HP",
+    "10",
+    "Enemies drop coins more often (multiplicative) — but grow tougher."
+   ],
+   [
+    "co_skew",
+    "Higher Yield",
+    "richer coins",
+    "10",
+    "Coins are likelier to roll a high value (up to 50)."
+   ],
+   [
+    "co_heal",
+    "Blood Money",
+    "+0.1 HP/s for 5s on coin",
+    "5",
+    "Grabbing a coin grants brief HP regen."
+   ],
+   [
+    "co_shield",
+    "Insurance",
+    "+0.1 shield/s for 5s on coin",
+    "5",
+    "Grabbing a coin grants brief shield regen."
+   ],
+   [
+    "co_haste",
+    "Adrenaline",
+    "+5% speed & fire rate for 5s on coin",
+    "5",
+    "Grabbing a coin briefly hastens you."
+   ]
+  ]
+ },
+ "wcaps": {
+  "gatling": [
+   [
+    "spray",
+    "Spray and Pray",
+    "+2 multishot and a much wider spread."
+   ],
+   [
+    "focus",
+    "Focus Fire",
+    "+0.5% damage per consecutive hit on the same target (max +100%)."
+   ],
+   [
+    "healing",
+    "Healing Round",
+    "1 in 200 bullets heals you + the target for 5 HP."
+   ]
+  ],
+  "death_beam": [
+   [
+    "all_in",
+    "All-In",
+    "+200% damage, but you lose a weapon slot."
+   ],
+   [
+    "lights_out",
+    "Lights-Out",
+    "While the beam fires, -30% cooldown for all your OTHER weapons."
+   ],
+   [
+    "ice_and_fire",
+    "Of Ice and Fire",
+    "Applying freeze also burns, and applying burn also freezes."
+   ]
+  ],
+  "arc": [
+   [
+    "dazzle",
+    "Dazzling Display",
+    "Halve every enemy's stun-immunity duration."
+   ],
+   [
+    "pacify",
+    "Pacifying Jolt",
+    "Electrocute also cuts the target's damage output 50% for 3s."
+   ],
+   [
+    "holy",
+    "Holy Bolt",
+    "Bounce → 1; +150% damage per bounce lost (a zap from above)."
+   ]
+  ],
+  "gauss": [
+   [
+    "spirit_bomb",
+    "Spirit Bomb",
+    "CD→5s; per orb it'd fire: +125% damage + 10% area."
+   ],
+   [
+    "pew",
+    "Pew Pew Pew",
+    "-75% orb size, +100% fire rate."
+   ],
+   [
+    "annihilation",
+    "Orb of Annihilation",
+    "Enemies inside an orb take +20% damage from all sources."
+   ]
+  ],
+  "orbital": [
+   [
+    "avatar",
+    "Avatar",
+    "Infuse the orbs with fire/ice/lightning (one element each, spread evenly). 25% on contact to burn/freeze/stun — boosted by luck + element masteries."
+   ],
+   [
+    "center",
+    "Center of the Universe",
+    "Add 100% of your armor and 5% of your Max HP to orbital damage."
+   ],
+   [
+    "impenetrable",
+    "Impenetrable",
+    "Orbiting balls block (destroy) enemy projectiles they touch."
+   ]
+  ],
+  "red_x": [
+   [
+    "the_sun",
+    "The Sun",
+    "Spray fire in all directions (360°), not just a cone."
+   ],
+   [
+    "heat_syphon",
+    "Heat Syphon",
+    "+0.01 HP regen per currently-burning enemy (max 200 → +2/s)."
+   ],
+   [
+    "armor_melter",
+    "Armor Melter",
+    "Enemies with heavy burn stacks take extra damage (melts their armor)."
+   ]
+  ],
+  "chemtrail": [
+   [
+    "the_moon",
+    "The Moon",
+    "Spew toxic fume in all directions (360°) around the ship."
+   ],
+   [
+    "healing_cloud",
+    "Healing Cloud",
+    "Standing in your own chemtrail heals 5 HP/s (scales with Regeneration Mastery)."
+   ],
+   [
+    "saturation",
+    "Systematic Saturation",
+    "Every 2s an enemy stays in the cloud, the chemtrail's damage to it ramps up."
+   ]
+  ],
+  "zsword": [
+   [
+    "dual",
+    "Dual Wielding",
+    "Two blades swing back-to-back; each rolls Divergence, and each trigger swings BOTH."
+   ],
+   [
+    "cauterize",
+    "Cauterize the Wound",
+    "On hit, convert 20% of the target's bleed stacks into burn stacks."
+   ],
+   [
+    "wiper",
+    "Windshield Wiper",
+    "Swings knock non-boss enemies back and slow them 99%, decaying to 0 over 0.2s."
+   ]
+  ],
+  "sonic": [
+   [
+    "overload",
+    "Sensory Overload",
+    "+20% damage for each status effect on the target."
+   ],
+   [
+    "silence",
+    "Deafening Silence",
+    "Waves shove enemies back and destroy all enemy projectiles."
+   ],
+   [
+    "siren",
+    "Siren",
+    "25% chance to charm a non-boss enemy for 5s — it fights for you."
+   ]
+  ],
+  "mortar": [
+   [
+    "fat_boy",
+    "Fat Boy",
+    "-85% fire rate, +500% damage, +150% AoE. One devastating shell."
+   ],
+   [
+    "little_man",
+    "Little Man",
+    "+300% fire rate, -75% AoE, -50% damage. A rapid patter of tiny shells."
+   ],
+   [
+    "fusion_reactor",
+    "Fusion Reactor",
+    "Deactivate the Mortar → passive core: +5 HP regen, +5 shield regen, +10% move speed, +10% fire rate & damage to ALL weapons."
+   ]
+  ],
+  "parasite": [
+   [
+    "full_automation",
+    "Full Automation",
+    "The cloud detaches and roams free (150 px/s), parking over the densest enemy cluster. Gains automation tags."
+   ],
+   [
+    "perfect_reconstruction",
+    "Perfect Reconstruction",
+    "+75% Stolen Fortitude conversion."
+   ],
+   [
+    "strip_naked",
+    "Strip Naked",
+    "+50 to the maximum armor reduction — strip enemies deep into negative armor."
+   ]
+  ],
+  "boomerang": [
+   [
+    "bleed_more",
+    "Bleed!",
+    "Each hit applies an ADDITIONAL 10% of the target's max bleed stacks."
+   ],
+   [
+    "chaos",
+    "Chaos",
+    "+3 boomerangs."
+   ],
+   [
+    "death_roll",
+    "Death Roll",
+    "-70% throw speed (snaps back if it strays too far), +100% damage, and the blade now DRAGS enemies into itself."
+   ]
+  ],
+  "snake": [
+   [
+    "primordial_god",
+    "Primordial God",
+    "The snake grows: +1 body segment per 1000 enemies it kills (up to +50 at 50,000 kills)."
+   ],
+   [
+    "more_snakes",
+    "More Snakes",
+    "+1 snake — a second serpent with identical stats."
+   ],
+   [
+    "anemia",
+    "Anemia",
+    "Enemies take +1% damage from ALL sources per 10 bleed stacks on them."
+   ]
+  ],
+  "striker": [
+   [
+    "avatar2",
+    "Avatar 2",
+    "Infuse the turrets with fire/ice/lightning (one each, spread evenly). Bolts have 25% to burn/freeze/stun."
+   ],
+   [
+    "the_fleet",
+    "The Fleet",
+    "+5 more offensive orbitals."
+   ],
+   [
+    "piercing_vanguard",
+    "Piercing Vanguard",
+    "Bolts pierce — they pass through every enemy in line (100% pierce)."
+   ]
+  ],
+  "ionize": [
+   [
+    "zone_of_war",
+    "Zone of War",
+    "+100 Max HP, and the field gains +1% damage per 10 of your Max HP."
+   ],
+   [
+    "zone_of_absolution",
+    "Zone of Absolution",
+    "-70% radius, +300% damage — a tiny, brutal core."
+   ],
+   [
+    "zone_of_peace",
+    "Zone of Peace",
+    "ALL enemies deal -20% damage & move -20% slower (their projectiles too)."
+   ]
+  ],
+  "player_2": [
+   [
+    "ready_player_3",
+    "Ready Player 3",
+    "Add a second companion ship — same copies, same bonuses."
+   ],
+   [
+    "full_sync",
+    "Full Sync",
+    "The companion ships can now PROC status effects + crit (normally they deal only their % damage)."
+   ],
+   [
+    "project_phoenix",
+    "Project Phoenix",
+    "When you would die, revive to full HP instead — but Player 2 shuts down for 10 minutes."
+   ]
+  ]
+ },
+ "acaps": {
+  "hp": [
+   [
+    "juggernaut",
+    "Juggernaut",
+    "For every 50 Max HP you have, gain 1 Armor."
+   ],
+   [
+    "calm",
+    "Calm Under Pressure",
+    "+5% fire rate and +5% damage for each 5% of missing HP."
+   ],
+   [
+    "reckless",
+    "Reckless Abandon",
+    "Set HP to 50; +1% damage for every 10 HP lost this way."
+   ]
+  ],
+  "regen": [
+   [
+    "attack",
+    "Nanobots, Attack!",
+    "Set HP regen to 0; +1% automation-weapon damage per 0.1 regen lost this way."
+   ],
+   [
+    "will_to_live",
+    "Will to Live",
+    "+200% HP regen while below 30% Max HP."
+   ],
+   [
+    "bodies",
+    "BFFs!",
+    "Weapons that have bodies gain +2 segments."
+   ]
+  ],
+  "armor": [
+   [
+    "fortress",
+    "Fortress",
+    "-30% move speed, but +1% DR per 10 armor (total DR capped at 75%)."
+   ],
+   [
+    "bastion",
+    "Bastion",
+    "Gain Max HP and Max Shield each equal to half your armor."
+   ],
+   [
+    "reactive",
+    "Reactive Plating",
+    "Every 500 damage you mitigate, erupt a 400px shockwave for 100 kinetic damage."
+   ]
+  ],
+  "armor_pen": [
+   [
+    "less_than_nothing",
+    "Less Than Nothing",
+    "Enemy armor can be driven down to -20 (negative armor amplifies your damage)."
+   ],
+   [
+    "fortification",
+    "Fortification Knowledge",
+    "+20% armor penetration, and gain +20% of your own armor."
+   ],
+   [
+    "hurt",
+    "Hurt",
+    "Your bleeds are improved by your armor penetration."
+   ]
+  ],
+  "fire_rate": [
+   [
+    "charged_up",
+    "Charged Up",
+    "Weapons WITH a cooldown gain +20% damage for every 0.5s of that cooldown."
+   ],
+   [
+    "absolute_focus",
+    "Absolute Focus",
+    "+1% fire rate every 5s without taking damage (up to +60%, reset on hit)."
+   ],
+   [
+    "speed_is_force",
+    "Speed is Force",
+    "100% of your fire-rate bonus is also added as damage to contact weapons."
+   ]
+  ],
+  "damage": [
+   [
+    "kinetic_truth",
+    "Kinetic Truth",
+    "Disable all non-kinetic weapons. Kinetic weapons gain +50% damage for each weapon disabled this way."
+   ],
+   [
+    "energy_truth",
+    "Energy Truth",
+    "Disable all non-energy weapons. Energy weapons gain +50% damage for each weapon disabled this way."
+   ],
+   [
+    "bio_truth",
+    "Biochemical Truth",
+    "Disable all non-biological weapons. Biological weapons gain +50% damage for each weapon disabled this way."
+   ]
+  ],
+  "speed": [
+   [
+    "glass",
+    "Glass Cannon",
+    "Lose 25% Max HP and 25% ship size; gain +25% Dodge."
+   ],
+   [
+    "daredevil",
+    "Daredevil",
+    "Take +20% damage, but gain +1% damage every 3s without being hit (up to +100%, reset on hit)."
+   ],
+   [
+    "momentum",
+    "Momentum",
+    "100% of your move-speed bonus is also added to global fire rate."
+   ]
+  ],
+  "force_field": [
+   [
+    "void_shield",
+    "Void Shield",
+    "Your hull deals contact damage each tick equal to 10% of your current shield."
+   ],
+   [
+    "impervious",
+    "Impervious",
+    "While your shield is up, take 20% less damage."
+   ],
+   [
+    "energy_guns",
+    "Energy to the Guns!",
+    "Disable your shield entirely — but energy weapons gain +50% fire rate."
+   ]
+  ],
+  "crit": [
+   [
+    "deadly",
+    "Deadly",
+    "+100% crit chance; any crit chance over 100% is converted into crit damage."
+   ],
+   [
+    "challenge",
+    "Challenge Accepted",
+    "-20% crit chance, but each critical grants a Fervor stack: +5% damage for 5s (max 5)."
+   ]
+  ],
+  "aoe": [
+   [
+    "saturation",
+    "Saturation",
+    "-50% AoE, but damage-over-time ticks twice as fast (+100% intensity)."
+   ],
+   [
+    "chain_reaction",
+    "Chain Reaction",
+    "A slain enemy has a 25% chance to explode for 50 kinetic damage in a small area."
+   ],
+   [
+    "overpressure",
+    "Overpressure",
+    "+30% AoE."
+   ]
+  ],
+  "pickup": [
+   [
+    "wide_net",
+    "Wide Net",
+    "+30% pickup range."
+   ],
+   [
+    "refuel",
+    "Next Gen Refueling",
+    "Collecting anything grants +1 HP regen, +1 shield regen, and +10% damage for 5s."
+   ],
+   [
+    "treasure",
+    "Treasure",
+    "-70% pickup range, but +30% EXP gain."
+   ]
+  ],
+  "xp": [
+   [
+    "applied_learning",
+    "Applied Learning",
+    "Gain +0.2% damage per player level."
+   ],
+   [
+    "unlearn",
+    "Unlearn",
+    "Disable this item and drop your level by 15 (you keep every upgrade) — re-level for the rewards."
+   ],
+   [
+    "xp_boost",
+    "Overclocked Mind",
+    "+25% EXP."
+   ]
+  ],
+  "retaliation": [
+   [
+    "blood_thirsty",
+    "Blood Thirsty",
+    "Heal for 5% of the contact damage you deal."
+   ],
+   [
+    "contact_boost",
+    "Overdriven Spikes",
+    "+30% contact damage."
+   ],
+   [
+    "fortify",
+    "Fortify",
+    "+5 flat damage reduction for each contact-damage weapon you own."
+   ]
+  ],
+  "coin": [
+   [
+    "greedisgood",
+    "Greedisgood",
+    "+50% coin value."
+   ],
+   [
+    "whosyourdaddy",
+    "Whosyourdaddy",
+    "Enemies drop far more coins — but gain +50% HP and +50% damage."
+   ]
+  ]
+ },
+ "wi": {
+  "gatling": [
+   "Kinetic Auto Cannon",
+   "Minigun"
+  ],
+  "death_beam": [
+   "Death Beam",
+   "Death Beam"
+  ],
+  "arc": [
+   "Arc Lightning Chain",
+   "Lightning"
+  ],
+  "gauss": [
+   "Gauss Pulser",
+   "Gauss"
+  ],
+  "orbital": [
+   "Orbital Impact Defense",
+   "Defender"
+  ],
+  "striker": [
+   "Orbital Impact Offense",
+   "Striker"
+  ],
+  "void": [
+   "Rift Maker",
+   "Rift Maker"
+  ],
+  "red_x": [
+   "Thermitic Discharger",
+   "Red X"
+  ],
+  "chemtrail": [
+   "Biocide Vaporizer",
+   "Stink Breath"
+  ],
+  "mortar": [
+   "Mortar",
+   "Mortar"
+  ],
+  "fat_boy": [
+   "Fat Boy",
+   "Fat Boy"
+  ],
+  "sonic": [
+   "Sonic",
+   "Sonic"
+  ],
+  "zsword": [
+   "Jeager",
+   "Jeager"
+  ],
+  "ionize": [
+   "Ionizing Field",
+   "Ionizing Field"
+  ],
+  "boomerang": [
+   "Aliwa",
+   "Aliwa"
+  ],
+  "parasite": [
+   "Venomancer",
+   "Venomancer"
+  ],
+  "moroboshi": [
+   "Yari",
+   "Yari"
+  ],
+  "yari_jaeger": [
+   "Yari Jeager",
+   "Yari Jeager"
+  ],
+  "swarm": [
+   "Swarm",
+   "Swarm"
+  ],
+  "snake": [
+   "Viper",
+   "VIPER"
+  ],
+  "homing": [
+   "Homing Missile",
+   "Homing"
+  ],
+  "player_2": [
+   "Player 2",
+   "Player 2"
+  ]
+ }
+}
