@@ -7,24 +7,24 @@ extends CanvasLayer
 # kind → inventory def_id (for the icon) + display label.
 # Labels = spawn display names (canonical source: arena_weapons.WEAPON_INFO).
 const WEAPONS := [
-	{"kind": "gatling", "def_id": "gatling_gun",  "label": "Gatling Gun"},
+	{"kind": "gatling_gun", "def_id": "gatling_gun",  "label": "Gatling Gun"},
 	{"kind": "death_beam",  "def_id": "death_beam",       "label": "Laser"},
 	{"kind": "arc",     "def_id": "arc",          "label": "Lightning"},
-	{"kind": "gauss",   "def_id": "gauss_cannon", "label": "Gauss"},
-	{"kind": "orbital", "def_id": "orbitals",     "label": "Defensive Orbitals"},
-	{"kind": "void",    "def_id": "rift_maker",   "label": "Rift Maker"},
-	{"kind": "red_x",   "def_id": "red_x",        "label": "Dragon's Breath"},
+	{"kind": "gauss",   "def_id": "gauss", "label": "Gauss"},
+	{"kind": "defensive_orbitals", "def_id": "defensive_orbitals",     "label": "Defensive Orbitals"},
+	{"kind": "rift_maker",    "def_id": "rift_maker",   "label": "Rift Maker"},
+	{"kind": "dragons_breath",   "def_id": "dragons_breath",        "label": "Dragon's Breath"},
 	{"kind": "chemtrail", "def_id": "chemtrail",  "label": "Chemtrail"},
 	{"kind": "mortar",      "def_id": "mortar",          "label": "Little Man"},
-	{"kind": "sonic",     "def_id": "sonic_wave",    "label": "Ultrasonicator"},
-	{"kind": "zsword",    "def_id": "z_sword",       "label": "Z-Sword"},
-	{"kind": "ionize",    "def_id": "ionizing_field","label": "Ionizer"},
-	{"kind": "boomerang", "def_id": "boomerang",     "label": "Aliwa"},
-	{"kind": "parasite",  "def_id": "parasite_cloud","label": "Venomancer"},
-	{"kind": "moroboshi", "def_id": "moroboshi",     "label": "Yari"},
-	{"kind": "swarm",     "def_id": "swarm_host",    "label": "Offensive Orbitals"},
-	{"kind": "snake",     "def_id": "space_snake",   "label": "VIPER"},
-	{"kind": "homing",    "def_id": "homing_missile","label": "Homing"},
+	{"kind": "ultrasonicator",     "def_id": "ultrasonicator",    "label": "Ultrasonicator"},
+	{"kind": "z_sword",    "def_id": "z_sword",       "label": "Z-Sword"},
+	{"kind": "ionizing_field",    "def_id": "ionizing_field","label": "Ionizer"},
+	{"kind": "aliwa", "def_id": "aliwa",     "label": "Aliwa"},
+	{"kind": "venomancer",  "def_id": "venomancer","label": "Venomancer"},
+	{"kind": "yari", "def_id": "yari",     "label": "Yari"},
+	{"kind": "offensive_orbitals", "def_id": "offensive_orbitals", "label": "Offensive Orbitals"},
+	{"kind": "viper",     "def_id": "viper",   "label": "VIPER"},
+	{"kind": "homing_missile",    "def_id": "homing_missile","label": "Homing"},
 ]
 
 const THUMB := Vector2(56, 56)

@@ -1210,7 +1210,7 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore
 		dr = (0.052 * armor) / (1.0 + 0.052 * armor)
 	var dealt := amount * (1.0 - dr)
 	# Bismuth anti-magnetic: only laser / lightning / vacuum bite, and only for half.
-	if _anti_magnetic and (kind == "death_beam" or kind == "arc" or kind == "void"):
+	if _anti_magnetic and (kind == "death_beam" or kind == "arc" or kind == "rift_maker"):
 		dealt *= 0.5
 	# Status multipliers: stunned enemies take +50%, Orb-of-Annihilation vulnerable +20%.
 	if _stun_t > 0.0:

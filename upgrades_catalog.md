@@ -34,29 +34,29 @@
 
 | key | Tên hiển thị (label) | Tên đầy đủ | Hãng (mfr) | Pool/Capstone |
 |-----|----------------------|------------|------------|---------------|
-| `gatling` | Gatling Gun | Gatling Gun | Vanguard Ballistics | ⚙️ có |
+| `gatling_gun` | Gatling Gun | Gatling Gun | Vanguard Ballistics | ⚙️ có |
 | `lasgun` | Laser | Solid-State Laser | Kwang Ming | ⚙️ có |
 | `arc` | Lightning | Arc Lightning Chain | Kwang Ming | ⚙️ có |
 | `gauss` | Gauss | Gauss Pulser | Horizon Logistics × Vanguard Ballistics | ⚙️ có |
-| `orbital` | Defensive Orbitals | Defensive Orbitals | Nebula Dynamics | ⚙️ có |
-| `red_x` | Dragon's Breath | Dragon's Breath | Volney Elements | ⚙️ có (Dragon pool) |
-| `striker` | Offensive Orbitals | Offensive Orbitals | Nebula Dynamics | ⚙️ có |
-| `void` | Vacuum | Vacuum Decoupler | Horizon Logistics | level đơn giản |
+| `defensive_orbitals` | Defensive Orbitals | Defensive Orbitals | Nebula Dynamics | ⚙️ có |
+| `dragons_breath` | Dragon's Breath | Dragon's Breath | Volney Elements | ⚙️ có (Dragon pool) |
+| `offensive_orbitals` | Offensive Orbitals | Offensive Orbitals | Nebula Dynamics | ⚙️ có |
+| `rift_maker` | Vacuum | Vacuum Decoupler | Horizon Logistics | level đơn giản |
 | `chemtrail` | Chemtrail | Chemtrail | Volney Elements | ⚙️ có |
 | `nuke` | Mortal | Rosastro HE Mortar | Rosastro | level đơn giản |
 | `fat_boy` | Fat Boy | Rosastro Nuclear | Rosastro | level đơn giản |
-| `sonic` | Ultrasonicator | Ultrasonicator | Yongsan | ⚙️ có |
-| `zsword` | Z-Sword | Z-Sword | Eisenkraft Kinematik | ⚙️ có |
-| `ionize` | Black Hole | Tachyon Displacer | Horizon Logistics | level đơn giản |
-| `boomerang` | Aliwa | Aliwa | Nebula Dynamics | level đơn giản |
-| `parasite` | Venomancer | Bio-Corrosive Spore Launcher | Volney Elements × Chakra Bio-Synthetics | level đơn giản |
-| `moroboshi` | Yari | Yari | Miyamoto | level đơn giản |
+| `ultrasonicator` | Ultrasonicator | Ultrasonicator | Yongsan | ⚙️ có |
+| `z_sword` | Z-Sword | Z-Sword | Eisenkraft Kinematik | ⚙️ có |
+| `ionizing_field` | Black Hole | Tachyon Displacer | Horizon Logistics | level đơn giản |
+| `aliwa` | Aliwa | Aliwa | Nebula Dynamics | level đơn giản |
+| `venomancer` | Venomancer | Bio-Corrosive Spore Launcher | Volney Elements × Chakra Bio-Synthetics | level đơn giản |
+| `yari` | Yari | Yari | Miyamoto | level đơn giản |
 | `yari_jaeger` | Yari Jeager | Yari Jeager | Miyamoto × Eisenkraft Kinematik | level đơn giản |
 | `swarm` | Swarm | Swarm | Chakra Bio-Synthetics | level đơn giản |
-| `snake` | VIPER | Viper | — | level đơn giản |
-| `homing` | Homing | Homing Missile | — *(obsolete)* | level đơn giản |
+| `viper` | VIPER | Viper | — | level đơn giản |
+| `homing_missile` | Homing | Homing Missile | — *(obsolete)* | level đơn giản |
 
-> Chest đầu run (`CHEST_POOL`) chỉ roll 4 vũ khí: `gatling`, `lasgun`, `arc`, `gauss`.
+> Chest đầu run (`CHEST_POOL`) chỉ roll 4 vũ khí: `gatling_gun`, `lasgun`, `arc`, `gauss`.
 
 ---
 

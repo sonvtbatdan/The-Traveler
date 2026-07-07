@@ -98,7 +98,7 @@ const LOOT_DENOM: int = 1000
 # final art later, drop a PNG (e.g. into res://assets/inventory/) and set the
 # item's "icon" to its res:// path — no other code change needed.
 const ITEM_DEFS: Dictionary = {
-	"gauss_cannon": {
+	"gauss": {
 		"name": "Gauss Pulser",
 		"icon": "res://assets/inventory/Gauss.png",
 		"size": Vector2i(3, 2),
@@ -138,7 +138,7 @@ const ITEM_DEFS: Dictionary = {
 			"weight": 4,
 		},
 	},
-	"red_x": {
+	"dragons_breath": {
 		"name": "Dragon's Breath",
 		"icon": "res://assets/inventory/VE-TD-P.png",
 		"size": Vector2i(2, 2),
@@ -366,7 +366,7 @@ const ITEM_DEFS: Dictionary = {
 			"weight": 5,
 		},
 	},
-	"swarm_host": {
+	"offensive_orbitals": {
 		"name": "Offensive Orbitals",
 		"icon": "res://assets/inventory/ND-OIF-F.png",
 		"size": Vector2i(2, 2),
@@ -387,7 +387,7 @@ const ITEM_DEFS: Dictionary = {
 			"energy": 9,               # per second (energy OFF until uses_energy set)
 		},
 	},
-	"orbitals": {
+	"defensive_orbitals": {
 		"name": "Defensive Orbitals",
 		"icon": "res://assets/inventory/ND-OID-F.png",
 		"size": Vector2i(2, 2),
@@ -834,7 +834,7 @@ const ITEM_DEFS: Dictionary = {
 		"desc": "Súng cối hạng nặng chuyên phá hủy lớp giáp dày và các công trình kiên cố.",
 		"stats": { "weight": 8 },
 	},
-	"rosastro_nuclear": {
+	"fat_boy": {
 		"name": "Fat Boy",
 		"icon": "res://assets/inventory/FatBoy.png",
 		"size": Vector2i(2, 2),
@@ -858,7 +858,7 @@ const ITEM_DEFS: Dictionary = {
 		"desc": "Vũ khí cận chiến, sử dụng cơ cấu truyền động răng cưa phức tạp, quét và đẩy ra sóng xung kích",
 		"stats": { "weight": 6 },
 	},
-	"sonic_wave": {
+	"ultrasonicator": {
 		"name": "Ultrasonicator",
 		"icon": "res://assets/inventory/YongSan Sonic.png",
 		"size": Vector2i(2, 2),
@@ -870,7 +870,7 @@ const ITEM_DEFS: Dictionary = {
 		"desc": "Phóng ra sóng sonic",
 		"stats": { "weight": 5 },
 	},
-	"boomerang": {
+	"aliwa": {
 		"name": "Aliwa",
 		"icon": "res://assets/inventory/ND-Aliwa.png",
 		"size": Vector2i(2, 2),
@@ -882,7 +882,7 @@ const ITEM_DEFS: Dictionary = {
 		"desc": "Ném boomerang",
 		"stats": { "weight": 5 },
 	},
-	"space_snake": {
+	"viper": {
 		"name": "Viper",
 		"icon": "res://assets/inventory/VIPER.png",
 		"size": Vector2i(2, 2),
@@ -894,7 +894,7 @@ const ITEM_DEFS: Dictionary = {
 		"desc": "V.I.P.E.R (Viral Infiltration & Penetration Exo-Rover): Thiết bị tự hành ngoại vi xâm nhập và thẩm thấu virus.",
 		"stats": { "weight": 5 },
 	},
-	"moroboshi": {
+	"yari": {
 		"name": "Yari",
 		"icon": "res://assets/inventory/Yari.png",
 		"size": Vector2i(2, 2),
@@ -907,7 +907,7 @@ const ITEM_DEFS: Dictionary = {
 		"desc": "Vũ khí cận chiến, sử dụng cơ cấu pin shot bắn cây thương nhọn vào địch",
 		"stats": { "weight": 5 },
 	},
-	"parasite_cloud": {
+	"venomancer": {
 		"name": "Venomancer",
 		"icon": "res://assets/inventory/BC-SL.png",
 		"size": Vector2i(2, 2),
@@ -924,7 +924,7 @@ const ITEM_DEFS: Dictionary = {
 # Items granted automatically the FIRST time a save is created (new game only).
 # Keeping this separate from ITEM_DEFS means future items (e.g. asteroid drops in
 # Phase 4) can be defined without being auto-placed in the backpack.
-const STARTER_ITEMS: Array[String] = ["gauss_cannon", "shield_generator", "gatling_gun", "homing_missile", "shotgun", "death_beam", "arc", "plasma_drill", "rift_maker", "parasite_gun", "swarm_host", "orbitals", "acid_sprayer"]
+const STARTER_ITEMS: Array[String] = ["gauss", "shield_generator", "gatling_gun", "homing_missile", "shotgun", "death_beam", "arc", "plasma_drill", "rift_maker", "parasite_gun", "offensive_orbitals", "defensive_orbitals", "acid_sprayer"]
 
 # ── Runtime state ─────────────────────────────────────────────────────────────
 # _items: uid(int) -> {"def": String, "where": String, "cell": Vector2i}

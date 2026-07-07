@@ -50,7 +50,13 @@ const WEAPON_TEST_MODE := true     # TEST: skip the hub launch page + start-of-r
 								   # the arena, then auto-pause and open the F12 weapon palette. Flip off to restore normal flow.
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
-const SHIP_SPRITE     := "res://assets/screen/Spaceship.png"
+const SHIP_SPRITE     := "res://assets/screen/Spaceship.png"   # legacy 2D art (unused now; 3D model replaces it)
+const SHIP_MODEL         := "res://assets/defense/Ship_model_1.glb"   # 3D ship rendered into a SubViewport
+const VP_SIZE            := 256               # SubViewport render resolution for the ship
+const SHIP_DISPLAY_GAIN  := 3.5               # size fudge so the framed model fills ~PLAYER_SIZE_PX (tune to taste)
+const SHIP_ROLL_MAX_DEG  := 90.0             # bank at full-side (aiming left/right); 0 = never bank (flat top-down)
+const SHIP_INVERT_SIDES  := -1.0             # roll direction — flip to +1.0 if the side views come out upside-down
+const MUZZLE_CFG         := "res://ship_muzzles.cfg"   # muzzle anchor points placed in ship_rotation_test
 const CAM_ZOOM        := Vector2(1.0, 1.0)   # >1 zooms in, <1 zooms out
 const PLAYER_SIZE_PX  := 48.0                 # ship drawn this many px on its longest side (scaled from the texture)
 const PLAYER_RADIUS   := 16.0                 # collision circle radius (for later)
@@ -85,7 +91,11 @@ const BOUNDARY_VIGNETTE_SHADER := "res://assets/shaders/boundary_vignette.gdshad
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 var _player: CharacterBody2D = null
-var _ship_spr: Sprite2D = null
+var _ship_spr: Sprite2D = null            # now displays the 3D ship SubViewport texture (rotates to aim)
+var _ship_vp: SubViewport = null          # renders the 3D model top-down
+var _ship_pivot: Node3D = null            # model parent — rolled each frame to bank the ship
+var _ship_cam: Camera3D = null
+var _muzzle_anchors: Dictionary = {}      # slot:int -> Node3D on the model (rides the bank)
 var _player_shape: CircleShape2D = null   # collision circle (Juggernaut scales its radius)
 var _applied_size_mult: float = 1.0       # last ship-size mult applied (Juggernaut nerf)
 var _tex_normal: Texture2D = null
@@ -251,23 +261,10 @@ func _build_ui() -> void:
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 func _build_player() -> void:
+	add_to_group("arena")   # so arena_weapons can resolve muzzle_world() anchors
 	_player = CharacterBody2D.new()
 	_player.name = "Player"
 	_player.position = PLAYER_START   # offset from the sun at origin (solar system orbits world origin)
-
-	var spr := Sprite2D.new()
-	var tex := load(SHIP_SPRITE) as Texture2D
-	_tex_normal = tex
-	_tex_lean   = load("res://assets/screen/lean.png") as Texture2D
-	spr.texture = tex
-	# Scale the (large) source art down to PLAYER_SIZE_PX on its longest side (× any Juggernaut size nerf).
-	var longest := maxf(float(tex.get_width()), float(tex.get_height())) if tex != null else 1.0
-	var s := PLAYER_SIZE_PX / maxf(1.0, longest) * GameManager.upg_ship_size_mult
-	spr.scale = Vector2(s, s)
-	spr.z_index = SHIP_Z   # keep the ship on top of every weapon/explosion effect — always visible
-	# The ship art points UP (forward = −Y); Sprite2D rotation 0 keeps it upright.
-	_ship_spr = spr
-	_player.add_child(spr)
 
 	var col := CollisionShape2D.new()
 	var shape := CircleShape2D.new()
@@ -281,9 +278,134 @@ func _build_player() -> void:
 	cam.enabled = true
 	_player.add_child(cam)
 
+	# _player must be in the tree before we build the SubViewport so the 3D model's transforms resolve.
 	add_child(_player)
 	_player.add_to_group("player")   # enemies/spawner find the player via this group
 	cam.make_current()
+
+	# 3D ship: render the model top-down into a SubViewport, shown on a Sprite2D that rotates to aim
+	# exactly like the old sprite. The model also banks (rolls) with the aim heading so its flanks show
+	# when aiming sideways — see _update_ship_3d(). Weapons still read _player.rotation (unchanged 2D aim).
+	_build_ship_viewport()
+	var spr := Sprite2D.new()
+	spr.texture = _ship_vp.get_texture()
+	spr.z_index = SHIP_Z   # keep the ship on top of every weapon/explosion effect — always visible
+	var s := PLAYER_SIZE_PX * SHIP_DISPLAY_GAIN / float(VP_SIZE) * GameManager.upg_ship_size_mult
+	spr.scale = Vector2(s, s)
+	_ship_spr = spr
+	_player.add_child(spr)
+	_update_ship_3d()
+
+## Build the SubViewport that renders the 3D ship model top-down (transparent bg, two directional lights).
+func _build_ship_viewport() -> void:
+	_ship_vp = SubViewport.new()
+	_ship_vp.size = Vector2i(VP_SIZE, VP_SIZE)
+	_ship_vp.transparent_bg = true
+	_ship_vp.own_world_3d = true
+	_ship_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	_ship_vp.msaa_3d = Viewport.MSAA_4X
+	_player.add_child(_ship_vp)
+
+	var key := DirectionalLight3D.new()
+	key.rotation = Vector3(deg_to_rad(-55.0), deg_to_rad(-35.0), 0.0)
+	key.light_energy = 1.3
+	_ship_vp.add_child(key)
+	var fill := DirectionalLight3D.new()   # opposite-side fill so the far side isn't pure black when banked
+	fill.rotation = Vector3(deg_to_rad(-15.0), deg_to_rad(140.0), 0.0)
+	fill.light_energy = 0.5
+	_ship_vp.add_child(fill)
+
+	_ship_cam = Camera3D.new()
+	_ship_vp.add_child(_ship_cam)
+
+	_ship_pivot = Node3D.new()
+	_ship_vp.add_child(_ship_pivot)
+
+	var packed := load(SHIP_MODEL) as PackedScene
+	var model: Node3D = (packed.instantiate() as Node3D) if packed != null else null
+	if model != null:
+		_ship_pivot.add_child(model)
+		_frame_ship_cam(model)
+		_load_muzzle_anchors(model)
+	else:
+		push_warning("arena: could not load ship model at " + SHIP_MODEL)
+		_ship_cam.position = Vector3(0.0, 0.0, 5.0)
+		_ship_cam.look_at(Vector3.ZERO, Vector3.UP)
+
+## Frame the camera straight-on to fit the model, and recenter the model so it rolls about its own middle.
+func _frame_ship_cam(model: Node3D) -> void:
+	var aabb := _model_aabb(model)
+	var center := aabb.position + aabb.size * 0.5
+	model.position -= center
+	var radius: float = maxf(aabb.size.length() * 0.5, 0.001)
+	var half_fov := deg_to_rad(_ship_cam.fov * 0.5)
+	var dist := radius / tan(half_fov) + radius
+	_ship_cam.position = Vector3(0.0, 0.0, dist)
+	_ship_cam.look_at(Vector3.ZERO, Vector3.UP)
+	_ship_cam.near = maxf(0.05, dist - radius * 2.0)
+	_ship_cam.far  = dist + radius * 2.0
+
+func _model_aabb(root: Node) -> AABB:
+	var acc := AABB()
+	var has := false
+	var inv := _ship_pivot.global_transform.affine_inverse()
+	for mi: MeshInstance3D in _model_meshes(root):
+		var box: AABB = (inv * mi.global_transform) * mi.get_aabb()
+		if not has:
+			acc = box
+			has = true
+		else:
+			acc = acc.merge(box)
+	return acc if has else AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2))
+
+func _model_meshes(node: Node) -> Array:
+	var out: Array = []
+	if node is MeshInstance3D:
+		out.append(node)
+	for c: Node in node.get_children():
+		out.append_array(_model_meshes(c))
+	return out
+
+## Roll the model about its nose axis by 90°·sin(aim heading): aiming up/down → top view,
+## aiming left/right → full side view. The Sprite2D itself inherits _player.rotation for the heading.
+func _update_ship_3d() -> void:
+	if _ship_pivot == null or _player == null:
+		return
+	var roll := deg_to_rad(SHIP_ROLL_MAX_DEG) * sin(_player.rotation) * SHIP_INVERT_SIDES
+	# base = top toward camera, nose up-screen (matches the ship_rotation_test harness).
+	var base := Basis(Vector3(0, 0, 1), deg_to_rad(-90.0)) * Basis(Vector3(1, 0, 0), deg_to_rad(90.0))
+	var roll_b := Basis(Vector3(0, 1, 0), roll)
+	_ship_pivot.transform = Transform3D(roll_b * base, Vector3.ZERO)
+
+## Load the muzzle anchor points (placed in ship_rotation_test) as Node3D children of the model, so they
+## ride the ship's roll. Weapons resolve their world muzzle via muzzle_world(slot).
+func _load_muzzle_anchors(model: Node3D) -> void:
+	_muzzle_anchors.clear()
+	var cfg := ConfigFile.new()
+	if cfg.load(MUZZLE_CFG) != OK or not cfg.has_section("muzzles"):
+		return
+	for key: String in cfg.get_section_keys("muzzles"):
+		var anchor := Node3D.new()
+		anchor.position = cfg.get_value("muzzles", key)
+		model.add_child(anchor)
+		_muzzle_anchors[int(key)] = anchor
+
+## World-space 2D position of muzzle point `slot`, following the ship's heading AND bank.
+## Projects the 3D anchor through the ship camera, scales to the on-screen ship, rotates by heading.
+## Returns the ship centre if the slot isn't defined (safe fallback).
+func muzzle_world(slot: int) -> Vector2:
+	if _player == null:
+		return Vector2.ZERO
+	var anchor: Node3D = _muzzle_anchors.get(slot, null)
+	if anchor == null or _ship_cam == null or _ship_spr == null:
+		return _player.global_position
+	var pix := _ship_cam.unproject_position(anchor.global_position)
+	var off := (pix - Vector2(VP_SIZE, VP_SIZE) * 0.5) * _ship_spr.scale.x
+	return _player.global_position + off.rotated(_player.rotation)
+
+## True once at least one muzzle anchor is loaded (weapons fall back to legacy offsets otherwise).
+func has_muzzle_anchors() -> bool:
+	return not _muzzle_anchors.is_empty()
 
 ## Spawn one reward chest ~CHEST_DIST from the player's start (random direction, clamped inside the playable
 ## disc so it's reachable), plus the edge-of-screen pointer arrow that guides the player to it.
@@ -418,31 +540,10 @@ func _defend_push(stats: Dictionary) -> void:
 	if mgr != null and mgr.has_method("push_bullets_away"):
 		mgr.push_bullets_away(_player.global_position, float(stats.get("push_radius", 170.0)), float(stats.get("push_force", 560.0)))
 
-func _update_ship_lean(dir: Vector2) -> void:
-	if _ship_spr == null:
-		return
-	# Project world-space movement onto the ship's local right axis so lean is
-	# correct regardless of which way the ship is facing.
-	var local_x := dir.dot(Vector2.RIGHT.rotated(_player.rotation))
-	var new_tex: Texture2D
-	var flip: bool
-	if local_x < -0.1:
-		new_tex = _tex_lean
-		flip = false
-	elif local_x > 0.1:
-		new_tex = _tex_lean
-		flip = true
-	else:
-		new_tex = _tex_normal
-		flip = false
-	if _ship_spr.texture == new_tex and _ship_spr.flip_h == flip:
-		return
-	_ship_spr.texture = new_tex
-	_ship_spr.flip_h = flip
-	if new_tex != null:
-		var longest := maxf(float(new_tex.get_width()), float(new_tex.get_height()))
-		var s := PLAYER_SIZE_PX / maxf(1.0, longest) * GameManager.upg_ship_size_mult
-		_ship_spr.scale = Vector2(s, s)
+func _update_ship_lean(_dir: Vector2) -> void:
+	# Legacy texture-swap lean is superseded by the 3D bank in _update_ship_3d().
+	# (A subtle strafe-tilt could be re-added here later by nudging _ship_pivot's roll.)
+	pass
 
 func _process(delta: float) -> void:
 	if _player == null:
@@ -453,10 +554,10 @@ func _process(delta: float) -> void:
 		_applied_size_mult = sm
 		if _player_shape != null:
 			_player_shape.radius = PLAYER_RADIUS * sm
-		if _ship_spr != null and _ship_spr.texture != null:
-			var longest := maxf(float(_ship_spr.texture.get_width()), float(_ship_spr.texture.get_height()))
-			_ship_spr.scale = Vector2.ONE * (PLAYER_SIZE_PX / maxf(1.0, longest) * sm)
+		if _ship_spr != null:
+			_ship_spr.scale = Vector2.ONE * (PLAYER_SIZE_PX * SHIP_DISPLAY_GAIN / float(VP_SIZE) * sm)
 	_aim(delta)
+	_update_ship_3d()
 	if USE_PLACEHOLDER_FIRE:
 		_fire_acc += delta
 		while _fire_acc >= FIRE_INTERVAL:

@@ -28,7 +28,7 @@ func _ready() -> void:
 	add_child(PaletteScript.new())
 	_spawn_targets(6, 300.0)
 	# Start with a Gatling so something fires on boot; _sync_from_loadout() turns it into the test weapon + spawns P2.
-	_weapons.call_deferred("acquire_weapon", "gatling")
+	_weapons.call_deferred("acquire_weapon", "gatling_gun")
 
 func _build_player() -> void:
 	_player = Node2D.new()

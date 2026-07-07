@@ -29,47 +29,47 @@ const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")   # for
 # best-guess (Jeager→zsword, Little Man→mortar, Viper→snake) — relabel if wrong.
 const WEAPON_TABS := {
 	"drop": [
-		{"kind": "gatling",   "def_id": "gatling_gun",  "label": "Gatling Gun"},
+		{"kind": "gatling_gun",   "def_id": "gatling_gun",  "label": "Gatling Gun"},
 		{"kind": "death_beam",    "def_id": "death_beam",        "label": "Death Beam"},
-		{"kind": "orbital",   "def_id": "orbitals",      "label": "Defensive Orbitals"},
-		{"kind": "striker",   "def_id": "swarm_host",    "label": "Offensive Orbitals", "code": "Striker"},
+		{"kind": "defensive_orbitals",   "def_id": "defensive_orbitals",      "label": "Defensive Orbitals"},
+		{"kind": "offensive_orbitals",   "def_id": "offensive_orbitals",    "label": "Offensive Orbitals", "code": "Striker"},
 		{"kind": "chemtrail", "def_id": "chemtrail",     "label": "Chemtrail"},
-		{"kind": "void",      "def_id": "rift_maker",    "label": "Rift Maker"},
+		{"kind": "rift_maker",      "def_id": "rift_maker",    "label": "Rift Maker"},
 		{"kind": "arc",       "def_id": "arc",           "label": "Arc Lightning Chain"},
-		{"kind": "moroboshi", "def_id": "moroboshi",     "label": "Yari"},
-		{"kind": "zsword",    "def_id": "z_sword",       "label": "Z-Sword"},
+		{"kind": "yari", "def_id": "yari",     "label": "Yari"},
+		{"kind": "z_sword",    "def_id": "z_sword",       "label": "Z-Sword"},
 		{"kind": "mortar",      "def_id": "mortar",          "label": "Little Man"},
-		{"kind": "red_x",     "def_id": "red_x",         "label": "Dragon's Breath"},
-		{"kind": "boomerang", "def_id": "boomerang",     "label": "Aliwa"},
-		{"kind": "gauss",     "def_id": "gauss_cannon",  "label": "Gauss Pulser"},
-		{"kind": "snake",     "def_id": "space_snake",   "label": "Viper"},
+		{"kind": "dragons_breath",     "def_id": "dragons_breath",         "label": "Dragon's Breath"},
+		{"kind": "aliwa", "def_id": "aliwa",     "label": "Aliwa"},
+		{"kind": "gauss",     "def_id": "gauss",  "label": "Gauss Pulser"},
+		{"kind": "viper",     "def_id": "viper",   "label": "Viper"},
 		{"kind": "swarm",     "def_id": "",              "label": "Swarm", "icon": "res://assets/inventory/Swarm.png"},
-		{"kind": "sonic",     "def_id": "sonic_wave",    "label": "Ultrasonicator"},
-		{"kind": "homing",    "def_id": "homing_missile","label": "Homing Missile"},   # temp impl (copied from enemy missile launcher) — not in the Corp doc
+		{"kind": "ultrasonicator",     "def_id": "ultrasonicator",    "label": "Ultrasonicator"},
+		{"kind": "homing_missile",    "def_id": "homing_missile","label": "Homing Missile"},   # temp impl (copied from enemy missile launcher) — not in the Corp doc
 	],
 	"evolve": [
 		{"kind": "",       "def_id": "",               "label": "Kinetic Induction Cannon", "code": "Big Gun",    "from": "Gatling Gun", "icon": "res://assets/inventory/VB-KIC-6.png",      "ph": true},
 		{"kind": "",       "def_id": "",               "label": "Isotope Laser",            "code": "Super Laser", "from": "Death Beam",   "icon": "res://assets/inventory/KM-IL-200.png", "ph": true},
-		{"kind": "ionize", "def_id": "ionizing_field", "label": "Ionizing Field",        "from": "Rift Maker"},
+		{"kind": "ionizing_field", "def_id": "ionizing_field", "label": "Ionizing Field",        "from": "Rift Maker"},
 		{"kind": "",       "def_id": "",               "label": "Mobile Vacuum",            "code": "Black Ship", "from": "Rift Maker",    "icon": "res://assets/inventory/M-ST-17.png",     "ph": true},
 		{"kind": "",       "def_id": "",               "label": "Thunder Strike",           "code": "Zeus",       "from": "Arc Lightning Chain", "icon": "res://assets/inventory/Zeus.png",          "ph": true},
-		{"kind": "fat_boy", "def_id": "rosastro_nuclear", "label": "Fat Boy",        "from": "Little Man"},
+		{"kind": "fat_boy", "def_id": "fat_boy", "label": "Fat Boy",        "from": "Little Man"},
 	],
 	"fusion": [
 		{"kind": "",            "def_id": "",              "label": "KM Quantum Beam Rifle",        "code": "Jedi Laser",  "from": "Gatling Gun × Death Beam", "icon": "res://assets/inventory/KM-QBM-200.png", "ph": true},
 		{"kind": "",            "def_id": "",              "label": "Drone Cannon",                 "code": "Candy Crush", "from": "Gatling Gun × Defensive Orbitals", "icon": "res://assets/inventory/NC-DC-F.png", "ph": true},
 		{"kind": "",            "def_id": "",              "label": "Vampire Host",                 "from": "Ultrasonicator × Offensive Orbitals", "icon": "res://assets/inventory/Vampire Host.png", "ph": true},
-		{"kind": "parasite",    "def_id": "parasite_cloud","label": "Venomancer", "from": "Chemtrail × Swarm"},
-		{"kind": "overcharger", "def_id": "gauss_cannon",  "label": "Overcharger",                  "from": "Arc Lightning Chain × Gauss Pulser", "icon": "res://assets/inventory/Overcharger.png"},
+		{"kind": "venomancer",    "def_id": "venomancer","label": "Venomancer", "from": "Chemtrail × Swarm"},
+		{"kind": "overcharger", "def_id": "gauss",  "label": "Overcharger",                  "from": "Arc Lightning Chain × Gauss Pulser", "icon": "res://assets/inventory/Overcharger.png"},
 		{"kind": "yari_jaeger", "def_id": "yari_jaeger",   "label": "Yari Jeager",                  "from": "Yari × Z-Sword"},
 		{"kind": "carnage",     "def_id": "gatling_gun",   "label": "Thermitic Auto Cannon",        "from": "Dragon's Breath × Gatling Gun"},
 		{"kind": "",            "def_id": "",              "label": "Singularities",                "from": "Rift Maker × Gauss Pulser", "icon": "res://assets/inventory/Singularities.png", "ph": true},
 		{"kind": "predator",    "def_id": "death_beam",        "label": "Predator",                     "from": "Viper × Death Beam"},
 	],
 	"obsolete": [
-		{"kind": "vampire_host",    "def_id": "swarm_host",     "label": "Vampire Host (old)",  "from": "Swarm + Sonic — reworked"},
+		{"kind": "vampire_host",    "def_id": "offensive_orbitals",     "label": "Vampire Host (old)",  "from": "Swarm + Sonic — reworked"},
 		{"kind": "toxic_ballistic", "def_id": "homing_missile", "label": "Toxic Ballistic",     "from": "homing + chemtrail → Venomancer"},
-		{"kind": "singularities",   "def_id": "orbitals",       "label": "Singularities (old)", "from": "orbital + void — reworked"},
+		{"kind": "singularities",   "def_id": "defensive_orbitals",       "label": "Singularities (old)", "from": "orbital + void — reworked"},
 		{"kind": "", "def_id": "plasma_drill",     "label": "Plasma Drill",     "from": "retired item", "ph": true},
 		{"kind": "", "def_id": "parasite_gun",     "label": "Parasite Gun",     "from": "retired item", "ph": true},
 		{"kind": "", "def_id": "shield_generator", "label": "Shield Generator", "from": "retired item", "ph": true},
@@ -82,7 +82,7 @@ const WEAPON_TAB_LABELS := {"drop": "Drop", "evolve": "Evolve", "fusion": "Fusio
 const EXTRA_WEAPON_TABS: Array[String] = ["evolved", "combined"]
 const EXTRA_TAB_LABELS := {"evolved": "Evolved", "combined": "Combined"}
 # In-fiction base name where WEAPON_INFO's label differs from the design name (red_x is the Dragon's Breath weapon).
-const BASE_NAME_OVERRIDE := {"red_x": "Dragon's Breath"}
+const BASE_NAME_OVERRIDE := {"dragons_breath": "Dragon's Breath"}
 const SFX_UICLICK := preload("res://assets/audio/sfx/uiclick.wav")
 
 # Enemy order in the quick-spawn grid — normals first, bosses last.

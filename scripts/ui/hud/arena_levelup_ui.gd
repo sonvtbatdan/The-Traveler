@@ -22,11 +22,11 @@ const OWNED_UPGRADE_CHANCE := 0.65
 
 # Weapon spawn weights for the NEW-weapon roll (rarer/special weapons → lower weight). Upgrade weight reuses these.
 const WEAPON_WEIGHTS := {
-	"gatling": 100, "death_beam": 80, "arc": 80, "gauss": 70,
-	"orbital": 50, "void": 40, "red_x": 30, "chemtrail": 40,
-	"mortar": 20, "sonic": 60, "zsword": 50, "ionize": 70,
-	"boomerang": 50, "parasite": 50, "moroboshi": 30, "swarm": 40, "snake": 30,
-	"homing": 60, "striker": 45,
+	"gatling_gun": 100, "death_beam": 80, "arc": 80, "gauss": 70,
+	"defensive_orbitals": 50, "rift_maker": 40, "dragons_breath": 30, "chemtrail": 40,
+	"mortar": 20, "ultrasonicator": 60, "z_sword": 50, "ionizing_field": 70,
+	"aliwa": 50, "venomancer": 50, "yari": 30, "swarm": 40, "viper": 30,
+	"homing_missile": 60, "offensive_orbitals": 45,
 }
 const WEAPON_FALLBACK_COLOR := Color(0.55, 0.62, 0.72)   # placeholder swatch if a weapon icon fails to load
 
@@ -127,8 +127,8 @@ var _perk_icon_cache: Dictionary = {} # perk id → Texture2D (or null if missin
 # label, NOT WEAPON_INFO.label/name — kept as authored rather than renaming their folders).
 const WEAPON_PERK_ICON_DIR := "res://assets/hud/weapon perks/"
 const WEAPON_PERK_FOLDER := {
-	"gatling": "Minigun", "death_beam": "Death Beam", "arc": "Arc Lightning", "gauss": "Gauss Pulser",
-	"orbital": "Orbital Defender", "red_x": "red X", "chemtrail": "Chemtrail", "zsword": "Z-Sword", "sonic": "sonic",
+	"gatling_gun": "Minigun", "death_beam": "Death Beam", "arc": "Arc Lightning", "gauss": "Gauss Pulser",
+	"defensive_orbitals": "Orbital Defender", "dragons_breath": "red X", "chemtrail": "Chemtrail", "z_sword": "Z-Sword", "ultrasonicator": "sonic",
 }
 # A few files were authored with a shorthand name instead of the exact pool id — tolerate those instead of
 # requiring a rename: GAUSS_POOL "aoe_mastery" → aoe.png; ZSWORD_POOL/SONIC_POOL "cd" → cooldown.png;
@@ -1513,7 +1513,7 @@ func _advance() -> void:
 # ── Skill-point pool (2nd tier) ─────────────────────────────────────────────────────
 ## The upgrade pool for a weapon kind (only Gatling so far). Add more weapons here as their pools land.
 func _weapon_pool(kind: String) -> Dictionary:
-	if kind == "gatling":
+	if kind == "gatling_gun":
 		return ArenaWeapons.GATLING_POOL
 	if kind == "death_beam":
 		return ArenaWeapons.DEATHBEAM_POOL
@@ -1521,27 +1521,27 @@ func _weapon_pool(kind: String) -> Dictionary:
 		return ArenaWeapons.ARC_POOL
 	if kind == "gauss":
 		return ArenaWeapons.GAUSS_POOL
-	if kind == "orbital":
+	if kind == "defensive_orbitals":
 		return ArenaWeapons.ORBITAL_POOL
-	if kind == "red_x":
+	if kind == "dragons_breath":
 		return ArenaWeapons.DRAGON_POOL
 	if kind == "chemtrail":
 		return ArenaWeapons.CHEMTRAIL_POOL
-	if kind == "zsword":
+	if kind == "z_sword":
 		return ArenaWeapons.ZSWORD_POOL
-	if kind == "sonic":
+	if kind == "ultrasonicator":
 		return ArenaWeapons.SONIC_POOL
 	if kind == "mortar":
 		return ArenaWeapons.MORTAR_POOL
-	if kind == "parasite":
+	if kind == "venomancer":
 		return ArenaWeapons.PARA_POOL
-	if kind == "boomerang":
+	if kind == "aliwa":
 		return ArenaWeapons.BOOM_POOL
-	if kind == "snake":
+	if kind == "viper":
 		return ArenaWeapons.SNAKE_POOL
-	if kind == "striker":
+	if kind == "offensive_orbitals":
 		return ArenaWeapons.STRIKER_POOL
-	if kind == "ionize":
+	if kind == "ionizing_field":
 		return ArenaWeapons.IONIZE_POOL
 	if kind == "player_2":
 		return ArenaWeapons.PLAYER2_POOL
