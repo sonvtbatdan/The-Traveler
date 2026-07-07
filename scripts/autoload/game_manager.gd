@@ -64,6 +64,8 @@ var money: int = 0   # green-$ currency; new game starts at 0 (Phase 2 will spen
 const BASE_XP: float = 100.0      # XP for level 1→2; the whole curve scales off this
 const GROWTH:  float = 1.12       # each level costs GROWTH× the previous (early fast, late grind)
 const MAX_LEVEL: int = 50         # level cap; XP stops accruing once reached
+# Early-level XP-requirement discount (levels 1-6 cheaper; 7+ unchanged). Applied in xp_to_next().
+const LEVEL_XP_MULT := {1: 0.30, 2: 0.40, 3: 0.50, 4: 0.70, 5: 0.80, 6: 0.90}
 const XP_PER_ASTEROID: float = 0.05       # flat XP per asteroid destroyed (1/20 of old 1; XP is face-value now)
 const XP_ASTEROID_SIZE_DIV: float = 12.0  # + (width / this) / 20 → bigger rocks worth more
 const XP_PER_BOSS: float = 25.0           # one lump on a boss's FINAL defeat (1/20 of old 500)
@@ -78,7 +80,8 @@ var _xp_frac_acc: float = 0.0   # sub-1 XP carried between add_xp calls so fract
 ## XP required to advance FROM `level` to the next: round(BASE_XP * GROWTH^(level-1)).
 ## Accelerating, so each level is a bigger step than the last.
 func xp_to_next(level: int) -> int:
-	return maxi(1, int(round(BASE_XP * pow(GROWTH, float(level - 1)) * (1.0 - upg_xp_req_reduction))))   # Data Harvester -req%
+	var lvl_mult: float = LEVEL_XP_MULT.get(level, 1.0)   # early-level discount (Level_1 pacing)
+	return maxi(1, int(round(BASE_XP * pow(GROWTH, float(level - 1)) * lvl_mult * (1.0 - upg_xp_req_reduction))))   # Data Harvester -req%
 
 ## XP a destroyed asteroid is worth, scaled by its visible width (px). Small rocks ~1, big ~5.
 func xp_for_asteroid(width: float) -> float:
@@ -189,7 +192,7 @@ func weapon_damage_mult(def: Dictionary) -> float:
 	match InventoryManager.weapon_class(def):
 		"kinetic":    m += MARKS_KINETIC_BONUS_PER_PT * float(attr("marksmanship"))
 		"energy":     m += ENG_ENERGY_DMG_PER_PT * float(attr("engineering"))
-		"biological": m += BIO_BIODMG_PER_PT * float(attr("biotech"))
+		"biochemical": m += BIO_BIODMG_PER_PT * float(attr("biotech"))
 	return m
 
 ## Drone-damage multiplier (Maneuverability). Hook only — no drone weapon fires yet.

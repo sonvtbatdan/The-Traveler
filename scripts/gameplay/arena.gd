@@ -10,6 +10,7 @@ const HudFrameScript     := preload("res://scripts/ui/hud/arena_hud_frame.gd")  
 const ArenaStatsHudScript := preload("res://scripts/ui/hud/arena_stats_hud.gd")
 const ArenaEnemyMgrScript := preload("res://scripts/gameplay/arena_enemy_manager.gd")
 const XpOrbMgrScript      := preload("res://scripts/gameplay/arena_xp_orb_manager.gd")
+const PlumeMgrScript      := preload("res://scripts/gameplay/arena_plume_manager.gd")
 const WaveDirectorScript := preload("res://scripts/gameplay/arena_wave_director.gd")
 const TestTemplateScript := preload("res://scripts/gameplay/test_template.gd")
 const WaveEditorScript   := preload("res://scripts/ui/hud/arena_wave_editor.gd")
@@ -160,6 +161,7 @@ func _ready() -> void:
 	add_child(_weapon_chest)
 	add_child(ArenaEnemyMgrScript.new())  # world-space enemy services (bullets, explosions, ship pos)
 	add_child(XpOrbMgrScript.new())       # single MultiMesh node that renders+updates ALL xp orbs (group "arena_xp_orb_mgr")
+	add_child(PlumeMgrScript.new())       # single MultiMesh node that renders ALL enemy plumes (group "arena_plume_mgr")
 	if USE_TEST_SPAWNER:
 		add_child(TestTemplateScript.new())   # quick test: one enemy every 5s
 	else:

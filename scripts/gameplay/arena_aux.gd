@@ -76,14 +76,14 @@ const AUX_POOL := {
 		"rate_all":     {"name": "Auto-Loader",      "max": 10, "per": "+2.5% fire rate (global)", "desc": "Every weapon fires faster."},
 		"rate_kinetic": {"name": "Kinetic Cadence",  "max": 10, "per": "+5% kinetic fire rate",    "desc": "Kinetic weapons fire faster."},
 		"rate_energy":  {"name": "Energy Cadence",   "max": 10, "per": "+5% energy fire rate",     "desc": "Energy weapons fire faster."},
-		"rate_bio":     {"name": "Biotic Cadence",   "max": 10, "per": "+5% biological fire rate", "desc": "Biological weapons fire faster."},
+		"rate_bio":     {"name": "Biotic Cadence",   "max": 10, "per": "+5% biochemical fire rate", "desc": "Biochemical weapons fire faster."},
 		"intensity":    {"name": "Intensity Mastery", "max": 5, "per": "-5% tick cooldown (global)", "desc": "DoT/tick weapons (Chemtrail, Ionizing Field, Gauss…) tick faster."},
 		"tradeoff":     {"name": "Heavy Rounds",     "max": 5,  "per": "-2.5% fire rate, +5% damage", "desc": "Slower but harder-hitting."},
 	},
 	"damage": {
 		"kinetic": {"name": "Kinetic Mastery",      "max": 10, "per": "+10% kinetic damage", "desc": "Global: all kinetic weapons. Shares its level with Kinetic Mastery from any item."},
 		"energy":  {"name": "Energy Mastery",       "max": 10, "per": "+10% energy damage",  "desc": "Global: all energy weapons (shared skill)."},
-		"bio":     {"name": "Biochemical Mastery",  "max": 10, "per": "+10% bio damage",     "desc": "Global: all biological weapons (shared skill)."},
+		"bio":     {"name": "Biochemical Mastery",  "max": 10, "per": "+10% bio damage",     "desc": "Global: all biochemical weapons (shared skill)."},
 		"general": {"name": "General Weapon Mastery","max": 10, "per": "+2.5% ALL damage",   "desc": "Global: every weapon, any family."},
 		"luck":    {"name": "Stroke of Luck",       "max": 5,  "per": "+1% to ALL proc chances", "desc": "Global luck (shared with Arc's Stroke of Luck)."},
 	},
@@ -187,7 +187,7 @@ const AUX_CAPSTONES := {
 	"damage": [
 		{"id": "kinetic_truth", "name": "Kinetic Truth", "desc": "Disable all non-kinetic weapons. Kinetic weapons gain +50% damage for each weapon disabled this way."},
 		{"id": "energy_truth",  "name": "Energy Truth",  "desc": "Disable all non-energy weapons. Energy weapons gain +50% damage for each weapon disabled this way."},
-		{"id": "bio_truth",     "name": "Biochemical Truth", "desc": "Disable all non-biological weapons. Biological weapons gain +50% damage for each weapon disabled this way."},
+		{"id": "bio_truth",     "name": "Biochemical Truth", "desc": "Disable all non-biochemical weapons. Biochemical weapons gain +50% damage for each weapon disabled this way."},
 	],
 	"speed": [
 		{"id": "glass",     "name": "Glass Cannon",  "desc": "Lose 25% Max HP and 25% ship size; gain +25% Dodge."},
@@ -350,7 +350,7 @@ func _apply_effect(id: String) -> void:
 		"fire_rate":   GameManager.add_fire_rate(0.08)
 		"armor_pen":   GameManager.add_mech("armor_pen", 2)   # ignore 2 enemy armour (enemy armour TBD)
 		"crit":        GameManager.add_crit_chance(0.05)
-		"harmonizer":  pass   # STUB: needs the weapon-type (kinetic/biological/energy) damage system — not built yet
+		"harmonizer":  pass   # STUB: needs the weapon-type (kinetic/biochemical/energy) damage system — not built yet
 		"aoe":         GameManager.add_mech("radius", 25)
 		"pickup":      GameManager.add_pickup_radius(0.15)
 		"xp":          GameManager.add_xp_gain(0.10)
@@ -757,7 +757,7 @@ func _apply_damage_capstone(cap_id: String) -> void:
 	match cap_id:
 		"kinetic_truth": aw.call("apply_truth", "kinetic")
 		"energy_truth":  aw.call("apply_truth", "energy")
-		"bio_truth":     aw.call("apply_truth", "biological")
+		"bio_truth":     aw.call("apply_truth", "biochemical")
 
 # ── Fins (speed) ──
 func _apply_speed_pool_effect(pool_id: String) -> void:

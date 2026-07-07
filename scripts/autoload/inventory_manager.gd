@@ -160,7 +160,7 @@ const ITEM_DEFS: Dictionary = {
 		},
 	},
 	"chemtrail": {
-		"name": "Biocide Vaporizer",
+		"name": "Chemtrail",
 		"icon": "res://assets/inventory/VE-BV-4.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
@@ -200,7 +200,7 @@ const ITEM_DEFS: Dictionary = {
 		},
 	},
 	"gatling_gun": {
-		"name": "Kinetic Auto Cannon",
+		"name": "Gatling Gun",
 		"icon": "res://assets/inventory/VB-KA6.png",
 		"size": Vector2i(3, 1),
 		"tags": ["weapon"],
@@ -367,7 +367,7 @@ const ITEM_DEFS: Dictionary = {
 		},
 	},
 	"swarm_host": {
-		"name": "Orbital Impact Offense",
+		"name": "Offensive Orbitals",
 		"icon": "res://assets/inventory/ND-OIF-F.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
@@ -388,7 +388,7 @@ const ITEM_DEFS: Dictionary = {
 		},
 	},
 	"orbitals": {
-		"name": "Orbital Impact Defense",
+		"name": "Defensive Orbitals",
 		"icon": "res://assets/inventory/ND-OID-F.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
@@ -847,7 +847,7 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "weight": 10 },
 	},
 	"z_sword": {
-		"name": "Jeager",
+		"name": "Z-Sword",
 		"icon": "res://assets/inventory/EK-SW88.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
@@ -859,7 +859,7 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "weight": 6 },
 	},
 	"sonic_wave": {
-		"name": "Sonic",
+		"name": "Ultrasonicator",
 		"icon": "res://assets/inventory/YongSan Sonic.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
@@ -989,7 +989,7 @@ func fits_slot(def_id: String, slot: String) -> bool:
 
 ## A weapon's damage class drives which attribute boosts it (and which attribute gates it).
 ## TODO (user): set "weapon_class" on each weapon in ITEM_DEFS to one of
-## "kinetic" / "energy" / "biological". Left unset for now, so only Marksmanship's universal
+## "kinetic" / "energy" / "biochemical". Left unset for now, so only Marksmanship's universal
 ## damage bonus is active and weapons gate on Marksmanship by default.
 func weapon_class(def: Dictionary) -> String:
 	return String(def.get("weapon_class", ""))
@@ -1010,7 +1010,7 @@ func _gating_attr(def: Dictionary) -> String:
 	if tags.has("weapon"):
 		match weapon_class(def):
 			"energy":     return "engineering"
-			"biological": return "biotech"
+			"biochemical": return "biotech"
 			_:            return "marksmanship"
 	return ""   # command_bridge, shield, etc. — ungated
 

@@ -17,12 +17,12 @@ const FORCE_MAGNET_ACCEL  := 600.0    # acceleration when pulled by the magnetic
 const FORCE_MAGNET_MAX    := 1200.0   # speed cap for forced magnetization
 
 # ── Population control ────────────────────────────────────────────────────────
-const MAX_ORBS      := 4000     # MultiMesh buffer size (visible_instance_count tracks the live subset)
+const MAX_ORBS      := 16000    # MultiMesh buffer size (raised so orbs pile up instead of silently auto-collecting the oldest)
 const MERGE_RADIUS  := 24.0     # an orb spawning within this of an idle orb folds its value into it
 const MERGE_SCAN_MAX := 48      # spawn() only scans the most-recent N orbs for a merge target (O(1)-ish instead of
                                 # O(all orbs)) — a whole cluster dying drops orbs at the same spot consecutively, so
                                 # the merge target is always among the latest few. Avoids the mass-death spawn spike.
-const ORB_LIFETIME  := 30.0     # idle orbs auto-magnetize after this so XP is never lost / never piles up
+const ORB_LIFETIME  := INF      # disabled — idle orbs never auto-magnetize; XP piles up until you walk over it
 
 # ── State machine ─────────────────────────────────────────────────────────────
 const ST_IDLE   := 0

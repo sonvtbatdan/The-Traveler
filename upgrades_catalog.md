@@ -34,19 +34,19 @@
 
 | key | Tên hiển thị (label) | Tên đầy đủ | Hãng (mfr) | Pool/Capstone |
 |-----|----------------------|------------|------------|---------------|
-| `gatling` | Minigun | Kinetic Auto Cannon | Vanguard Ballistics | ⚙️ có |
+| `gatling` | Gatling Gun | Gatling Gun | Vanguard Ballistics | ⚙️ có |
 | `lasgun` | Laser | Solid-State Laser | Kwang Ming | ⚙️ có |
 | `arc` | Lightning | Arc Lightning Chain | Kwang Ming | ⚙️ có |
 | `gauss` | Gauss | Gauss Pulser | Horizon Logistics × Vanguard Ballistics | ⚙️ có |
-| `orbital` | Defender | Orbital Impact Defense | Nebula Dynamics | ⚙️ có |
-| `red_x` | Red X | Thermitic Discharger | Volney Elements | ⚙️ có (Dragon pool) |
-| `striker` | Striker | Orbital Impact Offense | Nebula Dynamics | level đơn giản |
+| `orbital` | Defensive Orbitals | Defensive Orbitals | Nebula Dynamics | ⚙️ có |
+| `red_x` | Dragon's Breath | Dragon's Breath | Volney Elements | ⚙️ có (Dragon pool) |
+| `striker` | Offensive Orbitals | Offensive Orbitals | Nebula Dynamics | ⚙️ có |
 | `void` | Vacuum | Vacuum Decoupler | Horizon Logistics | level đơn giản |
-| `chemtrail` | Stink Breath | Biocide Vaporizer | Volney Elements | level đơn giản |
+| `chemtrail` | Chemtrail | Chemtrail | Volney Elements | ⚙️ có |
 | `nuke` | Mortal | Rosastro HE Mortar | Rosastro | level đơn giản |
 | `fat_boy` | Fat Boy | Rosastro Nuclear | Rosastro | level đơn giản |
-| `sonic` | Sonic | Sonic | Yongsan | level đơn giản |
-| `zsword` | Jeager | Jeager | Eisenkraft Kinematik | level đơn giản |
+| `sonic` | Ultrasonicator | Ultrasonicator | Yongsan | ⚙️ có |
+| `zsword` | Z-Sword | Z-Sword | Eisenkraft Kinematik | ⚙️ có |
 | `ionize` | Black Hole | Tachyon Displacer | Horizon Logistics | level đơn giản |
 | `boomerang` | Aliwa | Aliwa | Nebula Dynamics | level đơn giản |
 | `parasite` | Venomancer | Bio-Corrosive Spore Launcher | Volney Elements × Chakra Bio-Synthetics | level đơn giản |
@@ -64,7 +64,7 @@
 
 Mỗi perk có rank tối đa (`max`). `max: 0` = perk global/đặc biệt, hiện chưa giới hạn rank theo cách thường (một số phần "TBD").
 
-### Gatling (Minigun) — `GATLING_POOL`
+### Gatling Gun — `GATLING_POOL`
 | Perk | Mỗi rank | Max rank | Mô tả |
 |------|----------|----------|-------|
 | Hardened Round | +1 flat damage | 10 | Đạn mạnh hơn. |
@@ -72,8 +72,9 @@ Mỗi perk có rank tối đa (`max`). `max: 0` = perk global/đặc biệt, hi�
 | Quick Round | +8% fire rate | 10 | Bắn nhanh hơn. |
 | Bouncing Round | +8% bounce chance | 5 | Đạn nảy sang địch gần. |
 | Multishot | +10% extra-bullet chance | 10 | Cơ hội bắn thêm đạn. |
-| Kinetic Mastery | +10% kinetic damage | 0 | Buff mọi vũ khí kinetic (cross-weapon TBD). |
 | Advance Ballistic | +5% multishot (mọi vũ khí "shots") | 5 | Global: vũ khí có tag 'shots' được thêm multishot. |
+
+> **Firing:** đạn cánh TRÁI bắn trước, đạn cánh PHẢI bắn sau 0.2s (`GAT_FIRE_STAGGER`). Multishot thêm cũng theo luật chẵn=ngay / lẻ=+0.2s.
 
 ### Lasgun (Laser) — `LASGUN_POOL`
 | Perk | Mỗi rank | Max | Mô tả |
@@ -105,7 +106,7 @@ Mỗi perk có rank tối đa (`max`). `max: 0` = perk global/đặc biệt, hi�
 | EMP Burst | +5% stun chance | 5 | Orb stun địch (Gauss electrocute). |
 | Fission | +10% extra orb | 10 | Cơ hội thêm orb, tỏa góc max (2→180°, 3→120°). |
 
-### Orbital (Defender) — `ORBITAL_POOL`
+### Defensive Orbitals — `ORBITAL_POOL`
 | Perk | Mỗi rank | Max | Mô tả |
 |------|----------|-----|-------|
 | Contact Mastery | +5% contact damage (global) | 5 | Buff MỌI contact damage — orbital, swarm, snake, boomerang, yari, và hull tàu. |
@@ -231,7 +232,7 @@ Khi cả 2 thành phần đều ở level tối đa, card fusion (vàng) luôn x
 |------|----------|-----|-------|
 | Kinetic Mastery | +10% kinetic damage | 10 | Global: mọi vũ khí kinetic (chia sẻ level với Kinetic Mastery từ item khác). |
 | Energy Mastery | +10% energy damage | 10 | Global: mọi vũ khí energy (shared skill). |
-| Biochemical Mastery | +10% bio damage | 10 | Global: mọi vũ khí biological. |
+| Biochemical Mastery | +10% bio damage | 10 | Global: mọi vũ khí biochemical. |
 | General Weapon Mastery | +2.5% ALL damage | 10 | Global: mọi vũ khí, mọi loại. |
 | Stroke of Luck | +1% mọi proc chance | 5 | Global luck (chia sẻ với Arc's Stroke of Luck). |
 

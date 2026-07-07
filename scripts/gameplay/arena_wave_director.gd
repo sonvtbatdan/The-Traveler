@@ -32,8 +32,8 @@ const ENEMY_DEFS := {
 	"dragonfly":{"behavior": "orbit",     "hp": 30.0,  "speed": 130.0, "size": 16.0, "contact": 5,  "explodes": true, "xp": 1.5, "icon": "res://assets/enemiesHD/animaldragonfly.png"},
 	# ── A.I.nimal — insects (levels 1→3) ──
 	"swarm":    {"behavior": "swarm", "group": "insects", "level": 1, "blob": 50, "hp": 10.0, "speed": 200.0, "size": 12.0, "contact": 1, "explodes": true, "xp": 0.2, "icon": "res://assets/enemiesHD/swarm.png"},
-	"fly":      {"behavior": "chase", "group": "insects", "level": 1, "hp": 20.0, "speed": 80.0, "size": 9.0,  "contact": 2, "explodes": true, "xp": 1.0, "icon": "res://assets/enemiesHD/animalflies.png"},
-	"bug":      {"behavior": "chase", "group": "insects", "level": 2, "hp": 200.0, "speed": 80.0, "size": 11.0, "contact": 3, "explodes": true, "xp": 5.0, "icon": "res://assets/enemiesHD/animalbug.png"},   # eye overlay dropped (animalbug_eye has no HD sprite)
+	"fly":      {"behavior": "chase", "group": "insects", "level": 1, "hp": 20.0, "speed": 80.0, "size": 7.2,  "contact": 2, "explodes": true, "xp": 1.0, "plume_flipbook": true, "icon": "res://assets/enemiesHD/animalflies.png"},
+	"bug":      {"behavior": "chase", "plume_flipbook": true, "group": "insects", "level": 2, "hp": 200.0, "speed": 80.0, "size": 15.4, "contact": 3, "explodes": true, "xp": 5.0, "icon": "res://assets/enemiesHD/animalbug.png"},   # eye overlay dropped (animalbug_eye has no HD sprite)
 	"bee":      {"behavior": "chase", "group": "insects", "level": 2, "hp": 1000.0, "speed": 80.0, "size": 12.0, "contact": 3, "explodes": true, "xp": 10.0, "icon": "res://assets/enemiesHD/animalbee.png"},
 	"spider":   {"behavior": "jump_diag", "group": "insects", "level": 3, "hp": 100.0, "speed": 80.0, "size": 16.0, "contact": 8, "explodes": true, "xp": 5.0, "icon": "res://assets/enemiesHD/animalspider.png"},
 	# ── A.I.nimal — others ──
@@ -111,6 +111,10 @@ const ENEMY_DEFS := {
 	"pros7": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.35, "armor": 3.0, "icon": "res://assets/enemiesHD/pros7.png"},
 	"pros8": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.35, "armor": 3.0, "icon": "res://assets/enemiesHD/pros8.png"},
 	"prosmotherblank": {"behavior": "mothership", "lvl": true, "hp": 150.0, "speed": 130.0, "size": 40.0, "contact": 30, "xp": 1.0, "armor": 7.0, "icon": "res://assets/enemiesHD/prosmotherblank.png"},   # carrier: docked pros escort + flee/release/respawn cycle (see arena_enemy.gd `mothership`)
+	# ── Level_1_Minh variants (see levels/arena/Level_1_Minh.json) ──
+	"bug_crawl":  {"behavior": "chase", "plume_flipbook": true,      "hp": 200.0,  "speed": 120.0, "size": 15.4, "contact": 3, "explodes": true, "xp": 5.0,  "icon": "res://assets/enemiesHD/animalbug.png"},
+	"swarm_loop": {"behavior": "swarm_loop", "plume_flipbook": true, "blob": 50,   "hp": 10.0,     "speed": 200.0, "size": 12.0, "contact": 1, "explodes": true, "xp": 0.2, "icon": "res://assets/enemiesHD/swarm.png"},
+	"bee_dive":   {"behavior": "bee_dive", "plume_flipbook": true,   "hp": 1000.0, "speed": 150.0, "size": 12.0, "contact": 3, "explodes": true, "xp": 10.0, "icon": "res://assets/enemiesHD/animalbee.png"},
 	# bosses — big high-HP stubs (real movesets later)
 	"elephant":  {"behavior": "boss_stub", "hp": 5500.0, "speed": 110.0, "size": 70.0, "contact": 40, "xp": 25.0, "shape": "circle",   "tint": Color(0.75, 0.70, 0.65), "icon": "res://assets/bosses/elephant/elephant.sheet.png", "boss_script": "res://scripts/gameplay/arena_elephant.gd"},
 	"chromeleon":{"behavior": "boss_stub", "hp": 4200.0, "speed": 70.0, "size": 60.0, "contact": 35, "xp": 20.0, "shape": "diamond",  "tint": Color(0.45, 0.90, 0.65), "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},
@@ -169,10 +173,11 @@ const DEBUG_NO_ENEMIES := false
 
 # Default run timeline loaded at game start: the saved Wave-editor level (res://levels/arena/*.json).
 # Falls back to DEFAULT_TIMELINE above if the file is missing / unreadable. DEBUG flags still take precedence.
-const DEFAULT_LEVEL_FILE := "res://levels/arena/1strun.json"
+const DEFAULT_LEVEL_FILE := "res://levels/arena/Level_1_Minh.json"
 
 # ══ Runtime ════════════════════════════════════════════════════════════════════
 var timeline: Array = []    # live, editable copy of DEFAULT_TIMELINE (the F7 editor mutates this)
+var _max_alive: int = MAX_ALIVE   # per-level alive cap (level JSON "max_alive"); falls back to the const
 var _player: Node2D = null
 var _mgr: Node = null
 var _elapsed: float = 0.0
@@ -201,18 +206,18 @@ func _load_default_timeline() -> Array:
 	if f != null:
 		var parsed: Variant = JSON.parse_string(f.get_as_text())
 		f.close()
-		if typeof(parsed) == TYPE_DICTIONARY and (parsed as Dictionary).has("timeline"):
-			var tl = (parsed as Dictionary)["timeline"]
-			if tl is Array and not (tl as Array).is_empty():
-				var out: Array = (tl as Array).duplicate(true)
-				out.sort_custom(func(a, b): return float(a["time"]) < float(b["time"]))
-				return out
+		if typeof(parsed) == TYPE_DICTIONARY:
+			var pd := parsed as Dictionary
+			if pd.has("max_alive"):
+				_max_alive = int(pd["max_alive"])
+			if pd.has("timeline"):
+				var tl = pd["timeline"]
+				if tl is Array and not (tl as Array).is_empty():
+					var out: Array = (tl as Array).duplicate(true)
+					out.sort_custom(func(a, b): return float(a["time"]) < float(b["time"]))
+					return out
 	return DEFAULT_TIMELINE.duplicate(true)
 
-# ── Texture pre-warm ───────────────────────────────────────────────────────────
-# Each enemy type's body sprite can be a multi-MB HD PNG; loading it the first time a type appears stalls the
-# frame (the "spike when a new type shows up"). Kick off a BACKGROUND load of every sprite this timeline uses at
-# boot, then collect the results into _prewarmed (a strong ref) so they stay cached → first spawn is a cache hit.
 func _start_prewarm() -> void:
 	var seen := {}
 	var paths: Array[String] = []
@@ -304,30 +309,47 @@ func _fire(entry: Dictionary) -> void:
 	var count := maxi(1, int(round(float(int(entry["count"])) * COUNT_MULT)))
 	var pattern := String(entry.get("pattern", "ring"))
 	var is_boss := bool(entry.get("is_boss", false))
+	var angle_deg := float(entry.get("angle", NAN))   # optional fixed spawn heading (deg); NAN = random
 	if pattern == "stream":
-		var dur := float(entry.get("duration", 4.0))
-		_streams.append({"type": entry["type"], "left": count, "interval": dur / float(count),
-			"acc": 0.0, "is_boss": is_boss})
+		var dur := maxf(0.01, float(entry.get("duration", 4.0)))
+		var ramp := maxf(0.0, float(entry.get("ramp", 1.0)))   # end/start rate ratio; 1.0 = constant
+		var r0 := float(count) / (dur * (1.0 + ramp) * 0.5)     # start rate; ramp integrates to count
+		_streams.append({
+			"type": entry["type"], "left": count, "dur": dur, "elapsed": 0.0,
+			"r0": r0, "ramp": ramp, "credit": 0.0, "is_boss": is_boss,
+			"formation": String(entry.get("formation", "scatter")),
+			"burst": maxi(1, int(entry.get("burst", 8))), "angle": angle_deg,
+		})
 		return
-	for pos: Vector2 in _pattern_positions(pattern, count):
+	for pos: Vector2 in _pattern_positions(pattern, count, angle_deg):
 		_queue_or_spawn(String(entry["type"]), pos, is_boss)
 
 func _tick_streams(delta: float) -> void:
 	var i := _streams.size() - 1
 	while i >= 0:
 		var s: Dictionary = _streams[i]
-		s["acc"] = float(s["acc"]) + delta
-		while float(s["acc"]) >= float(s["interval"]) and int(s["left"]) > 0:
-			s["acc"] = float(s["acc"]) - float(s["interval"])
-			_spawn(String(s["type"]), _one_position(), bool(s["is_boss"]))
-			s["left"] = int(s["left"]) - 1
+		s["elapsed"] = float(s["elapsed"]) + delta
+		var frac: float = clampf(float(s["elapsed"]) / float(s["dur"]), 0.0, 1.0)
+		var rate: float = float(s["r0"]) * (1.0 + (float(s["ramp"]) - 1.0) * frac)   # linear ramp r0 -> r0*ramp
+		s["credit"] = float(s["credit"]) + rate * delta
+		var ang := float(s.get("angle", NAN))
+		if String(s.get("formation", "scatter")) == "ring":
+			var burst: int = int(s["burst"])
+			while float(s["credit"]) >= float(burst) and int(s["left"]) > 0:
+				s["credit"] = float(s["credit"]) - float(burst)
+				var n: int = mini(burst, int(s["left"]))
+				for pos: Vector2 in _pattern_positions("ring", n, ang):
+					_spawn(String(s["type"]), pos, bool(s["is_boss"]))
+				s["left"] = int(s["left"]) - n
+		else:
+			while float(s["credit"]) >= 1.0 and int(s["left"]) > 0:
+				s["credit"] = float(s["credit"]) - 1.0
+				_spawn(String(s["type"]), _one_position(ang), bool(s["is_boss"]))
+				s["left"] = int(s["left"]) - 1
 		if int(s["left"]) <= 0:
 			_streams.remove_at(i)
 		i -= 1
 
-## Queue spawns for frame-spread instantiation (so a wave/ring/blob doesn't build every node in one frame).
-## Bosses spawn immediately (single, timing-sensitive). Blobs expand into one queued unit per member, all
-## sharing the same swarm mode + cluster centre, so the blob still travels together.
 func _queue_or_spawn(type_id: String, pos: Vector2, is_boss: bool, draw_w: float = 0.0) -> void:
 	if is_boss:
 		_spawn(type_id, pos, true, draw_w)
@@ -462,42 +484,42 @@ func _spawn_center() -> Vector2:
 func _radius() -> float:
 	return SPAWN_RADIUS + randf_range(-SPAWN_VARY, SPAWN_VARY)
 
-func _one_position() -> Vector2:
-	var a := randf() * TAU
+func _one_position(angle_deg: float = NAN) -> Vector2:
+	var a: float
+	if is_nan(angle_deg):
+		a = randf() * TAU
+	else:
+		a = deg_to_rad(angle_deg) + randf_range(-0.15, 0.15)   # small jitter around the fixed heading
 	return _spawn_center() + Vector2(cos(a), sin(a)) * _radius()
 
-func _pattern_positions(pattern: String, count: int) -> Array:
+func _pattern_positions(pattern: String, count: int, angle_deg: float = NAN) -> Array:
 	var out: Array = []
 	var c := _spawn_center()
 	match pattern:
-		"ring":   # evenly spaced full circle
-			var off := randf() * TAU
+		"ring":   # evenly spaced full circle (anchored at angle_deg when given)
+			var off: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else randf() * TAU
 			for k in count:
 				var a := off + TAU * float(k) / float(count)
 				out.append(c + Vector2(cos(a), sin(a)) * _radius())
-		"arc":    # partial arc from a random direction
-			var start := randf() * TAU
+		"arc":    # partial arc from a random (or fixed) direction
+			var start: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else randf() * TAU
 			var span := deg_to_rad(120.0)
 			for k in count:
 				var a := start + span * (float(k) / float(maxi(1, count - 1)) - 0.5)
 				out.append(c + Vector2(cos(a), sin(a)) * _radius())
-		"scatter":   # random angles + distances
+		"scatter":   # random angles + distances (jittered around angle_deg when given)
 			for k in count:
-				out.append(_one_position())
+				out.append(_one_position(angle_deg))
 		_:   # fallback = ring
 			for k in count:
 				var a := TAU * float(k) / float(count)
 				out.append(c + Vector2(cos(a), sin(a)) * _radius())
 	return out
 
-# ══ Spawn ══════════════════════════════════════════════════════════════════════
-## Create ONE enemy node at pos. Blob expansion + frame-spread happen upstream (_queue_or_spawn + the drain),
-## so this just builds a single unit. draw_w > 0 → render at that draw width (world px) for Fleet Edit per-slot
-## sizes; mode != "" → blob member's shared swarm_mode (0 / "" = normal). The alive-cap is checked per unit here.
 func _spawn(type_id: String, pos: Vector2, is_boss: bool, draw_w: float = 0.0, mode: String = "") -> void:
 	# Beacon aux item lifts the alive-cap so more enemies crowd the field (base mult 1.0 = no change).
 	var spawn_mult: float = GameManager.upg_spawn_rate_mult if "upg_spawn_rate_mult" in GameManager else 1.0
-	var cap := int(round(float(MAX_ALIVE) * spawn_mult))
+	var cap := int(round(float(_max_alive) * spawn_mult))
 	if not is_boss and get_tree().get_nodes_in_group("arena_enemy").size() >= cap:
 		return
 	var src: Dictionary = ENEMY_DEFS.get(type_id, {})

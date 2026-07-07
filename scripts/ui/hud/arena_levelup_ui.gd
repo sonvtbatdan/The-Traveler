@@ -1374,6 +1374,8 @@ func _generate_choices(n: int) -> Array:
 			for k: String in ArenaWeapons.WEAPON_INFO.keys():
 				if bool(aw.call("is_fusion_kind", k)):
 					continue   # fused weapons are only obtained via the fusion card, never the new-weapon roll
+				if k == "player_2" and not bool(aw.call("player2_eligible")):
+					continue   # Player 2 only appears once you own a weapon at level 10+
 				if not (k in owned_w) and not chosen.has("w:" + k):
 					new_pool.append(_weapon_choice(aw, k, "new"))
 		if ax != null and not aux_full:

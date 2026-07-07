@@ -33,6 +33,19 @@ const TURN_RATE := 10.0             # how fast a sprite eases to face its moveme
 const THROWN_BOMB_SPEED := 460.0    # bomber's thrown bombs travel this fast (straight, aimed at the player)
 const THROWN_BOMB_RANGE := 1200.0   # a thrown bomb despawns after travelling this far (projectile, not an enemy)
 
+# ── Swarm loop (boomerang re-dive) — charge the player, fly out to a big radius, bank around, charge again ──
+const SWARM_LOOP_DIVE_SPEED  := 400.0   # px/s charge speed toward the player
+const SWARM_LOOP_RANGE       := 1320.0  # px it flies out to before turning back (~4x the Aliwa boomerang BOOM_SIZE 330)
+const SWARM_LOOP_WAIT        := 5.0     # min seconds spent out past the range before it charges again
+const SWARM_LOOP_DRIFT_SPEED := 120.0   # px/s slow outward drift while waiting off-map
+const SWARM_LOOP_COAST_SPEED := 300.0   # px/s speed during the graceful banking turn
+const SWARM_LOOP_TURN        := 1.6     # rad/s cap on the banking turn (graceful, not an instant snap)
+# ── Bee dive-bomber — approach to standoff, hover, then dive with slight homing; loops until killed ──
+const BEE_STANDOFF   := 400.0   # px: approach to this distance from the player before the hover
+const BEE_PAUSE      := 1.0     # seconds hovering before committing to the dive
+const BEE_DIVE_SPEED := 320.0   # px/s dive speed
+const BEE_TURN       := 1.2     # rad/s cap on steering the dive toward the player (tracks a bit, not perfectly)
+
 # ── Centipede: a segmented body that crawls toward the player using the Viper weapon's chain logic
 # (ported from arena_weapons.gd SNAKE_*). The node IS the head (collision + damage target); the body
 # segments TRAIL it at a fixed spacing. Segment pixel sizes scale with the enemy _radius. ──
@@ -158,11 +171,18 @@ var _plume_vrot_init: bool = false
 const LOD_MARGIN := 180.0   # grow the camera-visible rect by this before the off-screen LOD test (sprite/plume slack)
 const PLUME_LOD_COUNT := 150   # above this many live enemies, stop plume emission (the jets are an indistinct blur
 							   # in a melee that dense, so dropping the CPUParticles2D sim is ~free visually)
+const PLUME_FB_FRAMES := 14      # baked plume flipbook: number of frames
+const PLUME_FB_W      := 44      # flipbook frame width (px); canonical jet extends toward +X
+const PLUME_FB_H      := 32      # flipbook frame height (px)
+const PLUME_FB_FPS    := 20.0    # flipbook playback speed (frames/sec)
 var _lod_visible: bool = true   # tracks whether this enemy's plumes are currently ON (on-screen AND not overcrowded)
 var _plume_base: Array = []        # [{vel_min, vel_max, sc_min, sc_max, life}] per plume
 var _plume_base_cols: Array = []   # [PackedColorArray] per plume
 var _plume_red_cols: Array = []    # pre-built red gradient (dragonfly proximity)
 var _plume_in_red: bool = false
+var _plume_flipbook: bool = false   # true -> baked flipbook plume via the shared MultiMesh manager (Tier 2)
+var _fb_plumes: Array = []          # [{h, base, dir, px}] plume slot handles registered with arena_plume_mgr
+var _plume_mgr: Node = null         # cached arena_plume_mgr; null until the first flipbook setup
 
 var _type: String = "chase"
 var behavior: String = "chase"
@@ -386,6 +406,7 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_magma_split     = bool(d.get("magma_split", false))
 	_anti_magnetic   = bool(d.get("anti_magnetic", false))
 	_gauss_shooter   = bool(d.get("gauss_shooter", false))
+	_plume_flipbook  = bool(d.get("plume_flipbook", false))
 	_force_draw_w    = float(d.get("draw_w", 0.0))
 	if _force_draw_w > 0.0:
 		_radius = _force_draw_w * 0.42   # hit radius scales with the authored (carrier-honored) draw size
@@ -574,6 +595,9 @@ func _setup_plumes() -> void:
 	if fracs.is_empty():
 		return
 	var all_styles := _load_plume_styles_for(cname)
+	if _plume_flipbook:
+		_setup_flipbook_plumes(fracs, all_styles)
+		return
 	for i: int in fracs.size():
 		var fd: Dictionary = fracs[i]
 		var tp_id: int = int(fd.get("id", i + 1))
@@ -764,6 +788,49 @@ func _make_plume(frac: Vector2, dir_angle: float, style: Dictionary = {}) -> CPU
 	cm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	p.material = cm
 	return p
+
+# -- Baked plume flipbook (Tier 2: rendered by the shared arena_plume_mgr MultiMesh — no node per plume) --
+## Register one plume per thrust point with the plume manager (a stable slot handle each). No nodes created.
+func _setup_flipbook_plumes(fracs: Array, all_styles: Dictionary) -> void:
+	_plume_mgr = get_tree().get_first_node_in_group("arena_plume_mgr")
+	if _plume_mgr == null:
+		return
+	var px := maxf(6.0, _draw_size.x * 0.6)   # flipbook footprint ~ 0.6x the sprite width
+	for i: int in fracs.size():
+		var fd: Dictionary = fracs[i]
+		var tp_id: int = int(fd.get('id', i + 1))
+		var style: Dictionary = all_styles.get('tp_%d' % tp_id, all_styles)
+		var frac_c: Vector2 = (fd['frac'] as Vector2) - Vector2(0.5, 0.5)
+		var tint: Color = style.get('col_flame', Color(1.0, 0.6, 0.2, 1.0))
+		tint.a = 1.0
+		var h: int = _plume_mgr.call('add_plume', tint)
+		if h < 0:
+			continue
+		_fb_plumes.append({'h': h, 'base': frac_c * _draw_size, 'dir': float(fd.get('dir_angle', PI * 0.5)), 'px': px})
+
+## Animate + place every registered plume each frame. Drawn whenever on-screen; IGNORES the crowd LOD by
+## design (flies keep glowing in a dense melee — batched rendering makes it nearly free).
+func _update_flipbook_plumes(vis: bool) -> void:
+	if _plume_mgr == null or not is_instance_valid(_plume_mgr):
+		return
+	if not vis:
+		for pl: Dictionary in _fb_plumes:
+			_plume_mgr.call('hide_plume', int(pl['h']))
+		return
+	var idx := int(_t * PLUME_FB_FPS + _bob_phase * 3.0) % PLUME_FB_FRAMES
+	var vrot := _facing
+	for pl: Dictionary in _fb_plumes:
+		var pos: Vector2 = global_position + (pl['base'] as Vector2).rotated(vrot)
+		_plume_mgr.call('write_plume', int(pl['h']), pos, float(pl['dir']) + vrot, float(pl['px']), idx)
+
+## Release this enemy's plume slots back to the manager (called from _exit_tree on death/despawn).
+func _free_flipbook_plumes() -> void:
+	if _fb_plumes.is_empty():
+		return
+	if _plume_mgr != null and is_instance_valid(_plume_mgr):
+		for pl: Dictionary in _fb_plumes:
+			_plume_mgr.call('free_plume', int(pl['h']))
+	_fb_plumes.clear()
 
 # ── Dynamic plume modulation ──────────────────────────────────────────────────
 func _apply_plume_vel_mult(m: float) -> void:
@@ -1650,6 +1717,8 @@ func _physics_process(delta: float) -> void:
 			for p: CPUParticles2D in _plumes:
 				if is_instance_valid(p):
 					p.emitting = plumes_on
+	if not _fb_plumes.is_empty():
+		_update_flipbook_plumes(on_screen)
 	if on_screen:
 		if plumes_on and not _plumes.is_empty():
 			# Glue plume emitters to the sprite: same rotation AND scale as the drawn sprite (draw_set_transform
@@ -1922,6 +1991,28 @@ func _tick_behavior(delta: float) -> void:
 			else:
 				velocity = dir * speed
 				move_and_slide()
+		"swarm_loop":   # boomerang swarm: charge the player, fly out to a big radius, bank around gracefully, charge again — until killed
+			if _phase == 0:   # CHARGE: dive along the captured aim, through the player and out to the range
+				if _aim == Vector2.ZERO:
+					_aim = dir
+				velocity = _aim * SWARM_LOOP_DIVE_SPEED
+				move_and_slide()
+				if dist > SWARM_LOOP_RANGE:
+					_phase = 1
+					_timer = 0.0
+			elif _phase == 1:   # HOLD out past the range for >=5s, drifting slowly outward
+				_timer += delta
+				velocity = _aim * SWARM_LOOP_DRIFT_SPEED
+				move_and_slide()
+				if _timer >= SWARM_LOOP_WAIT:
+					_phase = 2
+			else:   # BANK: graceful capped turn back toward the player, then charge again
+				var na := _approach_angle(_aim.angle(), dir.angle(), SWARM_LOOP_TURN * delta)
+				_aim = Vector2(cos(na), sin(na))
+				velocity = _aim * SWARM_LOOP_COAST_SPEED
+				move_and_slide()
+				if _aim.dot(dir) > 0.92:
+					_phase = 0   # pointed back at the player → charge again
 		"centipede":
 			# Head chases the player with a capped turn rate (Viper SNAKE_TURN); the body trails it
 			# (see _update_centipede_chain). `speed` is set to 75% of the Viper in ENEMY_DEFS.
@@ -1999,6 +2090,26 @@ func _tick_behavior(delta: float) -> void:
 					_aim = dir
 				velocity = _aim * speed * 1.6
 				move_and_slide()
+		"bee_dive":   # dive-bomber: approach to standoff, hover 1s, then dive with slight homing; loops until killed
+			if _phase == 0:   # APPROACH at normal speed until within standoff range
+				velocity = dir * speed
+				move_and_slide()
+				if dist <= BEE_STANDOFF:
+					_phase = 1
+					_timer = 0.0
+			elif _phase == 1:   # PAUSE: hover in place, then commit the dive aim
+				velocity = Vector2.ZERO
+				_timer += delta
+				if _timer >= BEE_PAUSE:
+					_aim = dir
+					_phase = 2
+			else:   # DIVE: fast, steering toward the player with a capped turn (tracks a bit, not perfectly)
+				var na := _approach_angle(_aim.angle(), dir.angle(), BEE_TURN * delta)
+				_aim = Vector2(cos(na), sin(na))
+				velocity = _aim * BEE_DIVE_SPEED
+				move_and_slide()
+				if dist > RETURN_DIST:
+					_phase = 0   # overshot → loop back and re-approach
 		"shooter":   # burst of 1 shot per FP (up to 4), 0.2s between shots, 1s between bursts
 			_standoff(dist, dir, 340.0)
 			var sh_total := maxi(1, _fp_fracs.size())
@@ -2301,6 +2412,7 @@ func _rand_offset(r: float) -> Vector2:
 	return Vector2(cos(a), sin(a)) * randf_range(r * 0.4, r)
 
 func _exit_tree() -> void:
+	_free_flipbook_plumes()
 	if _missile_volley != null and is_instance_valid(_missile_volley):
 		_missile_volley.queue_free()
 	_missile_volley = null

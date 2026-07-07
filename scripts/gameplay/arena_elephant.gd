@@ -702,7 +702,7 @@ func _check_contact() -> void:
 			GameManager.ship_take_damage(contact_damage)   # ship iframes prevent per-frame spam
 
 # ── Damage / death ───────────────────────────────────────────────────────────────
-func take_damage(amount: float, stagger: float = 0.0, _knock: float = 0.0) -> void:
+func take_damage(amount: float, stagger: float = 0.0, _knock: float = 0.0, _ignore_armor: bool = false, _bleeds: bool = false, _was_crit: bool = false, _kind: String = "") -> void:
 	if _dead:
 		return
 	var dr := 0.0
