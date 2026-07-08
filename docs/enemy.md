@@ -3,6 +3,45 @@
 > Module of [`CLAUDE.md`](../CLAUDE.md). Read this when working on enemy behavior, bosses, waves, arena enemies, ruins, enemy panel.
 > Always-on core rules (conventions, coordinate system, image/render rules, LOCKED MODULES) live in CLAUDE.md — read that too.
 
+## Changelog — 2026-07-06 (Level_1_Minh: ramped-stream wave system + 2 new behaviors)
+
+New 20-minute authored run `levels/arena/Level_1_Minh.json` (now the live run — `DEFAULT_LEVEL_FILE` repointed
+from `1strun.json`). Built on a deliberately limited roster: **fly · bug · swarm · bee · Elephant**.
+
+- **Two new `arena_enemy.gd` behaviors** (in the `_tick_behavior` `match`, reuse `_phase`/`_timer`/`_aim`):
+  - `swarm_loop` — **boomerang** swarm (movement modeled on the Aliwa/boomerang weapon): CHARGE the player →
+    fly out to `SWARM_LOOP_RANGE` (1320px ≈ 4× the boomerang `BOOM_SIZE` 330) → HOLD out past the range for
+    `SWARM_LOOP_WAIT` (≥5s, drifting slowly outward) → BANK back with a capped graceful turn (`SWARM_LOOP_TURN`
+    1.6 rad/s) → charge again. **Never distance-culls** (unlike `swarm` "zoom" which `queue_free()`s) — only
+    dies on HP=0, so it grants XP/explosion.
+  - `bee_dive` — dive-bomber: approach at `speed` to `BEE_STANDOFF` (400px) → hover `BEE_PAUSE` (1s) → dive at
+    `BEE_DIVE_SPEED` (320) steering toward the player with a capped `BEE_TURN` (1.2 rad/s → "tracks a bit, not
+    perfectly") → overshoot past `RETURN_DIST` → re-approach. Loops until killed.
+- **Three `ENEMY_DEFS` variants** (`arena_wave_director.gd`): `bug_crawl` (chase, hp 200, **speed 120**),
+  `swarm_loop` (blob 50), `bee_dive` (hp 1000, speed 150).
+- **Wave-director stream extensions** (all optional, back-compatible — omitting them reproduces old behavior):
+  - `"ramp"` on a `stream` entry = end/start rate ratio (e.g. `5.0` → final rate 5× the start). `_tick_streams`
+    now uses a fractional-rate accumulator; start rate is solved so the linear ramp integrates to `count`.
+  - `"formation": "ring"` + `"burst"` (default 8) on a `stream` → emits ring bursts instead of single trickle
+    spawns.
+  - `"angle"` (degrees) on any entry → fixed spawn heading instead of random (used for the opposite-direction
+    swarm pairs at 16/18 min). Threaded through `_fire` → `_pattern_positions` / `_one_position`.
+  - **Per-level `"max_alive"`** (top-level JSON field) → runtime `_max_alive` overrides the `MAX_ALIVE` const
+    (Level_1_Minh uses 1200 so the 1000-fly / 1000-bug floods can crowd the field; over-cap spawns still drop).
+
+> ⚠️ The **F7 Wave editor does not know** `ramp`/`formation`/`burst`/`angle`/`max_alive` and may strip them on
+> save — `Level_1_Minh.json` is **hand-authored**; don't round-trip it through F7.
+
+**Balance/tuning pass (same session):**
+- **XP pacing** (`game_manager.gd`): `LEVEL_XP_MULT = {1:0.30, 2:0.40, 3:0.50, 4:0.70, 5:0.80, 6:0.90}` applied in
+  `xp_to_next()` — early levels are cheaper; level 7+ unchanged.
+- **Global enemy sizes** (`ENEMY_DEFS`, model + hitbox both scale with `size`): `fly` 9 → 7.2 (×0.8),
+  `bug`/`bug_crawl` 11 → 15.4 (×1.4).
+- **Level_1_Minh bug spawn rate ×3** at every time point (all `bug_crawl` stream counts tripled).
+- **Aliwa (boomerang) + Gatling** (`arena_weapons.gd`): boomerang model +30% (`BOOM_DRAW` 19.5→25.35,
+  `BOOM_BLADE` 45→58.5) with matching hitbox (`BOOM_HIT_RADIUS` 48→62.4) and 300%-faster self-spin
+  (`BOOM_SPIN` 12.566→50.265); Gatling hit radius `GAT_HIT_RADIUS` 16→24 (+50%).
+
 ## Changelog — 2026-06-29 (Arena enemy roster + Fleet/Wave editors)
 
 Large session reworking the Arena enemy layer and its dev editors:

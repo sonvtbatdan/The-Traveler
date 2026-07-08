@@ -29,26 +29,26 @@ const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")   # for
 # best-guess (Jeager→zsword, Little Man→mortar, Viper→snake) — relabel if wrong.
 const WEAPON_TABS := {
 	"drop": [
-		{"kind": "gatling",   "def_id": "gatling_gun",  "label": "Kinetic Auto Cannon"},
+		{"kind": "gatling",   "def_id": "gatling_gun",  "label": "Gatling Gun"},
 		{"kind": "death_beam",    "def_id": "death_beam",        "label": "Death Beam"},
-		{"kind": "orbital",   "def_id": "orbitals",      "label": "Orbital Impact Defense"},
-		{"kind": "striker",   "def_id": "swarm_host",    "label": "Orbital Impact Offense", "code": "Striker"},
-		{"kind": "chemtrail", "def_id": "chemtrail",     "label": "Biocide Vaporizer"},
+		{"kind": "orbital",   "def_id": "orbitals",      "label": "Defensive Orbitals"},
+		{"kind": "striker",   "def_id": "swarm_host",    "label": "Offensive Orbitals", "code": "Striker"},
+		{"kind": "chemtrail", "def_id": "chemtrail",     "label": "Chemtrail"},
 		{"kind": "void",      "def_id": "rift_maker",    "label": "Rift Maker"},
 		{"kind": "arc",       "def_id": "arc",           "label": "Arc Lightning Chain"},
 		{"kind": "moroboshi", "def_id": "moroboshi",     "label": "Yari"},
-		{"kind": "zsword",    "def_id": "z_sword",       "label": "Jeager"},
+		{"kind": "zsword",    "def_id": "z_sword",       "label": "Z-Sword"},
 		{"kind": "mortar",      "def_id": "mortar",          "label": "Little Man"},
-		{"kind": "red_x",     "def_id": "red_x",         "label": "Thermitic Discharger"},
+		{"kind": "red_x",     "def_id": "red_x",         "label": "Dragon's Breath"},
 		{"kind": "boomerang", "def_id": "boomerang",     "label": "Aliwa"},
 		{"kind": "gauss",     "def_id": "gauss_cannon",  "label": "Gauss Pulser"},
 		{"kind": "snake",     "def_id": "space_snake",   "label": "Viper"},
 		{"kind": "swarm",     "def_id": "",              "label": "Swarm", "icon": "res://assets/inventory/Swarm.png"},
-		{"kind": "sonic",     "def_id": "sonic_wave",    "label": "Sonic"},
+		{"kind": "sonic",     "def_id": "sonic_wave",    "label": "Ultrasonicator"},
 		{"kind": "homing",    "def_id": "homing_missile","label": "Homing Missile"},   # temp impl (copied from enemy missile launcher) — not in the Corp doc
 	],
 	"evolve": [
-		{"kind": "",       "def_id": "",               "label": "Kinetic Induction Cannon", "code": "Big Gun",    "from": "Kinetic Auto Cannon", "icon": "res://assets/inventory/VB-KIC-6.png",      "ph": true},
+		{"kind": "",       "def_id": "",               "label": "Kinetic Induction Cannon", "code": "Big Gun",    "from": "Gatling Gun", "icon": "res://assets/inventory/VB-KIC-6.png",      "ph": true},
 		{"kind": "",       "def_id": "",               "label": "Isotope Laser",            "code": "Super Laser", "from": "Death Beam",   "icon": "res://assets/inventory/KM-IL-200.png", "ph": true},
 		{"kind": "ionize", "def_id": "ionizing_field", "label": "Ionizing Field",        "from": "Rift Maker"},
 		{"kind": "",       "def_id": "",               "label": "Mobile Vacuum",            "code": "Black Ship", "from": "Rift Maker",    "icon": "res://assets/inventory/M-ST-17.png",     "ph": true},
@@ -56,13 +56,13 @@ const WEAPON_TABS := {
 		{"kind": "fat_boy", "def_id": "rosastro_nuclear", "label": "Fat Boy",        "from": "Little Man"},
 	],
 	"fusion": [
-		{"kind": "",            "def_id": "",              "label": "KM Quantum Beam Rifle",        "code": "Jedi Laser",  "from": "Kinetic Auto Cannon × Death Beam", "icon": "res://assets/inventory/KM-QBM-200.png", "ph": true},
-		{"kind": "",            "def_id": "",              "label": "Drone Cannon",                 "code": "Candy Crush", "from": "Kinetic Auto Cannon × Orbital Impact Defense", "icon": "res://assets/inventory/NC-DC-F.png", "ph": true},
-		{"kind": "",            "def_id": "",              "label": "Vampire Host",                 "from": "Sonic × Orbital Impact Offense", "icon": "res://assets/inventory/Vampire Host.png", "ph": true},
-		{"kind": "parasite",    "def_id": "parasite_cloud","label": "Venomancer", "from": "Biocide Vaporizer × Swarm"},
+		{"kind": "",            "def_id": "",              "label": "KM Quantum Beam Rifle",        "code": "Jedi Laser",  "from": "Gatling Gun × Death Beam", "icon": "res://assets/inventory/KM-QBM-200.png", "ph": true},
+		{"kind": "",            "def_id": "",              "label": "Drone Cannon",                 "code": "Candy Crush", "from": "Gatling Gun × Defensive Orbitals", "icon": "res://assets/inventory/NC-DC-F.png", "ph": true},
+		{"kind": "",            "def_id": "",              "label": "Vampire Host",                 "from": "Ultrasonicator × Offensive Orbitals", "icon": "res://assets/inventory/Vampire Host.png", "ph": true},
+		{"kind": "parasite",    "def_id": "parasite_cloud","label": "Venomancer", "from": "Chemtrail × Swarm"},
 		{"kind": "overcharger", "def_id": "gauss_cannon",  "label": "Overcharger",                  "from": "Arc Lightning Chain × Gauss Pulser", "icon": "res://assets/inventory/Overcharger.png"},
-		{"kind": "yari_jaeger", "def_id": "yari_jaeger",   "label": "Yari Jeager",                  "from": "Yari × Jeager"},
-		{"kind": "carnage",     "def_id": "gatling_gun",   "label": "Thermitic Auto Cannon",        "from": "Thermitic Discharger × Kinetic Auto Cannon"},
+		{"kind": "yari_jaeger", "def_id": "yari_jaeger",   "label": "Yari Jeager",                  "from": "Yari × Z-Sword"},
+		{"kind": "carnage",     "def_id": "gatling_gun",   "label": "Thermitic Auto Cannon",        "from": "Dragon's Breath × Gatling Gun"},
 		{"kind": "",            "def_id": "",              "label": "Singularities",                "from": "Rift Maker × Gauss Pulser", "icon": "res://assets/inventory/Singularities.png", "ph": true},
 		{"kind": "predator",    "def_id": "death_beam",        "label": "Predator",                     "from": "Viper × Death Beam"},
 	],
@@ -158,6 +158,19 @@ func _on_clear_weapons() -> void:
 	var weapons := get_tree().get_first_node_in_group("arena_weapons")
 	if weapons != null and weapons.has_method("clear_all_weapons"):
 		weapons.clear_all_weapons()
+
+## Dev-only: acquire every base weapon so their animations can be previewed. `acquire_weapon` honours the
+## MAX_WEAPONS equip cap (fills the first N slots) and its own guards (e.g. Player 2 companion) — extras are
+## simply ignored. To preview a specific weapon, CLEAR then use the per-weapon cells below.
+func _on_grant_all_weapons() -> void:
+	_click()
+	var weapons := get_tree().get_first_node_in_group("arena_weapons")
+	if weapons == null or not weapons.has_method("acquire_weapon"):
+		return
+	for kind: String in (ArenaWeapons.WEAPON_INFO as Dictionary).keys():
+		if kind == "player_2":
+			continue   # companion — needs an existing weapon to copy; skip in a blind grant
+		weapons.acquire_weapon(kind)
 
 func _on_edit_weapon() -> void:
 	_click()
@@ -719,6 +732,14 @@ func _build_weapon_spawn_panel() -> void:
 	lbl_title.add_theme_color_override("font_color", Color(0.75, 0.87, 1.00))
 	hdr.add_child(lbl_title)
 
+	var btn_all := Button.new()
+	btn_all.text = "ALL"
+	btn_all.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn_all.add_theme_font_size_override("font_size", 10)
+	btn_all.tooltip_text = "Grant every weapon (fills up to the %d equip slots)" % ArenaWeapons.MAX_WEAPONS
+	btn_all.pressed.connect(_on_grant_all_weapons)
+	hdr.add_child(btn_all)
+
 	var btn_clear := Button.new()
 	btn_clear.text = "CLEAR"
 	btn_clear.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -805,7 +826,7 @@ func _make_weapon_cell(w: Dictionary, cell_size: int) -> Control:
 	var full := String(w["label"])
 	var tip := code                          # Code Name first (e.g. "Minigun")
 	if full != code:
-		tip += "  —  " + full                # then the full name (e.g. "Kinetic Auto Cannon")
+		tip += "  —  " + full                # then the full name (e.g. "Gatling Gun")
 	if w.has("from"):
 		tip += "\n(" + String(w["from"]) + ")"
 	if is_ph:

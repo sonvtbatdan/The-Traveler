@@ -17,11 +17,12 @@ const GAT_SPEED         := 900.0    # px/s
 const GAT_DAMAGE        := 6.0      # per hit
 const GAT_LIFETIME      := 1.2      # s before despawn
 const GAT_MAX_DIST      := 1300.0   # px travelled before despawn
-const GAT_HIT_RADIUS    := 16.0     # bullet↔enemy hit distance (px)
+const GAT_HIT_RADIUS    := 24.0     # bullet↔enemy hit distance (px)
 const GAT_SPREAD_DEG    := 3.0      # ± random spray on each shot (0 = laser-straight)
 const GAT_STAGGER       := 0.1      # s the enemy is staggered (movement/attacks frozen) per Gatling hit
 const GAT_LIGHT         := 1.0      # dust-light "value" per Gatling bullet (low → lights up nearby dust only)
 const GAT_WING_SPACING  := 26.0     # px between the two wing muzzles (twin parallel streams)
+const GAT_FIRE_STAGGER  := 0.2      # s the RIGHT-wing bullet(s) fire AFTER their left-wing partner (twin-barrel stagger)
 const GAT_WING_FWD      := 22.0     # forward offset of the wing muzzles from ship centre (px)
 const GAT_MUZZLE_DECAY  := 0.08     # s the muzzle-fire flash decays over (refreshed each shot → ~continuous while firing)
 
@@ -33,7 +34,6 @@ const GATLING_POOL := {
 	"quick":     {"name": "Quick Round",     "max": 10, "per": "+8% fire rate",         "desc": "Shoot faster."},
 	"bouncing":  {"name": "Bouncing Round",  "max": 5,  "per": "+8% bounce chance",     "desc": "Bullets ricochet to a nearby foe."},
 	"multishot": {"name": "Multishot",       "max": 10, "per": "+10% extra-bullet chance", "desc": "Chance for an extra bullet."},
-	"kinetic":   {"name": "Kinetic Mastery", "max": 0,  "per": "+10% kinetic damage",   "desc": "Boosts all kinetic weapons (cross-weapon part TBD)."},
 	"advance_ballistic": {"name": "Advance Ballistic", "max": 5, "per": "+5% multishot (all shots weapons)", "desc": "Global: every weapon with the 'shots' tag gains multishot chance."},
 }
 const GAT_BOUNCE_RANGE := 280.0    # search radius for a bounce target
@@ -92,19 +92,19 @@ const CHEST_POOL  := ["gatling", "death_beam", "arc", "gauss"]   # the 4 "F12" w
 # NOTE: ionize / parasite / homing / toxic_ballistic are NOT in the canonical design sheet yet (orphans) —
 # kept with placeholder names until the sheet assigns them. See trace log 2026-06-27.
 const WEAPON_INFO := {
-	"gatling":     {"def_id": "gatling_gun",     "name": "Kinetic Auto Cannon",     "label": "Minigun",      "mfr": "Vanguard Ballistics"},
+	"gatling":     {"def_id": "gatling_gun",     "name": "Gatling Gun",             "label": "Gatling Gun",      "mfr": "Vanguard Ballistics"},
 	"death_beam":      {"def_id": "death_beam",          "name": "Death Beam",              "label": "Death Beam",   "mfr": "Kwang Ming"},
 	"arc":         {"def_id": "arc",             "name": "Arc Lightning Chain",     "label": "Lightning",    "mfr": "Kwang Ming"},
 	"gauss":       {"def_id": "gauss_cannon",    "name": "Gauss Pulser",            "label": "Gauss",        "mfr": "Horizon Logistics x Vanguard Ballistics"},
-	"orbital":     {"def_id": "orbitals",        "name": "Orbital Impact Defense",  "label": "Defender",     "mfr": "Nebula Dynamics"},
-	"striker":     {"def_id": "swarm_host",      "name": "Orbital Impact Offense",  "label": "Striker",      "mfr": "Nebula Dynamics"},
+	"orbital":     {"def_id": "orbitals",        "name": "Defensive Orbitals",      "label": "Defensive Orbitals",     "mfr": "Nebula Dynamics"},
+	"striker":     {"def_id": "swarm_host",      "name": "Offensive Orbitals",      "label": "Offensive Orbitals",      "mfr": "Nebula Dynamics"},
 	"void":        {"def_id": "rift_maker",      "name": "Rift Maker",              "label": "Rift Maker",   "mfr": "Horizon Logistics"},
-	"red_x":       {"def_id": "red_x",           "name": "Thermitic Discharger",    "label": "Red X",        "mfr": "Volney Elements"},
-	"chemtrail":   {"def_id": "chemtrail",       "name": "Biocide Vaporizer",       "label": "Stink Breath", "mfr": "Volney Elements"},
+	"red_x":       {"def_id": "red_x",           "name": "Dragon's Breath",         "label": "Dragon's Breath",        "mfr": "Volney Elements"},
+	"chemtrail":   {"def_id": "chemtrail",       "name": "Chemtrail",               "label": "Chemtrail", "mfr": "Volney Elements"},
 	"mortar":        {"def_id": "mortar",            "name": "Mortar",                  "label": "Mortar",       "mfr": "Rosastro"},
 	"fat_boy":     {"def_id": "rosastro_nuclear","name": "Fat Boy",                 "label": "Fat Boy",      "mfr": "Rosastro"},
-	"sonic":       {"def_id": "sonic_wave",      "name": "Sonic",                   "label": "Sonic",        "mfr": "Yongsan"},
-	"zsword":      {"def_id": "z_sword",         "name": "Jeager",                  "label": "Jeager",       "mfr": "Eisenkraft Kinematik"},
+	"sonic":       {"def_id": "sonic_wave",      "name": "Ultrasonicator",          "label": "Ultrasonicator",        "mfr": "Yongsan"},
+	"zsword":      {"def_id": "z_sword",         "name": "Z-Sword",                 "label": "Z-Sword",       "mfr": "Eisenkraft Kinematik"},
 	"ionize":      {"def_id": "ionizing_field",  "name": "Ionizing Field",               "label": "Ionizing Field", "mfr": "Horizon Logistics"},
 	"boomerang":   {"def_id": "boomerang",       "name": "Aliwa",                        "label": "Aliwa",        "mfr": "Nebula Dynamics"},
 	"parasite":    {"def_id": "parasite_cloud",  "name": "Venomancer",                   "label": "Venomancer",   "mfr": "Volney Elements x Chakra Bio-Synthetics"},
@@ -120,11 +120,12 @@ const PLAYER2_POOL := {
 	"damage":      {"name": "Overclock",              "max": 10, "per": "+5% damage",          "desc": "Player 2 hits harder (on top of its 25% copy)."},
 	"kinetic":     {"name": "Kinetic Coat",           "max": 5,  "per": "+10% kinetic damage",  "desc": "Player 2 does +10%/rank when the copied weapon is kinetic."},
 	"energy":      {"name": "Energy Coat",            "max": 5,  "per": "+10% energy damage",   "desc": "Player 2 does +10%/rank when the copied weapon is energy."},
-	"biochemical": {"name": "Biochemical Coat",       "max": 5,  "per": "+10% bio damage",      "desc": "Player 2 does +10%/rank when the copied weapon is biological."},
+	"biochemical": {"name": "Biochemical Coat",       "max": 5,  "per": "+10% bio damage",      "desc": "Player 2 does +10%/rank when the copied weapon is biochemical."},
 	"proactive":   {"name": "Proactive Intelligence", "max": 3,  "per": "copy 1 more weapon",   "desc": "Player 2 also copies your next-highest weapon. Unlocks at weapon level 6 / 11 / 16.", "gate": [6, 11, 16]},
 	"diversify":   {"name": "Diversification Mastery","max": 10, "per": "+1.25% dmg / weapon owned", "desc": "Player 2 gains +1.25%/rank overall damage for EACH different weapon you own."},
 }
 const PLAYER2_PHOENIX_CD := 600.0   # Project Phoenix: Player 2 stays shut down this long (s) after a revive
+const P2_MIN_WEAPON_LEVEL := 10     # Player 2 is only offerable/acquirable once some OTHER weapon reaches this level
 
 # ── Weapon FUSION recipes ─────────────────────────────────────────────────────────
 # Keyed by the FUSED kind (matches _activate_kind / activate_<fused>). `a`+`b` = the two component kinds, each
@@ -280,13 +281,13 @@ const BOOM_COUNT      := 1          # blades in flight
 const BOOM_SIZE       := 330.0      # petal reach (flight-pattern radius) — 150% of the previous 220
 const BOOM_ROSE_SPEED := 1.2        # how fast the blade travels the petals (θ rad/s) — 60% of the previous 2.0
 const BOOM_CENTER_LAG := 6.0        # how fast the flower centre catches up to the ship (lower = more trailing drag)
-const BOOM_BLADE      := 45.0       # blade visual half-length (+150% of the old 18px)
+const BOOM_BLADE      := 58.5       # blade visual half-length (+150% of the old 18px)
 const BOOM_DAMAGE     := 28.0
-const BOOM_HIT_RADIUS := 48.0       # enlarged to match the bigger blade
+const BOOM_HIT_RADIUS := 62.4       # enlarged to match the bigger blade
 const BOOM_HIT_CD     := 0.25       # per-enemy re-hit interval (a blade sweeps the same enemy repeatedly)
-const BOOM_SPIN       := 12.566     # visual self-spin rad/s (120 RPM = 4π)
+const BOOM_SPIN       := 50.265     # visual self-spin rad/s (120 RPM = 4π)
 const BOOM_COL        := Color(0.95, 0.85, 0.5)
-const BOOM_DRAW       := 19.5       # on-screen boomerang sprite width (px); height aspect-locked per texture
+const BOOM_DRAW       := 25.35       # on-screen boomerang sprite width (px); height aspect-locked per texture
 const BOOM_TEX: Texture2D = preload("res://assets/weaponry/ND-Aliwa-Bmr.png")
 # ── Boomerang (Aliwa, kinetic + contact) skill-point pool + evolves ──
 const BOOM_POOL := {
@@ -298,7 +299,7 @@ const BOOM_POOL := {
 	"hemorrhage": {"name": "Hemorrhage Mastery", "max": 10, "per": "+20% bleed dmg (global)", "desc": "All bleed effects bleed harder."},
 }
 const DEATHROLL_PULL := 32.0   # px an enemy is dragged toward the blade per hit (Death Roll evolve)
-# Parasite Cloud (Biological) — fast blob that decelerates into a lingering damage cloud.
+# Parasite Cloud (Biochemical) — fast blob that decelerates into a lingering damage cloud.
 const PARA_COOLDOWN   := 2.6
 const PARA_SPEED      := 520.0
 const PARA_DRAG       := 2.2        # exponential deceleration toward a hover
@@ -309,7 +310,7 @@ const PARA_DAMAGE     := 10.0       # per tick to everything inside
 const PARA_COL        := Color(0.6, 0.95, 0.45)
 const PARA_GAS_LIFETIME := 4.0   # seconds gas cloud lingers after spore expires
 const PARA_GAS_PUFF_N   := 7     # puffs per expired spore (1 centre + 6 ring)
-# ── Parasite Cloud (Venomancer, biological) skill-point pool + evolves ──
+# ── Parasite Cloud (Venomancer, biochemical) skill-point pool + evolves ──
 const PARA_POOL := {
 	"aoe":              {"name": "Contagion Radius",         "max": 10, "per": "+10% cloud radius",         "desc": "The infection spreads wider."},
 	"damage":           {"name": "Virulence",                "max": 10, "per": "+10% damage",               "desc": "A deadlier strain."},
@@ -324,7 +325,7 @@ const PARA_STOLEN_PER_RANK      := 0.04   # fraction of the top enemy's stripped
 const PARA_STOLEN_LINGER        := 5.0    # s your stolen armor holds after the source reduction is gone
 const PARA_RECON_BONUS          := 0.75   # Perfect Reconstruction evolve: +75% conversion
 const PARA_AUTO_SPEED           := 150.0  # Full Automation evolve: cloud drift speed (px/s)
-# Moroboshi-M1 (Biological) — winged-golem familiar that chases enemies and punches (AoE + stagger).
+# Moroboshi-M1 (Biochemical) — winged-golem familiar that chases enemies and punches (AoE + stagger).
 const MORO_FOLLOW_DIST := 90.0      # rests this far behind the ship when idle
 const MORO_MOVE_SPEED  := 240.0
 const MORO_AGGRO       := 520.0     # seeks enemies within this of itself
@@ -349,7 +350,7 @@ const YARI_STAGGER     := 0.25
 const YARI_FRAME_DELAY := 0.08      # seconds per GIF frame during the slash animation
 const YARI_TURN_RATE   := 120.0 / 60.0 * TAU      # 120 RPM → rad/s (≈ 12.57 rad/s)
 const YARI_COL         := Color(0.9, 0.65, 1.0)   # light violet glow
-# Swarm Host (Biological) — familiars that dart to enemies, deal damage, return and heal the player.
+# Swarm Host (Biochemical) — familiars that dart to enemies, deal damage, return and heal the player.
 const SWARM_COUNT      := 2         # familiar count (body)
 const SWARM_SPEED      := 420.0
 const SWARM_AGGRO      := 560.0
@@ -358,7 +359,7 @@ const SWARM_HIT_RADIUS := 26.0
 const SWARM_HEAL_FRAC  := 0.25      # heal the player for this fraction of damage dealt, on return
 const SWARM_IDLE_R     := 70.0      # orbit radius near the ship when idle
 const SWARM_COL        := Color(0.95, 0.6, 0.85)
-# Space Snake (Biological) — fire-snake familiar; head chases enemies, body trails, contact DoT.
+# Space Snake (Biochemical) — fire-snake familiar; head chases enemies, body trails, contact DoT.
 const SNAKE_SEGMENTS   := 5        # 1 head + 3 body + 1 tail (short at first; grows via the Length pool + Primordial God)
 const SNAKE_SPACING    := 25.2     # px between centres = body segment size (zero gap)
 const SNAKE_SPEED      := 300.0
@@ -733,7 +734,7 @@ const DRAGON_POOL := {
 	"armor_reduction": {"name": "Melting Steel Beam", "max": 10, "per": "Reduce armor equal to 0.02 stack of burn per rank", "desc": "The heat softens their plating."},
 }
 
-# ── Chemtrail (Biological): breadcrumb DoT puff-pool dropped behind the moving ship ──
+# ── Chemtrail (Biochemical): breadcrumb DoT puff-pool dropped behind the moving ship ──
 const CHEMTRAIL_TICK_DAMAGE   := 6.0    # DoT per tick (× damage-mult + crit)
 const CHEMTRAIL_TICK_INTERVAL := 0.25   # s between DoT ticks per puff
 const CHEMTRAIL_PUFF_RADIUS   := 140.0  # DoT + visual radius of each puff (2× wider trail)
@@ -941,7 +942,7 @@ var _player: Node2D = null
 var _companion: bool = false
 var _player_ref: Node2D = null
 var _dmg_scale: float = 1.0
-var _p2_fam_bonus: Dictionary = {}   # companion: family ("kinetic"/"energy"/"biological") → bonus frac (P2 colour coats)
+var _p2_fam_bonus: Dictionary = {}   # companion: family ("kinetic"/"energy"/"biochemical") → bonus frac (P2 colour coats)
 var _procs_enabled: bool = true      # companion: false suppresses ALL chance procs + crit (Player-2 default; on via Full Sync)
 var _p2_nodes: Array = []        # (main instance only) live ArenaPlayer2 companions (1, or 2 with Ready Player 3)
 var _player2_upg: Dictionary = {"damage": 0, "kinetic": 0, "energy": 0, "biochemical": 0, "proactive": 0, "diversify": 0}
@@ -968,8 +969,10 @@ var _explosions: Array = []        # live Gauss explosions: {pos, age, variant, 
 # Runtime weapon-enable flags. The ship now starts UNARMED — every weapon is acquired via the start-of-run
 # chest or a world/F12 pickup (acquire_weapon → activate_<kind>), so all flags start false.
 var _gat_active: bool = false
+# Staggered right-wing gatling shots waiting to fire (twin-barrel stagger): each entry {"delay": float, "n": int}.
+var _gat_pending: Array = []
 # Gatling upgrade ranks (from the skill-point pool) + the level-7 capstone choice + Focus-Fire tracking.
-var _gat_upg: Dictionary = {"hardened": 0, "piercing": 0, "quick": 0, "bouncing": 0, "multishot": 0, "kinetic": 0, "advance_ballistic": 0}
+var _gat_upg: Dictionary = {"hardened": 0, "piercing": 0, "quick": 0, "bouncing": 0, "multishot": 0, "advance_ballistic": 0}
 var _gat_capstone: String = ""   # "" | "spray" | "focus" | "healing"
 # Lasgun upgrade ranks (from its skill-point pool) + the level-6 evolve capstone.
 var _db_upg: Dictionary = {"energy": 0, "damage": 0, "duration": 0, "cooldown": 0, "incinerate": 0, "freeze": 0}
@@ -1545,6 +1548,8 @@ func _process(delta: float) -> void:
 			# No target: stay primed for exactly ONE immediate shot — do NOT bank a backlog, or the moment a
 			# target appears the while-loop above dumps every banked interval at once (the "wall of bullets" + lag).
 			_gat_acc = minf(_gat_acc, gat_interval)
+	# Fire any staggered right-wing gatling bullets whose 0.2s delay has now elapsed (drains even mid-swap).
+	_drain_gat_pending(delta)
 	if _gauss_active:
 		# Keep charging while waiting; fire only when an enemy is visible.
 		_gauss_charge += delta
@@ -1658,13 +1663,14 @@ const AUTOMATION_KINDS := ["orbital", "parasite", "snake", "moroboshi", "yari_ja
 const CONTACT_KINDS := ["orbital", "singularities", "swarm", "snake", "boomerang", "moroboshi", "yari_jaeger", "zsword"]
 # Weapon damage FAMILY (the 3-family taxonomy) → Art of War per-family masteries + the X-Truth evolutions.
 const WEAPON_FAMILY := {
-	"gatling": "kinetic", "orbital": "kinetic", "boomerang": "kinetic", "moroboshi": "kinetic",
-	"yari_jaeger": "kinetic", "snake": "kinetic", "swarm": "kinetic", "homing": "kinetic", "mortar": "kinetic",
+	"gatling": "kinetic", "orbital": "kinetic", "striker": "kinetic", "boomerang": "kinetic", "moroboshi": "kinetic",
+	"yari_jaeger": "kinetic", "swarm": "kinetic", "homing": "kinetic", "mortar": "kinetic",
 	"carnage": "kinetic",
 	"death_beam": "energy", "arc": "energy", "gauss": "energy", "sonic": "energy", "void": "energy",
-	"zsword": "energy", "ionize": "energy", "red_x": "energy", "singularities": "energy",
+	"zsword": "energy", "ionize": "energy", "singularities": "energy",
 	"overcharger": "energy", "predator": "energy",
-	"chemtrail": "biological", "parasite": "biological", "vampire_host": "biological", "toxic_ballistic": "biological",
+	"chemtrail": "biochemical", "parasite": "biochemical", "vampire_host": "biochemical", "toxic_ballistic": "biochemical",
+	"snake": "biochemical", "red_x": "biochemical",
 	"chain": "kinetic",   # Explosivo Chain Reaction blast (kinetic family so kinetic/all/crit buffs apply)
 }
 # Weapons that deal AREA/splash damage → get the Explosivo "Bombardment Mastery" bonus (mech "bombardment_dmg").
@@ -1758,7 +1764,7 @@ func _roll_damage(base: float, kind := "") -> Dictionary:
 		match fam:
 			"kinetic":    dmg *= 1.0 + GameManager.mech_bonus("kinetic_dmg")
 			"energy":     dmg *= 1.0 + GameManager.mech_bonus("energy_dmg")
-			"biological": dmg *= 1.0 + GameManager.mech_bonus("bio_dmg")
+			"biochemical": dmg *= 1.0 + GameManager.mech_bonus("bio_dmg")
 		# "X Truth" evo: surviving family gains +50% damage per weapon disabled.
 		if fam != "" and fam == _truth_family:
 			dmg *= 1.0 + 0.50 * float(_truth_count)
@@ -1829,8 +1835,6 @@ func gat_grant_upgrade(id: String) -> bool:
 	if GameManager.has_method("add_mech"):
 		if id == "advance_ballistic":
 			GameManager.add_mech("multishot_pct", 0.05)   # GLOBAL: shots-tagged weapons read mech_bonus("multishot_pct")
-		elif id == "kinetic":
-			GameManager.add_mech("kinetic_dmg", 0.10)     # GLOBAL: shared Kinetic Mastery (same skill as Art of War)
 	return true
 
 func gat_set_capstone(id: String) -> void:
@@ -1863,32 +1867,55 @@ func _gat_bullet_base() -> float:
 	return GAT_DAMAGE + float(_gat_upg["hardened"])
 
 func _fire_gatling() -> void:
-	# Two parallel streams from the left/right wing muzzles, plus any Multishot extra bullets fanned out from
-	# wider muzzle points. Offsets are in the ship's local frame (fwd/perp) so they rotate with the aim.
-	var fwd := _forward()
-	var perp := Vector2(-fwd.y, fwd.x)   # right-perpendicular (rotates with the ship)
-	var base := _player.global_position + fwd * GAT_WING_FWD
-	var spread := _gat_spread_deg()
-	# Total bullets = 2 base + flat multishot + a chance-based extra. Placed symmetric along the perp axis.
+	# Twin-barrel volley: LEFT-wing bullets (even slot n) fire immediately; RIGHT-wing bullets (odd n)
+	# fire GAT_FIRE_STAGGER (0.2s) later — so the left barrel visibly leads the right. Any Multishot extra
+	# bullets fan out to wider slots but keep the same even=now / odd=+delay rule.
 	var extra := _gat_multishot_flat()
 	if _proc(_gat_multishot_chance()):   # + Stroke of Luck
 		extra += 1
 	var total := 2 + extra
 	for n in total:
-		# Symmetric perp offset: n 0/1 are the L/R wings; extras step further out alternating sides.
-		var slot := float(n / 2)                  # 0,0,1,1,2,2…  (pair index → distance out)
-		var sgn := -1.0 if (n % 2 == 0) else 1.0   # alternate left / right
-		var off := perp * (sgn * GAT_WING_SPACING * (0.5 + slot * 0.6))
-		var dir := fwd
-		if spread > 0.0:
-			dir = fwd.rotated(deg_to_rad(randf_range(-spread, spread)))
-		var start: Vector2 = base + off
-		var bullet := {"pos": start, "vel": dir * GAT_SPEED * _weapon_speed_mult(), "life": 0.0, "start": start, "kind": "gatling", "hits": []}
-		# Healing Round capstone: a directly-fired bullet has a 1-in-GAT_HEAL_ODDS chance to be a healing bullet.
-		if _gat_capstone == "healing" and randi() % GAT_HEAL_ODDS == 0:
-			bullet["healing"] = true
-		_bullets.append(bullet)
+		if n % 2 == 0:
+			_spawn_gat_bullet(n)                                  # left wing: fire now
+		else:
+			_gat_pending.append({"delay": GAT_FIRE_STAGGER, "n": n})   # right wing: fire 0.2s later
+
+## Build + fire one gatling bullet for slot index `n`, computed from the ship's CURRENT position/facing
+## (so delayed right-wing shots still leave the moving ship's real muzzle, not a stale point).
+func _spawn_gat_bullet(n: int) -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	var fwd := _forward()
+	var perp := Vector2(-fwd.y, fwd.x)   # right-perpendicular (rotates with the ship)
+	var base := _player.global_position + fwd * GAT_WING_FWD
+	var spread := _gat_spread_deg()
+	# Symmetric perp offset: n 0/1 are the L/R wings; extras step further out alternating sides.
+	var slot := float(n / 2)                  # 0,0,1,1,2,2…  (pair index → distance out)
+	var sgn := -1.0 if (n % 2 == 0) else 1.0   # alternate left / right
+	var off := perp * (sgn * GAT_WING_SPACING * (0.5 + slot * 0.6))
+	var dir := fwd
+	if spread > 0.0:
+		dir = fwd.rotated(deg_to_rad(randf_range(-spread, spread)))
+	var start: Vector2 = base + off
+	var bullet := {"pos": start, "vel": dir * GAT_SPEED * _weapon_speed_mult(), "life": 0.0, "start": start, "kind": "gatling", "hits": []}
+	# Healing Round capstone: a directly-fired bullet has a 1-in-GAT_HEAL_ODDS chance to be a healing bullet.
+	if _gat_capstone == "healing" and randi() % GAT_HEAL_ODDS == 0:
+		bullet["healing"] = true
+	_bullets.append(bullet)
 	_gat_muzzle_t = 1.0   # refresh the muzzle-fire flash on every shot
+
+## Advance the staggered right-wing gatling shots; fire each when its delay elapses. Called every tick.
+func _drain_gat_pending(delta: float) -> void:
+	if _gat_pending.is_empty():
+		return
+	var still: Array = []
+	for e: Dictionary in _gat_pending:
+		e["delay"] = float(e["delay"]) - delta
+		if float(e["delay"]) <= 0.0:
+			_spawn_gat_bullet(int(e["n"]))
+		else:
+			still.append(e)
+	_gat_pending = still
 
 # ── Lasgun (tick-based hitscan beam — fires along the ship facing = toward the cursor) ───────────────────
 # ── Generic skill-point pool dispatch (the level-up UI calls these for any weapon that has a pool) ──
@@ -2057,7 +2084,7 @@ func _fam_rate(kind: String) -> float:
 	match String((WEAPON_FAMILY as Dictionary).get(kind, "")):
 		"kinetic":    return 1.0 + GameManager.mech_bonus("rate_kinetic")
 		"energy":     return 1.0 + GameManager.mech_bonus("rate_energy")
-		"biological": return 1.0 + GameManager.mech_bonus("rate_bio")
+		"biochemical": return 1.0 + GameManager.mech_bonus("rate_bio")
 	return 1.0
 
 ## Tick-frequency multiplier (≥1) — Auto-Loader Intensity Mastery speeds up DoT/tick weapons. Divide tick intervals by this.
@@ -3808,12 +3835,16 @@ func acquire_weapon(kind: String) -> bool:
 		_respawn_player2()
 	return newly
 
-## Player 2 needs at least one OTHER weapon to copy.
+## Player 2 needs an OTHER weapon at level >= P2_MIN_WEAPON_LEVEL to copy (an established, high-level weapon).
 func _p2_eligible() -> bool:
 	for k: String in _acquired:
-		if k != "player_2":
+		if k != "player_2" and weapon_level(k) >= P2_MIN_WEAPON_LEVEL:
 			return true
 	return false
+
+## Public wrapper so the level-up UI doesn't OFFER Player 2 until it's actually acquirable.
+func player2_eligible() -> bool:
+	return _p2_eligible()
 
 # ── Player 2 upgrade API (pool ranks + evolve capstone) ──
 func player2_upgrade_rank(id: String) -> int:
@@ -3854,7 +3885,7 @@ func _player2_fam_bonus() -> Dictionary:
 	return {
 		"kinetic":    0.10 * float(_player2_upg["kinetic"]),
 		"energy":     0.10 * float(_player2_upg["energy"]),
-		"biological": 0.10 * float(_player2_upg["biochemical"]),
+		"biochemical": 0.10 * float(_player2_upg["biochemical"]),
 	}
 ## The weapons Player 2 copies = the top (1 + Proactive rank) by level, highest first (excluding P2 itself).
 func _player2_copy_list() -> Array:
@@ -3925,6 +3956,7 @@ func clear_all_weapons() -> void:
 	_acquired.clear()
 	_levels.clear()
 	_gat_active     = false
+	_gat_pending.clear()
 	_death_beam_active  = false
 	_arc_active     = false
 	_gauss_active   = false
@@ -4086,7 +4118,7 @@ func fuse(fusion_id: String) -> bool:
 ## Turn a weapon OFF and clear its runtime state (used when its slot is consumed by a fusion).
 func _deactivate_kind(kind: String) -> void:
 	match kind:
-		"gatling": _gat_active = false
+		"gatling": _gat_active = false; _gat_pending.clear()
 		"death_beam":  _death_beam_active = false
 		"arc":     _arc_active = false
 		"gauss":   _gauss_active = false

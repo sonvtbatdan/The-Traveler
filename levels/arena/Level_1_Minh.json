@@ -1,0 +1,180 @@
+{
+  "name": "Level_1_Minh",
+  "max_alive": 1200,
+  "timeline": [
+    {
+      "time": 0.0,
+      "type": "fly",
+      "count": 1000,
+      "pattern": "stream",
+      "duration": 180.0,
+      "ramp": 5.0
+    },
+    {
+      "time": 180.0,
+      "type": "fly",
+      "count": 1667,
+      "pattern": "stream",
+      "duration": 180.0
+    },
+    {
+      "time": 180.0,
+      "type": "bug_crawl",
+      "count": 50,
+      "pattern": "stream",
+      "duration": 180.0
+    },
+    {
+      "time": 300.0,
+      "type": "swarm_loop",
+      "count": 1,
+      "pattern": "ring"
+    },
+    {
+      "time": 360.0,
+      "type": "fly",
+      "count": 1667,
+      "pattern": "stream",
+      "duration": 120.0,
+      "formation": "ring",
+      "burst": 12
+    },
+    {
+      "time": 360.0,
+      "type": "bug_crawl",
+      "count": 100,
+      "pattern": "stream",
+      "duration": 120.0
+    },
+    {
+      "time": 480.0,
+      "type": "fly",
+      "count": 2222,
+      "pattern": "stream",
+      "duration": 120.0,
+      "formation": "ring",
+      "burst": 12
+    },
+    {
+      "time": 480.0,
+      "type": "bug_crawl",
+      "count": 300,
+      "pattern": "stream",
+      "duration": 120.0
+    },
+    {
+      "time": 480.0,
+      "type": "swarm_loop",
+      "count": 1,
+      "pattern": "ring"
+    },
+    {
+      "time": 540.0,
+      "type": "swarm_loop",
+      "count": 1,
+      "pattern": "ring"
+    },
+    {
+      "time": 600.0,
+      "type": "elephant",
+      "count": 1,
+      "pattern": "ring",
+      "is_boss": true
+    },
+    {
+      "time": 630.0,
+      "type": "bug_crawl",
+      "count": 1000,
+      "pattern": "stream",
+      "duration": 180.0,
+      "ramp": 5.0
+    },
+    {
+      "time": 660.0,
+      "type": "swarm_loop",
+      "count": 1,
+      "pattern": "ring"
+    },
+    {
+      "time": 720.0,
+      "type": "swarm_loop",
+      "count": 1,
+      "pattern": "ring"
+    },
+    {
+      "time": 780.0,
+      "type": "swarm_loop",
+      "count": 1,
+      "pattern": "ring"
+    },
+    {
+      "time": 810.0,
+      "type": "bug_crawl",
+      "count": 2500,
+      "pattern": "stream",
+      "duration": 90.0
+    },
+    {
+      "time": 900.0,
+      "type": "bug_crawl",
+      "count": 5000,
+      "pattern": "stream",
+      "duration": 120.0
+    },
+    {
+      "time": 900.0,
+      "type": "bee_dive",
+      "count": 4,
+      "pattern": "stream",
+      "duration": 120.0
+    },
+    {
+      "time": 960.0,
+      "type": "swarm_loop",
+      "count": 1,
+      "pattern": "ring",
+      "angle": 0.0
+    },
+    {
+      "time": 960.0,
+      "type": "swarm_loop",
+      "count": 1,
+      "pattern": "ring",
+      "angle": 180.0
+    },
+    {
+      "time": 1020.0,
+      "type": "bug_crawl",
+      "count": 10000,
+      "pattern": "stream",
+      "duration": 180.0
+    },
+    {
+      "time": 1020.0,
+      "type": "bee_dive",
+      "count": 6,
+      "pattern": "stream",
+      "duration": 120.0
+    },
+    {
+      "time": 1080.0,
+      "type": "swarm_loop",
+      "count": 1,
+      "pattern": "ring",
+      "angle": 0.0
+    },
+    {
+      "time": 1080.0,
+      "type": "swarm_loop",
+      "count": 1,
+      "pattern": "ring",
+      "angle": 180.0
+    },
+    {
+      "time": 1140.0,
+      "type": "bee_dive",
+      "count": 10,
+      "pattern": "ring"
+    }
+  ]
+}
