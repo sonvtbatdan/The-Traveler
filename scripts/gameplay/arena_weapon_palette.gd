@@ -19,7 +19,7 @@ const WEAPONS := [
 	{"kind": "sonic",     "def_id": "sonic_wave",    "label": "Ultrasonicator"},
 	{"kind": "zsword",    "def_id": "z_sword",       "label": "Z-Sword"},
 	{"kind": "ionize",    "def_id": "ionizing_field","label": "Ionizer"},
-	{"kind": "boomerang", "def_id": "boomerang",     "label": "Aliwa"},
+	{"kind": "boomerang", "def_id": "boomerang",     "label": "Boomerang"},
 	{"kind": "parasite",  "def_id": "parasite_cloud","label": "Venomancer"},
 	{"kind": "moroboshi", "def_id": "moroboshi",     "label": "Yari"},
 	{"kind": "swarm",     "def_id": "swarm_host",    "label": "Offensive Orbitals"},

@@ -26,7 +26,7 @@ const WEAPON_WEIGHTS := {
 	"orbital": 50, "void": 40, "red_x": 30, "chemtrail": 40,
 	"mortar": 20, "sonic": 60, "zsword": 50, "ionize": 70,
 	"boomerang": 50, "parasite": 50, "moroboshi": 30, "swarm": 40, "snake": 30,
-	"homing": 60, "striker": 45,
+	"homing": 60, "shooter": 45, "striker": 45,
 }
 const WEAPON_FALLBACK_COLOR := Color(0.55, 0.62, 0.72)   # placeholder swatch if a weapon icon fails to load
 
@@ -127,14 +127,26 @@ var _perk_icon_cache: Dictionary = {} # perk id → Texture2D (or null if missin
 # label, NOT WEAPON_INFO.label/name — kept as authored rather than renaming their folders).
 const WEAPON_PERK_ICON_DIR := "res://assets/hud/weapon perks/"
 const WEAPON_PERK_FOLDER := {
-	"gatling": "Minigun", "death_beam": "Death Beam", "arc": "Arc Lightning", "gauss": "Gauss Pulser",
+	"gatling": "Gatling", "death_beam": "Death Beam", "arc": "Arc Lightning", "gauss": "Gauss Pulser",
 	"orbital": "Orbital Defender", "red_x": "red X", "chemtrail": "Chemtrail", "zsword": "Z-Sword", "sonic": "sonic",
+	"shooter": "shooter", "snake": "snake", "ionize": "blackhole", "player_2": "player 2",
+	"boomerang": "boomerang", "mortar": "mortar",
+	# NOTE: the "swarm" folder's files (aoe/damage/duration/metal_eater/armor_mastery/stolen_fortitude) are
+	# actually PARA_POOL's ids (Parasite Cloud / Venomancer) — mismatched folder name, kept as authored. The
+	# "swarm" KIND (Offensive Orbitals bats) has no skill-point pool in code at all, so it needs no folder.
+	"parasite": "swarm",
 }
 # A few files were authored with a shorthand name instead of the exact pool id — tolerate those instead of
 # requiring a rename: GAUSS_POOL "aoe_mastery" → aoe.png; ZSWORD_POOL/SONIC_POOL "cd" → cooldown.png;
 # CHEMTRAIL_POOL "ms" → movespeed.png; DRAGON_POOL "armor_reduction" → "armor reduction.png" (space, as
 # authored). See docs/hud.md §12 for the full audit of this art pass.
-const WEAPON_PERK_ID_ALIAS := {"aoe_mastery": "aoe", "cd": "cooldown", "ms": "movespeed", "armor_reduction": "armor reduction"}
+# Keys may be scoped "kind/perk_id" (checked first) to override just one weapon without touching the id's
+# meaning elsewhere — e.g. PLAYER2_POOL's "damage" (Overclock) needs its own file, but "damage" must stay
+# "damage.png" for every other pool.
+const WEAPON_PERK_ID_ALIAS := {
+	"aoe_mastery": "aoe", "cd": "cooldown", "ms": "movespeed", "armor_reduction": "armor reduction",
+	"player_2/damage": "overclock",
+}
 var _weapon_perk_icon_cache: Dictionary = {} # "kind/perk_id" → Texture2D (or null if missing)
 
 # Full-screen layout fractions (symmetric: left/right columns equal, centered main column).
@@ -537,7 +549,7 @@ func _board_make_option_icon(frame: Control, c: Dictionary) -> Control:
 	var color: Color = c.get("color", Color.GRAY)
 	var content: Control
 	var box: Vector2
-	if def_id != "":
+	if def_id != "" or String(c.get("icon", "")) != "":   # weapon-with-art path (def_id OR a direct icon override)
 		box = frame.size - Vector2(WEAPON_SPRITE_MARGIN, WEAPON_SPRITE_MARGIN)
 		var wtex := _option_icon_tex(c)   # weapon-perk icon for "pool" cards, else the weapon's own icon
 		if wtex != null:
@@ -1020,7 +1032,7 @@ func _weapon_perk_icon_tex(kind: String, perk_id: String) -> Texture2D:
 	if _weapon_perk_icon_cache.has(cache_key):
 		return _weapon_perk_icon_cache[cache_key]
 	var dir := WEAPON_PERK_ICON_DIR + String(WEAPON_PERK_FOLDER[kind]) + "/"
-	var fname := String(WEAPON_PERK_ID_ALIAS.get(perk_id, perk_id))
+	var fname := String(WEAPON_PERK_ID_ALIAS.get(kind + "/" + perk_id, WEAPON_PERK_ID_ALIAS.get(perk_id, perk_id)))
 	var path := dir + fname + ".png"
 	var tex: Texture2D = (load(path) as Texture2D) if ResourceLoader.exists(path) else null
 	_weapon_perk_icon_cache[cache_key] = tex
@@ -1041,6 +1053,13 @@ func _option_icon_tex(c: Dictionary) -> Texture2D:
 	var def_id := String(c.get("def_id", ""))
 	if def_id != "":
 		return InventoryManager.get_icon(def_id)
+	# Weapons with no inventory def_id (e.g. Swarm, Striker) carry a direct art path in WEAPON_INFO["icon"],
+	# threaded into the choice dict by _weapon_choice()/_fusion_choice() — try that before falling to aux art.
+	var icon_path := String(c.get("icon", ""))
+	if icon_path != "":
+		var itex := load(icon_path) as Texture2D
+		if itex != null:
+			return itex
 	var tex2: Texture2D = null
 	if cat == "aux_pool":
 		tex2 = _perk_icon_tex(String(c.get("key", "")))
@@ -1072,8 +1091,12 @@ func _fit_texture_rect(tex: Texture2D, max_w: float, max_h: float) -> Dictionary
 
 ## A centered sprite for a weapon/fusion def_id or an aux id, or a colour swatch fallback (missing art).
 ## The TextureRect keeps the texture's aspect (never stretched).
-func _sprite_or_swatch(def_id: String, color: Color, aux_id: String = "") -> Control:
-	var tex: Texture2D = InventoryManager.get_icon(def_id) if def_id != "" else _aux_icon_tex(aux_id)
+func _sprite_or_swatch(def_id: String, color: Color, aux_id: String = "", icon_path: String = "") -> Control:
+	var tex: Texture2D = InventoryManager.get_icon(def_id) if def_id != "" else null
+	if tex == null and icon_path != "":
+		tex = load(icon_path) as Texture2D
+	if tex == null:
+		tex = _aux_icon_tex(aux_id)
 	if tex != null:
 		var tr := TextureRect.new()
 		tr.texture = tex
@@ -1100,14 +1123,14 @@ func _render_left() -> void:
 			fusion = c
 		else:
 			rest.append(c)
-	var slot_specs: Array = []   # each: {def, name, color, idx (into _choices), fusion}
+	var slot_specs: Array = []   # each: {def, name, color, idx (into _choices), fusion, icon}
 	if not fusion.is_empty():
-		slot_specs.append({"def": String(fusion.get("def_a", "")), "name": fusion["name"], "color": fusion.get("color", Color.GRAY), "idx": _choices.find(fusion), "fusion": true})
-		slot_specs.append({"def": String(fusion.get("def_b", "")), "name": fusion["name"], "color": fusion.get("color", Color.GRAY), "idx": _choices.find(fusion), "fusion": true})
+		slot_specs.append({"def": String(fusion.get("def_a", "")), "name": fusion["name"], "color": fusion.get("color", Color.GRAY), "idx": _choices.find(fusion), "fusion": true, "icon": String(fusion.get("icon_a", ""))})
+		slot_specs.append({"def": String(fusion.get("def_b", "")), "name": fusion["name"], "color": fusion.get("color", Color.GRAY), "idx": _choices.find(fusion), "fusion": true, "icon": String(fusion.get("icon_b", ""))})
 	for c: Dictionary in rest:
 		if slot_specs.size() >= 3:
 			break
-		slot_specs.append({"def": String(c.get("def_id", "")), "name": c["name"], "color": c.get("color", Color.GRAY), "idx": _choices.find(c), "fusion": false, "aux_id": _aux_id_for(c)})
+		slot_specs.append({"def": String(c.get("def_id", "")), "name": c["name"], "color": c.get("color", Color.GRAY), "idx": _choices.find(c), "fusion": false, "aux_id": _aux_id_for(c), "icon": String(c.get("icon", ""))})
 	_slot_specs = slot_specs   # shared with the authored-board renderer
 	for i in mini(slot_specs.size(), 3):
 		_make_slot(_slot_nodes[i], slot_specs[i])
@@ -1117,7 +1140,7 @@ func _make_slot(slot: Control, spec: Dictionary) -> void:
 	var idx := int(spec["idx"])
 	var is_fusion := bool(spec["fusion"])
 	# Centered sprite (upper band of the slot).
-	var spr := _sprite_or_swatch(String(spec["def"]), spec.get("color", Color.GRAY), String(spec.get("aux_id", "")))
+	var spr := _sprite_or_swatch(String(spec["def"]), spec.get("color", Color.GRAY), String(spec.get("aux_id", "")), String(spec.get("icon", "")))
 	spr.anchor_left = 0.12; spr.anchor_right = 0.88
 	spr.anchor_top = 0.08; spr.anchor_bottom = 0.66
 	slot.add_child(spr)
@@ -1169,7 +1192,7 @@ func _select_item(idx: int) -> void:
 	if String(c.get("cat", "")) == "fusion":
 		_select_fusion(c)   # bespoke A-top / FUSION / B-bottom view
 		return
-	_set_selected_display(String(c.get("def_id", "")), String(c["name"]), c.get("color", Color.GRAY), _aux_id_for(c))
+	_set_selected_display(String(c.get("def_id", "")), String(c["name"]), c.get("color", Color.GRAY), _aux_id_for(c), String(c.get("icon", "")))
 	_title.text = String(c["name"])
 	_route_options(c)
 	_play_sfx("res://assets/audio/sfx/uiclick.wav")
@@ -1177,10 +1200,10 @@ func _select_item(idx: int) -> void:
 		_board_render_choices()   # refresh the left-column scan VFX onto the newly-selected slot
 
 ## Fill the center-top panel with a big centered sprite + the item name.
-func _set_selected_display(def_id: String, item_name: String, color: Color, aux_id: String = "") -> void:
+func _set_selected_display(def_id: String, item_name: String, color: Color, aux_id: String = "", icon_path: String = "") -> void:
 	for ch in _selected_box.get_children():
 		ch.free()
-	var spr := _sprite_or_swatch(def_id, color, aux_id)
+	var spr := _sprite_or_swatch(def_id, color, aux_id, icon_path)
 	spr.anchor_left = 0.2; spr.anchor_right = 0.8
 	spr.anchor_top = 0.06; spr.anchor_bottom = 0.78
 	_selected_box.add_child(spr)
@@ -1311,11 +1334,11 @@ func _make_option_box(c: Dictionary, idx: int, total: int) -> Control:
 func _select_fusion(c: Dictionary) -> void:
 	_selected_idx = _choices.find(c)
 	_title.text = "FUSE — %s" % String(c["name"])
-	_set_selected_display(String(c.get("def_a", "")), String(c["name"]), c.get("color", Color.GRAY))
+	_set_selected_display(String(c.get("def_a", "")), String(c["name"]), c.get("color", Color.GRAY), "", String(c.get("icon_a", "")))
 	for ch in _options_box.get_children():
 		ch.free()
 	# Source B sprite (fills the options box, leaving room for the FUSION button on top).
-	var spr := _sprite_or_swatch(String(c.get("def_b", "")), c.get("color", Color.GRAY))
+	var spr := _sprite_or_swatch(String(c.get("def_b", "")), c.get("color", Color.GRAY), "", String(c.get("icon_b", "")))
 	spr.anchor_left = 0.3; spr.anchor_right = 0.7
 	spr.anchor_top = 0.28; spr.anchor_bottom = 0.96
 	_options_box.add_child(spr)
@@ -1416,6 +1439,7 @@ func _weapon_choice(aw: Node, kind: String, action: String) -> Dictionary:
 		"cat": "weapon", "key": kind, "action": action, "ckey": "w:" + kind,
 		"name": String(info.get("label", kind)),
 		"def_id": String(info.get("def_id", "")),
+		"icon": String(info.get("icon", "")),   # fallback art for kinds with no inventory def_id (Swarm, Striker)
 		"weight": WEAPON_WEIGHTS.get(kind, 50),
 		"color": WEAPON_FALLBACK_COLOR,
 		"level": int(aw.call("weapon_level", kind)),
@@ -1448,6 +1472,8 @@ func _fusion_choice(aw: Node, fid: String) -> Dictionary:
 		"def_id": String(rec.get("def_id", "")),
 		"def_a": String(ai.get("def_id", "")),
 		"def_b": String(bi.get("def_id", "")),
+		"icon_a": String(ai.get("icon", "")),
+		"icon_b": String(bi.get("icon", "")),
 		"weight": 1,
 		"color": Color(1.0, 0.82, 0.30),
 		"level": 0,
@@ -1539,8 +1565,8 @@ func _weapon_pool(kind: String) -> Dictionary:
 		return ArenaWeapons.BOOM_POOL
 	if kind == "snake":
 		return ArenaWeapons.SNAKE_POOL
-	if kind == "striker":
-		return ArenaWeapons.STRIKER_POOL
+	if kind == "shooter":
+		return ArenaWeapons.SHOOTER_POOL
 	if kind == "ionize":
 		return ArenaWeapons.IONIZE_POOL
 	if kind == "player_2":
@@ -1573,6 +1599,7 @@ func _gen_pool_choices(kind: String) -> Array:
 			"cat": "pool", "weapon": kind, "key": id, "action": "pool",
 			"name": String(d.get("name", id)),
 			"def_id": def_id,
+			"icon": String(info.get("icon", "")),   # fallback art for kinds with no inventory def_id (Swarm, Striker)
 			"color": WEAPON_FALLBACK_COLOR,
 			"effect": String(d.get("per", "")),
 			"desc": String(d.get("desc", "")),

@@ -841,7 +841,7 @@
     "Enemies take +1% damage from ALL sources per 10 bleed stacks on them."
    ]
   ],
-  "striker": [
+  "shooter": [
    [
     "avatar2",
     "Avatar 2",
@@ -1126,7 +1126,7 @@
  "wi": {
   "gatling": [
    "Kinetic Auto Cannon",
-   "Minigun"
+   "Gatling"
   ],
   "death_beam": [
    "Death Beam",
@@ -1144,8 +1144,12 @@
    "Orbital Impact Defense",
    "Defender"
   ],
+  "shooter": [
+   "Shooter",
+   "Shooter"
+  ],
   "striker": [
-   "Orbital Impact Offense",
+   "Striker",
    "Striker"
   ],
   "void": [
@@ -1181,8 +1185,8 @@
    "Ionizing Field"
   ],
   "boomerang": [
-   "Aliwa",
-   "Aliwa"
+   "Boomerang",
+   "Boomerang"
   ],
   "parasite": [
    "Venomancer",

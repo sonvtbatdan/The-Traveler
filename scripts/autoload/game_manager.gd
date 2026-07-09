@@ -354,6 +354,14 @@ func ship_take_damage(dmg: int) -> void:
 	ship_hp = maxi(0, ship_hp - int(ceil(d)))
 	ship_hp_changed.emit(ship_hp)
 	if ship_hp <= 0:
+		# Player died mid-fight: the boss never reached 0 HP, so take_boss_damage's own cleanup
+		# never ran. Clear its state here so a fresh run doesn't inherit a stale "boss active"
+		# flag (the boss HUD bar polls boss_hp/boss_max_hp directly and would otherwise reappear).
+		boss_hp = 0
+		boss_max_hp = 0
+		boss_armor = 0.0
+		boss_intro_active = false
+		input_locked = false
 		ship_destroyed.emit()
 
 # ── Armor / max HP (gear-driven) ──────────────────────────────────────────────

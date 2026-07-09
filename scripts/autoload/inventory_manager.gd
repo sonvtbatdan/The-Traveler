@@ -871,7 +871,7 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "weight": 5 },
 	},
 	"boomerang": {
-		"name": "Aliwa",
+		"name": "Boomerang",
 		"icon": "res://assets/inventory/ND-Aliwa.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],

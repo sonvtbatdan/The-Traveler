@@ -16,7 +16,7 @@ const SPEED_MIN   := 20.0
 const SPEED_MAX   := 50.0
 const HIT_FLASH_T := 0.12               # seconds of white flash per hit
 
-const LOOT_POOL := ["coin", "diamond", "heart", "magnetic", "shield"]
+const LOOT_POOL := ["coin", "diamond", "heart", "magnetic", "divinity"]
 
 # ── State ─────────────────────────────────────────────────────────────────────
 var _phase: String = "ship"   # "ship" | "box"

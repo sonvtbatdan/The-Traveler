@@ -40,7 +40,8 @@
 | `gauss` | Gauss | Gauss Pulser | Horizon Logistics × Vanguard Ballistics | ⚙️ có |
 | `orbital` | Defensive Orbitals | Defensive Orbitals | Nebula Dynamics | ⚙️ có |
 | `red_x` | Dragon's Breath | Dragon's Breath | Volney Elements | ⚙️ có (Dragon pool) |
-| `striker` | Offensive Orbitals | Offensive Orbitals | Nebula Dynamics | ⚙️ có |
+| `shooter` | Shooter | Shooter | Nebula Dynamics | ⚙️ có |
+| `striker` | Striker | Striker | Nebula Dynamics | level đơn giản |
 | `void` | Vacuum | Vacuum Decoupler | Horizon Logistics | level đơn giản |
 | `chemtrail` | Chemtrail | Chemtrail | Volney Elements | ⚙️ có |
 | `nuke` | Mortal | Rosastro HE Mortar | Rosastro | level đơn giản |
@@ -48,7 +49,7 @@
 | `sonic` | Ultrasonicator | Ultrasonicator | Yongsan | ⚙️ có |
 | `zsword` | Z-Sword | Z-Sword | Eisenkraft Kinematik | ⚙️ có |
 | `ionize` | Black Hole | Tachyon Displacer | Horizon Logistics | level đơn giản |
-| `boomerang` | Aliwa | Aliwa | Nebula Dynamics | level đơn giản |
+| `boomerang` | Boomerang | Boomerang | Nebula Dynamics | ⚙️ có |
 | `parasite` | Venomancer | Bio-Corrosive Spore Launcher | Volney Elements × Chakra Bio-Synthetics | level đơn giản |
 | `moroboshi` | Yari | Yari | Miyamoto | level đơn giản |
 | `yari_jaeger` | Yari Jeager | Yari Jeager | Miyamoto × Eisenkraft Kinematik | level đơn giản |

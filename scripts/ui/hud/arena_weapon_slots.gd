@@ -80,7 +80,7 @@ func _info_for(kind: String) -> Dictionary:
 	var fd: Dictionary = ArenaWeapons.FUSION_DEFS
 	return fd.get(kind, {})
 
-## Code name = the weapon's short display name (WEAPON_INFO/FUSION_DEFS "label"), e.g. "Minigun".
+## Code name = the weapon's short display name (WEAPON_INFO/FUSION_DEFS "label"), e.g. "Gatling".
 func _code_for(kind: String) -> String:
 	var info := _info_for(kind)
 	return String(info.get("label", info.get("name", kind)))
