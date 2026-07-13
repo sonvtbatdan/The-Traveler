@@ -54,8 +54,10 @@ const SHIP_SPRITE     := "res://assets/screen/Spaceship.png"   # legacy 2D art (
 const SHIP_MODEL         := "res://assets/defense/Ship_model_1.glb"   # 3D ship rendered into a SubViewport
 const VP_SIZE            := 256               # SubViewport render resolution for the ship
 const SHIP_DISPLAY_GAIN  := 3.5               # size fudge so the framed model fills ~PLAYER_SIZE_PX (tune to taste)
-const SHIP_ROLL_MAX_DEG  := 90.0             # bank at full-side (aiming left/right); 0 = never bank (flat top-down)
-const SHIP_INVERT_SIDES  := -1.0             # roll direction — flip to +1.0 if the side views come out upside-down
+const SHIP_ISO_DEG       := 30.0             # camera tilt from top-down (0 = flat top-down, ~30 = isometric)
+const SHIP_LEAN_MAX_DEG  := 18.0             # gentle bank into turns (0 = never lean)
+const SHIP_YAW_SIGN      := 1.0              # flip to -1.0 if the ship turns opposite the mouse
+const SHIP_INVERT_SIDES  := -1.0             # lean direction — flip to +1.0 if it leans the wrong way
 const MUZZLE_CFG         := "res://ship_muzzles.cfg"   # muzzle anchor points placed in ship_rotation_test
 const CAM_ZOOM        := Vector2(1.0, 1.0)   # >1 zooms in, <1 zooms out
 const PLAYER_SIZE_PX  := 48.0                 # ship drawn this many px on its longest side (scaled from the texture)
@@ -95,7 +97,7 @@ var _ship_spr: Sprite2D = null            # now displays the 3D ship SubViewport
 var _ship_vp: SubViewport = null          # renders the 3D model top-down
 var _ship_pivot: Node3D = null            # model parent — rolled each frame to bank the ship
 var _ship_cam: Camera3D = null
-var _muzzle_anchors: Dictionary = {}      # slot:int -> Node3D on the model (rides the bank)
+var _muzzle_anchors: Dictionary = {}      # slot:int -> Node3D on the model (rides the ship's 3D orientation)
 var _player_shape: CircleShape2D = null   # collision circle (Juggernaut scales its radius)
 var _applied_size_mult: float = 1.0       # last ship-size mult applied (Juggernaut nerf)
 var _tex_normal: Texture2D = null
@@ -340,8 +342,10 @@ func _frame_ship_cam(model: Node3D) -> void:
 	var radius: float = maxf(aabb.size.length() * 0.5, 0.001)
 	var half_fov := deg_to_rad(_ship_cam.fov * 0.5)
 	var dist := radius / tan(half_fov) + radius
-	_ship_cam.position = Vector3(0.0, 0.0, dist)
-	_ship_cam.look_at(Vector3.ZERO, Vector3.UP)
+	# Iso: raise the camera SHIP_ISO_DEG off straight-down so we view the ship at a fixed tilt.
+	var iso := deg_to_rad(SHIP_ISO_DEG)
+	_ship_cam.position = Vector3(0.0, cos(iso), sin(iso)) * dist
+	_ship_cam.look_at(Vector3.ZERO, Vector3(0.0, 1.0, 0.0))
 	_ship_cam.near = maxf(0.05, dist - radius * 2.0)
 	_ship_cam.far  = dist + radius * 2.0
 
@@ -371,11 +375,16 @@ func _model_meshes(node: Node) -> Array:
 func _update_ship_3d() -> void:
 	if _ship_pivot == null or _player == null:
 		return
-	var roll := deg_to_rad(SHIP_ROLL_MAX_DEG) * sin(_player.rotation) * SHIP_INVERT_SIDES
-	# base = top toward camera, nose up-screen (matches the ship_rotation_test harness).
-	var base := Basis(Vector3(0, 0, 1), deg_to_rad(-90.0)) * Basis(Vector3(1, 0, 0), deg_to_rad(90.0))
-	var roll_b := Basis(Vector3(0, 1, 0), roll)
-	_ship_pivot.transform = Transform3D(roll_b * base, Vector3.ZERO)
+	# Isometric: the ship yaws in 3D to aim (so the camera tilt stays fixed), with a gentle bank.
+	var yaw := -_player.rotation * SHIP_YAW_SIGN
+	var lean := deg_to_rad(SHIP_LEAN_MAX_DEG) * sin(_player.rotation) * SHIP_INVERT_SIDES
+	var base := Basis(Vector3(0, 1, 0), deg_to_rad(-90.0))   # dorsal +Y up, nose → -Z at yaw 0
+	var lean_b := Basis(Vector3(1, 0, 0), lean)              # roll about the model's nose axis (local X)
+	var heading := Basis(Vector3(0, 1, 0), yaw)              # yaw about world up
+	_ship_pivot.transform = Transform3D(heading * base * lean_b, Vector3.ZERO)
+	# Heading now lives in 3D, so the display sprite must stay screen-fixed (cancel _player's rotation).
+	if _ship_spr != null:
+		_ship_spr.rotation = -_player.rotation
 
 ## Load the muzzle anchor points (placed in ship_rotation_test) as Node3D children of the model, so they
 ## ride the ship's roll. Weapons resolve their world muzzle via muzzle_world(slot).
@@ -390,9 +399,9 @@ func _load_muzzle_anchors(model: Node3D) -> void:
 		model.add_child(anchor)
 		_muzzle_anchors[int(key)] = anchor
 
-## World-space 2D position of muzzle point `slot`, following the ship's heading AND bank.
-## Projects the 3D anchor through the ship camera, scales to the on-screen ship, rotates by heading.
-## Returns the ship centre if the slot isn't defined (safe fallback).
+## World-space 2D position of muzzle point `slot`. Projects the placed 3D anchor through the ship
+## camera → exactly where that point lands on the rendered (tilted) ship, then maps it to the on-screen
+## ship. The anchor rides the ship's 3D orientation, so no axis/scale guessing. Ship centre if undefined.
 func muzzle_world(slot: int) -> Vector2:
 	if _player == null:
 		return Vector2.ZERO
@@ -401,7 +410,8 @@ func muzzle_world(slot: int) -> Vector2:
 		return _player.global_position
 	var pix := _ship_cam.unproject_position(anchor.global_position)
 	var off := (pix - Vector2(VP_SIZE, VP_SIZE) * 0.5) * _ship_spr.scale.x
-	return _player.global_position + off.rotated(_player.rotation)
+	# Display sprite is screen-fixed (heading is in the 3D render), so no extra 2D rotation.
+	return _player.global_position + off
 
 ## True once at least one muzzle anchor is loaded (weapons fall back to legacy offsets otherwise).
 func has_muzzle_anchors() -> bool:

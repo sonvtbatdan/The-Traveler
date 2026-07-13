@@ -6063,7 +6063,7 @@ func _tick_snake(delta: float) -> void:
 func _run_snake(delta: float, kind: String, turn_rate := SNAKE_TURN, aim_angle := INF) -> void:
 	if not _snake_init:
 		_snake_pts.clear()
-		var base := _player.global_position
+		var base := _mz(6) if _has_anchors() else _player.global_position   # spawn from point 6
 		for k in _snake_len():
 			_snake_pts.append(base - Vector2(SNAKE_SPACING * float(k), 0.0))
 		_snake_dir = 0.0
