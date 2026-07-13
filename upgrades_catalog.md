@@ -201,51 +201,51 @@ Khi cả 2 thành phần đều ở level tối đa, card fusion (vàng) luôn x
 ### Reinforcement Plate (`hp`)
 | Perk | Mỗi rank | Max | Mô tả |
 |------|----------|-----|-------|
-| Reinforced Plating | +20 Max HP | 10 | Gia cố hull (tăng theo Mastery). |
-| Bulwark | +10 HP, +1 Armor | 10 | Độ bền + giảm damage phẳng. |
-| Ablative Layer | +10 HP, +2% Speed | 10 | Trâu mà không chậm. |
-| Sacrificial Armor | −5% Max HP, +5% Damage | 5 | Đổi máu lấy sát thương. |
-| Reinforcement Mastery | +5% mọi HP gain | 5 | Mọi hiệu ứng tăng HP mạnh hơn (hồi tố). |
-| Overall Improvement | +1% HP/Dmg/Speed/Armor | 5 | Một chút mọi thứ. |
+| Reinforced Plating | +20 Max HP | 10 | The alloy cladding panels reinforce the ship's hull structure, enhancing its structural integrity. |
+| Bulwark | +10 HP, +1 Armor | 10 | The multi-layered defensive armor system optimizes shock absorption and core protection. |
+| Ablative Layer | +10 HP, +2% Speed | 10 | The heat-dissipating coating protects the hull from damage without increasing the static weight. |
+| Sacrificial Armor | −5% Max HP, +5% Damage | 5 | The protocol redirects energy from the protective shield to the core weapon system. |
+| Reinforcement Mastery | +5% mọi HP gain | 5 | The algorithm optimizes the microstructure, amplifying the performance of every hull reinforcement module. |
+| Overall Improvement | +1% HP/Dmg/Speed/Armor | 5 | This comprehensive micro-patch involves fine-tuning the entire mechatronics system of the warship. |
 
 ### Nanobots (`regen`)
 | Perk | Mỗi rank | Max | Mô tả |
 |------|----------|-----|-------|
-| Repair Swarm | +0.2 HP regen/s | 10 | Nhiều nanobot, hồi nhanh hơn. |
-| Mending Cloud | +0.1 HP regen, +10 HP | 10 | Regen + chút máu. |
-| Shield Weavers | +0.1 HP regen, +0.1 shield/s | 10 | Hồi hull + shield cùng lúc. |
-| Regeneration Mastery | +5% mọi regen | 5 | Mọi regen (HP + shield) mạnh hơn. |
-| Automation Speed | +5% automation wpn speed | 5 | Vũ khí auto-fire bắn nhanh hơn. |
-| Overflow Plating | Over-regen → shield, +10 Max Shield | 5 | HP regen thừa nạp vào shield. |
+| Repair Swarm | +0.2 HP regen/s | 10 | The protocol deploys swarms of nanobots to automatically repair micro-cracks on the ship's hull surface. |
+| Mending Cloud | +0.1 HP regen, +10 HP | 10 | The intelligent nanoparticle cloud clings to the shell, continuously renewing the material and reinforcing its underlying strength. |
+| Shield Weavers | +0.1 HP regen, +0.1 shield/s | 10 | The bipolar system simultaneously intertwines protective force fields and activates a self-repairing matrix. |
+| Regeneration Mastery | +5% mọi regen | 5 | The recovery protocol has been upgraded, accelerating the molecular regeneration rate of both the hull and the force field. |
+| Automation Speed | +5% automation wpn speed | 5 | Overriding the processor limitations of automated weapon systems enhances machine response speed. |
+| Overflow Plating | Over-regen → shield, +10 Max Shield | 5 | Excess energy conversion: when the hull is intact, renewable materials are converted into an additional shielding layer. |
 
 ### Exoskeleton (`armor`)
 | Perk | Mỗi rank | Max | Mô tả |
 |------|----------|-----|-------|
-| Plate Layering | +2 Armor | 10 | Armor phẳng (trừ sau % DR). |
-| Reinforced Joints | +1 Armor, +1 HP | 10 | Armor + chút hull. |
-| Damping Mesh | +3% DR (pre-armor) | 5 | Giảm % phẳng TRƯỚC khi armor xử lý. |
-| Caltrop Plating | +8% projectile reflect | 5 | Cơ hội dội đạn địch ngược lại. |
-| Harden Mastery | +5% armor effectiveness | 5 | Mọi bonus armor giá trị hơn. |
-| Weak-Point Optics | +5% kinetic crit chance | 5 | Vũ khí kinetic crit thường hơn. |
+| Plate Layering | +2 Armor | 10 | The technique of stacking multi-layered reactive armor neutralizes the kinetic energy of direct collisions. |
+| Reinforced Joints | +1 Armor, +1 HP | 10 | Reinforcing mechanical joints with titanium-carbon alloy minimizes the risk of structural fracture. |
+| Damping Mesh | +3% DR (pre-armor) | 5 | The electromagnetic grid disperses the impact force, weakening the beam and kinetic energy before they reach the main armor layer. |
+| Caltrop Plating | +8% projectile reflect | 5 | The ship's hull surface incorporates a micro-field of force reflection, capable of deflecting or bouncing back incoming flying objects. |
+| Harden Mastery | +5% armor effectiveness | 5 | Optimizing the molecular bonds of the entire armor system maximizes its resistance to external forces. |
+| Weak-Point Optics | +5% kinetic crit chance | 5 | The optical module analyzes the spectral structure, locating weak points on the target's armor for kinetic energy weapons. |
 
 ### Art of War (`damage`)
 | Perk | Mỗi rank | Max | Mô tả |
 |------|----------|-----|-------|
-| Kinetic Mastery | +10% kinetic damage | 10 | Global: mọi vũ khí kinetic (chia sẻ level với Kinetic Mastery từ item khác). |
-| Energy Mastery | +10% energy damage | 10 | Global: mọi vũ khí energy (shared skill). |
-| Biochemical Mastery | +10% bio damage | 10 | Global: mọi vũ khí biochemical. |
-| General Weapon Mastery | +2.5% ALL damage | 10 | Global: mọi vũ khí, mọi loại. |
-| Stroke of Luck | +1% mọi proc chance | 5 | Global luck (chia sẻ với Arc's Stroke of Luck). |
+| Kinetic Mastery | +10% kinetic damage | 10 | Fine-tuning the magnetic field acceleration within the gun barrel maximizes the kinetic energy output of any physical projectile. |
+| Energy Mastery | +10% energy damage | 10 | Enhance the plasma reactor core, amplifying the intensity of energy beams and charged particles. |
+| Biochemical Mastery | +10% bio damage | 10 | It alters the molecular structure of biochemical compounds, increasing their corrosive and toxic properties to the maximum level. |
+| General Weapon Mastery | +2.5% ALL damage | 10 | Synchronizing the micro-targeting system enhances accuracy and overall damage output. |
+| Stroke of Luck | +1% mọi proc chance | 5 | The algorithm bends quantum probability, increasing the likelihood of triggering secondary lethal protocols. |
 
 ### Fins (`speed`)
 | Perk | Mỗi rank | Max | Mô tả |
 |------|----------|-----|-------|
-| Streamlining | +6% Move Speed | 10 | Nhanh toàn diện. |
-| Evasion Thrusters | +5% Dodge | 5 | Cơ hội né hoàn toàn 1 đòn. |
-| Compact Frame | −3% ship size | 5 | Nhỏ hơn = khó trúng hơn. |
-| Reflex Booster | +20% i-frame duration | 5 | I-frame dài hơn sau khi trúng đòn. |
-| Overdrive | +2% Move Speed, +2% Fire Rate | 10 | Chút speed + chút rate. |
-| Speed Mastery | +15% of MS → weapon speed | 5 | Phần move-speed bonus tăng tốc đạn + minion. |
+| Streamlining | +6% Move Speed | 10 | Reshaping the protective force field based on quantum aerodynamic principles, minimizing spatial drag. |
+| Evasion Thrusters | +5% Dodge | 5 | It incorporates a system of variable-geometry jet engines, allowing for sudden evasive maneuvers. |
+| Compact Frame | −3% ship size | 5 | Optimizing interior space and shrinking the physical structure of the warship reduces the cross-sectional area susceptible to projectile hits. |
+| Reflex Booster | +20% i-frame duration | 5 | Emergency Reflex System: Automatically overloads the force field in an instant upon taking damage, creating a brief period of physical invisibility. |
+| Overdrive | +2% Move Speed, +2% Fire Rate | 10 | Activating the full overclocking protocol pushes both the propulsion system and the weapon system beyond safe limits. |
+| Speed Mastery | +15% of MS → weapon speed | 5 | The warship's acceleration is synchronized with the launch system, transferring kinetic energy from the hull to the launched objects. |
 
 ---
 

@@ -37,6 +37,22 @@ func update(_delta: float) -> void:
 func clear() -> void:
 	pass
 
+# ── Shared role-lookup helpers (available to every subclass) ───────────────────────────────────────
+## Bounding box (screen coords) of a group by name (case/space-insensitive), or empty Rect2 if the group
+## doesn't exist or has no children.
+func group_rect(name: String) -> Rect2:
+	if _ed == null:
+		return Rect2()
+	var want := name.strip_edges().to_lower()
+	for gi: int in (_ed._groups as Array).size():
+		if String((_ed._groups[gi] as Dictionary).get("name", "")).strip_edges().to_lower() == want:
+			return _ed._group_bbox(gi)
+	return Rect2()
+
+## Host container to parent runtime nodes onto (renders at the host's CanvasLayer).
+func container() -> Control:
+	return _ed._objects_container if _ed != null else null
+
 # ── Editor-facing capability hooks (let the generic editor stay board-agnostic) ──────────────────────
 ## A "bar band" sprite: the editor shows the GROW-direction dropdown for it and treats it as an edit-only
 ## indicator (hidden in gameplay; its masked fill is the visible bar). Non-bar boards return false.

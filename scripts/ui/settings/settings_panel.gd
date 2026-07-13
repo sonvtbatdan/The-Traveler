@@ -7,11 +7,22 @@ extends CanvasLayer
 ##   HUD     : which authored HUD layout (board_defs.gd's `hud_version` boards, e.g. "HUD 1.0" /
 ##             "HUD 1.1") drives in-arena rendering. Applied live if an arena HUD surface (group
 ##             "hud_edit") is already in the tree, via HudEditScript.set_home_board().
+##   Language: which translated text variant is shown (currently English / Tiếng Việt — see
+##             LANGUAGES). Only text with a `desc_<lang_id>` field (so far: aux perk descriptions in
+##             arena_aux.gd's AUX_POOL) actually changes; anything untranslated just falls back to
+##             English. Read via `SettingsScript.load_cfg()["language"]` wherever localized text is
+##             rendered (e.g. arena_levelup_ui.gd) — no live surface to swap, so no _apply_ needed.
+##   Dev Mode: switch replacing the (now-hidden) Devon button in arena_hud_buttons.gd — live-only, NOT
+##             persisted to disk (dev mode has always reset to off on every arena load; this keeps that).
+##             Applied via the "arena_hud_buttons" group, no-op in the Main Menu (no arena instance there).
+##   FPS     : switch showing/hiding perf_overlay.gd's top-right readout — same live-only pattern as Dev
+##             Mode (group "perf_overlay"), off by default, no-op in the Main Menu.
 ##   Save    : persist to user://settings.cfg + close.
-##   Reset   : restore defaults (Volume 100%, Windowed, HUD 1.0) live (persisted only if you then Save).
+##   Reset   : restore defaults (Volume 100%, Windowed, HUD 1.0, English) live (persisted only if you then Save).
 ##   Cancel  : revert any live change to the snapshot taken on open + close (no save).
 ##
-## Persistence lives in user://settings.cfg ([audio] sfx_volume, [display] fullscreen, [hud] version).
+## Persistence lives in user://settings.cfg ([audio] sfx_volume, [display] fullscreen, [hud] version,
+## [game] language).
 ## `SettingsPanel.apply_saved()` (static) applies the saved values at startup — call it from
 ## the entry points (main_menu / arena_hud_buttons) since AudioManager is a locked autoload. HUD
 ## version isn't applied there (no arena HUD exists yet at that point) — `arena.gd._setup_hud_edit()`
@@ -26,6 +37,14 @@ const FONT_BODY  := "res://assets/fonts/Gameplay.ttf"
 const DEF_VOLUME := 1.0
 const DEF_FULLSCREEN := false
 const DEF_HUD_VERSION := "hud"   # board_defs.gd id for "HUD 1.0"
+const DEF_LANGUAGE := "en"
+
+# Supported UI languages. `id` is the suffix used for localized-text fields (e.g. `desc_vi`) —
+# add an entry here to expose a new language in the dropdown once its text data exists.
+const LANGUAGES := [
+	{"id": "en", "label": "English"},
+	{"id": "vi", "label": "Tiếng Việt"},
+]
 
 # ── Static load / apply (used at startup + by this panel) ────────────────────────
 static func load_cfg() -> Dictionary:
@@ -34,11 +53,21 @@ static func load_cfg() -> Dictionary:
 	var hud_version := String(cfg.get_value("hud", "version", DEF_HUD_VERSION))
 	if not BoardDefs.hud_version_ids().has(hud_version):
 		hud_version = DEF_HUD_VERSION   # saved id no longer exists (removed board) — fall back
+	var language := String(cfg.get_value("game", "language", DEF_LANGUAGE))
+	if not _language_ids().has(language):
+		language = DEF_LANGUAGE   # saved id no longer supported — fall back
 	return {
 		"volume": float(cfg.get_value("audio", "sfx_volume", DEF_VOLUME)),
 		"fullscreen": bool(cfg.get_value("display", "fullscreen", DEF_FULLSCREEN)),
 		"hud_version": hud_version,
+		"language": language,
 	}
+
+static func _language_ids() -> Array:
+	var out: Array = []
+	for l: Dictionary in LANGUAGES:
+		out.append(String(l["id"]))
+	return out
 
 static func _apply_volume(v: float) -> void:
 	# Master bus = the whole game's audio (music + every SFX bus routes here), so the slider
@@ -63,9 +92,15 @@ static func apply_saved() -> void:
 var _cur_vol: float = DEF_VOLUME
 var _cur_fs:  bool = DEF_FULLSCREEN
 var _cur_hud: String = DEF_HUD_VERSION
+var _cur_lang: String = DEF_LANGUAGE
+var _cur_dev: bool = false
+var _cur_fps: bool = false
 var _snap_vol: float = DEF_VOLUME
 var _snap_fs:  bool = DEF_FULLSCREEN
 var _snap_hud: String = DEF_HUD_VERSION
+var _snap_lang: String = DEF_LANGUAGE
+var _snap_dev: bool = false
+var _snap_fps: bool = false
 var _was_paused: bool = false
 var _updating: bool = false
 
@@ -75,6 +110,9 @@ var _pct_lbl: Label = null
 var _win_btn: Button = null
 var _full_btn: Button = null
 var _hud_opt: OptionButton = null
+var _lang_opt: OptionButton = null
+var _dev_chk: CheckButton = null
+var _fps_chk: CheckButton = null
 
 func _ready() -> void:
 	layer = 100
@@ -91,9 +129,15 @@ func open() -> void:
 	_cur_vol = float(s["volume"])
 	_cur_fs  = bool(s["fullscreen"])
 	_cur_hud = String(s["hud_version"])
+	_cur_lang = String(s["language"])
+	_cur_dev = _read_dev_mode()
+	_cur_fps = _read_fps_shown()
 	_snap_vol = _cur_vol
 	_snap_fs  = _cur_fs
 	_snap_hud = _cur_hud
+	_snap_lang = _cur_lang
+	_snap_dev = _cur_dev
+	_snap_fps = _cur_fps
 	_sync_controls()
 	_apply_volume(_cur_vol)
 	_apply_fullscreen(_cur_fs)
@@ -197,6 +241,46 @@ func _build_ui() -> void:
 	_hud_opt.item_selected.connect(_on_hud_selected)
 	col.add_child(_hud_opt)
 
+	# ── Language ──
+	var lang_lbl := Label.new()
+	lang_lbl.text = "Language"
+	_font(lang_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
+	col.add_child(lang_lbl)
+	_lang_opt = OptionButton.new()
+	_lang_opt.custom_minimum_size = Vector2(0.0, 42.0)
+	_font_btn(_lang_opt, 16)
+	for l: Dictionary in LANGUAGES:
+		_lang_opt.add_item(String(l["label"]))
+		_lang_opt.set_item_metadata(_lang_opt.item_count - 1, String(l["id"]))
+	_lang_opt.item_selected.connect(_on_language_selected)
+	col.add_child(_lang_opt)
+
+	# ── Dev Mode ──
+	var dev_row := HBoxContainer.new()
+	dev_row.add_theme_constant_override("separation", 10)
+	col.add_child(dev_row)
+	var dev_lbl := Label.new()
+	dev_lbl.text = "Dev Mode"
+	dev_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_font(dev_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
+	dev_row.add_child(dev_lbl)
+	_dev_chk = CheckButton.new()
+	_dev_chk.toggled.connect(_on_dev_toggled)
+	dev_row.add_child(_dev_chk)
+
+	# ── FPS ──
+	var fps_row := HBoxContainer.new()
+	fps_row.add_theme_constant_override("separation", 10)
+	col.add_child(fps_row)
+	var fps_lbl := Label.new()
+	fps_lbl.text = "FPS"
+	fps_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_font(fps_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
+	fps_row.add_child(fps_lbl)
+	_fps_chk = CheckButton.new()
+	_fps_chk.toggled.connect(_on_fps_toggled)
+	fps_row.add_child(_fps_chk)
+
 	col.add_child(HSeparator.new())
 
 	# ── Save / Reset / Cancel (image buttons, equal width in a row) ──
@@ -258,6 +342,49 @@ func _apply_hud_version(id: String) -> void:
 	if hud != null and hud.has_method("set_home_board"):
 		hud.set_home_board(id)
 
+func _on_language_selected(idx: int) -> void:
+	if _updating:
+		return
+	_cur_lang = String(_lang_opt.get_item_metadata(idx))
+
+func _on_dev_toggled(v: bool) -> void:
+	if _updating:
+		return
+	_cur_dev = v
+	_apply_dev_mode(_cur_dev)
+
+## Read the live dev-mode state from the arena's arena_hud_buttons instance (false if none — e.g. Main Menu).
+func _read_dev_mode() -> bool:
+	var hb := get_tree().get_first_node_in_group("arena_hud_buttons")
+	if hb != null and hb.has_method("is_dev_mode"):
+		return bool(hb.call("is_dev_mode"))
+	return false
+
+## Live-toggle the arena's dev mode (if an arena instance exists). No-op in the Main Menu.
+func _apply_dev_mode(v: bool) -> void:
+	var hb := get_tree().get_first_node_in_group("arena_hud_buttons")
+	if hb != null and hb.has_method("set_dev_mode"):
+		hb.call("set_dev_mode", v)
+
+func _on_fps_toggled(v: bool) -> void:
+	if _updating:
+		return
+	_cur_fps = v
+	_apply_fps_shown(_cur_fps)
+
+## Read the live FPS-overlay visibility (false if none — e.g. Main Menu).
+func _read_fps_shown() -> bool:
+	var po := get_tree().get_first_node_in_group("perf_overlay")
+	if po != null and po.has_method("is_shown"):
+		return bool(po.call("is_shown"))
+	return false
+
+## Live-toggle the arena's FPS overlay (if an arena instance exists). No-op in the Main Menu.
+func _apply_fps_shown(v: bool) -> void:
+	var po := get_tree().get_first_node_in_group("perf_overlay")
+	if po != null and po.has_method("set_shown"):
+		po.call("set_shown", v)
+
 func _sync_controls() -> void:
 	_updating = true
 	_slider.value = _cur_vol * 100.0
@@ -267,6 +394,12 @@ func _sync_controls() -> void:
 		if String(_hud_opt.get_item_metadata(i)) == _cur_hud:
 			_hud_opt.select(i)
 			break
+	for i in _lang_opt.item_count:
+		if String(_lang_opt.get_item_metadata(i)) == _cur_lang:
+			_lang_opt.select(i)
+			break
+	_dev_chk.button_pressed = _cur_dev
+	_fps_chk.button_pressed = _cur_fps
 	_updating = false
 
 func _update_mode_highlight() -> void:
@@ -282,6 +415,7 @@ func _on_save() -> void:
 	cfg.set_value("audio", "sfx_volume", _cur_vol)
 	cfg.set_value("display", "fullscreen", _cur_fs)
 	cfg.set_value("hud", "version", _cur_hud)
+	cfg.set_value("game", "language", _cur_lang)
 	cfg.save(CFG_PATH)
 	_close()
 
@@ -289,16 +423,24 @@ func _on_reset() -> void:
 	_cur_vol = DEF_VOLUME
 	_cur_fs  = DEF_FULLSCREEN
 	_cur_hud = DEF_HUD_VERSION
+	_cur_lang = DEF_LANGUAGE
+	_cur_dev = false
+	_cur_fps = false
 	_sync_controls()
 	_apply_volume(_cur_vol)
 	_apply_fullscreen(_cur_fs)
 	_apply_hud_version(_cur_hud)
+	_apply_dev_mode(_cur_dev)
+	_apply_fps_shown(_cur_fps)
 
 func _on_cancel() -> void:
 	# Revert live changes to the snapshot taken on open, then close without saving.
 	_apply_volume(_snap_vol)
 	_apply_fullscreen(_snap_fs)
 	_apply_hud_version(_snap_hud)
+	_apply_dev_mode(_snap_dev)
+	_apply_fps_shown(_snap_fps)
+	_cur_lang = _snap_lang   # no live surface to revert — just drop the unsaved pick
 	_close()
 
 # ── Helpers ──────────────────────────────────────────────────────────────────────

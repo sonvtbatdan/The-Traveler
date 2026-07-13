@@ -254,10 +254,8 @@ func _bind_text(ch: Dictionary) -> void:
 		return
 	var kind := ""
 	match String(ch.get("text", "")):
-		"200": kind = "hp_cur"
-		"300": kind = "hp_max"
-		"50":  kind = "sh_cur"
-		"100": kind = "sh_max"
+		"300": kind = "hp_max"      # renders "current/max" — see _text_value()
+		"100": kind = "sh_max"      # renders "current/max" — see _text_value()
 		"KILL": kind = "kill"
 		"COIN": kind = "coin"
 		"LV. 3": kind = "level"
@@ -296,10 +294,8 @@ func _set_fill_progress(fill: TextureRect, cur: float, maxv: float) -> void:
 
 func _text_value(kind: String) -> String:
 	match kind:
-		"hp_cur": return str(GameManager.ship_hp)
-		"hp_max": return str(GameManager.ship_max_hp)
-		"sh_cur": return str(int(round(GameManager.ship_shield)))
-		"sh_max": return str(int(round(GameManager.shield_capacity_total())))
+		"hp_max": return "%d/%d" % [GameManager.ship_hp, GameManager.ship_max_hp]
+		"sh_max": return "%d/%d" % [int(round(GameManager.ship_shield)), int(round(GameManager.shield_capacity_total()))]
 		"kill":   return str(GameManager.run_kills)
 		"coin":   return str(GameManager.money)
 		"level":  return "LV. %d" % GameManager.player_level

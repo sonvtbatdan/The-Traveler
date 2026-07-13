@@ -153,7 +153,7 @@ func _ready() -> void:
 	_build_boundary_vignette()
 	_spawn_reward_chest()                # far reward chest + edge-of-screen pointer
 	add_child(_make_glow_world_env())    # screen glow/bloom (HDR-2D): makes the >1 fire (M2, Red X) bloom
-	add_child(PerfOverlayScript.new())   # always-on FPS/frame-ms readout (top-right) for tuning
+	add_child(PerfOverlayScript.new())   # FPS/frame-ms readout (top-right); off by default, Settings' FPS switch shows it
 	add_child(LevelUpUIScript.new())     # VS choose-1-of-3 on level-up (pauses the game)
 	add_child(FusionCutsceneScript.new())  # weapon-fusion cutscene (group "arena_fusion_cutscene"; awaited by level-up UI)
 	add_child(InventoryUIScript.new())   # equip/loadout screen (toggle with the I key)

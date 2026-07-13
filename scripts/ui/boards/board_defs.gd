@@ -32,10 +32,16 @@ const BOARDS := {
 		"assets": "res://assets/hud/LevelUp/",
 		"binder": "res://scripts/ui/boards/levelup_binder.gd",
 	},
+	"choose_weapon": {
+		"name": "Choose Weapon",
+		"layout": "res://config/boards/choose_weapon.cfg",
+		"assets": "res://assets/hud/choose weapon/",
+		"binder": "res://scripts/ui/boards/choose_weapon_binder.gd",
+	},
 }
 
 ## Dropdown / iteration order (Board: selector in the HUD editor — every board, including Level Up).
-const ORDER := ["hud", "hud_1_1", "levelup"]
+const ORDER := ["hud", "hud_1_1", "levelup", "choose_weapon"]
 
 ## Alternate HUD layouts a player can pick between in Settings (excludes non-HUD boards like Level Up).
 static func hud_version_ids() -> Array:

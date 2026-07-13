@@ -13,6 +13,9 @@ const ArenaAux     := preload("res://scripts/gameplay/arena_aux.gd")
 # Optional authored "Level Up" board (edited with the shared board editor): supplies role rects for the
 # title / 3 slots / selected / options / stats so this UI can be laid out visually. Empty board → fallback.
 const BoardEditScript := preload("res://scripts/ui/boss_edit/hud_edit_mode.gd")
+# Settings' saved [game] language — used to pick a `<base>_<lang_id>` field over the English default
+# wherever card text has a translated variant (see _localized).
+const SettingsScript := preload("res://scripts/ui/settings/settings_panel.gd")
 
 const CHOICES := 3
 # Chance a given card slot rolls from the owned-upgrade pool (vs the full new+owned pool). Higher = the player
@@ -315,7 +318,18 @@ func _board_make_choice(frame: Control, spec: Dictionary, idx: int) -> Control:
 	var box := (frame.size - Vector2(WEAPON_SPRITE_MARGIN, WEAPON_SPRITE_MARGIN)) * CHOICE_SPRITE_SCALE
 	var def_id := String(spec.get("def", ""))
 	var aux_id := String(spec.get("aux_id", ""))
-	var tex: Texture2D = InventoryManager.get_icon(def_id) if def_id != "" else _aux_icon_tex(aux_id)
+	var tex: Texture2D = null
+	if def_id != "":
+		tex = InventoryManager.get_icon(def_id)
+	else:
+		# Weapons with no inventory def_id (e.g. Swarm, Striker) carry a direct art path in WEAPON_INFO["icon"]
+		# (threaded into spec's "icon" field by _render_left(), same fallback _sprite_or_swatch()/
+		# _option_icon_tex() use) — try that before falling to aux art.
+		var icon_path := String(spec.get("icon", ""))
+		if icon_path != "":
+			tex = load(icon_path) as Texture2D
+		if tex == null:
+			tex = _aux_icon_tex(aux_id)
 	var content: Control
 	if tex != null:
 		if aux_id != "":
@@ -353,20 +367,21 @@ func _board_make_choice(frame: Control, spec: Dictionary, idx: int) -> Control:
 	root.add_child(btn)
 	return root
 
-## Codename=label, Full Name=name, Lore=WEAPON_INFO.lore (optional). Aux → codename=name only.
+## Codename=label, Lore=WEAPON_INFO.lore (optional). Aux → codename=name only. (Full Name is no longer
+## sourced here — it now shows the clicked perk's name, see _board_render_selected.)
 func _weapon_meta(c: Dictionary) -> Dictionary:
 	var cat := String(c.get("cat", ""))
 	if cat in ["weapon", "pool", "capstone"]:
 		var kind := String(c.get("key", c.get("weapon", "")))
 		var info: Dictionary = (ArenaWeapons.WEAPON_INFO as Dictionary).get(kind, {})
-		return {"codename": String(info.get("label", c.get("name", ""))), "fullname": String(info.get("name", "")),
+		return {"codename": String(info.get("label", c.get("name", ""))),
 			"lore": String((ArenaWeapons.WEAPON_LORE as Dictionary).get(kind, "")), "def_id": String(c.get("def_id", info.get("def_id", "")))}
 	if cat == "fusion":
 		var fkind := String(c.get("key", ""))
 		var rec: Dictionary = (ArenaWeapons.FUSION_DEFS as Dictionary).get(fkind, {})
-		return {"codename": String(rec.get("label", c.get("name", ""))), "fullname": String(c.get("name", "")),
+		return {"codename": String(rec.get("label", c.get("name", ""))),
 			"lore": String((ArenaWeapons.WEAPON_LORE as Dictionary).get(fkind, "")), "def_id": String(c.get("def_id", ""))}
-	return {"codename": String(c.get("name", "")), "fullname": "", "lore": "", "def_id": String(c.get("def_id", ""))}
+	return {"codename": String(c.get("name", "")), "lore": "", "def_id": String(c.get("def_id", ""))}
 
 ## WeaponDisplay: big weapon sprite on the frame + Codename/Full Name/Item Lore. All hidden with no selection.
 func _board_render_selected() -> void:
@@ -387,7 +402,7 @@ func _board_render_selected() -> void:
 		_board_set_text(cn, ""); _board_set_text(fn, ""); _board_set_text(lr, "")
 		return
 	var sel_c: Dictionary = _choices[_selected_idx]
-	var info := _weapon_meta(sel_c)   # Codename/Full Name/Lore text ALWAYS reflect the top-level pick
+	var info := _weapon_meta(sel_c)   # Codename/Lore text ALWAYS reflect the top-level pick
 	# The SPRITE, though, follows whichever Upgrade1-3 card was last CLICKED (_pending_pick_idx) — clicking
 	# an option (e.g. a perk) pushes ITS icon here, replacing the top-level pick's icon. Falls back to the
 	# top-level pick's own icon when nothing's been clicked yet (unchanged from before).
@@ -430,7 +445,12 @@ func _board_render_selected() -> void:
 		var dgr: Rect2 = b.call("group_rect", "WeaponDisplay")
 		disp_cx = dgr.position.x + dgr.size.x * 0.5
 	_board_set_text_cx(cn, String(info.get("codename", "")), disp_cx)
-	_board_set_text_cx(fn, String(info.get("fullname", "")), disp_cx)
+	# Full Name: blank until an Upgrade1-3 option is CLICKED (mirrors icon_c above, same condition) —
+	# then shows THAT perk's name.
+	var fullname := ""
+	if _pending_pick_idx >= 0 and _pending_pick_idx < _current.size():
+		fullname = String(icon_c.get("name", ""))
+	_board_set_text_cx(fn, fullname, disp_cx)
 	# Item Lore: wrap inside the LoreDisplay indicator's box (runtime label; hide the authored template text).
 	_board_set_vis(lr, false)
 	var lore := String(info.get("lore", ""))
@@ -715,7 +735,8 @@ func _board_render_updesc() -> void:
 	if String(parts["rank"]) != "":
 		lines.append("[color=#ff4444]%s[/color]" % String(parts["rank"]))
 	if String(parts["trivia"]) != "":
-		lines.append("[color=#ffd23f]%s[/color]" % String(parts["trivia"]))
+		# Shrunk to match the Stat rows' rendered size (15px font x 0.8 container scale, see _board_render_stats).
+		lines.append("[font_size=12][color=#ffd23f]%s[/color][/font_size]" % String(parts["trivia"]))
 	if lines.is_empty():
 		return
 	var ind = b.call("updesc_ind")
@@ -747,6 +768,18 @@ func _board_render_updesc() -> void:
 	if ch > 0.0 and ch < rect.size.y:
 		rtl.position.y = rect.position.y + (rect.size.y - ch) * 0.5
 
+## Settings-driven text pick: `<base>_<lang_id>` (e.g. "desc_vi") if the Settings language isn't
+## English AND that field is present + non-empty on `c`, else the plain `<base>` (English default).
+## Card dicts only carry a `<base>_<lang_id>` field where that translation actually exists (currently
+## just aux pool perks' "desc_vi" — see _gen_aux_pool_choices) — everything else silently falls back.
+func _localized(c: Dictionary, base: String) -> String:
+	var lang := String(SettingsScript.load_cfg().get("language", "en"))
+	if lang != "en":
+		var alt := String(c.get(base + "_" + lang, ""))
+		if alt != "":
+			return alt
+	return String(c.get(base, ""))
+
 ## Split a choice's description into {stat, rank, trivia} for the 3-coloured UpgradeDesc box. Mirrors
 ## _default_text's branches (same source fields), just kept separate instead of concatenated into one string.
 func _updesc_parts(c: Dictionary) -> Dictionary:
@@ -763,7 +796,7 @@ func _updesc_parts(c: Dictionary) -> Dictionary:
 		var rank := int(c.get("rank", 0))
 		var maxr := int(c.get("maxr", 0))
 		var rt := ("Rank %d/%d" % [rank, maxr]) if maxr > 0 else ("Rank %d" % rank)
-		return {"stat": String(c.get("effect", "")), "rank": rt, "trivia": String(c.get("desc", ""))}
+		return {"stat": String(c.get("effect", "")), "rank": rt, "trivia": _localized(c, "desc")}
 	if action == "fuse":
 		return {"stat": String(c.get("effect", "FUSE")), "rank": "", "trivia": ""}
 	if action == "new":
@@ -915,7 +948,6 @@ func _board_render_stats() -> void:
 		vb.size = Vector2(gr.size.x / 0.8, gr.size.y)
 	else:
 		vb.position = (anchor as Control).position
-	vb.position.y += 100.0   # shift the stats list down 100px (per request)
 	vb.z_index = (anchor as CanvasItem).z_index + 6
 	var preview := {}
 	if _hover_preview_idx >= 0 and _hover_preview_idx < _current.size():
@@ -1608,6 +1640,7 @@ func _gen_pool_choices(kind: String) -> Array:
 			"color": WEAPON_FALLBACK_COLOR,
 			"effect": String(d.get("per", "")),
 			"desc": String(d.get("desc", "")),
+			"desc_vi": String(d.get("desc_vi", "")),
 			"rank": int(aw.call("pool_rank", kind, id)) if aw != null else 0,
 			"maxr": int(d.get("max", 0)),
 			"level": 0,
@@ -1646,6 +1679,7 @@ func _gen_aux_pool_choices(id: String) -> Array:
 			"color": col,
 			"effect": String(d.get("per", "")),
 			"desc": String(d.get("desc", "")),
+			"desc_vi": String(d.get("desc_vi", "")),
 			"rank": int(ax.call("aux_pool_rank", id, pid)) if ax != null else 0,
 			"maxr": int(d.get("max", 0)),
 			"level": 0,
