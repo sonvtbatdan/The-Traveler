@@ -50,6 +50,9 @@ const GAT_REFLECT_PAD  := 12.0     # extra hit padding when a reflected bullet m
 const GAUSS_ENABLED     := false    # disabled for now
 const GAUSS_STAGGER     := 0.35     # s the enemy is staggered per Gauss hit (heavier weapon = more)
 const GAUSS_LIGHT       := 5.0      # dust-light "value" per Gauss orb (heavy → big bright light)
+const GAUSS_USE_SPRITE_VFX := false  # true → fall back to the original hand-drawn flipbook orb/explosion art
+                                     # instead of the procedural gauss_orb_fx shader. Kept side-by-side, same
+                                     # convention as the Lasgun's lasgun_ani_1.gd sprite backup.
 const GAUSS_CHARGE_TIME := 1.4      # s to fully charge between shots (drives the charge-meter fraction)
 const GAUSS_SPEED       := 520.0    # px/s (heavy + slow so you watch it plough through)
 const GAUSS_DAMAGE      := 55.0     # per-shot DAMAGE BUDGET the orb carries (× damage-mult at fire)
@@ -842,6 +845,7 @@ const PickupScript := preload("res://scripts/gameplay/arena_weapon_pickup.gd")
 const OrbChargeScript := preload("res://scripts/gameplay/arena_orb_charge_fx.gd")
 const GatMuzzleScript := preload("res://scripts/gameplay/arena_gatling_muzzle.gd")
 const GaussOrbFX   := preload("res://scripts/gameplay/gauss_orb_fx.gd")   # used for both the orb AND (bigger) the impact burst
+const GaussExplFX  := preload("res://scripts/gameplay/gauss_explosion_fx.gd")   # fallback sprite explosion node (see GAUSS_USE_SPRITE_VFX)
 const ExplosionFX  := preload("res://scripts/gameplay/fx/explosion.gd")   # composite blast used by the Nuke
 const ZSlashScript := preload("res://scripts/gameplay/fx/z_slash.gd")     # sweeping energy-slash crescent VFX
 const EnergyVortex := preload("res://scripts/gameplay/fx/energy_vortex.gd")   # creep-edit swirl reused by Black Hole
@@ -882,10 +886,15 @@ const GAUSS_SPARK_LEN         := 7.0
 const GAUSS_SPARK_COL         := Color(0.5, 0.85, 1.0)
 const GAUSS_SPARK_ALPHA       := 0.9
 
-# ── Gauss orb look (procedural gauss_orb_fx.gdshader — replaces the gauss24_XX.png flipbook) ──
+# ── Gauss orb look (procedural gauss_orb_fx.gdshader by default — replaces the gauss24_XX.png flipbook) ──
 const GAUSS_ORB_DRAW    := 38.0    # on-screen orb diameter incl. transparent margin (px); full uncropped frame
 
-# ── Gauss explosion on impact (AoE plasma burst — same gauss_orb_fx.gd/.gdshader, just bigger) ────
+# ── Gauss orb FLIPBOOK (fallback art — see GAUSS_USE_SPRITE_VFX) ──
+const GAUSS_ORB_DIR     := "res://assets/beam references/Gauss_orb_files_2/"   # gauss24_00..23.png (already transparent)
+const GAUSS_FRAME_COUNT := 24
+const GAUSS_ORB_FPS     := 24.0    # plasma-loop playback speed (fps)
+
+# ── Gauss explosion on impact (AoE plasma burst — same gauss_orb_fx.gd/.gdshader, just bigger, by default) ──
 # Non-uniform animation: quick pop-in → held bright plasma sphere → fade-out. Damage radius is FIXED at
 # the peak size for the whole DURATION (see _tick_explosions / _update_explosion_node).
 const GAUSS_EXPL_DURATION     := 2.0
@@ -897,6 +906,20 @@ const GAUSS_EXPL_RADIUS       := 72.0          # FIXED damage radius (~2.4× orb
 const GAUSS_EXPL_DRAW         := 190.0         # on-screen burst diameter (px) — the "big sphere", same shader as the orb
 const GAUSS_EXPL_HIT_PAD      := 14.0          # enemy half-size pad added to the radius test (Stage 2)
 const GAUSS_EXPL_DEBUG_DRAW   := false         # true → draw the damage radius (+ enemy-center cutoff) to tune it
+
+# ── Gauss explosion FLIPBOOK (fallback art, 3 cosmetic variants × 12 frames — see GAUSS_USE_SPRITE_VFX) ──
+const GAUSS_EXPL_DIR          := "res://assets/fx/gauss_explosion/"   # vN/00..11.png (transparent, glow-baked)
+const GAUSS_EXPL_VARIANTS     := 3
+const GAUSS_EXPL_FRAME_COUNT  := 12
+const GAUSS_EXPL_FRAME_W      := 336.0
+const GAUSS_EXPL_FRAME_H      := 336.0
+const GAUSS_EXPL_ANCHOR       := Vector2(168.0, 168.0)   # burst-core pixel (frame center) in each frame
+const GAUSS_EXPL_SCALE        := 0.45          # sprite scale: 336px frame → ~150px on-screen burst
+# Non-uniform flipbook schedule: fast intro → long 6-7-8 peak loop → fast outro.
+const GAUSS_EXPL_PEAK_FRAMES  := [5, 6, 7]     # 0-indexed frames 6,7,8 (the dwell)
+const GAUSS_EXPL_INTRO_FRAMES := [0, 1, 2, 3, 4]
+const GAUSS_EXPL_OUTRO_FRAMES := [8, 9, 10, 11]
+const GAUSS_EXPL_PEAK_FPS     := 12.0          # loop speed of the 6-7-8 peak
 
 # ── Gauss shot release flash (the converging charge-up rings were removed) ────
 const GC_RELEASE_FLASH  := 60.0
@@ -984,6 +1007,10 @@ var _orbs: Array = []            # Gauss: {pos, vel, life, start, orb_node, trai
 var _sparks: Array = []          # Gauss tail sparks: {pos, vel, life, ttl}
 var _flashes: Array = []         # {pos, age, max_age, radius}
 var _glow_tex: ImageTexture = null  # soft radial-gradient sprite for smooth glows (lazily built)
+var _gauss_frames: Array = []       # fallback: 24-frame plasma-orb flipbook (see GAUSS_USE_SPRITE_VFX)
+var _gauss_fb_t: float = 0.0
+var _gauss_fb_idx: int = 0
+var _expl_frames: Array = []        # fallback: [variant][frame] → ImageTexture; 3 variants × 12 frames
 var _explosions: Array = []        # live Gauss explosions: {pos, age, node, tick_acc}
 # Runtime weapon-enable flags. The ship now starts UNARMED — every weapon is acquired via the start-of-run
 # chest or a world/F12 pickup (acquire_weapon → activate_<kind>), so all flags start false.
@@ -1252,6 +1279,9 @@ func _ready() -> void:
 	_load_yari_frames()
 	_load_moro_frames()
 	_load_snake_tex()
+	if GAUSS_USE_SPRITE_VFX:
+		_load_gauss_frames()
+		_load_gauss_explosion_frames()
 	_load_orbital_tex()
 	_striker_tex = load(STRIKER_SPRITE) as Texture2D
 	_shooter_tex = load(SHOOTER_SPRITE) as Texture2D
@@ -1362,6 +1392,36 @@ func _ready() -> void:
 	_crit_host.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_crit_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_crit_layer.add_child(_crit_host)
+
+## Fallback (see GAUSS_USE_SPRITE_VFX): load the 24-frame Gauss plasma-orb flipbook (individual transparent
+## PNGs). CPU Image.load (no import dependency). The FULL frame is kept (NOT cropped to get_used_rect): the
+## glow pulses, so per-frame content bounds vary — cropping + fixed-size draw would make the orb appear to
+## grow/shrink. All frames share one centered canvas, so the full-frame draw keeps a constant size; only the
+## plasma animates.
+func _load_gauss_frames() -> void:
+	for i in GAUSS_FRAME_COUNT:
+		var path := "%sgauss24_%02d.png" % [GAUSS_ORB_DIR, i]
+		var img := Image.new()
+		if img.load(path) != OK:
+			push_warning("arena_weapons: could not load Gauss orb frame %s" % path)
+			continue
+		_gauss_frames.append(ImageTexture.create_from_image(img))
+
+## Fallback (see GAUSS_USE_SPRITE_VFX): load the 3 explosion variants (12 transparent frames each) into
+## _expl_frames[variant][frame]. CPU Image.load (no import dependency), same approach as the orb flipbook.
+func _load_gauss_explosion_frames() -> void:
+	_expl_frames.clear()
+	for v in range(1, GAUSS_EXPL_VARIANTS + 1):
+		var frames: Array = []
+		for i in GAUSS_EXPL_FRAME_COUNT:
+			var path := "%sv%d/%02d.png" % [GAUSS_EXPL_DIR, v, i]
+			var img := Image.new()
+			if img.load(path) != OK:
+				push_warning("arena_weapons: could not load Gauss explosion frame %s" % path)
+				continue
+			frames.append(ImageTexture.create_from_image(img))
+		if not frames.is_empty():
+			_expl_frames.append(frames)
 
 ## Load the orbital sprite from ORBITAL_SPRITE. If the image has a white background (ORBITAL_KEY_THR),
 ## key it out so only the orb silhouette remains.
@@ -4572,6 +4632,14 @@ func _spawn_gauss_orb(dir: Vector2, budget: float, size_mult: float, annih: bool
 	_update_orb_node(o)
 
 func _tick_orbs(delta: float) -> void:
+	# Fallback (see GAUSS_USE_SPRITE_VFX): advance the shared plasma-orb flipbook loop (all live orbs show
+	# the same frame).
+	if GAUSS_USE_SPRITE_VFX and not _gauss_frames.is_empty() and GAUSS_ORB_FPS > 0.0:
+		_gauss_fb_t += delta
+		var gspf := 1.0 / GAUSS_ORB_FPS
+		while _gauss_fb_t >= gspf:
+			_gauss_fb_t -= gspf
+			_gauss_fb_idx = (_gauss_fb_idx + 1) % _gauss_frames.size()
 	var ruins   := get_tree().get_nodes_in_group("arena_ruin")
 	var i := _orbs.size() - 1
 	while i >= 0:
@@ -4612,11 +4680,22 @@ func _tick_orbs(delta: float) -> void:
 			_orbs.remove_at(i)
 		i -= 1
 
-## The Gauss projectile is a procedural plasma-ball (gauss_orb_fx.gd/.gdshader) — a dumb draw node that
-## arena_weapons.gd drives with a world position + diameter each tick, same pattern as the Gauss explosion
-## and Lasgun beam VFX. Normal alpha blend (baked into the shader) — additive would blow out the white-hot
-## core once several orbs/explosions overlap (Fission spawns multiple orbs at once).
-func _make_orb() -> Node2D:
+## The Gauss projectile: by default a procedural plasma-ball (gauss_orb_fx.gd/.gdshader) — a dumb draw node
+## that arena_weapons.gd drives with a world position + diameter each tick, same pattern as the Gauss
+## explosion and Lasgun beam VFX. Normal alpha blend (baked into the shader) — additive would blow out the
+## white-hot core once several orbs/explosions overlap (Fission spawns multiple orbs at once).
+## GAUSS_USE_SPRITE_VFX falls back to the original 24-frame plasma flipbook sprite (TextureRect) instead.
+func _make_orb() -> CanvasItem:
+	if GAUSS_USE_SPRITE_VFX:
+		var tr := TextureRect.new()
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_SCALE
+		tr.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		if not _gauss_frames.is_empty():
+			tr.texture = _gauss_frames[_gauss_fb_idx]
+		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(tr)
+		return tr
 	var orb := GaussOrbFX.new()
 	add_child(orb)
 	return orb
@@ -4627,34 +4706,56 @@ func _update_orb_node(o: Dictionary) -> void:
 	if trail.size() > GAUSS_TRAIL_LEN:
 		trail.resize(GAUSS_TRAIL_LEN)
 	o["trail"] = trail
-	var orb := o.get("orb_node") as Node2D
-	if orb == null or not is_instance_valid(orb):
-		return
 	# Round orb → square footprint, no stretch/rotation. Diameter shrinks ∝ sqrt(remaining damage) so the
 	# orb's AREA is proportional to its damage budget.
 	var frac := clampf(float(o["dmg"]) / maxf(1.0, float(o["dmg_ref"])), 0.0, 1.0)
 	var d := GAUSS_ORB_DRAW * sqrt(frac) * float(o.get("size_mult", 1.0))   # Pew Pew shrinks, Spirit Bomb grows
+	if GAUSS_USE_SPRITE_VFX:
+		var tr := o.get("orb_node") as TextureRect
+		if tr == null or not is_instance_valid(tr):
+			return
+		if not _gauss_frames.is_empty():
+			tr.texture = _gauss_frames[_gauss_fb_idx]   # advance the shared plasma loop
+		tr.size = Vector2(d, d)
+		tr.position = (o["pos"] as Vector2) - Vector2(d, d) * 0.5
+		return
+	var orb := o.get("orb_node") as Node2D
+	if orb == null or not is_instance_valid(orb):
+		return
 	orb.diameter = d
 	orb.global_position = o["pos"]
 	orb.queue_redraw()
 
 func _free_orb(o: Dictionary) -> void:
-	var orb := o.get("orb_node") as Node2D
+	var orb := o.get("orb_node") as CanvasItem
 	if orb != null and is_instance_valid(orb):
 		orb.queue_free()
 	o["orb_node"] = null
 
 # ── Gauss explosion (AoE plasma burst spawned on orb impact) ──────────────────
 ## Spawn a self-expiring explosion at world `pos`. Each explosion owns its own draw node + timers → fully
-## independent.
+## independent. By default the "big sphere" is the same procedural plasma-ball node as the orb
+## (gauss_orb_fx.gd), just driven bigger and faster; GAUSS_USE_SPRITE_VFX falls back to the original
+## 3-variant, 12-frame flipbook burst (gauss_explosion_fx.gd) instead.
 func _spawn_gauss_explosion(pos: Vector2, kind := "gauss", size_mult := 1.0, annih := false) -> void:
-	# Same procedural plasma-ball node as the orb (gauss_orb_fx.gd), just driven bigger — the "big sphere"
-	# reads as the same electric plasma, scaled up, rather than a different cosmetic effect. Runs its
-	# internal crackle 10x faster (frantic burst) and skips the small orb's idle size-breathing pulse (the
-	# explosion already animates its own size via the intro pop-in / outro fade in _update_explosion_node).
-	var fx := GaussOrbFX.new()
-	fx.time_scale = 10.0
-	fx.size_pulse_enabled = false
+	var fx: Node2D
+	var variant := 0
+	if GAUSS_USE_SPRITE_VFX:
+		if not _expl_frames.is_empty():
+			variant = randi() % _expl_frames.size()
+		# Dedicated additive draw node: draw_texture_rect scales the full frame into draw_rect (no
+		# EXPAND_IGNORE_SIZE clip → no square). Core pixel (173,183) lands on the impact point.
+		var sfx := GaussExplFX.new()
+		sfx.draw_rect = Rect2(-GAUSS_EXPL_ANCHOR * GAUSS_EXPL_SCALE * size_mult,
+			Vector2(GAUSS_EXPL_FRAME_W, GAUSS_EXPL_FRAME_H) * GAUSS_EXPL_SCALE * size_mult)
+		fx = sfx
+	else:
+		# Runs its internal crackle 10x faster (frantic burst) and skips the small orb's idle size-breathing
+		# pulse (the explosion already animates its own size via the intro pop-in / outro fade below).
+		var pfx := GaussOrbFX.new()
+		pfx.time_scale = 10.0
+		pfx.size_pulse_enabled = false
+		fx = pfx
 	fx.global_position = pos
 	if annih:
 		fx.modulate = Color(1.6, 0.4, 0.4)   # Orb of Annihilation → RED
@@ -4662,7 +4763,7 @@ func _spawn_gauss_explosion(pos: Vector2, kind := "gauss", size_mult := 1.0, ann
 	# tick_acc seeded to ≥ one full interval so the first DoT tick lands on the spawn frame (the field is active
 	# "the instant it spawns"). The random extra phase DESYNCS overlapping fields so two explosions on the same
 	# enemy tick at interleaved times (visibly stacking) instead of in lockstep (which read as a single hit).
-	var e := {"pos": pos, "age": 0.0, "node": fx, "tick_acc": GAUSS_TICK_INTERVAL + randf() * GAUSS_TICK_INTERVAL, "kind": kind, "dur": GAUSS_EXPL_DURATION * _duration_mult(), "size_mult": size_mult, "annih": annih}
+	var e := {"pos": pos, "age": 0.0, "variant": variant, "node": fx, "tick_acc": GAUSS_TICK_INTERVAL + randf() * GAUSS_TICK_INTERVAL, "kind": kind, "dur": GAUSS_EXPL_DURATION * _duration_mult(), "size_mult": size_mult, "annih": annih}
 	_explosions.append(e)
 	_gauss_impact_player.play()
 	_update_explosion_node(e)
@@ -4720,12 +4821,23 @@ func _gauss_explosion_tick(center: Vector2, kind := "gauss", size_mult := 1.0, a
 			if ruin.has_method("take_damage"):
 				ruin.take_damage((_gauss_tick_dmg() * _dmg_mult) if is_gauss else (GAUSS_TICK_DAMAGE * _dmg_mult * _lvl_mult(kind)))
 
-## Feed the visual node its current size/opacity: pop open over GAUSS_EXPL_INTRO_TIME, hold at full size
-## (crackling continuously — same shader as the small orb), then fade out over the last GAUSS_EXPL_OUTRO_TIME
-## of DURATION. Position/scale are NOT fixed at spawn (unlike the old flipbook) since diameter now animates.
+## Feed the visual node its current state. Procedural (default): pop open over GAUSS_EXPL_INTRO_TIME, hold
+## at full size (crackling continuously — same shader as the small orb), then fade out over the last
+## GAUSS_EXPL_OUTRO_TIME of DURATION — position/scale are NOT fixed at spawn since diameter animates.
+## GAUSS_USE_SPRITE_VFX: feed the flipbook its scheduled frame instead (position/scale WERE fixed at spawn).
 func _update_explosion_node(e: Dictionary) -> void:
 	var fx := e.get("node") as Node2D
 	if fx == null or not is_instance_valid(fx):
+		return
+	if GAUSS_USE_SPRITE_VFX:
+		var variant: int = e.get("variant", 0)
+		if variant < 0 or variant >= _expl_frames.size():
+			return
+		var frames: Array = _expl_frames[variant]
+		if frames.is_empty():
+			return
+		var fi := clampi(_explosion_frame_index(float(e["age"])), 0, frames.size() - 1)
+		fx.set_frame(frames[fi])
 		return
 	var age := float(e["age"])
 	var dur := float(e.get("dur", GAUSS_EXPL_DURATION))
@@ -4735,6 +4847,23 @@ func _update_explosion_node(e: Dictionary) -> void:
 	fx.modulate.a = fade
 	fx.global_position = e["pos"]
 	fx.queue_redraw()
+
+## Fallback (see GAUSS_USE_SPRITE_VFX) non-uniform schedule → 0-indexed flipbook frame:
+##   intro frames spread over INTRO_TIME → loop PEAK_FRAMES at PEAK_FPS until (DURATION-OUTRO_TIME)
+##   → outro frames spread over OUTRO_TIME.
+func _explosion_frame_index(age: float) -> int:
+	if age < GAUSS_EXPL_INTRO_TIME:
+		var ni := GAUSS_EXPL_INTRO_FRAMES.size()
+		var ki := int(age / maxf(0.001, GAUSS_EXPL_INTRO_TIME) * float(ni))
+		return GAUSS_EXPL_INTRO_FRAMES[clampi(ki, 0, ni - 1)]
+	var peak_end := GAUSS_EXPL_DURATION - GAUSS_EXPL_OUTRO_TIME
+	if age < peak_end:
+		var np := GAUSS_EXPL_PEAK_FRAMES.size()
+		var kp := int((age - GAUSS_EXPL_INTRO_TIME) * GAUSS_EXPL_PEAK_FPS) % np
+		return GAUSS_EXPL_PEAK_FRAMES[kp]
+	var no := GAUSS_EXPL_OUTRO_FRAMES.size()
+	var ko := int((age - peak_end) / maxf(0.001, GAUSS_EXPL_OUTRO_TIME) * float(no))
+	return GAUSS_EXPL_OUTRO_FRAMES[clampi(ko, 0, no - 1)]
 
 func _shed_sparks(o: Dictionary, delta: float) -> void:
 	var v: Vector2 = o["vel"]
