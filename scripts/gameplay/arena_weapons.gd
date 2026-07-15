@@ -54,6 +54,9 @@ const GAUSS_CHARGE_TIME := 1.4      # s to fully charge between shots (drives th
 const GAUSS_SPEED       := 520.0    # px/s (heavy + slow so you watch it plough through)
 const GAUSS_DAMAGE      := 55.0     # per-shot DAMAGE BUDGET the orb carries (× damage-mult at fire)
 const GAUSS_RADIUS      := 30.0     # FULL hit radius (at full budget); shrinks ∝ sqrt(damage)
+const GAUSS_ORB_HIT_PAD := 16.0     # orb's own collision pad added to the enemy/ruin radius (200% of the
+									 # original 8px — invisible, purely a hit-test radius, no visual change —
+									 # makes the projectile noticeably easier to land against moving enemies)
 const GAUSS_MIN_DMG     := 1.0      # cull the orb once its remaining budget falls below this
 const GAUSS_CULL_DIST   := 1800.0   # cull the orb once it gets this far from the player ("too far to notice")
 const GAUSS_LIFETIME    := 8.0      # s before despawn (generous backstop; damage/distance are the real culls)
@@ -160,6 +163,7 @@ const WEAPON_LORE := {
 	"void":        "Weapon that triggers a localized Vacuum Decay state.",
 	"red_x":       "Turret equipped with 4 symmetrical 90-degree nozzles, simultaneously firing high-velocity liquid Thermite particle chains.",
 	"chemtrail":   "Converts liquid biocidal toxic compounds into dense molecular biocide vapor streams, sprayed behind the ship.",
+	"mortar":      "Heavy mortar specialized in destroying thick armor and fortified structures.",
 	"fat_boy":     "Ultimate nuclear weapon with infinite destructive power.",
 	"sonic":       "Emits sonic waves.",
 	"zsword":      "Melee weapon utilizing a complex sawtooth drive mechanism, sweeping and emitting a shockwave.",
@@ -823,7 +827,7 @@ const ARC_STRAND_GAP  := 10.0     # secondary runs this close to the main
 const ARC_SPARK_COL   := Color(1.8, 2.6, 3.6)   # HDR sparks
 const ARC_SPARK_COUNT := 12
 
-const BeamScript   := preload("res://scripts/gameplay/lasgun_ani_1.gd")   # lasgun_ani_1: Isaac-model body (no backward extension) + anchored, non-spinning, beam-aligned impact flipbook from the impact spritesheet; ani_2/ani_3 kept as backups
+const BeamScript   := preload("res://scripts/gameplay/lasgun_ani_5.gd")   # lasgun_ani_5: same Isaac-model body/muzzle/impact art as ani_1, but the body's tile+fade is GPU shader-driven instead of a per-frame CPU tile/sub-quad loop; ani_1/ani_2/ani_3 kept as backups
 const SFX_BOLT_HIT: Array[AudioStream] = [
 	preload("res://assets/audio/sfx/railgun.wav"),
 	preload("res://assets/audio/sfx/railgun2.wav"),
@@ -837,7 +841,7 @@ const SFX_DEATHBEAM_BEAM: AudioStream = preload("res://assets/audio/sfx/AstroMen
 const PickupScript := preload("res://scripts/gameplay/arena_weapon_pickup.gd")
 const OrbChargeScript := preload("res://scripts/gameplay/arena_orb_charge_fx.gd")
 const GatMuzzleScript := preload("res://scripts/gameplay/arena_gatling_muzzle.gd")
-const GaussExplFX  := preload("res://scripts/gameplay/gauss_explosion_fx.gd")
+const GaussOrbFX   := preload("res://scripts/gameplay/gauss_orb_fx.gd")   # used for both the orb AND (bigger) the impact burst
 const ExplosionFX  := preload("res://scripts/gameplay/fx/explosion.gd")   # composite blast used by the Nuke
 const ZSlashScript := preload("res://scripts/gameplay/fx/z_slash.gd")     # sweeping energy-slash crescent VFX
 const EnergyVortex := preload("res://scripts/gameplay/fx/energy_vortex.gd")   # creep-edit swirl reused by Black Hole
@@ -878,34 +882,20 @@ const GAUSS_SPARK_LEN         := 7.0
 const GAUSS_SPARK_COL         := Color(0.5, 0.85, 1.0)
 const GAUSS_SPARK_ALPHA       := 0.9
 
-# ── Gauss orb FLIPBOOK (24-frame plasma loop sprite — replaces the procedural shader orb) ──
-const GAUSS_ORB_DIR     := "res://assets/beam references/Gauss_orb_files_2/"   # gauss24_00..23.png (already transparent)
-const GAUSS_FRAME_COUNT := 24
-const GAUSS_ORB_FPS     := 24.0    # plasma-loop playback speed (fps)
+# ── Gauss orb look (procedural gauss_orb_fx.gdshader — replaces the gauss24_XX.png flipbook) ──
 const GAUSS_ORB_DRAW    := 38.0    # on-screen orb diameter incl. transparent margin (px); full uncropped frame
 
-# ── Gauss explosion on impact (AoE plasma burst — 3 cosmetic variants, 12 frames each) ────────
-# Non-uniform animation: fast intro → long 6-7-8 peak loop → fast outro. Damage radius is FIXED at the
-# peak size for the whole DURATION (see _tick_explosions / _explosion_frame_index).
+# ── Gauss explosion on impact (AoE plasma burst — same gauss_orb_fx.gd/.gdshader, just bigger) ────
+# Non-uniform animation: quick pop-in → held bright plasma sphere → fade-out. Damage radius is FIXED at
+# the peak size for the whole DURATION (see _tick_explosions / _update_explosion_node).
 const GAUSS_EXPL_DURATION     := 2.0
-const GAUSS_EXPL_INTRO_TIME   := 0.30          # time for frames 1->5
-const GAUSS_EXPL_OUTRO_TIME   := 0.30          # time for frames 9->12
-# peak loop time = DURATION - INTRO - OUTRO (~1.40s looping frames 6,7,8)
-const GAUSS_EXPL_PEAK_FRAMES  := [5, 6, 7]     # 0-indexed frames 6,7,8 (the dwell)
-const GAUSS_EXPL_INTRO_FRAMES := [0, 1, 2, 3, 4]
-const GAUSS_EXPL_OUTRO_FRAMES := [8, 9, 10, 11]
-const GAUSS_EXPL_PEAK_FPS     := 12.0          # loop speed of the 6-7-8 peak
+const GAUSS_EXPL_INTRO_TIME   := 0.30          # pop-in time (0 -> full size)
+const GAUSS_EXPL_OUTRO_TIME   := 0.30          # fade-out time (full alpha -> 0) at the end of DURATION
 const GAUSS_TICK_INTERVAL     := 0.1           # s between DoT ticks (Stage 2)
 const GAUSS_TICK_DAMAGE       := 5.0           # base dmg/tick; scaled by _dmg_mult + crit (Stage 2)
 const GAUSS_EXPL_RADIUS       := 72.0          # FIXED damage radius (~2.4× orb hit radius 30) — tune in Stage 3
-const GAUSS_EXPL_SCALE        := 0.45          # sprite scale: 336px frame → ~150px on-screen burst — tune in Stage 3
+const GAUSS_EXPL_DRAW         := 190.0         # on-screen burst diameter (px) — the "big sphere", same shader as the orb
 const GAUSS_EXPL_HIT_PAD      := 14.0          # enemy half-size pad added to the radius test (Stage 2)
-const GAUSS_EXPL_DIR          := "res://assets/fx/gauss_explosion/"   # vN/00..11.png (transparent, glow-baked)
-const GAUSS_EXPL_VARIANTS     := 3
-const GAUSS_EXPL_FRAME_COUNT  := 12
-const GAUSS_EXPL_FRAME_W      := 336.0
-const GAUSS_EXPL_FRAME_H      := 336.0
-const GAUSS_EXPL_ANCHOR       := Vector2(168.0, 168.0)   # burst-core pixel (frame center) in each frame
 const GAUSS_EXPL_DEBUG_DRAW   := false         # true → draw the damage radius (+ enemy-center cutoff) to tune it
 
 # ── Gauss shot release flash (the converging charge-up rings were removed) ────
@@ -993,13 +983,8 @@ var _bullets: Array = []         # Gatling: {pos, vel, life, start}
 var _orbs: Array = []            # Gauss: {pos, vel, life, start, orb_node, trail, spark_acc, dmg, dmg_ref, hit}
 var _sparks: Array = []          # Gauss tail sparks: {pos, vel, life, ttl}
 var _flashes: Array = []         # {pos, age, max_age, radius}
-var _orb_shader: Shader = null
-var _gauss_frames: Array = []      # 12-frame plasma-orb flipbook (cropped from the reference sheet)
-var _gauss_fb_t: float = 0.0
-var _gauss_fb_idx: int = 0
 var _glow_tex: ImageTexture = null  # soft radial-gradient sprite for smooth glows (lazily built)
-var _expl_frames: Array = []       # [variant][frame] → ImageTexture; 3 variants × 12 frames (Gauss explosion)
-var _explosions: Array = []        # live Gauss explosions: {pos, age, variant, node, tick_acc}
+var _explosions: Array = []        # live Gauss explosions: {pos, age, node, tick_acc}
 # Runtime weapon-enable flags. The ship now starts UNARMED — every weapon is acquired via the start-of-run
 # chest or a world/F12 pickup (acquire_weapon → activate_<kind>), so all flags start false.
 var _gat_active: bool = false
@@ -1214,6 +1199,9 @@ var _predator_active: bool = false     # fusion: the Space Snake also fires a La
 var _predator_beam: Node2D = null      # the snake-head Lasgun beam visual (separate from the main _beam)
 var _predator_beam_cd: float = 0.0     # beam damage-tick cooldown
 var _predator_aim: Vector2 = Vector2.RIGHT   # current beam direction (recomputed each tick to maximise hits)
+var _predator_prev_head: Vector2 = Vector2.ZERO   # head position at the last damage tick (swept hit-test)
+var _predator_prev_dir: Vector2 = Vector2.RIGHT   # beam direction at the last damage tick (swept hit-test)
+var _predator_prev_valid: bool = false            # false right after the beam (re)starts — no fake sweep
 var _snake_head_top_tex: Texture2D = null
 var _snake_body_tex:     Texture2D = null
 var _snake_tail_tex:      Texture2D = null
@@ -1222,6 +1210,9 @@ var _snake_tail_plume_anchor:  Node2D = null
 var _snake_body_plume_anchors: Array  = []   # one Node2D per body segment (k=1..n-2)
 var _death_beam_active: bool = false   # turned on by the Lasgun pickup (auto-equip, accumulates with the Gatling)
 var _beam_cd: float = 0.0          # Lasgun damage-tick cooldown
+var _db_prev_from: Vector2 = Vector2.ZERO   # muzzle position at the last damage tick (swept hit-test)
+var _db_prev_dir: Vector2 = Vector2.RIGHT   # beam direction at the last damage tick (swept hit-test)
+var _db_prev_valid: bool = false            # false right after the beam (re)starts — no fake sweep
 var _beam: Node2D = null           # additive beam VFX child (gameplay plane → sharp)
 var _gat_muzzle_t: float = 0.0     # Gatling muzzle-fire intensity (1 on each shot, decays)
 var _gat_muzzle_fx: Node2D = null  # additive Gatling muzzle-flash FX child
@@ -1261,8 +1252,6 @@ func _ready() -> void:
 	_load_yari_frames()
 	_load_moro_frames()
 	_load_snake_tex()
-	_load_gauss_frames()
-	_load_gauss_explosion_frames()
 	_load_orbital_tex()
 	_striker_tex = load(STRIKER_SPRITE) as Texture2D
 	_shooter_tex = load(SHOOTER_SPRITE) as Texture2D
@@ -1373,35 +1362,6 @@ func _ready() -> void:
 	_crit_host.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_crit_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_crit_layer.add_child(_crit_host)
-
-## Load the 24-frame Gauss plasma-orb flipbook (individual transparent PNGs). CPU Image.load (no import
-## dependency). The FULL frame is kept (NOT cropped to get_used_rect): the glow pulses, so per-frame
-## content bounds vary — cropping + fixed-size draw would make the orb appear to grow/shrink. All frames
-## share one centered canvas, so the full-frame draw keeps a constant size; only the plasma animates.
-func _load_gauss_frames() -> void:
-	for i in GAUSS_FRAME_COUNT:
-		var path := "%sgauss24_%02d.png" % [GAUSS_ORB_DIR, i]
-		var img := Image.new()
-		if img.load(path) != OK:
-			push_warning("arena_weapons: could not load Gauss orb frame %s" % path)
-			continue
-		_gauss_frames.append(ImageTexture.create_from_image(img))
-
-## Load the 3 explosion variants (12 transparent frames each) into _expl_frames[variant][frame].
-## CPU Image.load (no import dependency), same approach as the orb flipbook.
-func _load_gauss_explosion_frames() -> void:
-	_expl_frames.clear()
-	for v in range(1, GAUSS_EXPL_VARIANTS + 1):
-		var frames: Array = []
-		for i in GAUSS_EXPL_FRAME_COUNT:
-			var path := "%sv%d/%02d.png" % [GAUSS_EXPL_DIR, v, i]
-			var img := Image.new()
-			if img.load(path) != OK:
-				push_warning("arena_weapons: could not load Gauss explosion frame %s" % path)
-				continue
-			frames.append(ImageTexture.create_from_image(img))
-		if not frames.is_empty():
-			_expl_frames.append(frames)
 
 ## Load the orbital sprite from ORBITAL_SPRITE. If the image has a white background (ORBITAL_KEY_THR),
 ## key it out so only the orb silhouette remains.
@@ -2336,6 +2296,7 @@ func _fire_death_beam(delta: float) -> void:
 			_beam.set_beam(Vector2.ZERO, Vector2.ZERO, false, false)
 		_beam_light_on = false
 		_beam_cd = 0.0   # so the first damage tick lands the instant the burst starts
+		_db_prev_valid = false   # beam is off — don't sweep-test across whatever the ship did while idle
 		if _db_beam_playing:
 			_db_beam_player.stop()
 			_db_beam_playing = false
@@ -2375,20 +2336,20 @@ func _fire_death_beam(delta: float) -> void:
 	_beam_light_from = from
 	_beam_light_to = to_pt
 	_beam_light_col = Color.from_hsv(fposmod(_db_t * 0.5, 1.0), 0.7, 1.0)
-	# Tick damage to EVERY enemy the beam touches up to the block point (pierce-all; a boss stops it).
+	# Tick damage to EVERY enemy the beam SWEPT THROUGH since the last tick (pierce-all; a boss stops it).
+	# Testing only the beam's line at the exact tick instant let a fast-rotating beam tunnel past enemies
+	# it swept over between ticks; _beam_swept_hit samples the arc from the last tick's aim to this one.
 	_beam_cd -= delta
 	if _beam_cd <= 0.0:
 		_beam_cd = DEATHBEAM_TICK / _rate_mult / _fam_rate("death_beam")
+		var prev_from := from if not _db_prev_valid else _db_prev_from
+		var prev_dir := dir if not _db_prev_valid else _db_prev_dir
 		for en in _enemies() + _ruins():
 			if not is_instance_valid(en):
 				continue
-			var to_e: Vector2 = (en as Node2D).global_position - from
-			var along := to_e.dot(dir)
-			if along < 0.0 or along > block_along:
-				continue
 			var _en_r3 = en.get("hit_radius")
 			var hit_w: float = half_w + (float(_en_r3) if _en_r3 != null else DEATHBEAM_HIT_PAD)
-			if (to_e - dir * along).length() > hit_w:
+			if not _beam_swept_hit(prev_from, prev_dir, from, dir, block_along, hit_w, (en as Node2D).global_position):
 				continue
 			if en.has_method("take_damage"):
 				var _db_r := _roll_damage(_db_dmg(), "death_beam")   # "death_beam" → energy family mastery applies
@@ -2409,6 +2370,33 @@ func _fire_death_beam(delta: float) -> void:
 					en.call("apply_freeze", 1)
 					if ice_fire and en.has_method("apply_burn"):
 						en.call("apply_burn", 1)
+		_db_prev_from = from
+		_db_prev_dir = dir
+		_db_prev_valid = true
+
+## Returns true if `pos` was within `hit_w` of the beam's line at any point while it swept from
+## (prev_from, prev_dir) to (cur_from, cur_dir) since the last damage tick. A single straight-line test
+## only catches enemies exactly on the beam's CURRENT angle at the tick instant, so a beam that rotates
+## fast (or a tick rate that's slow relative to turn speed) can tunnel past enemies it swept over between
+## ticks; this samples the swept arc instead. Substep count scales with the angle turned so the sampling
+## stays fine at high turn rates, capped to bound worst-case cost (e.g. a near-instant 180° flip).
+func _beam_swept_hit(prev_from: Vector2, prev_dir: Vector2, cur_from: Vector2, cur_dir: Vector2, block_along: float, hit_w: float, pos: Vector2) -> bool:
+	var ang_delta := absf(prev_dir.angle_to(cur_dir))
+	# Step count so consecutive samples are within ~hit_w of each other at the FAR end of the beam (arc
+	# length ≈ block_along * ang_delta) — a fixed angular step would under-sample at long range, letting
+	# far-away enemies still tunnel through a fast sweep even though near ones were caught.
+	var steps := clampi(int(ceil(block_along * ang_delta / maxf(1.0, hit_w))), 1, 512)
+	for i in range(steps + 1):
+		var t := float(i) / float(steps)
+		var dir_i := prev_dir.slerp(cur_dir, t)
+		var from_i := prev_from.lerp(cur_from, t)
+		var to_p: Vector2 = pos - from_i
+		var along := to_p.dot(dir_i)
+		if along < 0.0 or along > block_along:
+			continue
+		if (to_p - dir_i * along).length() <= hit_w:
+			return true
+	return false
 
 ## Called by the Lasgun pickup on collection — adds the beam to the active loadout (accumulates with Gatling).
 func activate_death_beam() -> void:
@@ -4584,13 +4572,6 @@ func _spawn_gauss_orb(dir: Vector2, budget: float, size_mult: float, annih: bool
 	_update_orb_node(o)
 
 func _tick_orbs(delta: float) -> void:
-	# Advance the shared 12-frame Gauss-orb plasma loop (all live orbs show the same frame).
-	if not _gauss_frames.is_empty() and GAUSS_ORB_FPS > 0.0:
-		_gauss_fb_t += delta
-		var gspf := 1.0 / GAUSS_ORB_FPS
-		while _gauss_fb_t >= gspf:
-			_gauss_fb_t -= gspf
-			_gauss_fb_idx = (_gauss_fb_idx + 1) % _gauss_frames.size()
 	var ruins   := get_tree().get_nodes_in_group("arena_ruin")
 	var i := _orbs.size() - 1
 	while i >= 0:
@@ -4612,7 +4593,7 @@ func _tick_orbs(delta: float) -> void:
 				if not is_instance_valid(en):
 					continue
 				var _en_r = en.get("hit_radius")
-				var _hit_r: float = (float(_en_r) if _en_r != null else GAUSS_RADIUS) + 8.0
+				var _hit_r: float = (float(_en_r) if _en_r != null else GAUSS_RADIUS) + GAUSS_ORB_HIT_PAD
 				if p.distance_to((en as Node2D).global_position) <= _hit_r:
 					_spawn_gauss_explosion(p, "gauss", float(o.get("size_mult", 1.0)), bool(o.get("annih", false)))
 					dead = true
@@ -4621,7 +4602,7 @@ func _tick_orbs(delta: float) -> void:
 				for ruin in ruins:
 					if not is_instance_valid(ruin):
 						continue
-					var ruin_r: float = (ruin.get("hit_radius") if ruin.get("hit_radius") != null else GAUSS_RADIUS) + 8.0
+					var ruin_r: float = (ruin.get("hit_radius") if ruin.get("hit_radius") != null else GAUSS_RADIUS) + GAUSS_ORB_HIT_PAD
 					if p.distance_to((ruin as Node2D).global_position) <= ruin_r:
 						_spawn_gauss_explosion(p, "gauss", float(o.get("size_mult", 1.0)), bool(o.get("annih", false)))
 						dead = true
@@ -4631,18 +4612,14 @@ func _tick_orbs(delta: float) -> void:
 			_orbs.remove_at(i)
 		i -= 1
 
-## The Gauss projectile is now a 12-frame plasma flipbook sprite (round orb). Normal alpha blend — the
-## frames are finished art with the glow baked in (additive would blow out the white-hot core).
-func _make_orb() -> TextureRect:
-	var tr := TextureRect.new()
-	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	tr.stretch_mode = TextureRect.STRETCH_SCALE
-	tr.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	if not _gauss_frames.is_empty():
-		tr.texture = _gauss_frames[_gauss_fb_idx]
-	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(tr)
-	return tr
+## The Gauss projectile is a procedural plasma-ball (gauss_orb_fx.gd/.gdshader) — a dumb draw node that
+## arena_weapons.gd drives with a world position + diameter each tick, same pattern as the Gauss explosion
+## and Lasgun beam VFX. Normal alpha blend (baked into the shader) — additive would blow out the white-hot
+## core once several orbs/explosions overlap (Fission spawns multiple orbs at once).
+func _make_orb() -> Node2D:
+	var orb := GaussOrbFX.new()
+	add_child(orb)
+	return orb
 
 func _update_orb_node(o: Dictionary) -> void:
 	var trail: Array = o.get("trail", [])
@@ -4650,44 +4627,42 @@ func _update_orb_node(o: Dictionary) -> void:
 	if trail.size() > GAUSS_TRAIL_LEN:
 		trail.resize(GAUSS_TRAIL_LEN)
 	o["trail"] = trail
-	var tr := o.get("orb_node") as TextureRect
-	if tr == null or not is_instance_valid(tr):
+	var orb := o.get("orb_node") as Node2D
+	if orb == null or not is_instance_valid(orb):
 		return
-	if not _gauss_frames.is_empty():
-		tr.texture = _gauss_frames[_gauss_fb_idx]   # advance the shared plasma loop
 	# Round orb → square footprint, no stretch/rotation. Diameter shrinks ∝ sqrt(remaining damage) so the
 	# orb's AREA is proportional to its damage budget.
 	var frac := clampf(float(o["dmg"]) / maxf(1.0, float(o["dmg_ref"])), 0.0, 1.0)
 	var d := GAUSS_ORB_DRAW * sqrt(frac) * float(o.get("size_mult", 1.0))   # Pew Pew shrinks, Spirit Bomb grows
-	tr.size = Vector2(d, d)
-	tr.position = (o["pos"] as Vector2) - Vector2(d, d) * 0.5
+	orb.diameter = d
+	orb.global_position = o["pos"]
+	orb.queue_redraw()
 
 func _free_orb(o: Dictionary) -> void:
-	var tr := o.get("orb_node") as TextureRect
-	if tr != null and is_instance_valid(tr):
-		tr.queue_free()
+	var orb := o.get("orb_node") as Node2D
+	if orb != null and is_instance_valid(orb):
+		orb.queue_free()
 	o["orb_node"] = null
 
 # ── Gauss explosion (AoE plasma burst spawned on orb impact) ──────────────────
-## Spawn a self-expiring explosion at world `pos`. Picks one of the 3 cosmetic variants at random
-## (same timing/radius for all). Each explosion owns its own draw node + timers → fully independent.
+## Spawn a self-expiring explosion at world `pos`. Each explosion owns its own draw node + timers → fully
+## independent.
 func _spawn_gauss_explosion(pos: Vector2, kind := "gauss", size_mult := 1.0, annih := false) -> void:
-	var variant := 0
-	if not _expl_frames.is_empty():
-		variant = randi() % _expl_frames.size()
-	# Dedicated additive draw node: draw_texture_rect scales the full frame into draw_rect (no
-	# EXPAND_IGNORE_SIZE clip → no square). Core pixel (173,183) lands on the impact point.
-	var fx := GaussExplFX.new()
+	# Same procedural plasma-ball node as the orb (gauss_orb_fx.gd), just driven bigger — the "big sphere"
+	# reads as the same electric plasma, scaled up, rather than a different cosmetic effect. Runs its
+	# internal crackle 10x faster (frantic burst) and skips the small orb's idle size-breathing pulse (the
+	# explosion already animates its own size via the intro pop-in / outro fade in _update_explosion_node).
+	var fx := GaussOrbFX.new()
+	fx.time_scale = 10.0
+	fx.size_pulse_enabled = false
 	fx.global_position = pos
-	fx.draw_rect = Rect2(-GAUSS_EXPL_ANCHOR * GAUSS_EXPL_SCALE * size_mult,
-		Vector2(GAUSS_EXPL_FRAME_W, GAUSS_EXPL_FRAME_H) * GAUSS_EXPL_SCALE * size_mult)
 	if annih:
 		fx.modulate = Color(1.6, 0.4, 0.4)   # Orb of Annihilation → RED
 	add_child(fx)
 	# tick_acc seeded to ≥ one full interval so the first DoT tick lands on the spawn frame (the field is active
 	# "the instant it spawns"). The random extra phase DESYNCS overlapping fields so two explosions on the same
 	# enemy tick at interleaved times (visibly stacking) instead of in lockstep (which read as a single hit).
-	var e := {"pos": pos, "age": 0.0, "variant": variant, "node": fx, "tick_acc": GAUSS_TICK_INTERVAL + randf() * GAUSS_TICK_INTERVAL, "kind": kind, "dur": GAUSS_EXPL_DURATION * _duration_mult(), "size_mult": size_mult, "annih": annih}
+	var e := {"pos": pos, "age": 0.0, "node": fx, "tick_acc": GAUSS_TICK_INTERVAL + randf() * GAUSS_TICK_INTERVAL, "kind": kind, "dur": GAUSS_EXPL_DURATION * _duration_mult(), "size_mult": size_mult, "annih": annih}
 	_explosions.append(e)
 	_gauss_impact_player.play()
 	_update_explosion_node(e)
@@ -4745,36 +4720,21 @@ func _gauss_explosion_tick(center: Vector2, kind := "gauss", size_mult := 1.0, a
 			if ruin.has_method("take_damage"):
 				ruin.take_damage((_gauss_tick_dmg() * _dmg_mult) if is_gauss else (GAUSS_TICK_DAMAGE * _dmg_mult * _lvl_mult(kind)))
 
-## Feed the visual node its scheduled frame (position/scale were fixed on spawn → only the frame changes).
+## Feed the visual node its current size/opacity: pop open over GAUSS_EXPL_INTRO_TIME, hold at full size
+## (crackling continuously — same shader as the small orb), then fade out over the last GAUSS_EXPL_OUTRO_TIME
+## of DURATION. Position/scale are NOT fixed at spawn (unlike the old flipbook) since diameter now animates.
 func _update_explosion_node(e: Dictionary) -> void:
-	var fx: Node2D = e.get("node")
+	var fx := e.get("node") as Node2D
 	if fx == null or not is_instance_valid(fx):
 		return
-	var variant: int = e["variant"]
-	if variant < 0 or variant >= _expl_frames.size():
-		return
-	var frames: Array = _expl_frames[variant]
-	if frames.is_empty():
-		return
-	var fi := clampi(_explosion_frame_index(float(e["age"])), 0, frames.size() - 1)
-	fx.set_frame(frames[fi])
-
-## Non-uniform schedule → 0-indexed frame:
-##   intro frames spread over INTRO_TIME → loop PEAK_FRAMES at PEAK_FPS until (DURATION-OUTRO_TIME)
-##   → outro frames spread over OUTRO_TIME.
-func _explosion_frame_index(age: float) -> int:
-	if age < GAUSS_EXPL_INTRO_TIME:
-		var ni := GAUSS_EXPL_INTRO_FRAMES.size()
-		var ki := int(age / maxf(0.001, GAUSS_EXPL_INTRO_TIME) * float(ni))
-		return GAUSS_EXPL_INTRO_FRAMES[clampi(ki, 0, ni - 1)]
-	var peak_end := GAUSS_EXPL_DURATION - GAUSS_EXPL_OUTRO_TIME
-	if age < peak_end:
-		var np := GAUSS_EXPL_PEAK_FRAMES.size()
-		var kp := int((age - GAUSS_EXPL_INTRO_TIME) * GAUSS_EXPL_PEAK_FPS) % np
-		return GAUSS_EXPL_PEAK_FRAMES[kp]
-	var no := GAUSS_EXPL_OUTRO_FRAMES.size()
-	var ko := int((age - peak_end) / maxf(0.001, GAUSS_EXPL_OUTRO_TIME) * float(no))
-	return GAUSS_EXPL_OUTRO_FRAMES[clampi(ko, 0, no - 1)]
+	var age := float(e["age"])
+	var dur := float(e.get("dur", GAUSS_EXPL_DURATION))
+	var pop := smoothstep(0.0, GAUSS_EXPL_INTRO_TIME, age)
+	var fade := 1.0 - smoothstep(maxf(0.0, dur - GAUSS_EXPL_OUTRO_TIME), dur, age)
+	fx.diameter = GAUSS_EXPL_DRAW * float(e.get("size_mult", 1.0)) * pop
+	fx.modulate.a = fade
+	fx.global_position = e["pos"]
+	fx.queue_redraw()
 
 func _shed_sparks(o: Dictionary, delta: float) -> void:
 	var v: Vector2 = o["vel"]
@@ -5292,6 +5252,19 @@ func _zsword_divergence() -> float:
 func _zsword_swords() -> int:
 	return 2 if _zsword_capstone == "dual" else 1
 
+## True if at least one enemy/ruin sits within the Z-Sword's current reach. `enemy_on_screen` alone only
+## means SOME enemy is visible anywhere on screen — far wider than the blade's short melee reach — so
+## gating fresh sweeps on it alone let the sword swing uselessly at enemies it could never actually hit.
+func _zsword_enemy_in_range() -> bool:
+	var reach := _aoe_radius(_zsword_length())
+	var center := _player.global_position
+	for en in _enemies() + _ruins():
+		if not is_instance_valid(en):
+			continue
+		if ((en as Node2D).global_position - center).length() <= reach:
+			return true
+	return false
+
 ## `reverse` = this is a queued extra swing (Divergence proc, or Dual Wielding's 2nd blade), NOT the first
 ## swing of a fresh burst: it starts from BEHIND the ship (opposite the normal starting facing) and sweeps
 ## the opposite rotational way, drawn with the orange ZSlash so it reads as a distinct second sword.
@@ -5314,7 +5287,7 @@ func _tick_zsword(delta: float, enemy_on_screen: bool) -> void:
 			_start_zsword_sweep(true)   # Divergence proc / Dual Wielding's 2nd blade → orange, reversed
 		else:
 			_zsword_cd -= delta
-			if _zsword_cd <= 0.0 and enemy_on_screen:
+			if _zsword_cd <= 0.0 and enemy_on_screen and _zsword_enemy_in_range():
 				_zsword_cd = ZSWORD_COOLDOWN * _cd_scale("zsword") / _rate_mult / _zsword_cd_mult()
 				_zsword_queue = _zsword_swords()   # Dual Wielding starts 2 swings
 				_zsword_queue -= 1
@@ -6540,6 +6513,7 @@ func _tick_predator(delta: float, enemy_on_screen: bool) -> void:
 	var head: Vector2 = _snake_pts[0]
 	if not enemy_on_screen:
 		_predator_beam.set_beam(Vector2.ZERO, Vector2.ZERO, false, false)
+		_predator_prev_valid = false   # beam is off — don't sweep-test across whatever the head did while idle
 		return
 	# Recompute the IDEAL aim (steering target for the head); the beam itself fires STRAIGHT from the head.
 	_predator_beam_cd -= delta
@@ -6565,16 +6539,16 @@ func _tick_predator(delta: float, enemy_on_screen: bool) -> void:
 	var blocked := block_along < DEATHBEAM_RANGE
 	_predator_beam.set_beam(head, head + dir * maxf(2.0, block_along), true, blocked)
 	if fire:
+		# Same swept hit-test as the main Lasgun (see _beam_swept_hit) — the head can turn fast enough
+		# between ticks that a single straight-line test at the tick instant would miss swept-over enemies.
+		var prev_head := head if not _predator_prev_valid else _predator_prev_head
+		var prev_dir := dir if not _predator_prev_valid else _predator_prev_dir
 		for en in _enemies() + _ruins():
 			if not is_instance_valid(en):
 				continue
-			var to_e: Vector2 = (en as Node2D).global_position - head
-			var along := to_e.dot(dir)
-			if along < 0.0 or along > block_along:
-				continue
 			var _en_r = en.get("hit_radius")
 			var hit_w: float = DEATHBEAM_WIDTH * 0.5 + (float(_en_r) if _en_r != null else DEATHBEAM_HIT_PAD)
-			if (to_e - dir * along).length() > hit_w:
+			if not _beam_swept_hit(prev_head, prev_dir, head, dir, block_along, hit_w, (en as Node2D).global_position):
 				continue
 			if en.has_method("take_damage"):
 				var r := _roll_damage(DEATHBEAM_DAMAGE, "predator")
@@ -6584,6 +6558,9 @@ func _tick_predator(delta: float, enemy_on_screen: bool) -> void:
 					en.take_damage(float(r["dmg"]), DEATHBEAM_STAGGER, 0.0, "death_beam")
 				if bool(r["is_crit"]):
 					_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+		_predator_prev_head = head
+		_predator_prev_dir = dir
+		_predator_prev_valid = true
 
 ## The beam direction from `head` that crosses the MOST enemies (candidate directions = toward each enemy).
 func _best_beam_dir(head: Vector2) -> Vector2:
