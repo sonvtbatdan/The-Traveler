@@ -15,17 +15,99 @@ extends Control
 ## Frame timing: set ATTACK_FRAMES below (clip name → strike frame). Watch the "frame" readout
 ## in the label while a clip plays to find the right number, then plug it in.
 
-const MODEL_PATH  := "res://assets/3D models/Scorpion.glb"
+const MODEL_PATH  := "res://assets/3D models/Boss_Scorpion_1.glb"
 const MUZZLE_CFG  := "res://scorpion_muzzles.cfg"   # authored here, loadable by a future boss script
 const MUZZLE_SLOTS    := 20
 const MUZZLE_MARKER_R := 0.06
 
 # ── Frame-synced attack ──
 const ANIM_FPS := 30.0                        # must match the .glb import fps (Ship_model_1 uses 30)
-const ATTACK_CLIP := "attack"                 # preferred clip for F / frame-sync (falls back to a match)
-const ATTACK_SLOT := 1                        # which anchor the strike fires from
-const ATTACK_FRAMES := { "attack": [18] }     # clip name → frame(s) that spawn the projectile — TUNE THIS
+const ATTACK_CLIP := "Tail_open"              # the tail-strike clip (F plays it; frame-sync targets it)
+const ATTACK_SLOT := 1                        # which anchor the strike fires from (place it on the stinger)
+const ATTACK_FRAMES := { "Tail_open": [20] }  # clip name → strike frame(s), 0..30 for Tail_open — TUNE by eye
 const PROJ_SPEED := 520.0                     # test projectile speed (px/s), fired downward = mock "at player"
+
+# ── Look / brightness ──
+# The HSV-brighten shader you added in Blender does NOT export through glTF, and the model's baked
+# metallic map makes it read dark against a dark scene. These knobs re-create the bright look in Godot.
+const KEY_LIGHT      := 2.2                    # main light energy
+const FILL_LIGHT     := 1.1                    # opposite fill so the far side isn't black
+const AMBIENT_COLOR  := Color(0.85, 0.88, 0.98)  # bright, slightly cool — what the metal reflects
+const AMBIENT_ENERGY := 2.0
+const METALLIC_MULT  := 0.55                   # <1 tames the dark "mirror" look of the metallic bake
+# HSV recolour of the albedo — same idea as the Blender Hue/Sat/Value node, but this one applies in-game.
+# Changes the ACTUAL colours (no white wash), and keeps the normal map / roughness / metal intact.
+const HUE_SHIFT   := 0.0     # 0 = keep hues · 0.5 = opposite colour · small values = tint the whole model
+const SATURATION  := 0.85    # <1 fades toward grey/white · 1 = unchanged · >1 = more vivid
+const VALUE       := 1.35    # >1 brightens the real colours · 1 = unchanged · <1 = darker
+# Selective per-colour tweaks — detected from each pixel's ORIGINAL colour:
+const WHITEN_GRAYS := 0.45          # push grey/silver patches toward white (0 = off, 1 = full white)
+const GRAY_SAT_MAX := 0.22          # a pixel counts as "grey" when its saturation is below this
+const DARKEN_REDS  := 0.70          # push red patches toward RED_TARGET (0 = off, 1 = full)
+const RED_TARGET   := Color("880000")   # target dark red for the red patches
+const RED_HUE_BAND := 0.07          # how close to pure red (in hue) a pixel must be to count as "red"
+const RED_SAT_MIN  := 0.35          # minimum saturation for a pixel to count as "red"
+
+const RECOLOR_SHADER := """
+shader_type spatial;
+render_mode cull_back;
+uniform sampler2D albedo_tex : source_color;
+uniform sampler2D orm_tex : hint_default_white;
+uniform bool has_orm;
+uniform float metallic_val;
+uniform float roughness_val;
+uniform float metallic_mult;
+uniform sampler2D normal_tex : hint_normal;
+uniform bool has_normal;
+uniform float hue_shift;
+uniform float sat_mul;
+uniform float val_mul;
+uniform float white_amt;
+uniform float gray_sat_max;
+uniform vec3 red_target : source_color;
+uniform float red_amt;
+uniform float red_hue_band;
+uniform float red_sat_min;
+vec3 rgb2hsv(vec3 c) {
+	vec4 K = vec4(0.0, -1.0/3.0, 2.0/3.0, -1.0);
+	vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+	vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+	float d = q.x - min(q.w, q.y);
+	return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + 1.0e-10)), d / (q.x + 1.0e-10), q.x);
+}
+vec3 hsv2rgb(vec3 c) {
+	vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
+	vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+	return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+void fragment() {
+	vec3 orig = texture(albedo_tex, UV).rgb;
+	vec3 h = rgb2hsv(orig);
+	// detect the patches from the ORIGINAL colour (before any global tweak)
+	float gray_mask = (1.0 - smoothstep(gray_sat_max * 0.5, gray_sat_max, h.y)) * smoothstep(0.15, 0.5, h.z);
+	float hue_dist = min(h.x, 1.0 - h.x);
+	float red_mask = (1.0 - smoothstep(0.0, red_hue_band, hue_dist)) * smoothstep(red_sat_min * 0.5, red_sat_min, h.y);
+	// global HSV
+	h.x = fract(h.x + hue_shift);
+	h.y = clamp(h.y * sat_mul, 0.0, 1.0);
+	h.z = h.z * val_mul;
+	vec3 col = clamp(hsv2rgb(h), 0.0, 1.0);
+	// selective: grey/silver -> white, red -> dark red
+	col = mix(col, vec3(1.0), clamp(gray_mask * white_amt, 0.0, 1.0));
+	col = mix(col, red_target, clamp(red_mask * red_amt, 0.0, 1.0));
+	ALBEDO = col;   // no ALPHA write — stays opaque
+	float m = metallic_val;
+	float r = roughness_val;
+	if (has_orm) {
+		vec4 orm = texture(orm_tex, UV);
+		r = orm.g;
+		m = orm.b;
+	}
+	METALLIC = clamp(m * metallic_mult, 0.0, 1.0);
+	ROUGHNESS = r;
+	if (has_normal) { NORMAL_MAP = texture(normal_tex, UV).rgb; }
+}
+"""
 
 # ── Rotation tuning ──
 const AUTO_SPIN_DPS := 20.0
@@ -93,11 +175,11 @@ func _ready() -> void:
 
 	var key := DirectionalLight3D.new()
 	key.rotation = Vector3(deg_to_rad(-50.0), deg_to_rad(-40.0), 0.0)
-	key.light_energy = 1.2
+	key.light_energy = KEY_LIGHT
 	_sv.add_child(key)
 	var fill := DirectionalLight3D.new()
 	fill.rotation = Vector3(deg_to_rad(-15.0), deg_to_rad(140.0), 0.0)
-	fill.light_energy = 0.5
+	fill.light_energy = FILL_LIGHT
 	_sv.add_child(fill)
 
 	var env := WorldEnvironment.new()
@@ -105,8 +187,8 @@ func _ready() -> void:
 	e.background_mode = Environment.BG_COLOR
 	e.background_color = Color(0.03, 0.04, 0.07)
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color(0.30, 0.34, 0.42)
-	e.ambient_light_energy = 1.0
+	e.ambient_light_color = AMBIENT_COLOR
+	e.ambient_light_energy = AMBIENT_ENERGY
 	env.environment = e
 	_sv.add_child(env)
 
@@ -122,6 +204,7 @@ func _ready() -> void:
 	if _model != null:
 		_pivot.add_child(_model)
 		_frame_camera(_model)
+		_style_materials(_model)
 		_add_model_collider(_model)
 		_load_muzzles()
 		_load_muzzle_anchors()
@@ -129,6 +212,12 @@ func _ready() -> void:
 		_anim = _find_anim_player(_model)
 		_clips = _anim.get_animation_list() if _anim != null else PackedStringArray()
 		_resolve_attack_clip()
+		var _dbg := ""
+		for _c: String in _clips:
+			var _a := _anim.get_animation(_c)
+			if _a != null:
+				_dbg += "  %s=%df" % [_c, int(_a.length * ANIM_FPS)]
+		print("[test_boss_scorpion] clip frames:%s   attack_clip: %s" % [_dbg, _attack_clip])
 		if not _clips.is_empty():
 			_play_clip(_clips[0])
 	else:
@@ -217,7 +306,12 @@ func _input(event: InputEvent) -> void:
 				_on_strike()   # manual fire, ignores frame timing (test the anchor/projectile alone)
 			KEY_P:
 				_edit = not _edit
-				_status = "edit ON — click model to place slot %d" % _active_slot if _edit else ""
+				if _edit:
+					if _anim != null: _anim.pause()   # freeze the model so anchors land precisely
+					_status = "edit ON — 1-9 pick slot, click to place"
+				else:
+					if _anim != null: _anim.play()    # resume the animation on exit
+					_status = ""
 				_refresh_muzzle_markers()
 			KEY_BRACKETLEFT:
 				if _edit: _cycle_slot(-1)
@@ -227,8 +321,12 @@ func _input(event: InputEvent) -> void:
 				if _edit: _clear_slot()
 			_:
 				if k.keycode >= KEY_1 and k.keycode <= KEY_9:
-					var idx := k.keycode - KEY_1
-					if idx < _clips.size(): _play_clip(_clips[idx])
+					var n := k.keycode - KEY_1 + 1
+					if _edit:
+						_active_slot = clampi(n, 1, MUZZLE_SLOTS)   # 1-9 pick the muzzle slot while editing
+						_refresh_muzzle_markers()
+					elif n - 1 < _clips.size():
+						_play_clip(_clips[n - 1])
 	elif event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT:
@@ -405,6 +503,43 @@ func _load_muzzles() -> void:
 	for key: String in cfg.get_section_keys("muzzles"):
 		_muzzle_pts[int(key)] = cfg.get_value("muzzles", key)
 
+## Recolour the model to match the intended look (the Blender HSV shader can't export via glTF). Overrides
+## each surface with a shader that HSV-adjusts the albedo (hue/sat/value) while passing the metallic,
+## roughness and normal maps straight through — so it changes the actual colours, not a white overlay.
+func _style_materials(root: Node) -> void:
+	if HUE_SHIFT == 0.0 and SATURATION == 1.0 and VALUE == 1.0 and METALLIC_MULT == 1.0:
+		return
+	for mi: MeshInstance3D in _all_mesh_instances(root):
+		if mi.mesh == null:
+			continue
+		for s in mi.mesh.get_surface_count():
+			var src := mi.mesh.surface_get_material(s) as BaseMaterial3D
+			if src == null:
+				continue
+			var mat := ShaderMaterial.new()
+			var sh := Shader.new()
+			sh.code = RECOLOR_SHADER
+			mat.shader = sh
+			var orm := src.metallic_texture
+			mat.set_shader_parameter("albedo_tex", src.albedo_texture)
+			mat.set_shader_parameter("orm_tex", orm)
+			mat.set_shader_parameter("has_orm", orm != null)
+			mat.set_shader_parameter("metallic_val", src.metallic)
+			mat.set_shader_parameter("roughness_val", src.roughness)
+			mat.set_shader_parameter("metallic_mult", METALLIC_MULT)
+			mat.set_shader_parameter("normal_tex", src.normal_texture)
+			mat.set_shader_parameter("has_normal", src.normal_enabled and src.normal_texture != null)
+			mat.set_shader_parameter("hue_shift", HUE_SHIFT)
+			mat.set_shader_parameter("sat_mul", SATURATION)
+			mat.set_shader_parameter("val_mul", VALUE)
+			mat.set_shader_parameter("white_amt", WHITEN_GRAYS)
+			mat.set_shader_parameter("gray_sat_max", GRAY_SAT_MAX)
+			mat.set_shader_parameter("red_target", RED_TARGET)
+			mat.set_shader_parameter("red_amt", DARKEN_REDS)
+			mat.set_shader_parameter("red_hue_band", RED_HUE_BAND)
+			mat.set_shader_parameter("red_sat_min", RED_SAT_MIN)
+			mi.set_surface_override_material(s, mat)
+
 ## Give every mesh a trimesh collider (child of the mesh, so it rides the model) for click raycasts.
 func _add_model_collider(root: Node) -> void:
 	for mi: MeshInstance3D in _all_mesh_instances(root):
@@ -479,7 +614,7 @@ func _update_label() -> void:
 	lines.append("attack clip: %s   ·   strike frames: %s" % [_attack_clip, str(ATTACK_FRAMES)])
 	# edit HUD
 	if _edit:
-		lines.append("[EDIT] slot %d/%d — click model to place · [ ] cycle · X clear · %s" % [_active_slot, MUZZLE_SLOTS, _status])
+		lines.append("[EDIT] slot %d/%d — 1-9 pick slot · click model to place · X clear · %s" % [_active_slot, MUZZLE_SLOTS, _status])
 	else:
 		lines.append("1-9 play · F attack · G fire now · P edit anchors · Z spin · R reset · drag rotate")
 	_label.text = "\n".join(lines)
