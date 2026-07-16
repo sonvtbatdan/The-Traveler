@@ -5692,23 +5692,6 @@ func _draw_ionize_rings() -> void:
 			continue
 		_ionize_ring_layer.draw_circle(center, r, Color(IONIZE_RING_COL.r, IONIZE_RING_COL.g, IONIZE_RING_COL.b, a))
 
-## Infalling accretion discs: each starts as a filled circle at the field's current AoE radius, eases
-## inward toward the ship (accelerating, like gravity), and fades in then out along the way. ~3 discs are
-## alive at once (see IONIZE_RING_INTERVAL); their overlap naturally builds up brightness toward the
-## centre — that layered overlap IS the glow, so each disc itself is just a flat-alpha filled circle.
-func _draw_ionize_rings() -> void:
-	if _player == null or not is_instance_valid(_player) or _ionize_ring_layer == null:
-		return
-	var center := _player.global_position
-	var reach := _ionize_field_radius()
-	for ring: Dictionary in _ionize_rings:
-		var t := clampf(float(ring["age"]) / IONIZE_RING_LIFE, 0.0, 1.0)
-		var r := reach * pow(1.0 - t, IONIZE_RING_EASE)
-		var a := sin(t * PI) * IONIZE_RING_OPACITY
-		if a <= 0.001 or r <= 1.0:
-			continue
-		_ionize_ring_layer.draw_circle(center, r, Color(IONIZE_RING_COL.r, IONIZE_RING_COL.g, IONIZE_RING_COL.b, a))
-
 # ── Batch-1 draw helpers (this Node2D draws in world space) ─────────────────────────
 ## Energy-wave VFX: a rippling crest + a trailing wave train fanning into the forward cone. Each crest is a
 ## soft translucent GLOW (layered widths) whose alpha fades to 0 toward the two cone edges.
