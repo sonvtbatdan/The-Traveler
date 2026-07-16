@@ -119,6 +119,9 @@ const ENEMY_DEFS := {
 	"elephant":  {"behavior": "boss_stub", "hp": 5500.0, "speed": 110.0, "size": 70.0, "contact": 40, "xp": 25.0, "shape": "circle",   "tint": Color(0.75, 0.70, 0.65), "icon": "res://assets/bosses/elephant/elephant.sheet.png", "boss_script": "res://scripts/gameplay/arena_elephant.gd"},
 	"chromeleon":{"behavior": "boss_stub", "hp": 4200.0, "speed": 70.0, "size": 60.0, "contact": 35, "xp": 20.0, "shape": "diamond",  "tint": Color(0.45, 0.90, 0.65), "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},
 	"metalfly":  {"behavior": "boss_stub", "hp": 4800.0, "speed": 65.0, "size": 64.0, "contact": 38, "xp": 22.5, "shape": "triangle", "tint": Color(0.70, 0.75, 0.85), "icon": "res://assets/bosses/metalfly/metalfly.sheet.png"},
+	# Scorpion — full 4-move 3D boss (boss_scorpion.gd renders its own model). 100 armor.
+	# "gate_waves": pauses the whole timeline the instant it spawns and resumes only when it dies.
+	"scorpion":  {"behavior": "boss_stub", "hp": 4000.0, "speed": 110.0, "size": 180.0, "contact": 0, "xp": 30.0, "armor": 100.0, "boss_script": "res://scripts/gameplay/boss_scorpion.gd", "gate_waves": true},
 }
 
 # ══ 3. AUTHORED TIMELINE ═══════════════════════════════════════════════════════
@@ -159,6 +162,8 @@ const DEFAULT_TIMELINE := [
 	{"time": 305.0, "type": "diver",     "count": 12, "pattern": "stream", "duration": 12.0},
 	{"time": 320.0, "type": "missile",   "count": 3,  "pattern": "scatter"},
 	{"time": 335.0, "type": "swarm",     "count": 1,  "pattern": "ring"},   # one 50-strong blob
+	# ── 10:00 — SCORPION (gates the timeline until dead) ──
+	{"time": 600.0, "type": "scorpion",  "count": 1,  "pattern": "ring", "is_boss": true},
 ]
 
 # ══ DEBUG ══════════════════════════════════════════════════════════════════════
@@ -186,6 +191,7 @@ var _streams: Array = []    # active stream entries: {type, left, interval, acc,
 var _spawn_queue: Array = [] # pending spawns {type, pos, draw_w, mode}, drained SPAWN_BUDGET/frame
 var _prewarmed: Array = []            # strong refs to background-loaded enemy textures (keeps them cached)
 var _prewarm_pending: Array[String] = []   # sprite paths whose threaded load is still in flight
+var _gate_boss: Node = null   # a "gate_waves" boss (Scorpion): while alive, ALL wave management is frozen
 
 func _ready() -> void:
 	add_to_group("wave_director")
@@ -282,6 +288,7 @@ func elapsed() -> float:
 func restart() -> void:
 	_elapsed = 0.0
 	_next = 0
+	_gate_boss = null   # drop any boss gate so an edited timeline replays freely
 	_streams.clear()
 	_spawn_queue.clear()
 	for e in get_tree().get_nodes_in_group("arena_enemy"):
@@ -294,6 +301,12 @@ func _process(delta: float) -> void:
 		_player = get_tree().get_first_node_in_group("player")
 		if _player == null:
 			return
+	# Boss gate: while a gate_waves boss (Scorpion) is alive, freeze the timeline, streams and spawn queue.
+	# The clock does NOT advance, so nothing new fires until the boss dies (its node is freed).
+	if _gate_boss != null:
+		if is_instance_valid(_gate_boss):
+			return
+		_gate_boss = null   # boss defeated → resume where the timeline left off
 	_elapsed += delta
 	while _next < timeline.size() and float(timeline[_next]["time"]) <= _elapsed:
 		_fire(timeline[_next])
@@ -542,6 +555,8 @@ func _spawn(type_id: String, pos: Vector2, is_boss: bool, draw_w: float = 0.0, m
 	e.configure(type_id, _mgr, def)
 	e.position = pos
 	get_parent().add_child(e)
+	if _gate_boss == null and bool(src.get("gate_waves", false)):
+		_gate_boss = e   # freeze the timeline until this boss dies (see _process)
 
 ## Debug: drop one invincible dummy (blocks the beam, never dies) at a world position. Bypasses MAX_ALIVE.
 func spawn_dummy_near(pos: Vector2) -> void:

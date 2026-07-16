@@ -18,6 +18,7 @@ const FLAME_TEX_SIZE := 256   # the flame texture is resized to this at load →
 @export var sim_fps: int = 24                 # particle simulation framerate (lower = more stepped/animated)
 @export var particle_size_min: float = 40.0   # on-screen particle size in PIXELS (resolution-independent)
 @export var particle_size_max: float = 90.0   # → scale = size_px / flame texture width (smaller = finer fire)
+@export var size_grow: float = 1.0            # >1 → each particle grows this× over its life (megaphone cone: small at muzzle, big at far end)
 @export var velocity_min: float = 30.0        # low → flames lick near the ring instead of flying off
 @export var velocity_max: float = 90.0
 @export var inherit_velocity: float = 0.2
@@ -333,6 +334,13 @@ func _make_process_material(tex_w: float) -> ParticleProcessMaterial:
 	# Particle size in PIXELS → scale is size / texture width (resolution-independent).
 	pm.scale_min = particle_size_min / maxf(1.0, tex_w)
 	pm.scale_max = particle_size_max / maxf(1.0, tex_w)
+	if size_grow != 1.0:   # grow each particle over its lifetime → megaphone cone (small spawn, big far end)
+		var sc := Curve.new()
+		sc.add_point(Vector2(0.0, 1.0))
+		sc.add_point(Vector2(1.0, maxf(0.01, size_grow)))
+		var sct := CurveTexture.new()
+		sct.curve = sc
+		pm.scale_curve = sct
 	pm.angle_min = -spawn_angle_range
 	pm.angle_max = spawn_angle_range
 	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_POINTS

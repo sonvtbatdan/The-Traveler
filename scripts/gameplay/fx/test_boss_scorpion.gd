@@ -17,6 +17,7 @@ extends Control
 
 const MODEL_PATH  := "res://assets/3D models/Boss_Scorpion_1.glb"
 const MUZZLE_CFG  := "res://scorpion_muzzles.cfg"   # authored here, loadable by a future boss script
+const VIEWS_CFG   := "res://scorpion_views.cfg"     # "Aligned" base orientation, shared with boss_scorpion.gd
 const MUZZLE_SLOTS    := 20
 const MUZZLE_MARKER_R := 0.06
 
@@ -136,6 +137,7 @@ var _model: Node3D
 var _anim: AnimationPlayer
 var _label: Label
 var _proj_layer: ProjLayer
+var _align_btn: Button = null
 
 var _clips: PackedStringArray = PackedStringArray()
 var _attack_clip: String = ""
@@ -144,7 +146,7 @@ var _yaw: float = 0.0
 var _pitch: float = 0.0
 var _roll: float = 0.0
 var _dragging: bool = false
-var _auto_spin: bool = true
+var _auto_spin: bool = false
 
 # ── Anchor editor state ──
 var _edit: bool = false
@@ -204,6 +206,7 @@ func _ready() -> void:
 	if _model != null:
 		_pivot.add_child(_model)
 		_frame_camera(_model)
+		_build_axis_gizmo()
 		_style_materials(_model)
 		_add_model_collider(_model)
 		_load_muzzles()
@@ -237,6 +240,7 @@ func _ready() -> void:
 	_label.position = Vector2(12.0, 10.0)
 	add_child(_label)
 
+	_build_align_button()
 	_apply_rotation()
 
 
@@ -329,6 +333,8 @@ func _input(event: InputEvent) -> void:
 						_play_clip(_clips[n - 1])
 	elif event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
+		if _align_btn != null and _align_btn.get_global_rect().has_point(mb.position):
+			return   # let the Aligned button handle its own click — don't start a rotate/place
 		if mb.button_index == MOUSE_BUTTON_LEFT:
 			if _edit:
 				if mb.pressed: _place_muzzle_at(mb.position)
@@ -591,6 +597,57 @@ func _all_mesh_instances(node: Node) -> Array:
 	return out
 
 
+# ── Alignment tool: XYZ gizmo + an "Aligned" button that saves the base orientation for everyone ──
+## Draw world X (red) / Y (green) / Z (blue) axes at the origin so you can line the model up.
+func _build_axis_gizmo() -> void:
+	var radius := 1.0
+	if _model != null:
+		radius = maxf(_combined_aabb(_model).size.length() * 0.5, 0.5)
+	var length := radius * 1.4
+	var im := ImmediateMesh.new()
+	im.surface_begin(Mesh.PRIMITIVE_LINES)
+	var xr := Color(1.0, 0.3, 0.3)
+	var yg := Color(0.35, 1.0, 0.4)
+	var zb := Color(0.4, 0.55, 1.0)
+	im.surface_set_color(xr); im.surface_add_vertex(Vector3.ZERO); im.surface_set_color(xr); im.surface_add_vertex(Vector3(length, 0, 0))
+	im.surface_set_color(yg); im.surface_add_vertex(Vector3.ZERO); im.surface_set_color(yg); im.surface_add_vertex(Vector3(0, length, 0))
+	im.surface_set_color(zb); im.surface_add_vertex(Vector3.ZERO); im.surface_set_color(zb); im.surface_add_vertex(Vector3(0, 0, length))
+	im.surface_end()
+	var mi := MeshInstance3D.new()
+	mi.mesh = im
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.vertex_color_use_as_albedo = true
+	mat.no_depth_test = true
+	mi.material_override = mat
+	_sv.add_child(mi)   # child of the viewport (not the pivot) → stays world-fixed while the model spins
+
+func _build_align_button() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 50
+	add_child(layer)
+	_align_btn = Button.new()
+	_align_btn.text = "Aligned"
+	_align_btn.custom_minimum_size = Vector2(120, 38)
+	_align_btn.add_theme_font_size_override("font_size", 16)
+	layer.add_child(_align_btn)
+	_align_btn.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 16)
+	_align_btn.pressed.connect(_save_aligned)
+
+## Save the model's CURRENT orientation as the shared "aligned" base (boss_scorpion.gd reads it).
+func _save_aligned() -> void:
+	if _pivot == null:
+		return
+	var q := _pivot.transform.basis.get_rotation_quaternion()
+	var cfg := ConfigFile.new()
+	cfg.load(VIEWS_CFG)   # preserve any other saved keys
+	cfg.set_value("views", "aligned", q)
+	if cfg.save(VIEWS_CFG) == OK:
+		_status = "ALIGNED saved ✓"
+	else:
+		_status = "align save FAILED"
+
+
 # ── HUD ───────────────────────────────────────────────────────────────────────
 func _update_label() -> void:
 	if _label == null:
@@ -616,5 +673,5 @@ func _update_label() -> void:
 	if _edit:
 		lines.append("[EDIT] slot %d/%d — 1-9 pick slot · click model to place · X clear · %s" % [_active_slot, MUZZLE_SLOTS, _status])
 	else:
-		lines.append("1-9 play · F attack · G fire now · P edit anchors · Z spin · R reset · drag rotate")
+		lines.append("drag rotate · R reset · Z spin · 1-9 play · F attack · P anchors · [Aligned] = save base orientation · %s" % _status)
 	_label.text = "\n".join(lines)

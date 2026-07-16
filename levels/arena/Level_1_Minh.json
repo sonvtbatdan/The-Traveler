@@ -76,7 +76,7 @@
     },
     {
       "time": 600.0,
-      "type": "elephant",
+      "type": "scorpion",
       "count": 1,
       "pattern": "ring",
       "is_boss": true

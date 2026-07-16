@@ -36,16 +36,23 @@ var _ship_cam: Camera3D
 var _ship_pivot: Node3D
 var _ship_spr: Sprite2D
 
+var _panel_layer: CanvasLayer
+var _panel: PanelContainer
+var _move_enabled: Dictionary = {}   # id -> bool, persisted across boss respawns
+
 
 func _ready() -> void:
 	position = Vector2.ZERO
+	process_mode = Node.PROCESS_MODE_ALWAYS   # root keeps handling input while paused (to close the panel)
 	var grid := GridBg.new()
 	grid.z_index = -100
 	add_child(grid)
 	_build_player()
 	_build_hud()
+	_build_move_panel()
 	_weapons = ArenaWeaponsScript.new()
 	(_weapons as Node2D).position = Vector2.ZERO
+	_weapons.process_mode = Node.PROCESS_MODE_PAUSABLE
 	add_child(_weapons)
 	_weapons.call_deferred("acquire_weapon", "gatling_gun")
 	_spawn_boss(0)
@@ -55,6 +62,7 @@ func _build_player() -> void:
 	_player = Node2D.new()
 	_player.add_to_group("player")
 	_player.global_position = Vector2.ZERO
+	_player.process_mode = Node.PROCESS_MODE_PAUSABLE
 	var cam := Camera2D.new()
 	cam.enabled = true   # Camera2D ignores parent rotation by default, so aiming won't spin the view
 	_player.add_child(cam)
@@ -156,14 +164,26 @@ func _spawn_boss(idx: int) -> void:
 	_boss_idx = idx
 	var script: GDScript = BOSSES[idx]["script"]
 	_boss = script.new() as Node2D
+	_boss.process_mode = Node.PROCESS_MODE_PAUSABLE
 	var px := _player.global_position if _player != null else Vector2.ZERO
 	_boss.global_position = Vector2(px.x, px.y - 340.0)
 	add_child(_boss)
+	_apply_move_enabled()
 	_update_hud()
+
+## Push the persisted move-enable selection onto the (freshly spawned) boss; seed it from the boss defaults once.
+func _apply_move_enabled() -> void:
+	if _boss == null or not is_instance_valid(_boss) or not _boss.has_method("get_move_meta"):
+		return
+	if _move_enabled.is_empty():
+		for m: Dictionary in _boss.get_move_meta():
+			_move_enabled[m["id"]] = _boss.is_move_enabled(m["id"])
+	for id: String in _move_enabled.keys():
+		_boss.set_move_enabled(id, _move_enabled[id])
 
 
 func _process(delta: float) -> void:
-	if _player == null:
+	if _player == null or get_tree().paused:
 		return
 	var v := Vector2.ZERO
 	if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):    v.y -= 1.0
@@ -181,7 +201,11 @@ func _process(delta: float) -> void:
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		var k := event as InputEventKey
-		if k.keycode == KEY_R:
+		if k.keycode == KEY_P:
+			_toggle_panel()
+		elif k.keycode == KEY_ESCAPE and _panel != null and _panel.visible:
+			_toggle_panel()
+		elif k.keycode == KEY_R:
 			_spawn_boss(_boss_idx)
 		elif k.keycode >= KEY_1 and k.keycode <= KEY_9:
 			var i := k.keycode - KEY_1
@@ -207,7 +231,66 @@ func _update_hud() -> void:
 	for i in BOSSES.size():
 		list += "  [%d] %s" % [i + 1, BOSSES[i]["name"]]
 	var cur: String = BOSSES[_boss_idx]["name"] if _boss_idx < BOSSES.size() else "-"
-	_hud.text = "BOSS FIGHT TEST\nWASD move · mouse aim · Gatling auto-fires\nPick boss:%s   ·   R = restart\nCurrent: %s" % [list, cur]
+	_hud.text = "BOSS FIGHT TEST\nWASD move · mouse aim · Gatling auto-fires\nPick boss:%s   ·   R = restart   ·   P = moves panel\nCurrent: %s" % [list, cur]
+
+
+func _build_move_panel() -> void:
+	_panel_layer = CanvasLayer.new()
+	_panel_layer.layer = 80
+	_panel_layer.process_mode = Node.PROCESS_MODE_ALWAYS   # stays interactive while the game is paused
+	add_child(_panel_layer)
+	_panel = PanelContainer.new()
+	_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	_panel.hide()
+	_panel_layer.add_child(_panel)
+
+func _toggle_panel() -> void:
+	if _panel == null:
+		return
+	if _panel.visible:
+		_panel.hide()
+		get_tree().paused = false
+		_spawn_boss(_boss_idx)   # restart the fight with the current move selection
+	else:
+		_populate_panel()
+		_panel.show()
+		_panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_MINSIZE, 16)
+		get_tree().paused = true
+
+func _populate_panel() -> void:
+	for c in _panel.get_children():
+		c.queue_free()
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 6)
+	_panel.add_child(vb)
+	var title := Label.new()
+	title.text = "MOVES — tick to enable   ·   P to close"
+	title.add_theme_font_size_override("font_size", 18)
+	vb.add_child(title)
+	if _boss == null or not is_instance_valid(_boss) or not _boss.has_method("get_move_meta"):
+		var none := Label.new()
+		none.text = "(no boss / no moves)"
+		vb.add_child(none)
+		return
+	for m: Dictionary in _boss.get_move_meta():
+		var id: String = m["id"]
+		var cb := CheckBox.new()
+		cb.process_mode = Node.PROCESS_MODE_ALWAYS
+		cb.text = String(m["name"])
+		cb.button_pressed = bool(_move_enabled.get(id, true))
+		cb.toggled.connect(_on_move_toggled.bind(id))
+		vb.add_child(cb)
+		var desc := Label.new()
+		desc.text = "      " + String(m["desc"])
+		desc.add_theme_color_override("font_color", Color(0.72, 0.78, 0.9))
+		desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		desc.custom_minimum_size = Vector2(560, 0)
+		vb.add_child(desc)
+
+func _on_move_toggled(pressed: bool, id: String) -> void:
+	_move_enabled[id] = pressed
+	if _boss != null and is_instance_valid(_boss):
+		_boss.set_move_enabled(id, pressed)
 
 
 ## Static world grid for depth/perspective reference (scrolls under the camera as you move).
