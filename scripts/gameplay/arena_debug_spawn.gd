@@ -31,18 +31,19 @@ const WEAPON_TABS := {
 	"drop": [
 		{"kind": "gatling_gun",   "def_id": "gatling_gun",  "label": "Gatling Gun"},
 		{"kind": "death_beam",    "def_id": "death_beam",        "label": "Death Beam"},
-		{"kind": "defensive_orbitals",   "def_id": "defensive_orbitals",      "label": "Defensive Orbitals"},
-		{"kind": "offensive_orbitals",   "def_id": "offensive_orbitals",    "label": "Offensive Orbitals", "code": "Striker"},
+		{"kind": "orbital",   "def_id": "orbitals",      "label": "Defensive Orbitals"},
+		{"kind": "striker",   "def_id": "",              "label": "Striker", "icon": "res://assets/weaponry/ND-OIF-F.png"},
+		{"kind": "shooter",   "def_id": "swarm_host",    "label": "Shooter", "icon": "res://assets/weaponry/shooter.png"},
 		{"kind": "chemtrail", "def_id": "chemtrail",     "label": "Chemtrail"},
 		{"kind": "rift_maker",      "def_id": "rift_maker",    "label": "Rift Maker"},
 		{"kind": "arc",       "def_id": "arc",           "label": "Arc Lightning Chain"},
 		{"kind": "yari", "def_id": "yari",     "label": "Yari"},
 		{"kind": "z_sword",    "def_id": "z_sword",       "label": "Z-Sword"},
 		{"kind": "mortar",      "def_id": "mortar",          "label": "Little Man"},
-		{"kind": "dragons_breath",     "def_id": "dragons_breath",         "label": "Dragon's Breath"},
-		{"kind": "aliwa", "def_id": "aliwa",     "label": "Aliwa"},
-		{"kind": "gauss",     "def_id": "gauss",  "label": "Gauss Pulser"},
-		{"kind": "viper",     "def_id": "viper",   "label": "Viper"},
+		{"kind": "red_x",     "def_id": "red_x",         "label": "Dragon's Breath"},
+		{"kind": "boomerang", "def_id": "boomerang",     "label": "Boomerang"},
+		{"kind": "gauss",     "def_id": "gauss_cannon",  "label": "Gauss Pulser"},
+		{"kind": "snake",     "def_id": "space_snake",   "label": "Viper"},
 		{"kind": "swarm",     "def_id": "",              "label": "Swarm", "icon": "res://assets/inventory/Swarm.png"},
 		{"kind": "ultrasonicator",     "def_id": "ultrasonicator",    "label": "Ultrasonicator"},
 		{"kind": "homing_missile",    "def_id": "homing_missile","label": "Homing Missile"},   # temp impl (copied from enemy missile launcher) — not in the Corp doc
@@ -806,7 +807,7 @@ func _rebuild_weapon_grid() -> void:
 	for w: Dictionary in _weapon_tab_entries(_weapon_tab):
 		_weapon_grid.add_child(_make_weapon_cell(w, 48))
 
-## The weapon's Code Name (short nickname, e.g. "Minigun"). Implemented weapons resolve it from the live
+## The weapon's Code Name (short nickname, e.g. "Gatling"). Implemented weapons resolve it from the live
 ## registry via their kind; placeholders carry an explicit "code"; everything else falls back to the full name.
 func _weapon_code_name(w: Dictionary) -> String:
 	var kind := String(w.get("kind", ""))
@@ -824,7 +825,7 @@ func _make_weapon_cell(w: Dictionary, cell_size: int) -> Control:
 	btn.focus_mode    = Control.FOCUS_NONE
 	var code := _weapon_code_name(w)
 	var full := String(w["label"])
-	var tip := code                          # Code Name first (e.g. "Minigun")
+	var tip := code                          # Code Name first (e.g. "Gatling")
 	if full != code:
 		tip += "  —  " + full                # then the full name (e.g. "Gatling Gun")
 	if w.has("from"):

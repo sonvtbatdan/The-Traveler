@@ -45,6 +45,7 @@ const CreepEditScript       := preload("res://scripts/ui/boss_edit/creep_edit_mo
 const WeaponEditScript      := preload("res://scripts/ui/boss_edit/weapon_edit_mode.gd")
 const FleetEditScript       := preload("res://scripts/ui/boss_edit/fleet_edit_mode.gd")
 const HudEditScript         := preload("res://scripts/ui/boss_edit/hud_edit_mode.gd")   # authored playerhud (the active HUD)
+const SettingsScript        := preload("res://scripts/ui/settings/settings_panel.gd")
 const RESET_RUN_ON_START := true   # each arena run starts a fresh VS climb (level 1, no upgrades). Flip off to keep saved level.
 const WEAPON_TEST_MODE := true     # TEST: skip the hub launch page + start-of-run weapon-pick chest; boot straight into
 								   # the arena, then auto-pause and open the F12 weapon palette. Flip off to restore normal flow.
@@ -164,7 +165,7 @@ func _ready() -> void:
 	_build_boundary_vignette()
 	_spawn_reward_chest()                # far reward chest + edge-of-screen pointer
 	add_child(_make_glow_world_env())    # screen glow/bloom (HDR-2D): makes the >1 fire (M2, Red X) bloom
-	add_child(PerfOverlayScript.new())   # always-on FPS/frame-ms readout (top-right) for tuning
+	add_child(PerfOverlayScript.new())   # FPS/frame-ms readout (top-right); off by default, Settings' FPS switch shows it
 	add_child(LevelUpUIScript.new())     # VS choose-1-of-3 on level-up (pauses the game)
 	add_child(FusionCutsceneScript.new())  # weapon-fusion cutscene (group "arena_fusion_cutscene"; awaited by level-up UI)
 	add_child(InventoryUIScript.new())   # equip/loadout screen (toggle with the I key)
@@ -676,7 +677,8 @@ func _setup_hud_edit() -> void:
 	var hem := HudEditScript.new()
 	add_child(hem)
 	_hud_edit = hem
-	hem.setup(oc)
+	var hud_version := String(SettingsScript.load_cfg().get("hud_version", "hud"))
+	hem.setup(oc, hud_version)
 
 ## Hide the gameplay + all HUD (HP/XP, weapon/aux slots, button clusters, debug panels, player, live enemies)
 ## while a full-screen editor (Creep / Fleet) is open, so only the editor panels + its edit objects show.

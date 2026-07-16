@@ -870,8 +870,8 @@ const ITEM_DEFS: Dictionary = {
 		"desc": "Phóng ra sóng sonic",
 		"stats": { "weight": 5 },
 	},
-	"aliwa": {
-		"name": "Aliwa",
+	"boomerang": {
+		"name": "Boomerang",
 		"icon": "res://assets/inventory/ND-Aliwa.png",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],

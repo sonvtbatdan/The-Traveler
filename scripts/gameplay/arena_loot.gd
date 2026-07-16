@@ -6,12 +6,18 @@ extends Node2D
 ##   coin / diamond → GameManager.add_money(50)
 ##   heart          → GameManager.heal(25)
 ##   magnetic       → pull all XP orbs toward the player with a 0→1200 px/s ramp over 2s
-##   shield         → GameManager.activate_shield(10s) + spawn visual overlay on player
+##   divinity       → spawns arena_divinity_visual.gd on the player: +20% ship size, instant-kills any
+##                     touching enemy for 10s (200 dps to a boss instead), and full HP/shield damage
+##                     immunity for that same 10s. Icon is drawn bigger + blinks gold while it sits on
+##                     the ground (see DIVINITY_WIDTH / _draw()).
 
-const LOOT_WIDTH     := 20.0
-const COLLECT_RADIUS := 40.0
-const SPEED_MIN      := 20.0
-const SPEED_MAX      := 50.0
+const LOOT_WIDTH      := 20.0
+const DIVINITY_WIDTH  := 50.0
+const COLLECT_RADIUS  := 40.0
+const SPEED_MIN       := 20.0
+const SPEED_MAX       := 50.0
+const DIVINITY_BLINK_HZ := 4.0
+const DIVINITY_GLOW    := Color(1.0, 0.85, 0.15)
 
 var _type: String = "coin"
 var _value: int = 50   # money this coin is worth (Credit Extractor rolls variable values)
@@ -40,7 +46,8 @@ func _load_tex() -> void:
 		return
 	var tw := float(_tex.get_width())
 	var th := float(_tex.get_height())
-	_draw_size = Vector2(LOOT_WIDTH, LOOT_WIDTH * th / tw)
+	var w := DIVINITY_WIDTH if _type == "divinity" else LOOT_WIDTH
+	_draw_size = Vector2(w, w * th / tw)
 
 func _process(delta: float) -> void:
 	if _dead:
@@ -74,11 +81,9 @@ func _collect() -> void:
 			var mgr := get_tree().get_first_node_in_group("arena_xp_orb_mgr")
 			if mgr != null:
 				mgr.magnetize_all()
-		"shield":
-			if GameManager.has_method("activate_shield"):
-				GameManager.activate_shield(10.0)
+		"divinity":
 			if _player != null and is_instance_valid(_player):
-				var vis := preload("res://scripts/gameplay/arena_shield_visual.gd").new()
+				var vis := preload("res://scripts/gameplay/arena_divinity_visual.gd").new()
 				_player.add_child(vis)
 	queue_free()
 
@@ -102,4 +107,10 @@ func _draw() -> void:
 		return
 	var bob := sin(_t * 3.0) * 2.0
 	var r := Rect2(-_draw_size * 0.5 + Vector2(0.0, bob), _draw_size)
-	draw_texture_rect(_tex, r, false)
+	if _type == "divinity":
+		# Bright gold flicker: pulse the icon's own tint + a soft glow halo behind it.
+		var glow := 0.5 + 0.5 * sin(_t * TAU * DIVINITY_BLINK_HZ)
+		draw_circle(Vector2(0.0, bob), _draw_size.x * 0.9, Color(DIVINITY_GLOW.r, DIVINITY_GLOW.g, DIVINITY_GLOW.b, 0.25 * glow))
+		draw_texture_rect(_tex, r, false, DIVINITY_GLOW.lerp(Color.WHITE, 0.3 + 0.5 * glow))
+	else:
+		draw_texture_rect(_tex, r, false)

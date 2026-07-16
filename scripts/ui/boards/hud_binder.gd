@@ -12,11 +12,13 @@ class_name HudBinder
 const ArenaWeapons   := preload("res://scripts/gameplay/arena_weapons.gd")
 const BAR_FILL_SHADER   := "res://assets/shaders/bar_fill.gdshader"
 const HUD_BLEND_SHADER  := "res://assets/shaders/hud_blend.gdshader"
+const SHIELDBAND1_VFX_SHADER := "res://assets/shaders/shieldband1_vfx.gdshader"
+const SHIELDBAND1_FILE := "shieldband1"   # HUD 1.1 decorative sheen — independent of shieldband/_shield_fill
 const WEAPON_HUD_ICON_DIR := "res://assets/inventory/icon/"   # dedicated per-kind weapon icons for HUD slot btns
 # Weapons whose cooldown frac stays 1.0 (continuous fire / always-on) — never light btnred/btngreen.
 const CONTINUOUS_WEAPONS := {
-	"gatling_gun": true, "defensive_orbitals": true, "offensive_orbitals": true, "chemtrail": true, "ionizing_field": true,
-	"yari": true, "yari_jaeger": true, "swarm": true, "viper": true, "aliwa": true,
+	"gatling": true, "orbital": true, "striker": true, "shooter": true, "chemtrail": true, "ionize": true,
+	"moroboshi": true, "yari_jaeger": true, "swarm": true, "snake": true, "boomerang": true,
 }
 
 # Bar VFX fill/glow tones per bar (level=green, HP=red, shield=blue).
@@ -55,6 +57,7 @@ const ROLE_FILES := {
 	"levelband": true, "HPband": true, "shieldband": true,
 	"menubtn": true, "menubtnpress": true, "invbtn": true, "invbtnpress": true,
 	"inventory": true, "inventorypress": true,
+	"menu1": true, "menu1press": true, "inv1": true, "inv1press": true,   # HUD 1.1 Menu/Inv art
 }
 
 # ── Runtime state ────────────────────────────────────────────────────────────────────
@@ -65,6 +68,7 @@ var _aslots: Array = []               # [{btn, yellow, icon}]      index 0..4 �
 var _level_fill: TextureRect = null
 var _hp_fill: TextureRect = null
 var _shield_fill: TextureRect = null
+var _shieldband1_vfx: TextureRect = null   # decorative sheen on HUD 1.1's shieldband1 — own shader/material, but follows the same shield % as _shield_fill
 var _runtime_extras: Array = []        # runtime-only nodes to free on edit
 var _weapons_node: Node = null
 var _aux_node: Node = null
@@ -146,11 +150,18 @@ func build() -> void:
 		_hp_fill = _make_bar_fill(roles["HPband"], HP_FILL_COL, HP_GLOW_COL)
 	if roles.has("shieldband"):
 		_shield_fill = _make_bar_fill(roles["shieldband"], SH_FILL_COL, SH_GLOW_COL)
+	# HUD 1.1 decorative sheen on shieldband1 — independent lookup, independent of the block above.
+	var sb1 := _find_shieldband1()
+	if not sb1.is_empty():
+		_shieldband1_vfx = _make_shieldband1_vfx(sb1)
 	# Menu / Inv buttons — normal sprite, "…press" while held, action on release.
 	_setup_press_pair(_role_node(roles, "menubtn"), _role_node(roles, "menubtnpress"), _open_menu, "LV")
 	_setup_press_pair(_role_node(roles, "invbtn"),  _role_node(roles, "invbtnpress"),  _open_inventory, "LV")
 	# Legacy Equip pair (kept harmless if the layout still uses inventory/inventorypress sprites).
 	_setup_press_pair(_role_node(roles, "inventory"), _role_node(roles, "inventorypress"), _open_inventory, "LV")
+	# HUD 1.1 Menu / Inv buttons — normal sprite, "…press" ON HOVER (not click-hold), action on click.
+	_setup_hover_pair(_role_node(roles, "menu1"), _role_node(roles, "menu1press"), _open_menu, "LV")
+	_setup_hover_pair(_role_node(roles, "inv1"),  _role_node(roles, "inv1press"),  _open_inventory, "LV")
 	_build_macros()   # reparent everything into the 4 edge-anchored regions (gameplay only)
 	_ready_flag = true
 
@@ -193,6 +204,32 @@ func _setup_press_pair(normal, press, action: Callable, macro_key: String = "") 
 	_ed._objects_container.add_child(b)
 	_runtime_extras.append(b)
 
+## A hover-toggle button pair over a HUD sprite: show `normal`; while the mouse is over it show
+## `press`; fire `action` on click (regardless of hover state). Same transparent-Button catch as
+## `_setup_press_pair`, just driven by hover instead of click-hold — used by HUD 1.1's Menu/Inv art.
+func _setup_hover_pair(normal, press, action: Callable, macro_key: String = "") -> void:
+	if normal == null or not is_instance_valid(normal):
+		return
+	var nc := normal as Control
+	_set_press_pair(normal, press, false)   # default: show normal, hide press
+	var b := Button.new()
+	b.flat = true
+	b.focus_mode = Control.FOCUS_NONE
+	b.mouse_filter = Control.MOUSE_FILTER_STOP
+	var empty := StyleBoxEmpty.new()
+	for s in ["normal", "hover", "pressed", "focus", "disabled"]:
+		b.add_theme_stylebox_override(s, empty)
+	b.position = nc.position
+	b.size = nc.size
+	b.z_index = (normal as CanvasItem).z_index + 1
+	b.mouse_entered.connect(func() -> void: _set_press_pair(normal, press, true))
+	b.mouse_exited.connect(func() -> void: _set_press_pair(normal, press, false))
+	if action.is_valid():
+		b.pressed.connect(action)
+	b.set_meta("macro_key", macro_key)
+	_ed._objects_container.add_child(b)
+	_runtime_extras.append(b)
+
 func _set_press_pair(normal, press, pressed: bool) -> void:
 	if normal != null and is_instance_valid(normal):
 		(normal as CanvasItem).visible = not pressed
@@ -217,10 +254,8 @@ func _bind_text(ch: Dictionary) -> void:
 		return
 	var kind := ""
 	match String(ch.get("text", "")):
-		"200": kind = "hp_cur"
-		"300": kind = "hp_max"
-		"50":  kind = "sh_cur"
-		"100": kind = "sh_max"
+		"300": kind = "hp_max"      # renders "current/max" — see _text_value()
+		"100": kind = "sh_max"      # renders "current/max" — see _text_value()
 		"KILL": kind = "kill"
 		"COIN": kind = "coin"
 		"LV. 3": kind = "level"
@@ -245,6 +280,7 @@ func _update_bindings() -> void:
 	_set_fill_progress(_level_fill, float(GameManager.player_xp), float(need))
 	_set_fill_progress(_hp_fill, float(GameManager.ship_hp), float(GameManager.ship_max_hp))
 	_set_fill_progress(_shield_fill, GameManager.ship_shield, GameManager.shield_capacity_total())
+	_set_fill_progress(_shieldband1_vfx, GameManager.ship_shield, GameManager.shield_capacity_total())
 
 ## Drive a bar fill's shader `progress` from cur/maxv (clamped 0..1; 0 when maxv <= 0).
 func _set_fill_progress(fill: TextureRect, cur: float, maxv: float) -> void:
@@ -258,10 +294,8 @@ func _set_fill_progress(fill: TextureRect, cur: float, maxv: float) -> void:
 
 func _text_value(kind: String) -> String:
 	match kind:
-		"hp_cur": return str(GameManager.ship_hp)
-		"hp_max": return str(GameManager.ship_max_hp)
-		"sh_cur": return str(int(round(GameManager.ship_shield)))
-		"sh_max": return str(int(round(GameManager.shield_capacity_total())))
+		"hp_max": return "%d/%d" % [GameManager.ship_hp, GameManager.ship_max_hp]
+		"sh_max": return "%d/%d" % [int(round(GameManager.ship_shield)), int(round(GameManager.shield_capacity_total()))]
 		"kill":   return str(GameManager.run_kills)
 		"coin":   return str(GameManager.money)
 		"level":  return "LV. %d" % GameManager.player_level
@@ -452,6 +486,48 @@ func _make_bar_fill(ch: Dictionary, fill_col: Color, glow_col: Color) -> Texture
 	_runtime_extras.append(tr)
 	return tr
 
+## Independent lookup for the HUD 1.1 decorative shieldband1 pair — first occurrence's rect, z = the
+## HIGHER of the 2 layers' z (so the VFX draws above both). Scans on its own; does not touch/read
+## `roles`, `shieldband`, or _shield_fill.
+func _find_shieldband1() -> Dictionary:
+	var first: Dictionary = {}
+	var max_z := -2147483648
+	for g: Dictionary in _ed._groups:
+		for ch: Dictionary in g.get("children", []):
+			if String(ch.get("type", "")) == "item" and String(ch.get("file", "")) == SHIELDBAND1_FILE:
+				if first.is_empty():
+					first = ch
+				max_z = maxi(max_z, int(ch.get("z", 0)))
+	if first.is_empty():
+		return {}
+	var out := first.duplicate()
+	out["z"] = max_z + 1
+	return out
+
+## Decorative sheen TextureRect over shieldband1's rect (shieldband1_vfx.gdshader — additive, masked
+## by the sprite's own alpha so it stays cropped to shieldband1's silhouette). Own shader/material,
+## separate node from the shieldband/_shield_fill mask-fill system above — but `_update_bindings()`
+## drives its `progress` uniform from the same shield %, via the same `_set_fill_progress()` helper.
+func _make_shieldband1_vfx(ch: Dictionary) -> TextureRect:
+	var sz: Vector2 = ch.get("size", Vector2.ZERO)
+	if sz == Vector2.ZERO:
+		return null
+	var tr := TextureRect.new()
+	tr.texture = _ed._load_tex(_ed._item_path(String(ch.get("file", ""))))
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_SCALE
+	tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tr.position = ch.get("pos", Vector2.ZERO)
+	tr.size = sz
+	tr.z_index = int(ch.get("z", 0))
+	tr.set_meta("macro_key", "LV")   # shieldband1 lives in the bottom LV region
+	var mat := ShaderMaterial.new()
+	mat.shader = load(SHIELDBAND1_VFX_SHADER)
+	tr.material = mat
+	_ed._objects_container.add_child(tr)
+	_runtime_extras.append(tr)
+	return tr
+
 # ── Macro regions (gameplay only): edge-anchored, uniformly-scalable groups ──────────────────────────
 func _build_macros() -> void:
 	_clear_macros()
@@ -621,6 +697,7 @@ func _clear_runtime_extras() -> void:
 	_level_fill = null
 	_hp_fill = null
 	_shield_fill = null
+	_shieldband1_vfx = null
 
 ## Re-show the design sentinel text ("200", "KILL", …) on the text nodes while editing.
 func _restore_design_text() -> void:

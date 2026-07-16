@@ -28,7 +28,7 @@ const BUTTON_LAYERS := ["resume", "setting", "codex", "quit"]
 const DEFAULT_GEOM := {
 	"background": {"pos": Vector2(0.0, -12.0),  "size": Vector2(1440.0, 804.0), "z": 0},
 	"space":      {"pos": Vector2(0.0, -12.0),  "size": Vector2(1440.0, 804.0), "z": 1},
-	"Logo":       {"pos": Vector2(410.0, 40.0), "size": Vector2(620.0, 228.0),  "z": 5},
+	"Logo":       {"pos": Vector2(515.5, 40.0), "size": Vector2(409.0, 228.0),  "z": 5},
 	"resume":     {"pos": Vector2(600.0, 280.0),"size": Vector2(240.0, 119.0),  "z": 10},
 	"setting":    {"pos": Vector2(600.0, 402.0),"size": Vector2(240.0, 119.0),  "z": 10},
 	"codex":      {"pos": Vector2(600.0, 524.0),"size": Vector2(240.0, 119.0),  "z": 10},

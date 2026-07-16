@@ -230,7 +230,7 @@ func armor_damage_reduction(armor: float) -> float:
 	return clampf(ARMOR_DR_COEFF * armor / denom, ENEMY_ARMOR_DR_MIN, 0.95)
 
 # ── Shield (base capacity always present; generators/affixes add on top) ─────
-const BASE_SHIELD_MAX:    float = 20.0  # default shield capacity (always present, even with no generator)
+const BASE_SHIELD_MAX:    float = 50.0  # default shield capacity (always present, even with no generator)
 const SHIELD_REGEN_DELAY: float = 20.0  # seconds of no damage before shield regen starts
 const SHIELD_REGEN_RATE:  float = 1.0   # shield points regenerated per second (flat)
 var ship_shield:       float = 0.0      # current shield points
@@ -354,6 +354,14 @@ func ship_take_damage(dmg: int) -> void:
 	ship_hp = maxi(0, ship_hp - int(ceil(d)))
 	ship_hp_changed.emit(ship_hp)
 	if ship_hp <= 0:
+		# Player died mid-fight: the boss never reached 0 HP, so take_boss_damage's own cleanup
+		# never ran. Clear its state here so a fresh run doesn't inherit a stale "boss active"
+		# flag (the boss HUD bar polls boss_hp/boss_max_hp directly and would otherwise reappear).
+		boss_hp = 0
+		boss_max_hp = 0
+		boss_armor = 0.0
+		boss_intro_active = false
+		input_locked = false
 		ship_destroyed.emit()
 
 # ── Armor / max HP (gear-driven) ──────────────────────────────────────────────
@@ -982,6 +990,13 @@ func reset_run() -> void:
 	run_kills = 0
 	recompute_max_hp()
 	heal_to_full()
+	# Shield: init straight to full cap (mirrors heal_to_full for HP), don't rely on _tick_shield's
+	# lazy self-heal — the start-of-run weapon chest pauses the tree (arena_weapon_chest_ui.show_chest)
+	# on the very first deferred call, before GameManager._process ever runs once, so that lazy path
+	# would leave ship_shield stuck at 0 (and the shield VFX invisible) for the whole time the chest is up.
+	_shield_max = shield_capacity_total()
+	ship_shield = _shield_max
+	ship_shield_changed.emit(ship_shield)
 	level_changed.emit(player_level)
 	xp_changed.emit(player_xp, xp_to_next(player_level))
 	kills_changed.emit(run_kills)

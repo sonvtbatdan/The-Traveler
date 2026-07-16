@@ -15,14 +15,30 @@ const FADE_TIME   := 0.15
 const GHOST_COUNT := 4        # parallel inner streaks
 const EDGE_W      := 2.8      # hard outer cutting-edge line width
 const ORIGIN_INNER := 14.0    # origin wisp starts just outside the ship
-# Palette — white core → cyan body → blue glow → faint violet (NO green).
-const CORE_COL    := Color(2.3, 2.7, 3.0)   # white-hot, faint cyan — the overexposed cutting edge
-const EDGE_COL    := Color(1.4, 2.5, 3.3)   # bright cyan-white outer rim
-const BODY_COL    := Color(0.42, 1.35, 2.3) # pale cyan body
-const GLOW_COL    := Color(0.22, 0.8, 2.5)  # saturated blue aura
-const GHOST_COL   := Color(1.0, 1.95, 2.8)  # white-blue inner streaks
-const SHARD_COL   := Color(1.5, 2.3, 3.1)   # white-blue flying shards
-const VIOLET_COL  := Color(1.2, 0.8, 2.5)   # faint violet near the impact bloom
+# Palette — white core → cyan body → blue glow → faint violet (NO green). Default (blue) palette; call
+# use_orange_palette() to flip every colour to its R↔B swap (same brightness/contrast, warm hue) for the
+# Divergence/Dual-Wielding reverse blade.
+const BLUE_CORE_COL    := Color(2.3, 2.7, 3.0)   # white-hot, faint cyan — the overexposed cutting edge
+const BLUE_EDGE_COL    := Color(1.4, 2.5, 3.3)   # bright cyan-white outer rim
+const BLUE_BODY_COL    := Color(0.42, 1.35, 2.3) # pale cyan body
+const BLUE_GLOW_COL    := Color(0.22, 0.8, 2.5)  # saturated blue aura
+const BLUE_GHOST_COL   := Color(1.0, 1.95, 2.8)  # white-blue inner streaks
+const BLUE_SHARD_COL   := Color(1.5, 2.3, 3.1)   # white-blue flying shards
+const BLUE_VIOLET_COL  := Color(1.2, 0.8, 2.5)   # faint violet near the impact bloom
+const ORANGE_CORE_COL   := Color(3.0, 2.7, 2.3)   # R↔B swap of BLUE_CORE_COL — still white-hot at the core
+const ORANGE_EDGE_COL   := Color(3.3, 2.5, 1.4)   # bright amber-white outer rim
+const ORANGE_BODY_COL   := Color(2.3, 1.35, 0.42) # pale orange body
+const ORANGE_GLOW_COL   := Color(2.5, 0.8, 0.22)  # saturated orange aura
+const ORANGE_GHOST_COL  := Color(2.8, 1.95, 1.0)  # white-orange inner streaks
+const ORANGE_SHARD_COL  := Color(3.1, 2.3, 1.5)   # white-orange flying shards
+const ORANGE_VIOLET_COL := Color(2.5, 0.8, 1.2)   # faint warm-red accent near the impact bloom
+var CORE_COL   := BLUE_CORE_COL
+var EDGE_COL   := BLUE_EDGE_COL
+var BODY_COL   := BLUE_BODY_COL
+var GLOW_COL   := BLUE_GLOW_COL
+var GHOST_COL  := BLUE_GHOST_COL
+var SHARD_COL  := BLUE_SHARD_COL
+var VIOLET_COL := BLUE_VIOLET_COL
 const BODY_ALPHA  := 0.5
 const BLOOM_ALPHA := 0.14
 # Shards (flying energy fragments — direction + impact).
@@ -46,6 +62,7 @@ var _center := Vector2.ZERO
 var _radius := 0.0
 var _start := 0.0
 var _lead := 0.0
+var _dir := 1.0   # +1 = lead sweeps at increasing angle from start, -1 = decreasing (reverse blade)
 var _shards: Array = []          # {pos, vel, age, ttl, len}
 var _shard_acc := 0.0
 var _distort_layer: CanvasLayer = null
@@ -71,12 +88,26 @@ func _ready() -> void:
 		add_child(_distort_layer)
 	hide()
 
+## Swap the whole palette to the warm (orange) scheme — used for the Divergence/Dual-Wielding reverse blade
+## so it reads as a distinct second sword while reusing every layer of this same crescent-trail VFX.
+func use_orange_palette() -> void:
+	CORE_COL   = ORANGE_CORE_COL
+	EDGE_COL   = ORANGE_EDGE_COL
+	BODY_COL   = ORANGE_BODY_COL
+	GLOW_COL   = ORANGE_GLOW_COL
+	GHOST_COL  = ORANGE_GHOST_COL
+	SHARD_COL  = ORANGE_SHARD_COL
+	VIOLET_COL = ORANGE_VIOLET_COL
+
 ## Called every frame while the blade sweeps. center/radius = ring; start = sweep origin; lead = blade angle.
+## lead may be ABOVE or BELOW start — the sweep direction is inferred from that (reverse blade sweeps the
+## opposite rotational way, lead decreasing from start instead of increasing).
 func set_sweep(center: Vector2, radius: float, start_ang: float, lead_ang: float) -> void:
 	_center = center
 	_radius = radius
 	_start = start_ang
 	_lead = lead_ang
+	_dir = 1.0 if _lead >= _start else -1.0
 	_active = true
 	_fading = false
 	_alpha = 1.0
@@ -124,7 +155,7 @@ func _process(delta: float) -> void:
 		while _shard_acc >= SHARD_EMIT_INT:
 			_shard_acc -= SHARD_EMIT_INT
 			var dl := Vector2(cos(_lead), sin(_lead))
-			var tang := dl.rotated(PI * 0.5)                    # sweep direction (+angle)
+			var tang := dl.rotated(PI * 0.5 * _dir)             # sweep direction (the way the tip is moving)
 			var v := (tang * randf_range(0.7, 1.0) + dl * randf_range(0.1, 0.5)).normalized() \
 					* randf_range(SHARD_SPEED_MIN, SHARD_SPEED_MAX)
 			_emit_shard(_center + dl * _radius, v)
@@ -149,11 +180,11 @@ func _draw() -> void:
 		_draw_shards()
 	if not _active or _alpha <= 0.0:
 		return
-	var swept := _lead - _start
-	var span := minf(SPAN, maxf(0.0, swept))
+	var swept := absf(_lead - _start)
+	var span := minf(SPAN, swept)
 	if span < 0.02:
 		return
-	var tail := _lead - span
+	var tail := _lead - span * _dir
 	_draw_origin_wisp()                                   # faint tapered connector → ship (no rigid tube)
 	_draw_crescent(tail, span, 0.0, BLOOM_PEAK, GLOW_COL, BLOOM_ALPHA, true)   # blue bloom aura (wide, dim)
 	_draw_crescent(tail, span, 0.0, BODY_PEAK, BODY_COL, BODY_ALPHA, false)    # translucent cyan body
@@ -169,8 +200,8 @@ func _draw_crescent(tail: float, span: float, r_off: float, peak: float, col: Co
 	for i in SEGS:
 		var p0 := float(i) / float(SEGS)
 		var p1 := float(i + 1) / float(SEGS)
-		var a0 := tail + span * p0
-		var a1 := tail + span * p1
+		var a0 := tail + span * p0 * _dir
+		var a1 := tail + span * p1 * _dir
 		var w0 := _w(p0, peak)
 		var w1 := _w(p1, peak)
 		var d0 := Vector2(cos(a0), sin(a0))
@@ -191,7 +222,7 @@ func _draw_ghosts(tail: float, span: float) -> void:
 		var cols := PackedColorArray()
 		for i in SEGS + 1:
 			var p := float(i) / float(SEGS)
-			var a := tail + span * p
+			var a := tail + span * p * _dir
 			var d := Vector2(cos(a), sin(a))
 			# break into fragments along the arc (gaps), brighter toward the lead
 			var brk := smoothstep(0.35, 0.6, sin(p * 22.0 + phase) * 0.5 + 0.5)
@@ -206,7 +237,7 @@ func _draw_cutting_edge(tail: float, span: float) -> void:
 	var cols := PackedColorArray()
 	for i in SEGS + 1:
 		var p := float(i) / float(SEGS)
-		var a := tail + span * p
+		var a := tail + span * p * _dir
 		var d := Vector2(cos(a), sin(a))
 		pts.append(d * (_radius + _w(p, BODY_PEAK)) + _center)         # ride the outer edge of the body
 		var col := EDGE_COL.lerp(CORE_COL, smoothstep(0.6, 1.0, p))    # overexposed white toward the lead
@@ -265,7 +296,9 @@ func _update_distort(span: float) -> void:
 	_distort_mat.set_shader_parameter("center", scr / vp_size)
 	_distort_mat.set_shader_parameter("radius_px", _radius * scale)
 	_distort_mat.set_shader_parameter("thickness_px", BODY_PEAK * scale)
-	_distort_mat.set_shader_parameter("ang_lead", _lead)
+	# The shader always warps [ang_lead - ang_span, ang_lead]; for a reverse sweep (_dir<0) the swept band is
+	# actually [_lead, _lead+span], so feed it the tail angle (_lead+span) as "ang_lead" instead.
+	_distort_mat.set_shader_parameter("ang_lead", _lead if _dir >= 0.0 else _lead + span)
 	_distort_mat.set_shader_parameter("ang_span", span)
 	_distort_mat.set_shader_parameter("force", DISTORT_FORCE * _alpha)
 	_distort_mat.set_shader_parameter("aberration", 0.2)   # low → less rainbow fringing (critique: avoid rainbow)

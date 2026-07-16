@@ -24,6 +24,8 @@ var sparkle_mult: float = 1.0                               # per-instance spark
 var col_core:  Color = Color(0.75, 0.92, 1.0, 1.0)
 var col_mid:   Color = Color(0.45, 0.40, 1.0, 0.9)
 var col_outer: Color = Color(0.55, 0.20, 0.95, 0.0)
+var draw_halo: bool = true   # the breathing (scale-pulsing) bloom-circle underlay; off for Black Hole,
+							 # which draws its own infalling accretion rings instead
 var _t: float = 0.0
 var _redraw_acc: float = 0.0
 
@@ -66,11 +68,12 @@ func _draw() -> void:
 	var size_scale := radius / REF_RADIUS
 	# Soft bloom halo around the (deliberately dim) core → reads as a glowing nebula, dark at the very centre.
 	# Alpha follows a sin bump (fades at the innermost AND outermost ring) so the core fades like the arms.
-	for i in 5:
-		var f := float(i) / 5.0
-		var c := col_mid
-		c.a = col_mid.a * 0.10 * sin(clampf(0.15 + f * 0.85, 0.0, 1.0) * PI)
-		draw_circle(Vector2.ZERO, rad * (0.18 + f * 0.55), c)
+	if draw_halo:
+		for i in 5:
+			var f := float(i) / 5.0
+			var c := col_mid
+			c.a = col_mid.a * 0.10 * sin(clampf(0.15 + f * 0.85, 0.0, 1.0) * PI)
+			draw_circle(Vector2.ZERO, rad * (0.18 + f * 0.55), c)
 	# Spiral arms — mirrored handedness (−TWIST) while the rotation (rot) is unchanged.
 	for a in arms:
 		var base := TAU * float(a) / float(arms) + rot

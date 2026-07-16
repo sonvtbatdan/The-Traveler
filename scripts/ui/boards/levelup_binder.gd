@@ -174,19 +174,7 @@ func updesc_style() -> Dictionary: return _updesc_sty
 func confirm_normal():         return _confirm_on
 func confirm_press():          return _confirm_press
 
-## Bounding box (screen coords) of a group by name, or empty Rect2.
-func group_rect(name: String) -> Rect2:
-	if _ed == null:
-		return Rect2()
-	var want := name.strip_edges().to_lower()
-	for gi: int in (_ed._groups as Array).size():
-		if String((_ed._groups[gi] as Dictionary).get("name", "")).strip_edges().to_lower() == want:
-			return _ed._group_bbox(gi)
-	return Rect2()
-
-## Host container to parent runtime nodes onto (renders at the host's CanvasLayer, i.e. behind the cards).
-func container() -> Control:
-	return _ed._objects_container if _ed != null else null
+## group_rect(name) and container() are inherited from BoardBinder.
 
 func add_runtime(n: Node) -> void:
 	if container() != null:

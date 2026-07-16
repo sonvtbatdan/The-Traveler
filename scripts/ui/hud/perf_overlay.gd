@@ -1,10 +1,13 @@
 extends CanvasLayer
 
-## DEV perf readout — ALWAYS ON, pinned to the upper-right corner. Shows FPS, this frame's time, a
-## rolling 2s PEAK frame-time (so brief hitches are visible), and the live scene node count (rises as
-## bullets accumulate). Turns red when the peak frame-time crosses ~20ms (≈ below 50 FPS). Use it to
-## tell a real frame drop apart from a visual jitter at a steady 60.
+## Perf readout, pinned to the upper-right corner. Shows FPS, this frame's time, a rolling 2s PEAK
+## frame-time (so brief hitches are visible), and the live scene node count (rises as bullets
+## accumulate). Turns red when the peak frame-time crosses ~20ms (≈ below 50 FPS). Use it to tell a
+## real frame drop apart from a visual jitter at a steady 60.
 ## (No F8 toggle — F8 is Godot's editor "Stop" shortcut and would close the running game.)
+##
+## Toggled by the Settings panel's FPS switch (group "perf_overlay", see set_shown()/is_shown()) — off by
+## default, live-only like Dev Mode (not persisted to disk, always starts off on a fresh arena load).
 
 const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
 const HITCH_MS := 20.0   # peak frame-ms above this = a real dip → shown red
@@ -18,6 +21,8 @@ var _red: bool = false
 func _ready() -> void:
 	layer = 99
 	process_mode = Node.PROCESS_MODE_ALWAYS   # keep measuring even if the tree pauses
+	add_to_group("perf_overlay")   # so the Settings panel's FPS switch can find this instance
+	visible = false
 	_label = Label.new()
 	# Pin to the upper-right corner, right-aligned.
 	_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
@@ -34,7 +39,16 @@ func _ready() -> void:
 	_label.add_theme_constant_override("outline_size", 4)
 	add_child(_label)
 
+## Public: toggled by the Settings panel's FPS switch (the overlay has no on-screen button of its own).
+func is_shown() -> bool:
+	return visible
+
+func set_shown(v: bool) -> void:
+	visible = v
+
 func _process(delta: float) -> void:
+	if not visible:
+		return
 	var ms := delta * 1000.0
 	_peak_ms = maxf(_peak_ms, ms)   # track the peak every frame (cheap) so brief hitches still register
 	# Refresh the on-screen text at 5 Hz, NOT every frame: get_tree().get_node_count() walks the entire scene

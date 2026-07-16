@@ -1,6 +1,11 @@
 extends CanvasLayer
 ## Bottom-right HUD buttons: Pause, Codex, Setting, Devon (toggle dev mode + pause + edit buttons), Quit.
 ## When Devon is active: game is paused and Boss_edit / Creep_edit buttons are revealed.
+##
+## The 6-button column itself is hidden on the main gameplay screen (`_vb.visible = false` — Setting/Inv
+## still reachable via the Player-HUD's own MENU/INV board buttons, see hud_binder.gd). Dev mode now toggles
+## from a switch in the Settings panel instead of the (hidden) Devon button — see set_dev_mode()/is_dev_mode()
+## and settings_panel.gd's "Dev Mode" row. Group "arena_hud_buttons" is how Settings finds this instance.
 
 const BTN_SIZE        := 60.0
 const BTN_SEP         :=  6.0
@@ -54,6 +59,7 @@ var _base_total_h: float = 0.0
 func _ready() -> void:
 	layer = 11
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	add_to_group("arena_hud_buttons")   # so the Settings panel's Dev Mode switch can find this instance
 	_tex_devon         = _load_img("res://assets/hud/Devon.png")
 	_tex_devoff        = _load_img("res://assets/hud/devoff.png")
 	_tex_pause         = _load_img("res://assets/hud/Pause.png")
@@ -148,6 +154,10 @@ func _build_ui() -> void:
 	var btn_quit := _make_btn(tex_quit, BTN_SIZE)
 	btn_quit.pressed.connect(_on_quit)
 	_vb.add_child(btn_quit)
+
+	# Hidden on the main gameplay screen — Setting/Inv stay reachable via the Player-HUD's own
+	# MENU/INV board buttons (hud_binder.gd); Dev mode moved to a switch in the Settings panel.
+	_vb.visible = false
 
 	# Dev buttons at top-left (below HP bar): Simplified → Boss_edit → Creep_edit
 	# Only visible when dev mode is on; spacing = BTN_SEP (same as right column)
@@ -270,20 +280,30 @@ func _on_setting() -> void:
 		_settings.open()
 
 func _on_devon() -> void:
-	_dev_mode = !_dev_mode
+	set_dev_mode(!_dev_mode)
+
+## Current dev-mode state — read by the Settings panel's Dev Mode switch to sync itself on open.
+func is_dev_mode() -> bool:
+	return _dev_mode
+
+## Public: toggles dev mode from the Settings panel's Dev Mode switch (the Devon button itself is hidden on
+## the main gameplay screen — see _build_ui()). Turning ON pauses the game, since the dev tools need it held
+## still; turning OFF does NOT force-unpause — Settings is already the one managing pause (it paused the tree
+## on open() and restores whatever it was on close), so unpausing here would resume gameplay behind an open
+## panel.
+func set_dev_mode(v: bool) -> void:
+	if v == _dev_mode:
+		return
+	_dev_mode = v
 
 	# Toggle dev debug UI (arena_debug_spawn)
 	var ds := get_tree().get_first_node_in_group("arena_debug_spawn")
 	if ds != null and ds.has_method("set_dev_ui_visible"):
 		ds.set_dev_ui_visible(_dev_mode)
 
-	# Devon activates: pause game + show edit buttons
 	if _dev_mode:
 		_game_paused = true
 		get_tree().paused = true
-	else:
-		_game_paused = false
-		get_tree().paused = false
 
 	# Show / hide dev buttons at top-left
 	_simplified_btn.visible = _dev_mode

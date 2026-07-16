@@ -1,8 +1,10 @@
 extends Node2D
-## Exact port of the Chromeleon boss orb's CHANNEL charge FX (`_ChannelFX` in boss_chromeleon.gd): a set of
-## rainbow motes that orbit inward and CONVERGE onto the focus over the charge duration, fading + shrinking
-## as they reach it (soft glow + core per mote). Additive blend. The Lasgun plays this at the muzzle as its
+## Ported from the Chromeleon boss orb's CHANNEL charge FX (`_ChannelFX` in boss_chromeleon.gd): a set of
+## motes that orbit inward and CONVERGE onto the focus over the charge duration, fading + shrinking as
+## they reach it (soft glow + core per mote). Additive blend. The Lasgun plays this at the muzzle as its
 ## pre-burst charge telegraph. Position it externally each frame (the muzzle moves with the ship).
+## Recolored red (was rainbow, matching the boss's original) to match the Lasgun's red beam theme —
+## this copy is dedicated to the Lasgun (the boss keeps its own separate, still-rainbow original).
 
 # ── TUNABLES (ported values) ────────────────────────────────────────────────────
 const MOTE_COUNT := 12
@@ -11,6 +13,8 @@ const SPIN_RANGE := Vector2(2.5, 5.0)
 const SIZE_RANGE := Vector2(3.0, 6.0)
 const MOTE_SCALE := 1.0
 const MOTE_MULT  := 1.0
+const BASE_HUE   := 0.0    # red
+const HUE_JITTER := 0.05   # small spread around red instead of the full rainbow
 
 var _t := 0.0
 var _dur := 1.0
@@ -64,7 +68,7 @@ func _draw() -> void:
 		var pos := Vector2(cos(ang), sin(ang)) * rad
 		var a: float = 1.0 - p                                   # fade as they reach the focus
 		var sz: float = float(m["size"]) * (1.0 - 0.5 * p)
-		var col := Color.from_hsv(fposmod(float(m["hue"]) + _t * 0.5, 1.0), 0.85, 1.0)   # rainbow
+		var col := Color.from_hsv(fposmod(BASE_HUE + (float(m["hue"]) - 0.5) * HUE_JITTER, 1.0), 0.85, 1.0)   # red, small per-mote variation
 		# Soft, blending edges: stacked falloff layers (additive) instead of one hard disc.
 		draw_circle(pos, sz * 3.4, Color(col.r, col.g, col.b, a * 0.08))
 		draw_circle(pos, sz * 2.4, Color(col.r, col.g, col.b, a * 0.14))
