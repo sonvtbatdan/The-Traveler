@@ -97,7 +97,7 @@ const SQUASH_EASE    := 9.0     # how fast squash eases toward its speed-driven 
 const SQUASH_REF_SPEED := 220.0 # speed at which squash reaches full magnitude
 const HIT_FLASH_COLOR := Color(1.0, 1.0, 1.0)    # normal hit → white
 const KILL_FLASH_COLOR := Color(1.0, 0.18, 0.18) # a killing blow → red
-const HIT_FLASH_TIME := 0.14    # flash duration on hit (more prominent)
+const HIT_FLASH_TIME := 0.20    # flash duration on hit (white sprite flash to register the hit)
 # Flash shader: lerp the sprite's pixels toward flash_color by `flash` (modulate-white can't whiten a texture).
 const FLASH_SHADER_CODE := """
 shader_type canvas_item;
@@ -282,6 +282,7 @@ var _death_spawn:  String = ""      # stone: spawn this enemy id at our position
 var _morph_to:     String = ""      # alien5: become this enemy id after _morph_after seconds alive
 var _morph_after:  float = 0.0
 var _strike_back:  bool = false     # fleet/sentinel: switch patrol→chase the first time it's hit
+var _is_elite:     bool = false     # milestone elite (fly/bug/bee): on death grants a NEW arena item (grant_reward)
 var _magma_split:  bool = false     # LARGE magma: on death, burst into MAGMA_SPLIT_N small magma (which don't re-split)
 var _anti_magnetic: bool = false    # bismuth: reflects 50% of gatling bullets; takes 50% from laser/arc/void
 var _gauss_shooter: bool = false    # pros5: fire a gauss orb at the player every GAUSS_SHOOT_INTERVAL
@@ -403,6 +404,7 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_morph_to        = String(d.get("morph_to", ""))
 	_morph_after     = float(d.get("morph_after", 0.0))
 	_strike_back     = bool(d.get("strike_back", false))
+	_is_elite        = bool(d.get("elite", false))
 	_magma_split     = bool(d.get("magma_split", false))
 	_anti_magnetic   = bool(d.get("anti_magnetic", false))
 	_gauss_shooter   = bool(d.get("gauss_shooter", false))
@@ -1277,6 +1279,12 @@ func _die() -> void:
 		_burst_small_magma()   # large magma → MAGMA_SPLIT_N small magma flung outward
 	if GameManager.has_method("add_kill"):
 		GameManager.add_kill()   # tally for the arena HUD kill counter
+	# Milestone elites are an item source now that level-ups no longer hand out new weapons/aux: beating one
+	# opens a reward choice (a brand-new arena weapon or aux), same as a chest.
+	if _is_elite:
+		var ui := get_tree().get_first_node_in_group("levelup_ui")
+		if ui != null and is_instance_valid(ui) and ui.has_method("grant_reward"):
+			ui.call("grant_reward")
 	if _squid_attached:
 		_squid_detach()   # stop slowing the ship the instant this squid dies
 	# Drop a collectible XP orb (the player magnetizes + collects it) instead of granting XP instantly.

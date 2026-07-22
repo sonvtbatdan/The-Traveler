@@ -7,6 +7,7 @@ extends Node2D
 const HudHpDisplayScript := preload("res://scripts/ui/hud/hud_hp_display.gd")
 const VitalsBarScript    := preload("res://scripts/ui/hud/arena_vitals_bar.gd")  # player + boss vitals bars
 const HudFrameScript     := preload("res://scripts/ui/hud/arena_hud_frame.gd")   # procedural cockpit bezels
+const ScreenFxScript     := preload("res://scripts/gameplay/arena_screen_fx.gd") # edge vignette + player hit flash
 const ArenaStatsHudScript := preload("res://scripts/ui/hud/arena_stats_hud.gd")
 const ArenaEnemyMgrScript := preload("res://scripts/gameplay/arena_enemy_manager.gd")
 const XpOrbMgrScript      := preload("res://scripts/gameplay/arena_xp_orb_manager.gd")
@@ -184,7 +185,7 @@ func _ready() -> void:
 	add_child(ArenaAuxScript.new())       # auxiliary passive-item store (level-up offers; group "arena_aux")
 	# arena_loadout (fires EQUIPPED inventory weapons) is intentionally NOT instantiated: combat is driven solely by
 	# the bespoke 5-slot system, so equipped starter/inventory weapons no longer auto-fire in the arena.
-	add_child(ArenaRuinLayerScript.new()) # periodic ruin ships (every 5–15s): ship → box → loot drop
+	add_child(ArenaRuinLayerScript.new()) # 2 giant dead-ship wrecks at run start (drop orb of light)
 	call_deferred("_setup_boss_edit")
 	call_deferred("_setup_creep_edit")
 	call_deferred("_setup_weapon_edit")
@@ -247,6 +248,7 @@ func _build_ui() -> void:
 	ui.layer = 10   # explicit (was default 1): keep the HP/weapon/aux HUD ABOVE the mortar/fatboy shockwave (layer 8) so the blast distortion never ripples the HUD; still below buttons (11) / crit (12)
 	add_child(ui)
 	_ui_layer = ui
+	add_child(ScreenFxScript.new())   # edge vignette + player hit flash (own CanvasLayer at layer 9, under the HUD)
 	# Legacy Cockpit HUD — REPLACED by the authored playerhud (hud_edit_mode.gd / playerhud_layout.cfg,
 	# wired by _setup_hud_edit). Kept in the tree but HIDDEN so any group lookups still resolve.
 	var _frame := HudFrameScript.new(); _frame.visible = false; ui.add_child(_frame)
