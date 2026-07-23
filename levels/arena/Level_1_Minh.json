@@ -5,89 +5,106 @@
     {
       "time": 0.0,
       "type": "fly",
-      "count": 1000,
+      "count": 2000,
       "pattern": "stream",
       "duration": 180.0,
-      "ramp": 5.0
+      "ramp": 5.0,
+      "formation": "random",
+      "burst": 12
     },
     {
       "time": 180.0,
       "type": "fly",
-      "count": 1667,
+      "count": 3334,
       "pattern": "stream",
-      "duration": 180.0
+      "duration": 180.0,
+      "formation": "random",
+      "burst": 12
     },
     {
       "time": 180.0,
       "type": "bug_crawl",
-      "count": 50,
+      "count": 100,
       "pattern": "stream",
-      "duration": 180.0
+      "duration": 180.0,
+      "formation": "random",
+      "burst": 12
     },
     {
       "time": 300.0,
       "type": "swarm_loop",
+      "count": 3,
+      "pattern": "random"
+    },
+    {
+      "time": 300.0,
+      "type": "elite_fly",
       "count": 1,
       "pattern": "ring"
     },
     {
       "time": 360.0,
       "type": "fly",
-      "count": 1667,
+      "count": 5001,
       "pattern": "stream",
       "duration": 120.0,
-      "formation": "ring",
+      "formation": "random",
       "burst": 12
     },
     {
       "time": 360.0,
       "type": "bug_crawl",
-      "count": 100,
+      "count": 600,
       "pattern": "stream",
-      "duration": 120.0
+      "duration": 120.0,
+      "formation": "random",
+      "burst": 12
     },
     {
       "time": 480.0,
       "type": "fly",
-      "count": 2222,
+      "count": 6666,
       "pattern": "stream",
       "duration": 120.0,
-      "formation": "ring",
+      "formation": "random",
       "burst": 12
     },
     {
       "time": 480.0,
       "type": "bug_crawl",
-      "count": 300,
+      "count": 1800,
       "pattern": "stream",
-      "duration": 120.0
+      "duration": 120.0,
+      "formation": "random",
+      "burst": 12
     },
     {
       "time": 480.0,
       "type": "swarm_loop",
-      "count": 1,
-      "pattern": "ring"
+      "count": 3,
+      "pattern": "random"
     },
     {
       "time": 540.0,
       "type": "swarm_loop",
+      "count": 3,
+      "pattern": "random"
+    },
+    {
+      "time": 600.0,
+      "type": "elite_bug",
       "count": 1,
       "pattern": "ring"
     },
     {
-      "time": 600.0,
-      "type": "scorpion",
-      "count": 1,
-      "pattern": "ring",
-      "is_boss": true
-    },
-    {
       "time": 630.0,
       "type": "bug_crawl",
-      "count": 1000,
+      "count": 4000,
       "pattern": "stream",
       "duration": 180.0,
-      "ramp": 5.0
+      "ramp": 5.0,
+      "formation": "random",
+      "burst": 12
     },
     {
       "time": 660.0,
@@ -110,16 +127,26 @@
     {
       "time": 810.0,
       "type": "bug_crawl",
-      "count": 2500,
+      "count": 10000,
       "pattern": "stream",
-      "duration": 90.0
+      "duration": 90.0,
+      "formation": "random",
+      "burst": 12
+    },
+    {
+      "time": 900.0,
+      "type": "elite_bee",
+      "count": 1,
+      "pattern": "ring"
     },
     {
       "time": 900.0,
       "type": "bug_crawl",
-      "count": 5000,
+      "count": 20000,
       "pattern": "stream",
-      "duration": 120.0
+      "duration": 120.0,
+      "formation": "random",
+      "burst": 12
     },
     {
       "time": 900.0,
@@ -145,9 +172,11 @@
     {
       "time": 1020.0,
       "type": "bug_crawl",
-      "count": 10000,
+      "count": 40000,
       "pattern": "stream",
-      "duration": 180.0
+      "duration": 180.0,
+      "formation": "random",
+      "burst": 12
     },
     {
       "time": 1020.0,
@@ -174,7 +203,14 @@
       "time": 1140.0,
       "type": "bee_dive",
       "count": 10,
-      "pattern": "ring"
+      "pattern": "random"
+    },
+    {
+      "time": 1200.0,
+      "type": "scorpion",
+      "count": 1,
+      "pattern": "ring",
+      "is_boss": true
     }
   ]
 }

@@ -18,14 +18,34 @@ const VIEWS_CFG  := "res://scorpion_views.cfg"   # named orientations (front/sid
 const ArenaEnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")   # real fly/bug/bee enemies
 const ArenaExplosion   := preload("res://scripts/gameplay/arena_explosion.gd")   # death pop (same as the Elephant)
 const VP_SIZE    := 320
-const DISPLAY_PX := 520.0     # on-screen size of the boss
+const DISPLAY_PX := 364.0     # on-screen size of the boss (30% smaller than the original 520)
+
+# ── Entrance cinematic (plays ONCE at spawn, before Move 1; NO HP bar until it lands) ──
+# Beat 1: THREE huge near-silhouette "shadows" streak across the screen, each a different angle, 2s apart.
+# Beat 2: it enters from behind (7 o'clock) up high, then carves one long curve DOWN to the 3 o'clock home.
+const INTRO_PASSES     := 3                       # shadow fly-bys before the real entrance
+const INTRO_PASS_TIME  := 0.5                     # seconds per pass (fast streak)
+const INTRO_PASS_GAP   := 2.0                     # seconds off-screen between passes
+const INTRO_PASS_SCALE := 4.0                     # HUGE near-silhouette during the passes
+const INTRO_PASS_SPAN  := 1500.0                  # half-length of each straight pass line (px)
+const INTRO_PASS_ANGLES := [30.0, 150.0, 90.0]    # heading (deg) of each pass — all different
+const INTRO_DIVE_TIME  := 2.0                     # seconds for the long banking descent
+# The dive curve is defined RELATIVE to the player and re-evaluated every frame, so the whole descent
+# tracks the ship and lands at INTRO_HOME_DIST out toward 3 o'clock (an arbitrary tethered point).
+const INTRO_DIVE_START_OFF := Vector2(-720.0, 560.0)   # 7 o'clock — behind & left, off-screen
+const INTRO_DIVE_C1_OFF    := Vector2(-520.0, -780.0)  # shoots UP HIGH on the left/back
+const INTRO_DIVE_C2_OFF    := Vector2(520.0, -700.0)   # over the top toward the right, still high
+const INTRO_HOME_DIST      := 500.0                    # lands + tethers this far out at 3 o'clock
+const INTRO_DARK       := Color(0.05, 0.05, 0.09, 0.80)   # near-black, slightly see-through shadow
+const INTRO_TRAIL_GHOSTS := 3                     # motion-smear afterimages during the fast pass (0 = off)
 
 # ── Look (matches test_boss_scorpion) ──
 const METALLIC_MULT := 0.55
 const HUE_SHIFT   := 0.0
 const SATURATION  := 0.85
 const VALUE       := 1.35
-const WHITEN_GRAYS := 0.9
+const WHITEN_GRAYS := 0.95          # how far the gray/white parts mix toward pure white (was 0.9 — a touch whiter)
+const GRAY_BRIGHT  := 1.4           # extra brightness multiplier on the gray/white parts only (+40%)
 const PULSE_SPEED  := 3.0           # red-part "living" pulse speed
 const PULSE_AMOUNT := 1.4           # red-part emission strength (the pulse glow)
 const GRAY_SAT_MAX := 0.22
@@ -143,6 +163,7 @@ uniform float hue_shift;
 uniform float sat_mul;
 uniform float val_mul;
 uniform float white_amt;
+uniform float gray_bright;
 uniform float gray_sat_max;
 uniform vec3 red_target : source_color;
 uniform float red_amt;
@@ -175,6 +196,7 @@ void fragment() {
 	h.z = h.z * val_mul;
 	vec3 col = clamp(hsv2rgb(h), 0.0, 1.0);
 	col = mix(col, vec3(1.0), clamp(gray_mask * white_amt, 0.0, 1.0));
+	col = clamp(col * mix(1.0, gray_bright, gray_mask), 0.0, 1.0);   // brighten the gray/white parts only
 	col = mix(col, red_target, clamp(red_mask * red_amt, 0.0, 1.0));
 	ALBEDO = col;
 	// living pulse: the red parts glow, pulsing over time with spatial variation
@@ -214,8 +236,9 @@ var _flash: float = 0.0
 
 # move state
 enum { TRACK, WINDUP, CHARGE, M2_ZOOM, M2_CHASE, M2_CIRCLE, M2_CHARGE, M3_ORBIT,
-	M4_ZOOM, M4_CHARGE, M4_BEAM, M4_SWEEP_CW, M4_SWEEP_CCW, M4_SPINFIRE }
-var _state: int = TRACK
+	M4_ZOOM, M4_CHARGE, M4_BEAM, M4_SWEEP_CW, M4_SWEEP_CCW, M4_SPINFIRE,
+	INTRO_PASS, INTRO_DIVE }
+var _state: int = INTRO_PASS   # the entrance cinematic runs first, then hands off to the moveset
 # ── Move selection (driven by the panel in boss_fight_test) ──
 const MOVE_META := [
 	{ "id": "m1", "name": "Move 1 — Drill Charge", "desc": "Zoom to 3/9 o'clock; rock + 3-shot laser bursts; spin up; then homing bullet-charges (3 passes)." },
@@ -263,6 +286,16 @@ var _was_near: bool = false
 var _pass_count: int = 0
 var _offscreen_t: float = 0.0   # time spent off-screen this charge pass
 var _views: Dictionary = {}   # "aligned" -> Quaternion, loaded from scorpion_views.cfg
+# ── Entrance cinematic state ──
+var _intro_init: bool = false
+var _intro_t: float = 0.0
+var _intro_pass_i: int = 0         # which shadow pass (0..INTRO_PASSES-1)
+var _intro_waiting: bool = false   # true during the 2s off-screen gap between passes
+var _base_scale: float = 1.0        # normal (combat) sprite scale = DISPLAY_PX / VP_SIZE
+var _intro_p0: Vector2              # current pass line start / end (off-screen → off-screen)
+var _intro_p1: Vector2
+var _intro_roll: float = 0.0
+var _intro_trail: Array = []       # ghost Sprite2D afterimages
 var _bolts: Array = []        # laser bolts fired during aiming: { pos, vel, life }
 var _fire_acc: float = 0.0
 var _burst_shot: int = 0      # bolts fired in the current burst (0..BURST_COUNT)
@@ -279,21 +312,22 @@ func configure(_type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_enabled = { "m1": true, "m2": true, "m3": true, "m4": true }   # exact spec = the full 4-move set
 
 func _ready() -> void:
-	add_to_group("arena_enemy")
-	add_to_group("boss")
 	z_index = 40
 	if _mgr == null or not is_instance_valid(_mgr):
 		_mgr = get_tree().get_first_node_in_group("enemy_manager")
-	GameManager.boss_max_hp = int(_hp_max)
-	GameManager.boss_hp = int(_hp)
+	# During the entrance the boss is a STRICTLY cosmetic "shadow": it is NOT in the "arena_enemy"/"boss"
+	# groups (so weapons can't target it and nothing collides), and boss HP is force-cleared to 0 (so no
+	# HP bar anywhere). Both the groups and the HP are registered in _end_intro() the moment it lands.
+	GameManager.boss_hp = 0
+	GameManager.boss_max_hp = 0
 	if GameManager.has_signal("boss_hp_changed"):
-		GameManager.boss_hp_changed.emit(int(_hp))
+		GameManager.boss_hp_changed.emit(0)
 	_load_views()
 	_build_viewport()
 	_spr = Sprite2D.new()
 	_spr.texture = _vp.get_texture()
-	var s := DISPLAY_PX / float(VP_SIZE)
-	_spr.scale = Vector2(s, s)
+	_base_scale = DISPLAY_PX / float(VP_SIZE)
+	_spr.scale = Vector2(_base_scale, _base_scale)
 	add_child(_spr)
 	_jet = DynamicFire.new()
 	_jet.free_form = true   # driven by set_stream()/set_points() — a muzzle flamethrower
@@ -301,7 +335,8 @@ func _ready() -> void:
 	_jet.size_grow = JET_GROW   # megaphone: particles balloon as they travel toward the player
 	_style_fire(_jet, JET_AMOUNT, JET_INTENSITY, JET_GLOW, JET_SIZE_MIN, JET_SIZE_MAX)
 	add_child(_jet)
-	_play("Head bobbing")
+	_move = "intro"   # hold off the moveset until the entrance cinematic finishes (see _process)
+	_play(PROLONGED_CLIP)
 	_apply_model(_view("aligned"), 0.0, Vector2(-_side, 0.0), true)
 
 
@@ -315,6 +350,64 @@ func _process(delta: float) -> void:
 		_start_next_move(ppos)
 
 	match _state:
+		INTRO_PASS:
+			if not _intro_init:
+				_intro_begin(ppos)
+			_intro_t += delta
+			if _intro_waiting:
+				# off-screen gap between passes — invisible, no shadow shown
+				_spr.visible = false
+				_clear_trail()
+				if _intro_t >= INTRO_PASS_GAP:
+					_intro_pass_i += 1
+					_intro_t = 0.0
+					_spr.visible = true
+					if _intro_pass_i >= INTRO_PASSES:
+						_intro_dive_begin(ppos)          # all passes done → the real entrance
+					else:
+						_intro_setup_pass(ppos, _intro_pass_i)
+						_intro_waiting = false
+			else:
+				var pu: float = clampf(_intro_t / INTRO_PASS_TIME, 0.0, 1.0)
+				var newpos := _intro_p0.lerp(_intro_p1, pu)
+				var vel := newpos - global_position
+				global_position = newpos
+				var pdir := vel if vel.length() > 1.0 else (_intro_p1 - _intro_p0)
+				_spr.scale = Vector2(_base_scale * INTRO_PASS_SCALE, _base_scale * INTRO_PASS_SCALE)
+				_spr.modulate = INTRO_DARK               # HUGE near-silhouette, right in your face
+				_intro_roll = clampf(pdir.angle() * 0.15, -0.5, 0.5)
+				_apply_model(_view("aligned"), _intro_roll, pdir, false, Vector3(0.0, 0.0, 1.0))
+				_update_trail(pdir)
+				if pu >= 1.0:
+					_clear_trail()
+					_intro_waiting = true                # streak done → wait the gap, then next pass
+					_intro_t = 0.0
+		INTRO_DIVE:
+			_intro_t += delta
+			var du: float = clampf(_intro_t / INTRO_DIVE_TIME, 0.0, 1.0)
+			var due := _ease_out_cubic(du)
+			# rebuild the curve from the CURRENT player pos each frame → the whole dive tracks the ship,
+			# landing at INTRO_HOME_DIST toward 3 o'clock (tethered to wherever the player is).
+			var bp := _bezier3(ppos + INTRO_DIVE_START_OFF, ppos + INTRO_DIVE_C1_OFF,
+				ppos + INTRO_DIVE_C2_OFF, ppos + Vector2(INTRO_HOME_DIST, 0.0), due)
+			var dvel := bp - global_position
+			global_position = bp
+			var f: float = lerpf(INTRO_PASS_SCALE, 1.0, due)          # shrink onto the player's plane
+			_spr.scale = Vector2(_base_scale * f, _base_scale * f)
+			_spr.modulate = INTRO_DARK.lerp(Color(1.0, 1.0, 1.0, 1.0), due)   # brighten out of shadow
+			# Ease the model from the top-down flight pose into Move 1's EXACT combat pose over the last
+			# ~45% of the dive, so touchdown == the attack's first frame: Z→player, Y up (world-up), no roll.
+			var flight_dir := dvel if dvel.length() > 1.0 else (ppos + Vector2(INTRO_HOME_DIST, 0.0) - bp)
+			var to_player := ppos - bp
+			var w: float = smoothstep(0.55, 1.0, due)
+			var aim := flight_dir.normalized().lerp(to_player.normalized(), w)
+			if aim.length() < 0.01:
+				aim = to_player
+			var up_ref := Vector3(0.0, 0.0, 1.0).lerp(Vector3(0.0, 1.0, 0.0), w).normalized()   # top-down → world-up
+			var roll := lerpf(clampf(flight_dir.angle() * 0.10, -0.4, 0.4), 0.0, w)               # bank → level
+			_apply_model(_view("aligned"), roll, aim, false, up_ref)
+			if du >= 1.0:
+				_end_intro()
 		TRACK:
 			_t += delta
 			if not _side_chosen:
@@ -567,6 +660,79 @@ func _apply_model(base_q: Quaternion, roll: float, aim_dir: Vector2, about_depth
 	var b := Basis(axis, roll) * target * Basis(base_q)
 	_pivot.transform = Transform3D(b, Vector3.ZERO)
 
+# ── Entrance cinematic helpers ──────────────────────────────────────────────────
+## First intro frame: start the shadow passes (needs the player position).
+func _intro_begin(ppos: Vector2) -> void:
+	_intro_init = true
+	_intro_pass_i = 0
+	_intro_waiting = false
+	_intro_setup_pass(ppos, 0)
+	_play(PROLONGED_CLIP)
+
+## Build one straight pass line at INTRO_PASS_ANGLES[i], passing through the player. Boss starts off one edge.
+func _intro_setup_pass(ppos: Vector2, i: int) -> void:
+	var deg: float = float(INTRO_PASS_ANGLES[i % INTRO_PASS_ANGLES.size()])
+	var dir := Vector2.from_angle(deg_to_rad(deg))
+	_intro_p0 = ppos - dir * INTRO_PASS_SPAN          # start off one edge...
+	_intro_p1 = ppos + dir * INTRO_PASS_SPAN          # ...streak through, off the far edge
+	global_position = _intro_p0
+
+## After the passes: enter from behind (7 o'clock) up high, then one long curve DOWN to the 3 o'clock home.
+## The curve is player-relative (see INTRO_DIVE) so it tracks the ship all the way down.
+func _intro_dive_begin(ppos: Vector2) -> void:
+	global_position = ppos + INTRO_DIVE_START_OFF
+	_state = INTRO_DIVE
+	_intro_t = 0.0
+
+## Restore normal scale/tint, REGISTER the boss HP (bar drops in now), hand control to the moveset.
+func _end_intro() -> void:
+	_clear_trail()
+	_spr.visible = true
+	_spr.scale = Vector2(_base_scale, _base_scale)
+	_spr.modulate = Color(1.0, 1.0, 1.0, 1.0)
+	add_to_group("arena_enemy")   # NOW it becomes a real, targetable/collidable enemy
+	add_to_group("boss")
+	GameManager.boss_max_hp = int(_hp_max)
+	GameManager.boss_hp = int(_hp)
+	if GameManager.has_signal("boss_spawned"):
+		GameManager.boss_spawned.emit()
+	if GameManager.has_signal("boss_hp_changed"):
+		GameManager.boss_hp_changed.emit(int(_hp))
+	_side_chosen = false
+	_state = TRACK
+	_move = ""   # _process → _start_next_move picks the first enabled move
+
+func _update_trail(dir: Vector2) -> void:
+	if INTRO_TRAIL_GHOSTS <= 0:
+		return
+	if _intro_trail.is_empty():
+		for i in INTRO_TRAIL_GHOSTS:
+			var g := Sprite2D.new()
+			g.texture = _vp.get_texture()
+			g.z_index = _spr.z_index - 1
+			add_child(g)
+			_intro_trail.append(g)
+	var nd := dir.normalized()
+	for i in _intro_trail.size():
+		var g: Sprite2D = _intro_trail[i]
+		g.position = -nd * float(i + 1) * 46.0        # lag behind the boss along travel (local space)
+		g.scale = _spr.scale
+		var a := 0.32 * (1.0 - float(i) / float(_intro_trail.size()))
+		g.modulate = Color(INTRO_DARK.r, INTRO_DARK.g, INTRO_DARK.b, a)
+
+func _clear_trail() -> void:
+	for g in _intro_trail:
+		if is_instance_valid(g):
+			g.queue_free()
+	_intro_trail.clear()
+
+func _bezier3(p0: Vector2, c1: Vector2, c2: Vector2, p1: Vector2, u: float) -> Vector2:
+	var iu := 1.0 - u
+	return p0 * (iu * iu * iu) + c1 * (3.0 * iu * iu * u) + c2 * (3.0 * iu * u * u) + p1 * (u * u * u)
+
+func _ease_out_cubic(x: float) -> float:
+	return 1.0 - pow(1.0 - x, 3.0)
+
 ## A saved orientation (front/side/top) from scorpion_views.cfg; falls back to the BASE_*_DEG euler.
 func _view(vname: String) -> Quaternion:
 	if _views.has(vname):
@@ -720,7 +886,7 @@ func _start_move(id: String) -> void:
 		_pass_count = 0
 		_was_near = false
 		_state = TRACK
-		_play("Head bobbing")
+		_play("Head bobbing", 0.3)   # cross-fade from the dive's flapping so the landing→attack is seamless
 	elif id == "m2":
 		_state = M2_ZOOM
 		_play(PROLONGED_CLIP)
@@ -742,8 +908,8 @@ func is_dead() -> bool:
 	return _dead
 
 func take_damage(amount: float, _stagger: float = 0.0, _knock: float = 0.0, ignore_armor: bool = false, _bleeds: bool = false, _was_crit: bool = false, _kind: String = "") -> void:
-	if _dead:
-		return
+	if _dead or _move == "intro":
+		return   # intangible "shadow" during the entrance cinematic (no HP bar, can't be hit)
 	var dr := 0.0
 	if not ignore_armor and GameManager.has_method("armor_damage_reduction"):
 		dr = GameManager.armor_damage_reduction(_armor)   # 100 armor ≈ 33% reduction
@@ -774,6 +940,10 @@ func _die() -> void:
 		ex.call("setup", global_position, DISPLAY_PX * 1.2)
 	if GameManager.has_signal("boss_defeated"):
 		GameManager.boss_defeated.emit()
+	# Beating the boss also grants a new arena item (the other item source now that level-ups only upgrade).
+	var ui := get_tree().get_first_node_in_group("levelup_ui")
+	if ui != null and is_instance_valid(ui) and ui.has_method("grant_reward"):
+		ui.call("grant_reward")
 	queue_free()
 
 ## Spawn a laser bolt from muzzle 1 toward the ship (called repeatedly during the aiming phase).
@@ -810,13 +980,15 @@ func _draw() -> void:
 	if _charge_t > 0.0:
 		var co := to_local(muzzle_world(M4_BEAM_MUZZLE))
 		draw_circle(co, 8.0 + 34.0 * _charge_t, Color(1.0, 0.2, 0.2, 0.25 + 0.45 * _charge_t))
-	# thin hit-flash ring + a small HP bar above the boss (debug feedback)
-	if _flash > 0.0:
-		draw_arc(Vector2.ZERO, hit_radius, 0.0, TAU, 32, Color(1.0, 0.9, 0.5, 0.8), 3.0, true)
-	var bw := DISPLAY_PX * 0.8
-	var by := -DISPLAY_PX * 0.55
-	draw_rect(Rect2(-bw * 0.5, by, bw, 6.0), Color(0, 0, 0, 0.6))
-	draw_rect(Rect2(-bw * 0.5, by, bw * hp_fraction(), 6.0), Color(0.9, 0.2, 0.2))
+	# thin hit-flash ring + a small HP bar above the boss (debug feedback).
+	# Hidden during the entrance cinematic — it's a cosmetic "shadow" then, no HP shown.
+	if _move != "intro":
+		if _flash > 0.0:
+			draw_arc(Vector2.ZERO, hit_radius, 0.0, TAU, 32, Color(1.0, 0.9, 0.5, 0.8), 3.0, true)
+		var bw := DISPLAY_PX * 0.8
+		var by := -DISPLAY_PX * 0.55
+		draw_rect(Rect2(-bw * 0.5, by, bw, 6.0), Color(0, 0, 0, 0.6))
+		draw_rect(Rect2(-bw * 0.5, by, bw * hp_fraction(), 6.0), Color(0.9, 0.2, 0.2))
 
 
 # ── 3D render (SubViewport → this node's Sprite2D) ──
@@ -866,13 +1038,13 @@ func _build_viewport() -> void:
 		_cam.position = Vector3(0.0, 0.0, 5.0)
 		_cam.look_at(Vector3.ZERO, Vector3.UP)
 
-func _play(clip: String) -> void:
+func _play(clip: String, blend: float = -1.0) -> void:
 	if _anim == null:
 		return
 	var a := _anim.get_animation(clip)
 	if a != null:
 		a.loop_mode = Animation.LOOP_LINEAR
-		_anim.play(clip)
+		_anim.play(clip, blend)   # blend > 0 → cross-fade from the current clip (e.g. flapping → head-bob)
 
 func _load_muzzle_anchors() -> void:
 	_muzzle_anchors.clear()
@@ -930,6 +1102,7 @@ func _style_materials(root: Node) -> void:
 			mat.set_shader_parameter("sat_mul", SATURATION)
 			mat.set_shader_parameter("val_mul", VALUE)
 			mat.set_shader_parameter("white_amt", WHITEN_GRAYS)
+			mat.set_shader_parameter("gray_bright", GRAY_BRIGHT)
 			mat.set_shader_parameter("gray_sat_max", GRAY_SAT_MAX)
 			mat.set_shader_parameter("red_target", RED_TARGET)
 			mat.set_shader_parameter("red_amt", DARKEN_REDS)

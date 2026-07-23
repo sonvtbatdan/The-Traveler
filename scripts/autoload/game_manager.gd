@@ -65,7 +65,7 @@ const BASE_XP: float = 100.0      # XP for level 1→2; the whole curve scales o
 const GROWTH:  float = 1.12       # each level costs GROWTH× the previous (early fast, late grind)
 const MAX_LEVEL: int = 50         # level cap; XP stops accruing once reached
 # Early-level XP-requirement discount (levels 1-6 cheaper; 7+ unchanged). Applied in xp_to_next().
-const LEVEL_XP_MULT := {1: 0.30, 2: 0.40, 3: 0.50, 4: 0.70, 5: 0.80, 6: 0.90}
+const LEVEL_XP_MULT := {1: 0.39, 2: 0.52, 3: 0.65, 4: 0.91, 5: 1.04, 6: 0.90}   # levels 1–5 = old ×1.3 (+30% req)
 const XP_PER_ASTEROID: float = 0.05       # flat XP per asteroid destroyed (1/20 of old 1; XP is face-value now)
 const XP_ASTEROID_SIZE_DIV: float = 12.0  # + (width / this) / 20 → bigger rocks worth more
 const XP_PER_BOSS: float = 25.0           # one lump on a boss's FINAL defeat (1/20 of old 500)
@@ -682,7 +682,7 @@ func heal_to_full() -> void:
 # ── ARENA RUN STATS (Vampire-Survivors upgrade store) ────────────────────────────
 # In-memory per-run modifiers picked from the level-up cards. All default to a no-op, so at base values the
 # game plays exactly as before. Folded into the existing HP/regen/DR paths (not a parallel system).
-const PICKUP_RADIUS_BASE: float = 90.0    # base XP-orb magnet radius (px) before % upgrades
+const PICKUP_RADIUS_BASE: float = 117.0   # base XP-orb magnet radius (px) before % upgrades (90 base +30%)
 var upg_max_hp_bonus:   int   = 0         # flat +max HP (into recompute_max_hp)
 var upg_base_defense:   int   = 0         # flat armor: subtracted after the % DR (× Harden Mastery)
 var upg_hp_regen:       float = 0.0       # flat HP/sec (into hp_regen_rate)

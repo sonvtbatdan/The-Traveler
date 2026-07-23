@@ -191,7 +191,7 @@ func _ready() -> void:
 	call_deferred("_setup_weapon_edit")
 	call_deferred("_setup_fleet_edit")
 	call_deferred("_setup_hud_edit")     # authored playerhud = the live HUD (replaces the hidden cockpit HUD)
-	call_deferred("_open_start_chest")   # fresh run → present the pick-1-of-3 weapon chest (ship starts unarmed)
+	call_deferred("_grant_default_weapon")   # fresh run → skip the weapon-pick chest; start with the Gatling Gun
 
 ## Canvas glow/bloom for the arena. With hdr_2d on (project.godot) + glow_hdr_threshold 1.0, only HDR (>1)
 ## pixels bloom — i.e. the DynamicFire effects that set glow>0 (Elephant M2, Red X). LDR content is untouched.
@@ -215,10 +215,18 @@ func _make_glow_world_env() -> WorldEnvironment:
 	we.environment = env
 	return we
 
-## Present the start-of-run weapon chest. Deferred from _ready so the HUD/player exist first.
+## Present the start-of-run weapon chest. Deferred from _ready so the HUD/player exist first. (No longer called
+## at boot — kept for reference; the ship now auto-equips the Gatling via _grant_default_weapon.)
 func _open_start_chest() -> void:
 	if _weapon_chest != null and is_instance_valid(_weapon_chest) and _weapon_chest.has_method("show_chest"):
 		_weapon_chest.show_chest()
+
+## Fresh run → no weapon selection: auto-equip the Gatling Gun. Deferred from _ready so the arena_weapons node
+## (added this same frame) has run its _ready and joined group "arena_weapons".
+func _grant_default_weapon() -> void:
+	var weapons := get_tree().get_first_node_in_group("arena_weapons")
+	if weapons != null and weapons.has_method("acquire_weapon"):
+		weapons.call("acquire_weapon", "gatling_gun")
 
 ## WEAPON_TEST_MODE boot: no weapon-pick chest — auto-pause and open the F12 weapon palette instead.
 func _open_weapon_test() -> void:
