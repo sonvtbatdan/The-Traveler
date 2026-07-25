@@ -77,6 +77,15 @@ var player_level: int = 1   # starts at 1
 var player_xp:    int = 0    # current XP toward the NEXT level (resets to 0 on each level-up)
 var _xp_frac_acc: float = 0.0   # sub-1 XP carried between add_xp calls so fractional enemy XP isn't lost to rounding
 
+# ── Debounced save (Vampire-Survivors-style XP smoothness) ─────────────────────
+# add_xp used to call save_game() on EVERY pickup → a full ConfigFile load+save disk round-trip per XP orb.
+# During a mass suck-in (magnet pulse / big pile) that was hundreds of synchronous disk writes in one frame,
+# freezing the game. Now XP gains only mark the save DIRTY; the file is flushed on level-up (a milestone),
+# every SAVE_FLUSH_INTERVAL seconds while dirty, and on quit — never per pickup.
+const SAVE_FLUSH_INTERVAL := 5.0
+var _save_dirty: bool = false
+var _save_flush_acc: float = 0.0
+
 ## XP required to advance FROM `level` to the next: round(BASE_XP * GROWTH^(level-1)).
 ## Accelerating, so each level is a bigger step than the last.
 func xp_to_next(level: int) -> int:
@@ -115,7 +124,12 @@ func add_xp(amount: float) -> void:
 	if leveled:
 		level_changed.emit(player_level)
 	xp_changed.emit(player_xp, xp_to_next(player_level))
-	save_game()
+	# Debounced save: level-ups flush immediately (milestone); plain XP gains just mark dirty so a mass
+	# suck-in doesn't trigger a disk write per orb (see SAVE_FLUSH_INTERVAL / _process flush).
+	if leveled:
+		save_game()
+	else:
+		_save_dirty = true
 
 # ── Character attributes (Phase 3) — ALL pacing knobs live here ───────────────
 # Four attributes the player levels into. Each level grants POINTS_PER_LEVEL points (see add_xp).
@@ -258,6 +272,23 @@ var _overregen_to_shield: bool  = false # over-regen → shield: refill shield w
 # ── Invincibility frames ──────────────────────────────────────────────────────
 const SHIP_IFRAME_TIME: float = 0.3     # invincibility window after a hit
 var _iframe_timer: float = 0.0
+
+# ── Soft crowd push (Halls-of-Torment-style envelopment) ──────────────────────
+# Enemies overlapping the ship each add a shove (arena_enemy._check_contact → add_player_push); the arena reads
+# and clears the summed vector every physics frame (take_player_push) and adds it to the ship's velocity. Capped
+# below the player's base speed so a dense mob slows you like a current — you can still crawl out, never trap-walled.
+const PLAYER_PUSH_MAX: float = 260.0    # px/s cap on the summed crowd shove (player base move speed is 320)
+var _player_push_accum: Vector2 = Vector2.ZERO
+
+## An enemy contributes a shove on the ship (direction = away from that enemy, magnitude = strength × overlap).
+func add_player_push(v: Vector2) -> void:
+	_player_push_accum += v
+
+## The arena consumes the accumulated crowd shove for this frame (capped) and resets it.
+func take_player_push() -> Vector2:
+	var p := _player_push_accum.limit_length(PLAYER_PUSH_MAX)
+	_player_push_accum = Vector2.ZERO
+	return p
 
 # ── Loot shield immunity (from shield drop in arena) ─────────────────────────
 var _shield_immune: bool = false
@@ -585,6 +616,11 @@ func _process(delta: float) -> void:
 	if _hitstop_until_ms > 0 and Time.get_ticks_msec() >= _hitstop_until_ms:
 		_hitstop_until_ms = 0
 		Engine.time_scale = 1.0
+	# Debounced save flush: write pending XP at most once per SAVE_FLUSH_INTERVAL (not per pickup).
+	if _save_dirty:
+		_save_flush_acc += delta
+		if _save_flush_acc >= SAVE_FLUSH_INTERVAL:
+			save_game()   # clears _save_dirty + resets the accumulator
 	_iframe_timer = maxf(0.0, _iframe_timer - delta)
 	if _panic_cd > 0.0:
 		_panic_cd = maxf(0.0, _panic_cd - delta)   # Panic Button cooldown
@@ -1028,6 +1064,18 @@ func save_game() -> void:
 		cfg.set_value("player", "attr_" + n, int(attributes[n]))
 	cfg.set_value("player", "unspent_points", unspent_points)
 	cfg.save(SAVE_PATH)
+	_save_dirty = false
+	_save_flush_acc = 0.0
+
+## Flush a pending debounced save to disk if XP (or anything) marked it dirty. Cheap no-op when clean.
+func flush_save() -> void:
+	if _save_dirty:
+		save_game()
+
+## Autoload receives window-close + tree-exit; flush any pending XP so quitting never loses progress.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_EXIT_TREE or what == NOTIFICATION_PREDELETE:
+		flush_save()
 
 func load_game() -> void:
 	var cfg := ConfigFile.new()

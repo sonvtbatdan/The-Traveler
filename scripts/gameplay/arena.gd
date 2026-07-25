@@ -510,6 +510,10 @@ func _physics_process(delta: float) -> void:
 		vel += _smart_dodge(tstats)
 	elif ttype == "defend":
 		_defend_push(tstats)
+	# Soft enemy-crowd shove: enemies you're overlapping push the ship (a current, not a wall — see
+	# GameManager.take_player_push / arena_enemy._check_contact). This is what makes a mob hard to escape.
+	if GameManager.has_method("take_player_push"):
+		vel += GameManager.take_player_push()
 	_player.velocity = vel
 	_update_ship_lean(dir)
 	_player.move_and_slide()

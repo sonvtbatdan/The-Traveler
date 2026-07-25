@@ -12,7 +12,7 @@ const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 # ══ TUNABLES ═══════════════════════════════════════════════════════════════════
 const SPAWN_RADIUS  := 720.0   # base ring radius — just beyond the visible screen
 const SPAWN_VARY    := 120.0   # ± jitter on spawn radius
-const COUNT_MULT    := 1.3     # global multiplier on every entry's count (+30%)
+const COUNT_MULT    := 0.65    # global multiplier on every entry's count — halved from 1.3 (−50% spawn volume)
 const HP_MULT       := 1.0     # global enemy-HP multiplier (quick difficulty knob)
 const SPEED_MULT    := 1.0     # global enemy-speed multiplier
 const MAX_ALIVE     := 500    # hard cap on living enemies (bosses still spawn over the cap)

@@ -1393,6 +1393,7 @@ func _ready() -> void:
 	_crit_host.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_crit_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_crit_layer.add_child(_crit_host)
+	_crit_font = load("res://assets/fonts/Gameplay.ttf") as FontFile   # load ONCE, not per crit number
 
 ## Fallback (see GAUSS_USE_SPRITE_VFX): load the 24-frame Gauss plasma-orb flipbook (individual transparent
 ## PNGs). CPU Image.load (no import dependency). The FULL frame is kept (NOT cropped to get_used_rect): the
@@ -1909,29 +1910,50 @@ func _roll_damage(base: float, kind := "") -> Dictionary:
 			GameManager.add_fervor()   # Challenge Accepted: a crit builds a Fervor stack (no-op unless evolved)
 	return {"dmg": dmg, "is_crit": is_crit}
 
-func _spawn_crit_number(world_pos: Vector2, amount: float) -> void:
-	if _crit_host == null:
-		return
-	var screen_pos: Vector2 = get_viewport().get_canvas_transform() * world_pos
+# Crit-number popups are POOLED and capped. Previously each crit allocated a fresh Label + font load() + Tween,
+# fired from ~35 damage sites inside AoE-per-enemy loops → hundreds of node allocations/frame on a dense wave.
+# Now labels are recycled and concurrent count is bounded (illegible past a few dozen on screen anyway).
+const CRIT_NUM_MAX_ACTIVE := 40
+var _crit_font: FontFile = null
+var _crit_pool: Array = []       # recycled hidden Label nodes ready for reuse
+var _crit_active: int = 0        # currently-animating crit labels (bounded by CRIT_NUM_MAX_ACTIVE)
+
+func _make_crit_label() -> Label:
 	var lbl := Label.new()
-	lbl.text = str(roundi(amount))
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var font := load("res://assets/fonts/Gameplay.ttf") as FontFile
-	if font != null:
-		lbl.add_theme_font_override("font", font)
+	if _crit_font != null:
+		lbl.add_theme_font_override("font", _crit_font)
 	lbl.add_theme_font_size_override("font_size", 22)
 	lbl.add_theme_color_override("font_color", Color(1.0, 0.15, 0.10))
 	lbl.add_theme_color_override("font_outline_color", Color(1.0, 1.0, 1.0, 1.0))
 	lbl.add_theme_constant_override("outline_size", 7)
+	_crit_host.add_child(lbl)
+	return lbl
+
+func _recycle_crit_label(lbl: Label) -> void:
+	_crit_active = maxi(0, _crit_active - 1)
+	if not is_instance_valid(lbl):
+		return
+	lbl.visible = false
+	_crit_pool.append(lbl)
+
+func _spawn_crit_number(world_pos: Vector2, amount: float) -> void:
+	if _crit_host == null or _crit_active >= CRIT_NUM_MAX_ACTIVE:
+		return   # over the on-screen cap → skip (spawning more would just be an unreadable smear)
+	_crit_active += 1
+	var lbl: Label = _crit_pool.pop_back() if not _crit_pool.is_empty() else _make_crit_label()
+	var screen_pos: Vector2 = get_viewport().get_canvas_transform() * world_pos
+	lbl.text = str(roundi(amount))
+	lbl.modulate.a = 1.0
 	lbl.reset_size()
 	lbl.position = screen_pos + Vector2(randf_range(-10.0, 10.0), -16.0) - lbl.size * 0.5
 	lbl.scale = Vector2.ONE * 1.6
-	_crit_host.add_child(lbl)
+	lbl.visible = true
 	var tw := create_tween().set_parallel(true)
 	tw.tween_property(lbl, "position:y", lbl.position.y - 48.0, 0.80)
 	tw.tween_property(lbl, "scale", Vector2.ONE, 0.20).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tw.tween_property(lbl, "modulate:a", 0.0, 0.80).set_ease(Tween.EASE_IN)
-	tw.chain().tween_callback(func() -> void: lbl.queue_free())
+	tw.chain().tween_callback(func() -> void: _recycle_crit_label(lbl))
 
 # ── Gatling — twin wing streams ─────────────────────────────────────────────────
 # ── Gatling upgrades: API (the UI grants ranks) + effective stats (ranks + level rewards + capstone) ──

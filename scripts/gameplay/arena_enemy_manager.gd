@@ -56,8 +56,33 @@ var _now: float = 0.0
 var _vis_rect: Rect2 = Rect2(-1.0e9, -1.0e9, 2.0e9, 2.0e9)
 var _enemy_count: int = 0   # live "arena_enemy" count, refreshed once per frame (plume density LOD)
 
+# ── Enemy-vs-enemy separation (replaces per-enemy CharacterBody2D + move_and_slide) ─────────────
+# Spatial-hash push-apart: bucket separating enemies into a grid, and push each pair that overlaps within its
+# 3×3 cells. It's the ENTIRE non-stacking mechanism now. Cost control (a converging swarm clumps → many enemies
+# per cell → the neighbour scan degrades badly, so all three matter):
+#   • THROTTLE — runs every SEP_EVERY physics frames (it's corrective; 30 Hz is visually identical to 60).
+#   • PAIRS-ONCE — each unordered pair is handled once (j>i) and the push applied to BOTH, halving the scan.
+#   • REUSED BUFFERS — the arrays + grid are members, cleared and refilled, never reallocated per pass.
+const SEP_CELL     := 48.0   # grid cell size (px) — ~one enemy diameter, so overlaps stay within the 3×3 neighbourhood
+const SEP_STRENGTH := 0.5    # fraction of each overlap corrected per pass; split across the pair, so ~full resolution
+const SEP_MAX_PUSH := 40.0   # px/pass cap per enemy so deep overlaps (a whole cluster spawning on one point) ease apart instead of exploding
+const SEP_EVERY    := 2      # run separation every N physics frames (throttle: 60/2 = 30 Hz)
+const SEP_MAX_NEIGHBORS := 8 # hard cap on pushes computed per enemy per pass — bounds cost to O(N) even when
+                             # hundreds pile into one cell (the O(K²)-per-cell blowup that tanked FPS in a clump).
+							 # An enemy still gets shoved out by its nearest few neighbours; that's enough to spread.
+const SEP_VIS_MARGIN := 220.0 # only separate enemies within the visible rect + this margin — off-screen overlaps
+							  # cause no overdraw and are invisible, so separating them is pure wasted CPU.
+var _sep_tick: int = 0
+# Reused across passes (never reallocated): parallel per-enemy snapshot + the grid.
+var _sep_nodes: Array = []
+var _sep_pos:   PackedVector2Array = PackedVector2Array()
+var _sep_rad:   PackedFloat32Array = PackedFloat32Array()
+var _sep_push:  PackedVector2Array = PackedVector2Array()
+var _sep_grid:  Dictionary = {}
+
 func _ready() -> void:
 	add_to_group("enemy_manager")
+	process_priority = 100   # run the separation pass AFTER every enemy has moved this physics frame
 	z_index = -1   # bullets/explosions just under the player/enemies
 	_player = get_tree().get_first_node_in_group("player")
 	_hit_player = AudioStreamPlayer.new()
@@ -119,10 +144,94 @@ func visible_world_rect() -> Rect2:
 func enemy_count() -> int:
 	return _enemy_count
 
+## Spatial-hash push-apart. Snapshots separating enemies into reused buffers, buckets them into the grid, then
+## handles each overlapping PAIR once (j>i, push applied to both) and moves them apart. This is what stops the
+## swarm from stacking now that there is no physics body.
+func _tick_separation() -> void:
+	var enemies := get_tree().get_nodes_in_group("arena_enemy")
+	if enemies.size() < 2:
+		return
+	# Snapshot into reused buffers (clear keeps capacity — no per-pass allocation). Skip non-separating nodes
+	# (radius 0 = no_collide/dying/docked) and bosses (share the group but have no separation_radius()).
+	_sep_nodes.clear()
+	_sep_pos.clear()
+	_sep_rad.clear()
+	var vis := _vis_rect.grow(SEP_VIS_MARGIN)   # separate only what's on (or near) screen — see SEP_VIS_MARGIN
+	for e in enemies:
+		if not is_instance_valid(e) or not e.has_method("separation_radius"):
+			continue
+		var r: float = e.separation_radius()
+		if r <= 0.0:
+			continue
+		var epos: Vector2 = (e as Node2D).global_position
+		if not vis.has_point(epos):
+			continue
+		_sep_nodes.append(e)
+		_sep_pos.append(epos)
+		_sep_rad.append(r)
+	var m := _sep_nodes.size()
+	if m < 2:
+		return
+	# Bucket into the grid (reused dict).
+	_sep_grid.clear()
+	var inv := 1.0 / SEP_CELL
+	for i in m:
+		var p := _sep_pos[i]
+		var key := Vector2i(int(floor(p.x * inv)), int(floor(p.y * inv)))
+		if _sep_grid.has(key):
+			(_sep_grid[key] as Array).append(i)
+		else:
+			_sep_grid[key] = [i]
+	_sep_push.resize(m)
+	for i in m:
+		_sep_push[i] = Vector2.ZERO
+	# Each unordered overlapping pair once (j>i): compute the push and apply to BOTH ends (halves the scan).
+	for i in m:
+		var pi := _sep_pos[i]
+		var ri := _sep_rad[i]
+		var cx := int(floor(pi.x * inv))
+		var cy := int(floor(pi.y * inv))
+		var pushed := 0
+		for oy in range(-1, 2):
+			for ox in range(-1, 2):
+				var cell: Variant = _sep_grid.get(Vector2i(cx + ox, cy + oy))
+				if cell == null:
+					continue
+				for j: int in (cell as Array):
+					if j <= i:
+						continue
+					var d := pi - _sep_pos[j]
+					var dist := d.length()
+					var min_d := ri + _sep_rad[j]
+					if dist < min_d and dist > 0.001:
+						var f := d * ((min_d - dist) * SEP_STRENGTH / dist)
+						_sep_push[i] += f
+						_sep_push[j] -= f
+						pushed += 1
+						if pushed >= SEP_MAX_NEIGHBORS:
+							break
+				if pushed >= SEP_MAX_NEIGHBORS:
+					break
+			if pushed >= SEP_MAX_NEIGHBORS:
+				break
+	# Apply (capped) after the full pair pass so the reads stayed a clean snapshot.
+	for i in m:
+		var pv := _sep_push[i]
+		var l := pv.length()
+		if l > SEP_MAX_PUSH:
+			pv = pv * (SEP_MAX_PUSH / l)
+		if pv != Vector2.ZERO:
+			(_sep_nodes[i] as Node2D).global_position += pv
+
 func _process(delta: float) -> void:
 	_now += delta
 	_update_vis_rect()
 	_enemy_count = get_tree().get_node_count_in_group("arena_enemy")   # cached for the plume density LOD
+	# Enemy-vs-enemy separation — now in _process (enemies moved off the physics clock, so this follows them).
+	# process_priority=100 makes this run after every enemy's _process; throttled to every SEP_EVERY frames.
+	_sep_tick += 1
+	if _sep_tick % SEP_EVERY == 0:
+		_tick_separation()
 	if _player == null or not is_instance_valid(_player):
 		_player = get_tree().get_first_node_in_group("player")
 	_tick_bullets(delta)
