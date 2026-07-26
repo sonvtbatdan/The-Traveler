@@ -34,6 +34,11 @@ const WEAPON_WEIGHTS := {
 const WEAPON_FALLBACK_COLOR := Color(0.55, 0.62, 0.72)   # placeholder swatch if a weapon icon fails to load
 
 var _pending: int = 0
+# FIFO of per-show "allow new item" flags, one pushed for every _pending increment. A real level-up pushes
+# false (only offer upgrades to items you ALREADY own); a chest/boss/elite reward pushes true (may offer a
+# brand-new weapon/aux). Each _show_cards() pops one — see _on_leveled_up / grant_reward / _generate_choices.
+var _mode_queue: Array = []
+var _allow_new: bool = false   # the flag for the show currently on screen
 var _showing: bool = false
 var _current: Array = []   # the OPTIONS-row array that _pick() acts on (pool / capstone / destroy / single confirm)
 var _choices: Array = []   # left-column offered items (tier-1), persistent for this screen
@@ -974,12 +979,24 @@ func _preview_map(c: Dictionary) -> Dictionary:
 
 func _on_leveled_up(_level: int) -> void:
 	_pending += 1
+	# real level-up → upgrades to OWNED items only (no new weapon/aux)
+	_mode_queue.append({"allow_new": false, "mixed": false})
 	if not _showing:
 		_begin()
 
-## Grant ONE level-up choice (the pick-1-of-3 card) WITHOUT changing the player's level/XP. Used by reward chests.
+## Grant ONE level-up choice (the pick-1-of-3 card) WITHOUT changing the player's level/XP. Used by reward
+## chests AND boss/elite kills — the ONLY way to obtain a brand-new weapon/aux now that level-ups don't offer them.
 func grant_reward() -> void:
 	_pending += 1
+	_mode_queue.append({"allow_new": true, "mixed": false})   # reward → MAY offer a brand-new item
+	if not _showing:
+		_begin()
+
+## Grant ONE pick-1-of-3 of BRAND-NEW items only, guaranteed to mix weapons and passives (never all
+## weapons, never all passives). Dropped by the giant dead-ship wrecks' orb of light (arena_loot.gd).
+func grant_new_item_choice() -> void:
+	_pending += 1
+	_mode_queue.append({"allow_new": true, "mixed": true})
 	if not _showing:
 		_begin()
 
@@ -990,7 +1007,15 @@ func _begin() -> void:
 	_show_cards()
 
 func _show_cards() -> void:
-	_choices = _generate_choices(CHOICES)
+	# Each show consumes one queued mode (real level-up = upgrades only; reward = may offer new items;
+	# mixed = new items only, guaranteed weapon+passive mix).
+	var mode: Dictionary = _mode_queue.pop_front() if not _mode_queue.is_empty() else {}
+	_allow_new = bool(mode.get("allow_new", false))
+	var mixed_new := bool(mode.get("mixed", false))
+	if mixed_new:
+		_choices = _generate_new_mixed_choices(CHOICES)
+	else:
+		_choices = _generate_choices(CHOICES, _allow_new)
 	_route_cache.clear()   # freeze this level-up's perk options
 	if _choices.is_empty():
 		# Nothing left to offer (everything owned + maxed) — silently skip this level-up.
@@ -1399,7 +1424,11 @@ func _select_fusion(c: Dictionary) -> void:
 		_board_render_options()
 
 # ── Choice generation (weighted, owned-priority, no-dup, slot-limited, fallback) ──────────────
-func _generate_choices(n: int) -> Array:
+## allow_new: when false (a real level-up) the new-item pools are skipped entirely, so the player is only
+## ever offered UPGRADES to items they already own — brand-new weapons/aux come only from chests / boss+elite
+## kills (grant_reward, allow_new = true). With fewer than n upgradeable owned items the screen simply shows
+## as many as exist (the board fills its slots top-down, leaving the rest blank).
+func _generate_choices(n: int, allow_new: bool = false) -> Array:
 	var aw := get_tree().get_first_node_in_group("arena_weapons")
 	var ax := get_tree().get_first_node_in_group("arena_aux")
 	var choices: Array = []
@@ -1428,8 +1457,8 @@ func _generate_choices(n: int) -> Array:
 			for id: String in ax.call("owned_aux"):
 				if bool(ax.call("aux_can_upgrade", id)) and not chosen.has("a:" + id):
 					owned_pool.append(_aux_choice(ax, id, "upgrade"))
-		# Un-owned items → the new pool (only while there is a free slot of that kind).
-		if aw != null and not weapons_full:
+		# Un-owned items → the new pool (only on a reward show, and while there is a free slot of that kind).
+		if allow_new and aw != null and not weapons_full:
 			var owned_w: Array = aw.call("acquired_weapons")
 			for k: String in ArenaWeapons.WEAPON_INFO.keys():
 				if bool(aw.call("is_fusion_kind", k)):
@@ -1438,7 +1467,7 @@ func _generate_choices(n: int) -> Array:
 					continue   # Player 2 only appears once you own a weapon at level 10+
 				if not (k in owned_w) and not chosen.has("w:" + k):
 					new_pool.append(_weapon_choice(aw, k, "new"))
-		if ax != null and not aux_full:
+		if allow_new and ax != null and not aux_full:
 			var owned_a: Array = ax.call("owned_aux")
 			for d: Dictionary in ArenaAux.AUX_DEFS:
 				var id := String(d["id"])
@@ -1458,6 +1487,63 @@ func _generate_choices(n: int) -> Array:
 		choices.append(pick)
 		chosen[String(pick["ckey"])] = true
 	return choices
+
+## Roll `n` BRAND-NEW item cards (no upgrades to owned items), guaranteed to include at least one
+## weapon AND one passive/aux whenever both classes have candidates — never all weapons, never all
+## passives. Used by grant_new_item_choice() (the dead-ship orb of light).
+func _generate_new_mixed_choices(n: int) -> Array:
+	var aw := get_tree().get_first_node_in_group("arena_weapons")
+	var ax := get_tree().get_first_node_in_group("arena_aux")
+	var weapons_full: bool = aw == null or bool(aw.call("weapons_full"))
+	var aux_full: bool = ax == null or bool(ax.call("aux_slots_full"))
+	var weapon_cands: Array = []
+	var aux_cands: Array = []
+	# Un-owned, eligible weapons (skip fusion-only kinds + gated Player 2).
+	if aw != null and not weapons_full:
+		var owned_w: Array = aw.call("acquired_weapons")
+		for k: String in ArenaWeapons.WEAPON_INFO.keys():
+			if bool(aw.call("is_fusion_kind", k)):
+				continue
+			if k == "player_2" and not bool(aw.call("player2_eligible")):
+				continue
+			if not (k in owned_w):
+				weapon_cands.append(_weapon_choice(aw, k, "new"))
+	# Un-owned aux (passives).
+	if ax != null and not aux_full:
+		var owned_a: Array = ax.call("owned_aux")
+		for d: Dictionary in ArenaAux.AUX_DEFS:
+			var id := String(d["id"])
+			if not (id in owned_a):
+				aux_cands.append(_aux_choice(ax, id, "new"))
+	var chosen := {}
+	var out: Array = []
+	# Guarantee the mix: seed one weapon + one aux first when both classes have candidates.
+	if not weapon_cands.is_empty() and not aux_cands.is_empty():
+		_take_into(out, chosen, weapon_cands)
+		_take_into(out, chosen, aux_cands)
+	# Fill remaining slots from the combined pool (fallback: only one class → cards from that class).
+	var pool: Array = weapon_cands + aux_cands
+	while out.size() < n and not pool.is_empty():
+		if not _take_into(out, chosen, pool):
+			break
+	out.shuffle()   # so the guaranteed weapon/aux aren't always in fixed positions
+	return out
+
+## Weighted-pick one not-yet-chosen card from `pool`, append it to `out`, mark its ckey, and drop it
+## from `pool`. Returns false when nothing pickable remains.
+func _take_into(out: Array, chosen: Dictionary, pool: Array) -> bool:
+	var i := pool.size() - 1
+	while i >= 0:
+		if chosen.has(String((pool[i] as Dictionary).get("ckey", ""))):
+			pool.remove_at(i)
+		i -= 1
+	if pool.is_empty():
+		return false
+	var pick: Dictionary = _weighted_pick(pool)
+	out.append(pick)
+	chosen[String(pick["ckey"])] = true
+	pool.erase(pick)
+	return true
 
 func _weighted_pick(pool: Array) -> Dictionary:
 	var total := 0.0

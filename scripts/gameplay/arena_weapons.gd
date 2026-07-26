@@ -14,11 +14,12 @@ extends Node2D
 const GAT_ENABLED       := true
 const GAT_FIRE_INTERVAL := 0.09     # s between shots (hold-to-fire feel)
 const GAT_SPEED         := 900.0    # px/s
-const GAT_DAMAGE        := 6.0      # per hit
+const GAT_DAMAGE        := 5.0      # per hit (base -1)
 const GAT_LIFETIME      := 1.2      # s before despawn
 const GAT_MAX_DIST      := 1300.0   # px travelled before despawn
-const GAT_HIT_RADIUS    := 24.0     # bullet↔enemy hit distance (px)
-const GAT_SPREAD_DEG    := 3.0      # ± random spray on each shot (0 = laser-straight)
+const GAT_HIT_RADIUS    := 24.0     # bullet↔enemy hit distance (px) — fallback when an enemy has no hit_radius
+const GAT_BULLET_HIT_R  := 10.0     # the bullet's OWN collision radius (added to the enemy radius); slightly bigger than the sprite (glow half-width ≈ 7px) so it hits on visual contact
+const GAT_SPREAD_DEG    := 0.0      # ± random spray on each shot (0 = laser-straight; base Gatling now stable)
 const GAT_STAGGER       := 0.1      # s the enemy is staggered (movement/attacks frozen) per Gatling hit
 const GAT_LIGHT         := 1.0      # dust-light "value" per Gatling bullet (low → lights up nearby dust only)
 const GAT_WING_SPACING  := 26.0     # px between the two wing muzzles (twin parallel streams)
@@ -29,12 +30,12 @@ const GAT_MUZZLE_DECAY  := 0.08     # s the muzzle-fire flash decays over (refre
 # ── Gatling skill-point upgrade pool (each invested point picks 1 of 3 → +1 rank). Level rewards are derived
 # from the weapon's LEVEL (see _gat_* effective-stat helpers). The level-up UI's 2nd tier rolls 3 of these. ──
 const GATLING_POOL := {
-	"hardened":  {"name": "Hardened Round",  "max": 10, "per": "+1 flat damage",        "desc": "Bullets hit harder."},
-	"piercing":  {"name": "Piercing Round",  "max": 5,  "per": "+10% pierce chance",    "desc": "Bullets pass through enemies."},
-	"quick":     {"name": "Quick Round",     "max": 10, "per": "+8% fire rate",         "desc": "Shoot faster."},
-	"bouncing":  {"name": "Bouncing Round",  "max": 5,  "per": "+8% bounce chance",     "desc": "Bullets ricochet to a nearby foe."},
-	"multishot": {"name": "Multishot",       "max": 10, "per": "+10% extra-bullet chance", "desc": "Chance for an extra bullet."},
-	"advance_ballistic": {"name": "Advance Ballistic", "max": 5, "per": "+5% multishot (all shots weapons)", "desc": "Global: every weapon with the 'shots' tag gains multishot chance."},
+	"hardened":  {"name": "Hardened Round",  "max": 10, "per": "+2 flat damage",        "desc": "Bullets hit harder."},
+	"piercing":  {"name": "Piercing Round",  "max": 5,  "per": "+20% pierce chance, +10% damage", "desc": "Bullets pass through enemies and hit harder."},
+	"quick":     {"name": "Quick Round",     "max": 10, "per": "+16% fire rate",        "desc": "Shoot faster."},
+	"bouncing":  {"name": "Bouncing Round",  "max": 5,  "per": "+1 bounce",             "desc": "Bullets ricochet to nearby foes (1 extra ricochet per rank, max 5 ranks)."},
+	"multishot": {"name": "Multishot",       "max": 10, "per": "+25% multishot",        "desc": "Extra bullets — every 100% is one guaranteed extra (triple shot and beyond)."},
+	"advance_ballistic": {"name": "Advance Ballistic", "max": 5, "per": "+10% multishot (all shots weapons)", "desc": "Global: every weapon with the 'shots' tag gains multishot chance."},
 }
 const GAT_BOUNCE_RANGE := 280.0    # search radius for a bounce target
 const GAT_HEAL_ODDS    := 200      # Healing Round capstone: 1-in-N directly-fired bullets heals
@@ -51,8 +52,8 @@ const GAUSS_ENABLED     := false    # disabled for now
 const GAUSS_STAGGER     := 0.35     # s the enemy is staggered per Gauss hit (heavier weapon = more)
 const GAUSS_LIGHT       := 5.0      # dust-light "value" per Gauss orb (heavy → big bright light)
 const GAUSS_USE_SPRITE_VFX := false  # true → fall back to the original hand-drawn flipbook orb/explosion art
-                                     # instead of the procedural gauss_orb_fx shader. Kept side-by-side, same
-                                     # convention as the Lasgun's lasgun_ani_1.gd sprite backup.
+									 # instead of the procedural gauss_orb_fx shader. Kept side-by-side, same
+									 # convention as the Lasgun's lasgun_ani_1.gd sprite backup.
 const GAUSS_CHARGE_TIME := 1.4      # s to fully charge between shots (drives the charge-meter fraction)
 const GAUSS_SPEED       := 520.0    # px/s (heavy + slow so you watch it plough through)
 const GAUSS_DAMAGE      := 55.0     # per-shot DAMAGE BUDGET the orb carries (× damage-mult at fire)
@@ -1392,6 +1393,7 @@ func _ready() -> void:
 	_crit_host.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_crit_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_crit_layer.add_child(_crit_host)
+	_crit_font = load("res://assets/fonts/Gameplay.ttf") as FontFile   # load ONCE, not per crit number
 
 ## Fallback (see GAUSS_USE_SPRITE_VFX): load the 24-frame Gauss plasma-orb flipbook (individual transparent
 ## PNGs). CPU Image.load (no import dependency). The FULL frame is kept (NOT cropped to get_used_rect): the
@@ -1908,29 +1910,50 @@ func _roll_damage(base: float, kind := "") -> Dictionary:
 			GameManager.add_fervor()   # Challenge Accepted: a crit builds a Fervor stack (no-op unless evolved)
 	return {"dmg": dmg, "is_crit": is_crit}
 
-func _spawn_crit_number(world_pos: Vector2, amount: float) -> void:
-	if _crit_host == null:
-		return
-	var screen_pos: Vector2 = get_viewport().get_canvas_transform() * world_pos
+# Crit-number popups are POOLED and capped. Previously each crit allocated a fresh Label + font load() + Tween,
+# fired from ~35 damage sites inside AoE-per-enemy loops → hundreds of node allocations/frame on a dense wave.
+# Now labels are recycled and concurrent count is bounded (illegible past a few dozen on screen anyway).
+const CRIT_NUM_MAX_ACTIVE := 40
+var _crit_font: FontFile = null
+var _crit_pool: Array = []       # recycled hidden Label nodes ready for reuse
+var _crit_active: int = 0        # currently-animating crit labels (bounded by CRIT_NUM_MAX_ACTIVE)
+
+func _make_crit_label() -> Label:
 	var lbl := Label.new()
-	lbl.text = str(roundi(amount))
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var font := load("res://assets/fonts/Gameplay.ttf") as FontFile
-	if font != null:
-		lbl.add_theme_font_override("font", font)
+	if _crit_font != null:
+		lbl.add_theme_font_override("font", _crit_font)
 	lbl.add_theme_font_size_override("font_size", 22)
 	lbl.add_theme_color_override("font_color", Color(1.0, 0.15, 0.10))
 	lbl.add_theme_color_override("font_outline_color", Color(1.0, 1.0, 1.0, 1.0))
 	lbl.add_theme_constant_override("outline_size", 7)
+	_crit_host.add_child(lbl)
+	return lbl
+
+func _recycle_crit_label(lbl: Label) -> void:
+	_crit_active = maxi(0, _crit_active - 1)
+	if not is_instance_valid(lbl):
+		return
+	lbl.visible = false
+	_crit_pool.append(lbl)
+
+func _spawn_crit_number(world_pos: Vector2, amount: float) -> void:
+	if _crit_host == null or _crit_active >= CRIT_NUM_MAX_ACTIVE:
+		return   # over the on-screen cap → skip (spawning more would just be an unreadable smear)
+	_crit_active += 1
+	var lbl: Label = _crit_pool.pop_back() if not _crit_pool.is_empty() else _make_crit_label()
+	var screen_pos: Vector2 = get_viewport().get_canvas_transform() * world_pos
+	lbl.text = str(roundi(amount))
+	lbl.modulate.a = 1.0
 	lbl.reset_size()
 	lbl.position = screen_pos + Vector2(randf_range(-10.0, 10.0), -16.0) - lbl.size * 0.5
 	lbl.scale = Vector2.ONE * 1.6
-	_crit_host.add_child(lbl)
+	lbl.visible = true
 	var tw := create_tween().set_parallel(true)
 	tw.tween_property(lbl, "position:y", lbl.position.y - 48.0, 0.80)
 	tw.tween_property(lbl, "scale", Vector2.ONE, 0.20).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tw.tween_property(lbl, "modulate:a", 0.0, 0.80).set_ease(Tween.EASE_IN)
-	tw.chain().tween_callback(func() -> void: lbl.queue_free())
+	tw.chain().tween_callback(func() -> void: _recycle_crit_label(lbl))
 
 # ── Gatling — twin wing streams ─────────────────────────────────────────────────
 # ── Gatling upgrades: API (the UI grants ranks) + effective stats (ranks + level rewards + capstone) ──
@@ -1947,7 +1970,7 @@ func gat_grant_upgrade(id: String) -> bool:
 	_gat_upg[id] = int(_gat_upg.get(id, 0)) + 1
 	if GameManager.has_method("add_mech"):
 		if id == "advance_ballistic":
-			GameManager.add_mech("multishot_pct", 0.05)   # GLOBAL: shots-tagged weapons read mech_bonus("multishot_pct")
+			GameManager.add_mech("multishot_pct", 0.10)   # GLOBAL: shots-tagged weapons read mech_bonus("multishot_pct")
 	return true
 
 func gat_set_capstone(id: String) -> void:
@@ -1957,17 +1980,18 @@ func _gat_lvl() -> int:
 	return weapon_level("gatling_gun")   # 0 if unowned, 1..7
 
 func _gat_pierce_chance() -> float:
-	return clampf(float(_gat_upg["piercing"]) * 0.10, 0.0, 1.0)
+	return clampf(float(_gat_upg["piercing"]) * 0.20, 0.0, 1.0)
 
-func _gat_bounce_chance() -> float:
-	return clampf(float(_gat_upg["bouncing"]) * 0.08, 0.0, 1.0)
+## How many times a freshly-fired bullet may ricochet: +1 per Bouncing Round rank (pool caps rank at 5).
+func _gat_bounces() -> int:
+	return int(_gat_upg["bouncing"])
 
 func _gat_fire_bonus() -> float:
-	return float(_gat_upg["quick"]) * 0.08
+	return float(_gat_upg["quick"]) * 0.16
 
 func _gat_multishot_chance() -> float:
 	var glob: float = GameManager.mech_bonus("multishot_pct") if GameManager.has_method("mech_bonus") else 0.0
-	return float(_gat_upg["multishot"]) * 0.10 + glob   # local ranks + global (Advance Ballistic etc.)
+	return float(_gat_upg["multishot"]) * 0.25 + glob   # local ranks + global (Advance Ballistic etc.)
 
 func _gat_multishot_flat() -> int:
 	return 2 if _gat_capstone == "spray" else 0   # Spray and Pray capstone
@@ -1977,14 +2001,16 @@ func _gat_spread_deg() -> float:
 
 ## Per-bullet base damage before crit/global mult. Kinetic mastery is GLOBAL (applied in _roll_damage).
 func _gat_bullet_base() -> float:
-	return GAT_DAMAGE + float(_gat_upg["hardened"])
+	return (GAT_DAMAGE + 2.0 * float(_gat_upg["hardened"])) * (1.0 + 0.10 * float(_gat_upg["piercing"]))   # Piercing Round: +10% dmg/rank
 
 func _fire_gatling() -> void:
 	# Twin-barrel volley: LEFT-wing bullets (even slot n) fire immediately; RIGHT-wing bullets (odd n)
 	# fire GAT_FIRE_STAGGER (0.2s) later — so the left barrel visibly leads the right. Any Multishot extra
 	# bullets fan out to wider slots but keep the same even=now / odd=+delay rule.
-	var extra := _gat_multishot_flat()
-	if _proc(_gat_multishot_chance()):   # + Stroke of Luck
+	var ms := _gat_multishot_chance()    # total multishot value (0.25/rank + globals); 1.0 = one guaranteed extra
+	var extra := _gat_multishot_flat()   # Spray and Pray capstone flat bonus
+	extra += int(ms)                     # every full 100% = a guaranteed extra bullet (triple, quad, …)
+	if _proc(ms - float(int(ms))):       # leftover fraction = chance for one more (+ Stroke of Luck)
 		extra += 1
 	var total := 2 + extra
 	for n in total:
@@ -2018,7 +2044,7 @@ func _spawn_gat_bullet(n: int) -> void:
 		var slot := float(n / 2)                  # 0,0,1,1,2,2…  (pair index → distance out)
 		var sgn := -1.0 if (n % 2 == 0) else 1.0   # alternate left / right
 		start = base + perp * (sgn * GAT_WING_SPACING * (0.5 + slot * 0.6))
-	var bullet := {"pos": start, "vel": dir * GAT_SPEED * _weapon_speed_mult(), "life": 0.0, "start": start, "kind": "gatling_gun", "hits": []}
+	var bullet := {"pos": start, "vel": dir * GAT_SPEED * _weapon_speed_mult(), "life": 0.0, "start": start, "kind": "gatling_gun", "hits": [], "bounces": _gat_bounces()}
 	# Healing Round capstone: a directly-fired bullet has a 1-in-GAT_HEAL_ODDS chance to be a healing bullet.
 	if _gat_capstone == "healing" and randi() % GAT_HEAL_ODDS == 0:
 		bullet["healing"] = true
@@ -4522,7 +4548,7 @@ func _tick_bullets(delta: float) -> void:
 				if is_gat and en in hits:
 					continue   # pierce/bounce: never hit the same enemy twice
 				var _en_r = en.get("hit_radius")
-				var _hit_r: float = float(_en_r) if _en_r != null else GAT_HIT_RADIUS
+				var _hit_r: float = (float(_en_r) if _en_r != null else GAT_HIT_RADIUS) + GAT_BULLET_HIT_R
 				if p.distance_to((en as Node2D).global_position) <= _hit_r:
 					# Bismuth anti-magnetic: 50% of gatling bullets bounce back at the player instead of landing.
 					if is_gat and en.has_method("is_anti_magnetic") and en.is_anti_magnetic() and randf() < GAT_REFLECT_FRAC:
@@ -4550,7 +4576,7 @@ func _tick_bullets(delta: float) -> void:
 			if not dead:
 				for ruin in ruins:
 					if not is_instance_valid(ruin): continue
-					var ruin_r: float = ruin.get("hit_radius") if ruin.get("hit_radius") != null else GAT_HIT_RADIUS
+					var ruin_r: float = (ruin.get("hit_radius") if ruin.get("hit_radius") != null else GAT_HIT_RADIUS) + GAT_BULLET_HIT_R
 					if p.distance_to((ruin as Node2D).global_position) <= ruin_r:
 						if ruin.has_method("take_damage"):
 							if is_gat:
@@ -4604,16 +4630,40 @@ func _reflect_bullet(b: Dictionary, hit_pos: Vector2) -> void:
 ## Returns true if the bullet survives, false if it should die.
 func _gat_bounce_or_pierce(b: Dictionary) -> bool:
 	var vel: Vector2 = b["vel"]
-	if _proc(_gat_bounce_chance()):   # + Stroke of Luck
-		var tgt := _gat_bounce_target(b["pos"], vel, b["hits"])
-		if tgt != null:
-			var newdir := ((tgt as Node2D).global_position - (b["pos"] as Vector2)).normalized()
-			b["vel"] = newdir * GAT_SPEED * _weapon_speed_mult()
-			b["start"] = b["pos"]   # refresh the travel-distance budget so it doesn't instantly despawn
-			return true
-	if _proc(_gat_pierce_chance()):   # + Stroke of Luck
+	var pierced := _proc(_gat_pierce_chance())   # + Stroke of Luck
+	# Bouncing Round: a GUARANTEED ricochet per remaining bounce in this bullet's budget (+1 per rank at fire
+	# time). Spend one only when a fresh target actually exists, so a wasted look doesn't burn the budget.
+	var tgt: Node = null
+	if int(b.get("bounces", 0)) > 0:
+		tgt = _gat_bounce_target(b["pos"], vel, b["hits"])
+	if tgt == null:
+		return pierced   # nothing to ricochet into → pierce alone decides whether the bullet lives
+	var left := int(b["bounces"]) - 1
+	var newdir := ((tgt as Node2D).global_position - (b["pos"] as Vector2)).normalized()
+	b["bounces"] = left
+	if pierced:
+		# BOTH procced → split: the original ploughs straight on, a clone peels off to take the ricochet.
+		_gat_spawn_bounce_clone(b, newdir, left)
 		return true
-	return false
+	# Bounce only → the bullet itself takes the ricochet.
+	b["vel"] = newdir * GAT_SPEED * _weapon_speed_mult()
+	b["start"] = b["pos"]   # refresh the travel-distance budget so it doesn't instantly despawn
+	return true
+
+## The ricochet half of a pierce+bounce hit: a fresh bullet at the impact point flying at `dir`, inheriting the
+## parent's hit list (so it can't re-hit what the parent already hit) and its remaining bounce budget. Shares the
+## parent's `life` clock so a splitting chain still dies at GAT_LIFETIME rather than renewing itself forever.
+## Appended to the end of _bullets — _tick_bullets walks the index DOWNWARD, so it isn't re-processed this frame.
+func _gat_spawn_bounce_clone(parent: Dictionary, dir: Vector2, bounces_left: int) -> void:
+	var pos: Vector2 = parent["pos"]
+	var clone := {
+		"pos": pos, "vel": dir * GAT_SPEED * _weapon_speed_mult(),
+		"life": float(parent.get("life", 0.0)), "start": pos,   # fresh distance budget, inherited age
+		"kind": "gatling_gun", "hits": (parent["hits"] as Array).duplicate(), "bounces": bounces_left,
+	}
+	if bool(parent.get("healing", false)):
+		clone["healing"] = true
+	_bullets.append(clone)
 
 ## Bounce target: the not-yet-hit enemy within range whose direction is most PERPENDICULAR to the bullet's path.
 func _gat_bounce_target(pos: Vector2, vel: Vector2, hits: Array) -> Node:

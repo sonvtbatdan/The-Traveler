@@ -9,6 +9,7 @@ extends Node2D
 const OrbShader := preload("res://scripts/gameplay/gauss_orb_fx.gdshader")
 
 @export var time_scale := 1.0   # explosion instance sets this ~10x higher so its internal crackle/flicker reads as a frantic burst, not the calm flying-orb pace
+@export var spin_rps := 3.0     # sprite self-rotation (revolutions/sec) — the whole plasma ball spins while flying AND exploding
 
 @export_group("Size pulse")
 @export var size_pulse_enabled := true   # small flying orb breathes 80-100% size; the explosion (own pop-in/fade already) disables this
@@ -88,6 +89,12 @@ func _ready() -> void:
 	m.set_shader_parameter("rim_color", rim_color)
 	m.set_shader_parameter("halo_color", halo_color)
 	material = m
+
+## Self-spin: rotate the whole node (the shader pattern lives in the rect's UVs, so the spikes/rim spin with it).
+## arena_weapons pushes only position + diameter each tick (never rotation), so this isn't clobbered.
+func _process(delta: float) -> void:
+	if spin_rps != 0.0:
+		rotation += TAU * spin_rps * delta
 
 func _draw() -> void:
 	if diameter <= 0.0:

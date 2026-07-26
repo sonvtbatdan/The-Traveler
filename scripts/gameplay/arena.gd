@@ -7,6 +7,7 @@ extends Node2D
 const HudHpDisplayScript := preload("res://scripts/ui/hud/hud_hp_display.gd")
 const VitalsBarScript    := preload("res://scripts/ui/hud/arena_vitals_bar.gd")  # player + boss vitals bars
 const HudFrameScript     := preload("res://scripts/ui/hud/arena_hud_frame.gd")   # procedural cockpit bezels
+const ScreenFxScript     := preload("res://scripts/gameplay/arena_screen_fx.gd") # edge vignette + player hit flash
 const ArenaStatsHudScript := preload("res://scripts/ui/hud/arena_stats_hud.gd")
 const ArenaEnemyMgrScript := preload("res://scripts/gameplay/arena_enemy_manager.gd")
 const XpOrbMgrScript      := preload("res://scripts/gameplay/arena_xp_orb_manager.gd")
@@ -184,13 +185,13 @@ func _ready() -> void:
 	add_child(ArenaAuxScript.new())       # auxiliary passive-item store (level-up offers; group "arena_aux")
 	# arena_loadout (fires EQUIPPED inventory weapons) is intentionally NOT instantiated: combat is driven solely by
 	# the bespoke 5-slot system, so equipped starter/inventory weapons no longer auto-fire in the arena.
-	add_child(ArenaRuinLayerScript.new()) # periodic ruin ships (every 5–15s): ship → box → loot drop
+	add_child(ArenaRuinLayerScript.new()) # 2 giant dead-ship wrecks at run start (drop orb of light)
 	call_deferred("_setup_boss_edit")
 	call_deferred("_setup_creep_edit")
 	call_deferred("_setup_weapon_edit")
 	call_deferred("_setup_fleet_edit")
 	call_deferred("_setup_hud_edit")     # authored playerhud = the live HUD (replaces the hidden cockpit HUD)
-	call_deferred("_open_start_chest")   # fresh run → present the pick-1-of-3 weapon chest (ship starts unarmed)
+	call_deferred("_grant_default_weapon")   # fresh run → skip the weapon-pick chest; start with the Gatling Gun
 
 ## Canvas glow/bloom for the arena. With hdr_2d on (project.godot) + glow_hdr_threshold 1.0, only HDR (>1)
 ## pixels bloom — i.e. the DynamicFire effects that set glow>0 (Elephant M2, Red X). LDR content is untouched.
@@ -214,10 +215,18 @@ func _make_glow_world_env() -> WorldEnvironment:
 	we.environment = env
 	return we
 
-## Present the start-of-run weapon chest. Deferred from _ready so the HUD/player exist first.
+## Present the start-of-run weapon chest. Deferred from _ready so the HUD/player exist first. (No longer called
+## at boot — kept for reference; the ship now auto-equips the Gatling via _grant_default_weapon.)
 func _open_start_chest() -> void:
 	if _weapon_chest != null and is_instance_valid(_weapon_chest) and _weapon_chest.has_method("show_chest"):
 		_weapon_chest.show_chest()
+
+## Fresh run → no weapon selection: auto-equip the Gatling Gun. Deferred from _ready so the arena_weapons node
+## (added this same frame) has run its _ready and joined group "arena_weapons".
+func _grant_default_weapon() -> void:
+	var weapons := get_tree().get_first_node_in_group("arena_weapons")
+	if weapons != null and weapons.has_method("acquire_weapon"):
+		weapons.call("acquire_weapon", "gatling_gun")
 
 ## WEAPON_TEST_MODE boot: no weapon-pick chest — auto-pause and open the F12 weapon palette instead.
 func _open_weapon_test() -> void:
@@ -247,6 +256,7 @@ func _build_ui() -> void:
 	ui.layer = 10   # explicit (was default 1): keep the HP/weapon/aux HUD ABOVE the mortar/fatboy shockwave (layer 8) so the blast distortion never ripples the HUD; still below buttons (11) / crit (12)
 	add_child(ui)
 	_ui_layer = ui
+	add_child(ScreenFxScript.new())   # edge vignette + player hit flash (own CanvasLayer at layer 9, under the HUD)
 	# Legacy Cockpit HUD — REPLACED by the authored playerhud (hud_edit_mode.gd / playerhud_layout.cfg,
 	# wired by _setup_hud_edit). Kept in the tree but HIDDEN so any group lookups still resolve.
 	var _frame := HudFrameScript.new(); _frame.visible = false; ui.add_child(_frame)
@@ -500,6 +510,10 @@ func _physics_process(delta: float) -> void:
 		vel += _smart_dodge(tstats)
 	elif ttype == "defend":
 		_defend_push(tstats)
+	# Soft enemy-crowd shove: enemies you're overlapping push the ship (a current, not a wall — see
+	# GameManager.take_player_push / arena_enemy._check_contact). This is what makes a mob hard to escape.
+	if GameManager.has_method("take_player_push"):
+		vel += GameManager.take_player_push()
 	_player.velocity = vel
 	_update_ship_lean(dir)
 	_player.move_and_slide()

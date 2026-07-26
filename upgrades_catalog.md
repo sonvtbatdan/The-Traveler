@@ -69,13 +69,15 @@ Mỗi perk có rank tối đa (`max`). `max: 0` = perk global/đặc biệt, hi�
 | Perk | Mỗi rank | Max rank | Mô tả |
 |------|----------|----------|-------|
 | Hardened Round | +1 flat damage | 10 | Đạn mạnh hơn. |
-| Piercing Round | +10% pierce chance | 5 | Đạn xuyên qua địch. |
+| Piercing Round | +12% pierce chance | 5 | Đạn xuyên qua địch. |
 | Quick Round | +8% fire rate | 10 | Bắn nhanh hơn. |
-| Bouncing Round | +8% bounce chance | 5 | Đạn nảy sang địch gần. |
+| Bouncing Round | +1 bounce | 5 | Đạn nảy sang địch gần (mỗi rank +1 lần nảy, tối đa 5). |
 | Multishot | +10% extra-bullet chance | 10 | Cơ hội bắn thêm đạn. |
 | Advance Ballistic | +5% multishot (mọi vũ khí "shots") | 5 | Global: vũ khí có tag 'shots' được thêm multishot. |
 
 > **Firing:** đạn cánh TRÁI bắn trước, đạn cánh PHẢI bắn sau 0.2s (`GAT_FIRE_STAGGER`). Multishot thêm cũng theo luật chẵn=ngay / lẻ=+0.2s.
+>
+> **Bounce + Pierce:** 2 hiệu ứng ĐỘC LẬP. Nếu cả 2 cùng kích hoạt → đạn gốc XUYÊN thẳng, đồng thời SINH thêm 1 đạn mới bay đi nảy. Cả 2 đạn cùng trừ 1 bounce budget và dùng chung đồng hồ `life` (không tự gia hạn vô hạn).
 
 ### Lasgun (Laser) — `LASGUN_POOL`
 | Perk | Mỗi rank | Max | Mô tả |

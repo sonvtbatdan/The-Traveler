@@ -93,6 +93,11 @@ func _process(delta: float) -> void:
 	var radius: float = GameManager.get_pickup_radius() if GameManager.has_method("get_pickup_radius") else 90.0
 	var pick_sq := radius * radius
 	var collect_sq := COLLECT_RADIUS * COLLECT_RADIUS
+	# Vampire-Survivors / Halls-of-Torment style: collecting is a running total, not per-orb work. All orbs that
+	# reach the player this frame are summed and handed to GameManager.add_xp ONCE, with ONE pickup sound — no
+	# per-orb add_xp (and thus no per-orb save/HUD churn), which is what made a mass suck-in stutter.
+	var got_xp := 0.0
+	var got_any := false
 	var i := _n - 1
 	while i >= 0:
 		var st := _state[i]
@@ -120,10 +125,19 @@ func _process(delta: float) -> void:
 			_vel[i] = dir * minf(spdn, MAGNET_MAX)
 		_pos[i] += _vel[i] * delta
 		if to.length_squared() <= collect_sq:
-			_collect(i)
+			got_xp += _value[i]
+			got_any = true
+			_swap_remove(i)   # remove the orb; XP is applied in one batch after the loop
 		else:
 			_write_instance(i)
 		i -= 1
+	# One batched XP grant + one sound for everything collected this frame.
+	if got_any:
+		if GameManager.has_method("add_xp"):
+			GameManager.add_xp(got_xp)
+		if _sfx != null:
+			_sfx.stop()
+			_sfx.play()
 
 # ── Spawn / merge ─────────────────────────────────────────────────────────────
 ## Add a collectible XP orb at a world position. Merges into a nearby idle orb when possible to keep the
