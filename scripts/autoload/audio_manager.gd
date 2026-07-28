@@ -24,6 +24,8 @@ var _shuffle_enabled: bool = false
 var _loop_current: bool = false
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS   # keep ducking tracked/smoothed even while the game is paused
+	_setup_master_duck()
 	music_player = AudioStreamPlayer.new()
 	add_child(music_player)
 	sfx_player = AudioStreamPlayer.new()
@@ -32,6 +34,62 @@ func _ready() -> void:
 	music_player.finished.connect(_on_track_finished)
 	_build_playlist()
 	_play_current_track()
+
+func _process(delta: float) -> void:
+	_tick_duck(delta)
+
+# ── Overlap ducking ────────────────────────────────────────────────────────────────────────────────
+# Replaces an earlier AudioEffectLimiter (removed 2026-07-28 — it audibly crackled once many short SFX
+# (hit/fire/explosion) piled up at once; a hard-limiter's sample-accurate clamping doesn't play nicely with
+# game audio's fast transients). This instead SMOOTHLY reduces gain via an AudioEffectAmplify on the Master
+# bus, driven every frame from the bus's own real-time peak-volume reading (AudioServer.get_bus_peak_volume_
+# *_db) — the more sound currently overlapping, the higher that peak reads, the more this ducks; a lone
+## sound (or a quiet moment) stays under DUCK_PEAK_THRESHOLD_DB and is left completely untouched. Fast
+# attack (catches a sudden pile-up immediately) + slow release (recovers gradually, no audible pumping/
+# crackle) — the actual fix for the artifact, not just a different curve shape.
+# Deliberately an AudioEffectAmplify (an effect's own gain), NOT AudioServer.set_bus_volume_db(master, ...)
+# — that property is what settings_panel.gd's volume slider controls; ducking it directly would fight the
+# slider every frame. This stays fully orthogonal: the slider sets the base level, this only ever pulls
+# the mix down temporarily on top of it.
+const DUCK_PEAK_THRESHOLD_DB := -14.0   # peak below this = a single/few sound — left alone, untouched
+const DUCK_MAX_DB            := -9.0    # heaviest reduction applied once the mix gets very loud/overlapping
+const DUCK_RATIO             := 0.6     # fraction of the "over threshold" amount that actually gets ducked
+const DUCK_ATTACK_SPEED      := 30.0    # dB/sec ducking IN — fast, catches a sudden pile-up right away
+const DUCK_RELEASE_SPEED     := 6.0     # dB/sec recovering OUT — slow, avoids audible pumping
+
+var _duck_amp: AudioEffectAmplify = null
+var _duck_db: float = 0.0
+
+func _setup_master_duck() -> void:
+	var master := AudioServer.get_bus_index("Master")
+	if master < 0:
+		return
+	var i := AudioServer.get_bus_effect_count(master) - 1
+	while i >= 0:
+		if AudioServer.get_bus_effect(master, i) is AudioEffectLimiter:
+			AudioServer.remove_bus_effect(master, i)   # drop the old limiter if this project still has one
+		i -= 1
+	for j in AudioServer.get_bus_effect_count(master):
+		var fx := AudioServer.get_bus_effect(master, j)
+		if fx is AudioEffectAmplify:
+			_duck_amp = fx
+			return   # already set up (shouldn't happen — autoload _ready() runs once — but stay idempotent)
+	_duck_amp = AudioEffectAmplify.new()
+	_duck_amp.volume_db = 0.0
+	AudioServer.add_bus_effect(master, _duck_amp)
+
+func _tick_duck(delta: float) -> void:
+	if _duck_amp == null:
+		return
+	var master := AudioServer.get_bus_index("Master")
+	if master < 0:
+		return
+	var peak := maxf(AudioServer.get_bus_peak_volume_left_db(master, 0), AudioServer.get_bus_peak_volume_right_db(master, 0))
+	var over := maxf(0.0, peak - DUCK_PEAK_THRESHOLD_DB)
+	var target := clampf(-over * DUCK_RATIO, DUCK_MAX_DB, 0.0)
+	var speed := DUCK_ATTACK_SPEED if target < _duck_db else DUCK_RELEASE_SPEED
+	_duck_db = move_toward(_duck_db, target, speed * delta)
+	_duck_amp.volume_db = _duck_db
 
 func _build_playlist() -> void:
 	_playlist.clear()

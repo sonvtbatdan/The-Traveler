@@ -8,33 +8,35 @@ extends Node
 ## Per-run state lives only here (a fresh node each run) + GameManager.upg_* (zeroed by reset_run), so each run
 ## starts clean.
 
-const MAX_AUX       := 4    # aux slot count (second HUD row) / acquisition cap
+const MAX_AUX       := 5    # aux slot count (second HUD row) / acquisition cap
 const MAX_AUX_LEVEL := 18   # pooled aux level 1→18; each point spent = +1 level, then EVOLVE
 
 # ── AUX CATALOG ──────────────────────────────────────────────────────────────────
 # id        — unique key (also the effect dispatcher key in _apply_effect)
 # name      — display name
-# color     — placeholder swatch (no art yet) for cards + slots
+# color     — swatch fallback (used only if "icon" fails to load)
+# icon      — real art from "assets/hud/aux perk/<id>/<id>.png" (harmonizer/revival have no subfolder)
 # weight    — spawn weight in the level-up roll (rarer effects → lower weight)
 # effect    — short per-level description for the card
+const AUX_ART_DIR := "res://assets/hud/aux perk/"
 const AUX_DEFS := [
-	{"id": "hp",          "name": "Reinforcement Plate", "color": Color(0.40, 0.85, 0.45), "weight": 100, "effect": "+20 Max HP"},
-	{"id": "regen",       "name": "Nanobots",            "color": Color(0.45, 0.90, 0.70), "weight": 80,  "effect": "+0.5 HP/s"},
-	{"id": "armor",       "name": "Exoskeleton",         "color": Color(0.55, 0.62, 0.70), "weight": 80,  "effect": "+2 Armor"},
-	{"id": "force_field", "name": "Force Field",         "color": Color(0.40, 0.70, 1.00), "weight": 50,  "effect": "+20 Max Shield (1/s regen)"},
-	{"id": "speed",       "name": "Fins",                "color": Color(0.45, 0.75, 1.00), "weight": 90,  "effect": "+6% Speed"},
-	{"id": "damage",      "name": "Art of War",          "color": Color(1.00, 0.45, 0.35), "weight": 70,  "effect": "Damage masteries"},
-	{"id": "fire_rate",   "name": "Auto-Loader",         "color": Color(1.00, 0.65, 0.30), "weight": 70,  "effect": "+8% Fire Rate"},
-	{"id": "armor_pen",   "name": "Drill Bits",          "color": Color(0.90, 0.80, 0.40), "weight": 40,  "effect": "Armor penetration + bleed"},
-	{"id": "crit",        "name": "Aim Assistor",        "color": Color(1.00, 0.35, 0.35), "weight": 50,  "effect": "+5% Crit Chance"},
-	{"id": "harmonizer",  "name": "Harmonizer",          "color": Color(0.70, 0.50, 1.00), "weight": 30,  "effect": "+Type Damage"},
-	{"id": "aoe",         "name": "Explosivo",           "color": Color(1.00, 0.55, 0.20), "weight": 40,  "effect": "+25 AoE"},
-	{"id": "pickup",      "name": "Magnet",              "color": Color(0.55, 0.85, 0.95), "weight": 90,  "effect": "+15% Pickup"},
-	{"id": "xp",          "name": "Data Harvester",      "color": Color(0.65, 0.55, 1.00), "weight": 60,  "effect": "+10% EXP"},
-	{"id": "spawn",       "name": "Beacon",              "color": Color(0.85, 0.40, 0.55), "weight": 30,  "effect": "+15% Spawns"},
-	{"id": "retaliation", "name": "Barbed Wire",         "color": Color(0.80, 0.35, 0.30), "weight": 40,  "effect": "+5 Retaliation"},
-	{"id": "revival",     "name": "Backup Image",        "color": Color(1.00, 0.85, 0.35), "weight": 10,  "effect": "+1 Revive"},
-	{"id": "coin",        "name": "Credit Extractor",    "color": Color(1.00, 0.90, 0.45), "weight": 60,  "effect": "+25% Coin"},
+	{"id": "hp",          "name": "Reinforcement Plate", "color": Color(0.40, 0.85, 0.45), "icon": AUX_ART_DIR + "hp/hp.png",                 "weight": 100, "effect": "+20 Max HP"},
+	{"id": "regen",       "name": "Nanobots",            "color": Color(0.45, 0.90, 0.70), "icon": AUX_ART_DIR + "regen/regen.png",           "weight": 80,  "effect": "+0.5 HP/s"},
+	{"id": "armor",       "name": "Exoskeleton",         "color": Color(0.55, 0.62, 0.70), "icon": AUX_ART_DIR + "armor/armor.png",           "weight": 80,  "effect": "+2 Armor"},
+	{"id": "force_field", "name": "Force Field",         "color": Color(0.40, 0.70, 1.00), "icon": AUX_ART_DIR + "force_field/force_field.png", "weight": 50,  "effect": "+20 Max Shield (1/s regen)"},
+	{"id": "speed",       "name": "Fins",                "color": Color(0.45, 0.75, 1.00), "icon": AUX_ART_DIR + "speed/speed.png",           "weight": 90,  "effect": "+6% Speed"},
+	{"id": "damage",      "name": "Art of War",          "color": Color(1.00, 0.45, 0.35), "icon": AUX_ART_DIR + "damage/damage.png",         "weight": 70,  "effect": "Damage masteries"},
+	{"id": "fire_rate",   "name": "Auto-Loader",         "color": Color(1.00, 0.65, 0.30), "icon": AUX_ART_DIR + "fire_rate/fire_rate.png",   "weight": 70,  "effect": "+8% Fire Rate"},
+	{"id": "armor_pen",   "name": "Drill Bits",          "color": Color(0.90, 0.80, 0.40), "icon": AUX_ART_DIR + "armor_pen/armor_pen.png",   "weight": 40,  "effect": "Armor penetration + bleed"},
+	{"id": "crit",        "name": "Aim Assistor",        "color": Color(1.00, 0.35, 0.35), "icon": AUX_ART_DIR + "crit/crit.png",             "weight": 50,  "effect": "+5% Crit Chance"},
+	{"id": "harmonizer",  "name": "Harmonizer",          "color": Color(0.70, 0.50, 1.00), "icon": AUX_ART_DIR + "harmonizer.png",            "weight": 30,  "effect": "+Type Damage"},
+	{"id": "aoe",         "name": "Explosivo",           "color": Color(1.00, 0.55, 0.20), "icon": AUX_ART_DIR + "aoe/aoe.png",               "weight": 40,  "effect": "+25 AoE"},
+	{"id": "pickup",      "name": "Magnet",              "color": Color(0.55, 0.85, 0.95), "icon": AUX_ART_DIR + "pickup/pickup.png",         "weight": 90,  "effect": "+15% Pickup"},
+	{"id": "xp",          "name": "Data Harvester",      "color": Color(0.65, 0.55, 1.00), "icon": AUX_ART_DIR + "xp/xp.png",                 "weight": 60,  "effect": "+10% EXP"},
+	{"id": "spawn",       "name": "Beacon",              "color": Color(0.85, 0.40, 0.55), "icon": AUX_ART_DIR + "spawn/spawn.png",           "weight": 30,  "effect": "+15% Spawns"},
+	{"id": "retaliation", "name": "Barbed Wire",         "color": Color(0.80, 0.35, 0.30), "icon": AUX_ART_DIR + "retaliation/retaliation.png", "weight": 40,  "effect": "+5 Retaliation"},
+	{"id": "revival",     "name": "Backup Image",        "color": Color(1.00, 0.85, 0.35), "icon": AUX_ART_DIR + "revival.png",               "weight": 10,  "effect": "+1 Revive"},
+	{"id": "coin",        "name": "Credit Extractor",    "color": Color(1.00, 0.90, 0.45), "icon": AUX_ART_DIR + "coin/coin.png",             "weight": 60,  "effect": "+25% Coin"},
 ]
 
 # ── Skill-point POOLS for aux items (mirrors arena_weapons' weapon pools). Only items listed here use the

@@ -123,6 +123,22 @@ Wiring: `arena.gd._setup_hud_edit()` (CanvasLayer layer=9 + ObjectsContainer) �
 
 ---
 
+## Changelog — 2026-07-28 — Auto-Fire dev toggle (`arena_hud_buttons.gd`)
+
+New text-label dev button (no icon asset needed — `_make_label_btn`, same pattern as INV/END RUN), below
+END RUN in the dev-cluster column (dev:on only). Toggles `_auto_fire: bool`, exposed via
+`is_auto_fire_on()` (read by `arena.gd._aim()` through the `"arena_hud_buttons"` group, cached in
+`_hud_btns_ref`). ON: the ship auto-faces the nearest live enemy/ruin
+(`arena_weapons.gd.nearest_enemy_node(from)`, a new public wrapper around the existing `_nearest_enemy()`
+— unlimited range, falls back to the mouse if the field is empty) instead of the mouse. **Movement is
+untouched either way** — `_physics_process`'s WASD (`Input.get_vector`) is absolute-direction, not
+facing-relative, so it never depended on `_player.rotation`.
+
+> ⚠️ `dev_mode.md`'s own F6 section above (line ~10-30) documents `hud_edit_overlay.gd` /
+> `auto_fire_button.gd` / `boost_button.gd` (an "AUTO-FIRE"/"AUTO-DRIVE" pair for the OLD cockpit HUD) —
+> **none of those files exist on disk**. That's a different, stale/unbuilt system (the legacy idle-game
+> cockpit HUD, not the arena) and is unrelated to this new Auto-Fire toggle; don't confuse the two.
+
 ## Arena Dev Tools (`scripts/gameplay/arena_debug_spawn.gd`)
 ### `arena_debug_spawn.gd` — debug controls
 
@@ -147,9 +163,9 @@ Panel added to `_dev_ui_root` (bottom-left, 192×242px). Only visible when Dev:o
 
 **Thumbnails:** loaded via `_load_thumb(icon)` — GIF path → `GifLoader.load_gif()` frame 0; PNG → `load()`. Source: `WaveDir.ENEMY_DEFS[type_id]["icon"]`.
 
-**Spawn:** random position in viewport (`camera.global_position ± 500/270px`). Enemy added as sibling of `wave_director` (same parent as other arena enemies). Tagged with group `"quick_spawn_enemy"`.
+**Spawn:** random position in viewport (`camera.global_position ± 500/270px`). Enemy added as sibling of `wave_director` (same parent as other arena enemies).
 
-**CLEAR ALL:** removes only enemies in group `"quick_spawn_enemy"`.
+**CLEAR ALL:** removes every node in group `"arena_enemy"` (2026-07-27: broadened from a dedicated `"quick_spawn_enemy"` tag to ALL live creeps — a dev hitting Clear wants a clean field, including real wave-director spawns, not just the ones they quick-spawned through this panel).
 
 **Key preloads at top of file:**
 ```gdscript

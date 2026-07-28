@@ -26,7 +26,7 @@
 | Thuộc tính | Giá trị |
 |-----------|---------|
 | Behavior key | `"fly"` |
-| Icon | `animalflies.png` |
+| Icon | `flie1.png` |
 | HP | 10 |
 | Speed | 120 px/s |
 | XP reward | 2 |

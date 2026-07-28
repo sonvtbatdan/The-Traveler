@@ -30,13 +30,19 @@ const ST_MAGNET := 1   # naturally magnetized (player walked into pickup radius)
 const ST_FORCE  := 2   # pulled by the magnetic loot item (ramps from 0 speed)
 
 # ── XP orb tiers (threshold = max xp for that tier, inclusive) ────────────────
-const TIER_GREEN_MAX  :=  2.5   # XP is face-value now (1/20 of the old scale) → tiers rescaled ÷20, mults ×20,
-const TIER_YELLOW_MAX :=  5.0   # caps unchanged, so orbs keep the same on-screen size/color as before.
-const TIER_RED_MAX    := 25.0
-const TIER_GREEN_MULT  := 20.0
-const TIER_YELLOW_MULT := 10.0
-const TIER_RED_MULT    := 4.0
-const TIER_PURPLE_MULT := 2.0
+# 2026-07-28: every ENEMY_DEFS "xp" value scaled ×10 (see core.md's changelog) → thresholds rescaled ×10 to
+# match (a fly's kill should still land in the same GREEN tier it always did), MULTs rescaled ÷10 to keep
+# on-screen orb SIZE unchanged (size = value × mult; value is 10× bigger, so mult must be 10× smaller to
+# land on the same pixel size) — same "rescale thresholds with value, rescale mult inversely, leave caps
+# alone" pattern as the PRIOR xp rescale this comment used to describe (that one was ÷20/×20; this one
+# compounds ×10/÷10 on top of it).
+const TIER_GREEN_MAX  := 25.0
+const TIER_YELLOW_MAX := 50.0
+const TIER_RED_MAX    := 250.0
+const TIER_GREEN_MULT  := 2.0
+const TIER_YELLOW_MULT := 1.0
+const TIER_RED_MULT    := 0.4
+const TIER_PURPLE_MULT := 0.2
 const TIER_GREEN_CAP  :=  8.0
 const TIER_YELLOW_CAP := 14.0
 const TIER_RED_CAP    := 22.0

@@ -20,7 +20,7 @@ Tài liệu tham khảo cho toàn bộ enemy trong **Arena mode** (`scenes/arena
 | `dragonfly` | orbit | 90 | 130 | 10 | 16 | 10 | — | nổ khi chết | animaldragonfly.png |
 | `octopus` | jump | 180 | 130 | 20 | 22 | 24 | — | nổ khi chết | animaloctopus.png |
 | `swarm` | swarm | 10 | 200 | 1 | 12 | 1 | — | bầy (blob = 50), insects L1 | swarm.png |
-| `fly` | chase | 20 | 80 | 2 | 9 | 2 | — | insects L1 | animalflies.png |
+| `fly` | chase | 20 | 80 | 2 | 9 | 2 | — | insects L1 | flie1.png |
 | `bug` | chase | 100 | 80 | 3 | 11 | 10 | — | insects L2, có lớp "eye" overlay | animalbug.png |
 | `bee` | chase | 40 | 80 | 3 | 12 | 4 | — | insects L2 | animalbee.png |
 | `spider` | jump_diag | 500 | 80 | 8 | 16 | 50 | — | insects L3, nhảy chéo 45° | animalspider.png |

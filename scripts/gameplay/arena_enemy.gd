@@ -25,13 +25,39 @@ const SFX_BEAM         := preload("res://assets/audio/sfx/laserbeam.wav") # beam
 const SFX_ZAP          := preload("res://assets/audio/sfx/zap1.wav")      # shooter / sentinel fire
 
 static var simplified_mode: bool = false
+# Perf optimization: prefer a pre-baked low-res sprite (tools/downscale_enemies.gd, assets/Enemies
+# Downscale/) over the HD source — a light texture at the creep's actual display size instead of the full
+# HD art. Re-enabled (2026-07-27) now that tools/downscale_enemies.gd has been re-run at the CURRENT sizes
+# (incl. the fly/bug/bee/diver ×3-then-×0.7 resize + fly's new flap_icons pair) — the banding seen earlier
+# was a STALE bake (baked for an old, smaller size, then stretched past it), not a problem with baking
+# itself. Re-run the tool any time creep/fleet sizes change again; set false here only to bypass entirely.
+const USE_DOWNSCALED_SPRITES := true
 const ICON_DRAW_SCALE := 2.6   # drawn sprite width = _radius × this (sprites read a bit bigger than the hit circle)
 const ENEMY_LAYER := 2              # physics layer enemies live on (separate from the player on layer 1)
 const CORE_FRAC := 0.75             # collision-core radius = _radius × this. Kept modest: the soft player-push already makes the crowd read as a wall, and bigger cores make the physics solver much more expensive in dense packs.
+
+# TEMP DIAGNOSTIC — used by arena_perf_spike_logger.gd to report how many enemies died in a spiking frame.
+# Safe to delete alongside that file once the "sudden lag" cause is found.
+static var _death_count_since_read: int = 0
+static func consume_death_count() -> int:
+	var n := _death_count_since_read
+	_death_count_since_read = 0
+	return n
 const SWARM_ZOOM_SPEED := 400.0     # swarm "zoom" mode — fly straight through the player and keep going
 const SWARM_ZOOM_CULL  := 1200.0    # ...then silently despawn once this far from the player
 const RETURN_DIST := 900.0          # dive group re-aims at the player once it gets this far away (loops back)
-const SPIRAL_SHRINK := 75       # px/s the spiral radius tightens toward the player (diver)
+# "orbit"/"spiral" (dragonfly/diver) tighten their orbit radius at a rate scaled by _orbit_r0/ORBIT_SPAWN_REF_R
+# — SPIRAL_SHRINK/ORBIT_SHRINK are the rate AT ORBIT_SPAWN_REF_R (v1's SPAWN_RADIUS, arena_wave_director.gd —
+# where these constants were originally tuned/felt right). Without this scaling, a fixed px/s rate means
+# time-to-dive is proportional to spawn distance — fine at v1's ~600-840px spawn ring, but spawn_mode_2's
+# annulus spawns much farther out (~1000-1900px, see R_PADDING/R_WIDTH in arena_wave_director_v2.gd), which
+# was stretching dragonfly/diver's tighten-then-dive to 35-65+ seconds — reads as "stuck", not orbiting
+# (2026-07-28 bug report: "70 dragonfly, 32 diver, never seen approaching"). Scaling keeps time-to-dive
+# approximately CONSTANT (≈ ORBIT_SPAWN_REF_R / rate) regardless of where the enemy actually spawned, so
+# v1's own feel at its own spawn radius is unchanged (rate ≈ SPIRAL_SHRINK/ORBIT_SHRINK there by definition).
+const ORBIT_SPAWN_REF_R := 720.0    # v1's SPAWN_RADIUS (average) — the distance these rates were tuned at
+const SPIRAL_SHRINK := 75       # px/s the spiral radius tightens toward the player (diver), AT ORBIT_SPAWN_REF_R
+const ORBIT_SHRINK  := 28.0     # px/s the orbit radius tightens toward the player (dragonfly), AT ORBIT_SPAWN_REF_R
 const SPIRAL_CENTER_SPEED := 80.0   # px/s the spiral center drifts toward the player — run faster to pull away
 const TURN_RATE := 10.0             # how fast a sprite eases to face its movement direction (head = sprite north)
 const THROWN_BOMB_SPEED := 460.0    # bomber's thrown bombs travel this fast (straight, aimed at the player)
@@ -87,7 +113,7 @@ const MS_RELEASE_INTERVAL  := 0.5     # seconds between releasing each docked es
 const MS_WAIT_AFTER_RELEASE := 5.0    # pause after the last release before respawning begins
 const MS_RESPAWN_INTERVAL  := 2.5     # seconds per rebuilt escort (5 → 12.5s)
 const MS_RESPAWN_ORDER     := ["pros7", "pros8", "pros8", "pros5", "pros6"]   # rebuild sequence
-const MS_CYCLE_ENABLED     := true    # true → carrier runs the full flee/release/respawn cycle (releases its docked pros escorts on damage). false → just carries the docked escorts (placement checks only).
+const MS_CYCLE_ENABLED     := false   # 2026-07-28: explicit request — carrier must not flee. false → MS_READY's advance-on-player loop (velocity = dir * MS_APPROACH_SPEED) never times out into MS_TURN/MS_FLEE, so it just keeps closing the distance forever, docked escorts intact. (true = the old full flee/release/respawn cycle on a timer, still here if this ever needs reverting.)
 # ── Magma split (large magma → small magma on death) ──
 const MAGMA_SPLIT_N      := 3       # small magma flung out when a large magma dies
 const MAGMA_SPLIT_SCALE  := 0.5     # small magma size = this × the parent magma size
@@ -122,6 +148,22 @@ const SPAWN_POP_TIME := 0.20    # scale-up-with-overshoot + fade-in on spawn
 const DEATH_POP_TIME := 0.15    # stretch + scale-up + fade-out before freeing
 const SCALE_VAR      := 0.15    # per-enemy base-size variance (±) so the crowd looks individual
 
+## Safety-net lifetime cap: a normal enemy still alive after this long (_t, since spawn) is silently freed
+## via _despawn_stale() (queue_free, no death FX/kill-count/loot/reward — this isn't a kill) instead of
+## piling up forever for whatever reason it never reached/engaged the player. Bosses ("boss_stub" behavior)
+## are exempt — multi-minute fights are expected there.
+const LIFETIME_MAX := 120.0
+
+## Options for the Creep Info dev panel's Move/Shoot dropdowns (scripts/ui/hud/creep_info_panel.gd reads
+## these directly). "" (Move) / "none" (Shoot) = no override, keep the def's original hand-tuned `behavior`.
+## A curated, generic subset — NOT a 1:1 port of every one of the ~30 bespoke `behavior` cases (centipede's
+## chain, mothership's docking cycle, magma's split-on-death, swarm's boomerang loop, etc. don't decompose
+## into an orthogonal move+shoot pair without losing what makes them that specific enemy) — see
+## _tick_move_logic()/_tick_shoot_logic() below for exactly what each option does.
+const MOVE_LOGICS: Array[String]  = ["chase", "standoff", "orbit", "spiral", "patrol", "teleport", "roam", "stationary"]
+const SHOOT_LOGICS: Array[String] = ["none", "burst", "fan", "beam"]
+const COMPOSED_STANDOFF_RANGE := 340.0   # move-logic "standoff": preferred hold distance from the player
+
 # ── Global difficulty tuning ───────────────────────────────────────────────────
 # Applied at spawn to the def's base values (see setup). HP is doubled for every NON-boss enemy (bosses use
 # behavior "boss_stub" and are exempt so boss fights stay tuned); XP value is doubled for all enemies.
@@ -140,9 +182,42 @@ const FLANK_FADE_FAR  := 320.0  # ≥ this distance → full flank bias
 # sums every enemy's push and caps the total (PLAYER_PUSH_MAX) so a dense mob slows you like a current, not a wall.
 const ENEMY_PUSH_STRENGTH := 110.0
 
+# ── spawn_mode_2 steering behaviors (arena_wave_director_v2.gd test roster only) ──────────────────
+# "steer_chaser" (flies) — vortex/spiral seek: a tangential swirl blended with the straight seek dir, strong
+# far from the player and fading to a direct dive up close (funnels in like a vortex instead of beelining).
+# Separation is still entirely the manager's spatial-hash pass — never computed here.
+const VORTEX_TANGENT_RATIO := 1.6   # tangential/radial ratio at full strength (>1 → wide swirling arcs)
+const VORTEX_FADE_NEAR := 50.0      # ≤ this distance → no swirl, straight dive in for the hit
+const VORTEX_FADE_FAR  := 500.0     # ≥ this distance → full swirl strength
+# "steer_flanker" — seeks a point AHEAD of the player (player_pos + player_vel * FLANK_PREDICT_T), read
+# from the v2 director via group "wave_director" (has_method("player_velocity") guarded).
+const FLANK_PREDICT_T := 0.5
+# "shooter" (jetfighter) — always closes toward the player (no standoff/flee — explicit request), but ALSO
+# coheres toward the shared flock centroid (arena_enemy_manager._tick_jf_flock/jf_flock_center) so multiple
+# jetfighters clump into one pack and move together instead of each independently approaching on its own.
+# Separation (not literally overlapping) is untouched — the existing spatial-hash push-apart already
+# handles that; this only adds the "pull together when far apart" half of flocking, additively blended with
+# the player-approach pull (see the "shooter" case in _tick_behavior).
+const JF_FLOCK_WEIGHT   := 0.7    # how strongly the cohesion pull competes with the player-approach pull
+const JF_FLOCK_HOLD_R   := 70.0   # already "in" the pack within this of the centroid — cohesion pull stops
+# "steer_kiter" — 3-zone standoff: approach past R_ATTACK, hold+fire between R_FLEE and R_ATTACK, flee
+# below R_FLEE. Fires from global_position (test enemies have no authored firepoints).
+const KITE_R_ATTACK      := 340.0
+const KITE_R_FLEE        := 160.0
+const KITE_FIRE_INTERVAL := 1.2
+const KITE_BULLET_SPEED  := 280.0
+const KITE_BULLET_DMG    := 5
+# "steer_charger" — approach slow → lock aim + telegraph (pulsing flash) → dash in a straight line.
+const CHARGE_APPROACH_SPEED := 70.0
+const CHARGE_LOCK_RANGE     := 260.0
+const CHARGE_TELEGRAPH_T    := 0.6
+const CHARGE_PULSE_FREQ     := 18.0
+const CHARGE_DASH_SPEED     := 620.0
+const CHARGE_DASH_T         := 0.5
+
 # Fallbacks so the enemy is self-sufficient if configured without a def (e.g. manager.spawn_bomb).
 const FALLBACK := {
-	"chase": {"behavior": "chase", "hp": 30.0, "speed": 95.0, "size": 16.0, "contact": 6, "xp": 0.25, "shape": "diamond", "tint": Color(0.95, 0.35, 0.30)},
+	"chase": {"behavior": "chase", "hp": 30.0, "speed": 95.0, "size": 16.0, "contact": 6, "xp": 3.0, "shape": "diamond", "tint": Color(0.95, 0.35, 0.30)},
 	"bomb":  {"behavior": "bomb",  "hp": 50.0, "speed": 120.0, "size": 18.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(0.9, 0.5, 0.2), "no_collide": true},
 	"thrown_bomb": {"behavior": "thrown_bomb", "hp": 12.0, "speed": THROWN_BOMB_SPEED, "size": 13.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(1.0, 0.55, 0.2), "icon": "res://assets/enemiesHD/bomb.png", "no_collide": true},
 }
@@ -192,20 +267,16 @@ var _vortexes: Array = []   # EnergyVortex children (creep_layout.cfg [vortexpoi
 var _plume_vrot_applied: float = 0.0   # last rotation pushed to plume emitters; skip the re-rotate when unchanged
 var _plume_vrot_init: bool = false
 const LOD_MARGIN := 180.0   # grow the camera-visible rect by this before the off-screen LOD test (sprite/plume slack)
+const LOD_STAGGER_N := 4   # off-screen enemies only run the full behavior tick + separation 1-in-N ticks
+						   # (round-robin by instance_id) — they still move every tick they're on-turn, just less
+						   # often while nobody's watching; movement fully resumes at every-tick once on-screen.
 const PLUME_LOD_COUNT := 150   # above this many live enemies, stop plume emission (the jets are an indistinct blur
 							   # in a melee that dense, so dropping the CPUParticles2D sim is ~free visually)
-const PLUME_FB_FRAMES := 14      # baked plume flipbook: number of frames
-const PLUME_FB_W      := 44      # flipbook frame width (px); canonical jet extends toward +X
-const PLUME_FB_H      := 32      # flipbook frame height (px)
-const PLUME_FB_FPS    := 20.0    # flipbook playback speed (frames/sec)
 var _lod_visible: bool = true   # tracks whether this enemy's plumes are currently ON (on-screen AND not overcrowded)
 var _plume_base: Array = []        # [{vel_min, vel_max, sc_min, sc_max, life}] per plume
 var _plume_base_cols: Array = []   # [PackedColorArray] per plume
 var _plume_red_cols: Array = []    # pre-built red gradient (dragonfly proximity)
 var _plume_in_red: bool = false
-var _plume_flipbook: bool = false   # true -> baked flipbook plume via the shared MultiMesh manager (Tier 2)
-var _fb_plumes: Array = []          # [{h, base, dir, px}] plume slot handles registered with arena_plume_mgr
-var _plume_mgr: Node = null         # cached arena_plume_mgr; null until the first flipbook setup
 
 var _type: String = "chase"
 var behavior: String = "chase"
@@ -232,6 +303,12 @@ var _delays: Array = []
 var _anim_acc: float = 0.0
 var _anim_frame: int = 0
 var _draw_size: Vector2 = Vector2.ZERO
+
+# ── 2-frame wing flap (optional, def "flap_icons": ["file1", "file2"]) — same folder as "icon", which
+# stays pointed at the ORIGINAL filename so creep_layout/thrustpoints/plume_styles lookups (keyed by that
+# icon's basename) keep working unchanged; only the drawn texture alternates between the flap frames.
+const FLAP_FRAME_TIME := 0.07   # seconds per frame (~14fps alternation)
+var _flap_icons: Array = []
 
 # ── Tracking eye (optional, def "eye"): a separate sprite that slides within a socket toward the player ──
 const EYE_TRACK_SPEED := 9.0        # how fast the eye eases toward its player-tracking target
@@ -302,11 +379,13 @@ var _evade_below:  float = 0.0
 var _flee_speed:   float = 0.0      # pirate: flee away from the player at this speed once hp ≤ _flee_below × max
 var _flee_below:   float = 0.0
 var _flank_bias:   float = 0.0      # per-enemy perpendicular seek bias (envelop/arc steering; 0 for bosses)
+var _vortex_sign:  float = 1.0      # "steer_chaser" (flies): per-enemy swirl direction, CW or CCW (set in _init_behavior)
 var _death_spawn:  String = ""      # stone: spawn this enemy id at our position on death (stoneN → magmaN)
 var _morph_to:     String = ""      # alien5: become this enemy id after _morph_after seconds alive
 var _morph_after:  float = 0.0
 var _strike_back:  bool = false     # fleet/sentinel: switch patrol→chase the first time it's hit
 var _is_elite:     bool = false     # milestone elite (fly/bug/bee): on death grants a NEW arena item (grant_reward)
+var _is_champion:  bool = false     # spawn_mode_2 Champion (arena_wave_director_v2.gd): draws a gold ring — visual only, no separate reward/cap logic (that rides on "elite", set alongside "champion")
 var _magma_split:  bool = false     # LARGE magma: on death, burst into MAGMA_SPLIT_N small magma (which don't re-split)
 var _anti_magnetic: bool = false    # bismuth: reflects 50% of gatling bullets; takes 50% from laser/arc/void
 var _gauss_shooter: bool = false    # pros5: fire a gauss orb at the player every GAUSS_SHOOT_INTERVAL
@@ -322,6 +401,9 @@ var _ms_dock: Array = []            # active docked escorts: [{node, base_off:Ve
 var _ms_roster: Array = []          # escort spec for respawn: [{id, base_off, draw_w, rot(deg)}]
 var _ms_respawn_bays: Array = []    # roster reordered by MS_RESPAWN_ORDER for the current rebuild
 var _orbit_r: float = 180.0
+var _orbit_r0: float = 180.0   # "orbit"/"spiral" (dragonfly/diver): _orbit_r AT SPAWN — used to scale the
+								# tighten rate so time-to-dive stays roughly constant regardless of spawn
+								# distance (see ORBIT_SPAWN_REF_R's comment)
 var _orbit_ang: float = 0.0
 var _spiral_dir: float = 1.0   # spin direction (±1) for the spiral approach
 var _scatter_target: Vector2 = Vector2.ZERO
@@ -332,8 +414,30 @@ var _beam_origin: Vector2 = Vector2.ZERO   # local-space offset to muzzle (for d
 var _burst_shots: int = 0   # shooter burst: bullets remaining in current burst
 var _burst_t: float = 0.0   # shooter burst: countdown to next shot
 var _missile_volley: Node = null   # missile: in-flight plasma volley (self-frees when done)
+
+# ── Composed Move/Shoot (Creep Info panel overrides) ──────────────────────────────────────────────
+# Orthogonal to the classic `behavior` match above: when configure() finds explicit "move"/"shoot" fields
+# in the def (written by the Creep Info dev panel, res://creep_info_overrides.cfg), _composed short-circuits
+# BOTH _init_behavior() and _tick_behavior() straight to _init_composed()/_tick_move_logic()+
+# _tick_shoot_logic() below, running the chosen move-logic and shoot-logic independently every tick — the
+# original `behavior` string is never read for these units. Untouched units (no override) have "" for both
+# fields → _composed stays false → zero change from before this feature existed.
+var _composed:    bool   = false
+var _move_logic:  String = ""
+var _shoot_logic: String = "none"
+var _cm_timer:  float   = 0.0        # move-logic's own interval clock (teleport blink, roam retarget) — kept
+									  # separate from `_timer` (used by the classic match) and from the
+									  # shoot-logic's own clocks below, since composed mode runs a move-logic
+									  # AND a shoot-logic concurrently (the classic system only ever ran one).
+var _cm_target: Vector2 = Vector2.ZERO   # move-logic "roam": current wander target
+var _cm_orbit_r: float  = 180.0          # move-logic "orbit"/"spiral": current radius
+var _cm_orbit_a: float  = 0.0            # move-logic "orbit"/"spiral": current angle
+var _cs_burst_shots: int   = 0       # shoot-logic "burst": bullets remaining in the current burst
+var _cs_burst_t:     float = 0.0     # shoot-logic "burst": countdown to next shot in the burst
 var _sfx: AudioStreamPlayer = null  # lazily-created one-shot SFX player (jump / fire / beam)
 var sfx_bus: String = "SFX"          # audio bus for this enemy's sounds (menu reroutes to a "distant" bus)
+var menu_confine_fx: bool = false   # true = decorative Main Menu backdrop (see menu_enemy_spawner.gd):
+	# fullscreen screen-read FX (warp) must not bleed over the Logo/buttons — see _spawn_warp().
 var _jump_interval: float = 1.0   # jump_diag (spider): randomized per jump (±0.5 s)
 # "alive" motion state
 var _facing: float = 0.0
@@ -399,6 +503,15 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	var d: Dictionary = def if not def.is_empty() else FALLBACK.get(type_id, FALLBACK["chase"])
 	behavior         = String(d.get("behavior", "chase"))
 	_swarm_mode      = String(d.get("swarm_mode", "chase"))
+	# Creep Info panel override (res://creep_info_overrides.cfg, merged into ENEMY_DEFS at director _ready())
+	# — the def having a "move" or "shoot" KEY AT ALL switches this unit onto the composed system, bypassing
+	# `behavior` entirely. Gated on d.has(...), NOT on the resolved value being non-default: an explicit
+	# "shoot": "none" override (Creep Info's Shoot dropdown — force this unit to never fire, even if its
+	# classic `behavior` normally does) must still count as composed, even though "none" is also literally
+	# _shoot_logic's own no-override fallback value.
+	_move_logic      = String(d.get("move", ""))
+	_shoot_logic     = String(d.get("shoot", "none"))
+	_composed        = d.has("move") or d.has("shoot")
 	# "lvl": true → HP & XP in the def are PER-PLAYER-LEVEL bases (the table's "15*"); multiply by the
 	# player's level snapshotted at spawn. Other stats (speed/size/contact/armor) are flat.
 	var lvl_mult: int = GameManager.player_level if bool(d.get("lvl", false)) else 1
@@ -435,10 +548,11 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_morph_after     = float(d.get("morph_after", 0.0))
 	_strike_back     = bool(d.get("strike_back", false))
 	_is_elite        = bool(d.get("elite", false))
+	_is_champion     = bool(d.get("champion", false))
 	_magma_split     = bool(d.get("magma_split", false))
 	_anti_magnetic   = bool(d.get("anti_magnetic", false))
 	_gauss_shooter   = bool(d.get("gauss_shooter", false))
-	_plume_flipbook  = bool(d.get("plume_flipbook", true))   # DEFAULT batched: one shared MultiMesh for ALL enemy plumes instead of a CPUParticles2D per enemy (huge win at high counts). A def may opt back to legacy with plume_flipbook=false.
+	_flap_icons      = d.get("flap_icons", [])   # 2+ filenames (same folder as "icon") to alternate — wing-flap effect
 	_force_draw_w    = float(d.get("draw_w", 0.0))
 	if _force_draw_w > 0.0:
 		_radius = _force_draw_w * 0.42   # hit radius scales with the authored (carrier-honored) draw size
@@ -499,9 +613,10 @@ static func _resolve_sprite(path: String) -> String:
 			p = hd
 	# Prefer the pre-baked downscaled sprite (tools/downscale_enemies.gd) — a light texture at the real display
 	# size. Missing → fall back to the HD source. Skipped for .gif / .sheet.png (no downscaled copy exists).
-	var ds := DS + p.get_file()
-	if ResourceLoader.exists(ds) or FileAccess.file_exists(ds):
-		return ds
+	if USE_DOWNSCALED_SPRITES:
+		var ds := DS + p.get_file()
+		if ResourceLoader.exists(ds) or FileAccess.file_exists(ds):
+			return ds
 	return p
 
 ## Load the sprite (PNG, animated GIF, or sprite-sheet PNG+JSON) and compute draw size.
@@ -509,7 +624,18 @@ func _load_icon() -> void:
 	if _icon == "":
 		return
 	var src := _resolve_sprite(_icon)   # HD if available, else the standard path
-	if _icon.ends_with(".gif"):
+	if _flap_icons.size() >= 2:
+		var dir := _icon.get_base_dir() + "/"
+		_frames = []
+		_delays = []
+		for fname in _flap_icons:
+			var t := load(_resolve_sprite(dir + String(fname) + ".png")) as Texture2D   # downscaled copy if baked, else HD
+			if t != null:
+				_frames.append(t)
+				_delays.append(FLAP_FRAME_TIME)
+		if not _frames.is_empty():
+			_tex = _frames[0] as Texture2D
+	elif _icon.ends_with(".gif"):
 		var g := GifLoader.load_gif(src)
 		if g != null and g.has_meta("gif_frames"):
 			_frames = g.get_meta("gif_frames")
@@ -618,9 +744,6 @@ func _setup_plumes() -> void:
 	if fracs.is_empty():
 		return
 	var all_styles := _load_plume_styles_for(cname)
-	if _plume_flipbook:
-		_setup_flipbook_plumes(fracs, all_styles)
-		return
 	for i: int in fracs.size():
 		var fd: Dictionary = fracs[i]
 		var tp_id: int = int(fd.get("id", i + 1))
@@ -811,49 +934,6 @@ func _make_plume(frac: Vector2, dir_angle: float, style: Dictionary = {}) -> CPU
 	cm.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	p.material = cm
 	return p
-
-# -- Baked plume flipbook (Tier 2: rendered by the shared arena_plume_mgr MultiMesh — no node per plume) --
-## Register one plume per thrust point with the plume manager (a stable slot handle each). No nodes created.
-func _setup_flipbook_plumes(fracs: Array, all_styles: Dictionary) -> void:
-	_plume_mgr = get_tree().get_first_node_in_group("arena_plume_mgr")
-	if _plume_mgr == null:
-		return
-	var px := maxf(6.0, _draw_size.x * 0.6)   # flipbook footprint ~ 0.6x the sprite width
-	for i: int in fracs.size():
-		var fd: Dictionary = fracs[i]
-		var tp_id: int = int(fd.get('id', i + 1))
-		var style: Dictionary = all_styles.get('tp_%d' % tp_id, all_styles)
-		var frac_c: Vector2 = (fd['frac'] as Vector2) - Vector2(0.5, 0.5)
-		var tint: Color = style.get('col_flame', Color(1.0, 0.6, 0.2, 1.0))
-		tint.a = 1.0
-		var h: int = _plume_mgr.call('add_plume', tint)
-		if h < 0:
-			continue
-		_fb_plumes.append({'h': h, 'base': frac_c * _draw_size, 'dir': float(fd.get('dir_angle', PI * 0.5)), 'px': px})
-
-## Animate + place every registered plume each frame. Drawn whenever on-screen; IGNORES the crowd LOD by
-## design (flies keep glowing in a dense melee — batched rendering makes it nearly free).
-func _update_flipbook_plumes(vis: bool) -> void:
-	if _plume_mgr == null or not is_instance_valid(_plume_mgr):
-		return
-	if not vis:
-		for pl: Dictionary in _fb_plumes:
-			_plume_mgr.call('hide_plume', int(pl['h']))
-		return
-	var idx := int(_t * PLUME_FB_FPS + _bob_phase * 3.0) % PLUME_FB_FRAMES
-	var vrot := _facing
-	for pl: Dictionary in _fb_plumes:
-		var pos: Vector2 = global_position + (pl['base'] as Vector2).rotated(vrot)
-		_plume_mgr.call('write_plume', int(pl['h']), pos, float(pl['dir']) + vrot, float(pl['px']), idx)
-
-## Release this enemy's plume slots back to the manager (called from _exit_tree on death/despawn).
-func _free_flipbook_plumes() -> void:
-	if _fb_plumes.is_empty():
-		return
-	if _plume_mgr != null and is_instance_valid(_plume_mgr):
-		for pl: Dictionary in _fb_plumes:
-			_plume_mgr.call('free_plume', int(pl['h']))
-	_fb_plumes.clear()
 
 # ── Dynamic plume modulation ──────────────────────────────────────────────────
 func _apply_plume_vel_mult(m: float) -> void:
@@ -1269,8 +1349,9 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore
 	_flash = HIT_FLASH_TIME
 	_hit_squash = HIT_SQUASH
 	# Pushback ONLY when the hitting weapon asks for it (knock > 0). Most weapons no longer push — only the
-	# Nuke and Gatling pass knock=1.0.
-	if knock > 0.0:
+	# Nuke and Gatling pass knock=1.0. Elites (milestone elites, spawn_mode_2 Champions) are immune —
+	# a big, heavy "mini-boss" enemy shouldn't go skating across the screen on every hit.
+	if knock > 0.0 and not _is_elite:
 		var away := global_position - _player_pos()
 		var momentum: float = GameManager.get_momentum_mult() if GameManager.has_method("get_momentum_mult") else 1.0
 		_knockback = (away.normalized() if away.length() > 0.01 else Vector2.UP) * KNOCKBACK_SPEED * knock * momentum
@@ -1278,10 +1359,26 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore
 	if hp <= 0.0:
 		_die()
 
+## LIFETIME_MAX safety net — quietly removes an enemy that's been alive too long (never reached/engaged the
+## player, or otherwise got stuck) WITHOUT any of _die()'s effects: no kill count, no XP/loot/reward, no
+## death FX/sound. Docked mothership escorts are released first so they don't freeze pinned to a carrier
+## that's still alive.
+func _despawn_stale() -> void:
+	if behavior == "mothership":
+		for e: Dictionary in _ms_dock:
+			var dn = e.get("node")
+			if dn != null and is_instance_valid(dn):
+				dn.call("set_docked", false)
+		_ms_dock.clear()
+	if _squid_attached:
+		_squid_detach()
+	queue_free()
+
 func _die() -> void:
 	if _dead:
 		return
 	_dead = true
+	_death_count_since_read += 1   # TEMP DIAGNOSTIC (see arena_perf_spike_logger.gd)
 	# Explosivo "Chain Reaction" evolve: 25% chance a slain enemy detonates for 50 kinetic AoE damage.
 	if GameManager.has_method("mech_bonus") and GameManager.mech_bonus("chain_reaction") > 0.0 and randf() < 0.25:
 		var aw := get_tree().get_first_node_in_group("arena_weapons")
@@ -1325,6 +1422,9 @@ func _die() -> void:
 		var skew: float = GameManager.mech_bonus("coin_skew")
 		for _c in mini(coins, 20):
 			_mgr.spawn_loot(global_position, "coin", GameManager.roll_coin_value(hp_max, skew))
+	# Field find: small chance this creep kill also drops a weapon/aux token straight into Cargo.
+	if MetaManager.has_method("roll_field_drop"):
+		MetaManager.roll_field_drop()
 	# Explosion VFX + random boom SFX
 	_spawn_explosion(maxf(_draw_size.x, _radius * 2.0))
 	_play_boom()
@@ -1360,7 +1460,7 @@ func _burst_small_magma() -> void:
 		# Build a magma-like def from THIS magma's (already level-scaled) stats — no "lvl" so it isn't re-scaled.
 		var def := {
 			"behavior": "chase",
-			"hp":       maxf(1.0, hp_max * 0.35),
+			"hp":       maxf(1.0, hp_max * 0.1),   # magmafrag HP = 10% of the parent magma's HP (was 35%)
 			"speed":    speed,
 			"size":     (_radius / 1.05) * MAGMA_SPLIT_SCALE,   # configure() multiplies size by 1.05
 			"contact":  contact_damage,
@@ -1383,16 +1483,37 @@ func _spawn_warp(world_pos: Vector2, expand: bool) -> void:
 	var sz := vp.get_visible_rect().size
 	if sz.x <= 0.0 or sz.y <= 0.0:
 		return
-	if not _WarpFX.can_spawn():
+	if not _WarpRect.can_spawn():
 		return   # cap concurrent fullscreen screen-read warps — protects the GPU during synchronized alien waves
 	var screen := vp.get_canvas_transform() * world_pos
-	var fx := _WarpFX.new()
-	get_parent().add_child(fx)
-	fx.setup(Vector2(screen.x / sz.x, screen.y / sz.y), expand)
+	var center_uv := Vector2(screen.x / sz.x, screen.y / sz.y)
+	if menu_confine_fx:
+		# Decorative Main Menu backdrop: parent the rect straight into the caller's own canvas
+		# layer at the enemy's own z-index (instead of a dedicated fullscreen CanvasLayer), so the
+		# screen-read only captures what's already drawn below it (space.png) — Logo/buttons draw
+		# on top afterward, undistorted.
+		var rect := _WarpRect.new()
+		rect.z_index = z_index
+		rect.z_as_relative = z_as_relative
+		get_parent().add_child(rect)
+		rect.setup(center_uv, expand)
+	else:
+		var fx := _WarpFX.new()
+		get_parent().add_child(fx)
+		fx.setup(center_uv, expand)
 
-## Teleport space-warp — a fullscreen screen-distortion ring (same refraction technique as the explosion
-## shockwave) on its own CanvasLayer. Signed displacement: outward = expand, inward = contract. Self-frees.
+## Fullscreen wrapper around _WarpRect — guarantees the warp renders above every arena element
+## regardless of local z-order (real gameplay only; see menu_confine_fx for the decorative case).
 class _WarpFX extends CanvasLayer:
+	func setup(center_uv: Vector2, expand: bool) -> void:
+		layer = 79
+		var rect := _WarpRect.new()
+		add_child(rect)
+		rect.setup(center_uv, expand)
+
+## Teleport space-warp ring — a screen-distortion refraction ring (same technique as the explosion
+## shockwave). Signed displacement: outward = expand, inward = contract. Self-frees.
+class _WarpRect extends ColorRect:
 	const DUR  := 0.32
 	const RMAX := 0.16     # ring radius in screen-height units
 	const AMP  := 0.06     # peak UV displacement
@@ -1426,18 +1547,15 @@ void fragment() {
 
 	func setup(center_uv: Vector2, expand: bool) -> void:
 		_expand = expand
-		layer = 79
+		set_anchors_preset(Control.PRESET_FULL_RECT)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		if _shared_shader == null:
 			_shared_shader = Shader.new()
 			_shared_shader.code = SHADER_CODE
 		_mat = ShaderMaterial.new()
 		_mat.shader = _shared_shader
 		_mat.set_shader_parameter("center", center_uv)
-		var rect := ColorRect.new()
-		rect.set_anchors_preset(Control.PRESET_FULL_RECT)
-		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		rect.material = _mat
-		add_child(rect)
+		material = _mat
 		_active += 1
 
 	func _exit_tree() -> void:
@@ -1580,10 +1698,23 @@ func _play_boom() -> void:
 	if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("play_boom"):
 		_mgr.play_boom()
 
-## Play a one-shot attack sound (lazily creates the player on first use). Plays once — no loop.
+## Play a one-shot attack sound (lazily creates the player on first use). Plays once — no loop (every SFX
+## resource this calls with has "edit/loop_mode=0" in its .import — checked, none of them loop at the audio
+## level). The "sfx lặp lại" the user was hearing wasn't a literal audio loop: it was this getting called
+## again and again by an off-screen creep's normal attack cycle (shooter/sentinel/beamer/bomber/missile all
+## route through here) — the enemy keeps ticking off-screen (LOD staggers the rate, doesn't stop it), so its
+## fire timer keeps firing and keeps re-triggering this, with no visible source to explain the recurring
+## sound. Fixed at the source: gated on the SAME camera-visible-rect test _process() already computes for
+## the off-screen movement LOD (_run_full_tick/on_screen), so an off-screen creep simply doesn't play
+## anything, no matter how many times its behavior calls this. Death booms (_play_boom()) are NOT gated —
+## already pooled/throttled manager-side (BOOM_POOL/BOOM_MIN_GAP), and a "something just died" cue reads as
+## useful feedback even from just off-screen, unlike a repeating attack sound with no visible source.
 func _play_sfx(stream: AudioStream) -> void:
 	if stream == null:
 		return
+	if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("visible_world_rect"):
+		if not (_mgr.visible_world_rect() as Rect2).grow(LOD_MARGIN).has_point(global_position):
+			return
 	if _sfx == null:
 		_sfx = AudioStreamPlayer.new()
 		_sfx.bus = sfx_bus
@@ -1666,7 +1797,22 @@ func _process(delta: float) -> void:
 		if _target == null:
 			return
 	_aggro_target = _resolve_aggro()   # player / a charmed enemy / (if charmed) a foe — picked by closeness
+	# Off-screen LOD, computed early so it can ALSO gate the full behavior tick + separation below (was
+	# previously computed only near the end, for visuals only). An enemy outside the camera-visible rect
+	# (+ margin) is invisible to the player right now — its movement/separation decision only needs to
+	# refresh every LOD_STAGGER_N ticks instead of every tick (#2/#3 perf pass: distance-LOD + stagger).
+	# Centipede/squid/mothership are exempt: their chain/tentacle/dock-formation logic needs a stable
+	# every-tick cadence to avoid visibly glitching once they DO come on screen.
+	var on_screen := true
+	if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("visible_world_rect"):
+		on_screen = (_mgr.visible_world_rect() as Rect2).grow(LOD_MARGIN).has_point(global_position)
+	var _stagger_exempt := behavior == "centipede" or behavior == "squid" or behavior == "mothership"
+	var _run_full_tick := _stagger_exempt or on_screen \
+		or (int(Engine.get_physics_frames()) + get_instance_id()) % LOD_STAGGER_N == 0
 	_t += delta
+	if behavior != "boss_stub" and _t >= LIFETIME_MAX:
+		_despawn_stale()
+		return
 	# alien5: transform into another enemy (e.g. alien4) after a fixed lifetime — silent swap, no death/XP.
 	if _morph_to != "" and _t >= _morph_after:
 		_spawn_sibling(_morph_to, global_position)
@@ -1692,7 +1838,7 @@ func _process(delta: float) -> void:
 	if not _init_done:
 		_init_behavior()
 		_init_done = true
-	if _stagger_t <= 0.0 and not _docked and _stun_t <= 0.0:   # staggered/docked/stunned → movement & attacks frozen (visuals still play)
+	if _stagger_t <= 0.0 and not _docked and _stun_t <= 0.0 and _run_full_tick:   # staggered/docked/stunned/off-turn → movement & attacks frozen (visuals still play)
 		_tick_behavior(delta)
 		if _gauss_shooter:   # pros5 ranged attack, independent of the chase movement
 			_gauss_t += delta
@@ -1730,17 +1876,15 @@ func _process(delta: float) -> void:
 	if material != _want_mat:
 		material = _want_mat
 	_check_contact()
-	# Off-screen LOD: an enemy outside the camera-visible rect (+ margin) skips ALL its visual work — no _draw,
-	# no plume transform, and its plumes stop emitting (drain to ~0 particles). It keeps moving (physics above),
-	# so it still closes on the player; visuals resume the frame it re-enters view. This is the dominant saving
-	# at 500 enemies (the per-enemy CPUParticles2D plume sim + _draw are the heaviest per-frame costs).
-	var on_screen := true
+	# Off-screen visual LOD: an enemy outside the camera-visible rect (+ margin) skips ALL its visual
+	# work — no _draw, no plume transform, and its plumes stop emitting (drain to ~0 particles). It keeps
+	# moving (physics above — subject to the stagger computed at the top of this function), so it still
+	# closes on the player; visuals resume the frame it re-enters view. `on_screen` itself was already
+	# computed at the top of this function (reused here, not recomputed) so it can ALSO gate the
+	# behavior/separation stagger before any movement happens this tick.
 	var crowded := false
-	if _mgr != null and is_instance_valid(_mgr):
-		if _mgr.has_method("visible_world_rect"):
-			on_screen = (_mgr.visible_world_rect() as Rect2).grow(LOD_MARGIN).has_point(global_position)
-		if _mgr.has_method("enemy_count"):
-			crowded = _mgr.enemy_count() > PLUME_LOD_COUNT   # density LOD: too many enemies → drop plume sim
+	if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("enemy_count"):
+		crowded = _mgr.enemy_count() > PLUME_LOD_COUNT   # density LOD: too many enemies → drop plume sim
 	# Plumes emit only when on-screen AND the field isn't overcrowded; the sprite still draws while on-screen.
 	var plumes_on := on_screen and not crowded
 	if plumes_on != _lod_visible:
@@ -1749,8 +1893,6 @@ func _process(delta: float) -> void:
 			for p: CPUParticles2D in _plumes:
 				if is_instance_valid(p):
 					p.emitting = plumes_on
-	if not _fb_plumes.is_empty():
-		_update_flipbook_plumes(on_screen)
 	if on_screen:
 		if plumes_on and not _plumes.is_empty():
 			# Glue plume emitters to the sprite: same rotation AND scale as the drawn sprite (draw_set_transform
@@ -1961,12 +2103,21 @@ func _draw_tentacle(alpha: float) -> void:
 func _init_behavior() -> void:
 	var to := _player_pos() - global_position
 	_aim = to.normalized() if to.length() > 0.01 else Vector2.UP
+	if _composed:
+		_cm_orbit_r = maxf(20.0, to.length())
+		_cm_orbit_a = (-to).angle()
+		_cm_target = _player_pos() + _rand_offset(_view().length() * 0.35)
+		_tele_anchor = global_position
+		return
 	match behavior:
 		"orbit", "spiral":
 			_orbit_r = global_position.distance_to(_player_pos())
+			_orbit_r0 = _orbit_r
 			_orbit_ang = (global_position - _player_pos()).angle()
 			_spiral_dir = 1.0   # always clockwise (Y-down screen → increasing angle = clockwise)
 			_scatter_target = _player_pos()   # spiral: orbit center anchor; drifts toward player each frame
+		"steer_chaser":
+			_vortex_sign = 1.0 if randf() < 0.5 else -1.0   # per-enemy swirl direction, picked once so it doesn't flicker
 		"scatter", "bomber":
 			_scatter_target = _player_pos() + _rand_offset(_view().length() * 0.35)
 		"jump_diag":
@@ -1994,6 +2145,10 @@ func _tick_behavior(delta: float) -> void:
 	var to := pp - global_position
 	var dist := to.length()
 	var dir := to.normalized() if dist > 0.01 else Vector2.UP
+	if _composed:
+		_tick_move_logic(delta, dist, dir, pp)
+		_tick_shoot_logic(delta, dist, dir)
+		return
 	match behavior:
 		"chase", "boss_stub":
 			# Recycle a normal chaser once the player has outrun it far past the screen (bosses never culled).
@@ -2013,6 +2168,56 @@ func _tick_behavior(delta: float) -> void:
 					steer = (dir + perp * _flank_bias * fade).normalized()
 				velocity = steer * speed
 			_move_step()
+		"steer_chaser":   # spawn_mode_2 (flies) — vortex/spiral seek: swirl fades to a direct dive up close
+			var vperp := Vector2(-dir.y, dir.x) * _vortex_sign
+			var vfade := clampf((dist - VORTEX_FADE_NEAR) / (VORTEX_FADE_FAR - VORTEX_FADE_NEAR), 0.0, 1.0)
+			var vsteer := (dir + vperp * VORTEX_TANGENT_RATIO * vfade).normalized()
+			velocity = vsteer * speed
+			_move_step()
+		"steer_flanker":   # spawn_mode_2 — seeks a point ahead of the player, predicted from the v2 director's tracked velocity
+			var target := pp
+			var wd := get_tree().get_first_node_in_group("wave_director")
+			if wd != null and wd.has_method("player_velocity"):
+				var pvel: Vector2 = wd.call("player_velocity")
+				target = pp + pvel * FLANK_PREDICT_T
+			var fdir := (target - global_position).normalized() if global_position.distance_to(target) > 0.01 else dir
+			velocity = fdir * speed
+			_move_step()
+		"steer_kiter":   # spawn_mode_2 — approach past KITE_R_ATTACK, hold+fire in the band, flee below KITE_R_FLEE
+			if dist > KITE_R_ATTACK:
+				velocity = dir * speed
+			elif dist > KITE_R_FLEE:
+				velocity = Vector2.ZERO
+				if _fire_ready(KITE_FIRE_INTERVAL) and _mgr != null:
+					_play_sfx(SFX_ZAP)
+					_mgr.spawn_bullet(global_position, dir * KITE_BULLET_SPEED, KITE_BULLET_DMG, self, "jetfighter")
+			else:
+				velocity = -dir * speed
+			_move_step()
+		"steer_charger":   # spawn_mode_2 — approach slow → lock aim + telegraph (pulsing flash) → dash straight
+			match _phase:
+				0:   # approach
+					velocity = dir * CHARGE_APPROACH_SPEED
+					_move_step()
+					if dist <= CHARGE_LOCK_RANGE:
+						_aim = dir
+						_timer = 0.0
+						_phase = 1
+				1:   # telegraph — locked aim, pulsing warning flash
+					velocity = Vector2.ZERO
+					_flash_color = KILL_FLASH_COLOR
+					_flash = 0.5 + 0.5 * sin(_t * CHARGE_PULSE_FREQ)
+					_timer += delta
+					if _timer >= CHARGE_TELEGRAPH_T:
+						_timer = 0.0
+						_phase = 2
+				2:   # dash — straight line along the locked aim
+					velocity = _aim * CHARGE_DASH_SPEED
+					_move_step()
+					_timer += delta
+					if _timer >= CHARGE_DASH_T:
+						_timer = 0.0
+						_phase = 0
 		"mothership":   # carrier: slow advance → on damage, turn tail, flee, release & rebuild the escort
 			_tick_mothership(delta)
 		"patrol":   # straight flyby across the screen along the captured heading; no tracking
@@ -2084,7 +2289,8 @@ func _tick_behavior(delta: float) -> void:
 				_scatter_target = _scatter_target.move_toward(pp, SPIRAL_CENTER_SPEED * delta)
 				var ang_speed := (speed / maxf(40.0, _orbit_r)) * _spiral_dir
 				_orbit_ang += ang_speed * delta
-				_orbit_r = maxf(8.0, _orbit_r - SPIRAL_SHRINK * delta)
+				var spiral_rate := SPIRAL_SHRINK * (_orbit_r0 / ORBIT_SPAWN_REF_R)
+				_orbit_r = maxf(8.0, _orbit_r - spiral_rate * delta)
 				global_position = _scatter_target + Vector2(cos(_orbit_ang), sin(_orbit_ang)) * _orbit_r
 				if _orbit_r <= 8.0:
 					_phase = 1
@@ -2097,7 +2303,8 @@ func _tick_behavior(delta: float) -> void:
 		"orbit":  # dragonfly — orbit + tighten, then dive (loops back when it overshoots off-view)
 			if _phase == 0:
 				_orbit_ang += (speed / maxf(20.0, _orbit_r)) * delta
-				_orbit_r = maxf(28.0, _orbit_r - 28.0 * delta)
+				var orbit_rate := ORBIT_SHRINK * (_orbit_r0 / ORBIT_SPAWN_REF_R)
+				_orbit_r = maxf(28.0, _orbit_r - orbit_rate * delta)
 				global_position = pp + Vector2(cos(_orbit_ang), sin(_orbit_ang)) * _orbit_r
 				if _orbit_r <= 32.0:
 					_phase = 1
@@ -2163,9 +2370,24 @@ func _tick_behavior(delta: float) -> void:
 				_move_step()
 				if dist > RETURN_DIST:
 					_phase = 0   # overshot → loop back and re-approach
-		"shooter":   # burst of 1 shot per FP (up to 4), 0.2s between shots, 1s between bursts
-			_standoff(dist, dir, 340.0)
-			var sh_total := maxi(1, _fp_fracs.size())
+		"shooter":   # 1 bullet/sec (was a 4-shot burst, 1 per FP, 0.2s apart — jetfighter has 4 firepoints);
+					 # flocks with other jetfighters (see JF_FLOCK_* consts above); always CLOSES the distance
+					 # like a normal chase creep — no more holding range / retreating when the player gets close
+					 # (explicit request: don't flee).
+			var standoff_v := dir * speed
+			var flock_v := Vector2.ZERO
+			if _mgr != null and _mgr.has_method("jf_flock_valid") and bool(_mgr.call("jf_flock_valid")):
+				var fc: Vector2 = _mgr.call("jf_flock_center")
+				var to_flock := fc - global_position
+				var fdist := to_flock.length()
+				if fdist > JF_FLOCK_HOLD_R:
+					flock_v = (to_flock / fdist) * speed
+			var steer := standoff_v + flock_v * JF_FLOCK_WEIGHT
+			if steer.length() > speed:
+				steer = steer.normalized() * speed
+			velocity = steer
+			_move_step()
+			var sh_total := 1
 			if _burst_shots == 0 and _fire_ready(1.0):
 				_burst_shots = sh_total
 				_burst_t = 0.0
@@ -2174,12 +2396,13 @@ func _tick_behavior(delta: float) -> void:
 				_burst_t -= delta
 				if _burst_t <= 0.0:
 					var fp_idx := sh_total - _burst_shots
-					_mgr.spawn_bullet(_muzzle(fp_idx), dir * 280.0, 5, self)
+					_mgr.spawn_bullet(_muzzle(fp_idx), dir * 280.0, 5, self, "jetfighter")
 					_burst_shots -= 1
 					if _burst_shots > 0:
 						_burst_t = 0.2
-		"sentinel":   # hold, fire a fan TOWARD the player from FP 0
-			_standoff(dist, dir, 420.0)
+		"sentinel":   # always closes toward the player (no standoff/flee — explicit request); fires a fan TOWARD the player from FP 0 while approaching
+			velocity = dir * speed
+			_move_step()
 			if _fire_ready(2.0):
 				_play_sfx(SFX_ZAP)
 				var muzzle := _muzzle(0)
@@ -2224,6 +2447,85 @@ func _tick_behavior(delta: float) -> void:
 				_die()
 		"dummy":
 			pass
+
+# ── Composed Move/Shoot (Creep Info panel overrides) ────────────────────────────────────────────────
+## Independent movement — one of MOVE_LOGICS, or "" (shouldn't reach here; _composed requires move or
+## shoot non-default, but a shoot-only override leaves move_logic "" — treated as "stationary").
+func _tick_move_logic(delta: float, dist: float, dir: Vector2, pp: Vector2) -> void:
+	match _move_logic:
+		"chase":
+			velocity = dir * speed
+			_move_step()
+		"standoff":
+			_standoff(dist, dir, COMPOSED_STANDOFF_RANGE)
+		"orbit":   # holds at its spawn radius — circles, doesn't tighten or dive
+			_cm_orbit_a += (speed / maxf(20.0, _cm_orbit_r)) * delta
+			global_position = pp + Vector2(cos(_cm_orbit_a), sin(_cm_orbit_a)) * _cm_orbit_r
+		"spiral":   # tightens inward like the classic diver, but HOLDS at a minimum radius instead of dashing
+			_cm_orbit_a += (speed / maxf(20.0, _cm_orbit_r)) * delta
+			_cm_orbit_r = maxf(80.0, _cm_orbit_r - 20.0 * delta)
+			global_position = pp + Vector2(cos(_cm_orbit_a), sin(_cm_orbit_a)) * _cm_orbit_r
+		"patrol":   # straight flyby along the heading captured at spawn (_aim) — never re-aims
+			velocity = _aim * speed
+			_move_step()
+			if dist > PATROL_CULL:
+				queue_free()
+		"teleport":   # blink TELE_DIST toward the player every TELE_INTERVAL; idle-float between blinks
+			_cm_timer += delta
+			if _cm_timer >= TELE_INTERVAL:
+				_cm_timer = 0.0
+				var from := global_position
+				global_position += dir * minf(TELE_DIST, dist)
+				_tele_anchor = global_position
+				_spawn_t = 0.0
+				_spawn_warp(from, false)
+				_spawn_warp(global_position, true)
+			else:
+				global_position = _tele_anchor + Vector2(
+					sin(_t * TELE_FLOAT_FREQ + _bob_phase),
+					cos(_t * TELE_FLOAT_FREQ * 1.3 + _bob_phase)) * TELE_FLOAT_RADIUS
+		"roam":   # wanders to random points near the player, no fixed range
+			if global_position.distance_to(_cm_target) < 24.0 or _t - _cm_timer > 1.0:
+				_cm_target = pp + _rand_offset(_view().length() * 0.35)
+				_cm_timer = _t
+			velocity = (_cm_target - global_position).normalized() * speed
+			_move_step()
+		"stationary", _:   # also the fallback for a shoot-only override (move_logic left "")
+			velocity = Vector2.ZERO
+
+## Independent ranged attack — one of SHOOT_LOGICS. "none" = melee/contact-only, same as most classic
+## non-shooting behaviors (chase, patrol, ...).
+func _tick_shoot_logic(delta: float, dist: float, dir: Vector2) -> void:
+	match _shoot_logic:
+		"none":
+			pass
+		"burst":   # 1 shot per fire-point (up to 4), 0.2s apart, 1s between bursts — same math as "shooter"
+			var sh_total := maxi(1, _fp_fracs.size())
+			if _cs_burst_shots == 0 and _fire_ready(1.0):
+				_cs_burst_shots = sh_total
+				_cs_burst_t = 0.0
+				_play_sfx(SFX_ZAP)
+			if _cs_burst_shots > 0:
+				_cs_burst_t -= delta
+				if _cs_burst_t <= 0.0 and _mgr != null and is_instance_valid(_mgr):
+					var fp_idx := sh_total - _cs_burst_shots
+					_mgr.spawn_bullet(_muzzle(fp_idx), dir * 280.0, 5, self)
+					_cs_burst_shots -= 1
+					if _cs_burst_shots > 0:
+						_cs_burst_t = 0.2
+		"fan":   # a 5-bullet fan toward the player every 2s — same math as "sentinel"
+			if _fire_ready(2.0) and _mgr != null and is_instance_valid(_mgr):
+				_play_sfx(SFX_ZAP)
+				var muzzle := _muzzle(0)
+				var base := dir.angle()
+				for k in 5:
+					var a := base + deg_to_rad(lerpf(-24.0, 24.0, float(k) / 4.0))
+					_mgr.spawn_bullet(muzzle, Vector2(cos(a), sin(a)) * 260.0, 5, self)
+		"beam":
+			# Reuses "beamer"'s own charge-cycle machine (_phase/_timer) — safe here because every move-logic
+			# above uses its own dedicated _cm_* vars instead, so nothing else touches _phase/_timer while
+			# a move-logic and a shoot-logic are running concurrently (the classic system only ran one).
+			_beamer_tick(delta, dir)
 
 # ── Mothership carrier ────────────────────────────────────────────────────────
 ## State machine: READY (advance) → on 50 dmg → TURN (50 rpm about-face) → FLEE (flee@120, release the 5
@@ -2372,7 +2674,7 @@ func _ms_update_dock_positions() -> void:
 			_ms_dock.remove_at(i)
 			i -= 1
 			continue
-		if bool(n.get("_docked")):
+		if n.get("_docked"):   # not bool(...) — n.get() with no default can return null, and bool(null) crashes
 			n.set("global_position", global_position + (e["base_off"] as Vector2).rotated(_facing))
 			n.set("_facing", _facing + float(e["rot"]))
 		i -= 1
@@ -2463,10 +2765,16 @@ func _rand_offset(r: float) -> Vector2:
 	return Vector2(cos(a), sin(a)) * randf_range(r * 0.4, r)
 
 func _exit_tree() -> void:
-	_free_flipbook_plumes()
 	if _missile_volley != null and is_instance_valid(_missile_volley):
 		_missile_volley.queue_free()
 	_missile_volley = null
+
+## RUN OVER's "last hit by" — records this enemy as whoever most recently damaged the player. Called right
+## before every GameManager.ship_take_damage() this file triggers (those are ALWAYS player-damage calls;
+## the separate enemy-vs-enemy/charm branch below uses en.take_damage() instead, never this).
+func _report_hit_player() -> void:
+	if GameManager.has_method("record_last_hit"):
+		GameManager.record_last_hit(_type.capitalize(), _original_icon)
 
 # ── Contact ─────────────────────────────────────────────────────────────────────
 ## Contact damages whatever this enemy is aggro'd on: the player (incl. ship-contact-back), or an enemy target
@@ -2485,6 +2793,7 @@ func _check_contact() -> void:
 		var pp := _player_pos()
 		for seg: Vector2 in _centi_pts:
 			if seg.distance_to(pp) <= seg_r:
+				_report_hit_player()
 				GameManager.ship_take_damage(contact_damage)
 				return
 		return
@@ -2500,6 +2809,7 @@ func _check_contact() -> void:
 			GameManager.add_player_push(away.normalized() * ENEMY_PUSH_STRENGTH * pen)
 	if pdist <= push_range:
 		if contact_damage > 0:
+			_report_hit_player()
 			GameManager.ship_take_damage(int(round(contact_damage * damage_out_mult())))
 		# The player's contact (ramming) damage to the enemy — 0 by default, only > 0 with the contact-damage
 		# upgrade. The enemy does NOT die from touching the player; it just takes this (and keeps attacking).
@@ -2668,6 +2978,9 @@ func _draw() -> void:
 			_draw_shape(_radius, col)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # back to level/unscaled for beam + HP bar
 
+	if _is_champion:   # spawn_mode_2 Champion marker — gold ring, unrotated/unscaled so it reads at a glance
+		draw_arc(Vector2.ZERO, _radius * 1.25, 0.0, TAU, 28, Color(1.0, 0.85, 0.1, 0.9), 3.0)
+
 	if _beam_on:
 		var bstart := _beam_origin   # local offset from enemy center to muzzle
 		var bend := bstart + _beam_dir * 2000.0
@@ -2809,6 +3122,8 @@ class _MissileVolley extends Node2D:
 			var p: Vector2 = ln["pos"]
 			var removed := false
 			if p.distance_to(ship_c) <= ship_r + ML_HIT_R:
+				if _launcher != null and is_instance_valid(_launcher) and GameManager.has_method("record_last_hit"):
+					GameManager.record_last_hit(String(_launcher.get("_type")).capitalize(), String(_launcher.get("_original_icon")))
 				GameManager.ship_take_damage(ML_LINE_DMG)
 				_lines.remove_at(i)
 				removed = true

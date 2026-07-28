@@ -1,0 +1,859 @@
+{
+  "name": "spawnmode2",
+  "timeline": [
+    {
+      "count": 200,
+      "pattern": "ring",
+      "time": 30.0,
+      "type": "fly"
+    },
+    {
+      "count": 200,
+      "pattern": "pincer",
+      "time": 30.0,
+      "type": "fly"
+    },
+    {
+      "count": 5,
+      "pattern": "ring",
+      "time": 30.0,
+      "type": "diver"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 30.0,
+      "type": "fleet:A.I.nimal 1"
+    },
+    {
+      "count": 200,
+      "pattern": "ring",
+      "time": 60.0,
+      "type": "fly"
+    },
+    {
+      "count": 200,
+      "pattern": "ring",
+      "time": 60.0,
+      "type": "fly"
+    },
+    {
+      "count": 5,
+      "pattern": "wall",
+      "time": 60.0,
+      "type": "fly"
+    },
+    {
+      "count": 50,
+      "pattern": "ring",
+      "time": 60.0,
+      "type": "bug"
+    },
+    {
+      "count": 300,
+      "pattern": "ring",
+      "time": 90.0,
+      "type": "diver"
+    },
+    {
+      "count": 5,
+      "pattern": "ring",
+      "time": 90.0,
+      "type": "bee"
+    },
+    {
+      "count": 50,
+      "pattern": "ring",
+      "time": 90.0,
+      "type": "bug"
+    },
+    {
+      "count": 200,
+      "pattern": "ring",
+      "time": 90.0,
+      "type": "fly"
+    },
+    {
+      "count": 5,
+      "pattern": "scatter",
+      "time": 120.0,
+      "type": "missile"
+    },
+    {
+      "count": 50,
+      "pattern": "pincer",
+      "time": 120.0,
+      "type": "spider"
+    },
+    {
+      "count": 200,
+      "pattern": "ring",
+      "time": 120.0,
+      "type": "dragonfly"
+    },
+    {
+      "count": 500,
+      "pattern": "random",
+      "time": 120.0,
+      "type": "dragonfly"
+    },
+    {
+      "count": 500,
+      "pattern": "ring",
+      "time": 120.0,
+      "type": "fly"
+    },
+    {
+      "count": 5,
+      "pattern": "ring",
+      "time": 120.0,
+      "type": "swarm"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 150.0,
+      "type": "fleet:A.I.nimal 1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 150.0,
+      "type": "fleet:A.I.nimal 1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 150.0,
+      "type": "fleet:A.I.nimal 1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 150.0,
+      "type": "fleet:A.I.nimal 1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 150.0,
+      "type": "fleet:A.I.nimal 1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 150.0,
+      "type": "fleet:A.I.nimal 1"
+    },
+    {
+      "count": 5,
+      "pattern": "ring",
+      "time": 150.0,
+      "type": "diver"
+    },
+    {
+      "count": 50,
+      "pattern": "ring",
+      "time": 180.0,
+      "type": "animalhornet"
+    },
+    {
+      "count": 200,
+      "pattern": "ring",
+      "time": 180.0,
+      "type": "squid"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 180.0,
+      "type": "fly"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 180.0,
+      "type": "fly"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 180.0,
+      "type": "swarm"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 180.0,
+      "type": "swarm"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 180.0,
+      "type": "swarm"
+    },
+    {
+      "count": 200,
+      "pattern": "scatter",
+      "time": 180.0,
+      "type": "shooter"
+    },
+    {
+      "count": 10,
+      "pattern": "ring",
+      "time": 210.0,
+      "type": "missile"
+    },
+    {
+      "count": 100,
+      "pattern": "ring",
+      "time": 210.0,
+      "type": "squid"
+    },
+    {
+      "count": 200,
+      "pattern": "ring",
+      "time": 210.0,
+      "type": "bee"
+    },
+    {
+      "count": 200,
+      "pattern": "ring",
+      "time": 210.0,
+      "type": "bug"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 210.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 210.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 210.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 210.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 240.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 240.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 240.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 240.0,
+      "type": "fleet:NebulaFleet1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 240.0,
+      "type": "fleet:NebulaFleet1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 240.0,
+      "type": "fleet:Kingdom2"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 240.0,
+      "type": "fleet:Kingdom2"
+    },
+    {
+      "count": 200,
+      "pattern": "ring",
+      "time": 240.0,
+      "type": "shooter"
+    },
+    {
+      "count": 200,
+      "pattern": "ring",
+      "time": 240.0,
+      "type": "shooter"
+    },
+    {
+      "count": 5,
+      "pattern": "ring",
+      "time": 240.0,
+      "type": "beamer"
+    },
+    {
+      "count": 10,
+      "pattern": "ring",
+      "time": 270.0,
+      "type": "missile"
+    },
+    {
+      "count": 200,
+      "pattern": "ring",
+      "time": 270.0,
+      "type": "animalhornet"
+    },
+    {
+      "count": 100,
+      "pattern": "wedge",
+      "time": 270.0,
+      "type": "squid"
+    },
+    {
+      "count": 100,
+      "pattern": "wedge",
+      "time": 270.0,
+      "type": "spider"
+    },
+    {
+      "count": 200,
+      "pattern": "scatter",
+      "time": 270.0,
+      "type": "shooter"
+    },
+    {
+      "count": 200,
+      "pattern": "scatter",
+      "time": 270.0,
+      "type": "shooter"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 270.0,
+      "type": "swarm"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 270.0,
+      "type": "swarm"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 300.0,
+      "type": "fleet:Prosmothership"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 300.0,
+      "type": "fleet:Prosmothership"
+    },
+    {
+      "count": 200,
+      "pattern": "arc",
+      "time": 300.0,
+      "type": "bee"
+    },
+    {
+      "count": 200,
+      "pattern": "arc",
+      "time": 300.0,
+      "type": "squid"
+    },
+    {
+      "count": 200,
+      "pattern": "wedge",
+      "time": 300.0,
+      "type": "shooter"
+    },
+    {
+      "count": 20,
+      "pattern": "portal",
+      "time": 300.0,
+      "type": "alien1"
+    },
+    {
+      "count": 20,
+      "pattern": "portal",
+      "time": 300.0,
+      "type": "alien2"
+    },
+    {
+      "count": 20,
+      "pattern": "portal",
+      "time": 300.0,
+      "type": "alien3"
+    },
+    {
+      "count": 20,
+      "pattern": "portal",
+      "time": 300.0,
+      "type": "alien4"
+    },
+    {
+      "count": 20,
+      "pattern": "portal",
+      "time": 300.0,
+      "type": "alien5"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 330.0,
+      "type": "fleet:A.I.nimal 1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 330.0,
+      "type": "fleet:A.I.nimal 1"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 330.0,
+      "type": "diver"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 330.0,
+      "type": "diver"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 330.0,
+      "type": "dragonfly"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 330.0,
+      "type": "dragonfly"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 330.0,
+      "type": "dragonfly"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 330.0,
+      "type": "fly"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 330.0,
+      "type": "fly"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 330.0,
+      "type": "fly"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 360.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 360.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 360.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 360.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 360.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 360.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 360.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 360.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 360.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 360.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 390.0,
+      "type": "fleet:Prosmothership"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 390.0,
+      "type": "fleet:Prosmothership"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 390.0,
+      "type": "fleet:NebulaFleet1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 390.0,
+      "type": "fleet:NebulaFleet1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 390.0,
+      "type": "fleet:NebulaFleet1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 390.0,
+      "type": "fleet:NebulaFleet1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 390.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 390.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 390.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 390.0,
+      "type": "fleet:Kingdom1"
+    },
+    {
+      "count": 5,
+      "pattern": "ring",
+      "time": 420.0,
+      "type": "bismuth5"
+    },
+    {
+      "count": 200,
+      "pattern": "ring",
+      "time": 420.0,
+      "type": "bismuth6"
+    },
+    {
+      "count": 200,
+      "pattern": "ring",
+      "time": 420.0,
+      "type": "bismuth4"
+    },
+    {
+      "count": 200,
+      "pattern": "scatter",
+      "time": 420.0,
+      "type": "bismuth3"
+    },
+    {
+      "count": 200,
+      "pattern": "scatter",
+      "time": 420.0,
+      "type": "bismuth2"
+    },
+    {
+      "count": 20,
+      "pattern": "scatter",
+      "time": 420.0,
+      "type": "bismuth6"
+    },
+    {
+      "count": 200,
+      "pattern": "scatter",
+      "time": 420.0,
+      "type": "bismuth1"
+    },
+    {
+      "count": 100,
+      "pattern": "random",
+      "time": 450.0,
+      "type": "fleetleader"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 450.0,
+      "type": "fleet4"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 450.0,
+      "type": "fleet3"
+    },
+    {
+      "count": 200,
+      "pattern": "ring",
+      "time": 450.0,
+      "type": "fleet2"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 450.0,
+      "type": "fleet2"
+    },
+    {
+      "count": 200,
+      "pattern": "scatter",
+      "time": 450.0,
+      "type": "fleet1"
+    },
+    {
+      "count": 200,
+      "pattern": "pincer",
+      "time": 450.0,
+      "type": "fleet1"
+    },
+    {
+      "count": 500,
+      "pattern": "ring",
+      "time": 480.0,
+      "type": "pros8"
+    },
+    {
+      "count": 500,
+      "pattern": "ring",
+      "time": 480.0,
+      "type": "pros4"
+    },
+    {
+      "count": 500,
+      "pattern": "ring",
+      "time": 480.0,
+      "type": "pros7"
+    },
+    {
+      "count": 500,
+      "pattern": "ring",
+      "time": 480.0,
+      "type": "pros6"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 480.0,
+      "type": "fleet:Prosmothership"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 480.0,
+      "type": "fleet:Prosmothership"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 480.0,
+      "type": "fleet:Prosmothership"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 480.0,
+      "type": "fleet:Prosmothership"
+    },
+    {
+      "count": 500,
+      "pattern": "pincer",
+      "time": 510.0,
+      "type": "magma2"
+    },
+    {
+      "count": 500,
+      "pattern": "wall",
+      "time": 510.0,
+      "type": "magma7"
+    },
+    {
+      "count": 500,
+      "pattern": "wall",
+      "time": 510.0,
+      "type": "magma4"
+    },
+    {
+      "count": 500,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 540.0,
+      "type": "piratespearshield"
+    },
+    {
+      "count": 500,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 540.0,
+      "type": "stone1"
+    },
+    {
+      "count": 500,
+      "pattern": "wall",
+      "time": 540.0,
+      "type": "stone6"
+    },
+    {
+      "count": 500,
+      "pattern": "scatter",
+      "time": 540.0,
+      "type": "stone4"
+    },
+    {
+      "count": 500,
+      "pattern": "wall",
+      "time": 540.0,
+      "type": "stone5"
+    },
+    {
+      "count": 5000,
+      "pattern": "ring",
+      "time": 1800.0,
+      "type": "fleet2"
+    },
+    {
+      "count": 1000,
+      "pattern": "ring",
+      "time": 1800.0,
+      "type": "fleetleader"
+    },
+    {
+      "count": 5000,
+      "pattern": "random",
+      "time": 1800.0,
+      "type": "ghost5"
+    },
+    {
+      "count": 5000,
+      "pattern": "random",
+      "time": 1800.0,
+      "type": "pirate1"
+    },
+    {
+      "count": 5000,
+      "pattern": "random",
+      "time": 1800.0,
+      "type": "magma2"
+    },
+    {
+      "count": 5000,
+      "pattern": "random",
+      "time": 1800.0,
+      "type": "pros6"
+    },
+    {
+      "count": 5000,
+      "pattern": "random",
+      "time": 1800.0,
+      "type": "magma6"
+    },
+    {
+      "count": 5000,
+      "pattern": "random",
+      "time": 1800.0,
+      "type": "fleet4"
+    },
+    {
+      "count": 5000,
+      "pattern": "random",
+      "time": 1800.0,
+      "type": "alien1"
+    },
+    {
+      "count": 5000,
+      "pattern": "random",
+      "time": 1800.0,
+      "type": "alien4"
+    }
+  ]
+}

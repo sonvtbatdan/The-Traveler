@@ -13,6 +13,9 @@
 ## Display width per sprite = max( creep_layout size, every fleet_layout slot size that uses it ) × HEADROOM.
 ## HEADROOM covers the ±SCALE_VAR (0.15) per-enemy size variance + spawn-pop overshoot so it stays crisp.
 ## Animated (.gif) and sheet (.sheet.png) sprites are skipped — they are not plain single-frame textures.
+## ENEMY_DEFS "flap_icons" pairs (e.g. fly's flie1/flie2 wing-flap frames, 2026-07-27) bake too, at the
+## SAME width as their def's own "icon" creep_layout entry (arena_enemy.gd draws every flap frame at that
+## same _draw_size) — they don't have their own [creeps] entry, so they're gathered separately below.
 
 extends SceneTree
 
@@ -52,6 +55,30 @@ func _init() -> void:
 	var n_copy := 0
 	var n_skip := 0
 	var n_fail := 0
+
+	# 3) "flap_icons" pairs (ENEMY_DEFS, e.g. fly's flie1/flie2 wing-flap frames) — each drawn at the SAME
+	# _draw_size as the def's own "icon" (arena_enemy.gd's _load_icon applies creep_layout's size override
+	# regardless of which frame is showing), so they bake to whatever width that icon's creep_layout entry
+	# uses. These aren't in [creeps] themselves (only the base "icon" filename is), so bake them separately.
+	var flap_jobs: Array = []   # [{fn, disp_w}]
+	for kind: String in WaveDir.ENEMY_DEFS.keys():
+		var def: Dictionary = WaveDir.ENEMY_DEFS[kind]
+		var flap: Array = def.get("flap_icons", [])
+		if flap.size() < 2:
+			continue
+		var icon_path := String(def.get("icon", ""))
+		if icon_path == "":
+			continue
+		var icon_cname := icon_path.get_file().get_basename().to_lower()
+		var icon_eo: Dictionary = ccfg.get_value("creeps", icon_cname, {})
+		var disp_w: float = float((icon_eo.get("size", Vector2.ZERO) as Vector2).x)
+		if disp_w <= 0.0:
+			continue
+		var flap_dir := icon_path.get_base_dir() + "/"
+		for fname in flap:
+			flap_jobs.append({"fn": String(fname) + ".png", "path": flap_dir + String(fname) + ".png", "disp_w": disp_w})
+
+	var jobs: Array = []   # unify [creeps] entries + flap jobs into one bake loop
 	for key: String in ccfg.get_section_keys("creeps"):
 		var eo: Dictionary = ccfg.get_value("creeps", key, {})
 		var path := String(eo.get("path", ""))
@@ -61,6 +88,13 @@ func _init() -> void:
 		var fn := path.get_file()
 		var disp_w := float((eo.get("size", Vector2.ZERO) as Vector2).x)
 		disp_w = maxf(disp_w, float(fleet_w.get(fn, 0.0)))
+		jobs.append({"fn": fn, "path": path, "disp_w": disp_w})
+	jobs.append_array(flap_jobs)
+
+	for job: Dictionary in jobs:
+		var fn: String = job["fn"]
+		var path: String = job["path"]
+		var disp_w: float = job["disp_w"]
 		if disp_w <= 0.0:
 			n_skip += 1
 			continue

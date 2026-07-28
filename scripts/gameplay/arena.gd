@@ -13,9 +13,11 @@ const ArenaEnemyMgrScript := preload("res://scripts/gameplay/arena_enemy_manager
 const XpOrbMgrScript      := preload("res://scripts/gameplay/arena_xp_orb_manager.gd")
 const PlumeMgrScript      := preload("res://scripts/gameplay/arena_plume_manager.gd")
 const WaveDirectorScript := preload("res://scripts/gameplay/arena_wave_director.gd")
+const WaveDirectorV2Script := preload("res://scripts/gameplay/arena_wave_director_v2.gd")
 const TestTemplateScript := preload("res://scripts/gameplay/test_template.gd")
 const WaveEditorScript   := preload("res://scripts/ui/hud/arena_wave_editor.gd")
 const USE_TEST_SPAWNER   := false   # true → use test_template.gd (spawn one enemy every 5s) instead of the timeline
+const USE_SPAWN_MODE_2   := true    # true → continuous annulus spawn director (spawn_mode_2) instead of the authored timeline
 const ArenaWeaponsScript := preload("res://scripts/gameplay/arena_weapons.gd")
 const ArenaAuxScript     := preload("res://scripts/gameplay/arena_aux.gd")           # auxiliary (passive) item data layer
 const CamShakeScript     := preload("res://scripts/gameplay/arena_camera_shake.gd")  # follow camera + screen-shake
@@ -32,6 +34,7 @@ const ArenaDofScript     := preload("res://scripts/gameplay/arena_dof.gd")
 const PlanetMenuScript   := preload("res://scripts/ui/hud/arena_planet_menu.gd")
 const DebugSpawnScript   := preload("res://scripts/gameplay/arena_debug_spawn.gd")
 const PerfOverlayScript  := preload("res://scripts/ui/hud/perf_overlay.gd")
+const PerfSpikeLoggerScript := preload("res://scripts/gameplay/arena_perf_spike_logger.gd")   # TEMP DIAGNOSTIC — remove alongside the file once found
 const LevelUpUIScript    := preload("res://scripts/ui/hud/arena_levelup_ui.gd")
 const FusionCutsceneScript := preload("res://scripts/gameplay/arena_fusion_cutscene.gd")  # weapon-fusion cutscene
 const InventoryUIScript  := preload("res://scripts/ui/inventory/inventory_ui.gd")   # equip screen (I key)
@@ -40,7 +43,9 @@ const WeaponChestScript  := preload("res://scripts/ui/hud/arena_weapon_chest_ui.
 const WeaponSlotsScript  := preload("res://scripts/ui/hud/arena_weapon_slots.gd")     # 5-slot weapon HUD + cooldown pies
 const AuxSlotsScript     := preload("res://scripts/ui/hud/arena_aux_slots.gd")         # 5-slot aux-item HUD (row below weapons)
 const ArenaRuinLayerScript := preload("res://scripts/gameplay/arena_ruin_layer.gd")
+const ArenaSmallRuinLayerScript := preload("res://scripts/gameplay/arena_small_ruin_layer.gd")
 const ArenaHudButtonsScript := preload("res://scripts/ui/hud/arena_hud_buttons.gd")
+const CreepInfoPanelScript  := preload("res://scripts/ui/hud/creep_info_panel.gd")
 const BossEditScript        := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
 const CreepEditScript       := preload("res://scripts/ui/boss_edit/creep_edit_mode.gd")
 const WeaponEditScript      := preload("res://scripts/ui/boss_edit/weapon_edit_mode.gd")
@@ -48,8 +53,10 @@ const FleetEditScript       := preload("res://scripts/ui/boss_edit/fleet_edit_mo
 const HudEditScript         := preload("res://scripts/ui/boss_edit/hud_edit_mode.gd")   # authored playerhud (the active HUD)
 const SettingsScript        := preload("res://scripts/ui/settings/settings_panel.gd")
 const RESET_RUN_ON_START := true   # each arena run starts a fresh VS climb (level 1, no upgrades). Flip off to keep saved level.
-const WEAPON_TEST_MODE := true     # TEST: skip the hub launch page + start-of-run weapon-pick chest; boot straight into
+const WEAPON_TEST_MODE := false    # TEST: skip the hub launch page + start-of-run weapon-pick chest; boot straight into
 								   # the arena, then auto-pause and open the F12 weapon palette. Flip off to restore normal flow.
+const SKIP_START_CHEST := true     # TEMP: hide the start-of-run pick-1-of-3 weapon chest entirely and skip Hub Loadout
+								   # seeding — the run starts with ONLY Gatling Gun equipped. Flip off to restore the chest.
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
 const SHIP_SPRITE     := "res://assets/screen/Spaceship.png"   # legacy 2D art (unused now; 3D model replaces it)
@@ -95,6 +102,7 @@ const BOUNDARY_VIGNETTE_SHADER := "res://assets/shaders/boundary_vignette.gdshad
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 var _player: CharacterBody2D = null
+var _hud_btns_ref: Node = null   # cached "arena_hud_buttons" lookup — read by _aim() for the Auto-Fire dev toggle
 var _ship_spr: Sprite2D = null            # now displays the 3D ship SubViewport texture (rotates to aim)
 var _ship_vp: SubViewport = null          # renders the 3D model top-down
 var _ship_pivot: Node3D = null            # model parent — rolled each frame to bank the ship
@@ -117,6 +125,10 @@ var _ui_layer: CanvasLayer = null      # HP / weapon / aux / XP HUD layer (hidde
 var _hud_buttons: Node = null          # bottom-right + left dev button clusters
 
 func _ready() -> void:
+	# TEMP DIAGNOSTIC — timing breakdown for the "arena load takes ~5s" report. Mirrors main_menu.gd's
+	# own startup timers. Safe to delete once the cause is confirmed/fixed.
+	var _ready_start := Time.get_ticks_usec()
+	var _t0 := _ready_start
 	add_to_group("arena")                # editors find the arena to hide the HUD while editing
 	randomize()                          # fresh RNG each launch → random spawn spot (below)
 	if MetaManager.has_method("purge_run_temp"):
@@ -157,41 +169,57 @@ func _ready() -> void:
 	bg.add_child(asteroids)
 	bg.add_child(solar)
 	add_child(PlanetMenuScript.new())    # F6 menu: inspect/drag-spawn planets (input stays in the main viewport)
+	print("[arena-startup] background/parallax/dof: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 	add_child(DebugSpawnScript.new())    # F5 asteroids / F9 comet / F10 planet+moons (Shift = clear)
+	print("[arena-startup] DebugSpawnScript (quick-spawn + weapon-spawn icon grids): %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 	_hud_buttons = ArenaHudButtonsScript.new()  # bottom-right HUD: Setting / Devon / Quit
 	add_child(_hud_buttons)
+	add_child(CreepInfoPanelScript.new())   # dev-mode Creep Info table (group "creep_info") — toggled by the HUD button
+	print("[arena-startup]   hud_buttons: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 	_build_parallax(bg)
+	print("[arena-startup]   _build_parallax (procedural star tex ×%d layers): %.1fms" % [STAR_LAYERS.size(), (Time.get_ticks_usec() - _t0) / 1000.0]); _t0 = Time.get_ticks_usec()
 	_build_player()
+	print("[arena-startup] _build_player (incl. 3D ship SubViewport + GLB load): %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 	_build_ui()
 	_build_boundary_vignette()
 	_spawn_reward_chest()                # far reward chest + edge-of-screen pointer
 	add_child(_make_glow_world_env())    # screen glow/bloom (HDR-2D): makes the >1 fire (M2, Red X) bloom
 	add_child(PerfOverlayScript.new())   # FPS/frame-ms readout (top-right); off by default, Settings' FPS switch shows it
+	add_child(PerfSpikeLoggerScript.new())   # TEMP DIAGNOSTIC — prints a snapshot to console on frame spikes; remove once found
+	print("[arena-startup] _build_ui + vignette + reward_chest + glow_env + perf overlays: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 	add_child(LevelUpUIScript.new())     # VS choose-1-of-3 on level-up (pauses the game)
 	add_child(FusionCutsceneScript.new())  # weapon-fusion cutscene (group "arena_fusion_cutscene"; awaited by level-up UI)
 	add_child(InventoryUIScript.new())   # equip/loadout screen (toggle with the I key)
 	add_child(DropUIScript.new())        # boss-defeated salvage: equip (run) vs disassemble (blueprint)
 	_weapon_chest = WeaponChestScript.new()   # start-of-run pick-1-of-3 weapon chest (opened deferred below)
 	add_child(_weapon_chest)
+	print("[arena-startup] levelup/fusion/inventory/drop/chest UI: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 	add_child(ArenaEnemyMgrScript.new())  # world-space enemy services (bullets, explosions, ship pos)
 	add_child(XpOrbMgrScript.new())       # single MultiMesh node that renders+updates ALL xp orbs (group "arena_xp_orb_mgr")
 	add_child(PlumeMgrScript.new())       # single MultiMesh node that renders ALL enemy plumes (group "arena_plume_mgr")
+	print("[arena-startup] enemy_mgr + xp_orb_mgr + plume_mgr: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 	if USE_TEST_SPAWNER:
 		add_child(TestTemplateScript.new())   # quick test: one enemy every 5s
+	elif USE_SPAWN_MODE_2:
+		add_child(WaveDirectorV2Script.new())   # spawn_mode_2: continuous annulus director (chaser/flanker/kiter/charger test roster)
+		add_child(WaveEditorScript.new())       # F7 also works here — authors an OPTIONAL timeline that runs alongside the continuous loop
 	else:
 		add_child(WaveDirectorScript.new())   # authored-timeline wave spawner
 		add_child(WaveEditorScript.new())     # F7 in-game wave editor (add/edit/remove waves live)
+	print("[arena-startup] wave director + wave editor: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 	add_child(ArenaWeaponsScript.new())   # bespoke 5-slot weapons (chest + F12 pickups) — the ONLY arena combat path
 	add_child(ArenaAuxScript.new())       # auxiliary passive-item store (level-up offers; group "arena_aux")
 	# arena_loadout (fires EQUIPPED inventory weapons) is intentionally NOT instantiated: combat is driven solely by
 	# the bespoke 5-slot system, so equipped starter/inventory weapons no longer auto-fire in the arena.
-	add_child(ArenaRuinLayerScript.new()) # 2 giant dead-ship wrecks at run start (drop orb of light)
+	add_child(ArenaRuinLayerScript.new()) # 2 giant dead-ship wrecks at run start + 1 more every 3 min (drop orb of light)
+	if USE_SPAWN_MODE_2:
+		add_child(ArenaSmallRuinLayerScript.new())   # restored legacy small ruins (ship→box→coin/heart/magnetic/divinity), spawn_mode_2 only
 	call_deferred("_setup_boss_edit")
 	call_deferred("_setup_creep_edit")
 	call_deferred("_setup_weapon_edit")
 	call_deferred("_setup_fleet_edit")
 	call_deferred("_setup_hud_edit")     # authored playerhud = the live HUD (replaces the hidden cockpit HUD)
-	call_deferred("_grant_default_weapon")   # fresh run → skip the weapon-pick chest; start with the Gatling Gun
+	call_deferred("_open_start_chest")   # grant every Loadout pick, then chest-offer any slots still empty
 
 ## Canvas glow/bloom for the arena. With hdr_2d on (project.godot) + glow_hdr_threshold 1.0, only HDR (>1)
 ## pixels bloom — i.e. the DynamicFire effects that set glow>0 (Elephant M2, Red X). LDR content is untouched.
@@ -215,18 +243,24 @@ func _make_glow_world_env() -> WorldEnvironment:
 	we.environment = env
 	return we
 
-## Present the start-of-run weapon chest. Deferred from _ready so the HUD/player exist first. (No longer called
-## at boot — kept for reference; the ship now auto-equips the Gatling via _grant_default_weapon.)
+## Present the start-of-run weapon chest. Deferred from _ready so the HUD/player exist first.
 func _open_start_chest() -> void:
+	var aw := get_tree().get_first_node_in_group("arena_weapons")
+	if SKIP_START_CHEST:
+		# TEMP: no pick-1-of-3 chest, no Hub Loadout seeding — just Gatling Gun. Flip SKIP_START_CHEST off
+		# to restore the normal flow below.
+		if aw != null and aw.has_method("acquire_weapon"):
+			aw.call("acquire_weapon", "gatling_gun")
+		return
+	# Seed the run from the Hub's saved Loadout (MetaManager.loadout) before offering the chest, so a full
+	# 5-pick loadout skips the chest entirely and a partial one only rolls for the remaining empty slots.
+	if aw != null and aw.has_method("acquire_weapon"):
+		for kind: String in MetaManager.loadout:
+			aw.call("acquire_weapon", kind)
+	if aw != null and aw.has_method("weapons_full") and bool(aw.call("weapons_full")):
+		return   # loadout already filled every slot — nothing left for the chest to offer
 	if _weapon_chest != null and is_instance_valid(_weapon_chest) and _weapon_chest.has_method("show_chest"):
 		_weapon_chest.show_chest()
-
-## Fresh run → no weapon selection: auto-equip the Gatling Gun. Deferred from _ready so the arena_weapons node
-## (added this same frame) has run its _ready and joined group "arena_weapons".
-func _grant_default_weapon() -> void:
-	var weapons := get_tree().get_first_node_in_group("arena_weapons")
-	if weapons != null and weapons.has_method("acquire_weapon"):
-		weapons.call("acquire_weapon", "gatling_gun")
 
 ## WEAPON_TEST_MODE boot: no weapon-pick chest — auto-pause and open the F12 weapon palette instead.
 func _open_weapon_test() -> void:
@@ -467,9 +501,19 @@ func _build_parallax(parent: Node) -> void:
 		parent.add_child(px)   # into the DoF SubViewport (blurred background)
 		i += 1
 
+## Cache of generated star tile textures, keyed by their STAR_LAYERS params. `_make_star_tex` did the same
+## per-pixel generation from scratch on every single arena boot (measured ~800ms combined across the 3
+## layers) even though the result only ever needs to look like "a starfield" — nothing reads the exact dot
+## placement, so re-randomizing it every run bought nothing. Static → persists for the whole app session
+## (every run after the first one reuses these instead of regenerating).
+static var _star_tex_cache: Dictionary = {}
+
 ## Build a seamless tiling star texture: random faint dots on a transparent tile (dots kept inside the
 ## tile so the repeated edges stay transparent → no seams).
 func _make_star_tex(tile: int, count: int, dot: float, bright: float) -> Texture2D:
+	var key := "%d_%d_%.2f_%.2f" % [tile, count, dot, bright]
+	if _star_tex_cache.has(key):
+		return _star_tex_cache[key]
 	var img := Image.create(tile, tile, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
 	var r := int(ceil(dot))
@@ -483,7 +527,9 @@ func _make_star_tex(tile: int, count: int, dot: float, bright: float) -> Texture
 			for ox in range(-r, r + 1):
 				if Vector2(ox, oy).length() <= dot:
 					img.set_pixel(cx + ox, cy + oy, col)
-	return ImageTexture.create_from_image(img)
+	var tex := ImageTexture.create_from_image(img)
+	_star_tex_cache[key] = tex
+	return tex
 
 # ── Per-frame ─────────────────────────────────────────────────────────────────
 func _physics_process(delta: float) -> void:
@@ -590,9 +636,20 @@ func _process(delta: float) -> void:
 			_spawn_projectile()
 		_tick_projectiles(delta)
 
-## Smoothly rotate the ship to face the mouse (sprite forward = −Y → +PI/2 offset).
+## Smoothly rotate the ship to face the mouse (sprite forward = −Y → +PI/2 offset) — or, with the dev-mode
+## Auto-Fire toggle on, the nearest enemy instead (falls back to the mouse if none exist). Movement (WASD,
+## _physics_process below) is absolute-direction, not facing-relative, so it's unaffected either way.
 func _aim(delta: float) -> void:
-	var target := (get_global_mouse_position() - _player.global_position).angle() + PI * 0.5
+	var aim_pos := get_global_mouse_position()
+	if _hud_btns_ref == null or not is_instance_valid(_hud_btns_ref):
+		_hud_btns_ref = get_tree().get_first_node_in_group("arena_hud_buttons")
+	if _hud_btns_ref != null and _hud_btns_ref.has_method("is_auto_fire_on") and bool(_hud_btns_ref.call("is_auto_fire_on")):
+		var aw := get_tree().get_first_node_in_group("arena_weapons")
+		if aw != null and aw.has_method("nearest_enemy_node"):
+			var tgt: Node = aw.call("nearest_enemy_node", _player.global_position)
+			if tgt != null and is_instance_valid(tgt):
+				aim_pos = (tgt as Node2D).global_position
+	var target := (aim_pos - _player.global_position).angle() + PI * 0.5
 	if TURN_INSTANT:
 		_player.rotation = target
 	else:
@@ -637,6 +694,8 @@ func _tick_projectiles(delta: float) -> void:
 
 # ── Boss Edit (F3) ────────────────────────────────────────────────────────────
 func _setup_boss_edit() -> void:
+	# TEMP DIAGNOSTIC — see the note on the _ready() timers above.
+	var _t0 := Time.get_ticks_usec()
 	# Provide a full-screen Control as ObjectsContainer so boss_edit_mode can place
 	# boss sprites in screen space (same role as edit_mode's ObjectsContainer in main.gd).
 	var cl := CanvasLayer.new()
@@ -650,8 +709,10 @@ func _setup_boss_edit() -> void:
 	add_child(bem)
 	_boss_edit = bem
 	bem.setup(oc)
+	print("[arena-startup] (deferred) _setup_boss_edit: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0))
 
 func _setup_creep_edit() -> void:
+	var _t0 := Time.get_ticks_usec()
 	var cl := CanvasLayer.new()
 	cl.layer = 9
 	add_child(cl)
@@ -663,8 +724,10 @@ func _setup_creep_edit() -> void:
 	add_child(cem)
 	_creep_edit = cem
 	cem.setup(oc)
+	print("[arena-startup] (deferred) _setup_creep_edit: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0))
 
 func _setup_weapon_edit() -> void:
+	var _t0 := Time.get_ticks_usec()
 	var cl := CanvasLayer.new()
 	cl.layer = 9
 	add_child(cl)
@@ -676,11 +739,13 @@ func _setup_weapon_edit() -> void:
 	add_child(wem)
 	_weapon_edit = wem
 	wem.setup(oc)
+	print("[arena-startup] (deferred) _setup_weapon_edit: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0))
 
 ## Authored playerhud: a CanvasLayer(9) + full-screen ObjectsContainer that hud_edit_mode.gd fills. When
 ## the editor is closed those placed nodes ARE the live HUD (wired to game state via its runtime bindings),
 ## replacing the hidden cockpit HUD in _build_ui.
 func _setup_hud_edit() -> void:
+	var _t0 := Time.get_ticks_usec()
 	var cl := CanvasLayer.new()
 	cl.layer = 9
 	add_child(cl)
@@ -693,6 +758,7 @@ func _setup_hud_edit() -> void:
 	_hud_edit = hem
 	var hud_version := String(SettingsScript.load_cfg().get("hud_version", "hud"))
 	hem.setup(oc, hud_version)
+	print("[arena-startup] (deferred) _setup_hud_edit (playerhud icon/layer loads): %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0))
 
 ## Hide the gameplay + all HUD (HP/XP, weapon/aux slots, button clusters, debug panels, player, live enemies)
 ## while a full-screen editor (Creep / Fleet) is open, so only the editor panels + its edit objects show.
@@ -713,6 +779,7 @@ func set_edit_focus(on: bool) -> void:
 			(e as CanvasItem).visible = vis
 
 func _setup_fleet_edit() -> void:
+	var _t0 := Time.get_ticks_usec()
 	var cl := CanvasLayer.new()
 	cl.layer = 9
 	add_child(cl)
@@ -723,6 +790,7 @@ func _setup_fleet_edit() -> void:
 	var fem := FleetEditScript.new()
 	add_child(fem)
 	fem.setup(oc)
+	print("[arena-startup] (deferred) _setup_fleet_edit: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0))
 
 # ── Run end (death → hub) ───────────────────────────────────────────────────────
 var _run_over_shown: bool = false
@@ -739,6 +807,16 @@ func _on_run_ended() -> void:
 		return
 	_run_over_shown = true
 	call_deferred("_show_run_over")   # ship_destroyed can fire inside a boss tick → defer
+
+## Debug-only: jump straight to the RUN OVER screen without a real death — deliberately bypasses the
+## Phoenix Core / Player 2 revive checks in _on_run_ended (those exist to keep a real run alive, which
+## would defeat a deliberate skip). Caller (arena_debug_spawn.gd, F4) is responsible for granting
+## simulated run rewards first via MetaManager.simulate_run_rewards().
+func force_end_run() -> void:
+	if _run_over_shown:
+		return
+	_run_over_shown = true
+	call_deferred("_show_run_over")
 
 func _show_run_over() -> void:
 	get_tree().paused = true
@@ -772,6 +850,7 @@ func _show_run_over() -> void:
 	sub.add_theme_font_size_override("font_size", 22)
 	sub.add_theme_color_override("font_color", Color(0.8, 0.82, 0.88))
 	box.add_child(sub)
+	_build_run_over_stats(box)
 	var btn := Button.new()
 	btn.text = "RETURN TO DOCK"
 	btn.custom_minimum_size = Vector2(260, 56)
@@ -780,6 +859,58 @@ func _show_run_over() -> void:
 		get_tree().paused = false
 		get_tree().change_scene_to_file("res://scenes/hub.tscn"))
 	box.add_child(btn)
+
+## RUN OVER stats: kills, per-weapon damage + DPS (damage / GameManager.run_time — weapons dealing 0 are
+## skipped), total damage, and "last hit by" (name + icon of whoever most recently damaged the player —
+## see GameManager.record_last_hit / arena_enemy.gd/arena_enemy_manager.gd's call sites; boss-specific
+## attacks aren't covered, a scoped/accepted gap). damage_stats() only covers the MAIN weapons instance —
+## Player 2 companion damage (a separate arena_weapons.gd instance) isn't included either, same reasoning.
+func _build_run_over_stats(box: VBoxContainer) -> void:
+	var panel := VBoxContainer.new()
+	panel.add_theme_constant_override("separation", 4)
+	panel.custom_minimum_size = Vector2(360.0, 0.0)
+	box.add_child(panel)
+	panel.add_child(_run_over_stat_label("Creeps Killed: %d" % GameManager.run_kills))
+
+	var aw := get_tree().get_first_node_in_group("arena_weapons")
+	var dmg_stats: Dictionary = aw.call("damage_stats") if (aw != null and aw.has_method("damage_stats")) else {}
+	var run_t := maxf(1.0, GameManager.run_time)
+	var kinds: Array = dmg_stats.keys()
+	kinds.sort_custom(func(a, b): return float(dmg_stats[a]) > float(dmg_stats[b]))   # highest damage first
+	var total_dmg := 0.0
+	for kind: String in kinds:
+		var d := float(dmg_stats[kind])
+		if d <= 0.0:
+			continue   # weapons that dealt 0 damage don't need a row
+		total_dmg += d
+		var name_s := String(aw.call("weapon_display_name", kind)) if aw != null else kind
+		panel.add_child(_run_over_stat_label("%s: %d dmg  (%.1f/s)" % [name_s, int(round(d)), d / run_t]))
+	panel.add_child(_run_over_stat_label("Total Damage: %d" % int(round(total_dmg))))
+
+	if GameManager.last_hit_name != "":
+		var row := HBoxContainer.new()
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		row.add_theme_constant_override("separation", 8)
+		var tex: Texture2D = null
+		if GameManager.last_hit_icon != "":
+			tex = load(GameManager.last_hit_icon) as Texture2D
+		if tex != null:
+			var tr := TextureRect.new()
+			tr.texture = tex
+			tr.custom_minimum_size = Vector2(28.0, 28.0)
+			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			row.add_child(tr)
+		row.add_child(_run_over_stat_label("Last hit by: " + GameManager.last_hit_name))
+		panel.add_child(row)
+
+func _run_over_stat_label(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.add_theme_font_size_override("font_size", 16)
+	l.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
+	return l
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_boss_edit_mode"):

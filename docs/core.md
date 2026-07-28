@@ -3,6 +3,76 @@
 > Module of [`CLAUDE.md`](../CLAUDE.md). Read this when working on autoloads, main scene, GameManager, persistence, main menu, settings, music player.
 > Always-on core rules (conventions, coordinate system, image/render rules, LOCKED MODULES) live in CLAUDE.md — read that too.
 
+## Changelog — 2026-07-28 (3rd pass) — replaced the Master limiter with smooth overlap ducking (limiter crackled)
+
+- **`audio_manager.gd`**: the `AudioEffectLimiter` added in the "Master bus limiter" pass below caused
+  audible crackling once many short SFX (hits/fire/explosions) piled up — a hard, sample-accurate limiter
+  doesn't track game audio's fast transients cleanly. Removed entirely; replaced with a manual, smooth
+  ducking system: an `AudioEffectAmplify` on the Master bus, whose `volume_db` is adjusted every frame
+  (`_tick_duck()`, new `_process()`) from the bus's own real-time peak reading
+  (`AudioServer.get_bus_peak_volume_left/right_db`) — the more sound currently overlapping (squid + spider +
+  jetfighter fire all at once, etc.), the higher that peak reads, the more this ducks; a single/quiet moment
+  stays under `DUCK_PEAK_THRESHOLD_DB` (-14dB) and is left completely untouched. Fast attack (30dB/s — catches
+  a sudden pile-up immediately) + slow release (6dB/s — recovers gradually, no audible pumping) is the actual
+  fix for the crackle, not just a different curve shape. Deliberately an effect's own gain, NOT
+  `AudioServer.set_bus_volume_db(master, ...)` — that property is what `settings_panel.gd`'s volume slider
+  already controls; ducking it directly would fight the slider every frame. This stays fully orthogonal: the
+  slider sets the base level, ducking only ever pulls the mix down temporarily on top of it.
+
+## Changelog — 2026-07-28 (2nd pass) — every XP source scaled ×10 (whole-number XP, no more decimals)
+
+- **`game_manager.gd`**: `BASE_XP` 100.0→1000.0, `XP_PER_ASTEROID` 0.05→0.5 (+ `xp_for_asteroid()`'s size term
+  divisor 20.0→2.0 to scale that half of the formula too), `XP_PER_BOSS` 25.0→250.0. `LEVEL_XP_MULT` (the
+  early-level discount dict) is untouched — it's a ratio applied ON TOP of `BASE_XP`, not an absolute
+  amount, so it already scales through automatically. Every enemy's `"xp"` field across `ENEMY_DEFS`
+  (`arena_wave_director.gd`, `boss_scorpion.gd`'s own minion table, plus the small `FALLBACK`/`BEE_DEF`
+  inline defs in `arena_enemy.gd`/`arena_enemy_manager.gd`) scaled ×10 too, rounded half-up to the nearest
+  whole number for the few that were already quarter-increments (0.25/0.35/0.45/0.75 → e.g. ghost 0.25×10=
+  2.5→**3**, not 2.5) — this was the actual point: "0.05 xp/hit" style decimals are gone project-wide, all
+  XP values are now whole numbers. Net effect on pacing: **unchanged** — since both the per-kill XP amounts
+  AND the level-up cost curve scaled by the same ×10 factor, the number of kills needed per level is
+  identical to before, only the displayed numbers got 10× bigger (like switching from dollars to cents).
+  `arena_wave_director_v2.gd`'s `_xp_per_hp` (test-roster XP-proportional-to-HP ratio) needed no separate
+  edit — it's computed live from `fly`'s own def at `_ready()`, so it auto-picked up the new ratio (10/20 =
+  0.5, was 1/20 = 0.05).
+- **Does this "lighten" the math?** No — asked directly, answered honestly: GDScript's `float` arithmetic
+  costs exactly the same whether the value is `0.2` or `2.0`; whole vs. fractional doesn't change CPU cost.
+  The real (minor) benefit is precision, not speed: values like `0.1`/`0.2`/`0.4` aren't exactly
+  representable in IEEE-754 binary floats (classic decimal-fraction rounding error), while whole numbers
+  are exact — `add_xp()`'s fractional accumulator (`_xp_frac_acc`) already existed specifically to stop that
+  imprecision from ever silently losing XP, so this mostly just makes the numbers easier to read/author
+  (matches the request that prompted this: Creep Info's XP Drop column, and the "0.1 step" question).
+- **Follow-up (same day)**: `arena_xp_orb_manager.gd`'s tier thresholds (`TIER_GREEN/YELLOW/RED_MAX` — pick
+  an orb's on-screen color/size from its xp `value`) were still calibrated for the PRE-×10 scale, so every
+  orb was landing in a way-too-high tier (a fly's now-10xp kill exceeded the old YELLOW_MAX of 5.0, showing
+  RED). Rescaled ×10 to match (2.5/5.0/25.0 → 25.0/50.0/250.0); the `TIER_*_MULT` constants that convert
+  value→pixel-size rescaled ÷10 in the opposite direction to keep the actual on-screen orb SIZE unchanged
+  (size = value × mult, value is 10× bigger so mult must be 10× smaller) — the `TIER_*_CAP` pixel-size caps
+  are untouched, same as before. This is the exact same "rescale thresholds with value, mult inversely,
+  caps alone" pattern the file's own comment already documented from an EARLIER ÷20/×20 xp rescale — this
+  one just compounds ×10/÷10 on top of it. Net result: orb appearance is visually identical to before the
+  xp rescale, same as the level-curve pacing being unchanged.
+
+## Changelog — 2026-07-28 — Master bus limiter + GameManager run stats
+
+- **Sound got very loud with many simultaneous SFX** (weapon fire, hits, explosions all stacking).
+  Root cause: the project has **no custom audio bus layout** (no `default_bus_layout.tres`, no `[audio]`
+  section in `project.godot`) — every `AudioStreamPlayer.bus = "SFX"`/`"Music"` across the codebase
+  resolves to a bus name that was never actually registered, so in practice **everything plays on
+  Master** (the only bus that exists) and just sums freely. Fixed in `audio_manager.gd._ready()`
+  (`AudioManager` is the first autoload, so this is in place before anything else can play):
+  `_setup_master_limiter()` adds an `AudioEffectLimiter` to the Master bus (`ceiling_db = -1.0`,
+  `threshold_db = -6.0`) — transparent for normal single/few-sound moments, clamps the combined peak once
+  many sounds overlap instead of letting them add up freely. Did **not** attempt to fix the underlying
+  "SFX"/"Music" bus routing itself (a bigger, riskier, out-of-scope restructure) — just capped the actual
+  symptom at the one bus that reliably exists.
+- **`GameManager` gained 4 new run-scoped fields** (all reset in `reset_run()`), added for the arena's
+  RUN OVER stats screen (see [`weapon.md`](weapon.md) / [`enemy.md`](enemy.md) for the producer side):
+  `run_time: float` (actual play seconds this run, ticks in `_process()` so it's naturally frozen while
+  the tree is paused — the DPS divisor for the stats screen), `last_hit_name`/`last_hit_icon: String`
+  (whoever most recently damaged the player), and `record_last_hit(name, icon_path)` to set the latter
+  two.
+
 ## Architecture
 
 ### Autoloads (registration order in project.godot)

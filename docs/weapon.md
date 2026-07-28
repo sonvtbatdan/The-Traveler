@@ -3,6 +3,85 @@
 > Module of [`CLAUDE.md`](../CLAUDE.md). Read this when working on weapons, firing, inventory/affixes, ship visuals, arena weapon mechanics + their VFX.
 > Always-on core rules (conventions, coordinate system, image/render rules, LOCKED MODULES) live in CLAUDE.md — read that too.
 
+## Changelog — 2026-07-28 (2nd pass) — Bismuth-reflected Gatling bullet slowed to jetfighter speed
+
+- Clarified two DIFFERENT "gatling bounces" mechanisms on request: the **Bouncing Round** perk
+  (`_gat_bounce_target()`) only ever ricochets to another ENEMY (`_enemies()`) — it can never hit the
+  player. The thing that DOES hit the player is a separate, unrelated mechanic: a **bismuth** enemy
+  (`"anti_magnetic": true`) has a `GAT_REFLECT_FRAC` (50%) chance to bounce an incoming gatling bullet back
+  at the player instead of taking the hit (`_reflect_bullet()`), dealing `GAT_REFLECT_DMG` (5) if it connects.
+- **Slowed the reflected bullet**: was flying back at whatever speed it hit bismuth with (effectively
+  `GAT_SPEED` = 900px/s — very hard to dodge). New `GAT_REFLECT_SPEED` const (280.0, matching a jetfighter's
+  own bullet speed — `arena_enemy.gd`'s "shooter"/`KITE_BULLET_SPEED`) replaces the inherited speed in
+  `_reflect_bullet()`. **Side effect worth knowing**: the reflected bullet's lifetime (`GAT_LIFETIME` = 1.2s,
+  unchanged) now caps its effective travel to ~336px (was ~1080px at the old speed) before it despawns —
+  bismuth hit from farther than that won't have its reflect actually reach the player. Not extended since
+  only the speed was asked for; flag if the shorter reach should be compensated by also raising the reflected
+  bullet's lifetime/range.
+
+## Changelog — 2026-07-28 — per-weapon damage/DPS tracking + RUN OVER stats screen
+
+`arena_weapons.gd._roll_damage(base, kind)` is the ONE chokepoint essentially every weapon's damage
+passes through before `take_damage()` (crit roll, all the global/family/mastery multipliers) — so it's
+where `_dmg_by_kind: Dictionary` (kind → total damage dealt this run) is tallied, right before the
+function returns. This gives near-total coverage without touching the ~50+ individual `take_damage()`
+call sites scattered through the file. **Known gap**: a few flat/DoT-style hits that bypass
+`_roll_damage()` entirely (e.g. Rift Maker's `per_tick` damage) aren't captured — accepted, not chased.
+Player-2 companion damage (a separate `arena_weapons.gd` instance, `_companion = true`) also isn't
+included — the RUN OVER screen only reads the MAIN instance via group `"arena_weapons"`.
+
+- **`damage_stats() -> Dictionary`** — public copy of `_dmg_by_kind`, read by `arena.gd._build_run_over_
+  stats()`.
+- **`weapon_display_name(kind) -> String`** — `WEAPON_INFO`/`FUSION_DEFS`'s `"label"` field, falling back
+  to a capitalized raw kind id.
+- **`arena.gd._show_run_over()`** (RUN OVER screen) now also shows: creeps killed (`GameManager.
+  run_kills`), one row per weapon that dealt damage — **weapons with 0 damage are skipped** — as
+  `"<name>: <dmg> dmg (<dps>/s)"` where DPS = that weapon's total damage ÷ `GameManager.run_time` (whole-
+  run average, not "time that weapon was actually equipped" — simpler, and avoids needing to track
+  acquire/replace timestamps per weapon), total damage summed across all weapons, and "Last hit by:
+  <icon> <name>" (see [`enemy.md`](enemy.md) for how that's captured — only regular-enemy contact/bullet/
+  explosion damage is tracked, not boss-specific attacks, an explicitly agreed scope cut).
+
+## Changelog — 2026-07-28 — Gatling bullets rendered via MultiMesh (perf fix for high-level lag)
+
+**Root cause** (confirmed by reading the code, not guessed): high-level Gatling lag was NOT enemy
+collision — `_tick_bullets()`'s `_enemies_near()` grid lookup was already spatially partitioned. It was
+the **draw path**: `_draw_tracer()` did ~10 immediate-mode `draw_circle`/`draw_colored_polygon` calls per
+bullet (a 5-step tail + 2 glow polygons + edge/body/head polygons via `_oblong()`, each computing 16-20
+trig vertices in GDScript) — at high level, ~170-250+ bullets in flight → **1,700-2,500+ draw calls and
+tens of thousands of trig ops every frame**, just for tracers.
+
+**Fix**: `arena_weapons.gd` now renders every bullet in `_bullets` (both `gatling_gun` and the `carnage`
+fusion — the only two kinds that land in that array, both previously sharing `_draw_tracer`) through ONE
+`MultiMeshInstance2D` (`_gat_mm`), the same GPU-instancing pattern already used by
+`arena_xp_orb_manager.gd`/`arena_plume_manager.gd` — collapses the whole tracer draw to a single draw
+call regardless of bullet count.
+
+- **`_setup_gat_multimesh()`** (called from `_ready()`): loads `res://assets/weaponry/bullet.png` (user-
+  supplied art), builds a `QuadMesh` sized to match the tracer's PREVIOUS on-screen size — height =
+  `GAT_TRACER_LEN` (16px), width derived from the source image's own aspect ratio (never stretched, per
+  the project's image rules) — and a `MultiMesh` with `instance_count = GAT_MM_MAX` (4000).
+- **`_sync_gat_multimesh()`** (called every frame right after `_tick_bullets()`): rewrites every visible
+  instance's `Transform2D` (position + rotation from the bullet's velocity) from the current `_bullets`
+  array. `visible_instance_count` tracks the live count — cheap to change per frame (unlike
+  `instance_count`, which reallocates).
+- **Sprite rotation**: the art's default pose is assumed nose-up (-Y); `GAT_SPRITE_ROT_OFFSET := PI/2` is
+  added to the velocity angle to point the nose along the bullet's travel direction. **Not verified
+  against the actual art** — if bullets visibly fly sideways/backwards in-game, flip the sign of
+  `GAT_SPRITE_ROT_OFFSET`.
+- **What's preserved**: the Healing Round capstone's small red glow overlay (`_draw()` still loops
+  `_bullets` for just that, cheap since it's rare) and the muzzle-flash FX (`GAT_CORE/BODY/EDGE_COL`
+  still used there, untouched).
+- **What's lost**: the old multi-layer glow/tail visual (`GAT_GLOW_SIZE`/`GAT_GLOW_INTENSITY`/
+  `GAT_TAIL_LEN` consts removed, now genuinely unused) — replaced by the flat sprite. Expected tradeoff of
+  this optimization, not an oversight.
+- **Not touched**: other weapons' bullet-ish effects (Gauss orbs, mortar shells, etc.) — this was scoped
+  to exactly what the user asked ("tối ưu đạn gatling"), not a general bullet-rendering overhaul.
+- **Known caveat, not fixed**: `_gat_mm` is a child node added in `_ready()`, so it now draws ON TOP of
+  everything else `arena_weapons.gd._draw()` renders (previously bullets were drawn mid-sequence, before
+  several later effects like orbital/thunder/gravwell/prism). Likely imperceptible for fast-moving tracers
+  but flagged in case it reads as a stacking-order regression.
+
 ## Combat, Asteroids & Materials
 
 This is the big-picture loop the original idle docs don't cover. It spans `asteroid_layer.gd`, `gun_system.gd`, `weapon_manager.gd`, `material_manager.gd`, and the weapon/material/defense panels.

@@ -1,20 +1,23 @@
 extends Node2D
-## Run-start spawner for the giant dead-ship wrecks. At the start of each run it drops exactly TWO
-## stationary wrecks 10,000–20,000 px from the player, positioned so the two form a ~60–120° angle
-## as seen from the player's spawn point. Each wreck handles its own lifecycle (giant ship → orb of
-## light on death). This replaces the old periodic small-ruin drip.
+## Spawner for the giant dead-ship wrecks. At the start of each run it drops exactly TWO stationary
+## wrecks 10,000–15,000 px from the player, positioned so the two form a ~60–120° angle as seen from the
+## player's spawn point. After that, one more wreck spawns every PERIODIC_INTERVAL near the player's
+## THEN-current position (not the original run-start point) so later wrecks stay reachable as the run
+## goes on. Each wreck handles its own lifecycle (giant ship → orb of light on death).
 
 const RuinScript := preload("res://scripts/gameplay/arena_ruin.gd")
-const RuinPointerScript := preload("res://scripts/ui/hud/arena_ruin_pointer.gd")  # edge-of-screen arrow + distance
+const RuinPointerScript := preload("res://scripts/ui/hud/arena_ruin_pointer.gd")  # edge-of-screen icon + distance
 
 const SHIP_COUNT   := 2       # wrecks spawned at run start
 const DIST_MIN     := 10000.0 # minimum spawn distance from player (px)
-const DIST_MAX     := 20000.0 # maximum spawn distance from player (px)
-const ANGLE_MIN    := 60.0    # minimum angle (deg) between the two wrecks, as seen from the player
-const ANGLE_MAX    := 120.0   # maximum angle (deg) between the two wrecks
+const DIST_MAX     := 15000.0 # maximum spawn distance from player (px)
+const ANGLE_MIN    := 60.0    # minimum angle (deg) between the two run-start wrecks, as seen from the player
+const ANGLE_MAX    := 120.0   # maximum angle (deg) between the two run-start wrecks
+const PERIODIC_INTERVAL := 180.0   # seconds between each additional wreck after the run-start pair (3 min)
 
 var _mgr: Node = null
 var _player: Node2D = null
+var _periodic_acc: float = 0.0
 
 func _ready() -> void:
 	_mgr = get_tree().get_first_node_in_group("enemy_manager")
@@ -25,6 +28,15 @@ func _ready() -> void:
 		return
 	_spawn_wrecks()
 
+func _process(delta: float) -> void:
+	if _player == null or not is_instance_valid(_player):
+		_player = get_tree().get_first_node_in_group("player")
+		return
+	_periodic_acc += delta
+	if _periodic_acc >= PERIODIC_INTERVAL:
+		_periodic_acc -= PERIODIC_INTERVAL
+		_spawn_one_wreck(_player.global_position, randf() * TAU)
+
 func _spawn_wrecks() -> void:
 	var origin := _player.global_position
 	var base := randf() * TAU
@@ -33,14 +45,16 @@ func _spawn_wrecks() -> void:
 		sep = -sep                       # randomize which side the second wreck sits on
 	var angles := [base, base + sep]
 	for i in range(SHIP_COUNT):
-		var a: float = angles[i]
-		var dist := randf_range(DIST_MIN, DIST_MAX)
-		var pos: Vector2 = origin + Vector2(cos(a), sin(a)) * dist
-		var r: Node2D = RuinScript.new()
-		get_parent().add_child(r)
-		r.setup(randi_range(1, 4), _mgr)
-		r.global_position = pos
-		_spawn_pointer(r)
+		_spawn_one_wreck(origin, angles[i])
+
+func _spawn_one_wreck(origin: Vector2, angle: float) -> void:
+	var dist := randf_range(DIST_MIN, DIST_MAX)
+	var pos: Vector2 = origin + Vector2(cos(angle), sin(angle)) * dist
+	var r: Node2D = RuinScript.new()
+	get_parent().add_child(r)
+	r.setup(randi_range(1, 4), _mgr)
+	r.global_position = pos
+	_spawn_pointer(r)
 
 ## Edge-of-screen arrow + live distance guiding the player to one wreck (mirrors _spawn_reward_chest's
 ## pointer). Its own CanvasLayer so it renders screen-space above gameplay; freed with the wreck.

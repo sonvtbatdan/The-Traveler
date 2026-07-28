@@ -8,6 +8,7 @@ extends Node2D
 ## it deliberately does NOT use the legacy wave_director/level_recipe/choreography code.
 
 const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
+const CreepInfoPanelScript := preload("res://scripts/ui/hud/creep_info_panel.gd")
 
 # ══ TUNABLES ═══════════════════════════════════════════════════════════════════
 const SPAWN_RADIUS  := 720.0   # base ring radius — just beyond the visible screen
@@ -27,107 +28,110 @@ const ENEMY_DEFS := {
 	# multiplied by GameManager.player_level at spawn. Special "Move" mechanics tagged TODO(special) are not
 	# yet implemented — those enemies currently just use their base movement behavior.
 	# Squid is NOT re-added (its sprites + tentacle art are missing from enemiesHD); octopus removed.
-	"diver":    {"behavior": "spiral",    "hp": 20.0,  "speed": 150.0, "size": 14.0, "contact": 5,  "explodes": true, "xp": 1.0, "icon": "res://assets/enemiesHD/kingfisher.png"},
-	"centipede":{"behavior": "centipede", "lvl": true, "hp": 15.0,  "speed": 225.0, "size": 20.0, "contact": 20, "xp": 0.75, "armor": 7.0, "icon": "res://assets/enemiesHD/centipedehead.png"},   # speed kept at 225 (75% Viper) per latest instruction; table lists 100
-	"dragonfly":{"behavior": "orbit",     "hp": 30.0,  "speed": 130.0, "size": 16.0, "contact": 5,  "explodes": true, "xp": 1.5, "icon": "res://assets/enemiesHD/animaldragonfly.png"},
+	"diver":    {"behavior": "spiral",    "hp": 20.0,  "speed": 150.0, "size": 29.4, "contact": 5,  "explodes": true, "xp": 10.0, "icon": "res://assets/enemiesHD/kingfisher.png"},   # size ×3 then ×0.7 (2026-07-27)
+	"centipede":{"behavior": "centipede", "lvl": true, "hp": 15.0,  "speed": 225.0, "size": 20.0, "contact": 20, "xp": 8.0, "armor": 7.0, "icon": "res://assets/enemiesHD/centipedehead.png"},   # speed kept at 225 (75% Viper) per latest instruction; table lists 100
+	"dragonfly":{"behavior": "orbit",     "hp": 30.0,  "speed": 130.0, "size": 16.0, "contact": 5,  "explodes": true, "xp": 15.0, "icon": "res://assets/enemiesHD/animaldragonfly.png"},
 	# ── A.I.nimal — insects (levels 1→3) ──
-	"swarm":    {"behavior": "swarm", "group": "insects", "level": 1, "blob": 50, "hp": 10.0, "speed": 200.0, "size": 12.0, "contact": 1, "explodes": true, "xp": 0.2, "icon": "res://assets/enemiesHD/swarm.png"},
-	"fly":      {"behavior": "chase", "group": "insects", "level": 1, "hp": 20.0, "speed": 80.0, "size": 7.2,  "contact": 2, "explodes": true, "xp": 1.0, "plume_flipbook": true, "icon": "res://assets/enemiesHD/animalflies.png"},
-	"bug":      {"behavior": "chase", "plume_flipbook": true, "group": "insects", "level": 2, "hp": 200.0, "speed": 80.0, "size": 15.4, "contact": 3, "explodes": true, "xp": 5.0, "icon": "res://assets/enemiesHD/animalbug.png"},   # eye overlay dropped (animalbug_eye has no HD sprite)
-	"bee":      {"behavior": "chase", "group": "insects", "level": 2, "hp": 1000.0, "speed": 80.0, "size": 12.0, "contact": 3, "explodes": true, "xp": 10.0, "icon": "res://assets/enemiesHD/animalbee.png"},
-	"spider":   {"behavior": "jump_diag", "group": "insects", "level": 3, "hp": 100.0, "speed": 80.0, "size": 16.0, "contact": 8, "explodes": true, "xp": 5.0, "icon": "res://assets/enemiesHD/animalspider.png"},
+	"swarm":    {"behavior": "swarm", "group": "insects", "level": 1, "blob": 50, "hp": 10.0, "speed": 200.0, "size": 12.0, "contact": 1, "explodes": true, "xp": 2.0, "icon": "res://assets/enemiesHD/swarm.png"},
+	"fly":      {"behavior": "chase", "group": "insects", "level": 1, "hp": 20.0, "speed": 80.0, "size": 15.12,  "contact": 2, "explodes": true, "xp": 10.0, "icon": "res://assets/enemiesHD/flie1.png", "flap_icons": ["flie1", "flie2"]},   # size ×3 then ×0.7 (2026-07-27); wing-flap sprite pair (2026-07-27); static "icon" (UI/preview refs) switched animalflies→flie1 (2026-07-28) — the in-arena sprite was already flie1/flie2 via flap_icons regardless
+	"bug":      {"behavior": "chase", "group": "insects", "level": 2, "hp": 200.0, "speed": 80.0, "size": 32.34, "contact": 3, "explodes": true, "xp": 50.0, "icon": "res://assets/enemiesHD/animalbug.png"},   # eye overlay dropped (animalbug_eye has no HD sprite); size ×3 then ×0.7 (2026-07-27)
+	"bee":      {"behavior": "chase", "group": "insects", "level": 2, "hp": 1000.0, "speed": 80.0, "size": 25.2, "contact": 3, "explodes": true, "xp": 100.0, "icon": "res://assets/enemiesHD/animalbee.png"},   # size ×3 then ×0.7 (2026-07-27)
+	"spider":   {"behavior": "jump_diag", "group": "insects", "level": 3, "hp": 100.0, "speed": 80.0, "size": 16.0, "contact": 8, "explodes": true, "xp": 50.0, "icon": "res://assets/enemiesHD/animalspider.png"},
 	# ── A.I.nimal — others ──
-	"animalhornet": {"behavior": "bomber", "hp": 50.0, "speed": 150.0, "size": 18.0, "contact": 5, "xp": 1.5, "armor": 1.0, "icon": "res://assets/enemiesHD/animalhornet.png"},   # drops bomb.png projectiles
-	"squid": {"behavior": "squid", "hp": 200.0, "speed": 105.0, "size": 18.0, "contact": 0, "xp": 10.0, "icon": "res://assets/enemiesHD/Squid-body.png"},   # tentacles (squid-1..8) load via creep_layout → _resolve_sprite to HD
+	"animalhornet": {"behavior": "bomber", "hp": 50.0, "speed": 150.0, "size": 18.0, "contact": 5, "xp": 15.0, "armor": 1.0, "icon": "res://assets/enemiesHD/animalhornet.png"},   # drops bomb.png projectiles
+	"squid": {"behavior": "squid", "hp": 200.0, "speed": 105.0, "size": 18.0, "contact": 0, "xp": 100.0, "icon": "res://assets/enemiesHD/Squid-body.png"},   # tentacles (squid-1..8) load via creep_layout → _resolve_sprite to HD
 	# ── Lone Ranger ──
-	"shooter":  {"behavior": "shooter", "hp": 30.0,  "speed": 110.0, "size": 16.0, "contact": 0, "xp": 1.5,  "icon": "res://assets/enemiesHD/jetfighter.png"},
-	"beamer":   {"behavior": "beamer",  "hp": 30.0,  "speed": 90.0,  "size": 18.0, "contact": 0, "xp": 1.5,  "icon": "res://assets/enemiesHD/beamer.png"},
-	"missile":  {"behavior": "missile", "hp": 100.0, "speed": 90.0,  "size": 22.0, "contact": 0, "xp": 5.0, "icon": "res://assets/enemiesHD/missilelauncher.png"},
+	"shooter":  {"behavior": "shooter", "hp": 30.0,  "speed": 110.0, "size": 16.0, "contact": 0, "xp": 15.0,  "icon": "res://assets/enemiesHD/jetfighter.png"},
+	"beamer":   {"behavior": "beamer",  "hp": 30.0,  "speed": 90.0,  "size": 18.0, "contact": 0, "xp": 15.0,  "icon": "res://assets/enemiesHD/beamer.png"},
+	"missile":  {"behavior": "missile", "hp": 100.0, "speed": 90.0,  "size": 22.0, "contact": 0, "xp": 50.0, "icon": "res://assets/enemiesHD/missilelauncher.png"},
 	# ── Kingdom Defender ──
-	"sentinel": {"behavior": "sentinel", "hp": 100.0, "speed": 90.0, "size": 22.0, "contact": 0, "xp": 5.0, "icon": "res://assets/enemiesHD/sentinel.png"},   # obsolete — replaced by the Sentinel Fleet below
-	"sentinel1":     {"behavior": "patrol", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.4,  "armor": 4.0, "strike_back": true, "icon": "res://assets/enemiesHD/sentinel 1.png"},
-	"sentinel2":     {"behavior": "patrol", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.4,  "armor": 4.0, "strike_back": true, "icon": "res://assets/enemiesHD/sentinel2.png"},
-	"sentinel3":     {"behavior": "patrol", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.4,  "armor": 4.0, "strike_back": true, "icon": "res://assets/enemiesHD/sentinel 3.png"},
-	"sentinel4":     {"behavior": "patrol", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.4,  "armor": 4.0, "strike_back": true, "icon": "res://assets/enemiesHD/sentinel4.png"},
-	"sentinelleader":{"behavior": "patrol", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 25.0, "contact": 20, "xp": 0.6, "armor": 6.0, "strike_back": true, "icon": "res://assets/enemiesHD/sentinelleader.png"},
+	"sentinel": {"behavior": "sentinel", "hp": 100.0, "speed": 90.0, "size": 22.0, "contact": 0, "xp": 50.0, "icon": "res://assets/enemiesHD/sentinel.png"},   # obsolete — replaced by the Sentinel Fleet below
+	"sentinel1":     {"behavior": "patrol", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 20.0, "contact": 10, "xp": 4.0,  "armor": 4.0, "strike_back": true, "icon": "res://assets/enemiesHD/sentinel 1.png"},
+	"sentinel2":     {"behavior": "patrol", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 20.0, "contact": 10, "xp": 4.0,  "armor": 4.0, "strike_back": true, "icon": "res://assets/enemiesHD/sentinel2.png"},
+	"sentinel3":     {"behavior": "patrol", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 20.0, "contact": 10, "xp": 4.0,  "armor": 4.0, "strike_back": true, "icon": "res://assets/enemiesHD/sentinel 3.png"},
+	"sentinel4":     {"behavior": "patrol", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 20.0, "contact": 10, "xp": 4.0,  "armor": 4.0, "strike_back": true, "icon": "res://assets/enemiesHD/sentinel4.png"},
+	"sentinelleader":{"behavior": "patrol", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 25.0, "contact": 20, "xp": 6.0, "armor": 6.0, "strike_back": true, "icon": "res://assets/enemiesHD/sentinelleader.png"},
 	# ── Developer ──
-	"dummy":    {"behavior": "dummy", "hp": 200.0, "speed": 0.0, "size": 18.0, "contact": 0, "xp": 10.0, "invincible": true, "icon": "res://assets/enemiesHD/dummy.png"},
+	"dummy":    {"behavior": "dummy", "hp": 200.0, "speed": 0.0, "size": 18.0, "contact": 0, "xp": 100.0, "invincible": true, "icon": "res://assets/enemiesHD/dummy.png"},
 	# ── Emerald Nebula — teleporters ──
-	"alien1": {"behavior": "teleport", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 18.0, "contact": 10, "xp": 0.6, "armor": 3.0, "icon": "res://assets/enemiesHD/alien1.png"},
-	"alien2": {"behavior": "teleport", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 18.0, "contact": 10, "xp": 0.4,  "armor": 3.0, "icon": "res://assets/enemiesHD/alien2.png"},
-	"alien3": {"behavior": "teleport", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 18.0, "contact": 10, "xp": 0.4,  "armor": 3.0, "icon": "res://assets/enemiesHD/alien3.png"},
-	"alien4": {"behavior": "teleport", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 18.0, "contact": 10, "xp": 0.6, "armor": 3.0, "icon": "res://assets/enemiesHD/alien4.png"},
-	"alien5": {"behavior": "teleport", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 18.0, "contact": 10, "xp": 0.4,  "armor": 3.0, "morph_to": "alien4", "morph_after": 10.0, "icon": "res://assets/enemiesHD/alien5.png"},
-	"alien6": {"behavior": "teleport", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 18.0, "contact": 10, "xp": 0.4,  "armor": 3.0, "icon": "res://assets/enemiesHD/alien6.png"},
-	"alien7": {"behavior": "teleport", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 18.0, "contact": 10, "xp": 0.4,  "armor": 3.0, "icon": "res://assets/enemiesHD/alien7.png"},
-	"alien8": {"behavior": "teleport", "lvl": true, "hp": 10.0, "speed": 130.0, "size": 18.0, "contact": 10, "xp": 0.5, "armor": 3.0, "icon": "res://assets/enemiesHD/alien8.png"},
+	"alien1": {"behavior": "teleport", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 18.0, "contact": 10, "xp": 6.0, "armor": 3.0, "icon": "res://assets/enemiesHD/alien1.png"},
+	"alien2": {"behavior": "teleport", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 18.0, "contact": 10, "xp": 4.0,  "armor": 3.0, "icon": "res://assets/enemiesHD/alien2.png"},
+	"alien3": {"behavior": "teleport", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 18.0, "contact": 10, "xp": 4.0,  "armor": 3.0, "icon": "res://assets/enemiesHD/alien3.png"},
+	"alien4": {"behavior": "teleport", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 18.0, "contact": 10, "xp": 6.0, "armor": 3.0, "icon": "res://assets/enemiesHD/alien4.png"},
+	"alien5": {"behavior": "teleport", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 18.0, "contact": 10, "xp": 4.0,  "armor": 3.0, "morph_to": "alien4", "morph_after": 10.0, "icon": "res://assets/enemiesHD/alien5.png"},
+	"alien6": {"behavior": "teleport", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 18.0, "contact": 10, "xp": 4.0,  "armor": 3.0, "icon": "res://assets/enemiesHD/alien6.png"},
+	"alien7": {"behavior": "teleport", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 18.0, "contact": 10, "xp": 4.0,  "armor": 3.0, "icon": "res://assets/enemiesHD/alien7.png"},
+	"alien8": {"behavior": "teleport", "lvl": true, "hp": 10.0, "speed": 130.0, "size": 18.0, "contact": 10, "xp": 5.0, "armor": 3.0, "icon": "res://assets/enemiesHD/alien8.png"},
 	# ── Hercules Constellation — bismuth (anti-magnetic: reflects 50% of gatling bullets; takes 50% from laser/lightning/vacuum) ──
-	"bismuth1": {"behavior": "chase", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.6, "armor": 2.0, "anti_magnetic": true, "icon": "res://assets/enemiesHD/bismuth1.png"},
-	"bismuth2": {"behavior": "chase", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.6, "armor": 2.0, "anti_magnetic": true, "icon": "res://assets/enemiesHD/bismuth2.png"},
-	"bismuth3": {"behavior": "chase", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.6, "armor": 2.0, "anti_magnetic": true, "icon": "res://assets/enemiesHD/bismuth3.png"},
-	"bismuth4": {"behavior": "chase", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.6, "armor": 2.0, "anti_magnetic": true, "icon": "res://assets/enemiesHD/bismuth4.png"},
-	"bismuth5": {"behavior": "chase", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.6, "armor": 2.0, "anti_magnetic": true, "icon": "res://assets/enemiesHD/bismuth5.png"},
-	"bismuth6": {"behavior": "chase", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.6, "armor": 2.0, "anti_magnetic": true, "icon": "res://assets/enemiesHD/bismuth6.png"},
+	"bismuth1": {"behavior": "chase", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 6.0, "armor": 2.0, "anti_magnetic": true, "icon": "res://assets/enemiesHD/bismuth1.png"},
+	"bismuth2": {"behavior": "chase", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 6.0, "armor": 2.0, "anti_magnetic": true, "icon": "res://assets/enemiesHD/bismuth2.png"},
+	"bismuth3": {"behavior": "chase", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 6.0, "armor": 2.0, "anti_magnetic": true, "icon": "res://assets/enemiesHD/bismuth3.png"},
+	"bismuth4": {"behavior": "chase", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 6.0, "armor": 2.0, "anti_magnetic": true, "icon": "res://assets/enemiesHD/bismuth4.png"},
+	"bismuth5": {"behavior": "chase", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 6.0, "armor": 2.0, "anti_magnetic": true, "icon": "res://assets/enemiesHD/bismuth5.png"},
+	"bismuth6": {"behavior": "chase", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 6.0, "armor": 2.0, "anti_magnetic": true, "icon": "res://assets/enemiesHD/bismuth6.png"},
 	# ── Royal Pioneer — fleet (Strike Back; TODO(special): call 1 backup fleet if not all killed in 20s — needs Fleet grouping / Fleet Edit) ──
-	"fleet1": {"behavior": "patrol", "lvl": true, "hp": 15.0, "speed": 130.0, "size": 22.0, "contact": 10, "xp": 0.75, "armor": 5.0, "strike_back": true, "icon": "res://assets/enemiesHD/fleet1.png"},
-	"fleet2": {"behavior": "patrol", "lvl": true, "hp": 15.0, "speed": 130.0, "size": 22.0, "contact": 10, "xp": 0.75, "armor": 5.0, "strike_back": true, "icon": "res://assets/enemiesHD/fleet2.png"},
-	"fleet3": {"behavior": "patrol", "lvl": true, "hp": 15.0, "speed": 130.0, "size": 22.0, "contact": 10, "xp": 0.75, "armor": 5.0, "strike_back": true, "icon": "res://assets/enemiesHD/fleet3.png"},
-	"fleet4": {"behavior": "patrol", "lvl": true, "hp": 15.0, "speed": 130.0, "size": 22.0, "contact": 10, "xp": 0.75, "armor": 5.0, "strike_back": true, "icon": "res://assets/enemiesHD/fleet4.png"},
-	"fleetleader": {"behavior": "patrol", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 25.0, "contact": 20, "xp": 0.6, "armor": 6.0, "strike_back": true, "icon": "res://assets/enemiesHD/fleetleader.png"},   # stats borrowed from sentinelleader (not in the PDF table)
+	"fleet1": {"behavior": "patrol", "lvl": true, "hp": 15.0, "speed": 130.0, "size": 22.0, "contact": 10, "xp": 8.0, "armor": 5.0, "strike_back": true, "icon": "res://assets/enemiesHD/fleet1.png"},
+	"fleet2": {"behavior": "patrol", "lvl": true, "hp": 15.0, "speed": 130.0, "size": 22.0, "contact": 10, "xp": 8.0, "armor": 5.0, "strike_back": true, "icon": "res://assets/enemiesHD/fleet2.png"},
+	"fleet3": {"behavior": "patrol", "lvl": true, "hp": 15.0, "speed": 130.0, "size": 22.0, "contact": 10, "xp": 8.0, "armor": 5.0, "strike_back": true, "icon": "res://assets/enemiesHD/fleet3.png"},
+	"fleet4": {"behavior": "patrol", "lvl": true, "hp": 15.0, "speed": 130.0, "size": 22.0, "contact": 10, "xp": 8.0, "armor": 5.0, "strike_back": true, "icon": "res://assets/enemiesHD/fleet4.png"},
+	"fleetleader": {"behavior": "patrol", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 25.0, "contact": 20, "xp": 6.0, "armor": 6.0, "strike_back": true, "icon": "res://assets/enemiesHD/fleetleader.png"},   # stats borrowed from sentinelleader (not in the PDF table)
 	# ── Pirate — ghosts (75% transparent always; 25% dodge when hp<50%) ──
-	"ghost1": {"behavior": "chase", "lvl": true, "hp": 5.0, "speed": 130.0, "size": 19.0, "contact": 10, "xp": 0.25, "armor": 1.0, "sprite_alpha": 0.25, "evade_chance": 0.25, "evade_below": 0.5, "icon": "res://assets/enemiesHD/ghost1.png"},
-	"ghost2": {"behavior": "chase", "lvl": true, "hp": 5.0, "speed": 130.0, "size": 19.0, "contact": 10, "xp": 0.25, "armor": 1.0, "sprite_alpha": 0.25, "evade_chance": 0.25, "evade_below": 0.5, "icon": "res://assets/enemiesHD/ghost 2.png"},
-	"ghost3": {"behavior": "chase", "lvl": true, "hp": 5.0, "speed": 130.0, "size": 19.0, "contact": 10, "xp": 0.25, "armor": 1.0, "sprite_alpha": 0.25, "evade_chance": 0.25, "evade_below": 0.5, "icon": "res://assets/enemiesHD/ghost3.png"},
-	"ghost4": {"behavior": "chase", "lvl": true, "hp": 5.0, "speed": 130.0, "size": 19.0, "contact": 10, "xp": 0.25, "armor": 1.0, "sprite_alpha": 0.25, "evade_chance": 0.25, "evade_below": 0.5, "icon": "res://assets/enemiesHD/ghost4.png"},
-	"ghost5": {"behavior": "chase", "lvl": true, "hp": 5.0, "speed": 130.0, "size": 19.0, "contact": 10, "xp": 0.25, "armor": 1.0, "sprite_alpha": 0.25, "evade_chance": 0.25, "evade_below": 0.5, "icon": "res://assets/enemiesHD/ghost5.png"},
+	"ghost1": {"behavior": "chase", "lvl": true, "hp": 5.0, "speed": 130.0, "size": 19.0, "contact": 10, "xp": 3.0, "armor": 1.0, "sprite_alpha": 0.25, "evade_chance": 0.25, "evade_below": 0.5, "icon": "res://assets/enemiesHD/ghost1.png"},
+	"ghost2": {"behavior": "chase", "lvl": true, "hp": 5.0, "speed": 130.0, "size": 19.0, "contact": 10, "xp": 3.0, "armor": 1.0, "sprite_alpha": 0.25, "evade_chance": 0.25, "evade_below": 0.5, "icon": "res://assets/enemiesHD/ghost 2.png"},
+	"ghost3": {"behavior": "chase", "lvl": true, "hp": 5.0, "speed": 130.0, "size": 19.0, "contact": 10, "xp": 3.0, "armor": 1.0, "sprite_alpha": 0.25, "evade_chance": 0.25, "evade_below": 0.5, "icon": "res://assets/enemiesHD/ghost3.png"},
+	"ghost4": {"behavior": "chase", "lvl": true, "hp": 5.0, "speed": 130.0, "size": 19.0, "contact": 10, "xp": 3.0, "armor": 1.0, "sprite_alpha": 0.25, "evade_chance": 0.25, "evade_below": 0.5, "icon": "res://assets/enemiesHD/ghost4.png"},
+	"ghost5": {"behavior": "chase", "lvl": true, "hp": 5.0, "speed": 130.0, "size": 19.0, "contact": 10, "xp": 3.0, "armor": 1.0, "sprite_alpha": 0.25, "evade_chance": 0.25, "evade_below": 0.5, "icon": "res://assets/enemiesHD/ghost5.png"},
 	# ── Pirate — boarders (pirate1/2 flee @120 when hp<50%; TODO(special): piratespearshield shield→hit→break→piratespear) ──
-	"pirate1": {"behavior": "chase", "lvl": true, "hp": 4.0, "speed": 150.0, "size": 16.0, "contact": 10, "xp": 0.2, "armor": 2.0, "flee_speed": 120.0, "flee_below": 0.5, "icon": "res://assets/enemiesHD/Pirate1.png"},
-	"pirate2": {"behavior": "chase", "lvl": true, "hp": 4.0, "speed": 150.0, "size": 16.0, "contact": 10, "xp": 0.2, "armor": 2.0, "flee_speed": 120.0, "flee_below": 0.5, "icon": "res://assets/enemiesHD/pirate2.png"},
-	"piratespear":       {"behavior": "chase", "lvl": true, "hp": 4.0, "speed": 150.0, "size": 16.0, "contact": 10, "xp": 0.2, "armor": 1.0, "icon": "res://assets/enemiesHD/piratespear.png"},
-	"piratespearshield": {"behavior": "chase", "lvl": true, "hp": 4.0, "speed": 150.0, "size": 16.0, "contact": 10, "xp": 0.2, "armor": 5.0, "icon": "res://assets/enemiesHD/piratespearshield.png"},
+	"pirate1": {"behavior": "chase", "lvl": true, "hp": 4.0, "speed": 150.0, "size": 16.0, "contact": 10, "xp": 2.0, "armor": 2.0, "flee_speed": 120.0, "flee_below": 0.5, "icon": "res://assets/enemiesHD/Pirate1.png"},
+	"pirate2": {"behavior": "chase", "lvl": true, "hp": 4.0, "speed": 150.0, "size": 16.0, "contact": 10, "xp": 2.0, "armor": 2.0, "flee_speed": 120.0, "flee_below": 0.5, "icon": "res://assets/enemiesHD/pirate2.png"},
+	"piratespear":       {"behavior": "chase", "lvl": true, "hp": 4.0, "speed": 150.0, "size": 16.0, "contact": 10, "xp": 2.0, "armor": 1.0, "icon": "res://assets/enemiesHD/piratespear.png"},
+	"piratespearshield": {"behavior": "chase", "lvl": true, "hp": 4.0, "speed": 150.0, "size": 16.0, "contact": 10, "xp": 2.0, "armor": 5.0, "icon": "res://assets/enemiesHD/piratespearshield.png"},
 	# ── Magellanic Clouds — magma (shootable; a LARGE magma splits into 3 small magma on death) ──
-	"magma1": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 0.4, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma1.png"},
-	"magma2": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 0.4, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma2.png"},
-	"magma3": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 0.4, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma3.png"},
-	"magma4": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 0.4, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma4.png"},
-	"magma5": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 0.4, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma5.png"},
-	"magma6": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 0.4, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma6.png"},
-	"magma7": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 0.4, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma7.png"},
+	"magma1": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 4.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma1.png"},
+	"magma2": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 4.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma2.png"},
+	"magma3": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 4.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma3.png"},
+	"magma4": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 4.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma4.png"},
+	"magma5": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 4.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma5.png"},
+	"magma6": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 4.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma6.png"},
+	"magma7": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 4.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/enemiesHD/magma7.png"},
 	# ── Globular Cluster — stone (spawns matching magmaN on death) ──
-	"stone1": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 0.45, "armor": 3.0, "death_spawn": "magma1", "icon": "res://assets/enemiesHD/stone1.png"},
-	"stone2": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 0.45, "armor": 3.0, "death_spawn": "magma2", "icon": "res://assets/enemiesHD/stone2.png"},
-	"stone3": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 0.45, "armor": 3.0, "death_spawn": "magma3", "icon": "res://assets/enemiesHD/stone3.png"},
-	"stone4": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 0.45, "armor": 3.0, "death_spawn": "magma4", "icon": "res://assets/enemiesHD/stone4.png"},
-	"stone5": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 0.45, "armor": 3.0, "death_spawn": "magma5", "icon": "res://assets/enemiesHD/stone5.png"},
-	"stone6": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 0.45, "armor": 3.0, "death_spawn": "magma6", "icon": "res://assets/enemiesHD/stone6.png"},
-	"stone7": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 0.45, "armor": 3.0, "death_spawn": "magma7", "icon": "res://assets/enemiesHD/stone7.png"},
+	"stone1": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 5.0, "armor": 3.0, "death_spawn": "magma1", "icon": "res://assets/enemiesHD/stone1.png"},
+	"stone2": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 5.0, "armor": 3.0, "death_spawn": "magma2", "icon": "res://assets/enemiesHD/stone2.png"},
+	"stone3": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 5.0, "armor": 3.0, "death_spawn": "magma3", "icon": "res://assets/enemiesHD/stone3.png"},
+	"stone4": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 5.0, "armor": 3.0, "death_spawn": "magma4", "icon": "res://assets/enemiesHD/stone4.png"},
+	"stone5": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 5.0, "armor": 3.0, "death_spawn": "magma5", "icon": "res://assets/enemiesHD/stone5.png"},
+	"stone6": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 5.0, "armor": 3.0, "death_spawn": "magma6", "icon": "res://assets/enemiesHD/stone6.png"},
+	"stone7": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 5.0, "armor": 3.0, "death_spawn": "magma7", "icon": "res://assets/enemiesHD/stone7.png"},
 	# ── Koprulu Sector — pros (TODO(special): pros5 fires gauss; prosmotherblank = mother ship w/ child ships) ──
-	"pros1": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.35, "armor": 3.0, "icon": "res://assets/enemiesHD/pros1.png"},
-	"pros2": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.35, "armor": 3.0, "icon": "res://assets/enemiesHD/pros2.png"},
-	"pros3": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.35, "armor": 3.0, "icon": "res://assets/enemiesHD/pros3.png"},
-	"pros4": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.35, "armor": 3.0, "icon": "res://assets/enemiesHD/pros4.png"},
-	"pros5": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.35, "armor": 3.0, "gauss_shooter": true, "icon": "res://assets/enemiesHD/pros5.png"},
-	"pros6": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.35, "armor": 3.0, "icon": "res://assets/enemiesHD/pros6.png"},
-	"pros7": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.35, "armor": 3.0, "icon": "res://assets/enemiesHD/pros7.png"},
-	"pros8": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.35, "armor": 3.0, "icon": "res://assets/enemiesHD/pros8.png"},
-	"prosmotherblank": {"behavior": "mothership", "lvl": true, "hp": 150.0, "speed": 130.0, "size": 40.0, "contact": 30, "xp": 1.0, "armor": 7.0, "icon": "res://assets/enemiesHD/prosmotherblank.png"},   # carrier: docked pros escort + flee/release/respawn cycle (see arena_enemy.gd `mothership`)
+	"pros1": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 4.0, "armor": 3.0, "icon": "res://assets/enemiesHD/pros1.png"},
+	"pros2": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 4.0, "armor": 3.0, "icon": "res://assets/enemiesHD/pros2.png"},
+	"pros3": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 4.0, "armor": 3.0, "icon": "res://assets/enemiesHD/pros3.png"},
+	"pros4": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 4.0, "armor": 3.0, "icon": "res://assets/enemiesHD/pros4.png"},
+	"pros5": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 4.0, "armor": 3.0, "gauss_shooter": true, "icon": "res://assets/enemiesHD/pros5.png"},
+	"pros6": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 4.0, "armor": 3.0, "icon": "res://assets/enemiesHD/pros6.png"},
+	"pros7": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 4.0, "armor": 3.0, "icon": "res://assets/enemiesHD/pros7.png"},
+	"pros8": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 4.0, "armor": 3.0, "icon": "res://assets/enemiesHD/pros8.png"},
+	"prosmotherblank": {"behavior": "mothership", "lvl": true, "hp": 150.0, "speed": 130.0, "size": 40.0, "contact": 30, "xp": 10.0, "armor": 7.0, "icon": "res://assets/enemiesHD/prosmotherblank.png"},   # carrier: docked pros escort + flee/release/respawn cycle (see arena_enemy.gd `mothership`)
 	# ── Level_1_Minh variants (see levels/arena/Level_1_Minh.json) ──
-	"bug_crawl":  {"behavior": "chase", "plume_flipbook": true,      "hp": 200.0,  "speed": 120.0, "size": 15.4, "contact": 3, "explodes": true, "xp": 5.0,  "icon": "res://assets/enemiesHD/animalbug.png"},
-	"swarm_loop": {"behavior": "swarm_loop", "plume_flipbook": true, "blob": 50,   "hp": 10.0,     "speed": 200.0, "size": 12.0, "contact": 1, "explodes": true, "xp": 0.2, "icon": "res://assets/enemiesHD/swarm.png"},
-	"bee_dive":   {"behavior": "bee_dive", "plume_flipbook": true,   "hp": 1000.0, "speed": 150.0, "size": 12.0, "contact": 3, "explodes": true, "xp": 10.0, "icon": "res://assets/enemiesHD/animalbee.png"},
+	"bug_crawl":  {"behavior": "chase",      "hp": 200.0,  "speed": 120.0, "size": 32.34, "contact": 3, "explodes": true, "xp": 50.0,  "icon": "res://assets/enemiesHD/animalbug.png"},   # size ×3 then ×0.7 (2026-07-27)
+	"swarm_loop": {"behavior": "swarm_loop", "blob": 50,   "hp": 10.0,     "speed": 200.0, "size": 12.0, "contact": 1, "explodes": true, "xp": 2.0, "icon": "res://assets/enemiesHD/swarm.png"},
+	"bee_dive":   {"behavior": "bee_dive",   "hp": 1000.0, "speed": 150.0, "size": 25.2, "contact": 3, "explodes": true, "xp": 100.0, "icon": "res://assets/enemiesHD/animalbee.png"},   # size ×3 then ×0.7 (2026-07-27)
 	# ── Elites (milestone mini-bosses at 5/10/15 min). "elite": true → bypasses the alive-cap and, on death,
 	# grants a NEW arena item (arena_enemy._die → levelup_ui.grant_reward). Each is its base insect with
-	# 50× HP, 3× size, +50% speed ("same deal with all of them").
-	"elite_fly": {"behavior": "chase", "elite": true, "group": "insects", "hp": 2000.0,  "speed": 120.0, "size": 27.0, "contact": 2, "explodes": true, "xp": 25.0,  "icon": "res://assets/enemiesHD/animalflies.png"},
-	"elite_bug": {"behavior": "chase", "elite": true, "plume_flipbook": true, "group": "insects", "hp": 20000.0, "speed": 180.0, "size": 46.2, "contact": 3, "explodes": true, "xp": 50.0,  "icon": "res://assets/enemiesHD/animalbug.png"},
-	"elite_bee": {"behavior": "chase", "elite": true, "group": "insects", "hp": 100000.0, "speed": 225.0, "size": 36.0, "contact": 3, "explodes": true, "xp": 100.0, "icon": "res://assets/enemiesHD/animalbee.png"},
+	# 50× HP, 3× size, +50% speed ("same deal with all of them"). NOTE (2026-07-27): base fly/bug/bee sizes
+	# were tripled below without touching these — elite_bug/elite_bee now equal their base's new size (no
+	# longer visually bigger) and elite_fly is only ~1.25× fly instead of 3×. Left as-is since only the base
+	# 4 creatures were asked to scale; revisit if elites should stay visually distinct from the regular kind.
+	"elite_fly": {"behavior": "chase", "elite": true, "group": "insects", "hp": 2000.0,  "speed": 120.0, "size": 27.0, "contact": 2, "explodes": true, "xp": 250.0,  "icon": "res://assets/enemiesHD/flie1.png", "flap_icons": ["flie1", "flie2"]},
+	"elite_bug": {"behavior": "chase", "elite": true, "group": "insects", "hp": 20000.0, "speed": 180.0, "size": 46.2, "contact": 3, "explodes": true, "xp": 500.0,  "icon": "res://assets/enemiesHD/animalbug.png"},
+	"elite_bee": {"behavior": "chase", "elite": true, "group": "insects", "hp": 100000.0, "speed": 225.0, "size": 36.0, "contact": 3, "explodes": true, "xp": 1000.0, "icon": "res://assets/enemiesHD/animalbee.png"},
 	# bosses — big high-HP stubs (real movesets later)
-	"elephant":  {"behavior": "boss_stub", "hp": 5500.0, "speed": 110.0, "size": 70.0, "contact": 40, "xp": 25.0, "shape": "circle",   "tint": Color(0.75, 0.70, 0.65), "icon": "res://assets/bosses/elephant/elephant.sheet.png", "boss_script": "res://scripts/gameplay/arena_elephant.gd"},
-	"chromeleon":{"behavior": "boss_stub", "hp": 4200.0, "speed": 70.0, "size": 60.0, "contact": 35, "xp": 20.0, "shape": "diamond",  "tint": Color(0.45, 0.90, 0.65), "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},
-	"metalfly":  {"behavior": "boss_stub", "hp": 4800.0, "speed": 65.0, "size": 64.0, "contact": 38, "xp": 22.5, "shape": "triangle", "tint": Color(0.70, 0.75, 0.85), "icon": "res://assets/bosses/metalfly/metalfly.sheet.png"},
+	"elephant":  {"behavior": "boss_stub", "hp": 5500.0, "speed": 110.0, "size": 70.0, "contact": 40, "xp": 250.0, "shape": "circle",   "tint": Color(0.75, 0.70, 0.65), "icon": "res://assets/bosses/elephant/elephant.sheet.png", "boss_script": "res://scripts/gameplay/arena_elephant.gd"},
+	"chromeleon":{"behavior": "boss_stub", "hp": 4200.0, "speed": 70.0, "size": 60.0, "contact": 35, "xp": 200.0, "shape": "diamond",  "tint": Color(0.45, 0.90, 0.65), "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},
+	"metalfly":  {"behavior": "boss_stub", "hp": 4800.0, "speed": 65.0, "size": 64.0, "contact": 38, "xp": 225.0, "shape": "triangle", "tint": Color(0.70, 0.75, 0.85), "icon": "res://assets/bosses/metalfly/metalfly.sheet.png"},
 	# Scorpion — full 4-move 3D boss (boss_scorpion.gd renders its own model). 100 armor.
 	# "gate_waves": pauses the whole timeline the instant it spawns and resumes only when it dies.
-	"scorpion":  {"behavior": "boss_stub", "hp": 4000.0, "speed": 110.0, "size": 126.0, "contact": 0, "xp": 30.0, "armor": 100.0, "boss_script": "res://scripts/gameplay/boss_scorpion.gd", "gate_waves": true},
+	"scorpion":  {"behavior": "boss_stub", "hp": 4000.0, "speed": 110.0, "size": 126.0, "contact": 0, "xp": 300.0, "armor": 100.0, "boss_script": "res://scripts/gameplay/boss_scorpion.gd", "gate_waves": true},
 }
 
 # ══ 3. AUTHORED TIMELINE ═══════════════════════════════════════════════════════
@@ -210,6 +214,7 @@ var _spawning_stopped: bool = false   # set the moment the Scorpion spawns → n
 
 func _ready() -> void:
 	add_to_group("wave_director")
+	CreepInfoPanelScript.apply_overrides(ENEMY_DEFS)   # Creep Info dev panel's saved HP/Move/Shoot overrides
 	if DEBUG_NO_ENEMIES:
 		timeline = []
 	elif DEBUG_ELEPHANT_ONLY:
@@ -587,16 +592,19 @@ func _pattern_positions(pattern: String, count: int, angle_deg: float = NAN) -> 
 				out.append(c + Vector2(cos(a), sin(a)) * _radius())
 	return out
 
-func _spawn(type_id: String, pos: Vector2, is_boss: bool, draw_w: float = 0.0, mode: String = "") -> void:
+## Returns the spawned node (proxy for a batched fodder type, the enemy Node otherwise), or null if
+## the spawn was dropped (cap reached / unknown type_id / pool full). Callers that don't need the
+## reference (the timeline/stream/blob paths) simply ignore the return value.
+func _spawn(type_id: String, pos: Vector2, is_boss: bool, draw_w: float = 0.0, mode: String = "") -> Node:
 	# Beacon aux item lifts the alive-cap so more enemies crowd the field (base mult 1.0 = no change).
 	var spawn_mult: float = GameManager.upg_spawn_rate_mult if "upg_spawn_rate_mult" in GameManager else 1.0
 	var cap := int(round(float(_max_alive) * spawn_mult))
 	var src: Dictionary = ENEMY_DEFS.get(type_id, {})
 	if src.is_empty():
-		return
+		return null
 	# Bosses and elites always spawn (never dropped by the alive-cap); ordinary enemies respect it.
 	if not is_boss and not bool(src.get("elite", false)) and get_tree().get_nodes_in_group("arena_enemy").size() >= cap:
-		return
+		return null
 	var def := src.duplicate()
 	def["hp"] = float(def.get("hp", 30.0)) * HP_MULT
 	def["speed"] = float(def.get("speed", 95.0)) * SPEED_MULT
@@ -622,6 +630,7 @@ func _spawn(type_id: String, pos: Vector2, is_boss: bool, draw_w: float = 0.0, m
 		_streams.clear()
 		_spawn_queue.clear()
 		_next = timeline.size()
+	return e
 
 ## Debug: drop one invincible dummy (blocks the beam, never dies) at a world position. Bypasses MAX_ALIVE.
 func spawn_dummy_near(pos: Vector2) -> void:

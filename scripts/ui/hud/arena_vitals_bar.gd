@@ -20,6 +20,8 @@ const DROP_TIME := 0.7
 const HP_COL    := Color(0.30, 0.85, 0.45, 0.97)
 const HP_LOW    := Color(0.90, 0.30, 0.25, 0.97)
 const SHIELD_COL := Color(0.30, 0.62, 1.0, 0.95)
+const FLASH_HP_COL     := Color(1.0, 0.30, 0.25)   # HP damage flashes toward bright red
+const FLASH_SHIELD_COL := Color(0.35, 0.65, 1.0)   # shield damage flashes toward bright blue
 const TRACK_COL := Color(0.06, 0.07, 0.10, 0.92)
 const INNER_TRACK := Color(0.09, 0.11, 0.15, 0.92)
 const EDGE_COL  := Color(0.40, 0.55, 0.85, 0.95)
@@ -141,12 +143,12 @@ func _draw() -> void:
 	var sh_max: float = v["sh_max"]
 	var has_shield := sh_max > 0.0
 	if has_shield and _sh_disp > 0.0:
-		var sh_col := SHIELD_COL.lerp(Color.WHITE, (_sh_flash / FLASH_DUR) * 0.85)   # white-flash on shield damage
+		var sh_col := SHIELD_COL.lerp(FLASH_SHIELD_COL, (_sh_flash / FLASH_DUR) * 0.85)   # blue-flash on shield damage
 		draw_colored_polygon(_clip_x(outer, ox + w * _sh_disp), sh_col)
 	draw_colored_polygon(inner, INNER_TRACK)
 	var hf := _hp_disp
 	var hp_col: Color = HP_COL if hf > LOW_HP_FRAC else HP_LOW
-	hp_col = hp_col.lerp(Color.WHITE, (_hp_flash / FLASH_DUR) * 0.85)                 # white-flash on HP damage
+	hp_col = hp_col.lerp(FLASH_HP_COL, (_hp_flash / FLASH_DUR) * 0.85)                   # red-flash on HP damage
 	if hf > 0.0:
 		draw_colored_polygon(_clip_x(inner, ox + w * hf), hp_col)
 	var iol := inner.duplicate(); iol.append(inner[0])
@@ -157,9 +159,9 @@ func _draw() -> void:
 		edge = EDGE_COL.lerp(Color(1.0, 0.2, 0.2), 0.5 + 0.5 * sin(_t * 8.0))
 	var ol := outer.duplicate(); ol.append(outer[0])
 	draw_polyline(ol, edge, 2.0, true)
-	# Shield-damage flash: a white wash over the WHOLE bar (the thin shield band alone is too subtle to notice).
+	# Shield-damage flash: a blue wash over the WHOLE bar (the thin shield band alone is too subtle to notice).
 	if _sh_flash > 0.0:
-		draw_colored_polygon(outer, Color(1.0, 1.0, 1.0, (_sh_flash / FLASH_DUR) * 0.5))
+		draw_colored_polygon(outer, Color(FLASH_SHIELD_COL.r, FLASH_SHIELD_COL.g, FLASH_SHIELD_COL.b, (_sh_flash / FLASH_DUR) * 0.5))
 	# Shield STARTED regenerating: a blue wash over the whole bar that fades over ~1s to notify the player.
 	if _regen_flash > 0.0:
 		draw_colored_polygon(outer, Color(0.35, 0.65, 1.0, (_regen_flash / REGEN_FLASH_DUR) * 0.4))
