@@ -32,6 +32,7 @@ const ArenaDofScript     := preload("res://scripts/gameplay/arena_dof.gd")
 const PlanetMenuScript   := preload("res://scripts/ui/hud/arena_planet_menu.gd")
 const DebugSpawnScript   := preload("res://scripts/gameplay/arena_debug_spawn.gd")
 const PerfOverlayScript  := preload("res://scripts/ui/hud/perf_overlay.gd")
+const RunClockScript     := preload("res://scripts/ui/hud/arena_run_clock.gd")   # top-right run timer (pauses with the tree)
 const LevelUpUIScript    := preload("res://scripts/ui/hud/arena_levelup_ui.gd")
 const FusionCutsceneScript := preload("res://scripts/gameplay/arena_fusion_cutscene.gd")  # weapon-fusion cutscene
 const InventoryUIScript  := preload("res://scripts/ui/inventory/inventory_ui.gd")   # equip screen (I key)
@@ -167,6 +168,7 @@ func _ready() -> void:
 	_spawn_reward_chest()                # far reward chest + edge-of-screen pointer
 	add_child(_make_glow_world_env())    # screen glow/bloom (HDR-2D): makes the >1 fire (M2, Red X) bloom
 	add_child(PerfOverlayScript.new())   # FPS/frame-ms readout (top-right); off by default, Settings' FPS switch shows it
+	add_child(RunClockScript.new())      # top-right run timer (freezes while paused: menu / level-up)
 	add_child(LevelUpUIScript.new())     # VS choose-1-of-3 on level-up (pauses the game)
 	add_child(FusionCutsceneScript.new())  # weapon-fusion cutscene (group "arena_fusion_cutscene"; awaited by level-up UI)
 	add_child(InventoryUIScript.new())   # equip/loadout screen (toggle with the I key)

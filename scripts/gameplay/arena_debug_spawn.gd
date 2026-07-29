@@ -31,7 +31,7 @@ const WEAPON_TABS := {
 	"drop": [
 		{"kind": "gatling_gun",   "def_id": "gatling_gun",  "label": "Gatling Gun"},
 		{"kind": "death_beam",    "def_id": "death_beam",        "label": "Death Beam"},
-		{"kind": "orbital",   "def_id": "orbitals",      "label": "Defensive Orbitals"},
+		{"kind": "defensive_orbitals",   "def_id": "orbitals",      "label": "Defensive Orbitals"},
 		{"kind": "striker",   "def_id": "",              "label": "Striker", "icon": "res://assets/weaponry/ND-OIF-F.png"},
 		{"kind": "shooter",   "def_id": "swarm_host",    "label": "Shooter", "icon": "res://assets/weaponry/shooter.png"},
 		{"kind": "chemtrail", "def_id": "chemtrail",     "label": "Chemtrail"},
@@ -40,10 +40,10 @@ const WEAPON_TABS := {
 		{"kind": "yari", "def_id": "yari",     "label": "Yari"},
 		{"kind": "z_sword",    "def_id": "z_sword",       "label": "Z-Sword"},
 		{"kind": "mortar",      "def_id": "mortar",          "label": "Little Man"},
-		{"kind": "red_x",     "def_id": "red_x",         "label": "Dragon's Breath"},
-		{"kind": "boomerang", "def_id": "boomerang",     "label": "Boomerang"},
+		{"kind": "dragons_breath",     "def_id": "red_x",         "label": "Dragon's Breath"},
+		{"kind": "aliwa", "def_id": "boomerang",     "label": "Boomerang"},
 		{"kind": "gauss",     "def_id": "gauss_cannon",  "label": "Gauss Pulser"},
-		{"kind": "snake",     "def_id": "space_snake",   "label": "Viper"},
+		{"kind": "viper",     "def_id": "space_snake",   "label": "Viper"},
 		{"kind": "swarm",     "def_id": "",              "label": "Swarm", "icon": "res://assets/inventory/Swarm.png"},
 		{"kind": "ultrasonicator",     "def_id": "ultrasonicator",    "label": "Ultrasonicator"},
 		{"kind": "homing_missile",    "def_id": "homing_missile","label": "Homing Missile"},   # temp impl (copied from enemy missile launcher) — not in the Corp doc

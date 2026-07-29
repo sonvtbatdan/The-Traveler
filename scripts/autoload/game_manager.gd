@@ -61,7 +61,7 @@ var money: int = 0   # green-$ currency; new game starts at 0 (Phase 2 will spen
 # ── Character level / XP — ALL pacing knobs live here (Phases 1 & 2) ──────────
 # Diablo-2/Borderlands feel: quick early levels, a progressively longer late grind.
 # Tune these freely by feel; everything else derives from them.
-const BASE_XP: float = 100.0      # XP for level 1→2; the whole curve scales off this
+const BASE_XP: float = 117.0      # XP for level 1→2; the whole curve scales off this
 const GROWTH:  float = 1.12       # each level costs GROWTH× the previous (early fast, late grind)
 const MAX_LEVEL: int = 50         # level cap; XP stops accruing once reached
 # Early-level XP-requirement discount (levels 1-6 cheaper; 7+ unchanged). Applied in xp_to_next().

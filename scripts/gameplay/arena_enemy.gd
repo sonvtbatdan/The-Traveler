@@ -337,6 +337,8 @@ var sfx_bus: String = "SFX"          # audio bus for this enemy's sounds (menu r
 var _jump_interval: float = 1.0   # jump_diag (spider): randomized per jump (±0.5 s)
 # "alive" motion state
 var _facing: float = 0.0
+var _idle_spin: float = 0.0   # rad/s in-place sprite spin for stationary props (dead-ship wrecks); 0 = off
+var _drop_loot: String = ""   # loot type dropped on death via _mgr.spawn_loot (e.g. "orb_of_light"); "" = none
 var _prev_pos: Vector2 = Vector2.ZERO
 var _bob_phase: float = 0.0
 var _bob_freq: float = 3.0
@@ -438,6 +440,8 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_magma_split     = bool(d.get("magma_split", false))
 	_anti_magnetic   = bool(d.get("anti_magnetic", false))
 	_gauss_shooter   = bool(d.get("gauss_shooter", false))
+	_idle_spin       = float(d.get("idle_spin", 0.0))    # stationary in-place spin (dead-ship wrecks)
+	_drop_loot       = String(d.get("drop_loot", ""))    # custom loot dropped on death
 	_plume_flipbook  = bool(d.get("plume_flipbook", true))   # DEFAULT batched: one shared MultiMesh for ALL enemy plumes instead of a CPUParticles2D per enemy (huge win at high counts). A def may opt back to legacy with plume_flipbook=false.
 	_force_draw_w    = float(d.get("draw_w", 0.0))
 	if _force_draw_w > 0.0:
@@ -1308,6 +1312,10 @@ func _die() -> void:
 			ui.call("grant_reward")
 	if _squid_attached:
 		_squid_detach()   # stop slowing the ship the instant this squid dies
+	# Custom loot on death (e.g. the dead-ship wrecks' orb of light). Because a wreck is now a real enemy,
+	# it already takes every weapon effect + bullet bounce; this is the only bespoke bit it needs.
+	if _drop_loot != "" and _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("spawn_loot"):
+		_mgr.spawn_loot(global_position, _drop_loot)
 	# Drop a collectible XP orb (the player magnetizes + collects it) instead of granting XP instantly.
 	if xp > 0:
 		# Data Harvester "double orb": a chance (× Stroke of Luck) to drop double XP.
@@ -1716,6 +1724,8 @@ func _process(delta: float) -> void:
 	if behavior != "centipede" and behavior != "squid" and behavior != "mothership" and not _docked and intended.length() > 0.5:
 		_facing = lerp_angle(_facing, intended.angle() + PI * 0.5, clampf(TURN_RATE * delta, 0.0, 1.0))
 	_prev_pos = global_position
+	if _idle_spin != 0.0:
+		_facing += _idle_spin * delta   # slow in-place rotation for stationary wrecks (dummy behavior)
 	if not _frames.is_empty():
 		_anim_acc += delta
 		var fd: float = float(_delays[_anim_frame]) if _anim_frame < _delays.size() else 0.1

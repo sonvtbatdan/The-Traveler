@@ -31,9 +31,9 @@ const ENEMY_DEFS := {
 	"centipede":{"behavior": "centipede", "lvl": true, "hp": 15.0,  "speed": 225.0, "size": 20.0, "contact": 20, "xp": 0.75, "armor": 7.0, "icon": "res://assets/enemiesHD/centipedehead.png"},   # speed kept at 225 (75% Viper) per latest instruction; table lists 100
 	"dragonfly":{"behavior": "orbit",     "hp": 30.0,  "speed": 130.0, "size": 16.0, "contact": 5,  "explodes": true, "xp": 1.5, "icon": "res://assets/enemiesHD/animaldragonfly.png"},
 	# ── A.I.nimal — insects (levels 1→3) ──
-	"swarm":    {"behavior": "swarm", "group": "insects", "level": 1, "blob": 50, "hp": 10.0, "speed": 200.0, "size": 12.0, "contact": 1, "explodes": true, "xp": 0.2, "icon": "res://assets/enemiesHD/swarm.png"},
+	"swarm":    {"behavior": "swarm", "group": "insects", "level": 1, "blob": 50, "hp": 200.0, "speed": 200.0, "size": 12.0, "contact": 1, "explodes": true, "xp": 0.2, "icon": "res://assets/enemiesHD/swarm.png"},
 	"fly":      {"behavior": "chase", "group": "insects", "level": 1, "hp": 20.0, "speed": 80.0, "size": 7.2,  "contact": 2, "explodes": true, "xp": 1.0, "plume_flipbook": true, "icon": "res://assets/enemiesHD/animalflies.png"},
-	"bug":      {"behavior": "chase", "plume_flipbook": true, "group": "insects", "level": 2, "hp": 200.0, "speed": 80.0, "size": 15.4, "contact": 3, "explodes": true, "xp": 5.0, "icon": "res://assets/enemiesHD/animalbug.png"},   # eye overlay dropped (animalbug_eye has no HD sprite)
+	"bug":      {"behavior": "chase", "plume_flipbook": true, "group": "insects", "level": 2, "hp": 400.0, "speed": 80.0, "size": 15.4, "contact": 3, "explodes": true, "xp": 5.0, "icon": "res://assets/enemiesHD/animalbug.png"},   # eye overlay dropped (animalbug_eye has no HD sprite)
 	"bee":      {"behavior": "chase", "group": "insects", "level": 2, "hp": 1000.0, "speed": 80.0, "size": 12.0, "contact": 3, "explodes": true, "xp": 10.0, "icon": "res://assets/enemiesHD/animalbee.png"},
 	"spider":   {"behavior": "jump_diag", "group": "insects", "level": 3, "hp": 100.0, "speed": 80.0, "size": 16.0, "contact": 8, "explodes": true, "xp": 5.0, "icon": "res://assets/enemiesHD/animalspider.png"},
 	# ── A.I.nimal — others ──
@@ -112,15 +112,15 @@ const ENEMY_DEFS := {
 	"pros8": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 0.35, "armor": 3.0, "icon": "res://assets/enemiesHD/pros8.png"},
 	"prosmotherblank": {"behavior": "mothership", "lvl": true, "hp": 150.0, "speed": 130.0, "size": 40.0, "contact": 30, "xp": 1.0, "armor": 7.0, "icon": "res://assets/enemiesHD/prosmotherblank.png"},   # carrier: docked pros escort + flee/release/respawn cycle (see arena_enemy.gd `mothership`)
 	# ── Level_1_Minh variants (see levels/arena/Level_1_Minh.json) ──
-	"bug_crawl":  {"behavior": "chase", "plume_flipbook": true,      "hp": 200.0,  "speed": 120.0, "size": 15.4, "contact": 3, "explodes": true, "xp": 5.0,  "icon": "res://assets/enemiesHD/animalbug.png"},
-	"swarm_loop": {"behavior": "swarm_loop", "plume_flipbook": true, "blob": 50,   "hp": 10.0,     "speed": 200.0, "size": 12.0, "contact": 1, "explodes": true, "xp": 0.2, "icon": "res://assets/enemiesHD/swarm.png"},
+	"bug_crawl":  {"behavior": "chase", "plume_flipbook": true,      "hp": 400.0,  "speed": 120.0, "size": 15.4, "contact": 3, "explodes": true, "xp": 5.0,  "icon": "res://assets/enemiesHD/animalbug.png"},
+	"swarm_loop": {"behavior": "swarm_loop", "plume_flipbook": true, "blob": 50,   "hp": 200.0,    "speed": 200.0, "size": 12.0, "contact": 1, "explodes": true, "xp": 0.2, "icon": "res://assets/enemiesHD/swarm.png"},
 	"bee_dive":   {"behavior": "bee_dive", "plume_flipbook": true,   "hp": 1000.0, "speed": 150.0, "size": 12.0, "contact": 3, "explodes": true, "xp": 10.0, "icon": "res://assets/enemiesHD/animalbee.png"},
 	# ── Elites (milestone mini-bosses at 5/10/15 min). "elite": true → bypasses the alive-cap and, on death,
 	# grants a NEW arena item (arena_enemy._die → levelup_ui.grant_reward). Each is its base insect with
 	# 50× HP, 3× size, +50% speed ("same deal with all of them").
-	"elite_fly": {"behavior": "chase", "elite": true, "group": "insects", "hp": 2000.0,  "speed": 120.0, "size": 27.0, "contact": 2, "explodes": true, "xp": 25.0,  "icon": "res://assets/enemiesHD/animalflies.png"},
-	"elite_bug": {"behavior": "chase", "elite": true, "plume_flipbook": true, "group": "insects", "hp": 20000.0, "speed": 180.0, "size": 46.2, "contact": 3, "explodes": true, "xp": 50.0,  "icon": "res://assets/enemiesHD/animalbug.png"},
-	"elite_bee": {"behavior": "chase", "elite": true, "group": "insects", "hp": 100000.0, "speed": 225.0, "size": 36.0, "contact": 3, "explodes": true, "xp": 100.0, "icon": "res://assets/enemiesHD/animalbee.png"},
+	"elite_fly": {"behavior": "chase", "elite": true, "group": "insects", "hp": 2000.0,  "speed": 120.0, "size": 54.0, "contact": 2, "explodes": true, "xp": 25.0,  "icon": "res://assets/enemiesHD/animalflies.png"},
+	"elite_bug": {"behavior": "chase", "elite": true, "plume_flipbook": true, "group": "insects", "hp": 20000.0, "speed": 180.0, "size": 92.4, "contact": 3, "explodes": true, "xp": 50.0,  "icon": "res://assets/enemiesHD/animalbug.png"},
+	"elite_bee": {"behavior": "chase", "elite": true, "group": "insects", "hp": 100000.0, "speed": 225.0, "size": 72.0, "contact": 3, "explodes": true, "xp": 100.0, "icon": "res://assets/enemiesHD/animalbee.png"},
 	# bosses — big high-HP stubs (real movesets later)
 	"elephant":  {"behavior": "boss_stub", "hp": 5500.0, "speed": 110.0, "size": 70.0, "contact": 40, "xp": 25.0, "shape": "circle",   "tint": Color(0.75, 0.70, 0.65), "icon": "res://assets/bosses/elephant/elephant.sheet.png", "boss_script": "res://scripts/gameplay/arena_elephant.gd"},
 	"chromeleon":{"behavior": "boss_stub", "hp": 4200.0, "speed": 70.0, "size": 60.0, "contact": 35, "xp": 20.0, "shape": "diamond",  "tint": Color(0.45, 0.90, 0.65), "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},
@@ -522,10 +522,29 @@ func _spawn_center() -> Vector2:
 func _radius() -> float:
 	return SPAWN_RADIUS + randf_range(-SPAWN_VARY, SPAWN_VARY)
 
+# ── Directional spawn bias ─────────────────────────────────────────────────────
+# With BLOCK_BIAS probability a spawn's base angle lands within ±BLOCK_CONE of the player's current
+# movement heading, so enemies tend to appear in the path the player is pushing into (à la Left 4 Dead's
+# AI Director). Otherwise the angle is fully random; a near-stationary player has no heading → stays
+# random. Applied to every spawn that has no authored "angle" (trickle scatter + the formation bases).
+const BLOCK_BIAS      := 0.5              # fraction of un-authored spawns biased toward the heading
+const BLOCK_CONE      := deg_to_rad(75.0) # half-width of the forward cone the biased spawns land in
+const BLOCK_MIN_SPEED := 20.0             # px/s below which there's no meaningful heading → stay random
+
+func _biased_angle() -> float:
+	if _player == null or not is_instance_valid(_player):
+		return randf() * TAU
+	# _player is typed Node2D; velocity lives on CharacterBody2D → fetch via get() to avoid a typed-access error.
+	var vv: Variant = _player.get("velocity")
+	var vel: Vector2 = vv if vv is Vector2 else Vector2.ZERO
+	if vel.length() < BLOCK_MIN_SPEED or randf() >= BLOCK_BIAS:
+		return randf() * TAU
+	return vel.angle() + randf_range(-BLOCK_CONE, BLOCK_CONE)
+
 func _one_position(angle_deg: float = NAN) -> Vector2:
 	var a: float
 	if is_nan(angle_deg):
-		a = randf() * TAU
+		a = _biased_angle()
 	else:
 		a = deg_to_rad(angle_deg) + randf_range(-0.15, 0.15)   # small jitter around the fixed heading
 	return _spawn_center() + Vector2(cos(a), sin(a)) * _radius()
@@ -535,12 +554,12 @@ func _pattern_positions(pattern: String, count: int, angle_deg: float = NAN) -> 
 	var c := _spawn_center()
 	match pattern:
 		"ring":   # evenly spaced full circle (anchored at angle_deg when given)
-			var off: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else randf() * TAU
+			var off: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else _biased_angle()
 			for k in count:
 				var a := off + TAU * float(k) / float(count)
 				out.append(c + Vector2(cos(a), sin(a)) * _radius())
 		"arc":    # partial arc from a random (or fixed) direction
-			var start: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else randf() * TAU
+			var start: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else _biased_angle()
 			var span := deg_to_rad(120.0)
 			for k in count:
 				var a := start + span * (float(k) / float(maxi(1, count - 1)) - 0.5)
@@ -549,7 +568,7 @@ func _pattern_positions(pattern: String, count: int, angle_deg: float = NAN) -> 
 			for k in count:
 				out.append(_one_position(angle_deg))
 		"pincer":   # two tight clusters on OPPOSITE flanks, both converging on the player
-			var pbase: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else randf() * TAU
+			var pbase: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else _biased_angle()
 			var pspan := deg_to_rad(45.0)
 			var per := int(ceil(count / 2.0))
 			for k in count:
@@ -557,7 +576,7 @@ func _pattern_positions(pattern: String, count: int, angle_deg: float = NAN) -> 
 				var t := (float(k / 2) / float(maxi(1, per - 1))) - 0.5
 				out.append(c + Vector2(cos(pbase + flank + pspan * t), sin(pbase + flank + pspan * t)) * _radius())
 		"wall":   # a straight line abreast (perpendicular to the approach) that advances as one front
-			var wa: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else randf() * TAU
+			var wa: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else _biased_angle()
 			var wdir := Vector2(cos(wa), sin(wa))
 			var wperp := Vector2(-wdir.y, wdir.x)
 			var wcenter := c + wdir * _radius()             # one radius call → the line stays straight
@@ -566,7 +585,7 @@ func _pattern_positions(pattern: String, count: int, angle_deg: float = NAN) -> 
 				var t := (float(k) / float(maxi(1, count - 1))) - 0.5
 				out.append(wcenter + wperp * (t * wwidth))
 		"wedge":   # arrowhead pointing AT the player: leader at the tip, ranks fan out behind it
-			var ga: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else randf() * TAU
+			var ga: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else _biased_angle()
 			var gdir := Vector2(cos(ga), sin(ga))
 			var gperp := Vector2(-gdir.y, gdir.x)
 			var tip := c + gdir * _radius()
@@ -576,7 +595,7 @@ func _pattern_positions(pattern: String, count: int, angle_deg: float = NAN) -> 
 				var side := 1.0 if (k % 2 == 1) else -1.0    # alternate wings
 				out.append(tip + gdir * (46.0 * float(rank)) + gperp * (40.0 * float(rank) * side))
 		"portal":   # a single off-screen "gate": the whole group pours in tightly from ONE point
-			var qa: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else randf() * TAU
+			var qa: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else _biased_angle()
 			var gate := c + Vector2(cos(qa), sin(qa)) * _radius()
 			for k in count:
 				var ja := randf() * TAU
