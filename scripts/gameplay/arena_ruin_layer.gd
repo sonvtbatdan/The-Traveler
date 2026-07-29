@@ -5,8 +5,8 @@ extends Node2D
 ## THEN-current position (not the original run-start point) so later wrecks stay reachable as the run
 ## goes on. Each wreck handles its own lifecycle (giant ship → orb of light on death).
 
-const RuinScript := preload("res://scripts/gameplay/arena_ruin.gd")
 const RuinPointerScript := preload("res://scripts/ui/hud/arena_ruin_pointer.gd")  # edge-of-screen icon + distance
+const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 
 const SHIP_COUNT   := 2       # wrecks spawned at run start
 const DIST_MIN     := 10000.0 # minimum spawn distance from player (px)
@@ -14,6 +14,9 @@ const DIST_MAX     := 15000.0 # maximum spawn distance from player (px)
 const ANGLE_MIN    := 60.0    # minimum angle (deg) between the two run-start wrecks, as seen from the player
 const ANGLE_MAX    := 120.0   # maximum angle (deg) between the two run-start wrecks
 const PERIODIC_INTERVAL := 180.0   # seconds between each additional wreck after the run-start pair (3 min)
+const GIANT_HP     := 10000.0 # matches the old dedicated arena_ruin.gd's SHIP_HP
+const GIANT_SIZE   := 280.0   # matches the old arena_ruin.gd's SHIP_WIDTH (4x the old 70px ruin)
+const GIANT_SPIN   := 8.0     # deg/s idle spin, matches the old arena_ruin.gd's ROT_SPEED
 
 var _mgr: Node = null
 var _player: Node2D = null
@@ -35,7 +38,10 @@ func _process(delta: float) -> void:
 	_periodic_acc += delta
 	if _periodic_acc >= PERIODIC_INTERVAL:
 		_periodic_acc -= PERIODIC_INTERVAL
-		_spawn_one_wreck(_player.global_position, randf() * TAU)
+		var angle := randf() * TAU
+		var dist := randf_range(DIST_MIN, DIST_MAX)
+		var pos: Vector2 = _player.global_position + Vector2(cos(angle), sin(angle)) * dist
+		_spawn_wreck(pos, randi_range(1, 4))
 
 func _spawn_wrecks() -> void:
 	var origin := _player.global_position
