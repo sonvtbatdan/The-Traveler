@@ -568,7 +568,11 @@ func _load_or_create_layer(layer_name: String) -> void:
 		return
 	for ext: String in ["png", "gif", "jpg", "jpeg"]:
 		var path: String = MENU_FOLDER + layer_name + "." + ext
+		var _t0 := Time.get_ticks_usec()   # TEMP DIAGNOSTIC — menu startup freeze investigation
 		var tex := _load_full_tex(path)
+		var _dt := (Time.get_ticks_usec() - _t0) / 1000.0
+		if tex != null and _dt >= 1.0:
+			print("[menu-startup]     layer '%s' texture load: %.1fms" % [layer_name, _dt])
 		if tex == null:
 			continue
 		var geom: Dictionary = _default_geom(layer_name, tex)

@@ -3,6 +3,20 @@
 > Module của [`CLAUDE.md`](../CLAUDE.md). Đọc file này khi làm bất cứ thứ gì liên quan HUD in-game (thanh HP/Shield/Level, slot weapon/aux, nút Menu/Inv, coin/kill, layout HUD).
 > Cơ chế **editor** (kéo/thả, groups, blend, save layout) nằm chi tiết ở [`docs/dev_mode.md`](dev_mode.md) — file này là bức tranh tổng + các lưu ý sống còn.
 
+## Changelog — 2026-07-28 — Level Up board: hover-away falls back to the selected perk's info
+
+Bug: `arena_levelup_ui.gd._board_click()`'s `mouse_exited` handler only reset the hover-scale VFX — it
+never touched `_hover_preview_idx`, so once you'd hovered a card, `UpgradeDesc`/stat deltas (driven by
+`_board_render_updesc()`/`_board_render_stats()`, both gated on `_hover_preview_idx`) stayed frozen on
+whatever was hovered LAST, even after the mouse left every card and even if you'd since clicked a
+DIFFERENT card to actually select it (`_pending_pick_idx`). Fixed: `mouse_exited` now also reverts
+`_hover_preview_idx` back to `_pending_pick_idx` (re-rendering updesc/stats) whenever something is already
+selected (`_pending_pick_idx >= 0`) and the preview isn't already showing it — so leaving all cards shows
+the SELECTED perk's info again, and hovering any card still previews that card's info as before. Only the
+active **board**-authored path (`_board_click`, gated by `_use_board()`/`_board_authored()`) was touched —
+the legacy non-board fallback (`_make_option_box`/`_render_options`) is a different, currently-inactive
+code path and wasn't touched.
+
 ## ⚠️ TL;DR — điều PHẢI biết trước khi đụng HUD
 
 1. **Có HAI hệ HUD trong repo, chỉ 1 cái đang bật:**
@@ -167,7 +181,9 @@ HUD 1.1 dùng art riêng cho nút Menu/Inv: `menu1`/`inv1` (+`…press`, `assets
 
 `_option_icon_tex(c)` = điểm vào DUY NHẤT resolve icon cho 1 card dict `c` bất kỳ (top-level pick / pool perk / capstone): `cat=="pool"` thử icon RIÊNG của weapon-perk trước (`_weapon_perk_icon_tex`), fallback xuống nhánh dưới nếu không có; rồi `def_id != ""` → weapon (`InventoryManager`, tức icon weapon cha cho pool-perk chưa có art + mọi new/capstone/fusion); else aux — nếu `cat=="aux_pool"` thử icon RIÊNG của perk trước (`_perk_icon_tex`), fallback icon **aux cha** (`_aux_icon_tex(_aux_id_for(c))`); còn lại (capstone, aux đơn) luôn dùng icon aux cha. **Weapon capstone (evolve level-6) vẫn CHƯA có icon riêng** — luôn hiện icon weapon cha (khác aux capstone, cũng fallback icon cha nhưng ít nhất đã có hệ đó).
 
-**Audit** (`assets/hud/weapon perks/`, 9 folder = 9 weapon có pool): Minigun 7/7, Death Beam 6/6, Arc Lightning 6/6, Gauss Pulser 6/6 (qua alias `aoe`), Z-Sword 6/6 (qua alias `cooldown`→`cd`), sonic 5/5 (qua alias `cooldown`→`cd`), red X 6/6 (thêm perk mới `armor_reduction`/"Melting Steel Beam" — **data + icon xong, CHƯA có gameplay effect** — cần hook giảm armor enemy theo `_burn_stacks`, chưa implement) — **còn thiếu**: Orbital Defender 6/7 (thiếu `spin2`/"Flywheel"), Chemtrail 4/5 (thiếu `intensity`/"Intensity Mastery"). Orbital cũng vừa thêm perk mới `widen`/"Widen" (+5% orbit distance, +7.5% damage) — **đã implement đầy đủ** trong `_orbital_radius()`/`_orbital_dmg_value()`.
+**Audit** (`assets/hud/weapon perks/`, 9 folder = 9 weapon có pool): Minigun 6/6, Death Beam 6/6, Arc Lightning 6/6, Gauss Pulser 6/6 (qua alias `aoe`), Z-Sword 6/6 (qua alias `cooldown`→`cd`), sonic 5/5 (qua alias `cooldown`→`cd`), red X 6/6 (thêm perk mới `armor_reduction`/"Melting Steel Beam" — **data + icon xong, CHƯA có gameplay effect** — cần hook giảm armor enemy theo `_burn_stacks`, chưa implement), Orbital Defender 7/7 (gồm `spin2`/"Flywheel"), Chemtrail 5/5 (gồm `intensity`/"Intensity Mastery") — **note cũ ghi 2 file này "còn thiếu" đã lỗi thời, file đã có sẵn từ trước**. Orbital cũng vừa thêm perk mới `widen`/"Widen" (+5% orbit distance, +7.5% damage) — **đã implement đầy đủ** trong `_orbital_radius()`/`_orbital_dmg_value()`.
+
+**Bug đã sửa (2026-07-27):** `WEAPON_PERK_FOLDER` (`arena_levelup_ui.gd`) dùng key sai cho 2 weapon — `"gatling"` thay vì kind thật `"gatling_gun"`, `"snake"` thay vì kind thật `"viper"` — khiến `_weapon_perk_icon_tex()` luôn bail sớm ở `WEAPON_PERK_FOLDER.has(kind)` (false) cho MỌI perk của Gatling Gun + Viper, rơi về icon weapon cha dù file art đã có sẵn đầy đủ (`Gatling/`, `snake/` folder, 6/6 file mỗi bên). Đã đổi key đúng theo kind thật (folder name giữ nguyên, chỉ đổi key dict).
 
 **Scale — GPU stretch, KHÔNG CPU resize:** `_contain_box(native, max_w, max_h)` tính kích thước CONTAIN-fit (giữ aspect, cả 2 chiều đều ≤ box, trục nào chặt hơn quyết định) thuần toán học; `_fit_texture_rect(tex, max_w, max_h)` dựng `TextureRect` với `expand_mode=EXPAND_IGNORE_SIZE` + `stretch_mode=STRETCH_KEEP_ASPECT_CENTERED` — **y hệt cách weapon icon vẫn làm**, để GPU tự co giãn lúc vẽ. Đã thử CPU `Image.resize()` (kể cả LANCZOS) trước — nét kém hẳn so với GPU stretch dù cùng tỉ lệ thu nhỏ lớn (so sánh trực tiếp với weapon icon, nguồn cũng to tương đương ~2000-2900px). **Đừng quay lại CPU resize** cho icon aux/perk trừ khi có bằng chứng ngược lại.
 

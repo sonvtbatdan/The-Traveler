@@ -33,15 +33,22 @@ var _settings: Node = null
 var _hovered: String = ""   # basename of the button currently hovered ("" = none)
 
 func _ready() -> void:
+	# TEMP DIAGNOSTIC — timing breakdown for the "menu sometimes freezes on startup" report.
+	# Safe to delete once the cause is confirmed/fixed.
+	var _t0 := Time.get_ticks_usec()
 	process_mode = Node.PROCESS_MODE_ALWAYS   # so F4 still toggles while the editor pauses the tree
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	SettingsScript.apply_saved()              # apply saved SFX volume + window mode at startup
+	print("[menu-startup] apply_saved: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 	_settings = SettingsScript.new()
 	add_child(_settings)
+	print("[menu-startup] settings panel build: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 	_build_toast()
 	_setup_edit_mode()
+	print("[menu-startup] TOTAL _ready: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0))
 
 func _setup_edit_mode() -> void:
+	var _t0 := Time.get_ticks_usec()
 	# Full-screen Control as the ObjectsContainer the editor places sprites into
 	# (same role as edit_mode's ObjectsContainer in main.gd / arena.gd). These placed
 	# objects are also the live menu visuals.
@@ -54,13 +61,16 @@ func _setup_edit_mode() -> void:
 	cl.add_child(oc)
 	_edit = EditScript.new()
 	add_child(_edit)
+	print("[menu-startup]   edit_mode _ready (UI build): %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 	_edit.setup(oc)
+	print("[menu-startup]   edit_mode.setup (layer texture loads): %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 
 	# Decorative flying-enemy backdrop (real arena AI; shooters fire; no bosses). Added into the
 	# same object container so it sits over the starfield but under the Logo / buttons.
 	var spawner := SpawnerScript.new()
 	spawner.setup(oc)
 	add_child(spawner)
+	print("[menu-startup]   spawner add_child (prespawn): %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0))
 
 # ── Button input (manual hit-test — see main_menu_edit_mode.gd) ────────────────────
 

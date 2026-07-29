@@ -4,6 +4,7 @@ extends CanvasLayer
 ##
 ## Hotkeys (F-keys always active regardless of DEV_MODE):
 ##   F3        Boss Edit (toggle)
+##   F4        Skip run — simulate a full run's rewards (coin/field-drop/fragments/level-ups) then jump to RUN OVER
 ##   F5        Asteroid field near player       Shift+F5  = clear
 ##   F6        Planet menu
 ##   F7        Wave editor
@@ -11,8 +12,8 @@ extends CanvasLayer
 ##   F10       Planet + moons near player       Shift+F10 = clear
 ##   F11       Space structure (cycles types)   Shift+F11 = clear
 ##   F12       (removed — use Dev:on → Weapon panel)
-##   [−]/[+]   Fire rate mult
-##   [+Level]  Force level-up
+## (Bottom-center Level Up / Fire-rate +/- row removed — force level-up now lives in
+## arena_hud_buttons.gd's dev column as the +LEVEL button.)
 
 const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const WaveDir   := preload("res://scripts/gameplay/arena_wave_director.gd")
@@ -71,8 +72,6 @@ const WEAPON_TABS := {
 		{"kind": "vampire_host",    "def_id": "offensive_orbitals",     "label": "Vampire Host (old)",  "from": "Swarm + Sonic — reworked"},
 		{"kind": "toxic_ballistic", "def_id": "homing_missile", "label": "Toxic Ballistic",     "from": "homing + chemtrail → Venomancer"},
 		{"kind": "singularities",   "def_id": "defensive_orbitals",       "label": "Singularities (old)", "from": "orbital + void — reworked"},
-		{"kind": "", "def_id": "plasma_drill",     "label": "Plasma Drill",     "from": "retired item", "ph": true},
-		{"kind": "", "def_id": "parasite_gun",     "label": "Parasite Gun",     "from": "retired item", "ph": true},
 		{"kind": "", "def_id": "shield_generator", "label": "Shield Generator", "from": "retired item", "ph": true},
 	],
 }
@@ -109,13 +108,12 @@ const QUICK_BOSS_IDS: Array[String] = ["elephant", "chromeleon", "metalfly"]
 # Set true to show the hotkey panel + fire-rate controls at startup.
 const DEV_MODE := false
 
-const FR_STEP        := 0.5    # fire-rate mult change per +/- press (tune for faster/slower testing)
-const GAT_INTERVAL   := 0.09   # mirrors arena_weapons.gd GAT_FIRE_INTERVAL (keep in sync if changed)
-const FR_MULT_MIN    := 0.5    # clamp floor so fire rate can't go negative or too slow
+const SIM_KILLS        := 150  # F4 skip-run: creep kills to simulate (drives coin + field-drop rolls)
+const SIM_BOSSES       := 2    # F4 skip-run: boss kills to simulate (drives fragment rolls)
+const SIM_TARGET_LEVEL := 15   # F4 skip-run: in-run level to simulate reaching (drives attribute points)
 
 var _rng := RandomNumberGenerator.new()
 var _struct_cycle: int = 0   # F11 steps through the four structure types
-var _fr_label: Label = null
 var _dev_ui_root: Control = null
 var _creep_panel:  Panel = null   # Quick Spawn (creep) — button-toggled, default hidden
 var _weapon_panel: Panel = null   # Spawn Weapon — button-toggled, default hidden
@@ -134,14 +132,18 @@ var _hotkey_panel: Panel = null   # Hotkey help (right side) — button-toggled,
 var _click_player: AudioStreamPlayer = null   # uiclick — local + ALWAYS so it sounds while paused
 
 func _ready() -> void:
+	# TEMP DIAGNOSTIC — see the note on arena.gd's _ready() timers. Safe to delete once the cause is found.
+	var _t0 := Time.get_ticks_usec()
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	layer = 60   # all Dev:on panels above the mortar/fatboy blast distortion (shockwave layer 8) + the HUD; below modals (settings 100)
 	add_to_group("arena_debug_spawn")
 	_rng.randomize()
 	_build_fire_rate_ui()
 	_build_hotkey_panel()
-	_build_quick_spawn_panel()
-	_build_weapon_spawn_panel()
+	print("[arena-startup]   debug_spawn fire_rate+hotkey UI: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
+	# _build_quick_spawn_panel()/_build_weapon_spawn_panel() moved to lazy first-open (see toggle_creep_panel()/
+	# toggle_weapon_panel()) — they were loading a thumbnail per enemy/weapon (~430ms combined) on every single
+	# arena boot even though both panels start hidden and most players never open them.
 	_click_player = AudioStreamPlayer.new()
 	_click_player.stream = SFX_UICLICK
 	_click_player.bus = "SFX"
@@ -190,12 +192,16 @@ func set_dev_ui_visible(v: bool) -> void:
 		_hide_fleet_preview()
 
 func toggle_creep_panel() -> void:
+	if _creep_panel == null:
+		_build_quick_spawn_panel()   # first open: pay the ~80-enemy thumbnail-load cost now instead of at boot
 	if _creep_panel != null:
 		_creep_panel.visible = not _creep_panel.visible
 		if not _creep_panel.visible:
 			_hide_fleet_preview()
 
 func toggle_weapon_panel() -> void:
+	if _weapon_panel == null:
+		_build_weapon_spawn_panel()   # first open: pay the weapon thumbnail-load cost now instead of at boot
 	if _weapon_panel != null:
 		_weapon_panel.visible = not _weapon_panel.visible
 
@@ -203,89 +209,24 @@ func toggle_hotkey_panel() -> void:
 	if _hotkey_panel != null:
 		_hotkey_panel.visible = not _hotkey_panel.visible
 
+## Shared invisible root for the dev popups built elsewhere in this file (Quick Spawn / Weapon / Hotkey
+## panels) — used to just host the bottom-center Level Up / Fire-rate row, which has been removed (Level
+## Up now lives in arena_hud_buttons.gd's dev column as +LEVEL; the row overflowed screen width alongside it).
 func _build_fire_rate_ui() -> void:
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
-
-	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 6)
-	hb.anchor_left   = 0.5
-	hb.anchor_right  = 0.5
-	hb.anchor_top    = 1.0
-	hb.anchor_bottom = 1.0
-	hb.offset_left   = -210
-	hb.offset_right  =  210
-	hb.offset_top    =  -38
-	hb.offset_bottom =  -8
-	root.add_child(hb)
 	_dev_ui_root = root
-
-	# Left-most: a dedicated "Level Up" button — one player level per click.
-	var btn_levelup := Button.new()
-	btn_levelup.text = "Level Up"
-	btn_levelup.custom_minimum_size = Vector2(84, 28)
-	btn_levelup.pressed.connect(_add_level)
-	hb.add_child(btn_levelup)
-
-	var btn_minus := Button.new()
-	btn_minus.text = "−"
-	btn_minus.custom_minimum_size = Vector2(32, 28)
-	btn_minus.pressed.connect(_fr_decrease)
-	hb.add_child(btn_minus)
-
-	_fr_label = Label.new()
-	_fr_label.custom_minimum_size = Vector2(260, 28)
-	_fr_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_fr_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	hb.add_child(_fr_label)
-
-	var btn_plus := Button.new()
-	btn_plus.text = "+"
-	btn_plus.custom_minimum_size = Vector2(32, 28)
-	btn_plus.pressed.connect(_fr_increase)
-	hb.add_child(btn_plus)
-
-	var sep := Control.new()
-	sep.custom_minimum_size = Vector2(16, 0)
-	hb.add_child(sep)
-
-	var btn_lvl := Button.new()
-	btn_lvl.text = "+ Level"
-	btn_lvl.custom_minimum_size = Vector2(72, 28)
-	btn_lvl.pressed.connect(_add_level)
-	hb.add_child(btn_lvl)
-
-func _add_level() -> void:
-	if GameManager.has_method("add_xp"):
-		var level: int = GameManager.player_level if "player_level" in GameManager else 1
-		var xp_needed: int = GameManager.xp_to_next(level) if GameManager.has_method("xp_to_next") else 100
-		GameManager.add_xp(xp_needed)
-
-func _fr_increase() -> void:
-	if GameManager.has_method("add_fire_rate"):
-		GameManager.add_fire_rate(FR_STEP)
-
-func _fr_decrease() -> void:
-	if GameManager.has_method("add_fire_rate") and GameManager.upg_fire_rate_mult - FR_STEP >= FR_MULT_MIN:
-		GameManager.add_fire_rate(-FR_STEP)
-
-func _process(_delta: float) -> void:
-	if _fr_label == null or not GameManager.has_method("get_fire_rate_mult"):
-		return
-	var mult: float = GameManager.get_fire_rate_mult()
-	var shots_per_sec: float = mult / GAT_INTERVAL
-	var barrels: int = maxi(1, floori(shots_per_sec / 10.0))
-	_fr_label.text = "Fire: %.1f/s  |  %d barrel%s  |  ×%.2f" % [
-		shots_per_sec, barrels, "s" if barrels > 1 else " ", mult
-	]
 
 func _input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
 	var key := event as InputEventKey
 	match key.keycode:
+		KEY_F4:
+			_skip_run()
+			get_viewport().set_input_as_handled()
 		KEY_F5:
 			if key.shift_pressed: _clear("arena_asteroids")
 			else: _spawn_asteroids()
@@ -302,6 +243,23 @@ func _input(event: InputEvent) -> void:
 			if key.shift_pressed: _clear("arena_structures")
 			else: _spawn_structure_cycle()
 			get_viewport().set_input_as_handled()
+
+## Debug: skip the rest of the current run — grants roughly what a real run of SIM_KILLS kills / SIM_BOSSES
+## bosses / SIM_TARGET_LEVEL levels would have paid out (coins, field-drop weapon/aux tokens, boss fragments,
+## attribute points from leveling), then jumps straight to the RUN OVER screen. Persistent rewards only —
+## in-run-only state (equipped weapons/aux, HP) is simply discarded, same as any other run ending.
+func _skip_run() -> void:
+	if MetaManager.has_method("simulate_run_rewards"):
+		MetaManager.simulate_run_rewards(SIM_KILLS, SIM_BOSSES)
+	if GameManager.has_method("add_xp") and GameManager.has_method("xp_to_next"):
+		var total_xp := 0.0
+		for lvl in range(1, SIM_TARGET_LEVEL):
+			total_xp += float(GameManager.xp_to_next(lvl))
+		GameManager.add_xp(total_xp)
+	var arena := get_parent()
+	if arena != null and arena.has_method("force_end_run"):
+		arena.call("force_end_run")
+	print("[debug] F4 skip run — simulated %d kills / %d bosses / level %d" % [SIM_KILLS, SIM_BOSSES, SIM_TARGET_LEVEL])
 
 func _near_player() -> Vector2:
 	var cam := get_viewport().get_camera_2d()
@@ -641,14 +599,23 @@ func _load_thumb(icon: String) -> Texture2D:
 		t = load(icon) as Texture2D   # HD failed to load (e.g. not imported) → standard sprite
 	return t
 
+## Shift+Click a quick-spawn cell to mass-spawn BULK_SPAWN_COUNT at once instead of 1 — a fast way
+## to reach a stress-test population (e.g. reproduce the arena's creep-count FPS cliff) without
+## waiting for the wave timeline to build up naturally over real playtime.
+const BULK_SPAWN_COUNT := 300
+
 func _spawn_quick_enemy(type_id: String) -> void:
-	# Random position within roughly the visible viewport
 	var cam := get_viewport().get_camera_2d()
 	var base := cam.global_position if cam != null else Vector2.ZERO
-	var pos := base + Vector2(_rng.randf_range(-500.0, 500.0), _rng.randf_range(-270.0, 270.0))
-	_spawn_enemy_at(type_id, pos)
+	var n := BULK_SPAWN_COUNT if Input.is_key_pressed(KEY_SHIFT) else 1
+	for _i in n:
+		var pos := base + Vector2(_rng.randf_range(-500.0, 500.0), _rng.randf_range(-270.0, 270.0))
+		_spawn_enemy_at(type_id, pos)
 
-## Instantiate one enemy of `type_id` at `pos` (shared by quick-spawn + fleet-spawn).
+## Instantiate one enemy of `type_id` at `pos` (shared by quick-spawn + fleet-spawn). Routes through
+## the wave director's own _spawn() when available so debug-spawned enemies go through the SAME
+## path as real gameplay spawns — including the MAX_ALIVE cap. Falls back to the old direct-instantiate
+## path only if no wave director is present at all.
 func _spawn_enemy_at(type_id: String, pos: Vector2) -> void:
 	var src: Dictionary = WaveDir.ENEMY_DEFS.get(type_id, {})
 	if src.is_empty():
@@ -657,9 +624,12 @@ func _spawn_enemy_at(type_id: String, pos: Vector2) -> void:
 	if String(src.get("behavior", "")) == "mothership":
 		if _deploy_fleet_via_director(_fleet_name_containing(type_id)):
 			return
+	var wd := get_tree().get_first_node_in_group("wave_director")
+	if wd != null:
+		wd.call("_spawn", type_id, pos, false)
+		return
 	var def := src.duplicate()
 	var mgr := get_tree().get_first_node_in_group("enemy_manager")
-
 	var e: Node
 	if def.has("boss_script"):
 		var bs := load(String(def["boss_script"])) as GDScript
@@ -668,16 +638,12 @@ func _spawn_enemy_at(type_id: String, pos: Vector2) -> void:
 		e = EnemyScript.new()
 	e.call("configure", type_id, mgr, def)
 	e.set("position", pos)
-	e.add_to_group("quick_spawn_enemy")
+	get_tree().current_scene.add_child(e)
 
-	var wd := get_tree().get_first_node_in_group("wave_director")
-	if wd != null:
-		wd.get_parent().add_child(e)
-	else:
-		get_tree().current_scene.add_child(e)
-
+## "CLEAR ALL" — wipes every live creep on the arena (real wave-director spawns included, not just ones
+## quick-spawned through this panel), matching what a dev testing the arena actually wants: a clean field.
 func _clear_quick_spawn() -> void:
-	for e: Node in get_tree().get_nodes_in_group("quick_spawn_enemy"):
+	for e: Node in get_tree().get_nodes_in_group("arena_enemy"):
 		if is_instance_valid(e):
 			e.queue_free()
 
@@ -987,6 +953,7 @@ func _build_hotkey_panel() -> void:
 
 	var rows: Array[String] = [
 		"F3         Boss Edit (toggle)",
+		"F4         Skip run (sim rewards → RUN OVER)",
 		"F5         Asteroids          Shift+F5  clear",
 		"F6         Planet menu",
 		"F7         Wave editor",
@@ -994,8 +961,6 @@ func _build_hotkey_panel() -> void:
 		"F10        Planet + moons     Shift+F10 clear",
 		"F11        Structure          Shift+F11 clear",
 		"F12        DeathBeam pickup      Shift+F12 clear",
-		"[ − ] [ + ]  Fire rate",
-		"[ +Level ]   Level up",
 	]
 	for row: String in rows:
 		var lbl := Label.new()

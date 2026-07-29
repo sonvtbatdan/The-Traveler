@@ -46,6 +46,13 @@ func _ready() -> void:
 		sm.set_shader_parameter("mode", 0)   # Screen
 		_sprite.material = sm
 		_base_scale = SPRITE_WIDTH / maxf(1.0, float(tex.get_width()))
+		# Set the real scale/alpha NOW, not just in _process(): the Sprite2D would otherwise sit at its
+		# default scale (1.0 = full native texture size, e.g. hundreds of px) for however many frames pass
+		# before _process() first runs — a single huge unscaled frame flashing on screen. Harmless-looking
+		# on the old flat 2D ship art, but glaring once the SubViewport-rendered 3D ship made that frame
+		# actually get composited.
+		_sprite.scale = Vector2(_base_scale, _base_scale)
+		_sprite.modulate.a = _glow_alpha()
 		add_child(_sprite)
 		# Rotation/position are inherited for free: this node (and the sprite) is a direct child of the
 		# ship, so it turns and moves with it without any extra code.
@@ -88,7 +95,7 @@ func _glow_alpha() -> float:
 	var envelope := 1.0
 	if _t >= warn_start:
 		envelope = 1.0 - clampf((_t - warn_start) / WARN_T, 0.0, 1.0)
-	return (0.4 + 0.6 * (0.5 + 0.5 * sin(_blink_phase))) * envelope
+	return (0.7 + 0.3 * (0.5 + 0.5 * sin(_blink_phase))) * envelope   # brighter floor — reads clearly, not washed-out/faint
 
 func _kill_touching_enemies(delta: float) -> void:
 	if _player == null or not is_instance_valid(_player):

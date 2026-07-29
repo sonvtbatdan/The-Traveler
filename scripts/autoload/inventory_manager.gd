@@ -34,29 +34,23 @@ const BACKPACK_COLS := 10
 const BACKPACK_ROWS := 13   # was 6 — enlarged so the debug "one of every item" grant (weapons + 10 hulls, ~108 cells) fits
 
 # The physical equip slots.
+## Combat weapon kinds are picked via the Hub LOADOUT tab (MetaManager.loadout) and shown live in the
+## Inventory screen's 5-slot WEAPONS row (from arena_weapons) — not equipped from the backpack, so
+## "primary_weapon" was dropped entirely. "secondary_weapon" survives as the shield-only slot (its real
+## gameplay effect). drone_1/drone_2 and the single-placeholder gear slots (radar/energy_core/wings/
+## relic/command_bridge) were removed earlier — drone combat is now the arena_weapons.gd orbital/swarm
+## roster, and the other five never had more than one placeholder ITEM_DEFS entry each.
 const EQUIP_SLOTS: Array[String] = [
-	"primary_weapon", "secondary_weapon", "thruster", "command_bridge", "hull",
-	"energy_core", "radar", "drone_1", "drone_2", "wings", "relic",
+	"secondary_weapon", "thruster", "hull",
 ]
 
 # What each physical slot accepts, by item tag (see ITEM_DEFS "tags").
 #   "any"     = item fits if it has AT LEAST ONE of these tags
 #   "exclude" = item is rejected if it has ANY of these tags (takes priority)
-# So Primary takes weapons but never shields; Secondary takes weapons OR shields;
-# a shield (incl. the weapon+shield Ionizing Field) is therefore secondary-only.
-# drone_1 / drone_2 both take the generic "drone" tag, so any drone fits either.
 const SLOT_RULES: Dictionary = {
-	"primary_weapon":   {"any": ["weapon"],           "exclude": ["shield"]},
-	"secondary_weapon": {"any": ["weapon", "shield"], "exclude": []},
-	"thruster":         {"any": ["thruster"],         "exclude": []},
-	"command_bridge":   {"any": ["command_bridge"],   "exclude": []},
-	"hull":             {"any": ["hull"],             "exclude": []},
-	"energy_core":      {"any": ["energy_core"],      "exclude": []},
-	"radar":            {"any": ["radar"],            "exclude": []},
-	"drone_1":          {"any": ["drone"],            "exclude": []},
-	"drone_2":          {"any": ["drone"],            "exclude": []},
-	"wings":            {"any": ["wings"],            "exclude": []},
-	"relic":            {"any": ["relic"],            "exclude": []},
+	"secondary_weapon": {"any": ["shield"], "exclude": []},
+	"thruster":         {"any": ["thruster"], "exclude": []},
+	"hull":             {"any": ["hull"], "exclude": []},
 }
 
 # Placeholder icon colour per rarity (used until real art is added).
@@ -114,28 +108,6 @@ const ITEM_DEFS: Dictionary = {
 			"cooldown_sec": 1.5,   # full charge time; damage scales linearly up to this
 			"weight": 8,
 			"energy_per_shot": 10,
-		},
-	},
-	"acid_sprayer": {
-		"name": "Acid Sprayer",
-		"icon": "",   # "" → runtime placeholder; drop a PNG path here later for art
-		"size": Vector2i(2, 2),
-		"tags": ["weapon"],
-		"fire_mode": "repeat",
-		"fire_type": "acid_cloud",   # lob a glob that settles into a damaging armor-shredding mist
-		"rarity": "uncommon",
-		"group": "area_dot",
-		"damage_kind": ["bio"],
-		"desc": "Lob a glob of acid mist that settles into a cloud. Enemies inside take steady damage and lose armor — softening them up for your other guns.",
-		"stats": {
-			"cooldown_sec": 1.0,
-			"ammo_cost": 12,               # per shot
-			"tick_damage": 8,              # damage per tick (through enemy armor) — Phase 6: 5→8 (DoT was underweight)
-			"tick_interval_sec": 0.5,      # → 16 DPS while inside, plus armor shred + AoE
-			"shred_per_sec": 1,            # armor an enemy loses per second inside the cloud
-			"cloud_lifetime_sec": 5.0,
-			"cloud_radius": 90,
-			"weight": 4,
 		},
 	},
 	"dragons_breath": {
@@ -235,30 +207,6 @@ const ITEM_DEFS: Dictionary = {
 			"energy": 7,   # energy per shot
 		},
 	},
-	"shotgun": {
-		"name": "Shotgun",
-		"icon": "res://assets/inventory/shotgun.png",
-		"size": Vector2i(2, 1),
-		"tags": ["weapon"],
-		"fire_mode": "repeat",
-		"fire_type": "cone",   # a spread of pellets that vanish after range_px
-		"rarity": "common",
-		"group": "ballistic",
-		"damage_kind": ["kinetic"],
-		"uses_ammo": true,
-		"desc": "Short-range burst of pellets in a cone. Fires a quick double-tap, then a brief reload. Devastating up close, harmless at range.",
-		"stats": {
-			"damage": 18,         # per pellet
-			"pellets": 5,
-			"burst_count": 2,     # fires 2 cone volleys in quick succession...
-			"burst_gap_sec": 0.12,# ...this fast apart...
-			"cooldown_sec": 1.0,  # ...then a 1s internal reload before the next burst
-			"range_px": 216,
-			"spread_deg": 34,
-			"weight": 5,
-			"ammo": 2,            # 2 ammo/s drain while firing
-		},
-	},
 	"death_beam": {
 		"name": "Death Beam",
 		"icon": "res://assets/inventory/KM-SSL-A-Alt.png",
@@ -301,26 +249,6 @@ const ITEM_DEFS: Dictionary = {
 			"energy": 12,
 		},
 	},
-	"plasma_drill": {
-		"name": "Plasma Drill",
-		"icon": "res://assets/inventory/drill.png",
-		"size": Vector2i(2, 2),
-		"tags": ["weapon"],
-		"fire_mode": "beam",
-		"fire_type": "tether",   # short-range tether to the nearest target
-		"rarity": "rare",
-		"group": "hybrid",
-		"damage_kind": ["energy", "fire"],
-		"desc": "A short-range tether that latches the nearest target and drills it with massive sustained damage.",
-		"stats": {
-			"damage": 70,            # per tick
-			"tick_interval_sec": 0.2,
-			"range_px": 170,
-			"beam_width": 10,
-			"weight": 7,
-			"energy": 22,
-		},
-	},
 	"rift_maker": {
 		"name": "Rift Maker",
 		"icon": "res://assets/inventory/HZ-VD-S.png",
@@ -345,48 +273,6 @@ const ITEM_DEFS: Dictionary = {
 			"activation_ammo": 10,     # one-time ammo cost the moment you start holding
 		},
 	},
-	"parasite_gun": {
-		"name": "Parasite Gun",
-		"icon": "res://assets/inventory/parasite.png",
-		"size": Vector2i(2, 2),
-		"tags": ["weapon"],
-		"fire_mode": "repeat",
-		"fire_type": "parasite_blob",  # fire a blob that bursts on an enemy into orbiting parasites
-		"rarity": "rare",
-		"group": "summon",
-		"damage_kind": ["bio"],
-		"desc": "Fire a meaty blob that bursts on an enemy into parasites orbiting it like an atom, each gnawing it. Parasites stack and live briefly.",
-		"stats": {
-			"cooldown_sec": 1.0,           # blob fire rate
-			"ammo_cost": 20,               # ammo spent per blob (per-shot, handled in fire dispatch)
-			"parasites": 5,                # parasites spawned per blob hit
-			"shot_damage": 15,             # damage per parasite shot (through get_weapon_stat)
-			"shot_interval_sec": 0.5,      # each parasite shoots this often
-			"parasite_lifespan_sec": 3.0,  # parasites vanish after this long (or when the host dies)
-			"weight": 5,
-		},
-	},
-	"offensive_orbitals": {
-		"name": "Offensive Orbitals",
-		"icon": "res://assets/inventory/ND-OIF-F.png",
-		"size": Vector2i(2, 2),
-		"tags": ["weapon"],
-		"fire_mode": "channel",        # hold to sustain the swarm
-		"fire_type": "minion",         # spawns bats that auto-attack + body-block boss projectiles
-		"rarity": "uncommon",
-		"group": "summon",
-		"damage_kind": ["bio"],
-		"desc": "UAV tự động tìm và đâm vào các mục tiêu tiếp cận tàu",
-		"stats": {
-			"damage": 5,               # per bat hit
-			"attack_interval_sec": 0.4,
-			"bats": 4,
-			"respawn_sec": 3.0,
-			"bat_range_px": 260,       # how far a bat will roam to chase a target
-			"weight": 4,
-			"energy": 9,               # per second (energy OFF until uses_energy set)
-		},
-	},
 	"defensive_orbitals": {
 		"name": "Defensive Orbitals",
 		"icon": "res://assets/inventory/ND-OID-F.png",
@@ -406,93 +292,6 @@ const ITEM_DEFS: Dictionary = {
 			"activation_energy": 10, # one-time cost to start the overcharge
 		},
 	},
-	# ── New standard weapons (Phase 1) — fill out the 6-group taxonomy to 20 total. Icons are
-	# runtime placeholders ("") until art lands. New fire_types radial / splash_melee + projectile
-	# stats ricochet / pierce / splash_radius are handled by the shared engine (weapon_stats + the
-	# arena firing engine; back-ported to weapon_system for the main scene).
-	"ricochet_cannon": {
-		"name": "Ricochet Cannon",
-		"icon": "",
-		"size": Vector2i(2, 1),
-		"tags": ["weapon"],
-		"fire_mode": "repeat",
-		"fire_type": "projectile",
-		"rarity": "common",
-		"group": "ballistic",
-		"damage_kind": ["kinetic"],
-		"desc": "Fires bouncing slugs that ricochet off into nearby enemies. Great for clearing packs in tight space.",
-		"stats": { "damage": 12, "cooldown_sec": 0.3, "ricochet": 2, "ricochet_range_px": 220, "weight": 4 },
-	},
-	"flak_burst": {
-		"name": "Flak Burst",
-		"icon": "",
-		"size": Vector2i(2, 1),
-		"tags": ["weapon"],
-		"fire_mode": "repeat",
-		"fire_type": "cone",
-		"rarity": "uncommon",
-		"group": "ballistic",
-		"damage_kind": ["kinetic", "explosive"],
-		"uses_ammo": true,
-		"desc": "Spits a wide cone of flak shells that pop on contact for a little splash. Crowd shredder at mid range.",
-		"stats": { "damage": 14, "pellets": 6, "spread_deg": 50, "range_px": 280, "cooldown_sec": 0.8, "splash_radius": 34, "weight": 5, "ammo": 2 },
-	},
-	"shockwave_emitter": {
-		"name": "Shockwave Emitter",
-		"icon": "",
-		"size": Vector2i(2, 2),
-		"tags": ["weapon"],
-		"fire_mode": "repeat",
-		"fire_type": "radial",   # closed-range omnidirectional energy pulse around the ship
-		"rarity": "uncommon",
-		"group": "energy",
-		"damage_kind": ["energy"],
-		"uses_energy": true,
-		"desc": "Pulses a ring of force outward from the hull, knocking back and frying everything close. Pure point-blank defense.",
-		"stats": { "damage": 26, "cooldown_sec": 0.7, "radius_px": 170, "knockback": 220, "weight": 5, "energy_per_shot": 10 },
-	},
-	"tesla_coil": {
-		"name": "Tesla Coil",
-		"icon": "",
-		"size": Vector2i(2, 2),
-		"tags": ["weapon"],
-		"fire_mode": "repeat",
-		"fire_type": "chain",
-		"rarity": "rare",
-		"group": "energy",
-		"damage_kind": ["energy"],
-		"uses_energy": true,
-		"desc": "Auto-arcs lightning to the nearest target and forks aggressively to many more. Loves dense swarms.",
-		"stats": { "damage": 22, "cooldown_sec": 0.35, "chain_jumps": 6, "chain_range_px": 200, "weight": 6, "energy": 14 },
-	},
-	"railgun": {
-		"name": "Railgun",
-		"icon": "",
-		"size": Vector2i(3, 1),
-		"tags": ["weapon"],
-		"fire_mode": "charge",
-		"fire_type": "projectile",
-		"rarity": "rare",
-		"group": "hybrid",
-		"damage_kind": ["kinetic", "energy"],
-		"uses_energy": true,
-		"desc": "Charge, then launch a hypersonic slug that punches clean through a line of enemies. Snipe whole rows.",
-		"stats": { "damage": 140, "cooldown_sec": 1.2, "pierce": 5, "weight": 8, "energy_per_shot": 14 },
-	},
-	"splash_hammer": {
-		"name": "Splash Hammer",
-		"icon": "",
-		"size": Vector2i(2, 1),
-		"tags": ["weapon"],
-		"fire_mode": "repeat",
-		"fire_type": "splash_melee",   # short-range arc swing dealing splash damage in front
-		"rarity": "common",
-		"group": "explosive",
-		"damage_kind": ["kinetic", "explosive"],
-		"desc": "Swings a concussive hammer in a short arc, splashing everything in front of the ship. Brutal in melee.",
-		"stats": { "damage": 28, "cooldown_sec": 0.6, "range_px": 130, "arc_deg": 120, "weight": 5 },
-	},
-
 	# ── Unique weapons (Phase 1) — never random-rolled (see _is_craft_only). Each is assembled at the
 	# crafting bench once you own all its fragments. "fragments" lists the distinct piece names; the
 	# [fragments] save section (Phase 2) tracks which indices you own. very_rare=3 / unique=4 /
@@ -687,24 +486,6 @@ const ITEM_DEFS: Dictionary = {
 	# usable. Their stats are NOT wired to gameplay yet (descs say "coming soon"); the point for now
 	# is the equip requirement (set by rarity via REQ_BY_RARITY, gated on the attribute in _gating_attr).
 	# Drop a PNG path into "icon" and flesh out "stats" later — no other code change needed.
-	"targeting_radar": {
-		"name": "Targeting Radar", "icon": "", "size": Vector2i(2, 1), "tags": ["radar"],
-		"rarity": "rare",
-		"desc": "Sensor array. Requires Marksmanship to equip. (Bonus effect coming soon.)",
-		"stats": { "weight": 3 },
-	},
-	"fusion_core": {
-		"name": "Fusion Core", "icon": "", "size": Vector2i(2, 1), "tags": ["energy_core"],
-		"rarity": "rare",
-		"desc": "Reactor core. Requires Engineering to equip. (Bonus effect coming soon.)",
-		"stats": { "weight": 5 },
-	},
-	"glider_wings": {
-		"name": "Glider Wings", "icon": "", "size": Vector2i(2, 1), "tags": ["wings"],
-		"rarity": "rare",
-		"desc": "Aero foils. Requires Maneuverability to equip. (Bonus effect coming soon.)",
-		"stats": { "weight": 4 },
-	},
 	# ── Thrusters (Phase 5) — one per behaviour; the arena player controller reads stats.thruster_type.
 	"strong_thruster": {
 		"name": "Strong Thruster", "icon": "", "size": Vector2i(2, 1), "tags": ["thruster"],
@@ -731,80 +512,28 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "thruster_type": "defend", "push_radius": 170, "push_force": 560, "weight": 6 },
 	},
 
-	# ── Drones (Phase 5) — 5 archetypes via stats.drone_type; the arena loadout engine runs the behaviour.
-	# Two tiers each here (spanning rarities); more rarity variants are content fill-in.
-	"combat_drone": {
-		"name": "Combat Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
-		"rarity": "uncommon", "damage_kind": ["energy"],
-		"desc": "Autonomous gun drone — orbits and fires at the nearest enemy. Requires Maneuverability to equip.",
-		"stats": { "drone_type": "combat", "damage": 6, "fire_interval_sec": 0.5, "range_px": 420, "weight": 3 },
-	},
-	"combat_drone_mk2": {
-		"name": "War Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
-		"rarity": "very_rare", "damage_kind": ["energy"],
-		"desc": "A heavier gun drone — faster, harder-hitting bolts. Requires Maneuverability to equip.",
-		"stats": { "drone_type": "combat", "damage": 14, "fire_interval_sec": 0.35, "range_px": 520, "weight": 4 },
-	},
-	"guardian_drone": {
-		"name": "Guardian Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
-		"rarity": "common",
-		"desc": "Orbits close and shoves nearby enemy fire away from you. Requires Maneuverability to equip.",
-		"stats": { "drone_type": "defend", "push_radius": 110, "push_force": 320, "weight": 3 },
-	},
-	"guardian_drone_mk2": {
-		"name": "Aegis Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
-		"rarity": "rare",
-		"desc": "A stronger shield drone — a wider, harder bullet-sweep. Requires Maneuverability to equip.",
-		"stats": { "drone_type": "defend", "push_radius": 160, "push_force": 520, "weight": 3 },
-	},
-	"repair_drone": {
-		"name": "Repair Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
-		"rarity": "uncommon",
-		"desc": "Field-welds your hull, healing a trickle of HP over time. Requires Maneuverability to equip.",
-		"stats": { "drone_type": "repair", "heal_per_sec": 1.5, "weight": 3 },
-	},
-	"repair_drone_mk2": {
-		"name": "Medic Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
-		"rarity": "very_rare",
-		"desc": "An advanced repair unit — a steady, strong heal. Requires Maneuverability to equip.",
-		"stats": { "drone_type": "repair", "heal_per_sec": 4.0, "weight": 3 },
-	},
-	"collector_drone": {
-		"name": "Collector Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
-		"rarity": "common",
-		"desc": "Reels in nearby XP orbs so you don't have to chase them. Requires Maneuverability to equip.",
-		"stats": { "drone_type": "collect", "radius_px": 240, "weight": 2 },
-	},
-	"collector_drone_mk2": {
-		"name": "Magnet Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
-		"rarity": "rare",
-		"desc": "A wide-field collector — vacuums orbs from much farther out. Requires Maneuverability to equip.",
-		"stats": { "drone_type": "collect", "radius_px": 380, "weight": 2 },
-	},
-	"lucky_drone": {
-		"name": "Lucky Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
-		"rarity": "rare",
-		"desc": "A four-leaf charm core — nudges coin and item drop rates up. Requires Maneuverability to equip.",
-		"stats": { "drone_type": "lucky", "luck": 0.15, "weight": 2 },
-	},
-	"lucky_drone_mk2": {
-		"name": "Fortune Drone", "icon": "", "size": Vector2i(1, 1), "tags": ["drone"],
-		"rarity": "unique",
-		"desc": "Bends probability hard in your favour — a big luck boost. Requires Maneuverability to equip.",
-		"stats": { "drone_type": "lucky", "luck": 0.35, "weight": 2 },
-	},
-	"ancient_relic": {
-		"name": "Ancient Relic", "icon": "", "size": Vector2i(1, 2), "tags": ["relic"],
-		"rarity": "rare",
-		"desc": "A humming artifact. Requires Biotech to equip. (Bonus effect coming soon.)",
-		"stats": { "weight": 2 },
-	},
-	"command_core": {
-		"name": "Command Core", "icon": "", "size": Vector2i(2, 1), "tags": ["command_bridge"],
-		"rarity": "common",
-		"desc": "Bridge computer. No attribute requirement. (Bonus effect coming soon.)",
-		"stats": { "weight": 4 },
-	},
+	# ── Aux "field find" tokens — one per arena_aux.gd AUX_DEFS entry (def_id = "aux_" + aux id). Backpack-
+	# representable so a creep-kill field drop (MetaManager.roll_field_drop) can land in Cargo and be
+	# dragged onto an empty AUX slot. Rarity is bucketed from the aux's level-up roll weight (no gameplay
+	# stats live here — the real effect applies through arena_aux.gd once swapped in).
+	"aux_hp":          {"name": "Reinforcement Plate", "icon": "res://assets/hud/aux perk/hp/hp.png",                 "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "common",    "desc": "+20 Max HP."},
+	"aux_regen":       {"name": "Nanobots",             "icon": "res://assets/hud/aux perk/regen/regen.png",           "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "common",    "desc": "+0.5 HP/s regen."},
+	"aux_armor":       {"name": "Exoskeleton",          "icon": "res://assets/hud/aux perk/armor/armor.png",           "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "common",    "desc": "+2 Armor."},
+	"aux_force_field": {"name": "Force Field",          "icon": "res://assets/hud/aux perk/force_field/force_field.png", "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "uncommon",  "desc": "+20 Max Shield (1/s regen)."},
+	"aux_speed":       {"name": "Fins",                 "icon": "res://assets/hud/aux perk/speed/speed.png",           "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "common",    "desc": "+6% Speed."},
+	"aux_damage":      {"name": "Art of War",           "icon": "res://assets/hud/aux perk/damage/damage.png",         "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "uncommon",  "desc": "Damage masteries."},
+	"aux_fire_rate":   {"name": "Auto-Loader",          "icon": "res://assets/hud/aux perk/fire_rate/fire_rate.png",   "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "uncommon",  "desc": "+8% Fire Rate."},
+	"aux_armor_pen":   {"name": "Drill Bits",           "icon": "res://assets/hud/aux perk/armor_pen/armor_pen.png",   "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "rare",      "desc": "Armor penetration + bleed."},
+	"aux_crit":        {"name": "Aim Assistor",         "icon": "res://assets/hud/aux perk/crit/crit.png",             "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "uncommon",  "desc": "+5% Crit Chance."},
+	"aux_harmonizer":  {"name": "Harmonizer",           "icon": "res://assets/hud/aux perk/harmonizer.png",            "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "rare",      "desc": "+Type Damage."},
+	"aux_aoe":         {"name": "Explosivo",            "icon": "res://assets/hud/aux perk/aoe/aoe.png",               "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "rare",      "desc": "+25 AoE."},
+	"aux_pickup":      {"name": "Magnet",               "icon": "res://assets/hud/aux perk/pickup/pickup.png",         "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "common",    "desc": "+15% Pickup radius."},
+	"aux_xp":          {"name": "Data Harvester",       "icon": "res://assets/hud/aux perk/xp/xp.png",                 "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "uncommon",  "desc": "+10% EXP."},
+	"aux_spawn":       {"name": "Beacon",               "icon": "res://assets/hud/aux perk/spawn/spawn.png",           "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "rare",      "desc": "+15% Spawns."},
+	"aux_retaliation": {"name": "Barbed Wire",          "icon": "res://assets/hud/aux perk/retaliation/retaliation.png", "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "rare",      "desc": "+5 Retaliation."},
+	"aux_revival":     {"name": "Backup Image",         "icon": "res://assets/hud/aux perk/revival.png",               "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "very_rare", "desc": "+1 Revive."},
+	"aux_coin":        {"name": "Credit Extractor",     "icon": "res://assets/hud/aux perk/coin/coin.png",             "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "uncommon",  "desc": "+25% Coin."},
+
 	"yari_jaeger": {
 		"name": "Yari Jeager",
 		"icon": "res://assets/inventory/Yari-Jeager-idle.png",
@@ -924,7 +653,7 @@ const ITEM_DEFS: Dictionary = {
 # Items granted automatically the FIRST time a save is created (new game only).
 # Keeping this separate from ITEM_DEFS means future items (e.g. asteroid drops in
 # Phase 4) can be defined without being auto-placed in the backpack.
-const STARTER_ITEMS: Array[String] = ["gauss", "shield_generator", "gatling_gun", "homing_missile", "shotgun", "death_beam", "arc", "plasma_drill", "rift_maker", "parasite_gun", "offensive_orbitals", "defensive_orbitals", "acid_sprayer"]
+const STARTER_ITEMS: Array[String] = ["gauss", "shield_generator", "gatling_gun", "homing_missile", "death_beam", "arc", "rift_maker", "defensive_orbitals"]
 
 # ── Runtime state ─────────────────────────────────────────────────────────────
 # _items: uid(int) -> {"def": String, "where": String, "cell": Vector2i}
@@ -1157,6 +886,28 @@ func sell_item(uid: int) -> bool:
 	save_game()
 	if where != "backpack":
 		item_unequipped.emit(where, uid)   # let shield/weapon systems react
+	inventory_changed.emit()
+	return true
+
+## True if at least one instance of def_id exists anywhere in the inventory (backpack or equipped) —
+## used by the Hub Shop grid to show an "Owned" state instead of a price once a copy has been bought.
+func owns_def(def_id: String) -> bool:
+	for uid: int in _items:
+		if String(_items[uid]["def"]) == def_id:
+			return true
+	return false
+
+## Remove `uid` outright — no coin payment, no confirmation. Used when a Cargo item is CONSUMED by
+## swapping it into a live in-run WEAPONS/AUX slot (as opposed to sell_item(), which pays out and is
+## driven by the player's explicit right-click "Sell" confirm).
+func remove_item(uid: int) -> bool:
+	if not _items.has(uid):
+		return false
+	var where := String(_items[uid]["where"])
+	_items.erase(uid)
+	save_game()
+	if where != "backpack":
+		item_unequipped.emit(where, uid)
 	inventory_changed.emit()
 	return true
 

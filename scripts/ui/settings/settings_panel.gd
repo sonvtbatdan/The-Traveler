@@ -12,14 +12,20 @@ extends CanvasLayer
 ##             arena_aux.gd's AUX_POOL) actually changes; anything untranslated just falls back to
 ##             English. Read via `SettingsScript.load_cfg()["language"]` wherever localized text is
 ##             rendered (e.g. arena_levelup_ui.gd) — no live surface to swap, so no _apply_ needed.
-##   Dev Mode: switch replacing the (now-hidden) Devon button in arena_hud_buttons.gd — live-only, NOT
-##             persisted to disk (dev mode has always reset to off on every arena load; this keeps that).
-##             Applied via the "arena_hud_buttons" group, no-op in the Main Menu (no arena instance there).
-##   FPS     : switch showing/hiding perf_overlay.gd's top-right readout — same live-only pattern as Dev
-##             Mode (group "perf_overlay"), off by default, no-op in the Main Menu.
+##   Dev Mode: switch replacing the (now-hidden) Devon button in arena_hud_buttons.gd. Persisted to disk on
+##             Save (2026-07-27) — a saved "on" re-arms itself at the START of every arena load from then
+##             on (arena_hud_buttons.gd._ready() reads it), not just for the rest of the current session.
+##             Live-applied via the "arena_hud_buttons" group meanwhile, no-op in the Main Menu.
+##   FPS     : switch showing/hiding perf_overlay.gd's top-right readout — same persisted pattern as Dev
+##             Mode (2026-07-28): saved "on" re-arms itself at the START of every arena load
+##             (perf_overlay.gd._ready() reads it). Live-applied via group "perf_overlay" meanwhile,
+##             no-op in the Main Menu.
 ##   Save    : persist to user://settings.cfg + close.
 ##   Reset   : restore defaults (Volume 100%, Windowed, HUD 1.0, English) live (persisted only if you then Save).
 ##   Cancel  : revert any live change to the snapshot taken on open + close (no save).
+##   Quit    : in the Arena (group "player" present) → save progress + return to the Main Menu, same as
+##             arena_hud_buttons.gd's own (hidden) Quit button. At the Main Menu itself → save progress +
+##             exit the app, same as main_menu.gd's title-screen Quit button.
 ##
 ## Persistence lives in user://settings.cfg ([audio] sfx_volume, [display] fullscreen, [hud] version,
 ## [game] language).
@@ -61,6 +67,8 @@ static func load_cfg() -> Dictionary:
 		"fullscreen": bool(cfg.get_value("display", "fullscreen", DEF_FULLSCREEN)),
 		"hud_version": hud_version,
 		"language": language,
+		"dev_mode": bool(cfg.get_value("game", "dev_mode", false)),
+		"fps_shown": bool(cfg.get_value("game", "fps_shown", false)),
 	}
 
 static func _language_ids() -> Array:
@@ -79,8 +87,12 @@ static func _apply_volume(v: float) -> void:
 	AudioServer.set_bus_volume_db(idx, linear_to_db(maxf(v, 0.0001)))
 
 static func _apply_fullscreen(on: bool) -> void:
-	DisplayServer.window_set_mode(
-		DisplayServer.WINDOW_MODE_FULLSCREEN if on else DisplayServer.WINDOW_MODE_WINDOWED)
+	var _t0 := Time.get_ticks_usec()   # TEMP DIAGNOSTIC — menu startup freeze investigation
+	var target := DisplayServer.WINDOW_MODE_FULLSCREEN if on else DisplayServer.WINDOW_MODE_WINDOWED
+	var _already := DisplayServer.window_get_mode() == target
+	DisplayServer.window_set_mode(target)
+	print("[menu-startup] window_set_mode(%s, already-there=%s): %.1fms" % [
+		"fullscreen" if on else "windowed", _already, (Time.get_ticks_usec() - _t0) / 1000.0])
 
 ## Apply the persisted settings — call once at startup (entry scene _ready).
 static func apply_saved() -> void:
@@ -291,6 +303,7 @@ func _build_ui() -> void:
 	btn_row.add_child(_img_btn("save.png",   _on_save))
 	btn_row.add_child(_img_btn("reset.png",  _on_reset))
 	btn_row.add_child(_img_btn("cancel.png", _on_cancel))
+	btn_row.add_child(_img_btn("quit.png",   _on_quit))
 
 func _mode_btn(text: String) -> Button:
 	var b := Button.new()
@@ -416,6 +429,8 @@ func _on_save() -> void:
 	cfg.set_value("display", "fullscreen", _cur_fs)
 	cfg.set_value("hud", "version", _cur_hud)
 	cfg.set_value("game", "language", _cur_lang)
+	cfg.set_value("game", "dev_mode", _cur_dev)
+	cfg.set_value("game", "fps_shown", _cur_fps)
 	cfg.save(CFG_PATH)
 	_close()
 
@@ -442,6 +457,18 @@ func _on_cancel() -> void:
 	_apply_fps_shown(_snap_fps)
 	_cur_lang = _snap_lang   # no live surface to revert — just drop the unsaved pick
 	_close()
+
+## In the Arena → save + return to the Main Menu (mirrors arena_hud_buttons.gd's own hidden Quit button).
+## At the Main Menu itself (no "player" in the tree) → save + exit the app (mirrors main_menu.gd's Quit).
+func _on_quit() -> void:
+	for mgr in [GameManager, InventoryManager, MetaManager]:
+		if mgr != null and mgr.has_method("save_game"):
+			mgr.save_game()
+	if get_tree().get_first_node_in_group("player") != null:
+		get_tree().paused = false
+		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+	else:
+		get_tree().quit()
 
 # ── Helpers ──────────────────────────────────────────────────────────────────────
 func _load_tex(path: String) -> Texture2D:

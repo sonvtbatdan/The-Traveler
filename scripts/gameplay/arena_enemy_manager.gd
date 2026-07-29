@@ -15,6 +15,16 @@ const BULLET_MAX_LIFE  := 6.0
 const BULLET_MAX_DIST  := 2200.0
 const BULLET_COLOR     := Color(1.0, 0.45, 0.35)
 
+# "Jet Fighter" bullets (arena_enemy.gd's "shooter" behavior + spawn_mode_2's "steer_kiter", both the
+# jetfighter.png sprite) — spawn_bullet(..., kind="jetfighter") tags them so they get their own shorter max
+# range and a dedicated MultiMesh sprite (_jf_mm) instead of the generic circle+tail immediate-mode draw
+# every other enemy bullet still uses (see _draw()). Kept a separate MultiMesh from arena_weapons.gd's
+# Gatling one (different texture/owner script entirely) — same technique, ported.
+const JF_BULLET_TEX      := "res://assets/weaponry/jetfighterbullet.png"
+const JF_BULLET_LEN      := 22.0    # target on-screen height; width follows the source aspect ratio (112×280)
+const JF_BULLET_MAX_DIST := 2000.0
+const JF_MM_MAX          := 200     # generous headroom — shooter bursts are ≤4 bullets at a time, never Gatling-scale
+
 const HIT_FLASH_DUR := 0.12
 const HIT_FLASH_SHADER := """
 shader_type canvas_item;
@@ -31,10 +41,24 @@ void fragment() {
 """
 
 var _player: Node2D = null
-var _bullets: Array = []      # {pos, vel, dmg, life}
+var _bullets: Array = []      # {pos, vel, dmg, life, start, owner, kind}
+var _jf_mm: MultiMeshInstance2D = null   # renders every "jetfighter"-kind bullet — see _setup_jf_multimesh/_sync_jf_multimesh
 var _explosions: Array = []   # {pos, age, max_age, radius}
 var _lane_i: int = 0
 var _wanderer_i: int = 0
+
+# ── Jetfighter ("shooter" type_id) flock centroid ──────────────────────────────
+# A shared, periodically-recomputed centroid of every live jetfighter's position — read by arena_enemy.gd's
+# "shooter" case to bias its movement toward the group (cohesion), so they clump into one pack and move
+# together instead of each independently orbiting the player on its own. Computed HERE (once, O(alive), on
+# a timer) rather than per-jetfighter every frame, which would be O(alive) PER jetfighter — same "compute
+# once, let everyone read it" pattern as _vis_rect/_enemy_count above. Separation (not stacking on top of
+# each other) is untouched — the existing spatial-hash push-apart already handles that; this only adds the
+# "pull together when far apart" half of flocking.
+const JF_FLOCK_RECALC_EVERY := 0.4   # seconds between recomputes — the pack doesn't need frame-perfect tracking
+var _jf_flock_center: Vector2 = Vector2.ZERO
+var _jf_flock_valid: bool = false
+var _jf_flock_acc: float = 0.0
 
 var _hit_player: AudioStreamPlayer = null
 var _hit_flash_rect: ColorRect = null
@@ -111,6 +135,7 @@ func _ready() -> void:
 		add_child(bp)
 		_boom_pool.append(bp)
 	GameManager.player_hit.connect(_play_hit)
+	_setup_jf_multimesh()
 
 ## Death boom for a dying enemy — pooled + throttled (see _boom_pool). Call instead of spawning a player.
 func play_boom() -> void:
@@ -235,6 +260,8 @@ func _process(delta: float) -> void:
 	if _player == null or not is_instance_valid(_player):
 		_player = get_tree().get_first_node_in_group("player")
 	_tick_bullets(delta)
+	_sync_jf_multimesh()
+	_tick_jf_flock(delta)
 	_tick_explosions(delta)
 	queue_redraw()
 	if _hit_flash_rect != null:
@@ -247,6 +274,31 @@ func _process(delta: float) -> void:
 			_hit_flash_rect.show()
 		else:
 			_hit_flash_rect.hide()
+
+## Recomputes _jf_flock_center from every live "shooter"-type (jetfighter) enemy's position, throttled to
+## JF_FLOCK_RECALC_EVERY. O(alive) — cheap at the 500-enemy scale and only runs a few times/sec, not every frame.
+func _tick_jf_flock(delta: float) -> void:
+	_jf_flock_acc += delta
+	if _jf_flock_acc < JF_FLOCK_RECALC_EVERY:
+		return
+	_jf_flock_acc = 0.0
+	var sum := Vector2.ZERO
+	var n := 0
+	for e in get_tree().get_nodes_in_group("arena_enemy"):
+		if is_instance_valid(e) and String(e.get("_type")) == "shooter":
+			sum += (e as Node2D).global_position
+			n += 1
+	_jf_flock_valid = n > 0
+	if _jf_flock_valid:
+		_jf_flock_center = sum / float(n)
+
+## Read by arena_enemy.gd's "shooter" case for cohesion — check jf_flock_valid() first (false if no
+## jetfighter is alive yet, e.g. the very first one spawned has nothing to flock toward).
+func jf_flock_center() -> Vector2:
+	return _jf_flock_center
+
+func jf_flock_valid() -> bool:
+	return _jf_flock_valid
 
 # ── Legacy API (now world-space) ───────────────────────────────────────────────
 func ship_center() -> Vector2:
@@ -279,11 +331,11 @@ func take_wanderer_y_offset() -> float:
 	return o
 
 # ── Enemy bullets ───────────────────────────────────────────────────────────────
-func spawn_bullet(pos: Vector2, vel: Vector2, dmg: int, owner: Node = null) -> void:
+func spawn_bullet(pos: Vector2, vel: Vector2, dmg: int, owner: Node = null, kind: String = "") -> void:
 	var oid := owner.get_instance_id() if owner != null else 0
 	if GameManager.has_method("mech_bonus") and GameManager.mech_bonus("zone_of_peace") > 0.0:
 		vel *= 0.8   # Zone of Peace (Ionizing Field evolve): -20% enemy projectile speed
-	_bullets.append({"pos": pos, "vel": vel, "dmg": dmg, "life": 0.0, "start": pos, "owner": oid})
+	_bullets.append({"pos": pos, "vel": vel, "dmg": dmg, "life": 0.0, "start": pos, "owner": oid, "kind": kind})
 
 ## Destroy every live enemy projectile (Sonic's Deafening Silence evolution).
 func clear_bullets() -> void:
@@ -335,13 +387,25 @@ func _tick_bullets(delta: float) -> void:
 		if blocked:
 			_bullets.remove_at(i)
 		elif p.distance_to(sc) <= sr + BULLET_RADIUS:
+			_report_bullet_owner(int(b.get("owner", 0)))
 			GameManager.ship_take_damage(int(b["dmg"]))
 			_bullets.remove_at(i)
 		elif _bullet_hits_enemy(p, int(b.get("owner", 0)), int(b["dmg"])):
 			_bullets.remove_at(i)   # bullets also damage enemies (charmed shooters fire on the swarm; friendly fire)
-		elif float(b["life"]) >= BULLET_MAX_LIFE or p.distance_to(b["start"]) >= BULLET_MAX_DIST:
-			_bullets.remove_at(i)
+		else:
+			var max_dist := JF_BULLET_MAX_DIST if String(b.get("kind", "")) == "jetfighter" else BULLET_MAX_DIST
+			if float(b["life"]) >= BULLET_MAX_LIFE or p.distance_to(b["start"]) >= max_dist:
+				_bullets.remove_at(i)
 		i -= 1
+
+## RUN OVER's "last hit by" — resolves a bullet's owner instance id (arena_enemy.gd's group "arena_enemy")
+## back to the enemy node and records it. No-op if the owner is gone/invalid (already died, etc.).
+func _report_bullet_owner(owner_id: int) -> void:
+	if owner_id == 0 or not GameManager.has_method("record_last_hit"):
+		return
+	var owner := instance_from_id(owner_id)
+	if owner != null and is_instance_valid(owner):
+		GameManager.record_last_hit(String(owner.get("_type")).capitalize(), String(owner.get("_original_icon")))
 
 ## A bullet at `p` damages the first enemy it touches (excluding its owner). Returns true if it hit one.
 func _bullet_hits_enemy(p: Vector2, owner_id: int, dmg: int) -> bool:
@@ -359,6 +423,8 @@ func _bullet_hits_enemy(p: Vector2, owner_id: int, dmg: int) -> bool:
 func explode(blast_center: Vector2, blast_radius: float, dmg: int, source: Node = null) -> void:
 	# Player
 	if ship_center().distance_to(blast_center) <= blast_radius + ship_radius():
+		if source != null and is_instance_valid(source) and GameManager.has_method("record_last_hit"):
+			GameManager.record_last_hit(String(source.get("_type")).capitalize(), String(source.get("_original_icon")))
 		GameManager.ship_take_damage(dmg)
 	# All enemies (skip the source so a bomb doesn't re-hit itself in a chain)
 	for en in get_tree().get_nodes_in_group("arena_enemy"):
@@ -413,7 +479,7 @@ func throw_bomb(pos: Vector2) -> void:
 ## Spawn a small flock of bee enemies near the player — used by the F12 debug palette to test plume VFX.
 func spawn_bee() -> void:
 	const BEE_DEF := {"behavior": "swarm_dive", "hp": 20.0, "speed": 150.0, "size": 12.0,
-		"contact": 8, "explodes": true, "xp": 0.15, "icon": "res://assets/enemiesHD/animalbee.png"}
+		"contact": 8, "explodes": true, "xp": 2.0, "icon": "res://assets/enemiesHD/animalbee.png"}
 	var pp := ship_center()
 	for i in 6:
 		var e := ArenaEnemyScript.new()
@@ -446,6 +512,8 @@ func _play_hit() -> void:
 # ── Draw bullets + explosion rings (world space) ───────────────────────────────
 func _draw() -> void:
 	for b: Dictionary in _bullets:
+		if String(b.get("kind", "")) == "jetfighter":
+			continue   # rendered via _jf_mm (MultiMesh) instead — see _sync_jf_multimesh()
 		var p: Vector2 = b["pos"]
 		var v: Vector2 = b["vel"]
 		var dir := v.normalized() if v.length() > 0.01 else Vector2.UP
@@ -458,3 +526,48 @@ func _draw() -> void:
 		var r := float(e["radius"]) * (0.4 + 0.6 * t)
 		draw_arc(e["pos"], r, 0.0, TAU, 32, Color(1.0, 0.55, 0.2, 1.0 - t), 3.0)
 		draw_circle(e["pos"], r * 0.5, Color(1.0, 0.7, 0.3, (1.0 - t) * 0.4))
+
+## MultiMeshInstance2D for every "jetfighter"-kind bullet (arena_enemy.gd's "shooter" behavior + spawn_mode_2's
+## "steer_kiter") — same technique as arena_weapons.gd's Gatling tracer (_setup_gat_multimesh), ported here
+## since these bullets live in a different array/script. Sprite scaled to JF_BULLET_LEN height, width from
+## the source aspect ratio (never stretched, per the project's image rules).
+func _setup_jf_multimesh() -> void:
+	var tex := load(JF_BULLET_TEX) as Texture2D
+	if tex == null:
+		return
+	_jf_mm = MultiMeshInstance2D.new()
+	_jf_mm.texture = tex
+	_jf_mm.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_2D
+	var quad := QuadMesh.new()
+	var tw := float(tex.get_width())
+	var th := float(tex.get_height())
+	var disp_h := JF_BULLET_LEN
+	var disp_w := disp_h * tw / maxf(1.0, th)
+	quad.size = Vector2(disp_w, disp_h)
+	mm.mesh = quad
+	mm.instance_count = JF_MM_MAX
+	mm.visible_instance_count = 0
+	_jf_mm.multimesh = mm
+	add_child(_jf_mm)
+
+## Rewrites every visible instance transform from the "jetfighter"-kind subset of _bullets — called once per
+## frame right after _tick_bullets() moves/removes them. Sprite's default pose assumed nose-up (-Y); flip
+## JF_SPRITE_ROT_OFFSET's sign if the art's nose turns out to face the other way (untested assumption, same
+## caveat as arena_weapons.gd's GAT_SPRITE_ROT_OFFSET).
+const JF_SPRITE_ROT_OFFSET := PI * 0.5
+func _sync_jf_multimesh() -> void:
+	if _jf_mm == null:
+		return
+	var i := 0
+	for b: Dictionary in _bullets:
+		if i >= JF_MM_MAX:
+			break
+		if String(b.get("kind", "")) != "jetfighter":
+			continue
+		var vel: Vector2 = b.get("vel", Vector2.ZERO)
+		var ang := (vel.angle() + JF_SPRITE_ROT_OFFSET) if vel.length_squared() > 0.01 else 0.0
+		_jf_mm.multimesh.set_instance_transform_2d(i, Transform2D(ang, b["pos"] as Vector2))
+		i += 1
+	_jf_mm.multimesh.visible_instance_count = i

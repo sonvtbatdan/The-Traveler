@@ -11,6 +11,7 @@ extends CanvasLayer
 
 const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
 const LEVELS_DIR := "res://levels/arena"
+const LAST_WAVE_CFG := "res://spawn_mode_2_wave.cfg"   # remembers the last-Loaded file — MUST match arena_wave_director_v2.gd's copy of this path
 const TEST_WAVES := 20   # how many repeating time points a Quick-test builds (each spawns COUNT enemies)
 const GRID_STEP := 5.0   # seconds between template rows
 const GRID_ROWS := 360   # 5, 10, … , 1800
@@ -40,7 +41,9 @@ func _ready() -> void:
 	add_to_group("wave_editor")   # the dev:on Wave_edit button toggles us via this group
 	layer = 100
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	_font = load(FONT_PATH) as FontFile
+	# _font intentionally left null — every "if _font: ...add_theme_font_override(...)" call site in this
+	# file then no-ops, so every label/button/field falls back to Godot's default theme font instead of
+	# Gameplay.ttf. FONT_PATH is kept (unused) in case this needs reverting.
 	_director = get_tree().get_first_node_in_group("wave_director")
 	if _director != null and _director.has_method("enemy_types"):
 		_types = _director.enemy_types()
@@ -70,6 +73,25 @@ func _toggle() -> void:
 		_rebuild_rows()
 		_refresh_files()
 		_refresh_readout()
+		_sync_active_file()
+
+## Reflects whatever file is actually driving the CURRENT run (arena_wave_director_v2.gd's own
+## _load_remembered_timeline() already auto-loaded it into the live timeline at run start — this just
+## syncs the Name field + file dropdown selection to match, so opening F7 doesn't show a blank "my_timeline"
+## placeholder next to rows that are actually the active file's). Purely cosmetic — the rows themselves
+## (_rebuild_rows(), just above) already come from _director.get_timeline() regardless.
+func _sync_active_file() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(LAST_WAVE_CFG) != OK:
+		return
+	var fname := String(cfg.get_value("wave", "last_file", ""))
+	if fname == "":
+		return
+	_name_edit.text = fname.get_basename()
+	for i in _file_opt.item_count:
+		if _file_opt.get_item_text(i) == fname:
+			_file_opt.selected = i
+			return
 
 func _process(_delta: float) -> void:
 	if _open and _director != null and _director.has_method("elapsed"):
@@ -117,7 +139,9 @@ func _build_ui() -> void:
 	_file_opt.custom_minimum_size = Vector2(220, 0)
 	if _font: _file_opt.add_theme_font_override("font", _font)
 	lib.add_child(_file_opt)
-	lib.add_child(_mk_button("Load", _on_load))
+	var load_btn := _mk_button("Load", _on_load)
+	load_btn.add_theme_color_override("font_color", Color(0.35, 0.9, 0.35))
+	lib.add_child(load_btn)
 	lib.add_child(_mk_button("Refresh", _refresh_files))
 	_status = _mk_label("", 11)
 	_status.add_theme_color_override("font_color", Color(0.7, 1.0, 0.7))
@@ -146,10 +170,10 @@ func _build_ui() -> void:
 	vb.add_child(HSeparator.new())
 
 	# Column header. Count / Pattern / Dur / Boss now live PER-SLOT inside the Type popup, so the table is just
-	# Time + Type(Blank/Set) + delete.
+	# Time + Type(Blank/Set) + Total HP + delete.
 	var hdr := HBoxContainer.new()
 	hdr.add_theme_constant_override("separation", 8)
-	for h: Array in [["Time(s)", 90], ["Type (Blank / Set)", 220], ["", 36]]:
+	for h: Array in [["Time(s)", 90], ["Type (Blank / Set)", 220], ["Total HP", 130], ["", 36]]:
 		var l := _mk_label(String(h[0]), 11)
 		l.custom_minimum_size = Vector2(float(h[1]), 0)
 		hdr.add_child(l)
@@ -169,9 +193,13 @@ func _build_ui() -> void:
 	vb.add_child(btns)
 	btns.add_child(_mk_button("+ Add Wave", _on_add))
 	btns.add_child(_mk_button("Sort by time", _on_sort))
-	btns.add_child(_mk_button("Apply & Restart", _on_apply))
+	var apply_btn := _mk_button("Apply & Restart", _on_apply)
+	apply_btn.add_theme_color_override("font_color", Color(0.95, 0.85, 0.2))
+	btns.add_child(apply_btn)
 	btns.add_child(_mk_button("Reset (blank 360 grid)", _on_reset))
-	btns.add_child(_mk_button("Close", _toggle))
+	var close_btn := _mk_button("Close", _toggle)
+	close_btn.add_theme_color_override("font_color", Color(0.95, 0.3, 0.3))
+	btns.add_child(close_btn)
 
 	_readout = TextEdit.new()
 	_readout.editable = false
@@ -216,6 +244,7 @@ func _rebuild_rows() -> void:
 				}
 				break
 		_update_type_btn(row)
+		_update_row_hp(row)
 
 ## Find the template row whose time matches `t` snapped to the nearest 5s grid point (clamped 5…1800).
 func _grid_row_for_time(t: float) -> Dictionary:
@@ -239,6 +268,11 @@ func _add_row(time: float, preset_slots: Array = []) -> void:
 	if _font: type_btn.add_theme_font_override("font", _font)
 	hb.add_child(type_btn)
 
+	# Total HP — sum of (base hp × count) across this row's filled, non-fleet slots. See _row_total_hp().
+	var hp_lbl := _mk_label("HP 0", 12)
+	hp_lbl.custom_minimum_size = Vector2(130, 0)
+	hb.add_child(hp_lbl)
+
 	var clr := Button.new()
 	clr.text = "X"
 	clr.tooltip_text = "Clear this row's units/fleets (back to Blank)"
@@ -250,10 +284,11 @@ func _add_row(time: float, preset_slots: Array = []) -> void:
 	var slots: Array = []
 	for i in SLOTS_PER_ROW:
 		slots.append(preset_slots[i] if i < preset_slots.size() else _slot_default())
-	var row := {"hbox": hb, "time": time_sb, "type_btn": type_btn, "slots": slots}
+	var row := {"hbox": hb, "time": time_sb, "type_btn": type_btn, "hp_lbl": hp_lbl, "slots": slots}
 	type_btn.pressed.connect(func() -> void: _open_type_dropdown(row))
 	clr.pressed.connect(func() -> void: _clear_row(row))
 	_update_type_btn(row)
+	_update_row_hp(row)
 	_rows.append(row)
 
 ## Empty every slot of a row (back to Blank). The row itself stays — X no longer deletes rows.
@@ -262,6 +297,82 @@ func _clear_row(row: Dictionary) -> void:
 	for i in slots.size():
 		slots[i] = _slot_default()
 	_update_type_btn(row)
+	_update_row_hp(row)
+
+## Sum of (base hp × count × blob) across this row's filled slots, "fleet:" slots included: a fleet slot's
+## contribution is _fleet_total_hp(name) (sum of every unit in the fleet — see its own comment) × the
+## slot's own "n" (count) = how many times that whole formation deploys (mirrors the Unit slot's count).
+## "blob" (e.g. "swarm", blob:50)
+## multiplies in too — each queued position for a blob type actually spawns `blob` creeps around it at
+## runtime (_tl_queue_or_spawn()), not just 1, so `count` alone understates the real total for those types.
+## Uses the RAW def "hp" — NOT the runtime-applied ENEMY_HP_TUNE (×2) or any "lvl"/Beacon/Champion
+## multiplier, since those depend on player level/aux state unknowable at authoring time — read as a
+## relative/base-line indicator, not the exact in-run total. Fleet deployment (incl. "count"/n) is now
+## wired up in arena_wave_director_v2.gd's _deploy_fleet(), so this matches what actually spawns.
+func _row_total_hp(row: Dictionary) -> float:
+	var total := 0.0
+	if _director == null:
+		return total
+	for s: Dictionary in row["slots"]:
+		var ty := String(s.get("type", ""))
+		if ty == "":
+			continue
+		if ty.begins_with("fleet:"):
+			total += _fleet_total_hp(ty.substr(6)) * float(int(s.get("count", 1)))
+			continue
+		var d: Dictionary = _director.ENEMY_DEFS.get(ty, {})
+		var hp := float(d.get("hp", 0.0))
+		var blob := maxi(1, int(d.get("blob", 1)))
+		total += hp * float(int(s.get("count", 1))) * float(blob)
+	return total
+
+## Total HP of fleet `fleet_name`: hp × blob summed over EVERY unit listed in EVERY slot's "enemies" array
+## (per explicit correction — the fleet's HP is the sum of all its units, full stop). Note this counts every
+## entry in a multi-option slot (e.g. Kingdom1's ["sentinel2","sentinel1"] slot) even though
+## arena_wave_director.gd's _deploy_fleet() only rolls ONE of them at actual deploy time — this is an
+## authored/planning total ("everything in the fleet"), not a probability-weighted runtime estimate.
+func _fleet_total_hp(fleet_name: String) -> float:
+	if _director == null:
+		return 0.0
+	var fleet: Dictionary = {}
+	for fl in _load_fleets():
+		if String((fl as Dictionary).get("name", "")) == fleet_name:
+			fleet = fl
+			break
+	if fleet.is_empty():
+		return 0.0
+	var total := 0.0
+	for s: Dictionary in (fleet.get("slots", []) as Array):
+		for en in (s.get("enemies", []) as Array):
+			var id := String(en)
+			if id == "":
+				continue
+			var d: Dictionary = _director.ENEMY_DEFS.get(id, {})
+			total += float(d.get("hp", 0.0)) * float(maxi(1, int(d.get("blob", 1))))
+	return total
+
+## Exact integer HP with thousands separators (e.g. "1,234,500") — no K/M abbreviation, no precision lost.
+## round() here only cancels float-multiplication noise (hp × count × blob are all whole numbers in
+## practice); it is not a display-rounding of the actual total.
+func _fmt_hp(v: float) -> String:
+	var n := int(round(v))
+	var digits := str(absi(n))
+	var out := ""
+	var c := 0
+	for i in range(digits.length() - 1, -1, -1):
+		out = digits[i] + out
+		c += 1
+		if c % 3 == 0 and i > 0:
+			out = "," + out
+	return ("-" if n < 0 else "") + out
+
+func _update_row_hp(row: Dictionary) -> void:
+	var txt := _fmt_hp(_row_total_hp(row))
+	(row["hp_lbl"] as Label).text = "HP " + txt
+	# Also refresh the Type popup's own "Total HP" header, if it's currently open for this row.
+	var popup_lbl: Variant = row.get("popup_hp_lbl")
+	if popup_lbl != null and is_instance_valid(popup_lbl):
+		(popup_lbl as Label).text = "Total HP " + txt
 
 ## Type button label: "Set (N)" when any slot is filled (N = filled count), else "Blank".
 func _update_type_btn(row: Dictionary) -> void:
@@ -269,7 +380,9 @@ func _update_type_btn(row: Dictionary) -> void:
 	for s: Dictionary in row["slots"]:
 		if String(s.get("type", "")) != "":
 			n += 1
-	(row["type_btn"] as Button).text = ("Set (%d)" % n) if n > 0 else "Blank"
+	var btn := row["type_btn"] as Button
+	btn.text = ("Set (%d)" % n) if n > 0 else "Blank"
+	btn.add_theme_color_override("font_color", Color(0.35, 0.9, 0.35) if n > 0 else Color(1.0, 1.0, 1.0))
 
 ## Expand every row's filled slots into FLAT timeline entries (one entry per slot, all sharing the row's time).
 func _collect() -> Array:
@@ -366,9 +479,18 @@ func _on_load() -> void:
 	_name_edit.text = String((parsed as Dictionary).get("name", fname.get_basename()))
 	if _director != null:
 		_director.set_timeline((parsed as Dictionary)["timeline"])
+	_remember_last_wave(fname)
 	_rebuild_rows()
 	_refresh_readout()
 	_set_status("Loaded " + fname)
+
+## Remembers `fname` as the last-loaded wave file so spawn_mode_2 auto-loads it on the NEXT run (see
+## arena_wave_director_v2.gd._load_remembered_timeline(), read at its _ready()). Harmless when spawn_mode_1
+## is active — v1 has no equivalent auto-load and never reads this file, so writing it costs nothing there.
+func _remember_last_wave(fname: String) -> void:
+	var cfg := ConfigFile.new()
+	cfg.set_value("wave", "last_file", fname)
+	cfg.save(LAST_WAVE_CFG)
 
 func _refresh_files() -> void:
 	if _file_opt == null:
@@ -472,6 +594,13 @@ func _open_type_dropdown(row: Dictionary) -> void:
 	var tabs := HBoxContainer.new()
 	tabs.add_theme_constant_override("separation", 6)
 	vb.add_child(tabs)
+	# OK — top-left of the popup. Slot edits (drag-drop, count/pattern/boss spinboxes) already write straight
+	# into row["slots"] live, so there's no separate "commit" step; OK just refreshes the bottom JSON readout
+	# to reflect what was just entered, then closes — same effect as clicking outside, but explicit.
+	var ok_btn := _mk_button("OK", func() -> void: _update_row_hp(row); _refresh_readout(); _close_dropdown())
+	ok_btn.custom_minimum_size = Vector2(70.0, 0.0)
+	ok_btn.add_theme_color_override("font_color", Color(0.35, 0.9, 0.35))
+	tabs.add_child(ok_btn)
 	var unit_tab := _mk_button("Unit", func() -> void: pass)
 	var fleet_tab := _mk_button("Fleet", func() -> void: pass)
 	unit_tab.custom_minimum_size = Vector2(120.0, 0.0)
@@ -504,7 +633,19 @@ func _open_type_dropdown(row: Dictionary) -> void:
 	right.custom_minimum_size = Vector2(540.0, 0.0)
 	right.add_theme_constant_override("separation", 6)
 	content.add_child(right)
-	right.add_child(_mk_label("Spawn slots (2 × 5)", 12))
+	var right_hdr := HBoxContainer.new()
+	right_hdr.add_theme_constant_override("separation", 10)
+	right.add_child(right_hdr)
+	var slots_hdr_lbl := _mk_label("Spawn slots (2 × 5)", 12)
+	slots_hdr_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right_hdr.add_child(slots_hdr_lbl)
+	# Total HP — same row as "Spawn slots", right-aligned. Kept live by _update_row_hp() (stashes this Label
+	# on row["popup_hp_lbl"] below; every existing call site that refreshes the table's Total HP column
+	# — count edits, drag-drop assign/clear, the OK button — refreshes this one too, no separate wiring).
+	var total_hp_hdr_lbl := _mk_label("Total HP " + _fmt_hp(_row_total_hp(row)), 12)
+	total_hp_hdr_lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	right_hdr.add_child(total_hp_hdr_lbl)
+	row["popup_hp_lbl"] = total_hp_hdr_lbl
 	var sc := ScrollContainer.new()
 	sc.custom_minimum_size = Vector2(540.0, 500.0)
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -520,12 +661,12 @@ func _build_unit_tab() -> Control:
 	var c := Control.new()
 	c.set_anchors_preset(Control.PRESET_FULL_RECT)
 	var scroll := ScrollContainer.new()
-	scroll.size = Vector2(290.0, 500.0)
-	scroll.custom_minimum_size = Vector2(290.0, 500.0)
+	scroll.size = Vector2(580.0, 500.0)   # widened to use the picker's full 600px (was 290 — left a wide empty gap before the VSeparator)
+	scroll.custom_minimum_size = Vector2(580.0, 500.0)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	c.add_child(scroll)
 	var grid := GridContainer.new()
-	grid.columns = 5
+	grid.columns = 10   # was 5 — more columns to actually fill the widened scroll area instead of just leaving blank space
 	grid.add_theme_constant_override("h_separation", 4)
 	grid.add_theme_constant_override("v_separation", 4)
 	scroll.add_child(grid)
@@ -607,10 +748,12 @@ func _assign_slot(row: Dictionary, idx: int, data: Dictionary) -> void:
 	elif kind == "fleet":
 		slot["type"] = "fleet:" + String(data.get("name", ""))
 		slot["is_boss"] = false
+		slot["count"] = 1   # 1 deployment of the whole formation by default (not the unit-count default of 5)
 	else:
 		return
 	_populate_slots_grid(row)
 	_update_type_btn(row)
+	_update_row_hp(row)
 
 func _clear_slot(row: Dictionary, idx: int) -> void:
 	var slots: Array = row["slots"]
@@ -619,6 +762,7 @@ func _clear_slot(row: Dictionary, idx: int) -> void:
 	slots[idx] = _slot_default()
 	_populate_slots_grid(row)
 	_update_type_btn(row)
+	_update_row_hp(row)
 
 func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 	var cell := _SlotCell.new()
@@ -672,7 +816,25 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 	vb.add_child(head)
 
 	if is_fleet:
-		# Fleets use their authored formation — only the boss flag is meaningful.
+		# Fleets use their authored formation for POSITIONS (not user-editable here), but — like Unit slots —
+		# how many TIMES that whole formation deploys is: "n" (count), defaulting to 1 (see _assign_slot()).
+		var fleet_name := ty.substr(6)
+		var one_fleet_hp := _fleet_total_hp(fleet_name)
+		var fcfg := HBoxContainer.new()
+		fcfg.add_theme_constant_override("separation", 4)
+		fcfg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		fcfg.add_child(_mk_label("n", 10))
+		var fcsb := _mk_spin(1.0, 1000.0, 1.0, float(slot.get("count", 1)), 56)
+		fcfg.add_child(fcsb)
+		var fleet_hp_lbl := _mk_label("HP " + _fmt_hp(one_fleet_hp * float(slot.get("count", 1))), 9)
+		fleet_hp_lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+		fcsb.value_changed.connect(func(v: float) -> void:
+			slot["count"] = int(v)
+			fleet_hp_lbl.text = "HP " + _fmt_hp(one_fleet_hp * v)
+			_update_row_hp(row))
+		fcfg.add_child(fleet_hp_lbl)
+		vb.add_child(fcfg)
+
 		var fb := HBoxContainer.new()
 		fb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		fb.add_child(_mk_label("Boss", 10))
@@ -688,11 +850,24 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 	cfg.add_theme_constant_override("separation", 4)
 	cfg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cfg.add_child(_mk_label("n", 10))
-	var csb := _mk_spin(1.0, 200.0, 1.0, float(slot.get("count", 1)), 56)
-	csb.value_changed.connect(func(v: float) -> void: slot["count"] = int(v))
+	var csb := _mk_spin(1.0, 100000.0, 1.0, float(slot.get("count", 1)), 56)   # 200-unit cap removed
+	# Per-slot HP readout (exact, no K/M — see _fmt_hp()): base hp × blob (a blob-type def like "swarm"
+	# actually spawns `blob` creeps per position at runtime, see _row_total_hp()'s comment) × count, kept
+	# live via the count SpinBox's own callback below — no full-grid rebuild needed just to refresh a number.
+	var hp_per_unit := 0.0
+	if _director != null:
+		var hd: Dictionary = _director.ENEMY_DEFS.get(ty, {})
+		hp_per_unit = float(hd.get("hp", 0.0)) * float(maxi(1, int(hd.get("blob", 1))))
+	var slot_hp_lbl := _mk_label("HP " + _fmt_hp(hp_per_unit * float(slot.get("count", 1))), 9)
+	slot_hp_lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	csb.value_changed.connect(func(v: float) -> void:
+		slot["count"] = int(v)
+		slot_hp_lbl.text = "HP " + _fmt_hp(hp_per_unit * v)
+		_update_row_hp(row))
 	cfg.add_child(csb)
+	cfg.add_child(slot_hp_lbl)
 	var pob := OptionButton.new()
-	pob.custom_minimum_size = Vector2(92.0, 0.0)
+	pob.custom_minimum_size = Vector2(78.0, 0.0)   # shrunk from 92 to make room for the per-slot HP readout
 	if _font: pob.add_theme_font_override("font", _font)
 	var patterns: Array = _director.PATTERNS
 	for i in patterns.size():

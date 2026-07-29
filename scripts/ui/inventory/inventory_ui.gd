@@ -8,66 +8,32 @@ extends CanvasLayer
 const SYSTEM1_ENABLED := true
 const CELL := 46
 const PANEL_SIZE := Vector2(1100, 760)
-const SLOT_PAD := 10   # px of padding around an item inside its slot
-# Largest item footprint (in cells) each slot must hold at full backpack scale (no shrink).
-const SLOT_MAX_CELLS := {
-	"primary_weapon":   Vector2i(3, 2),
-	"secondary_weapon": Vector2i(3, 2),
-	"wings":            Vector2i(3, 2),
-	"hull":             Vector2i(2, 3),
-	"command_bridge":   Vector2i(2, 2),
-	"energy_core":      Vector2i(2, 2),
-	"radar":            Vector2i(2, 2),   # the "Artifact" slot — key stays "radar" (see EQUIP_SLOTS)
-	"drone_1":          Vector2i(2, 2),
-	"drone_2":          Vector2i(2, 2),
-	"thruster":         Vector2i(2, 2),
-	"relic":            Vector2i(2, 2),
-}
+const PANEL_X_SHIFT := 50.0   # px the whole panel is nudged left of dead-center
 
 # Preloaded (not referenced by class_name) so this works on a fresh headless run
 # before the editor has registered the global class names.
 const BackpackGrid    := preload("res://scripts/ui/inventory/backpack_grid.gd")
 const EquipSlot       := preload("res://scripts/ui/inventory/equip_slot.gd")
+const LiveSlot        := preload("res://scripts/ui/inventory/live_slot.gd")
 const ItemWidget      := preload("res://scripts/ui/inventory/item_widget.gd")
 const CharacterSheet  := preload("res://scripts/ui/inventory/character_sheet.gd")
+const ArenaWeapons    := preload("res://scripts/gameplay/arena_weapons.gd")
+const ArenaAux        := preload("res://scripts/gameplay/arena_aux.gd")
 
 const SLOT_LABELS := {
-	"primary_weapon":   "Primary Weapon",
-	"secondary_weapon": "Secondary Weapon",
+	"secondary_weapon": "Shield",
 	"thruster":         "Thruster",
-	"command_bridge":   "Command Bridge",
 	"hull":             "Hull",
-	"energy_core":      "Energy Core",
-	"radar":            "Artifact",   # label only — data-layer key remains "radar"
-	"drone_1":          "Drone I",
-	"drone_2":          "Drone II",
-	"wings":            "Wings",
-	"relic":            "Relic",
 }
-# Background images for each slot
-const SLOT_ICONS := {
-	"primary_weapon":   "res://assets/inventory/slotweapon1.gif",
-	"secondary_weapon": "res://assets/inventory/slotweapon2.gif",
-	"thruster":         "res://assets/inventory/slotthruster.gif",
-	"command_bridge":   "res://assets/inventory/slotcommand.gif",
-	"hull":             "res://assets/inventory/slothull.gif",
-	"energy_core":      "res://assets/inventory/slotenergy.gif",
-	"radar":            "res://assets/inventory/slotradar.gif",
-	"drone_1":          "res://assets/inventory/slotdrone1.gif",
-	"drone_2":          "res://assets/inventory/slotdrone2.gif",
-	"wings":            "res://assets/inventory/slotwing.gif",
-}
-# Equip grid geometry (panel-local). Pitch ≥ largest slot (158px) so centred slots never overlap.
-const GRID_ORIGIN := Vector2(40, 48)
-const GRID_PITCH  := Vector2(176, 135)
-# Where each slot sits in the equip cross (col, row).
-const SLOT_LAYOUT := {
-	"command_bridge":   Vector2i(1, 0),
-	"primary_weapon":   Vector2i(0, 1), "hull": Vector2i(1, 1), "secondary_weapon": Vector2i(2, 1),
-	"drone_2":          Vector2i(0, 2), "relic": Vector2i(1, 2), "drone_1": Vector2i(2, 2),
-	"energy_core":      Vector2i(0, 3), "wings": Vector2i(1, 3), "radar": Vector2i(2, 3),
-	"thruster":         Vector2i(1, 4),
-}
+# Read-only WEAPONS/AUX row geometry — mirrors the live in-run HUD slot bars (arena_weapon_slots.gd /
+# arena_aux_slots.gd), just laid out horizontally inside the panel instead of pinned to a screen edge.
+const RS_SLOT := 60.0
+const RS_GAP  := 10.0
+# Slot tint per row (all flat colour squares now — no more per-slot sprite art). 50% fill + a brighter
+# same-hue border, so the three rows read as distinct categories at a glance.
+const WEAPON_SLOT_COLOR := Color(1.0, 0.55, 0.15, 0.5)   # orange
+const AUX_SLOT_COLOR    := Color(0.2, 0.5, 1.0, 0.5)     # blue
+const GEAR_SLOT_COLOR   := Color(1.0, 0.2, 0.2, 0.5)     # red — GEAR slots only show this fill when occupied
 
 var _font: FontFile
 var _backdrop: ColorRect
@@ -76,6 +42,8 @@ var _toggle_btn: Button
 var _grid: BackpackGrid
 var _sheet: CharacterSheet          # live player-stats panel, docked right of the loadout
 var _slot_nodes: Dictionary = {}   # slot -> EquipSlot
+var _weapon_row: Control = null    # 5 read-only slots, live from the arena_weapons group
+var _aux_row: Control = null       # 5 read-only slots, live from the arena_aux group
 var _msg_label: Label = null       # transient on-panel message (failed equip-requirement, etc.)
 var _dragging: bool = false        # true while an item is being dragged (drag highlight beats hover)
 
@@ -142,8 +110,8 @@ func _build_panel() -> void:
 	_panel.size = PANEL_SIZE
 	_panel.anchor_left = 0.5; _panel.anchor_top = 0.5
 	_panel.anchor_right = 0.5; _panel.anchor_bottom = 0.5
-	_panel.offset_left = -PANEL_SIZE.x * 0.5; _panel.offset_top = -PANEL_SIZE.y * 0.5
-	_panel.offset_right = PANEL_SIZE.x * 0.5; _panel.offset_bottom = PANEL_SIZE.y * 0.5
+	_panel.offset_left = -PANEL_SIZE.x * 0.5 - PANEL_X_SHIFT; _panel.offset_top = -PANEL_SIZE.y * 0.5
+	_panel.offset_right = PANEL_SIZE.x * 0.5 - PANEL_X_SHIFT; _panel.offset_bottom = PANEL_SIZE.y * 0.5
 	_style_panel(_panel)
 	add_child(_panel)
 	_build_panel_contents()
@@ -152,14 +120,9 @@ func _build_panel() -> void:
 	_sheet = CharacterSheet.new()
 	add_child(_sheet)
 
-# Pixel size of a slot = its largest item footprint (cells × CELL) + padding on all sides.
-func _slot_size(slot: String) -> Vector2:
-	var cells: Vector2i = SLOT_MAX_CELLS.get(slot, Vector2i(2, 2))
-	return Vector2(cells) * CELL + Vector2(SLOT_PAD, SLOT_PAD) * 2.0
-
 func _build_panel_contents() -> void:
 	var title := Label.new()
-	title.text = "SHIP LOADOUT"
+	title.text = "INVENTORY"
 	title.position = Vector2(0, 12)
 	title.size = Vector2(PANEL_SIZE.x, 28)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -175,28 +138,50 @@ func _build_panel_contents() -> void:
 	close_btn.pressed.connect(close)
 	_panel.add_child(close_btn)
 
-	# Equip slots (left side) — each sized to its largest item + padding, centred in a
-	# uniform grid cell. Slot art identifies each slot, so there are no text labels.
+	# WEAPONS (top) — 5 read-only slots mirroring the live in-run HUD bar (arena_weapons).
+	var weap_label := Label.new()
+	weap_label.text = "WEAPONS"
+	weap_label.position = Vector2(40, 48)
+	weap_label.size = Vector2(300, 20)
+	_apply_font(weap_label, 13)
+	_panel.add_child(weap_label)
+	_weapon_row = Control.new()
+	_weapon_row.position = Vector2(40, 74)
+	_panel.add_child(_weapon_row)
+
+	# AUX (below weapons) — 5 read-only slots mirroring the live in-run HUD bar (arena_aux).
+	var aux_label := Label.new()
+	aux_label.text = "AUX"
+	aux_label.position = Vector2(40, 150)
+	aux_label.size = Vector2(300, 20)
+	_apply_font(aux_label, 13)
+	_panel.add_child(aux_label)
+	_aux_row = Control.new()
+	_aux_row.position = Vector2(40, 176)
+	_panel.add_child(_aux_row)
+
+	# GEAR (below aux) — the 3 remaining real equip slots (shield / thruster / hull), simple row.
+	var gear_label := Label.new()
+	gear_label.text = "GEAR"
+	gear_label.position = Vector2(40, 252)
+	gear_label.size = Vector2(300, 20)
+	_apply_font(gear_label, 13)
+	_panel.add_child(gear_label)
+	var gx := 40.0
 	for slot: String in InventoryManager.EQUIP_SLOTS:
-		if not SLOT_LAYOUT.has(slot):
-			push_warning("[inventory_ui] no SLOT_LAYOUT entry for '%s' — skipping" % slot)
-			continue
-		var coords: Vector2i = SLOT_LAYOUT[slot]
-		var ssize: Vector2 = _slot_size(slot)
-		var cell_origin := GRID_ORIGIN + Vector2(coords) * GRID_PITCH
-		var slot_pos := cell_origin + (GRID_PITCH - ssize) * 0.5   # centre slot in its cell
 		var es := EquipSlot.new()
 		es.setup(slot)
 		es.tooltip_text = SLOT_LABELS.get(slot, slot)
-		es.position = slot_pos
-		es.size = ssize
-		_style_slot(es, slot)
+		es.position = Vector2(gx, 278)
+		es.size = Vector2(RS_SLOT, RS_SLOT)   # same footprint as WEAPONS/AUX slots
+		_style_slot(es, false)
 		_panel.add_child(es)
 		_slot_nodes[slot] = es
+		gx += RS_SLOT + RS_GAP
 
-	# Backpack (right side) — placed past the equip region (~x 600).
+	# Cargo (right side) — placed past the WEAPONS/AUX/GEAR column (~x 600). Items picked up during play.
 	var bp_label := Label.new()
-	bp_label.text = "BACKPACK"
+	bp_label.text = "CARGO"
 	bp_label.position = Vector2(600, 52)
 	bp_label.size = Vector2(200, 20)
 	_apply_font(bp_label, 13)
@@ -246,22 +231,125 @@ func _rebuild() -> void:
 
 	# Equipped items
 	for slot: String in _slot_nodes:
+		var es: Control = _slot_nodes[slot]
 		var uid := InventoryManager.equipped_uid(slot)
+		_style_slot(es as Panel, uid != -1)
 		if uid == -1:
 			continue
 		var def_id := String(InventoryManager.get_item(uid)["def"])
-		var es: Control = _slot_nodes[slot]
 		var w := ItemWidget.new()
-		# Equipped items render at FULL backpack scale (def footprint × CELL — no shrink),
-		# centred in the slot (which is sized to hold the largest item + padding).
-		var item_cells: Vector2i = InventoryManager.def_size(def_id)
-		w.size = Vector2(item_cells) * CELL
+		# GEAR slots are now RS_SLOT-sized like WEAPONS/AUX — the item renders shrunk to fit (ItemWidget
+		# is fully size-driven, see its _build()), not at full backpack cell scale.
+		w.size = Vector2(RS_SLOT, RS_SLOT) - Vector2(6, 6)
 		w.position = (es.size - w.size) * 0.5
 		es.add_child(w)
 		w.setup(uid, def_id, CELL, slot)
 		w.sell_requested.connect(_on_sell_requested)
 		w.mouse_entered.connect(_on_item_hover.bind(def_id))
 		w.mouse_exited.connect(_on_item_unhover)
+
+	_rebuild_weapons_aux()
+
+## Read-only WEAPONS/AUX rows. WEAPONS reflects the live run (arena_weapons) when open mid-run, or falls
+## back to the Hub's saved Loadout pick (MetaManager.loadout, no level — the run hasn't started yet) when
+## opened from the Dock. AUX has no meta equivalent (it's purely per-run) so it's just empty outside a run.
+func _rebuild_weapons_aux() -> void:
+	if _weapon_row != null:
+		for c in _weapon_row.get_children():
+			c.queue_free()
+		var aw := get_tree().get_first_node_in_group("arena_weapons")
+		var live := aw != null and aw.has_method("acquired_weapons")
+		var acquired: Array = aw.call("acquired_weapons") if live else MetaManager.loadout
+		for i in ArenaWeapons.MAX_WEAPONS:
+			var slot := _make_readonly_slot(WEAPON_SLOT_COLOR, "weapon", i)
+			slot.position = Vector2(float(i) * (RS_SLOT + RS_GAP), 0.0)
+			_weapon_row.add_child(slot)
+			if i < acquired.size():
+				var kind := String(acquired[i])
+				var lvl := int(aw.call("weapon_level", kind)) if live and aw.has_method("weapon_level") else 0
+				_fill_readonly_slot(slot, _weapon_icon(kind), Color(0, 0, 0, 0), _weapon_label(kind), lvl)
+	if _aux_row != null:
+		for c in _aux_row.get_children():
+			c.queue_free()
+		var aux := get_tree().get_first_node_in_group("arena_aux")
+		var owned: Array = aux.call("owned_aux") if aux != null and aux.has_method("owned_aux") else []
+		for i in ArenaAux.MAX_AUX:
+			var slot := _make_readonly_slot(AUX_SLOT_COLOR, "aux", i)
+			slot.position = Vector2(float(i) * (RS_SLOT + RS_GAP), 0.0)
+			_aux_row.add_child(slot)
+			if i < owned.size():
+				var id := String(owned[i])
+				var d: Dictionary = aux.call("def_for", id)
+				var lvl := int(aux.call("aux_level", id)) if aux.has_method("aux_level") else 0
+				var tex := _aux_icon(d)
+				_fill_readonly_slot(slot, tex, Color(d.get("color", Color.GRAY)), String(d.get("name", id)), lvl)
+
+func _make_readonly_slot(bg_color: Color, row_kind: String, index: int) -> Panel:
+	var p := LiveSlot.new()
+	p.setup(row_kind, index)
+	p.size = Vector2(RS_SLOT, RS_SLOT)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg_color
+	sb.set_border_width_all(2)
+	sb.border_color = Color(bg_color.r, bg_color.g, bg_color.b, 0.95)
+	sb.set_corner_radius_all(6)
+	p.add_theme_stylebox_override("panel", sb)
+	return p
+
+## Fills an (already-empty) read-only slot with an icon (or a colour swatch if `tex` is null and
+## `fallback_color` has alpha) + a small level number in the corner.
+func _fill_readonly_slot(slot: Panel, tex: Texture2D, fallback_color: Color, item_name: String, level: int) -> void:
+	slot.tooltip_text = "%s (Lv %d)" % [item_name, level]
+	if tex != null:
+		var tr := TextureRect.new()
+		tr.texture = tex
+		tr.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		tr.offset_left += 4.0; tr.offset_top += 4.0; tr.offset_right -= 4.0; tr.offset_bottom -= 4.0
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		slot.add_child(tr)
+	elif fallback_color.a > 0.0:
+		var cr := ColorRect.new()
+		cr.color = fallback_color
+		cr.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		cr.offset_left += 8.0; cr.offset_top += 8.0; cr.offset_right -= 8.0; cr.offset_bottom -= 8.0
+		cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		slot.add_child(cr)
+	var lvl_lbl := Label.new()
+	lvl_lbl.text = str(level)
+	lvl_lbl.position = Vector2(2.0, RS_SLOT - 16.0)
+	lvl_lbl.size = Vector2(RS_SLOT - 4.0, 14.0)
+	lvl_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	lvl_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_apply_font(lvl_lbl, 10)
+	lvl_lbl.add_theme_color_override("font_color", Color(1.0, 0.9, 0.5))
+	slot.add_child(lvl_lbl)
+
+## Registry entry for a weapon kind from either the base weapon map or the fusion map (mirrors
+## arena_weapon_slots.gd's _info_for so the icon/label always match the in-run HUD).
+func _weapon_info(kind: String) -> Dictionary:
+	var wi: Dictionary = ArenaWeapons.WEAPON_INFO
+	if wi.has(kind):
+		return wi[kind]
+	return (ArenaWeapons.FUSION_DEFS as Dictionary).get(kind, {})
+
+func _weapon_icon(kind: String) -> Texture2D:
+	var info := _weapon_info(kind)
+	var icon_path := String(info.get("icon", ""))
+	if icon_path != "":
+		return load(icon_path) as Texture2D
+	return InventoryManager.get_icon(String(info.get("def_id", "")))
+
+func _weapon_label(kind: String) -> String:
+	var info := _weapon_info(kind)
+	return String(info.get("label", info.get("name", kind)))
+
+func _aux_icon(d: Dictionary) -> Texture2D:
+	var path := String(d.get("icon", ""))
+	if path != "" and ResourceLoader.exists(path):
+		return load(path) as Texture2D
+	return null
 
 # ── Open / close ────────────────────────────────────────────────────────────
 
@@ -275,6 +363,7 @@ func open() -> void:
 	_toggle_btn.hide()
 	_was_paused = get_tree().paused
 	get_tree().paused = true   # opening the inventory pauses the game
+	_rebuild_weapons_aux()     # refresh WEAPONS/AUX rows (they don't fire inventory_changed)
 
 func close() -> void:
 	_backdrop.hide()
@@ -289,14 +378,26 @@ func is_open() -> bool:
 
 # ── Compatible-slot highlighting (hover + drag) ──────────────────────────────
 
-## Light every equip slot this def can go into; clear the rest.
+## Light every equip/WEAPONS/AUX slot this def can go into; clear the rest.
 func _highlight_for_def(def_id: String) -> void:
 	for slot: String in _slot_nodes:
 		(_slot_nodes[slot] as InvEquipSlot).set_highlight(InventoryManager.fits_slot(def_id, slot))
+	for row: Control in [_weapon_row, _aux_row]:
+		if row == null:
+			continue
+		for c in row.get_children():
+			if c is LiveSlot:
+				(c as LiveSlot).set_highlight((c as LiveSlot)._can_drop_data(Vector2.ZERO, {"def_id": def_id, "uid": -1}))
 
 func _clear_highlights() -> void:
 	for slot: String in _slot_nodes:
 		(_slot_nodes[slot] as InvEquipSlot).set_highlight(false)
+	for row: Control in [_weapon_row, _aux_row]:
+		if row == null:
+			continue
+		for c in row.get_children():
+			if c is LiveSlot:
+				(c as LiveSlot).set_highlight(false)
 
 func _on_item_hover(def_id: String) -> void:
 	if _dragging:
@@ -403,35 +504,19 @@ func _style_panel(p: Panel) -> void:
 	s.set_corner_radius_all(10)
 	p.add_theme_stylebox_override("panel", s)
 
-func _style_slot(p: Panel, slot_name: String = "") -> void:
-	# No border — background image only
-	# Add background image for the slot (GIF or PNG)
-	if slot_name != "" and SLOT_ICONS.has(slot_name):
-		var icon_path: String = SLOT_ICONS[slot_name]
-		var tex: Texture2D = null
-
-		# GIF files need GifLoader
-		if icon_path.get_extension().to_lower() == "gif":
-			tex = GifLoader.load_gif(icon_path)
-			# Get first frame if it's animated
-			if tex != null and tex.has_meta("gif_frames"):
-				var frames: Array = tex.get_meta("gif_frames")
-				if not frames.is_empty():
-					tex = frames[0] as Texture2D
-		else:
-			tex = load(icon_path) as Texture2D
-
-		if tex != null:
-			var bg := TextureRect.new()
-			bg.name = "SlotBackground_%s" % slot_name
-			bg.texture = tex
-			bg.stretch_mode = TextureRect.STRETCH_SCALE
-			bg.expand_mode = TextureRect.EXPAND_KEEP_SIZE
-			bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			bg.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-			p.add_child(bg)
-			bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)   # fills the slot's real size
-			p.move_child(bg, 0)  # move to back
+## GEAR slots are flat colour squares like WEAPONS/AUX (no more per-slot sprite art) — but only show
+## their red fill/border when they actually hold a meta item; an empty gear slot draws nothing (per
+## design: "chỉ được draw nếu có item meta"). Still a real drop target either way (equip_slot.gd).
+func _style_slot(p: Panel, occupied: bool) -> void:
+	if not occupied:
+		p.add_theme_stylebox_override("panel", StyleBoxEmpty.new())   # truly invisible, not just "no override"
+		return
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = GEAR_SLOT_COLOR
+	sb.set_border_width_all(2)
+	sb.border_color = Color(GEAR_SLOT_COLOR.r, GEAR_SLOT_COLOR.g, GEAR_SLOT_COLOR.b, 0.95)
+	sb.set_corner_radius_all(6)
+	p.add_theme_stylebox_override("panel", sb)
 
 func _style_button(b: Button) -> void:
 	for state: String in ["normal", "hover", "pressed"]:

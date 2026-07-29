@@ -922,7 +922,14 @@ func _board_click(rect: Rect2, idx: int, labels: Array = []) -> Button:
 	btn.mouse_exited.connect(func() -> void:
 		for l in labels:
 			if l != null and is_instance_valid(l):
-				(l as Control).scale = Vector2.ONE)
+				(l as Control).scale = Vector2.ONE
+		# Leaving a card with nothing else hovered would otherwise leave UpgradeDesc/stats frozen on
+		# whatever was last hovered — even if the player never selected it. Once something IS selected
+		# (_pending_pick_idx >= 0), revert the preview back to the selected card instead.
+		if _pending_pick_idx >= 0 and _hover_preview_idx != _pending_pick_idx:
+			_hover_preview_idx = _pending_pick_idx
+			_board_render_updesc()
+			_board_render_stats())
 	btn.pressed.connect(_select_option.bind(idx))
 	return btn
 
@@ -1465,6 +1472,9 @@ func _generate_choices(n: int, allow_new: bool = false) -> Array:
 					continue   # fused weapons are only obtained via the fusion card, never the new-weapon roll
 				if k == "player_2" and not bool(aw.call("player2_eligible")):
 					continue   # Player 2 only appears once you own a weapon at level 10+
+				var k_def_id := String((ArenaWeapons.WEAPON_INFO[k] as Dictionary).get("def_id", ""))
+				if k_def_id != "" and bool(InventoryManager.get_def(k_def_id).get("unique", false)):
+					continue   # fragment-crafted uniques are Dock → Craft only, never a level-up "new weapon" roll
 				if not (k in owned_w) and not chosen.has("w:" + k):
 					new_pool.append(_weapon_choice(aw, k, "new"))
 		if allow_new and ax != null and not aux_full:
@@ -1670,21 +1680,25 @@ func _weapon_pool(kind: String) -> Dictionary:
 		return ArenaWeapons.ARC_POOL
 	if kind == "gauss":
 		return ArenaWeapons.GAUSS_POOL
-	if kind == "defensive_orbitals":
+	# NOTE: these must match arena_weapons.gd's WEAPON_INFO *kind* keys, not their ITEM_DEFS def_id —
+	# orbital/red_x/zsword/sonic/parasite/boomerang were previously keyed by def_id (defensive_orbitals/
+	# dragons_breath/z_sword/ultrasonicator/venomancer) or a stray legacy alias (aliwa), so this function
+	# never matched and no pool card was ever offered for any of them.
+	if kind == "orbital":
 		return ArenaWeapons.ORBITAL_POOL
-	if kind == "dragons_breath":
+	if kind == "red_x":
 		return ArenaWeapons.DRAGON_POOL
 	if kind == "chemtrail":
 		return ArenaWeapons.CHEMTRAIL_POOL
-	if kind == "z_sword":
+	if kind == "zsword":
 		return ArenaWeapons.ZSWORD_POOL
-	if kind == "ultrasonicator":
+	if kind == "sonic":
 		return ArenaWeapons.SONIC_POOL
 	if kind == "mortar":
 		return ArenaWeapons.MORTAR_POOL
-	if kind == "venomancer":
+	if kind == "parasite":
 		return ArenaWeapons.PARA_POOL
-	if kind == "aliwa":
+	if kind == "boomerang":
 		return ArenaWeapons.BOOM_POOL
 	if kind == "viper":
 		return ArenaWeapons.SNAKE_POOL
@@ -1694,6 +1708,28 @@ func _weapon_pool(kind: String) -> Dictionary:
 		return ArenaWeapons.IONIZE_POOL
 	if kind == "player_2":
 		return ArenaWeapons.PLAYER2_POOL
+	# Fragment-crafted uniques — pool consts + rank/grant dispatch already existed in arena_weapons.gd,
+	# just never wired in here, so their level-up perk cards were never offered.
+	if kind == "thunderhead":
+		return ArenaWeapons.THUNDER_POOL
+	if kind == "graviton_well":
+		return ArenaWeapons.GRAVWELL_POOL
+	if kind == "omega_swarm":
+		return ArenaWeapons.OMEGA_POOL
+	if kind == "singularity_lance":
+		return ArenaWeapons.SLANCE_POOL
+	if kind == "prism_array":
+		return ArenaWeapons.PRISM_POOL
+	if kind == "hailstorm":
+		return ArenaWeapons.HAIL_POOL
+	if kind == "wraithfire":
+		return ArenaWeapons.WRAITH_POOL
+	if kind == "hivemind":
+		return ArenaWeapons.HIVE_POOL
+	if kind == "annihilator":
+		return ArenaWeapons.ANNI_POOL
+	if kind == "event_horizon":
+		return ArenaWeapons.EVENTH_POOL
 	return {}
 
 func _gen_pool_choices(kind: String) -> Array:

@@ -69,15 +69,26 @@ func _ready() -> void:
 	layer = 100
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_font = load(FONT_PATH) as Font
-	_collect_enemy_ids()
-	_load_cfg()
-	_build_ui()
 	visible = false
+	# _collect_enemy_ids()/_load_cfg()/_build_ui() moved to _ensure_built(), lazily run on first toggle()
+	# instead of here — _build_ui() → _build_enemy_palette() loads a thumbnail for every non-boss enemy
+	# (100+ textures) even though this editor is dev-only and starts hidden; that cost was previously
+	# masked because _setup_creep_edit() (fixed the same way) happened to warm the same sprite files first.
 
 func is_open() -> bool:
 	return _open
 
+var _lazy_built := false
+func _ensure_built() -> void:
+	if _lazy_built:
+		return
+	_lazy_built = true
+	_collect_enemy_ids()
+	_load_cfg()
+	_build_ui()
+
 func toggle() -> void:
+	_ensure_built()
 	if _open:
 		_close()
 	else:

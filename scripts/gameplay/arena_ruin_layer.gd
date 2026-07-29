@@ -1,27 +1,23 @@
 extends Node2D
-## Run-start spawner for the giant dead-ship wrecks. At the start of each run it spawns exactly TWO
-## stationary wrecks 10,000–20,000 px from the player, positioned so the two form a ~60–120° angle as
-## seen from the player's spawn point.
-##
-## Each wreck is a REAL arena_enemy (behavior "dummy" = sits still & is never distance-culled), so it
-## takes every weapon effect + bullet bounce exactly like a normal enemy. It's configured to sit still,
-## spin slowly in place, deal no contact damage, grant no XP, and drop an "orb of light" on death (→ the
-## pick-1-of-3 new-item choice). An edge-of-screen arrow (arena_ruin_pointer.gd) guides the player to each.
+## Spawner for the giant dead-ship wrecks. At the start of each run it drops exactly TWO stationary
+## wrecks 10,000–15,000 px from the player, positioned so the two form a ~60–120° angle as seen from the
+## player's spawn point. After that, one more wreck spawns every PERIODIC_INTERVAL near the player's
+## THEN-current position (not the original run-start point) so later wrecks stay reachable as the run
+## goes on. Each wreck handles its own lifecycle (giant ship → orb of light on death).
 
-const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
-const RuinPointerScript := preload("res://scripts/ui/hud/arena_ruin_pointer.gd")  # edge-of-screen arrow + distance
+const RuinScript := preload("res://scripts/gameplay/arena_ruin.gd")
+const RuinPointerScript := preload("res://scripts/ui/hud/arena_ruin_pointer.gd")  # edge-of-screen icon + distance
 
 const SHIP_COUNT   := 2       # wrecks spawned at run start
 const DIST_MIN     := 10000.0 # minimum spawn distance from player (px)
-const DIST_MAX     := 20000.0 # maximum spawn distance from player (px)
-const ANGLE_MIN    := 60.0    # minimum angle (deg) between the two wrecks, as seen from the player
-const ANGLE_MAX    := 120.0   # maximum angle (deg) between the two wrecks
-const GIANT_HP     := 5000.0  # ×2 ENEMY_HP_TUNE (non-boss) → ~10,000 effective HP
-const GIANT_SIZE   := 80.0    # ~4× a normal ship; scales BOTH the sprite and the hitbox
-const GIANT_SPIN   := deg_to_rad(8.0)   # slow idle rotation (rad/s)
+const DIST_MAX     := 15000.0 # maximum spawn distance from player (px)
+const ANGLE_MIN    := 60.0    # minimum angle (deg) between the two run-start wrecks, as seen from the player
+const ANGLE_MAX    := 120.0   # maximum angle (deg) between the two run-start wrecks
+const PERIODIC_INTERVAL := 180.0   # seconds between each additional wreck after the run-start pair (3 min)
 
 var _mgr: Node = null
 var _player: Node2D = null
+var _periodic_acc: float = 0.0
 
 func _ready() -> void:
 	_mgr = get_tree().get_first_node_in_group("enemy_manager")
@@ -31,6 +27,15 @@ func _ready() -> void:
 		call_deferred("_ready")
 		return
 	_spawn_wrecks()
+
+func _process(delta: float) -> void:
+	if _player == null or not is_instance_valid(_player):
+		_player = get_tree().get_first_node_in_group("player")
+		return
+	_periodic_acc += delta
+	if _periodic_acc >= PERIODIC_INTERVAL:
+		_periodic_acc -= PERIODIC_INTERVAL
+		_spawn_one_wreck(_player.global_position, randf() * TAU)
 
 func _spawn_wrecks() -> void:
 	var origin := _player.global_position

@@ -42,7 +42,14 @@ const PER_TYPE_MAX   := 2     # at most this many of any one enemy type alive at
 const PRESPAWN       := 4
 const CULL_MARGIN    := 180.0
 const MAX_LIFETIME   := 24.0
-const TARGET_DROP    := 3000.0   # how far below the screen the aim target sits
+const TARGET_DROP    := 3000.0   # how far below the screen the shared fallback aim target sits
+
+# Per-creep aim override (see _spawn_one): without this, every creep's horizontal spawn spread
+# (~1320px) is dwarfed by TARGET_DROP's 3000px drop, so nearly all of them beeline almost straight
+# down. Each creep instead gets its own randomized aim point offset from its own spawn position.
+const AIM_SPREAD_X := 640.0   # random horizontal offset from the creep's own spawn x
+const AIM_DROP_MIN := 220.0   # random vertical offset below spawn (keeps descent broadly downward)
+const AIM_DROP_MAX := 560.0
 
 # Spider is rationed: at most ONE on screen, it despawns after SPIDER_TTL, then no spider may
 # spawn again for SPIDER_COOLDOWN.
@@ -199,10 +206,20 @@ func _spawn_one(y: float) -> void:
 	e.process_mode = Node.PROCESS_MODE_PAUSABLE
 	e.configure(id, _mgr, def)
 	e.sfx_bus = MENU_BUS   # route its attack sounds to the faint, far-off echo bus
+	e.menu_confine_fx = true   # fullscreen FX (warp) must stay under the Logo/buttons, not distort them
 	e.position = Vector2(randf_range(60.0, _vp.x - 60.0), y)
 	_container.add_child(e)
 	e.z_index = ENEMY_Z
 	e.scale = Vector2(ENEMY_SCALE, ENEMY_SCALE)   # menu-only 50% (movement uses global_position, unaffected)
+	# Per-creep aim point: overrides arena_enemy.gd's cached `_target` (it only re-resolves to the
+	# "player" group when null/invalid — see arena_enemy.gd:1760 — so this sticks for its whole
+	# life since configure() above already ran and won't touch it again). Fans descent direction
+	# out instead of every creep beelining toward the single shared, far-off dummy target.
+	var decoy := Node2D.new()
+	e.add_child(decoy)
+	decoy.global_position = e.global_position + Vector2(
+		randf_range(-AIM_SPREAD_X, AIM_SPREAD_X), randf_range(AIM_DROP_MIN, AIM_DROP_MAX))
+	e._target = decoy
 	var is_spider := id == SPIDER_ID
 	if is_spider:
 		_spider = e

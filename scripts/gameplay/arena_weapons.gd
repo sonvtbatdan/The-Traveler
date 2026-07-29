@@ -48,6 +48,8 @@ const GAT_FOCUS_MAX    := 1.0      # … capped at +100%
 const GAT_REFLECT_FRAC := 0.5      # fraction of gatling bullets reflected (50%)
 const GAT_REFLECT_DMG  := 5        # damage a reflected bullet does to the player
 const GAT_REFLECT_PAD  := 12.0     # extra hit padding when a reflected bullet meets the player
+const GAT_REFLECT_SPEED := 280.0   # reflected bullet's speed — slowed to match a jetfighter shot (arena_enemy.gd's
+                                    # "shooter"/KITE_BULLET_SPEED), not full GAT_SPEED (900) — much easier to dodge
 
 # ── TUNABLES: Gauss cannon (auto-charge → heavy piercing orb) ─────────────────
 const GAUSS_ENABLED     := false    # disabled for now
@@ -89,7 +91,7 @@ const ORBITAL_POOL := {
 const MUZZLE_OFFSET     := 22.0     # how far ahead of the ship centre shots spawn (px)
 
 # ── Weapon acquisition (chest + pickups → up to 5 unique weapons; backs the 5-slot HUD) ──
-const MAX_WEAPONS := 4                                  # HUD slot count / acquisition cap
+const MAX_WEAPONS := 5                                  # HUD slot count / acquisition cap
 const MAX_WEAPON_LEVEL := 18                            # weapon levels 1→18; each point spent = +1 level, then EVOLVE
 const FUSION_MIN_LEVEL := 15                            # both components must be ≥ this (and un-evolved) to fuse
 const WEAPON_DMG_PER_LEVEL := 0.30                      # FUSIONS ONLY: +30%/bonus-level (base weapons get no per-level damage)
@@ -123,7 +125,17 @@ const WEAPON_INFO := {
 	"swarm":       {"def_id": "",                "icon": "res://assets/inventory/Swarm.png", "name": "Swarm", "label": "Swarm", "mfr": "Chakra Bio-Synthetics"},
 	"viper":       {"def_id": "viper",     "name": "Viper",                   "label": "VIPER",        "mfr": ""},
 	"homing_missile":      {"def_id": "homing_missile",  "name": "Homing Missile",          "label": "Homing",       "mfr": ""},
-	"player_2":    {"def_id": "player_2",        "icon": "res://assets/screen/Spaceship.png", "name": "Player 2", "label": "Player 2", "mfr": "You (negative)"},
+	"player_2":    {"def_id": "",        "icon": "res://assets/screen/Spaceship.png", "name": "Player 2", "label": "Player 2", "mfr": "You (negative)"},
+	"thunderhead":    {"def_id": "thunderhead",    "name": "Thunderhead",    "label": "Thunderhead",    "mfr": "Kwang Ming"},
+	"graviton_well":  {"def_id": "graviton_well",  "name": "Graviton Well",  "label": "Graviton Well",  "mfr": "Horizon Logistics"},
+	"omega_swarm":    {"def_id": "omega_swarm",    "name": "Omega Swarm",    "label": "Omega Swarm",    "mfr": "Nebula Dynamics"},
+	"singularity_lance": {"def_id": "singularity_lance", "name": "Singularity Lance", "label": "Singularity Lance", "mfr": "Kwang Ming x Horizon Logistics"},
+	"prism_array":       {"def_id": "prism_array",       "name": "Prism Array",       "label": "Prism Array",       "mfr": "Yongsan"},
+	"hailstorm":         {"def_id": "hailstorm",          "name": "Hailstorm",         "label": "Hailstorm",         "mfr": "Volney Elements"},
+	"wraithfire":     {"def_id": "wraithfire",     "name": "Wraithfire",     "label": "Wraithfire",     "mfr": "Volney Elements"},
+	"hivemind":       {"def_id": "hivemind",       "name": "Hivemind",       "label": "Hivemind",       "mfr": "Chakra Bio-Synthetics"},
+	"annihilator":    {"def_id": "annihilator",    "name": "Annihilator",    "label": "Annihilator",    "mfr": "Vanguard Ballistics"},
+	"event_horizon":  {"def_id": "event_horizon",  "name": "Event Horizon",  "label": "Event Horizon",  "mfr": "Horizon Logistics"},
 }
 # ── Player 2 companion skill-point pool + evolves ──
 const PLAYER2_POOL := {
@@ -146,12 +158,12 @@ const P2_MIN_WEAPON_LEVEL := 10     # Player 2 is only offerable/acquirable once
 # def_id still reuses a component's icon as placeholder; dedicated fusion art (Overcharger/Singularities/
 # Vampire Host PNGs exist) is wired in a later phase once their ITEM_DEFS entries are added.
 const FUSION_DEFS := {
-	"carnage":         {"a": "dragons_breath",   "b": "gatling_gun",   "def_id": "gatling_gun",   "name": "Thermitic Auto Cannon", "label": "Carnage",       "mfr": "Volney Elements x Vanguard Ballistics"},
-	"vampire_host":    {"a": "ultrasonicator",   "b": "swarm",     "def_id": "offensive_orbitals",    "icon": "res://assets/inventory/Vampire Host.png", "name": "Vampire Host",          "label": "Vampire Host",  "mfr": "Nebula Dynamics x Yongsan"},
+	"carnage":         {"a": "red_x",   "b": "gatling_gun",   "def_id": "gatling_gun",   "name": "Thermitic Auto Cannon", "label": "Carnage",       "mfr": "Volney Elements x Vanguard Ballistics"},
+	"vampire_host":    {"a": "sonic",   "b": "swarm",     "def_id": "offensive_orbitals",    "icon": "res://assets/inventory/Vampire Host.png", "name": "Vampire Host",          "label": "Vampire Host",  "mfr": "Nebula Dynamics x Yongsan"},
 	"overcharger":     {"a": "arc",     "b": "gauss",     "def_id": "gauss",  "icon": "res://assets/inventory/Overcharger.png",  "name": "Overcharger",           "label": "Overcharger",   "mfr": "Kwang Ming x Horizon Logistics"},
 	"predator":        {"a": "viper",   "b": "death_beam",    "def_id": "death_beam",        "name": "Predator",              "label": "Predator",      "mfr": ""},
 	"toxic_ballistic": {"a": "homing_missile",  "b": "chemtrail", "def_id": "homing_missile","name": "Toxic Ballistic",       "label": "Toxic Ballistic","mfr": ""},
-	"singularities":   {"a": "rift_maker",    "b": "gauss",     "def_id": "defensive_orbitals",      "icon": "res://assets/inventory/Singularities.png", "name": "Singularities",         "label": "Singularities", "mfr": "Horizon Logistics x Vanguard Ballistics"},
+	"singularities":   {"a": "void",    "b": "gauss",     "def_id": "defensive_orbitals",      "icon": "res://assets/inventory/Singularities.png", "name": "Singularities",         "label": "Singularities", "mfr": "Horizon Logistics x Vanguard Ballistics"},
 }
 
 # ── Weapon LORE (English) ─────────────────────────────────────────────────────────────
@@ -188,6 +200,928 @@ const WEAPON_LORE := {
 }
 const FUSION_BONUS_LEVELS := 4   # fused weapons can climb this many levels past MAX_WEAPON_LEVEL (6 → 10)
 # (Carnage / Vampire Host tunables are declared later in the file — the canonical OURS copies.)
+
+# ── Unique weapons (fragment-crafted, ITEM_DEFS "craftable_from_fragments") — Thunderhead / Graviton Well /
+# Omega Swarm. First implementation pass: real targeting/damage/cooldown-HUD wiring matching the ITEM_DEFS
+# stat blocks, with a small skill-point pool each. No capstone/evolve tier yet (level-up-UI card-offer
+# integration is a separate follow-up — see pool_rank/pool_grant below and arena_levelup_ui.gd).
+# ── Thunderhead (chain lightning discharge + a shock pulse around the ship) ──
+const THUNDER_DAMAGE         := 30.0
+const THUNDER_COOLDOWN       := 0.3
+const THUNDER_JUMPS          := 10
+const THUNDER_ACQUIRE_RANGE  := 420.0
+const THUNDER_CHAIN_RANGE    := 240.0
+const THUNDER_PULSE_RADIUS   := 150.0
+const THUNDER_PULSE_FRAC     := 0.5     # pulse damage = this fraction of a chain-link hit
+const THUNDER_BOLT_LIFE      := 0.25
+const THUNDER_COL            := Color(0.55, 0.85, 1.0)
+const THUNDER_POOL := {
+	"damage": {"name": "Overcurrent",      "max": 10, "per": "+10% damage",       "desc": "Each link hits harder."},
+	"cd":     {"name": "Storm Front",      "max": 10, "per": "+8% fire rate",     "desc": "Discharge more often."},
+	"jumps":  {"name": "Forked Lightning", "max": 5,  "per": "+1 chain jump",     "desc": "The bolt reaches one more target."},
+	"pulse":  {"name": "Shock Pulse",      "max": 5,  "per": "+15% pulse radius", "desc": "Bigger discharge around the ship."},
+}
+
+# ── Graviton Well (a gravity well that ramps up, pulls enemies in, and grinds them) ──
+const GRAVWELL_RAMP          := 2.5
+const GRAVWELL_RADIUS_MIN    := 50.0
+const GRAVWELL_RADIUS_MAX    := 120.0
+const GRAVWELL_DAMAGE_MIN    := 30.0
+const GRAVWELL_DAMAGE_MAX    := 260.0
+const GRAVWELL_TICK          := 0.25
+const GRAVWELL_PULL          := 180.0
+const GRAVWELL_PULL_RADIUS   := 320.0
+const GRAVWELL_RECAST_DELAY  := 1.0
+const GRAVWELL_ACQUIRE_RANGE := 900.0
+const GRAVWELL_HIT_PAD       := 14.0
+const GRAVWELL_COL           := Color(0.55, 0.35, 0.95)
+const GRAVWELL_POOL := {
+	"damage": {"name": "Crush Depth",        "max": 10, "per": "+10% damage",        "desc": "The well digests faster."},
+	"radius": {"name": "Event Radius",       "max": 5,  "per": "+10% max radius",    "desc": "A wider well at full growth."},
+	"pull":   {"name": "Tidal Lock",         "max": 5,  "per": "+15% pull strength", "desc": "Drags enemies in harder."},
+	"uptime": {"name": "Sustained Collapse", "max": 5,  "per": "+15% open duration", "desc": "The well stays open longer before closing."},
+}
+
+# ── Omega Swarm (heavy contact orbs storming around the ship) ──
+const OMEGA_ORBS          := 6
+const OMEGA_DAMAGE        := 70.0
+const OMEGA_RADIUS        := 70.0
+const OMEGA_BALL_R        := 10.0
+const OMEGA_HIT_PAD       := 18.0
+const OMEGA_SPIN_SPEED    := 2.2
+const OMEGA_HIT_COOLDOWN  := 0.4
+const OMEGA_COL           := Color(0.85, 0.85, 0.95)
+const OMEGA_POOL := {
+	"damage": {"name": "Heavy Plating", "max": 10, "per": "+10% damage",       "desc": "Each orb hits harder."},
+	"size":   {"name": "Mass Driver",   "max": 5,  "per": "+10% orbit radius", "desc": "Orbs sweep a wider ring."},
+	"spin":   {"name": "Overspin",      "max": 5,  "per": "+15% spin speed",   "desc": "Orbs whip around faster."},
+	"count":  {"name": "Swarm Growth",  "max": 4,  "per": "+1 orb",            "desc": "One more orb joins the ring."},
+}
+
+var _thunder_active: bool = false
+var _thunder_cd: float = 0.0
+var _thunder_chain: PackedVector2Array = PackedVector2Array()
+var _thunder_chain_age: float = 0.0
+var _thunder_upg: Dictionary = {"damage": 0, "cd": 0, "jumps": 0, "pulse": 0}
+
+var _gravwell_active: bool = false
+var _gravwell_cd: float = 0.0
+var _gravwell_on: bool = false
+var _gravwell_pos: Vector2 = Vector2.ZERO
+var _gravwell_age: float = 0.0
+var _gravwell_tick: float = 0.0
+var _gravwell_upg: Dictionary = {"damage": 0, "radius": 0, "pull": 0, "uptime": 0}
+
+var _omega_active: bool = false
+var _omega_angle: float = 0.0
+var _omega_cd: Array = []
+var _omega_upg: Dictionary = {"damage": 0, "size": 0, "spin": 0, "count": 0}
+
+# ── Thunderhead: acquire/rank API + fire/tick/draw ──
+func thunder_upgrade_rank(id: String) -> int:
+	return int(_thunder_upg.get(id, 0))
+
+func thunder_grant_upgrade(id: String) -> bool:
+	if not THUNDER_POOL.has(id):
+		return false
+	var maxr := int(THUNDER_POOL[id]["max"])
+	if maxr > 0 and int(_thunder_upg.get(id, 0)) >= maxr:
+		return false
+	_thunder_upg[id] = int(_thunder_upg.get(id, 0)) + 1
+	return true
+
+func activate_thunderhead() -> void:
+	_thunder_active = true
+	_thunder_cd = 0.0
+
+func _thunder_dmg() -> float:
+	return THUNDER_DAMAGE * (1.0 + 0.10 * float(_thunder_upg["damage"]))
+
+func _thunder_pulse_radius() -> float:
+	return THUNDER_PULSE_RADIUS * (1.0 + 0.15 * float(_thunder_upg["pulse"]))
+
+func _fire_thunderhead(delta: float) -> void:
+	_thunder_cd -= delta
+	if _thunder_cd > 0.0:
+		return
+	_thunder_cd = THUNDER_COOLDOWN * _cd_scale("thunderhead") * (1.0 - 0.08 * float(_thunder_upg["cd"])) / _rate_mult
+	var muzzle := _muzzle()
+	var hit_set: Array = []
+	var cur := _nearest_enemy(_player.global_position, THUNDER_ACQUIRE_RANGE, hit_set)
+	if cur == null:
+		return
+	var jumps := THUNDER_JUMPS + int(_thunder_upg["jumps"])
+	var chain := PackedVector2Array([muzzle])
+	for _j in range(1 + maxi(0, jumps)):
+		if cur == null:
+			break
+		var c: Vector2 = (cur as Node2D).global_position
+		if cur.has_method("take_damage"):
+			var r := _roll_damage(_thunder_dmg(), "thunderhead")
+			var dmg := float(r["dmg"])
+			if cur.is_in_group("arena_ruin"):
+				cur.take_damage(dmg, 0.1)
+			else:
+				cur.take_damage(dmg, 0.1, 0.0, false, _bleeds("thunderhead"), bool(r["is_crit"]))
+			if bool(r["is_crit"]):
+				_spawn_crit_number(c, dmg)
+		chain.append(c)
+		hit_set.append(cur)
+		cur = _nearest_enemy(c, THUNDER_CHAIN_RANGE, hit_set)
+	if chain.size() >= 2:
+		_thunder_chain = chain
+		_thunder_chain_age = 0.0
+	# Discharge pulse around the ship at the end of the volley (skips targets already hit by the chain).
+	var pr := _thunder_pulse_radius()
+	for en in _enemies_near(_player.global_position, pr):
+		if not is_instance_valid(en) or en in hit_set or not en.has_method("take_damage"):
+			continue
+		var r2 := _roll_damage(_thunder_dmg() * THUNDER_PULSE_FRAC, "thunderhead")
+		en.take_damage(float(r2["dmg"]), 0.1, 0.0, false, false, bool(r2["is_crit"]))
+
+func _tick_thunder_chain(delta: float) -> void:
+	if _thunder_chain.is_empty():
+		return
+	_thunder_chain_age += delta
+	if _thunder_chain_age > THUNDER_BOLT_LIFE:
+		_thunder_chain.clear()
+
+func _draw_thunder() -> void:
+	if _thunder_chain.size() < 2:
+		return
+	var alpha := 1.0 - clampf(_thunder_chain_age / THUNDER_BOLT_LIFE, 0.0, 1.0)
+	if alpha <= 0.0:
+		return
+	draw_polyline(_thunder_chain, Color(THUNDER_COL, alpha), 4.0, true)
+	for p: Vector2 in _thunder_chain:
+		draw_circle(p, 5.0, Color(THUNDER_COL, alpha * 0.8))
+
+# ── Graviton Well: acquire/rank API + fire/tick/draw ──
+func gravwell_upgrade_rank(id: String) -> int:
+	return int(_gravwell_upg.get(id, 0))
+
+func gravwell_grant_upgrade(id: String) -> bool:
+	if not GRAVWELL_POOL.has(id):
+		return false
+	var maxr := int(GRAVWELL_POOL[id]["max"])
+	if maxr > 0 and int(_gravwell_upg.get(id, 0)) >= maxr:
+		return false
+	_gravwell_upg[id] = int(_gravwell_upg.get(id, 0)) + 1
+	return true
+
+func activate_graviton_well() -> void:
+	_gravwell_active = true
+	_gravwell_cd = 0.0
+
+func _gravwell_open_duration() -> float:
+	return GRAVWELL_RAMP * 2.0 * (1.0 + 0.15 * float(_gravwell_upg["uptime"]))
+
+func _gravwell_max_radius() -> float:
+	return GRAVWELL_RADIUS_MAX * (1.0 + 0.10 * float(_gravwell_upg["radius"]))
+
+func _gravwell_max_dmg_per_sec() -> float:
+	return GRAVWELL_DAMAGE_MAX * (1.0 + 0.10 * float(_gravwell_upg["damage"]))
+
+func _gravwell_pull_speed() -> float:
+	return GRAVWELL_PULL * (1.0 + 0.15 * float(_gravwell_upg["pull"]))
+
+func _tick_gravwell(delta: float, enemy_on_screen: bool) -> void:
+	if not _gravwell_on:
+		_gravwell_cd -= delta
+		if _gravwell_cd > 0.0 or not enemy_on_screen:
+			return
+		var target := _nearest_enemy(_player.global_position, GRAVWELL_ACQUIRE_RANGE, [])
+		if target == null:
+			return
+		_gravwell_on = true
+		_gravwell_pos = (target as Node2D).global_position
+		_gravwell_age = 0.0
+		_gravwell_tick = 0.0
+		return
+	_gravwell_age += delta
+	var dur := _gravwell_open_duration()
+	if _gravwell_age >= dur:
+		_gravwell_on = false
+		_gravwell_cd = GRAVWELL_RECAST_DELAY / _rate_mult
+		return
+	var t := clampf(_gravwell_age / GRAVWELL_RAMP, 0.0, 1.0)
+	var radius := lerpf(GRAVWELL_RADIUS_MIN, _gravwell_max_radius(), t)
+	var pull := _gravwell_pull_speed() * t * delta
+	for en in _enemies():
+		if not is_instance_valid(en) or en.is_in_group("boss"):
+			continue
+		var ep: Vector2 = (en as Node2D).global_position
+		var d := _gravwell_pos.distance_to(ep)
+		if d > 1.0 and d <= GRAVWELL_PULL_RADIUS:
+			(en as Node2D).global_position = ep.move_toward(_gravwell_pos, pull)
+	_gravwell_tick += delta
+	while _gravwell_tick >= GRAVWELL_TICK:
+		_gravwell_tick -= GRAVWELL_TICK
+		var per_tick := lerpf(GRAVWELL_DAMAGE_MIN, _gravwell_max_dmg_per_sec(), t) * GRAVWELL_TICK
+		for en2 in _enemies():
+			if not is_instance_valid(en2) or not en2.has_method("take_damage"):
+				continue
+			if _gravwell_pos.distance_to((en2 as Node2D).global_position) <= radius + GRAVWELL_HIT_PAD:
+				var r := _roll_damage(per_tick, "graviton_well")
+				en2.take_damage(float(r["dmg"]), 0.0, 0.0, false, false, bool(r["is_crit"]))
+
+func _draw_gravwell() -> void:
+	if not _gravwell_on:
+		return
+	var t := clampf(_gravwell_age / GRAVWELL_RAMP, 0.0, 1.0)
+	var radius := lerpf(GRAVWELL_RADIUS_MIN, _gravwell_max_radius(), t)
+	draw_circle(_gravwell_pos, radius, Color(GRAVWELL_COL, 0.35))
+	draw_arc(_gravwell_pos, radius, 0.0, TAU, 40, Color(GRAVWELL_COL.lightened(0.2), 0.9), 2.5, true)
+
+# ── Omega Swarm: acquire/rank API + tick/draw ──
+func omega_upgrade_rank(id: String) -> int:
+	return int(_omega_upg.get(id, 0))
+
+func omega_grant_upgrade(id: String) -> bool:
+	if not OMEGA_POOL.has(id):
+		return false
+	var maxr := int(OMEGA_POOL[id]["max"])
+	if maxr > 0 and int(_omega_upg.get(id, 0)) >= maxr:
+		return false
+	_omega_upg[id] = int(_omega_upg.get(id, 0)) + 1
+	return true
+
+func _omega_orb_count() -> int:
+	return OMEGA_ORBS + int(_omega_upg["count"])
+
+func activate_omega_swarm() -> void:
+	_omega_active = true
+	_omega_cd.resize(_omega_orb_count())
+	_omega_cd.fill(0.0)
+
+func _omega_radius() -> float:
+	return OMEGA_RADIUS * (1.0 + 0.10 * float(_omega_upg["size"]))
+
+func _tick_omega(delta: float) -> void:
+	var n := _omega_orb_count()
+	if _omega_cd.size() != n:
+		_omega_cd.resize(n)
+	_omega_angle = fmod(_omega_angle + delta * OMEGA_SPIN_SPEED * (1.0 + 0.15 * float(_omega_upg["spin"])), TAU)
+	var center := _player.global_position
+	var radius := _omega_radius()
+	for i in n:
+		_omega_cd[i] = maxf(0.0, float(_omega_cd[i]) - delta)
+		if float(_omega_cd[i]) > 0.0:
+			continue
+		var ang := _omega_angle + TAU * float(i) / float(n)
+		var pos := center + Vector2(cos(ang), sin(ang)) * radius
+		for en in _enemies():
+			if not is_instance_valid(en) or not en.has_method("take_damage"):
+				continue
+			if pos.distance_to((en as Node2D).global_position) <= OMEGA_BALL_R + OMEGA_HIT_PAD:
+				var dmg := OMEGA_DAMAGE * (1.0 + 0.10 * float(_omega_upg["damage"]))
+				var r := _roll_damage(dmg, "omega_swarm")
+				en.take_damage(float(r["dmg"]), 0.1, 0.0, false, false, bool(r["is_crit"]))
+				_omega_cd[i] = OMEGA_HIT_COOLDOWN
+				break
+
+func _draw_omega() -> void:
+	var n := _omega_orb_count()
+	var center := _player.global_position
+	var radius := _omega_radius()
+	for i in n:
+		var ang := _omega_angle + TAU * float(i) / float(n)
+		var pos := center + Vector2(cos(ang), sin(ang)) * radius
+		draw_circle(pos, OMEGA_BALL_R, OMEGA_COL)
+		draw_circle(pos, OMEGA_BALL_R * 0.5, Color(1.0, 1.0, 1.0, 0.6))
+
+# ── Singularity Lance / Prism Array (hitscan beams) + Hailstorm (cone) — batch 2 ─────────────────
+const SLANCE_DAMAGE        := 45.0
+const SLANCE_TICK          := 0.12
+const SLANCE_RANGE         := 900.0
+const SLANCE_WIDTH         := 56.0
+const SLANCE_SPLASH_RADIUS := 60.0
+const SLANCE_SPLASH_FRAC   := 0.4
+const SLANCE_COL           := Color(0.75, 0.4, 1.0)
+const SLANCE_POOL := {
+	"damage": {"name": "Collapse Intensity", "max": 10, "per": "+10% damage",      "desc": "The lance burns hotter."},
+	"width":  {"name": "Wide Aperture",      "max": 5,  "per": "+10% beam width",  "desc": "A thicker beam."},
+	"splash": {"name": "Event Bloom",        "max": 5,  "per": "+15% splash radius", "desc": "Bigger singularity detonation."},
+	"rate":   {"name": "Rapid Collapse",     "max": 5,  "per": "+8% tick rate",    "desc": "Ticks land more often."},
+}
+
+const PRISM_DAMAGE     := 35.0
+const PRISM_TICK       := 0.12
+const PRISM_RANGE      := 820.0
+const PRISM_WIDTH      := 36.0
+const PRISM_BEAMS      := 3
+const PRISM_SPREAD_DEG := 16.0
+const PRISM_COL        := Color(1.0, 0.55, 0.85)
+const PRISM_POOL := {
+	"damage": {"name": "Coherence",  "max": 10, "per": "+10% damage",      "desc": "Each lance hits harder."},
+	"width":  {"name": "Focus Lens", "max": 5,  "per": "+10% beam width",  "desc": "Thicker lances."},
+	"spread": {"name": "Fan Angle",  "max": 5,  "per": "+10% fan spread",  "desc": "Wider spread between lances."},
+	"rate":   {"name": "Rapid Split","max": 5,  "per": "+8% tick rate",    "desc": "Ticks land more often."},
+}
+
+const HAIL_DAMAGE     := 22.0
+const HAIL_PELLETS    := 10
+const HAIL_SPREAD_DEG := 46.0
+const HAIL_RANGE      := 320.0
+const HAIL_COOLDOWN   := 0.45
+const HAIL_SPEED      := 760.0
+const HAIL_HIT_R      := 24.0
+const HAIL_SLOW_PCT   := 0.30
+const HAIL_SLOW_DUR   := 1.0
+const HAIL_COL        := Color(0.65, 0.9, 1.0)
+const HAIL_POOL := {
+	"damage":  {"name": "Sharpened Shards", "max": 10, "per": "+10% damage",       "desc": "Each shard cuts deeper."},
+	"pellets": {"name": "Blizzard",         "max": 5,  "per": "+2 shards",         "desc": "A denser storm of shards."},
+	"cd":      {"name": "Squall Line",      "max": 10, "per": "+8% fire rate",     "desc": "Fire the volley more often."},
+	"slow":    {"name": "Deep Freeze",      "max": 5,  "per": "+10% slow strength","desc": "Chilled enemies move even slower."},
+}
+
+var _slance_active: bool = false
+var _slance_tick: float = 0.0
+var _slance_to: Vector2 = Vector2.ZERO
+var _slance_upg: Dictionary = {"damage": 0, "width": 0, "splash": 0, "rate": 0}
+
+var _prism_active: bool = false
+var _prism_tick: float = 0.0
+var _prism_dirs: Array = []
+var _prism_upg: Dictionary = {"damage": 0, "width": 0, "spread": 0, "rate": 0}
+
+var _hail_active: bool = false
+var _hail_cd: float = 0.0
+var _hail_pellets: Array = []
+var _hail_upg: Dictionary = {"damage": 0, "pellets": 0, "cd": 0, "slow": 0}
+
+## Enemies within `half_w` of the ray (from, from + dir*range), in front of `from`. Used by the simplified
+## hitscan beams below — pierces every enemy along the line (no boss-blocking, unlike Death Beam).
+func _beam_hits(from: Vector2, dir: Vector2, range: float, half_w: float) -> Array:
+	var out: Array = []
+	for en in _enemies():
+		if not is_instance_valid(en):
+			continue
+		var off: Vector2 = (en as Node2D).global_position - from
+		var along := off.dot(dir)
+		if along < 0.0 or along > range:
+			continue
+		var perp := (off - dir * along).length()
+		var _r = en.get("hit_radius")
+		var pad: float = float(_r) if _r != null else 16.0
+		if perp <= half_w + pad:
+			out.append(en)
+	return out
+
+# ── Singularity Lance: acquire/rank API + fire/draw ──
+func slance_upgrade_rank(id: String) -> int:
+	return int(_slance_upg.get(id, 0))
+
+func slance_grant_upgrade(id: String) -> bool:
+	if not SLANCE_POOL.has(id):
+		return false
+	var maxr := int(SLANCE_POOL[id]["max"])
+	if maxr > 0 and int(_slance_upg.get(id, 0)) >= maxr:
+		return false
+	_slance_upg[id] = int(_slance_upg.get(id, 0)) + 1
+	return true
+
+func activate_singularity_lance() -> void:
+	_slance_active = true
+	_slance_tick = 0.0
+
+func _slance_dmg() -> float:
+	return SLANCE_DAMAGE * (1.0 + 0.10 * float(_slance_upg["damage"]))
+
+func _slance_width() -> float:
+	return SLANCE_WIDTH * (1.0 + 0.10 * float(_slance_upg["width"]))
+
+func _slance_splash_radius() -> float:
+	return SLANCE_SPLASH_RADIUS * (1.0 + 0.15 * float(_slance_upg["splash"]))
+
+func _fire_slance(delta: float) -> void:
+	var from := _muzzle()
+	var dir := _forward()
+	_slance_to = from + dir * SLANCE_RANGE
+	_slance_tick -= delta
+	if _slance_tick > 0.0:
+		return
+	_slance_tick = SLANCE_TICK * (1.0 - 0.08 * float(_slance_upg["rate"])) / _rate_mult
+	var hits := _beam_hits(from, dir, SLANCE_RANGE, _slance_width() * 0.5)
+	var impact := _slance_to
+	var nearest_dist := SLANCE_RANGE
+	for en in hits:
+		if not en.has_method("take_damage"):
+			continue
+		var r := _roll_damage(_slance_dmg(), "singularity_lance")
+		en.take_damage(float(r["dmg"]), 0.0, 0.0, false, false, bool(r["is_crit"]))
+		if bool(r["is_crit"]):
+			_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+		var d := (en as Node2D).global_position.distance_to(from)
+		if d < nearest_dist:
+			nearest_dist = d
+			impact = (en as Node2D).global_position
+	# Singularity detonation: splash damage around whatever the beam reached first (or its far end if nothing was hit).
+	for en2 in _enemies_near(impact, _slance_splash_radius()):
+		if en2 in hits or not en2.has_method("take_damage"):
+			continue
+		var r2 := _roll_damage(_slance_dmg() * SLANCE_SPLASH_FRAC, "singularity_lance")
+		en2.take_damage(float(r2["dmg"]), 0.0, 0.0, false, false, bool(r2["is_crit"]))
+
+func _draw_slance() -> void:
+	var from := _muzzle()
+	draw_line(from, _slance_to, Color(SLANCE_COL, 0.35), _slance_width(), true)
+	draw_line(from, _slance_to, Color(1.0, 1.0, 1.0, 0.8), 4.0, true)
+
+# ── Prism Array: acquire/rank API + fire/draw ──
+func prism_upgrade_rank(id: String) -> int:
+	return int(_prism_upg.get(id, 0))
+
+func prism_grant_upgrade(id: String) -> bool:
+	if not PRISM_POOL.has(id):
+		return false
+	var maxr := int(PRISM_POOL[id]["max"])
+	if maxr > 0 and int(_prism_upg.get(id, 0)) >= maxr:
+		return false
+	_prism_upg[id] = int(_prism_upg.get(id, 0)) + 1
+	return true
+
+func activate_prism_array() -> void:
+	_prism_active = true
+	_prism_tick = 0.0
+
+func _prism_dmg() -> float:
+	return PRISM_DAMAGE * (1.0 + 0.10 * float(_prism_upg["damage"]))
+
+func _prism_width() -> float:
+	return PRISM_WIDTH * (1.0 + 0.10 * float(_prism_upg["width"]))
+
+func _prism_spread() -> float:
+	return PRISM_SPREAD_DEG * (1.0 + 0.10 * float(_prism_upg["spread"]))
+
+func _fire_prism(delta: float) -> void:
+	var from := _muzzle()
+	var fwd := _forward()
+	var spread := deg_to_rad(_prism_spread())
+	_prism_dirs.clear()
+	for i in PRISM_BEAMS:
+		var a := spread * (float(i) - float(PRISM_BEAMS - 1) * 0.5)
+		_prism_dirs.append(fwd.rotated(a))
+	_prism_tick -= delta
+	if _prism_tick > 0.0:
+		return
+	_prism_tick = PRISM_TICK * (1.0 - 0.08 * float(_prism_upg["rate"])) / _rate_mult
+	var half_w := _prism_width() * 0.5
+	var hit: Array = []
+	for dir: Vector2 in _prism_dirs:
+		for en in _beam_hits(from, dir, PRISM_RANGE, half_w):
+			if en in hit or not en.has_method("take_damage"):
+				continue
+			hit.append(en)
+			var r := _roll_damage(_prism_dmg(), "prism_array")
+			en.take_damage(float(r["dmg"]), 0.0, 0.0, false, false, bool(r["is_crit"]))
+			if bool(r["is_crit"]):
+				_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+
+func _draw_prism() -> void:
+	var from := _muzzle()
+	for dir: Vector2 in _prism_dirs:
+		var to := from + dir * PRISM_RANGE
+		draw_line(from, to, Color(PRISM_COL, 0.3), _prism_width(), true)
+		draw_line(from, to, Color(1.0, 1.0, 1.0, 0.7), 3.0, true)
+
+# ── Hailstorm: acquire/rank API + fire/tick/draw ──
+func hail_upgrade_rank(id: String) -> int:
+	return int(_hail_upg.get(id, 0))
+
+func hail_grant_upgrade(id: String) -> bool:
+	if not HAIL_POOL.has(id):
+		return false
+	var maxr := int(HAIL_POOL[id]["max"])
+	if maxr > 0 and int(_hail_upg.get(id, 0)) >= maxr:
+		return false
+	_hail_upg[id] = int(_hail_upg.get(id, 0)) + 1
+	return true
+
+func activate_hailstorm() -> void:
+	_hail_active = true
+	_hail_cd = 0.0
+
+func _hail_dmg() -> float:
+	return HAIL_DAMAGE * (1.0 + 0.10 * float(_hail_upg["damage"]))
+
+func _fire_hailstorm(delta: float) -> void:
+	_hail_cd -= delta
+	if _hail_cd > 0.0:
+		return
+	_hail_cd = HAIL_COOLDOWN * (1.0 - 0.08 * float(_hail_upg["cd"])) / _rate_mult
+	var fwd := _forward()
+	var start := _muzzle()
+	var n := HAIL_PELLETS + int(_hail_upg["pellets"]) * 2
+	for _i in n:
+		var a := deg_to_rad(randf_range(-HAIL_SPREAD_DEG * 0.5, HAIL_SPREAD_DEG * 0.5))
+		var dir := fwd.rotated(a)
+		_hail_pellets.append({"pos": start, "vel": dir * HAIL_SPEED, "life": 0.0, "hit": []})
+
+func _tick_hail_pellets(delta: float) -> void:
+	var i := _hail_pellets.size() - 1
+	while i >= 0:
+		var pd: Dictionary = _hail_pellets[i]
+		pd["pos"] = (pd["pos"] as Vector2) + (pd["vel"] as Vector2) * delta
+		pd["life"] = float(pd["life"]) + delta
+		var p: Vector2 = pd["pos"]
+		var dead := float(pd["life"]) * HAIL_SPEED >= HAIL_RANGE
+		if not dead:
+			for en in _enemies_near(p, HAIL_HIT_R):
+				if not is_instance_valid(en) or not en.has_method("take_damage"):
+					continue
+				var r := _roll_damage(_hail_dmg(), "hailstorm")
+				en.take_damage(float(r["dmg"]), 0.05, 0.0, false, false, bool(r["is_crit"]))
+				if bool(r["is_crit"]):
+					_spawn_crit_number(p, float(r["dmg"]))
+				if en.has_method("apply_slow"):
+					en.call("apply_slow", HAIL_SLOW_PCT * (1.0 + 0.10 * float(_hail_upg["slow"])), HAIL_SLOW_DUR)
+				dead = true
+				break
+		if dead:
+			_hail_pellets.remove_at(i)
+		else:
+			_hail_pellets[i] = pd
+		i -= 1
+
+func _draw_hail() -> void:
+	for pd: Dictionary in _hail_pellets:
+		draw_circle(pd["pos"], 4.0, HAIL_COL)
+
+# ── Wraithfire (splash fireball + burn), Hivemind (minion swarm), Annihilator (charge pierce lance),
+# Event Horizon (growing_zone, Graviton Well's bigger sibling) — batch 3 ─────────────────────────
+const WRAITH_DAMAGE        := 40.0
+const WRAITH_COOLDOWN      := 0.7
+const WRAITH_SPEED         := 520.0
+const WRAITH_RANGE         := 700.0
+const WRAITH_SPLASH_RADIUS := 120.0
+const WRAITH_BURN_DPS      := 18.0
+const WRAITH_BURN_DUR      := 3.0
+const WRAITH_HIT_R         := 20.0
+const WRAITH_COL           := Color(1.0, 0.5, 0.2)
+const WRAITH_POOL := {
+	"damage": {"name": "Hellfire",       "max": 10, "per": "+10% damage",        "desc": "Bigger fireballs."},
+	"splash": {"name": "Wide Blaze",     "max": 5,  "per": "+15% splash radius", "desc": "The burst reaches further."},
+	"burn":   {"name": "Clinging Flame", "max": 5,  "per": "+15% burn damage",   "desc": "The lingering blaze burns hotter."},
+	"cd":     {"name": "Rapid Casting",  "max": 10, "per": "+8% fire rate",      "desc": "Hurl fireballs more often."},
+}
+
+const HIVE_BATS        := 8
+const HIVE_DAMAGE      := 12.0
+const HIVE_ATTACK_INT  := 0.3
+const HIVE_RANGE       := 320.0
+const HIVE_SPEED       := 260.0
+const HIVE_HIT_R       := 16.0
+const HIVE_CHAIN_JUMPS := 2
+const HIVE_CHAIN_RANGE := 140.0
+const HIVE_CHAIN_FRAC  := 0.5
+const HIVE_COL         := Color(0.55, 0.9, 0.5)
+const HIVE_POOL := {
+	"damage": {"name": "Feral Growth",     "max": 10, "per": "+10% damage",    "desc": "Each bat bites harder."},
+	"count":  {"name": "Broodswell",       "max": 4,  "per": "+1 bat",         "desc": "One more bat joins the swarm."},
+	"speed":  {"name": "Hunting Instinct", "max": 5,  "per": "+10% bat speed", "desc": "Bats close in faster."},
+	"chain":  {"name": "Neural Arc",       "max": 5,  "per": "+1 chain jump",  "desc": "The neural jolt reaches one more victim."},
+}
+
+const ANNI_DAMAGE        := 320.0
+const ANNI_COOLDOWN      := 1.6
+const ANNI_WIDTH         := 50.0
+const ANNI_RANGE         := 1000.0
+const ANNI_PIERCE        := 12
+const ANNI_SPLASH_RADIUS := 100.0
+const ANNI_SPLASH_FRAC   := 0.5
+const ANNI_FLASH_LIFE    := 0.2
+const ANNI_COL           := Color(1.0, 0.3, 0.2)
+const ANNI_POOL := {
+	"damage": {"name": "Reactor Overload", "max": 10, "per": "+10% damage",       "desc": "Vent more of the reactor per shot."},
+	"cd":     {"name": "Coolant Flush",    "max": 10, "per": "+8% fire rate",     "desc": "Recharge faster."},
+	"pierce": {"name": "Long Column",      "max": 5,  "per": "+2 pierce",        "desc": "The lance punches through more targets."},
+	"splash": {"name": "Terminal Blast",   "max": 5,  "per": "+15% splash radius","desc": "Bigger detonation at the end of the lance."},
+}
+
+const EVENTH_RAMP          := 3.0
+const EVENTH_RADIUS_MIN    := 60.0
+const EVENTH_RADIUS_MAX    := 170.0
+const EVENTH_DAMAGE_MIN    := 40.0
+const EVENTH_DAMAGE_MAX    := 400.0
+const EVENTH_TICK          := 0.25
+const EVENTH_PULL          := 240.0
+const EVENTH_PULL_RADIUS   := 380.0
+const EVENTH_RECAST_DELAY  := 1.2
+const EVENTH_ACQUIRE_RANGE := 950.0
+const EVENTH_HIT_PAD       := 16.0
+const EVENTH_COL           := Color(0.65, 0.15, 0.85)
+const EVENTH_POOL := {
+	"damage": {"name": "Singularity Mass",   "max": 10, "per": "+10% damage",        "desc": "The void devours faster."},
+	"radius": {"name": "Horizon Expansion",  "max": 5,  "per": "+10% max radius",    "desc": "A wider event horizon at full growth."},
+	"pull":   {"name": "Infinite Gravity",   "max": 5,  "per": "+15% pull strength", "desc": "Drags enemies in harder."},
+	"uptime": {"name": "Stable Orbit",       "max": 5,  "per": "+15% open duration", "desc": "The horizon stays open longer before collapsing."},
+}
+
+var _wraith_active: bool = false
+var _wraith_cd: float = 0.0
+var _wraith_bolts: Array = []
+var _wraith_upg: Dictionary = {"damage": 0, "splash": 0, "burn": 0, "cd": 0}
+
+var _hive_active: bool = false
+var _hive_bats: Array = []
+var _hive_upg: Dictionary = {"damage": 0, "count": 0, "speed": 0, "chain": 0}
+
+var _anni_active: bool = false
+var _anni_charge: float = 0.0
+var _anni_shot: PackedVector2Array = PackedVector2Array()
+var _anni_shot_age: float = 0.0
+var _anni_upg: Dictionary = {"damage": 0, "cd": 0, "pierce": 0, "splash": 0}
+
+var _eventh_active: bool = false
+var _eventh_cd: float = 0.0
+var _eventh_on: bool = false
+var _eventh_pos: Vector2 = Vector2.ZERO
+var _eventh_age: float = 0.0
+var _eventh_tick: float = 0.0
+var _eventh_upg: Dictionary = {"damage": 0, "radius": 0, "pull": 0, "uptime": 0}
+
+# ── Wraithfire: acquire/rank API + fire/tick/draw ──
+func wraith_upgrade_rank(id: String) -> int:
+	return int(_wraith_upg.get(id, 0))
+
+func wraith_grant_upgrade(id: String) -> bool:
+	if not WRAITH_POOL.has(id):
+		return false
+	var maxr := int(WRAITH_POOL[id]["max"])
+	if maxr > 0 and int(_wraith_upg.get(id, 0)) >= maxr:
+		return false
+	_wraith_upg[id] = int(_wraith_upg.get(id, 0)) + 1
+	return true
+
+func activate_wraithfire() -> void:
+	_wraith_active = true
+	_wraith_cd = 0.0
+
+func _wraith_dmg() -> float:
+	return WRAITH_DAMAGE * (1.0 + 0.10 * float(_wraith_upg["damage"]))
+
+func _wraith_splash_radius() -> float:
+	return WRAITH_SPLASH_RADIUS * (1.0 + 0.15 * float(_wraith_upg["splash"]))
+
+func _wraith_burn_dps() -> float:
+	return WRAITH_BURN_DPS * (1.0 + 0.15 * float(_wraith_upg["burn"]))
+
+func _fire_wraithfire(delta: float) -> void:
+	_wraith_cd -= delta
+	if _wraith_cd > 0.0:
+		return
+	_wraith_cd = WRAITH_COOLDOWN * (1.0 - 0.08 * float(_wraith_upg["cd"])) / _rate_mult
+	_wraith_bolts.append({"pos": _muzzle(), "vel": _forward() * WRAITH_SPEED, "life": 0.0})
+
+func _tick_wraith_bolts(delta: float) -> void:
+	var i := _wraith_bolts.size() - 1
+	while i >= 0:
+		var bd: Dictionary = _wraith_bolts[i]
+		bd["pos"] = (bd["pos"] as Vector2) + (bd["vel"] as Vector2) * delta
+		bd["life"] = float(bd["life"]) + delta
+		var p: Vector2 = bd["pos"]
+		var dead := float(bd["life"]) * WRAITH_SPEED >= WRAITH_RANGE
+		if not dead:
+			for en in _enemies_near(p, WRAITH_HIT_R):
+				if is_instance_valid(en):
+					_wraith_explode(p)
+					dead = true
+					break
+		if dead:
+			_wraith_bolts.remove_at(i)
+		i -= 1
+
+func _wraith_explode(pos: Vector2) -> void:
+	for en in _enemies_near(pos, _wraith_splash_radius()):
+		if not is_instance_valid(en) or not en.has_method("take_damage"):
+			continue
+		var r := _roll_damage(_wraith_dmg(), "wraithfire")
+		en.take_damage(float(r["dmg"]), 0.1, 0.0, false, false, bool(r["is_crit"]))
+		if bool(r["is_crit"]):
+			_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+		if en.has_method("apply_burn"):
+			en.call("apply_burn", 1)
+
+func _draw_wraith() -> void:
+	for bd: Dictionary in _wraith_bolts:
+		draw_circle(bd["pos"], 9.0, Color(WRAITH_COL, 0.9))
+		draw_circle(bd["pos"], 5.0, Color(1.0, 0.9, 0.6, 0.9))
+
+# ── Hivemind: acquire/rank API + tick/draw ──
+func hive_upgrade_rank(id: String) -> int:
+	return int(_hive_upg.get(id, 0))
+
+func hive_grant_upgrade(id: String) -> bool:
+	if not HIVE_POOL.has(id):
+		return false
+	var maxr := int(HIVE_POOL[id]["max"])
+	if maxr > 0 and int(_hive_upg.get(id, 0)) >= maxr:
+		return false
+	_hive_upg[id] = int(_hive_upg.get(id, 0)) + 1
+	return true
+
+func _hive_bat_count() -> int:
+	return HIVE_BATS + int(_hive_upg["count"])
+
+func activate_hivemind() -> void:
+	_hive_active = true
+	_hive_bats.clear()
+	for _i in _hive_bat_count():
+		_hive_bats.append({"pos": _player.global_position, "target": null, "cd": 0.0})
+
+func _hive_dmg() -> float:
+	return HIVE_DAMAGE * (1.0 + 0.10 * float(_hive_upg["damage"]))
+
+func _tick_hivemind(delta: float) -> void:
+	var n := _hive_bat_count()
+	while _hive_bats.size() < n:
+		_hive_bats.append({"pos": _player.global_position, "target": null, "cd": 0.0})
+	while _hive_bats.size() > n:
+		_hive_bats.pop_back()
+	var speed := HIVE_SPEED * (1.0 + 0.10 * float(_hive_upg["speed"]))
+	for bd: Dictionary in _hive_bats:
+		var target = bd["target"]
+		if target == null or not is_instance_valid(target):
+			target = _nearest_enemy(bd["pos"], HIVE_RANGE, [])
+			bd["target"] = target
+		if target == null:
+			bd["pos"] = (bd["pos"] as Vector2).move_toward(_player.global_position, speed * delta)
+			continue
+		var tp: Vector2 = (target as Node2D).global_position
+		bd["pos"] = (bd["pos"] as Vector2).move_toward(tp, speed * delta)
+		bd["cd"] = float(bd["cd"]) - delta
+		if (bd["pos"] as Vector2).distance_to(tp) <= HIVE_HIT_R and float(bd["cd"]) <= 0.0:
+			bd["cd"] = HIVE_ATTACK_INT
+			if target.has_method("take_damage"):
+				var r := _roll_damage(_hive_dmg(), "hivemind")
+				target.take_damage(float(r["dmg"]), 0.0, 0.0, false, false, bool(r["is_crit"]))
+				var jumps := HIVE_CHAIN_JUMPS + int(_hive_upg["chain"])
+				var jolted := 0
+				for en2 in _enemies_near(tp, HIVE_CHAIN_RANGE):
+					if jolted >= jumps:
+						break
+					if en2 == target or not is_instance_valid(en2) or not en2.has_method("take_damage"):
+						continue
+					var r2 := _roll_damage(_hive_dmg() * HIVE_CHAIN_FRAC, "hivemind")
+					en2.take_damage(float(r2["dmg"]), 0.0, 0.0, false, false, bool(r2["is_crit"]))
+					jolted += 1
+
+func _draw_hivemind() -> void:
+	for bd: Dictionary in _hive_bats:
+		draw_circle(bd["pos"], 7.0, HIVE_COL)
+		draw_circle(bd["pos"], 3.0, Color(1.0, 1.0, 1.0, 0.7))
+
+# ── Annihilator: acquire/rank API + charge/fire/tick/draw ──
+func anni_upgrade_rank(id: String) -> int:
+	return int(_anni_upg.get(id, 0))
+
+func anni_grant_upgrade(id: String) -> bool:
+	if not ANNI_POOL.has(id):
+		return false
+	var maxr := int(ANNI_POOL[id]["max"])
+	if maxr > 0 and int(_anni_upg.get(id, 0)) >= maxr:
+		return false
+	_anni_upg[id] = int(_anni_upg.get(id, 0)) + 1
+	return true
+
+func activate_annihilator() -> void:
+	_anni_active = true
+	_anni_charge = 0.0
+
+func _anni_dmg() -> float:
+	return ANNI_DAMAGE * (1.0 + 0.10 * float(_anni_upg["damage"]))
+
+func _anni_cooldown() -> float:
+	return ANNI_COOLDOWN * (1.0 - 0.08 * float(_anni_upg["cd"]))
+
+func _tick_annihilator(delta: float, enemy_on_screen: bool) -> void:
+	_anni_charge += delta
+	if _anni_charge < _anni_cooldown() / _rate_mult or not enemy_on_screen:
+		return
+	_anni_charge = 0.0
+	var from := _muzzle()
+	var dir := _forward()
+	var hits := _beam_hits(from, dir, ANNI_RANGE, ANNI_WIDTH * 0.5)
+	var pierce := ANNI_PIERCE + int(_anni_upg["pierce"]) * 2
+	var farthest := from
+	var count := 0
+	for en in hits:
+		if count >= pierce:
+			break
+		if not en.has_method("take_damage"):
+			continue
+		var r := _roll_damage(_anni_dmg(), "annihilator")
+		en.take_damage(float(r["dmg"]), 0.2, 0.0, false, false, bool(r["is_crit"]))
+		if bool(r["is_crit"]):
+			_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
+		count += 1
+		var ep: Vector2 = (en as Node2D).global_position
+		if ep.distance_to(from) > farthest.distance_to(from):
+			farthest = ep
+	if count > 0:
+		var sr := ANNI_SPLASH_RADIUS * (1.0 + 0.15 * float(_anni_upg["splash"]))
+		for en2 in _enemies_near(farthest, sr):
+			if en2 in hits or not en2.has_method("take_damage"):
+				continue
+			var r2 := _roll_damage(_anni_dmg() * ANNI_SPLASH_FRAC, "annihilator")
+			en2.take_damage(float(r2["dmg"]), 0.2, 0.0, false, false, bool(r2["is_crit"]))
+	_anni_shot = PackedVector2Array([from, from + dir * ANNI_RANGE])
+	_anni_shot_age = 0.0
+
+func _tick_anni_shot(delta: float) -> void:
+	if _anni_shot.is_empty():
+		return
+	_anni_shot_age += delta
+	if _anni_shot_age > ANNI_FLASH_LIFE:
+		_anni_shot.clear()
+
+func _draw_annihilator() -> void:
+	if _anni_shot.size() < 2:
+		return
+	var alpha := 1.0 - clampf(_anni_shot_age / ANNI_FLASH_LIFE, 0.0, 1.0)
+	if alpha <= 0.0:
+		return
+	draw_line(_anni_shot[0], _anni_shot[1], Color(ANNI_COL, alpha * 0.5), ANNI_WIDTH, true)
+	draw_line(_anni_shot[0], _anni_shot[1], Color(1.0, 1.0, 1.0, alpha), 6.0, true)
+
+# ── Event Horizon: acquire/rank API + tick/draw (Graviton Well's bigger, legendary sibling) ──
+func eventh_upgrade_rank(id: String) -> int:
+	return int(_eventh_upg.get(id, 0))
+
+func eventh_grant_upgrade(id: String) -> bool:
+	if not EVENTH_POOL.has(id):
+		return false
+	var maxr := int(EVENTH_POOL[id]["max"])
+	if maxr > 0 and int(_eventh_upg.get(id, 0)) >= maxr:
+		return false
+	_eventh_upg[id] = int(_eventh_upg.get(id, 0)) + 1
+	return true
+
+func activate_event_horizon() -> void:
+	_eventh_active = true
+	_eventh_cd = 0.0
+
+func _eventh_open_duration() -> float:
+	return EVENTH_RAMP * 2.0 * (1.0 + 0.15 * float(_eventh_upg["uptime"]))
+
+func _eventh_max_radius() -> float:
+	return EVENTH_RADIUS_MAX * (1.0 + 0.10 * float(_eventh_upg["radius"]))
+
+func _eventh_max_dmg_per_sec() -> float:
+	return EVENTH_DAMAGE_MAX * (1.0 + 0.10 * float(_eventh_upg["damage"]))
+
+func _eventh_pull_speed() -> float:
+	return EVENTH_PULL * (1.0 + 0.15 * float(_eventh_upg["pull"]))
+
+func _tick_event_horizon(delta: float, enemy_on_screen: bool) -> void:
+	if not _eventh_on:
+		_eventh_cd -= delta
+		if _eventh_cd > 0.0 or not enemy_on_screen:
+			return
+		var target := _nearest_enemy(_player.global_position, EVENTH_ACQUIRE_RANGE, [])
+		if target == null:
+			return
+		_eventh_on = true
+		_eventh_pos = (target as Node2D).global_position
+		_eventh_age = 0.0
+		_eventh_tick = 0.0
+		return
+	_eventh_age += delta
+	var dur := _eventh_open_duration()
+	if _eventh_age >= dur:
+		_eventh_on = false
+		_eventh_cd = EVENTH_RECAST_DELAY / _rate_mult
+		return
+	var t := clampf(_eventh_age / EVENTH_RAMP, 0.0, 1.0)
+	var radius := lerpf(EVENTH_RADIUS_MIN, _eventh_max_radius(), t)
+	var pull := _eventh_pull_speed() * t * delta
+	for en in _enemies():
+		if not is_instance_valid(en) or en.is_in_group("boss"):
+			continue
+		var ep: Vector2 = (en as Node2D).global_position
+		var d := _eventh_pos.distance_to(ep)
+		if d > 1.0 and d <= EVENTH_PULL_RADIUS:
+			(en as Node2D).global_position = ep.move_toward(_eventh_pos, pull)
+	_eventh_tick += delta
+	while _eventh_tick >= EVENTH_TICK:
+		_eventh_tick -= EVENTH_TICK
+		var per_tick := lerpf(EVENTH_DAMAGE_MIN, _eventh_max_dmg_per_sec(), t) * EVENTH_TICK
+		for en2 in _enemies():
+			if not is_instance_valid(en2) or not en2.has_method("take_damage"):
+				continue
+			if _eventh_pos.distance_to((en2 as Node2D).global_position) <= radius + EVENTH_HIT_PAD:
+				var r := _roll_damage(per_tick, "event_horizon")
+				en2.take_damage(float(r["dmg"]), 0.0, 0.0, false, false, bool(r["is_crit"]))
+
+func _draw_event_horizon() -> void:
+	if not _eventh_on:
+		return
+	var t := clampf(_eventh_age / EVENTH_RAMP, 0.0, 1.0)
+	var radius := lerpf(EVENTH_RADIUS_MIN, _eventh_max_radius(), t)
+	draw_circle(_eventh_pos, radius, Color(EVENTH_COL, 0.4))
+	draw_arc(_eventh_pos, radius, 0.0, TAU, 40, Color(EVENTH_COL.lightened(0.3), 0.95), 3.0, true)
 
 # ── TUNABLES: Batch-1 weapons (Nuke / Sonic Wave / Z-Sword / Ionizing Field) ──────
 # Mortar (Little Man, code "Mortar") + Fat Boy (Fat Boy): a mouse-aimed mortarbullet that flies
@@ -853,16 +1787,22 @@ const ExplosionFX  := preload("res://scripts/gameplay/fx/explosion.gd")   # comp
 const ZSlashScript := preload("res://scripts/gameplay/fx/z_slash.gd")     # sweeping energy-slash crescent VFX
 const EnergyVortex := preload("res://scripts/gameplay/fx/energy_vortex.gd")   # creep-edit swirl reused by Black Hole
 
-# ── Gatling tracer bolt look (copied from weapon_system.gd — visuals only) ────
+# ── Gatling tracer bolt look ────────────────────────────────────────────────────
+# Rendered via ONE MultiMeshInstance2D (_gat_mm, set up in _ready()/_setup_gat_multimesh, synced every
+# frame in _sync_gat_multimesh) instead of a per-bullet immediate-mode _draw() (was ~10 draw_circle/
+# draw_colored_polygon calls per bullet — 1,700-2,500+ calls/frame at high Gatling level, the actual FPS
+# bottleneck; enemy-collision was already grid-partitioned and fine). GAT_TRACER_LEN/WIDTH/SCALE are kept
+# as the target on-screen size the sprite is scaled to match (see _setup_gat_multimesh). GAT_CORE/BODY/
+# EDGE_COL stay — still used by the muzzle-flash FX (_gat_muzzle_fx.set_state) and the dust-light color,
+# just no longer by the tracer itself (that was procedural polygons; now a single textured sprite).
 const GAT_TRACER_LEN   := 16.0
 const GAT_TRACER_WIDTH := 6.0
 const GAT_TRACER_SCALE := 1.0
 const GAT_CORE_COL := Color(1.0, 1.0, 0.85)
 const GAT_BODY_COL := Color(1.0, 0.82, 0.25)
 const GAT_EDGE_COL := Color(1.0, 0.5, 0.12)
-const GAT_GLOW_SIZE := 2.4
-const GAT_GLOW_INTENSITY := 0.30
-const GAT_TAIL_LEN := 12.0
+const GAT_BULLET_TEX := "res://assets/weaponry/bullet.png"
+const GAT_MM_MAX := 4000   # MultiMesh buffer size — generous headroom above realistic max bullets in flight
 
 # ── Gauss plasma orb look (copied from weapon_system.gd — visuals only) ───────
 const GAUSS_ORB_CORE_COL      := Color(0.85, 0.95, 1.0)
@@ -1006,6 +1946,8 @@ const BASE_CRIT_CHANCE := 0.10  # 10% base crit chance before any upgrade cards
 var _crit_chance: float = BASE_CRIT_CHANCE
 var _crit_damage: float = 1.5 # GameManager.get_crit_damage() (Lethality cards)
 var _bullets: Array = []         # Gatling: {pos, vel, life, start}
+var _gat_mm: MultiMeshInstance2D = null   # renders every bullet in _bullets — see _setup_gat_multimesh/_sync_gat_multimesh
+var _dmg_by_kind: Dictionary = {}   # kind (String) -> total damage dealt this run, RUN OVER stats — see _roll_damage/damage_stats
 var _orbs: Array = []            # Gauss: {pos, vel, life, start, orb_node, trail, spark_acc, dmg, dmg_ref, hit}
 var _sparks: Array = []          # Gauss tail sparks: {pos, vel, life, ttl}
 var _flashes: Array = []         # {pos, age, max_age, radius}
@@ -1265,6 +2207,7 @@ func _ready() -> void:
 		GameManager.mitigation_burst.connect(_fire_mitigation_shockwave)   # Exoskeleton Reactive Plating evo (player only)
 	if not _companion and GameManager.has_signal("leveled_up"):
 		GameManager.leveled_up.connect(_on_harvest_levelup)   # Data Harvester: heal + AoE blast on level-up
+	_setup_gat_multimesh()
 	_beam = BeamScript.new()
 	add_child(_beam)
 	_beam.z_index = DEATHBEAM_BEAM_Z   # beam renders over enemy sprites
@@ -1279,6 +2222,7 @@ func _ready() -> void:
 	_zslash_reverse.use_orange_palette()   # Divergence/Dual-Wielding's extra swings: same crescent VFX, warm palette
 	_yari_slash = ZSlashScript.new()
 	add_child(_yari_slash)
+	_yari_slash.use_orange_palette()   # Yari Jaeger's blade reads distinct from the (blue) Z-Sword crescent
 	_load_yari_frames()
 	_load_moro_frames()
 	_load_snake_tex()
@@ -1591,6 +2535,21 @@ func _rebuild_grid() -> void:
 
 ## Enemies in cells overlapping [pos ± radius] — a SUPERSET; the caller still does the precise distance + valid
 ## test. Returns a fresh array each call (safe to iterate even if another query runs afterward).
+## TEMP DIAGNOSTIC — accumulates how many candidates _enemies_near() has handed back this frame,
+## across every call site (bullets/pellets/orbs all query this per-tick). Consumed + reset by
+## arena_perf_spike_logger.gd. Safe to delete alongside that file once the "which system spikes
+## when creeps pile up" investigation is done.
+static var _near_query_candidates_this_frame: int = 0
+static var _near_query_calls_this_frame: int = 0
+static func consume_near_query_candidates() -> int:
+	var n := _near_query_candidates_this_frame
+	_near_query_candidates_this_frame = 0
+	return n
+static func consume_near_query_calls() -> int:
+	var n := _near_query_calls_this_frame
+	_near_query_calls_this_frame = 0
+	return n
+
 func _enemies_near(pos: Vector2, radius: float) -> Array:
 	_rebuild_grid()
 	var out: Array = []
@@ -1601,6 +2560,8 @@ func _enemies_near(pos: Vector2, radius: float) -> Array:
 			var cell := Vector2i(cx, cy)
 			if _grid.has(cell):
 				out.append_array(_grid[cell] as Array)
+	_near_query_candidates_this_frame += out.size()
+	_near_query_calls_this_frame += 1
 	return out
 
 func _process(delta: float) -> void:
@@ -1658,6 +2619,34 @@ func _process(delta: float) -> void:
 		_tick_shooter(delta, enemy_on_screen)
 	if _void_active:
 		_tick_void(delta)
+	if _thunder_active and enemy_on_screen:
+		_fire_thunderhead(delta)
+	if not _thunder_chain.is_empty():
+		_tick_thunder_chain(delta)
+	if _gravwell_active:
+		_tick_gravwell(delta, enemy_on_screen)
+	if _omega_active:
+		_tick_omega(delta)
+	if _slance_active and enemy_on_screen:
+		_fire_slance(delta)
+	if _prism_active and enemy_on_screen:
+		_fire_prism(delta)
+	if _hail_active and enemy_on_screen:
+		_fire_hailstorm(delta)
+	if not _hail_pellets.is_empty():
+		_tick_hail_pellets(delta)
+	if _wraith_active and enemy_on_screen:
+		_fire_wraithfire(delta)
+	if not _wraith_bolts.is_empty():
+		_tick_wraith_bolts(delta)
+	if _hive_active:
+		_tick_hivemind(delta)
+	if _anni_active:
+		_tick_annihilator(delta, enemy_on_screen)
+	if not _anni_shot.is_empty():
+		_tick_anni_shot(delta)
+	if _eventh_active:
+		_tick_event_horizon(delta, enemy_on_screen)
 	if _mortar_active:
 		_tick_mortar(delta)
 	if not _mortar_bullets.is_empty():
@@ -1713,6 +2702,7 @@ func _process(delta: float) -> void:
 	elif _beam != null:
 		_beam.set_beam(Vector2.ZERO, Vector2.ZERO, false, false)
 	_tick_bullets(delta)
+	_sync_gat_multimesh()
 	_tick_orbs(delta)
 	_tick_explosions(delta)
 	_tick_arcs(delta)
@@ -1789,9 +2779,12 @@ const WEAPON_FAMILY := {
 	"chemtrail": "biochemical", "venomancer": "biochemical", "vampire_host": "biochemical", "toxic_ballistic": "biochemical",
 	"viper": "biochemical", "dragons_breath": "biochemical",
 	"chain": "kinetic",   # Explosivo Chain Reaction blast (kinetic family so kinetic/all/crit buffs apply)
+	"thunderhead": "energy", "graviton_well": "energy", "omega_swarm": "kinetic",
+	"singularity_lance": "energy", "prism_array": "energy", "hailstorm": "kinetic",
+	"wraithfire": "kinetic", "hivemind": "biochemical", "annihilator": "kinetic", "event_horizon": "energy",
 }
 # Weapons that deal AREA/splash damage → get the Explosivo "Bombardment Mastery" bonus (mech "bombardment_dmg").
-const AOE_KINDS := ["mortar", "gauss", "ionizing_field", "ultrasonicator", "dragons_breath", "chemtrail", "venomancer", "rift_maker", "homing_missile"]
+const AOE_KINDS := ["mortar", "gauss", "ionizing_field", "ultrasonicator", "dragons_breath", "chemtrail", "venomancer", "rift_maker", "homing_missile", "graviton_well", "wraithfire", "annihilator", "event_horizon"]
 const BODY_SNAKE_LEN := 0.25   # +25% snake length per body (≈ +50% at +2 Bodies)
 const BODY_YARI_DMG  := 0.50   # +50% yari damage per body (+100% at +2 Bodies)
 
@@ -1910,7 +2903,28 @@ func _roll_damage(base: float, kind := "") -> Dictionary:
 		is_crit = true
 		if not _companion and GameManager.has_method("add_fervor"):
 			GameManager.add_fervor()   # Challenge Accepted: a crit builds a Fervor stack (no-op unless evolved)
+	# RUN OVER stats: tally per-weapon damage. Covers every kind that rolls through here (the vast majority
+	# of weapons) — a few flat/DoT-style hits that bypass _roll_damage entirely (e.g. Rift Maker's per-tick
+	# damage) aren't captured, an accepted gap. Player-2 companion damage is tallied under the SAME kind as
+	# the main instance (it's still "that weapon's" damage) since _dmg_by_kind is per-script-instance and
+	# only the main instance's stats() is read by the RUN OVER screen anyway.
+	if kind != "" and dmg > 0.0:
+		_dmg_by_kind[kind] = float(_dmg_by_kind.get(kind, 0.0)) + dmg
 	return {"dmg": dmg, "is_crit": is_crit}
+
+## Public: {kind: total_damage} for every weapon that dealt damage this run — read by the RUN OVER stats
+## panel (arena.gd._show_run_over). See the coverage caveat on the tally itself, in _roll_damage above.
+func damage_stats() -> Dictionary:
+	return _dmg_by_kind.duplicate()
+
+## Display name for a weapon/fusion `kind` — WEAPON_INFO/FUSION_DEFS "label", falling back to a
+## capitalized raw id if the kind isn't in either table (shouldn't normally happen).
+func weapon_display_name(kind: String) -> String:
+	if WEAPON_INFO.has(kind):
+		return String((WEAPON_INFO[kind] as Dictionary).get("label", kind))
+	if FUSION_DEFS.has(kind):
+		return String((FUSION_DEFS[kind] as Dictionary).get("label", kind))
+	return kind.capitalize()
 
 # Crit-number popups are POOLED and capped. Previously each crit allocated a fresh Label + font load() + Tween,
 # fired from ~35 damage sites inside AoE-per-enemy loops → hundreds of node allocations/frame on a dense wave.
@@ -2074,11 +3088,11 @@ func pool_rank(kind: String, id: String) -> int:
 		"death_beam":  return db_upgrade_rank(id)
 		"arc":     return arc_upgrade_rank(id)
 		"gauss":   return gauss_upgrade_rank(id)
-		"defensive_orbitals": return orbital_upgrade_rank(id)
-		"dragons_breath":   return int(_red_x_upg.get(id, 0))
+		"orbital": return orbital_upgrade_rank(id)
+		"red_x":   return int(_red_x_upg.get(id, 0))
 		"chemtrail": return int(_chem_upg.get(id, 0))
-		"z_sword":  return int(_zsword_upg.get(id, 0))
-		"ultrasonicator":   return int(_sonic_upg.get(id, 0))
+		"zsword":  return int(_zsword_upg.get(id, 0))
+		"sonic":   return int(_sonic_upg.get(id, 0))
 		"mortar":  return mortar_upgrade_rank(id)
 		"venomancer": return para_upgrade_rank(id)
 		"aliwa": return boom_upgrade_rank(id)
@@ -2086,6 +3100,16 @@ func pool_rank(kind: String, id: String) -> int:
 		"shooter":  return shooter_upgrade_rank(id)
 		"ionizing_field":   return ionize_upgrade_rank(id)
 		"player_2": return player2_upgrade_rank(id)
+		"thunderhead":   return thunder_upgrade_rank(id)
+		"graviton_well": return gravwell_upgrade_rank(id)
+		"omega_swarm":   return omega_upgrade_rank(id)
+		"singularity_lance": return slance_upgrade_rank(id)
+		"prism_array":       return prism_upgrade_rank(id)
+		"hailstorm":         return hail_upgrade_rank(id)
+		"wraithfire":        return wraith_upgrade_rank(id)
+		"hivemind":          return hive_upgrade_rank(id)
+		"annihilator":       return anni_upgrade_rank(id)
+		"event_horizon":     return eventh_upgrade_rank(id)
 	return 0
 
 func pool_grant(kind: String, id: String) -> bool:
@@ -2094,11 +3118,11 @@ func pool_grant(kind: String, id: String) -> bool:
 		"death_beam":  return db_grant_upgrade(id)
 		"arc":     return arc_grant_upgrade(id)
 		"gauss":   return gauss_grant_upgrade(id)
-		"defensive_orbitals": return orbital_grant_upgrade(id)
-		"dragons_breath":   return red_x_grant_upgrade(id)
+		"orbital": return orbital_grant_upgrade(id)
+		"red_x":   return red_x_grant_upgrade(id)
 		"chemtrail": return chem_grant_upgrade(id)
-		"z_sword":  return zsword_grant_upgrade(id)
-		"ultrasonicator":   return sonic_grant_upgrade(id)
+		"zsword":  return zsword_grant_upgrade(id)
+		"sonic":   return sonic_grant_upgrade(id)
 		"mortar":  return mortar_grant_upgrade(id)
 		"venomancer": return para_grant_upgrade(id)
 		"aliwa": return boom_grant_upgrade(id)
@@ -2106,6 +3130,16 @@ func pool_grant(kind: String, id: String) -> bool:
 		"shooter":  return shooter_grant_upgrade(id)
 		"ionizing_field":   return ionize_grant_upgrade(id)
 		"player_2": return player2_grant_upgrade(id)
+		"thunderhead":   return thunder_grant_upgrade(id)
+		"graviton_well": return gravwell_grant_upgrade(id)
+		"omega_swarm":   return omega_grant_upgrade(id)
+		"singularity_lance": return slance_grant_upgrade(id)
+		"prism_array":       return prism_grant_upgrade(id)
+		"hailstorm":         return hail_grant_upgrade(id)
+		"wraithfire":        return wraith_grant_upgrade(id)
+		"hivemind":          return hive_grant_upgrade(id)
+		"annihilator":       return anni_grant_upgrade(id)
+		"event_horizon":     return eventh_grant_upgrade(id)
 	return false
 
 func pool_set_capstone(kind: String, id: String) -> void:
@@ -2114,11 +3148,11 @@ func pool_set_capstone(kind: String, id: String) -> void:
 		"death_beam":  db_set_capstone(id)
 		"arc":     arc_set_capstone(id)
 		"gauss":   gauss_set_capstone(id)
-		"defensive_orbitals": orbital_set_capstone(id)
-		"dragons_breath":   red_x_set_capstone(id)
+		"orbital": orbital_set_capstone(id)
+		"red_x":   red_x_set_capstone(id)
 		"chemtrail": _chem_capstone = id
-		"z_sword":  _zsword_capstone = id
-		"ultrasonicator":   _sonic_capstone = id
+		"zsword":  _zsword_capstone = id
+		"sonic":   _sonic_capstone = id
 		"mortar":  mortar_set_capstone(id)
 		"venomancer": para_set_capstone(id)
 		"aliwa": boom_set_capstone(id)
@@ -2143,11 +3177,11 @@ func weapon_capstone(kind: String) -> String:
 		"death_beam":  return _db_capstone
 		"arc":     return _arc_capstone
 		"gauss":   return _gauss_capstone
-		"defensive_orbitals": return _orbital_capstone
-		"dragons_breath":   return _red_x_capstone
+		"orbital": return _orbital_capstone
+		"red_x":   return _red_x_capstone
 		"chemtrail": return _chem_capstone
-		"z_sword":  return _zsword_capstone
-		"ultrasonicator":   return _sonic_capstone
+		"zsword":  return _zsword_capstone
+		"sonic":   return _sonic_capstone
 		"mortar":  return _mortar_capstone
 		"venomancer": return _para_capstone
 		"aliwa": return _boom_capstone
@@ -2606,6 +3640,11 @@ func _clear_arcs() -> void:
 ## all acquire their target through here, so widening this one helper lets all of them lock onto ruins
 ## too. Callers that pass the result straight to take_damage() must branch on is_in_group("arena_ruin")
 ## first — ruins only implement the 3-arg take_damage(dmg, stagger, knock), not the enemy's 7-arg one.
+## Public: nearest live enemy/ruin to `from` (unlimited range), or null if the field is empty. Used by
+## arena.gd's dev-mode Auto-Fire toggle to face the ship at the nearest target instead of the mouse.
+func nearest_enemy_node(from: Vector2) -> Node:
+	return _nearest_enemy(from, INF, [])
+
 func _nearest_enemy(from: Vector2, max_dist: float, exclude: Array) -> Node:
 	var best: Node = null
 	var best_d := max_dist
@@ -4334,6 +5373,31 @@ func _apply_global_level_reward(_kind: String, _new_level: int) -> void:
 func weapons_full() -> bool:
 	return _acquired.size() >= MAX_WEAPONS - _slot_penalty
 
+## Reverse-lookup: which WEAPON_INFO kind has this def_id (Cargo → WEAPONS-slot drag-drop turns a
+## dropped backpack item back into an acquirable kind). "" if none matches (fusions have no separate
+## droppable item — they're only ever produced by the in-run fuse action).
+func kind_for_def_id(def_id: String) -> String:
+	if def_id == "":
+		return ""
+	for k: String in WEAPON_INFO:
+		if String((WEAPON_INFO[k] as Dictionary).get("def_id", "")) == def_id:
+			return k
+	return ""
+
+## Swap the weapon in slot `idx` for `new_kind` (Cargo → WEAPONS-slot drag-drop, occupied-slot case).
+## The old kind is simply deactivated and dropped — in-run acquisitions were never physical items, so
+## there's nothing to return to the backpack. Returns true on success.
+func replace_weapon_at(idx: int, new_kind: String) -> bool:
+	if idx < 0 or idx >= _acquired.size() or new_kind in _acquired:
+		return false
+	var old_kind := String(_acquired[idx])
+	_deactivate_kind(old_kind)
+	_levels.erase(old_kind)
+	_acquired[idx] = new_kind
+	_levels[new_kind] = 1
+	_activate_kind(new_kind)
+	return true
+
 ## Per-level damage multiplier. Base weapons get NONE now (levels just count toward EVOLVE; power comes from the
 ## pool perks you pick each level). FUSIONS keep +30%/COMPOUNDING per level ABOVE MAX_WEAPON_LEVEL (their bonus levels).
 func _lvl_mult(kind: String) -> float:
@@ -4358,12 +5422,12 @@ func _activate_kind(kind: String) -> void:
 		"chemtrail": activate_chemtrail()
 		"mortar":    activate_mortar()
 		"fat_boy": activate_fat_boy()
-		"ultrasonicator":   activate_sonic()
-		"z_sword":  activate_zsword()
-		"ionizing_field":  activate_ionize()
-		"aliwa": activate_boomerang()
-		"venomancer":  activate_parasite()
-		"yari":   activate_moroboshi()
+		"sonic":   activate_sonic()
+		"zsword":  activate_zsword()
+		"ionize":  activate_ionize()
+		"boomerang": activate_boomerang()
+		"parasite":  activate_parasite()
+		"moroboshi":   activate_moroboshi()
 		"yari_jaeger": activate_yari()
 		"swarm":       activate_swarm()
 		"viper":     activate_snake()
@@ -4374,6 +5438,16 @@ func _activate_kind(kind: String) -> void:
 		"predator":     activate_predator()
 		"toxic_ballistic": activate_toxic()
 		"singularities": activate_singularity()
+		"thunderhead":   activate_thunderhead()
+		"graviton_well": activate_graviton_well()
+		"omega_swarm":   activate_omega_swarm()
+		"singularity_lance": activate_singularity_lance()
+		"prism_array":       activate_prism_array()
+		"hailstorm":         activate_hailstorm()
+		"wraithfire":        activate_wraithfire()
+		"hivemind":          activate_hivemind()
+		"annihilator":       activate_annihilator()
+		"event_horizon":     activate_event_horizon()
 		"player_2":      force_spawn_player2()
 
 # ── Weapon FUSION API ─────────────────────────────────────────────────────────────
@@ -4453,11 +5527,11 @@ func weapon_cooldown_frac(kind: String) -> float:
 			if _arc_cd <= 0.0:
 				return 1.0
 			return clampf(1.0 - _arc_cd / maxf(0.01, ARC_COOLDOWN / rate), 0.0, 1.0)
-		"dragons_breath":
+		"red_x":
 			if _red_x_cd <= 0.0:
 				return 1.0
 			return clampf(1.0 - _red_x_cd / maxf(0.01, RED_X_INTERVAL / rate), 0.0, 1.0)
-		"rift_maker":
+		"void":
 			if _void_cd <= 0.0:
 				return 1.0
 			return clampf(1.0 - _void_cd / maxf(0.01, VOID_COOLDOWN / rate), 0.0, 1.0)
@@ -4472,18 +5546,38 @@ func weapon_cooldown_frac(kind: String) -> float:
 			if _mortar_cd <= 0.0:
 				return 1.0
 			return clampf(1.0 - _mortar_cd / maxf(0.01, MORTAR_FIRE_INTERVAL / rate), 0.0, 1.0)
-		"ultrasonicator":
+		"sonic":
 			if _sonic_cd <= 0.0:
 				return 1.0
 			return clampf(1.0 - _sonic_cd / maxf(0.01, SONIC_COOLDOWN / rate), 0.0, 1.0)
-		"z_sword":
+		"zsword":
 			if _zsword_cd <= 0.0:
 				return 1.0
 			return clampf(1.0 - _zsword_cd / maxf(0.01, ZSWORD_COOLDOWN / rate), 0.0, 1.0)
-		"venomancer":
+		"parasite":
 			if _para_cd <= 0.0:
 				return 1.0
 			return clampf(1.0 - _para_cd / maxf(0.01, PARA_COOLDOWN / rate), 0.0, 1.0)
+		"thunderhead":
+			if _thunder_cd <= 0.0:
+				return 1.0
+			return clampf(1.0 - _thunder_cd / maxf(0.01, THUNDER_COOLDOWN / rate), 0.0, 1.0)
+		"graviton_well", "omega_swarm", "singularity_lance", "prism_array":
+			return 1.0   # channel/orbital/continuous beam — always-on, never masked
+		"hailstorm":
+			if _hail_cd <= 0.0:
+				return 1.0
+			return clampf(1.0 - _hail_cd / maxf(0.01, HAIL_COOLDOWN / rate), 0.0, 1.0)
+		"wraithfire":
+			if _wraith_cd <= 0.0:
+				return 1.0
+			return clampf(1.0 - _wraith_cd / maxf(0.01, WRAITH_COOLDOWN / rate), 0.0, 1.0)
+		"hivemind":
+			return 1.0   # always-on swarm — never masked
+		"annihilator":
+			return clampf(_anni_charge / maxf(0.01, _anni_cooldown() / rate), 0.0, 1.0)
+		"event_horizon":
+			return 1.0   # channel — always-on, never masked
 	return 1.0
 
 ## True while `kind` is actively engaging this frame (acquired/active + an enemy on screen). The slot HUD
@@ -4495,7 +5589,7 @@ func weapon_is_firing(kind: String) -> bool:
 		"gatling_gun": return _gat_active
 		"gauss":   return _gauss_active
 		"arc":     return _arc_active
-		"dragons_breath":   return _red_x_active
+		"red_x":   return _red_x_active
 		"chemtrail": return _chemtrail_active
 		"rift_maker":    return _void_active
 		"defensive_orbitals": return _orbital_active
@@ -4503,15 +5597,26 @@ func weapon_is_firing(kind: String) -> bool:
 		"shooter": return _shooter_active
 		"death_beam":  return _death_beam_active and fmod(_db_t, _db_cycle()) < _db_duration()
 		"mortar", "fat_boy":  return _mortar_active
-		"ultrasonicator":   return _sonic_active
-		"z_sword":  return _zsword_active and _zsword_sweeping
-		"ionizing_field":  return _ionize_active
-		"aliwa": return _boom_active
-		"venomancer":  return _para_active
-		"yari":   return _moro_active
+		"sonic":   return _sonic_active
+		"zsword":  return _zsword_active and _zsword_sweeping
+		"ionize":  return _ionize_active
+		"boomerang": return _boom_active
+		"parasite":  return _para_active
+		"moroboshi":   return _moro_active
 		"yari_jaeger": return _yari_active and _yari_sweeping
 		"swarm":       return _swarm_active
 		"viper":     return _snake_active
+		"homing_missile": return _homing_active
+		"thunderhead":   return _thunder_active and _thunder_chain_age < 0.1
+		"graviton_well": return _gravwell_active and _gravwell_on
+		"omega_swarm":   return _omega_active
+		"singularity_lance": return _slance_active
+		"prism_array":       return _prism_active
+		"hailstorm":         return _hail_active
+		"wraithfire":        return _wraith_active
+		"hivemind":          return _hive_active
+		"annihilator":       return _anni_shot_age < 0.05
+		"event_horizon":     return _eventh_active and _eventh_on
 	return false
 
 ## Generic pickup drop used by the F12 weapon palette: spawn a `kind` pickup at a world position.
@@ -4524,6 +5629,48 @@ func spawn_weapon_pickup(kind: String, world_pos: Vector2) -> void:
 ## Debug (legacy F12): drop a Lasgun pickup at a world position on the gameplay plane.
 func spawn_death_beam_pickup_near(world_pos: Vector2) -> void:
 	spawn_weapon_pickup("death_beam", world_pos)
+
+## One MultiMeshInstance2D renders every bullet in _bullets (gatling_gun + the carnage fusion, the only
+## two kinds that ever land in this array) — replaces the old per-bullet _draw_tracer (~10 immediate-mode
+## draw calls + ~92 GDScript trig ops per bullet, the actual FPS cost at high Gatling level; see the
+## GAT_TRACER_LEN comment above). Sprite scaled to match the tracer's PREVIOUS on-screen size (height =
+## GAT_TRACER_LEN, width from the source aspect ratio — never stretched, per the project's image rules).
+func _setup_gat_multimesh() -> void:
+	var tex := load(GAT_BULLET_TEX) as Texture2D
+	if tex == null:
+		return
+	_gat_mm = MultiMeshInstance2D.new()
+	_gat_mm.texture = tex
+	_gat_mm.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_2D
+	var quad := QuadMesh.new()
+	var tw := float(tex.get_width())
+	var th := float(tex.get_height())
+	var disp_h := GAT_TRACER_LEN * GAT_TRACER_SCALE
+	var disp_w := disp_h * tw / maxf(1.0, th)
+	quad.size = Vector2(disp_w, disp_h)
+	mm.mesh = quad
+	mm.instance_count = GAT_MM_MAX
+	mm.visible_instance_count = 0
+	_gat_mm.multimesh = mm
+	add_child(_gat_mm)
+
+## Rewrites every visible instance transform from the current _bullets array — called once per frame
+## right after _tick_bullets() moves/removes them. The sprite's default pose (nose pointing up, i.e. -Y)
+## needs +PI/2 added to a velocity-direction angle (angle 0 = +X/right) to point along the bullet's
+## travel direction; flip GAT_SPRITE_ROT_OFFSET's sign if the art's nose turns out to face the other way.
+const GAT_SPRITE_ROT_OFFSET := PI * 0.5
+func _sync_gat_multimesh() -> void:
+	if _gat_mm == null:
+		return
+	var n := _bullets.size()
+	_gat_mm.multimesh.visible_instance_count = mini(n, GAT_MM_MAX)
+	for i in mini(n, GAT_MM_MAX):
+		var b: Dictionary = _bullets[i]
+		var vel: Vector2 = b.get("vel", Vector2.ZERO)
+		var ang := (vel.angle() + GAT_SPRITE_ROT_OFFSET) if vel.length_squared() > 0.01 else 0.0
+		_gat_mm.multimesh.set_instance_transform_2d(i, Transform2D(ang, b["pos"] as Vector2))
 
 func _tick_bullets(delta: float) -> void:
 	var ruins   := get_tree().get_nodes_in_group("arena_ruin")
@@ -4617,13 +5764,14 @@ func _gat_hit_enemy(b: Dictionary, en: Node, p: Vector2) -> void:
 			en.take_damage(-float(GAT_HEAL_AMOUNT), 0.0)  # …and the target (negative damage = heal)
 
 ## Bounce a gatling bullet back off an anti-magnetic (bismuth) enemy: reverse it into a 45° cone from the
-## impact and flag it so _tick_bullets sends it at the PLAYER instead of enemies.
+## impact and flag it so _tick_bullets sends it at the PLAYER instead of enemies. Slowed to GAT_REFLECT_SPEED
+## (was the bullet's own incoming speed, ~GAT_SPEED = 900 — a reflected bolt screaming back that fast was
+## nearly undodgeable; now flies at the same speed as a jetfighter's own shot instead).
 func _reflect_bullet(b: Dictionary, hit_pos: Vector2) -> void:
 	var vel: Vector2 = b["vel"]
-	var spd := vel.length()
-	var back := (-vel).normalized() if spd > 0.01 else Vector2.UP
+	var back := (-vel).normalized() if vel.length() > 0.01 else Vector2.UP
 	var ang := back.angle() + randf_range(-deg_to_rad(22.5), deg_to_rad(22.5))   # ±22.5° → 45° cone
-	b["vel"] = Vector2(cos(ang), sin(ang)) * spd
+	b["vel"] = Vector2(cos(ang), sin(ang)) * GAT_REFLECT_SPEED
 	b["reflected"] = true
 	b["start"] = hit_pos   # reset travel origin so it isn't instantly range-culled
 	b["life"] = 0.0        # reset lifetime so it can fly back across the screen
@@ -7327,8 +8475,9 @@ func _draw() -> void:
 	for o: Dictionary in _orbs:
 		_draw_gauss_trail(o)
 	_draw_sparks()
+	# The tracer body itself is now the _gat_mm MultiMesh (see _sync_gat_multimesh) — only the optional
+	# per-bullet Healing Round overlay still needs an immediate-mode draw (rare enough to be cheap).
 	for b: Dictionary in _bullets:
-		_draw_tracer(b["pos"], b["vel"])
 		if b.get("healing", false):   # Healing Round capstone — soft red glow on the bullet
 			var hp_: Vector2 = b["pos"]
 			draw_circle(hp_, 7.0, Color(1.0, 0.4, 0.45, 0.35))
@@ -7337,6 +8486,26 @@ func _draw() -> void:
 	# particles spawned in _fire_arc — no immediate-mode draw here.
 	if _orbital_active or _singularity_active:
 		_draw_orbital()   # Singularities draws the 3 orbital balls (the voids are ColorRect nodes, not _draw)
+	if _thunder_active:
+		_draw_thunder()
+	if _gravwell_active:
+		_draw_gravwell()
+	if _omega_active:
+		_draw_omega()
+	if _slance_active:
+		_draw_slance()
+	if _prism_active:
+		_draw_prism()
+	if _hail_active:
+		_draw_hail()
+	if _wraith_active:
+		_draw_wraith()
+	if _hive_active:
+		_draw_hivemind()
+	if _anni_active:
+		_draw_annihilator()
+	if _eventh_active:
+		_draw_event_horizon()
 	if _striker_active:
 		_draw_striker()
 	if _shooter_active:
@@ -7379,38 +8548,6 @@ func _draw() -> void:
 			var pt := clampf(1.0 - float(puff["age"]) / maxf(0.01, float(puff["max_age"])), 0.0, 1.0)
 			# Filled low-alpha disc → overlapping puffs blend into one continuous green band.
 			draw_circle(puff["pos"], float(puff["radius"]), Color(0.35, 0.85, 0.3, 0.12 + 0.12 * pt))
-
-func _draw_tracer(p: Vector2, vel: Vector2) -> void:
-	var dir := (vel as Vector2).normalized() if (vel as Vector2).length() > 0.01 else Vector2.UP
-	var ca := dir.x
-	var sa := dir.y
-	var s := GAT_TRACER_SCALE
-	var hl := GAT_TRACER_LEN * 0.5 * s
-	var hw := GAT_TRACER_WIDTH * 0.5 * s
-	var tail_steps := 5
-	for i in range(tail_steps, 0, -1):
-		var f := float(i) / float(tail_steps)
-		var tp := p - dir * (GAT_TAIL_LEN * s * f)
-		var ta := GAT_GLOW_INTENSITY * (1.0 - f) * 0.7
-		draw_circle(tp, hw * (1.0 - 0.6 * f), Color(GAT_EDGE_COL.r, GAT_EDGE_COL.g, GAT_EDGE_COL.b, ta))
-	draw_colored_polygon(_oblong(p, hl * GAT_GLOW_SIZE, hw * GAT_GLOW_SIZE, ca, sa, 20),
-		Color(GAT_EDGE_COL.r, GAT_EDGE_COL.g, GAT_EDGE_COL.b, GAT_GLOW_INTENSITY * 0.5))
-	draw_colored_polygon(_oblong(p, hl * GAT_GLOW_SIZE * 0.6, hw * GAT_GLOW_SIZE * 0.6, ca, sa, 20),
-		Color(GAT_BODY_COL.r, GAT_BODY_COL.g, GAT_BODY_COL.b, GAT_GLOW_INTENSITY))
-	draw_colored_polygon(_oblong(p, hl, hw, ca, sa, 18), GAT_EDGE_COL)
-	draw_colored_polygon(_oblong(p, hl * 0.72, hw * 0.72, ca, sa, 18), GAT_BODY_COL)
-	var head := p + dir * (hl * 0.28)
-	draw_colored_polygon(_oblong(head, hl * 0.42, hw * 0.5, ca, sa, 16), GAT_CORE_COL)
-
-func _oblong(c: Vector2, rx: float, ry: float, ca: float, sa: float, segs: int) -> PackedVector2Array:
-	var pts := PackedVector2Array()
-	pts.resize(segs)
-	for i in segs:
-		var t := TAU * float(i) / float(segs)
-		var x := rx * cos(t)
-		var y := ry * sin(t)
-		pts[i] = c + Vector2(x * ca - y * sa, x * sa + y * ca)
-	return pts
 
 ## Soft radial glow: one smooth-falloff gradient sprite, modulated by `col`, centred at `pos`. Replaces
 ## stacked hard draw_circle layers so glows blend out smoothly. Lazily builds the gradient texture once.

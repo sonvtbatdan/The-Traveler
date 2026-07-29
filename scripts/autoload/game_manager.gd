@@ -61,17 +61,19 @@ var money: int = 0   # green-$ currency; new game starts at 0 (Phase 2 will spen
 # ── Character level / XP — ALL pacing knobs live here (Phases 1 & 2) ──────────
 # Diablo-2/Borderlands feel: quick early levels, a progressively longer late grind.
 # Tune these freely by feel; everything else derives from them.
-const BASE_XP: float = 117.0      # XP for level 1→2; the whole curve scales off this
+const BASE_XP: float = 1000.0     # XP for level 1→2; the whole curve scales off this
 const GROWTH:  float = 1.12       # each level costs GROWTH× the previous (early fast, late grind)
 const MAX_LEVEL: int = 50         # level cap; XP stops accruing once reached
 # Early-level XP-requirement discount (levels 1-6 cheaper; 7+ unchanged). Applied in xp_to_next().
-const LEVEL_XP_MULT := {1: 0.39, 2: 0.52, 3: 0.65, 4: 0.91, 5: 1.04, 6: 0.90}   # levels 1–5 = old ×1.3 (+30% req)
-const XP_PER_ASTEROID: float = 0.05       # flat XP per asteroid destroyed (1/20 of old 1; XP is face-value now)
-const XP_ASTEROID_SIZE_DIV: float = 12.0  # + (width / this) / 20 → bigger rocks worth more
-const XP_PER_BOSS: float = 25.0           # one lump on a boss's FINAL defeat (1/20 of old 500)
-# NOTE: the old global XP_GAIN_SCALE (1/20) multiplier was removed — every XP source now carries its real,
-# face-value amount (see ENEMY_DEFS in arena_wave_director.gd). add_xp still uses a fractional accumulator so
-# sub-1 enemies (e.g. swarm at 0.2 XP) accumulate across kills instead of rounding to 0.
+const LEVEL_XP_MULT := {1: 0.39, 2: 0.52, 3: 0.65, 4: 0.91, 5: 1.04, 6: 0.90}   # levels 1–5 = old ×1.3 (+30% req) — ratios, unaffected by the ×10 pass below
+const XP_PER_ASTEROID: float = 0.5        # flat XP per asteroid destroyed
+const XP_ASTEROID_SIZE_DIV: float = 12.0  # + (width / this) / 2 → bigger rocks worth more
+const XP_PER_BOSS: float = 250.0          # one lump on a boss's FINAL defeat
+# 2026-07-28: every XP source (this file + ENEMY_DEFS in arena_wave_director.gd/boss_scorpion.gd) scaled
+# ×10 so per-kill/per-source XP values are whole numbers instead of decimals (e.g. swarm 0.2→2, ghost 0.25→3
+# rounded, elephant 25→250) — BASE_XP scaled ×10 to match, so the number of kills needed per level is
+# unchanged, only the units got bigger. add_xp still uses a fractional accumulator (below) because
+# upg_xp_gain_mult / double-XP procs can still produce a fractional gain even from a whole base amount.
 
 var player_level: int = 1   # starts at 1
 var player_xp:    int = 0    # current XP toward the NEXT level (resets to 0 on each level-up)
@@ -94,7 +96,7 @@ func xp_to_next(level: int) -> int:
 
 ## XP a destroyed asteroid is worth, scaled by its visible width (px). Small rocks ~1, big ~5.
 func xp_for_asteroid(width: float) -> float:
-	return XP_PER_ASTEROID + (width / XP_ASTEROID_SIZE_DIV) / 20.0
+	return XP_PER_ASTEROID + (width / XP_ASTEROID_SIZE_DIV) / 2.0
 
 ## THE single entry point for gaining XP. Handles multiple level-ups from one big gain (e.g. a
 ## boss), caps at MAX_LEVEL, emits signals for UI/effects, and saves.
@@ -613,6 +615,7 @@ func _init_equipment_stats() -> void:
 	recompute_max_hp()
 
 func _process(delta: float) -> void:
+	run_time += delta   # frozen while paused (this autoload's process_mode is the default PAUSABLE) — RUN OVER stats' DPS divisor
 	if _hitstop_until_ms > 0 and Time.get_ticks_msec() >= _hitstop_until_ms:
 		_hitstop_until_ms = 0
 		Engine.time_scale = 1.0
@@ -819,11 +822,21 @@ func roll_coin_value(hp: float, skew: float) -> int:
 	return VALS[clampi(idx, 0, VALS.size() - 1)]
 var run_luck:        float = 0.0          # Lucky drone: additive luck this run (drop/fragment/coin chance)
 var run_kills:       int   = 0            # enemies killed this run (arena HUD; reset each run)
+var run_time:        float = 0.0          # seconds of actual play time this run (frozen while paused) — RUN OVER stats' DPS divisor
+var last_hit_name:   String = ""          # display name of the enemy/boss that most recently damaged the player
+var last_hit_icon:   String = ""          # its icon path (res://...) — "" if unknown/never set this run
 
 ## Tally one enemy kill for the run (arena HUD counter). Called from arena_enemy._die().
 func add_kill() -> void:
 	run_kills += 1
 	kills_changed.emit(run_kills)
+
+## Records whoever most recently damaged the player (RUN OVER's "last hit by"). Called from the enemy
+## contact/bullet/explosion damage paths in arena_enemy.gd + arena_enemy_manager.gd — NOT from boss-specific
+## attack code (arena_elephant.gd, boss_*.gd), a scoped, accepted gap (dozens of scattered call sites there).
+func record_last_hit(hit_name: String, icon_path: String) -> void:
+	last_hit_name = hit_name
+	last_hit_icon = icon_path
 
 ## Grant `n` one-run revive charges (Phoenix Core passive). Consumed by the arena on ship death.
 func grant_rebirth(n: int) -> void:
@@ -1024,6 +1037,9 @@ func reset_run() -> void:
 	_coin_buff_t = 0.0
 	run_luck = 0.0
 	run_kills = 0
+	run_time = 0.0
+	last_hit_name = ""
+	last_hit_icon = ""
 	recompute_max_hp()
 	heal_to_full()
 	# Shield: init straight to full cap (mirrors heal_to_full for HP), don't rely on _tick_shield's

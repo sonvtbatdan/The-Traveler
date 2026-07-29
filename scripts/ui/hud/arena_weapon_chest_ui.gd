@@ -57,9 +57,15 @@ func _ready() -> void:
 	_root.hide()
 
 # ── Public ────────────────────────────────────────────────────────────────────────
-## Roll three distinct weapons and present the chest (pauses the game).
+## Roll three distinct weapons and present the chest (pauses the game). Excludes kinds already acquired
+## (e.g. seeded from the Hub Loadout by arena.gd._open_start_chest before this is called) so a partial
+## loadout only rolls for the slots still empty, and a pool with nothing left to offer shows nothing.
 func show_chest() -> void:
-	var pool: Array = (ArenaWeapons.CHEST_POOL as Array).duplicate()
+	var weapons := get_tree().get_first_node_in_group("arena_weapons")
+	var acquired: Array = weapons.call("acquired_weapons") if weapons != null and weapons.has_method("acquired_weapons") else []
+	var pool: Array = (ArenaWeapons.CHEST_POOL as Array).filter(func(k: String) -> bool: return not (k in acquired))
+	if pool.is_empty():
+		return
 	pool.shuffle()
 	var picks: Array = pool.slice(0, mini(3, pool.size()))
 	for c in _cards_row.get_children():

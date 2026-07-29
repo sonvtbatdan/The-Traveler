@@ -2,10 +2,11 @@ extends CanvasLayer
 ## Bottom-right HUD buttons: Pause, Codex, Setting, Devon (toggle dev mode + pause + edit buttons), Quit.
 ## When Devon is active: game is paused and Boss_edit / Creep_edit buttons are revealed.
 ##
-## The 6-button column itself is hidden on the main gameplay screen (`_vb.visible = false` — Setting/Inv
-## still reachable via the Player-HUD's own MENU/INV board buttons, see hud_binder.gd). Dev mode now toggles
-## from a switch in the Settings panel instead of the (hidden) Devon button — see set_dev_mode()/is_dev_mode()
-## and settings_panel.gd's "Dev Mode" row. Group "arena_hud_buttons" is how Settings finds this instance.
+## The 6-button column is hidden outside dev mode (`_vb.visible` follows `_dev_mode`, toggled in
+## set_dev_mode() — Setting/Inv stay reachable via the Player-HUD's own MENU/INV board buttons, see
+## hud_binder.gd, and via Esc for Setting). Dev mode now toggles from a switch in the Settings panel
+## instead of the (hidden) Devon button — see set_dev_mode()/is_dev_mode() and settings_panel.gd's "Dev
+## Mode" row. Group "arena_hud_buttons" is how Settings finds this instance.
 
 const BTN_SIZE        := 60.0
 const BTN_SEP         :=  6.0
@@ -22,11 +23,13 @@ var _click_player: AudioStreamPlayer = null   # uiclick — local + ALWAYS so it
 
 var _dev_mode:    bool  = false
 var _game_paused: bool  = false   # tracks the pause state managed by this HUD
+var _auto_fire:   bool  = false   # dev-mode toggle: ship auto-faces the nearest enemy instead of the mouse (read by arena.gd._aim(); movement is unaffected — WASD is absolute, not facing-relative)
 
 # Button references
 var _devon_btn:      TextureButton = null
 var _pause_btn:      TextureButton = null
 var _boss_edit_btn:  TextureButton = null
+var _creep_info_btn: Button = null
 var _creep_edit_btn: TextureButton = null
 var _simplified_btn: TextureButton = null
 var _creep_btn:      TextureButton = null
@@ -35,6 +38,9 @@ var _hotkey_btn:     TextureButton = null
 var _fleet_edit_btn: TextureButton = null
 var _wave_edit_btn:  TextureButton = null
 var _hud_edit_btn:   TextureButton = null
+var _end_run_btn:    Button = null
+var _auto_fire_btn:  Button = null
+var _level_btn:      Button = null
 var _inv_btn:        Button = null
 var _vb:             VBoxContainer = null
 
@@ -75,6 +81,8 @@ func _ready() -> void:
 	_tex_hud_edit      = _load_img("res://assets/hud/Asset 41.png")
 	_build_ui()
 	SettingsScript.apply_saved()       # apply saved SFX volume + window mode (covers arena-direct launch)
+	if bool(SettingsScript.load_cfg().get("dev_mode", false)):
+		set_dev_mode(true)   # re-arm a saved "Dev Mode: on" at the start of every arena load
 	_settings = SettingsScript.new()
 	_settings.add_to_group("settings_panel")   # so the HUD Menu button can open it (hud_edit_mode._open_menu)
 	add_child(_settings)
@@ -174,14 +182,24 @@ func _build_ui() -> void:
 	_boss_edit_btn.pressed.connect(_on_boss_edit)
 	root.add_child(_boss_edit_btn)
 
+	# Creep Info — between Boss Edit and Creep Edit (dev:on only). Opens a table (icon/name/HP/Move/Shoot)
+	# for every enemy type — see creep_info_panel.gd. No dedicated icon art yet, so a compact label button
+	# (same small-button style as END RUN/AUTO-FIRE/+LEVEL below).
+	var creep_info_h := BTN_SIZE * 0.5
+	_creep_info_btn = _make_label_btn("CREEP INFO", BTN_SIZE * 1.8, creep_info_h, 9)
+	_creep_info_btn.position = Vector2(SIMPLIFIED_X, SIMPLIFIED_Y + s_h + BTN_SEP + boss_edit_h + BTN_SEP)
+	_creep_info_btn.visible = false
+	_creep_info_btn.pressed.connect(_on_creep_info)
+	root.add_child(_creep_info_btn)
+
 	_creep_edit_btn = _make_btn(_tex_creep_edit, creep_edit_h)
-	_creep_edit_btn.position = Vector2(SIMPLIFIED_X, SIMPLIFIED_Y + s_h + BTN_SEP + boss_edit_h + BTN_SEP)
+	_creep_edit_btn.position = Vector2(SIMPLIFIED_X, SIMPLIFIED_Y + s_h + BTN_SEP + boss_edit_h + BTN_SEP + creep_info_h + BTN_SEP)
 	_creep_edit_btn.visible = false
 	_creep_edit_btn.pressed.connect(_on_creep_edit)
 	root.add_child(_creep_edit_btn)
 
 	# Panel-toggle buttons below the edit cluster: creep / weapon / hotkey (dev:on only).
-	var y_panels := SIMPLIFIED_Y + s_h + BTN_SEP + boss_edit_h + BTN_SEP + creep_edit_h + BTN_SEP
+	var y_panels := SIMPLIFIED_Y + s_h + BTN_SEP + boss_edit_h + BTN_SEP + creep_info_h + BTN_SEP + creep_edit_h + BTN_SEP
 	var creep_h := _btn_h(_tex_creep)
 	_creep_btn = _make_btn(_tex_creep, creep_h)
 	_creep_btn.position = Vector2(SIMPLIFIED_X, y_panels)
@@ -228,10 +246,42 @@ func _build_ui() -> void:
 	_hud_edit_btn.pressed.connect(_on_hud_edit)
 	root.add_child(_hud_edit_btn)
 
-func _make_label_btn(label: String) -> Button:
+	# Small dev-cluster buttons (End Run / Auto-Fire / +Level) — half the size of the icon buttons above,
+	# so this stack of 3 fits without pushing the column further off-screen.
+	const SMALL_BTN_W := BTN_SIZE * 0.9    # 54px  (was BTN_SIZE * 1.8 = 108px)
+	const SMALL_BTN_H := BTN_SIZE * 0.5    # 30px  (was BTN_SIZE = 60px)
+	var y_small := y_fleet + fleet_h + BTN_SEP + wave_h + BTN_SEP + hud_h + BTN_SEP
+
+	# End Run — below HUD Edit, top of the small-button stack (dev:on only). Same effect as F4 (_skip_run
+	# in arena_debug_spawn.gd): simulated rewards + jump straight to the RUN OVER screen.
+	_end_run_btn = _make_label_btn("END RUN", SMALL_BTN_W, SMALL_BTN_H, 8)
+	_end_run_btn.position = Vector2(SIMPLIFIED_X, y_small)
+	_end_run_btn.visible = false
+	_end_run_btn.pressed.connect(_on_end_run)
+	root.add_child(_end_run_btn)
+	y_small += SMALL_BTN_H + BTN_SEP
+
+	# Auto-Fire — below End Run. ON: ship auto-faces the nearest enemy (read by arena.gd._aim() via
+	# is_auto_fire_on()) instead of the mouse; movement (WASD) is absolute-direction and untouched either way.
+	_auto_fire_btn = _make_label_btn("AUTO:OFF", SMALL_BTN_W, SMALL_BTN_H, 8)
+	_auto_fire_btn.position = Vector2(SIMPLIFIED_X, y_small)
+	_auto_fire_btn.visible = false
+	_auto_fire_btn.pressed.connect(_on_auto_fire)
+	root.add_child(_auto_fire_btn)
+	y_small += SMALL_BTN_H + BTN_SEP
+
+	# +Level — below Auto-Fire, bottom of the dev cluster (dev:on only). Same effect as arena_debug_spawn's
+	# "+ Level" button: grants exactly enough XP to force one player level-up.
+	_level_btn = _make_label_btn("+LEVEL", SMALL_BTN_W, SMALL_BTN_H, 8)
+	_level_btn.position = Vector2(SIMPLIFIED_X, y_small)
+	_level_btn.visible = false
+	_level_btn.pressed.connect(_on_add_level)
+	root.add_child(_level_btn)
+
+func _make_label_btn(label: String, width: float = BTN_SIZE, height: float = BTN_SIZE, font_size: int = 11) -> Button:
 	var btn := Button.new()
 	btn.text = label
-	btn.custom_minimum_size = Vector2(BTN_SIZE, BTN_SIZE)
+	btn.custom_minimum_size = Vector2(width, height)
 	var s := StyleBoxFlat.new()
 	s.bg_color = Color(0.10, 0.12, 0.16, 0.85)
 	s.border_color = Color(0.35, 0.45, 0.60)
@@ -248,7 +298,7 @@ func _make_label_btn(label: String) -> Button:
 	var font := load("res://assets/fonts/Gameplay.ttf") as Font
 	if font:
 		btn.add_theme_font_override("font", font)
-	btn.add_theme_font_size_override("font_size", 11)
+	btn.add_theme_font_size_override("font_size", font_size)
 	btn.add_theme_color_override("font_color", Color(0.85, 0.90, 1.0))
 	return btn
 
@@ -261,6 +311,29 @@ func _make_btn(tex: Texture2D, h: float) -> TextureButton:
 	return btn
 
 # ── Button handlers ────────────────────────────────────────────────────────────
+
+## Esc: open the Settings panel (pause menu), same panel/behavior as the Setting button. Pressing Esc
+## again while it's open closes it without saving (same as the Cancel button). Dev-mode editors (Boss/
+## Creep/Fleet/Wave/HUD Edit) own Escape while dev mode is on, so this backs off in that case; likewise if
+## Inventory is open, its own Escape handler closes it first instead of also popping Settings on top.
+func _unhandled_input(event: InputEvent) -> void:
+	if not (event is InputEventKey and event.pressed and not event.echo):
+		return
+	if (event as InputEventKey).keycode != KEY_ESCAPE:
+		return
+	if _settings == null:
+		return
+	if _settings.is_open():
+		_settings._on_cancel()
+		get_viewport().set_input_as_handled()
+		return
+	if _dev_mode:
+		return
+	var inv := get_tree().get_first_node_in_group("inventory_ui")
+	if inv != null and inv.has_method("is_open") and inv.is_open():
+		return
+	_settings.open()
+	get_viewport().set_input_as_handled()
 
 func _on_pause() -> void:
 	_game_paused = !_game_paused
@@ -305,9 +378,11 @@ func set_dev_mode(v: bool) -> void:
 		_game_paused = true
 		get_tree().paused = true
 
-	# Show / hide dev buttons at top-left
+	# Show / hide the bottom-right column (Pause/Codex/Inv/Setting/Devon/Quit) + dev buttons at top-left
+	_vb.visible = _dev_mode
 	_simplified_btn.visible = _dev_mode
 	_boss_edit_btn.visible  = _dev_mode
+	_creep_info_btn.visible = _dev_mode
 	_creep_edit_btn.visible = _dev_mode
 	_creep_btn.visible      = _dev_mode
 	_weapon_btn.visible     = _dev_mode
@@ -315,6 +390,9 @@ func set_dev_mode(v: bool) -> void:
 	_fleet_edit_btn.visible = _dev_mode
 	_wave_edit_btn.visible  = _dev_mode
 	_hud_edit_btn.visible   = _dev_mode
+	_end_run_btn.visible    = _dev_mode
+	_auto_fire_btn.visible  = _dev_mode
+	_level_btn.visible      = _dev_mode
 
 	# Update Devon button texture
 	_devon_btn.texture_normal = _tex_devon if _dev_mode else _tex_devoff
@@ -346,11 +424,40 @@ func _on_boss_edit() -> void:
 	if bem != null and bem.has_method("toggle"):
 		bem.toggle()
 
+func _on_creep_info() -> void:
+	_click_sfx()
+	var cip := get_tree().get_first_node_in_group("creep_info")
+	if cip != null and cip.has_method("toggle"):
+		cip.toggle()
+
 func _on_creep_edit() -> void:
 	_click_sfx()
 	var cem := get_tree().get_first_node_in_group("creep_edit")
 	if cem != null and cem.has_method("toggle"):
 		cem.toggle()
+
+## Read every frame by arena.gd._aim() (group "arena_hud_buttons") to decide mouse-aim vs. nearest-enemy-aim.
+func is_auto_fire_on() -> bool:
+	return _auto_fire
+
+func _on_auto_fire() -> void:
+	_click_sfx()
+	_auto_fire = not _auto_fire
+	_auto_fire_btn.text = "AUTO:ON" if _auto_fire else "AUTO:OFF"
+	_auto_fire_btn.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5) if _auto_fire else Color(0.85, 0.90, 1.0))
+
+## Same effect as arena_debug_spawn.gd's "+ Level" button: grants exactly enough XP for one level-up.
+func _on_add_level() -> void:
+	_click_sfx()
+	if GameManager.has_method("add_xp"):
+		var level: int = GameManager.player_level if "player_level" in GameManager else 1
+		var xp_needed: int = GameManager.xp_to_next(level) if GameManager.has_method("xp_to_next") else 100
+		GameManager.add_xp(xp_needed)
+
+## Same effect as F4: simulated rewards (arena_debug_spawn.gd's _skip_run), then straight to RUN OVER.
+func _on_end_run() -> void:
+	_click_sfx()
+	_toggle_ds_panel("_skip_run")
 
 func _on_fleet_edit() -> void:
 	_click_sfx()

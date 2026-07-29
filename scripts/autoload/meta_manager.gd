@@ -1,12 +1,18 @@
 extends Node
 ## MetaManager — persistent between-run progression (Phase 2). Tracks: known weapon BLUEPRINTS (buyable in
-## the hub shop), owned unique FRAGMENTS, already-CRAFTED uniques, and permanent PASSIVES. Persists across
-## runs in user://save.cfg [meta]. Drives the hub's Shop / Craft / Fragments / Passives tabs. Calls only
+## the hub shop), owned unique FRAGMENTS, already-CRAFTED uniques, permanent PASSIVES, and the player's
+## LOADOUT (which unlocked arena weapon kinds they bring into the next run). Persists across runs in
+## user://save.cfg [meta]. Drives the hub's Shop / Craft / Fragments / Passives / Loadout tabs. Calls only
 ## PUBLIC InventoryManager + GameManager APIs so the locked inventory data layer stays untouched.
 
 signal meta_changed
 
 const SAVE_PATH := "user://save.cfg"
+const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")   # WEAPON_INFO/CHEST_POOL — canonical kind registry
+const ArenaAux := preload("res://scripts/gameplay/arena_aux.gd")          # AUX_DEFS — field-drop candidate pool
+
+const FIELD_DROP_CHANCE        := 0.02   # per creep kill
+const FIELD_DROP_WEAPON_CHANCE := 0.6    # vs. aux, when a drop actually happens
 
 # Coin price to craft/buy one copy of a known-blueprint weapon, keyed by the weapon's rarity.
 const BLUEPRINT_PRICE := {
@@ -33,6 +39,7 @@ var fragments_owned: Dictionary = {} # unique_id -> Array[int] of owned fragment
 var crafted_uniques: Array = []      # unique_ids already assembled (one-time)
 var passives: Dictionary = {}        # passive_id -> level (int)
 var run_temp_uids: Array = []        # item uids dropped mid-run (lost = sold off at the next run start)
+var loadout: Array = []              # arena_weapons kind strings picked for the next run (max MAX_WEAPONS)
 
 func _ready() -> void:
 	load_meta()
@@ -88,12 +95,130 @@ func buy_weapon(def_id: String) -> bool:
 	meta_changed.emit()
 	return true
 
+# ── Loadout (which unlocked arena_weapons kinds to bring into the next run) ──────────────────────
+## Every kind the player can currently pick from: the always-available starters (arena_weapons.CHEST_POOL)
+## plus any kind whose WEAPON_INFO.def_id has a known blueprint or a crafted unique.
+func unlocked_weapon_kinds() -> Array:
+	var out: Array = (ArenaWeapons.CHEST_POOL as Array).duplicate()
+	for kind: String in ArenaWeapons.WEAPON_INFO:
+		if kind in out:
+			continue
+		var def_id := String((ArenaWeapons.WEAPON_INFO[kind] as Dictionary).get("def_id", ""))
+		if def_id != "" and (blueprints.has(def_id) or crafted_uniques.has(def_id)):
+			out.append(kind)
+	return out
+
+func is_in_loadout(kind: String) -> bool:
+	return loadout.has(kind)
+
+func loadout_full() -> bool:
+	return loadout.size() >= ArenaWeapons.MAX_WEAPONS
+
+## Add/remove `kind` from the loadout. Adding requires the kind to be unlocked and the loadout not full.
+## Returns true if the loadout changed.
+func toggle_loadout(kind: String) -> bool:
+	if loadout.has(kind):
+		loadout.erase(kind)
+	else:
+		if not unlocked_weapon_kinds().has(kind) or loadout_full():
+			return false
+		loadout.append(kind)
+	save_meta()
+	meta_changed.emit()
+	return true
+
+# ── Gear (hull / thruster / shield) — always-purchasable, no blueprint unlock needed ─────────────
+## Every hull/thruster/shield def_id, in catalog order. Unlike weapons these never drop or craft (no
+## live in-arena source exists for them — see the DOCK design note) — they're just Shop stock.
+func gear_ids() -> Array:
+	var out: Array = []
+	for id: String in InventoryManager.ITEM_DEFS:
+		var tags: Array = InventoryManager.ITEM_DEFS[id].get("tags", [])
+		if tags.has("hull") or tags.has("thruster") or tags.has("shield"):
+			out.append(id)
+	return out
+
+## Buy one copy of a gear item for coins → into the backpack. Same rarity-tiered pricing as weapon
+## blueprints (blueprint_price is generic over any ITEM_DEFS id, not weapon-specific). No unlock gate.
+func buy_gear(def_id: String) -> bool:
+	if not InventoryManager.has_room_for(def_id):
+		return false
+	var price := blueprint_price(def_id)
+	if not GameManager.spend_money(price):
+		return false
+	var uid := InventoryManager.add_to_backpack(def_id)
+	if uid == -1:
+		GameManager.add_money(price)   # refund if it somehow failed to place
+		return false
+	meta_changed.emit()
+	return true
+
+# ── Field drops (creep kills) — small chance to find a weapon/aux "token" straight in Cargo, so ────
+# players keep discovering upgrades after their 5 WEAPONS/AUX run-slots fill up (swap one in via the
+# Inventory screen's Cargo → slot drag). Run-temp: purged next run start if never swapped in, same as
+# the boss-salvage "equip for this run" choice.
+func roll_field_drop() -> void:
+	if randf() >= FIELD_DROP_CHANCE:
+		return
+	if randf() < FIELD_DROP_WEAPON_CHANCE:
+		_drop_field_weapon()
+	else:
+		_drop_field_aux()
+
+func _drop_field_weapon() -> void:
+	var def_id := roll_boss_weapon(int(RARITY_RANK.get("rare", 2)))   # standards cap at rare anyway
+	if def_id == "" or not InventoryManager.has_room_for(def_id):
+		return
+	var uid := InventoryManager.add_to_backpack(def_id)
+	if uid != -1:
+		mark_run_temp(uid)
+
+func _drop_field_aux() -> void:
+	var ax := get_tree().get_first_node_in_group("arena_aux")
+	var owned: Array = ax.call("owned_aux") if ax != null and ax.has_method("owned_aux") else []
+	var candidates: Array = []
+	for d: Dictionary in ArenaAux.AUX_DEFS:
+		var id := String(d["id"])
+		if not (id in owned):
+			candidates.append(id)
+	if candidates.is_empty():
+		return
+	var def_id := "aux_" + String(candidates[randi() % candidates.size()])
+	if not InventoryManager.has_room_for(def_id):
+		return
+	var uid := InventoryManager.add_to_backpack(def_id)
+	if uid != -1:
+		mark_run_temp(uid)
+
+# ── Debug: simulate a full run's worth of rewards without playing it out ─────────────────────────────
+# Used by the Dev Mode "skip run" hotkey (arena_debug_spawn.gd, F4): rolls `kills` creep-kill rewards
+# (coin + field drop, same formulas/gates as a real kill in arena_enemy.gd's _die()) plus `bosses` boss
+# fragment drops, so a tester lands in Dock with roughly what a real run would have paid out.
+const SIM_ENEMY_HP_MIN := 20.0
+const SIM_ENEMY_HP_MAX := 3000.0
+
+func simulate_run_rewards(kills: int, bosses: int) -> void:
+	for _i in kills:
+		var hp := randf_range(SIM_ENEMY_HP_MIN, SIM_ENEMY_HP_MAX)
+		if GameManager.upg_coin_drop > 0.0:
+			var expected := hp / 900.0 * GameManager.upg_coin_drop
+			var coins := int(expected) + (1 if randf() < (expected - float(int(expected))) else 0)
+			var skew: float = GameManager.mech_bonus("coin_skew")
+			for _c in mini(coins, 20):
+				GameManager.add_money(GameManager.roll_coin_value(hp, skew))
+		roll_field_drop()
+	for _b in bosses:
+		roll_fragment_drop()
+
 # ── Unique fragments / crafting ──────────────────────────────────────────────────
-## All unique weapon ids (fragment-crafted), in catalog order.
+## All unique weapon ids (fragment-crafted), in catalog order. Skips uniques with no icon art yet
+## ("icon": "") — temporarily disconnected from Craft/Fragments/boss fragment drops until they have a
+## sprite (2026-07-27); still fully defined in code and spawnable via the F12 debug weapon palette.
 func unique_ids() -> Array:
 	var out: Array = []
 	for id: String in InventoryManager.ITEM_DEFS:
-		if bool(InventoryManager.ITEM_DEFS[id].get("unique", false)):
+		var d: Dictionary = InventoryManager.ITEM_DEFS[id]
+		if bool(d.get("unique", false)) and String(d.get("icon", "")) != "":
 			out.append(id)
 	return out
 
@@ -277,6 +402,7 @@ func save_meta() -> void:
 	cfg.set_value("meta", "crafted", crafted_uniques)
 	cfg.set_value("meta", "passives", passives)
 	cfg.set_value("meta", "run_temp", run_temp_uids)
+	cfg.set_value("meta", "loadout", loadout)
 	cfg.save(SAVE_PATH)
 
 func load_meta() -> void:
@@ -288,3 +414,4 @@ func load_meta() -> void:
 	crafted_uniques = cfg.get_value("meta", "crafted", [])
 	passives = cfg.get_value("meta", "passives", {})
 	run_temp_uids = cfg.get_value("meta", "run_temp", [])
+	loadout = cfg.get_value("meta", "loadout", [])

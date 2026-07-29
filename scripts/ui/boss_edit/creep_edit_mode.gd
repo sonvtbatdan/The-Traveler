@@ -135,13 +135,26 @@ func _ready() -> void:
 	layer = 12
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group(_edit_group())
+	# _scan_creeps()/_build_ui()/_build_creep_buttons() moved to _ensure_built(), lazily run on first
+	# toggle() instead of here — this editor is opened rarely (dev-only), but was previously paying its
+	# full folder-scan + one-thumbnail-per-creep-sprite cost on every single arena boot for every player.
+
+func setup(objects_container: Control) -> void:
+	_objects_container = objects_container
+	# _load_layout()/_load_plume_styles()/_load_vortex_styles()/_update_gameplay_visibility() moved to
+	# _ensure_built() — see the note in _ready().
+
+## First-open lazy init: the folder scan + thumbnail loads + saved-layout restore, deferred from
+## _ready()/setup() to the moment a developer actually opens this editor (see toggle()).
+var _lazy_built := false
+func _ensure_built() -> void:
+	if _lazy_built:
+		return
+	_lazy_built = true
 	_scan_creeps()
 	_build_ui()
 	_build_creep_buttons()
 	_set_ui_visible(false)
-
-func setup(objects_container: Control) -> void:
-	_objects_container = objects_container
 	_load_layout()
 	_load_plume_styles()
 	_load_vortex_styles()
@@ -880,6 +893,7 @@ func _get_eo_thumbnail(eo: EditableObjectNode) -> Texture2D:
 # ── Open / Close ───────────────────────────────────────────────────────────────
 
 func toggle() -> void:
+	_ensure_built()
 	if not _is_open:
 		_is_open = true
 		_grid_overlay.is_edit_open = true

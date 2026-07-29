@@ -107,7 +107,7 @@
 ### Flies *(chưa implement)*
 | Thuộc tính | Giá trị |
 |-----------|---------|
-| Icon | `animalflies.png` |
+| Icon | `flie1.png` |
 | Spawn key | `spawn_flies` |
 | Script | — |
 

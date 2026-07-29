@@ -7,7 +7,7 @@ extends Panel
 ## RESET button refunds them all (GameManager.reset_points).
 
 const PANEL_W := 200.0
-const PANEL_H := 712.0
+const PANEL_H := 760.0   # matches inventory_ui.gd's PANEL_SIZE.y — same vertical span, top-aligned
 const EDGE_GAP := 6.0
 
 const COL_TITLE := Color(0.75, 0.88, 1.0)
