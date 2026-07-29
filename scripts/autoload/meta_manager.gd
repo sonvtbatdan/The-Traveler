@@ -41,6 +41,17 @@ var passives: Dictionary = {}        # passive_id -> level (int)
 var run_temp_uids: Array = []        # item uids dropped mid-run (lost = sold off at the next run start)
 var loadout: Array = []              # arena_weapons kind strings picked for the next run (max MAX_WEAPONS)
 
+# Map Pack registry — hub's "Launch" flow opens a map-select panel over this list (see hub_screen.gd
+# _build_mapselect). Every map is the SAME scene/arena.gd (same ship, weapons, HUD, dev-mode editors,
+# enemy/wave systems) — only the terrain/background visuals and the creep spawn timeline differ per map_id
+# (see arena.gd's map_id branch in _ready(), and arena_wave_director_v2.gd's _last_wave_cfg_path()). Add a
+# new theme by dropping one more entry here + a matching background-builder branch in arena.gd.
+const MAP_DEFS := {
+	"default": {"name": "Default", "desc": "The original space arena — asteroids, waves, weapons, bosses.", "scene": "res://scenes/arena.tscn"},
+	"rubicon": {"name": "Rubicon", "desc": "Procedural blue-grass / dark-sand terrain under drifting parallax clouds, scattered trees — same ship/weapons/HUD/waves as Default, different spawn timeline.", "scene": "res://scenes/arena.tscn"},
+}
+var selected_map_id: String = "default"   # last map picked in the Launch panel (not persisted — resets each session)
+
 func _ready() -> void:
 	load_meta()
 	_seed_starter_blueprints()

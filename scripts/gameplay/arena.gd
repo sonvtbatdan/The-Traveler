@@ -30,6 +30,10 @@ const ArenaAsteroidsScript := preload("res://scripts/gameplay/arena_asteroids.gd
 const ArenaCometsScript    := preload("res://scripts/gameplay/arena_comets.gd")
 const ArenaStructuresScript := preload("res://scripts/gameplay/arena_structures.gd")
 const ArenaSolarSystemScript := preload("res://scripts/gameplay/arena_solar_system.gd")
+const RubiconGroundScript := preload("res://scripts/gameplay/rubicon/rubicon_ground.gd")
+const RubiconCloudsScript := preload("res://scripts/gameplay/rubicon/rubicon_clouds.gd")
+const RubiconTreesScript := preload("res://scripts/gameplay/rubicon/rubicon_trees.gd")
+const RubiconTerrainEditScript := preload("res://scripts/ui/hud/rubicon_terrain_edit.gd")
 const ArenaDofScript     := preload("res://scripts/gameplay/arena_dof.gd")
 const PlanetMenuScript   := preload("res://scripts/ui/hud/arena_planet_menu.gd")
 const DebugSpawnScript   := preload("res://scripts/gameplay/arena_debug_spawn.gd")
@@ -123,6 +127,10 @@ var _hud_edit:   Node = null     # authored playerhud (live HUD when closed; F-b
 var _weapon_chest: Node = null   # start-of-run weapon chest UI
 var _ui_layer: CanvasLayer = null      # HP / weapon / aux / XP HUD layer (hidden while a full-screen editor is open)
 var _hud_buttons: Node = null          # bottom-right + left dev button clusters
+var _map_id: String = "default"        # MetaManager.selected_map_id, snapshotted at _ready() — which background branch below ran
+var _rubicon_ground: CanvasLayer = null
+var _rubicon_clouds: Node2D = null
+var _rubicon_trees: Node2D = null
 
 func _ready() -> void:
 	# TEMP DIAGNOSTIC — timing breakdown for the "arena load takes ~5s" report. Mirrors main_menu.gd's
@@ -143,32 +151,36 @@ func _ready() -> void:
 	# Depth-of-field: all non-gameplay layers render into the DoF SubViewport (blurred/dimmed/desaturated
 	# behind the sharp gameplay plane). bg is that SubViewport; parallax/streaming are unchanged because its
 	# camera is synced to the main camera each frame.
+	_map_id = String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
 	var dof := ArenaDofScript.new()
 	add_child(dof)
 	var bg: Node = dof.background_parent()   # DoF SubViewport, or the arena itself when the mask is disabled
-	add_child(ArenaNebulaScript.new())      # procedural nebula — EXCLUDED from the blur (stays sharp in the
-											# main viewport at CL -10, behind the DoF composite at CL -5)
-	bg.add_child(ArenaDustScript.new())     # dark space dust, lit by ship/weapon lights
-	var planets := ArenaPlanetsScript.new()      # sparse mid-parallax procedural planets (z -50)
-	var comets := ArenaCometsScript.new()        # rare mid-parallax comets (z -48)
-	var structures := ArenaStructuresScript.new() # rare huge gas/dust structures (z -60, slow far parallax)
-	var asteroids := ArenaAsteroidsScript.new()  # fast near-parallax asteroid fields (z -10, sells speed)
-	# Authored solar system (replaces random planet scatter): planets/belt on the blurred 0.40 layer; its sun
-	# is hosted in the MAIN viewport (sharp, excluded from the blur).
-	var solar := ArenaSolarSystemScript.new()
-	solar.sun_host = self
-	if ArenaDofScript.ENABLED:               # per-layer depth dim only when the mask is on
-		planets.modulate = ArenaDofScript.MID_MODULATE
-		comets.modulate = ArenaDofScript.MID_MODULATE
-		structures.modulate = ArenaDofScript.FAR_MODULATE
-		asteroids.modulate = ArenaDofScript.MID_MODULATE
-		solar.modulate = ArenaDofScript.MID_MODULATE
-	bg.add_child(planets)                    # streaming OFF (helpers/F10 only); solar system provides planets
-	bg.add_child(comets)
-	bg.add_child(structures)
-	bg.add_child(asteroids)
-	bg.add_child(solar)
-	add_child(PlanetMenuScript.new())    # F6 menu: inspect/drag-spawn planets (input stays in the main viewport)
+	if _map_id == "rubicon":
+		_build_rubicon_background()
+	else:
+		add_child(ArenaNebulaScript.new())      # procedural nebula — EXCLUDED from the blur (stays sharp in the
+												# main viewport at CL -10, behind the DoF composite at CL -5)
+		bg.add_child(ArenaDustScript.new())     # dark space dust, lit by ship/weapon lights
+		var planets := ArenaPlanetsScript.new()      # sparse mid-parallax procedural planets (z -50)
+		var comets := ArenaCometsScript.new()        # rare mid-parallax comets (z -48)
+		var structures := ArenaStructuresScript.new() # rare huge gas/dust structures (z -60, slow far parallax)
+		var asteroids := ArenaAsteroidsScript.new()  # fast near-parallax asteroid fields (z -10, sells speed)
+		# Authored solar system (replaces random planet scatter): planets/belt on the blurred 0.40 layer; its sun
+		# is hosted in the MAIN viewport (sharp, excluded from the blur).
+		var solar := ArenaSolarSystemScript.new()
+		solar.sun_host = self
+		if ArenaDofScript.ENABLED:               # per-layer depth dim only when the mask is on
+			planets.modulate = ArenaDofScript.MID_MODULATE
+			comets.modulate = ArenaDofScript.MID_MODULATE
+			structures.modulate = ArenaDofScript.FAR_MODULATE
+			asteroids.modulate = ArenaDofScript.MID_MODULATE
+			solar.modulate = ArenaDofScript.MID_MODULATE
+		bg.add_child(planets)                    # streaming OFF (helpers/F10 only); solar system provides planets
+		bg.add_child(comets)
+		bg.add_child(structures)
+		bg.add_child(asteroids)
+		bg.add_child(solar)
+		add_child(PlanetMenuScript.new())    # F6 menu: inspect/drag-spawn planets (space-only tool, no planets on Rubicon)
 	print("[arena-startup] background/parallax/dof: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 	add_child(DebugSpawnScript.new())    # F5 asteroids / F9 comet / F10 planet+moons (Shift = clear)
 	print("[arena-startup] DebugSpawnScript (quick-spawn + weapon-spawn icon grids): %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
@@ -219,7 +231,29 @@ func _ready() -> void:
 	call_deferred("_setup_weapon_edit")
 	call_deferred("_setup_fleet_edit")
 	call_deferred("_setup_hud_edit")     # authored playerhud = the live HUD (replaces the hidden cockpit HUD)
+	if _map_id == "rubicon":
+		call_deferred("_setup_rubicon_terrain_edit")
 	call_deferred("_open_start_chest")   # grant every Loadout pick, then chest-offer any slots still empty
+
+## Rubicon map background: procedural blue/dark-sand ground + scattered trees/temples + parallax clouds
+## (scripts/gameplay/rubicon/*), replacing the space nebula/dust/planets/asteroids block above. Ship,
+## weapons, HUD, dev-mode editors, enemy manager and wave director are untouched — only the terrain visual
+## and (via arena_wave_director_v2._last_wave_cfg_path()) the spawn timeline differ per map. Position is
+## updated every frame in _process() once the player exists.
+##
+## Draw order (back→front): ground (own CanvasLayer, always behind) → trees (ONE merged 3D pass — every
+## scattered asset AND the real cloud-occluder mesh share one World3D/camera, so the engine's own depth test
+## clips tall assets against the cloud per-pixel — see rubicon_trees.gd's header) → clouds (decorative 2D
+## parallax atmosphere layer, purely stylistic now, no longer responsible for any occlusion) → enemies
+## (z_index 1) → ship (z_index SHIP_Z=100). Trees/clouds are plain z_index-0 world Node2Ds, so ADD ORDER
+## decides who's on top among them.
+func _build_rubicon_background() -> void:
+	_rubicon_ground = RubiconGroundScript.new()
+	add_child(_rubicon_ground)
+	_rubicon_trees = RubiconTreesScript.new()
+	add_child(_rubicon_trees)
+	_rubicon_clouds = RubiconCloudsScript.new()
+	add_child(_rubicon_clouds)
 
 ## Canvas glow/bloom for the arena. With hdr_2d on (project.godot) + glow_hdr_threshold 1.0, only HDR (>1)
 ## pixels bloom — i.e. the DynamicFire effects that set glow>0 (Elephant M2, Red X). LDR content is untouched.
@@ -629,6 +663,12 @@ func _process(delta: float) -> void:
 			_ship_spr.scale = Vector2.ONE * (PLAYER_SIZE_PX * SHIP_DISPLAY_GAIN / float(VP_SIZE) * sm)
 	_aim(delta)
 	_update_ship_3d()
+	if _rubicon_ground != null:
+		var pos: Vector2 = _player.global_position
+		_rubicon_ground.set_world_offset(pos)
+		_rubicon_clouds.set_world_offset(pos)
+		var vp_size: Vector2 = get_viewport().get_visible_rect().size
+		_rubicon_trees.update_view(pos, vp_size)
 	if USE_PLACEHOLDER_FIRE:
 		_fire_acc += delta
 		while _fire_acc >= FIRE_INTERVAL:
@@ -759,6 +799,12 @@ func _setup_hud_edit() -> void:
 	var hud_version := String(SettingsScript.load_cfg().get("hud_version", "hud"))
 	hem.setup(oc, hud_version)
 	print("[arena-startup] (deferred) _setup_hud_edit (playerhud icon/layer loads): %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0))
+
+## Rubicon-only: the TERRAIN EDIT dev panel (density/scale/blur/cloud opacity+brightness/2 terrain colors —
+## see scripts/ui/hud/rubicon_terrain_edit.gd). Group "rubicon_terrain_edit" is how arena_hud_buttons.gd's
+## TERRAIN EDIT button finds it, same convention as boss_edit/creep_edit/fleet_edit/wave_editor/hud_edit.
+func _setup_rubicon_terrain_edit() -> void:
+	add_child(RubiconTerrainEditScript.new())
 
 ## Hide the gameplay + all HUD (HP/XP, weapon/aux slots, button clusters, debug panels, player, live enemies)
 ## while a full-screen editor (Creep / Fleet) is open, so only the editor panels + its edit objects show.

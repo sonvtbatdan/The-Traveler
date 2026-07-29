@@ -219,13 +219,18 @@ func _ready() -> void:
 ## Auto-loads whatever wave JSON was last Loaded via F7 (arena_wave_editor.gd._remember_last_wave), so a
 ## timeline picked in a previous run is still active on the next one without having to reopen F7 and
 ## Load it again. No-op if nothing was ever remembered, or the remembered file is missing/malformed —
-## falls back to the plain continuous annulus loop either way (LAST_WAVE_CFG's path must match the
-## editor's copy of the const).
-const LAST_WAVE_CFG := "res://spawn_mode_2_wave.cfg"
+## falls back to the plain continuous annulus loop either way. Per-map: each Map Pack entry remembers its
+## OWN last-loaded file (Rubicon's spawn config edits never touch Default's) — _last_wave_cfg_path()'s
+## logic MUST match the copy in arena_wave_editor.gd (that's the writer; this is the reader).
+func _last_wave_cfg_path() -> String:
+	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
+	if map_id != "default" and map_id != "":
+		return "res://spawn_mode_2_wave_%s.cfg" % map_id
+	return "res://spawn_mode_2_wave.cfg"
 
 func _load_remembered_timeline() -> void:
 	var cfg := ConfigFile.new()
-	if cfg.load(LAST_WAVE_CFG) != OK:
+	if cfg.load(_last_wave_cfg_path()) != OK:
 		return
 	var fname := String(cfg.get_value("wave", "last_file", ""))
 	if fname == "":

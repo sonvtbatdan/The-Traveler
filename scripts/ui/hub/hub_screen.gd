@@ -38,7 +38,7 @@ const ROOM_PANELS := {
 	"Mechanic":  ["shop"],
 	"Engineer":  ["passives", "craft", "fragments"],
 }
-const TAB_LABELS := {"loadout": "LOADOUT", "shop": "SHOP", "craft": "CRAFT", "fragments": "FRAGMENTS", "passives": "PASSIVES"}
+const TAB_LABELS := {"loadout": "LOADOUT", "shop": "SHOP", "craft": "CRAFT", "fragments": "FRAGMENTS", "passives": "PASSIVES", "mapselect": "SELECT MAP"}
 
 var _tab: String = "loadout"
 var _available_tabs: Array = []
@@ -91,15 +91,17 @@ func _build_dock_host() -> void:
 
 func _on_room_clicked(room: String) -> void:
 	if room == "Launch":
-		_launch_run()
+		_open_panel(["mapselect"])
 		return
 	if ROOM_PANELS.has(room):
 		_open_panel(ROOM_PANELS[room] as Array)
 		return
 	_show_toast(room + " — Coming soon")
 
-func _launch_run() -> void:
-	get_tree().change_scene_to_file(ARENA_SCENE)
+func _launch_run(map_id: String = "default") -> void:
+	MetaManager.selected_map_id = map_id
+	var scene_path := String(MetaManager.MAP_DEFS.get(map_id, {}).get("scene", ARENA_SCENE))
+	get_tree().change_scene_to_file(scene_path)
 
 # ── Overlay panel (Loadout / Shop / Engineer's Passives·Craft·Fragments) ────────────
 func _build_panel_ui() -> void:
@@ -229,6 +231,7 @@ func _refresh() -> void:
 		"craft":     _build_craft()
 		"fragments": _build_fragments()
 		"passives":  _build_passives()
+		"mapselect": _build_mapselect()
 
 # ── Loadout ────────────────────────────────────────────────────────────────────
 func _build_loadout() -> void:
@@ -344,6 +347,33 @@ func _build_fragments() -> void:
 			_font(chip, FONT_BODY, 14, Color(0.55, 0.95, 0.5) if owned else Color(0.4, 0.4, 0.45))
 			chip.text = ("● " if owned else "○ ") + String(frags[i])
 			line.add_child(chip)
+
+# ── Map Select (Launch) ─────────────────────────────────────────────────────────
+func _build_mapselect() -> void:
+	_header_row("Choose a map to launch into.")
+	for map_id: String in MetaManager.MAP_DEFS.keys():
+		var d: Dictionary = MetaManager.MAP_DEFS[map_id]
+		var box := _card()
+		var top := HBoxContainer.new()
+		top.add_theme_constant_override("separation", 12)
+		box.add_child(top)
+		var name_lbl := Label.new()
+		_font(name_lbl, FONT_TITLE, 20, Color(0.88, 0.92, 1.0))
+		name_lbl.text = String(d.get("name", map_id))
+		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		top.add_child(name_lbl)
+		var btn := Button.new()
+		btn.text = "LAUNCH"
+		_font_btn(btn, 16)
+		btn.custom_minimum_size = Vector2(110, 0)
+		var cap_id := map_id
+		btn.pressed.connect(func() -> void: _launch_run(cap_id))
+		top.add_child(btn)
+		var desc := Label.new()
+		_font(desc, FONT_BODY, 13, Color(0.6, 0.62, 0.68))
+		desc.text = String(d.get("desc", ""))
+		desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		box.add_child(desc)
 
 # ── Passives ───────────────────────────────────────────────────────────────────
 func _build_passives() -> void:

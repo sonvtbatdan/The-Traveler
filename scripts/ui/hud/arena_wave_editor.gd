@@ -11,7 +11,13 @@ extends CanvasLayer
 
 const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
 const LEVELS_DIR := "res://levels/arena"
-const LAST_WAVE_CFG := "res://spawn_mode_2_wave.cfg"   # remembers the last-Loaded file — MUST match arena_wave_director_v2.gd's copy of this path
+## Per-map "last-Loaded wave file" pointer — MUST match arena_wave_director_v2.gd's copy of this logic
+## (that script is the reader; this one is the writer, via _remember_last_wave below).
+func _last_wave_cfg_path() -> String:
+	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
+	if map_id != "default" and map_id != "":
+		return "res://spawn_mode_2_wave_%s.cfg" % map_id
+	return "res://spawn_mode_2_wave.cfg"
 const TEST_WAVES := 20   # how many repeating time points a Quick-test builds (each spawns COUNT enemies)
 const GRID_STEP := 5.0   # seconds between template rows
 const GRID_ROWS := 360   # 5, 10, … , 1800
@@ -82,7 +88,7 @@ func _toggle() -> void:
 ## (_rebuild_rows(), just above) already come from _director.get_timeline() regardless.
 func _sync_active_file() -> void:
 	var cfg := ConfigFile.new()
-	if cfg.load(LAST_WAVE_CFG) != OK:
+	if cfg.load(_last_wave_cfg_path()) != OK:
 		return
 	var fname := String(cfg.get_value("wave", "last_file", ""))
 	if fname == "":
@@ -490,7 +496,7 @@ func _on_load() -> void:
 func _remember_last_wave(fname: String) -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("wave", "last_file", fname)
-	cfg.save(LAST_WAVE_CFG)
+	cfg.save(_last_wave_cfg_path())
 
 func _refresh_files() -> void:
 	if _file_opt == null:

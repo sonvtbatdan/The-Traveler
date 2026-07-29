@@ -28,6 +28,7 @@ var _auto_fire:   bool  = false   # dev-mode toggle: ship auto-faces the nearest
 # Button references
 var _devon_btn:      TextureButton = null
 var _pause_btn:      TextureButton = null
+var _terrain_edit_btn: Button = null
 var _boss_edit_btn:  TextureButton = null
 var _creep_info_btn: Button = null
 var _creep_edit_btn: TextureButton = null
@@ -167,17 +168,30 @@ func _build_ui() -> void:
 	# MENU/INV board buttons (hud_binder.gd); Dev mode moved to a switch in the Settings panel.
 	_vb.visible = false
 
-	# Dev buttons at top-left (below HP bar): Simplified → Boss_edit → Creep_edit
+	# Dev buttons at top-left (below HP bar): Terrain Edit → Simplified → Boss_edit → Creep_edit
 	# Only visible when dev mode is on; spacing = BTN_SEP (same as right column)
+
+	# Terrain Edit — Rubicon-map-only (density/scale/blur/cloud opacity+brightness/2 terrain colors — see
+	# rubicon_terrain_edit.gd). No dedicated icon art, so a compact label button; ALSO gated on the current
+	# map (set_dev_mode() below only reveals it when MetaManager.selected_map_id == "rubicon" — Default has
+	# no terrain/cloud/asset system for it to edit).
+	var terrain_edit_h := BTN_SIZE * 0.5
+	_terrain_edit_btn = _make_label_btn("TERRAIN EDIT", BTN_SIZE * 1.8, terrain_edit_h, 9)
+	_terrain_edit_btn.position = Vector2(SIMPLIFIED_X, SIMPLIFIED_Y)
+	_terrain_edit_btn.visible = false
+	_terrain_edit_btn.pressed.connect(_on_terrain_edit)
+	root.add_child(_terrain_edit_btn)
+	var simplified_y := SIMPLIFIED_Y + terrain_edit_h + BTN_SEP
+
 	var s_h := _btn_h(_tex_simplified)
 	_simplified_btn = _make_btn(_tex_simplified, s_h)
-	_simplified_btn.position = Vector2(SIMPLIFIED_X, SIMPLIFIED_Y)
+	_simplified_btn.position = Vector2(SIMPLIFIED_X, simplified_y)
 	_simplified_btn.visible = false
 	_simplified_btn.pressed.connect(_on_simplified)
 	root.add_child(_simplified_btn)
 
 	_boss_edit_btn = _make_btn(_tex_boss_edit, boss_edit_h)
-	_boss_edit_btn.position = Vector2(SIMPLIFIED_X, SIMPLIFIED_Y + s_h + BTN_SEP)
+	_boss_edit_btn.position = Vector2(SIMPLIFIED_X, simplified_y + s_h + BTN_SEP)
 	_boss_edit_btn.visible = false
 	_boss_edit_btn.pressed.connect(_on_boss_edit)
 	root.add_child(_boss_edit_btn)
@@ -187,19 +201,19 @@ func _build_ui() -> void:
 	# (same small-button style as END RUN/AUTO-FIRE/+LEVEL below).
 	var creep_info_h := BTN_SIZE * 0.5
 	_creep_info_btn = _make_label_btn("CREEP INFO", BTN_SIZE * 1.8, creep_info_h, 9)
-	_creep_info_btn.position = Vector2(SIMPLIFIED_X, SIMPLIFIED_Y + s_h + BTN_SEP + boss_edit_h + BTN_SEP)
+	_creep_info_btn.position = Vector2(SIMPLIFIED_X, simplified_y + s_h + BTN_SEP + boss_edit_h + BTN_SEP)
 	_creep_info_btn.visible = false
 	_creep_info_btn.pressed.connect(_on_creep_info)
 	root.add_child(_creep_info_btn)
 
 	_creep_edit_btn = _make_btn(_tex_creep_edit, creep_edit_h)
-	_creep_edit_btn.position = Vector2(SIMPLIFIED_X, SIMPLIFIED_Y + s_h + BTN_SEP + boss_edit_h + BTN_SEP + creep_info_h + BTN_SEP)
+	_creep_edit_btn.position = Vector2(SIMPLIFIED_X, simplified_y + s_h + BTN_SEP + boss_edit_h + BTN_SEP + creep_info_h + BTN_SEP)
 	_creep_edit_btn.visible = false
 	_creep_edit_btn.pressed.connect(_on_creep_edit)
 	root.add_child(_creep_edit_btn)
 
 	# Panel-toggle buttons below the edit cluster: creep / weapon / hotkey (dev:on only).
-	var y_panels := SIMPLIFIED_Y + s_h + BTN_SEP + boss_edit_h + BTN_SEP + creep_info_h + BTN_SEP + creep_edit_h + BTN_SEP
+	var y_panels := simplified_y + s_h + BTN_SEP + boss_edit_h + BTN_SEP + creep_info_h + BTN_SEP + creep_edit_h + BTN_SEP
 	var creep_h := _btn_h(_tex_creep)
 	_creep_btn = _make_btn(_tex_creep, creep_h)
 	_creep_btn.position = Vector2(SIMPLIFIED_X, y_panels)
@@ -380,6 +394,8 @@ func set_dev_mode(v: bool) -> void:
 
 	# Show / hide the bottom-right column (Pause/Codex/Inv/Setting/Devon/Quit) + dev buttons at top-left
 	_vb.visible = _dev_mode
+	var is_rubicon := typeof(MetaManager) != TYPE_NIL and String(MetaManager.selected_map_id) == "rubicon"
+	_terrain_edit_btn.visible = _dev_mode and is_rubicon   # Default has no terrain/cloud/asset system to edit
 	_simplified_btn.visible = _dev_mode
 	_boss_edit_btn.visible  = _dev_mode
 	_creep_info_btn.visible = _dev_mode
@@ -417,6 +433,12 @@ func _on_weapon_panel() -> void:
 func _on_hotkey_panel() -> void:
 	_click_sfx()
 	_toggle_ds_panel("toggle_hotkey_panel")
+
+func _on_terrain_edit() -> void:
+	_click_sfx()
+	var tem := get_tree().get_first_node_in_group("rubicon_terrain_edit")
+	if tem != null and tem.has_method("toggle"):
+		tem.toggle()
 
 func _on_boss_edit() -> void:
 	_click_sfx()
