@@ -29,13 +29,15 @@ const GAT_MUZZLE_DECAY  := 0.08     # s the muzzle-fire flash decays over (refre
 
 # ── Gatling skill-point upgrade pool (each invested point picks 1 of 3 → +1 rank). Level rewards are derived
 # from the weapon's LEVEL (see _gat_* effective-stat helpers). The level-up UI's 2nd tier rolls 3 of these. ──
+## All gatling perks are UNCAPPED (max 0) — pick rate is limited by the level-gate roll, not a rank ceiling
+## (bouncing: at most once per 3 weapon levels; every other perk: once per 2 levels — see _perk_offer_allowed).
 const GATLING_POOL := {
-	"hardened":  {"name": "Hardened Round",  "max": 10, "per": "+2 flat damage",        "desc": "Bullets hit harder."},
-	"piercing":  {"name": "Piercing Round",  "max": 5,  "per": "+20% pierce chance, +10% damage", "desc": "Bullets pass through enemies and hit harder."},
-	"quick":     {"name": "Quick Round",     "max": 10, "per": "+16% fire rate",        "desc": "Shoot faster."},
-	"bouncing":  {"name": "Bouncing Round",  "max": 5,  "per": "+1 bounce",             "desc": "Bullets ricochet to nearby foes (1 extra ricochet per rank, max 5 ranks)."},
-	"multishot": {"name": "Multishot",       "max": 10, "per": "+25% multishot",        "desc": "Extra bullets — every 100% is one guaranteed extra (triple shot and beyond)."},
-	"advance_ballistic": {"name": "Advance Ballistic", "max": 5, "per": "+10% multishot (all shots weapons)", "desc": "Global: every weapon with the 'shots' tag gains multishot chance."},
+	"hardened":  {"name": "Hardened Round",  "max": 0, "per": "+2 flat damage",        "desc": "Bullets hit harder."},
+	"piercing":  {"name": "Piercing Round",  "max": 0, "per": "+20% pierce chance, +10% damage", "desc": "Bullets pass through enemies and hit harder."},
+	"quick":     {"name": "Quick Round",     "max": 0, "per": "+16% fire rate",        "desc": "Shoot faster."},
+	"bouncing":  {"name": "Bouncing Round",  "max": 0, "per": "+1 bounce",             "desc": "Bullets ricochet to nearby foes (1 extra ricochet per rank)."},
+	"multishot": {"name": "Multishot",       "max": 0, "per": "+25% multishot",        "desc": "Extra bullets — every 100% is one guaranteed extra (triple shot and beyond)."},
+	"advance_ballistic": {"name": "Advance Ballistic", "max": 0, "per": "+10% multishot (all shots weapons)", "desc": "Global: every weapon with the 'shots' tag gains multishot chance."},
 }
 const GAT_BOUNCE_RANGE := 280.0    # search radius for a bounce target
 const GAT_HEAL_ODDS    := 200      # Healing Round capstone: 1-in-N directly-fired bullets heals
@@ -104,21 +106,21 @@ const WEAPON_INFO := {
 	"gatling_gun":     {"def_id": "gatling_gun",     "name": "Gatling Gun",             "label": "Gatling Gun",      "mfr": "Vanguard Ballistics"},
 	"death_beam":      {"def_id": "death_beam",          "name": "Death Beam",              "label": "Death Beam",   "mfr": "Kwang Ming"},
 	"arc":         {"def_id": "arc",             "name": "Arc Lightning Chain",     "label": "Lightning",    "mfr": "Kwang Ming"},
-	"gauss":       {"def_id": "gauss",            "name": "Gauss Pulser",            "label": "Gauss",        "mfr": "Horizon Logistics x Vanguard Ballistics"},
-	"orbital":     {"def_id": "defensive_orbitals", "name": "Defensive Orbitals",      "label": "Defensive Orbitals",     "mfr": "Nebula Dynamics"},
+	"gauss":       {"def_id": "gauss_cannon",    "name": "Gauss Pulser",            "label": "Gauss",        "mfr": "Horizon Logistics x Vanguard Ballistics"},
+	"defensive_orbitals":     {"def_id": "orbitals",        "name": "Defensive Orbitals",      "label": "Defensive Orbitals",     "mfr": "Nebula Dynamics"},
 	"striker":     {"def_id": "",  "icon": "res://assets/weaponry/ND-OIF-F.png", "name": "Striker",  "label": "Striker",  "mfr": "Nebula Dynamics"},
-	"shooter":     {"def_id": "",      "icon": "res://assets/weaponry/shooter.png", "name": "Shooter",      "label": "Shooter",      "mfr": "Nebula Dynamics"},
-	"void":        {"def_id": "rift_maker",      "name": "Rift Maker",              "label": "Rift Maker",   "mfr": "Horizon Logistics"},
-	"red_x":       {"def_id": "dragons_breath",  "name": "Dragon's Breath",         "label": "Dragon's Breath",        "mfr": "Volney Elements"},
+	"shooter":     {"def_id": "swarm_host",      "icon": "res://assets/weaponry/shooter.png", "name": "Shooter",      "label": "Shooter",      "mfr": "Nebula Dynamics"},
+	"rift_maker":        {"def_id": "rift_maker",      "name": "Rift Maker",              "label": "Rift Maker",   "mfr": "Horizon Logistics"},
+	"dragons_breath":       {"def_id": "red_x",           "name": "Dragon's Breath",         "label": "Dragon's Breath",        "mfr": "Volney Elements"},
 	"chemtrail":   {"def_id": "chemtrail",       "name": "Chemtrail",               "label": "Chemtrail", "mfr": "Volney Elements"},
 	"mortar":        {"def_id": "mortar",            "name": "Mortar",                  "label": "Mortar",       "mfr": "Rosastro"},
-	"fat_boy":     {"def_id": "fat_boy",         "name": "Fat Boy",                 "label": "Fat Boy",      "mfr": "Rosastro"},
-	"sonic":       {"def_id": "ultrasonicator",  "name": "Ultrasonicator",          "label": "Ultrasonicator",        "mfr": "Yongsan"},
-	"zsword":      {"def_id": "z_sword",         "name": "Z-Sword",                 "label": "Z-Sword",       "mfr": "Eisenkraft Kinematik"},
-	"ionize":      {"def_id": "ionizing_field",  "name": "Ionizing Field",               "label": "Ionizing Field", "mfr": "Horizon Logistics"},
-	"boomerang":   {"def_id": "boomerang",       "name": "Boomerang",                    "label": "Boomerang",    "mfr": "Nebula Dynamics"},
-	"parasite":    {"def_id": "venomancer",      "name": "Venomancer",                   "label": "Venomancer",   "mfr": "Volney Elements x Chakra Bio-Synthetics"},
-	"moroboshi":   {"def_id": "yari",            "name": "Yari",                    "label": "Yari",         "mfr": "Miyamoto"},
+	"fat_boy":     {"def_id": "rosastro_nuclear","name": "Fat Boy",                 "label": "Fat Boy",      "mfr": "Rosastro"},
+	"ultrasonicator":       {"def_id": "sonic_wave",      "name": "Ultrasonicator",          "label": "Ultrasonicator",        "mfr": "Yongsan"},
+	"z_sword":      {"def_id": "z_sword",         "name": "Z-Sword",                 "label": "Z-Sword",       "mfr": "Eisenkraft Kinematik"},
+	"ionizing_field":      {"def_id": "ionizing_field",  "name": "Ionizing Field",               "label": "Ionizing Field", "mfr": "Horizon Logistics"},
+	"aliwa":   {"def_id": "boomerang",       "name": "Boomerang",                    "label": "Boomerang",    "mfr": "Nebula Dynamics"},
+	"venomancer":    {"def_id": "parasite_cloud",  "name": "Venomancer",                   "label": "Venomancer",   "mfr": "Volney Elements x Chakra Bio-Synthetics"},
+	"yari":   {"def_id": "moroboshi",       "name": "Yari",                    "label": "Yari",         "mfr": "Miyamoto"},
 	"yari_jaeger": {"def_id": "yari_jaeger",     "name": "Yari Jeager",             "label": "Yari Jeager",  "mfr": "Miyamoto x Eisenkraft Kinematik"},
 	"swarm":       {"def_id": "",                "icon": "res://assets/inventory/Swarm.png", "name": "Swarm", "label": "Swarm", "mfr": "Chakra Bio-Synthetics"},
 	"viper":       {"def_id": "viper",     "name": "Viper",                   "label": "VIPER",        "mfr": ""},
@@ -173,11 +175,11 @@ const WEAPON_LORE := {
 	"death_beam":  "High-energy laser beam.",
 	"arc":         "Chain lightning that strikes multiple targets sequentially.",
 	"gauss":       "By locally expanding and contracting space, the G-Pulser generates molecular-level shear stress.",
-	"orbital":     "Automated UAV that rotates and rams into targets approaching the ship.",
+	"defensive_orbitals":     "Automated UAV that rotates and rams into targets approaching the ship.",
 	"striker":     "Automated UAV that tracks and rams into targets approaching the ship.",
 	"shooter":     "Rear-guard turret pods that lock onto the nearest threat and fire concentrated bolt bursts.",
-	"void":        "Weapon that triggers a localized Vacuum Decay state.",
-	"red_x":       "Turret equipped with 4 symmetrical 90-degree nozzles, simultaneously firing high-velocity liquid Thermite particle chains.",
+	"rift_maker":        "Weapon that triggers a localized Vacuum Decay state.",
+	"dragons_breath":       "Turret equipped with 4 symmetrical 90-degree nozzles, simultaneously firing high-velocity liquid Thermite particle chains.",
 	"chemtrail":   "Converts liquid biocidal toxic compounds into dense molecular biocide vapor streams, sprayed behind the ship.",
 	"mortar":      "Heavy mortar specialized in destroying thick armor and fortified structures.",
 	"fat_boy":     "Ultimate nuclear weapon with infinite destructive power.",
@@ -2763,13 +2765,13 @@ func _mz(slot: int) -> Vector2:
 # Automation weapons benefit from Nanobots' Automation Speed perk (mech "automation_speed" → attack/move speed)
 # and the Nanobots-Attack! evolution (mech "automation_dmg" → damage). "+2 Bodies" (mech "body_count") adds
 # count to orbitals/boomerang, length to the snake, and damage to the yari spears.
-const AUTOMATION_KINDS := ["orbital", "striker", "parasite", "snake", "moroboshi", "yari_jaeger", "swarm", "shooter", "omega_swarm", "hivemind"]
+const AUTOMATION_KINDS := ["defensive_orbitals", "striker", "venomancer", "viper", "yari", "yari_jaeger", "swarm", "shooter"]
 # Weapons that deal CONTACT damage (touch the enemy) → boosted by Contact Mastery (mech "contact_dmg_mult").
-const CONTACT_KINDS := ["orbital", "striker", "singularities", "swarm", "snake", "boomerang", "moroboshi", "yari_jaeger", "zsword", "omega_swarm", "hivemind"]
+const CONTACT_KINDS := ["defensive_orbitals", "striker", "singularities", "swarm", "viper", "aliwa", "yari", "yari_jaeger", "z_sword"]
 # Weapon damage FAMILY (the 3-family taxonomy) → Art of War per-family masteries + the X-Truth evolutions.
 const WEAPON_FAMILY := {
-	"gatling": "kinetic", "orbital": "kinetic", "striker": "kinetic", "shooter": "kinetic", "boomerang": "kinetic", "moroboshi": "kinetic",
-	"yari_jaeger": "kinetic", "swarm": "kinetic", "homing": "kinetic", "mortar": "kinetic",
+	"gatling_gun": "kinetic", "defensive_orbitals": "kinetic", "striker": "kinetic", "shooter": "kinetic", "aliwa": "kinetic", "yari": "kinetic",
+	"yari_jaeger": "kinetic", "swarm": "kinetic", "homing_missile": "kinetic", "mortar": "kinetic",
 	"carnage": "kinetic",
 	"death_beam": "energy", "arc": "energy", "gauss": "energy", "ultrasonicator": "energy", "rift_maker": "energy",
 	"z_sword": "energy", "ionizing_field": "energy", "singularities": "energy",
@@ -2887,7 +2889,7 @@ func _roll_damage(base: float, kind := "") -> Dictionary:
 			var fr_bonus := maxf(0.0, GameManager.get_fire_rate_mult() - 1.0) + maxf(0.0, _fam_rate(kind) - 1.0)
 			dmg *= 1.0 + fr_bonus
 	var is_crit := false
-	var local_crit := (_zsword_crit() if kind == "zsword" else 0.0) + (_shooter_crit() if kind == "shooter" else 0.0)
+	var local_crit := (_zsword_crit() if kind == "z_sword" else 0.0) + (_shooter_crit() if kind == "shooter" else 0.0)
 	var crit_ch := _crit_chance + local_crit   # local (non-shared) crit
 	var crit_dmg := _crit_damage
 	# Deadly (Aim Assistor evo): use the UNCLAMPED crit chance — anything over 100% becomes bonus crit damage.
@@ -3092,11 +3094,11 @@ func pool_rank(kind: String, id: String) -> int:
 		"zsword":  return int(_zsword_upg.get(id, 0))
 		"sonic":   return int(_sonic_upg.get(id, 0))
 		"mortar":  return mortar_upgrade_rank(id)
-		"parasite": return para_upgrade_rank(id)
-		"boomerang": return boom_upgrade_rank(id)
+		"venomancer": return para_upgrade_rank(id)
+		"aliwa": return boom_upgrade_rank(id)
 		"viper":    return snake_upgrade_rank(id)
 		"shooter":  return shooter_upgrade_rank(id)
-		"ionize":   return ionize_upgrade_rank(id)
+		"ionizing_field":   return ionize_upgrade_rank(id)
 		"player_2": return player2_upgrade_rank(id)
 		"thunderhead":   return thunder_upgrade_rank(id)
 		"graviton_well": return gravwell_upgrade_rank(id)
@@ -3122,11 +3124,11 @@ func pool_grant(kind: String, id: String) -> bool:
 		"zsword":  return zsword_grant_upgrade(id)
 		"sonic":   return sonic_grant_upgrade(id)
 		"mortar":  return mortar_grant_upgrade(id)
-		"parasite": return para_grant_upgrade(id)
-		"boomerang": return boom_grant_upgrade(id)
+		"venomancer": return para_grant_upgrade(id)
+		"aliwa": return boom_grant_upgrade(id)
 		"viper":    return snake_grant_upgrade(id)
 		"shooter":  return shooter_grant_upgrade(id)
-		"ionize":   return ionize_grant_upgrade(id)
+		"ionizing_field":   return ionize_grant_upgrade(id)
 		"player_2": return player2_grant_upgrade(id)
 		"thunderhead":   return thunder_grant_upgrade(id)
 		"graviton_well": return gravwell_grant_upgrade(id)
@@ -3152,11 +3154,11 @@ func pool_set_capstone(kind: String, id: String) -> void:
 		"zsword":  _zsword_capstone = id
 		"sonic":   _sonic_capstone = id
 		"mortar":  mortar_set_capstone(id)
-		"parasite": para_set_capstone(id)
-		"boomerang": boom_set_capstone(id)
+		"venomancer": para_set_capstone(id)
+		"aliwa": boom_set_capstone(id)
 		"viper":    snake_set_capstone(id)
 		"shooter":  shooter_set_capstone(id)
-		"ionize":   ionize_set_capstone(id)
+		"ionizing_field":   ionize_set_capstone(id)
 		"swarm":    _swarm_capstone = id
 		"player_2": player2_set_capstone(id)
 	# All-In: lose a weapon slot. If you're at/over the new cap, the UI must destroy one first (it checks
@@ -3181,11 +3183,11 @@ func weapon_capstone(kind: String) -> String:
 		"zsword":  return _zsword_capstone
 		"sonic":   return _sonic_capstone
 		"mortar":  return _mortar_capstone
-		"parasite": return _para_capstone
-		"boomerang": return _boom_capstone
+		"venomancer": return _para_capstone
+		"aliwa": return _boom_capstone
 		"viper":    return _snake_capstone
 		"shooter":  return _shooter_capstone
-		"ionize":   return _ionize_capstone
+		"ionizing_field":   return _ionize_capstone
 		"swarm":    return _swarm_capstone
 		"player_2": return _player2_capstone
 	return ""
@@ -5412,11 +5414,11 @@ func _activate_kind(kind: String) -> void:
 		"death_beam":  activate_death_beam()
 		"arc":     activate_arc()
 		"gauss":   activate_gauss()
-		"orbital": activate_orbital()
+		"defensive_orbitals": activate_orbital()
 		"striker": activate_striker()
 		"shooter": activate_shooter()
-		"void":    activate_void()
-		"red_x":   activate_red_x()
+		"rift_maker":    activate_void()
+		"dragons_breath":   activate_red_x()
 		"chemtrail": activate_chemtrail()
 		"mortar":    activate_mortar()
 		"fat_boy": activate_fat_boy()
@@ -5492,42 +5494,32 @@ func _deactivate_kind(kind: String) -> void:
 		"death_beam":  _death_beam_active = false
 		"arc":     _arc_active = false
 		"gauss":   _gauss_active = false
-		"orbital": _orbital_active = false
+		"defensive_orbitals": _orbital_active = false
 		"striker": _striker_active = false; _striker_init = false; _striker_balls.clear()
 		"shooter": _shooter_active = false; _shooter_init = false; _shooter_orbs.clear(); _shooter_bolts.clear()
-		"void":    _void_active = false; _void_on = false
-		"red_x":   _red_x_active = false; _red_x_cd = 0.0
+		"rift_maker":    _void_active = false; _void_on = false
+		"dragons_breath":   _red_x_active = false; _red_x_cd = 0.0
 		"chemtrail": _chemtrail_active = false
 		"mortar", "fat_boy":  _mortar_active = false
-		"sonic":   _sonic_active = false; _sonic_left = 0; _sonic_rings.clear()
-		"zsword":  _zsword_active = false
-		"ionize":  _ionize_active = false; _ionize_set_visible(false); _ionize_rings.clear()
-		"boomerang": _boom_active = false
-		"parasite":
+		"ultrasonicator":   _sonic_active = false; _sonic_left = 0; _sonic_rings.clear()
+		"z_sword":  _zsword_active = false
+		"ionizing_field":  _ionize_active = false; _ionize_set_visible(false); _ionize_rings.clear()
+		"aliwa": _boom_active = false
+		"venomancer":
 			_para_active = false
 			_stolen_armor = 0.0
 			if GameManager.has_method("set_stolen_armor"):
 				GameManager.set_stolen_armor(0.0)
-		"moroboshi": _moro_active = false
+		"yari": _moro_active = false
 		"swarm":     _swarm_active = false; _swarm_cd = 0.0; _swarm_units.clear()
 		"viper":     _snake_active = false
-		"homing_missile": _homing_active = false
-		"thunderhead":   _thunder_active = false; _thunder_chain.clear()
-		"graviton_well": _gravwell_active = false; _gravwell_on = false
-		"omega_swarm":   _omega_active = false; _omega_cd.clear()
-		"singularity_lance": _slance_active = false
-		"prism_array":       _prism_active = false; _prism_dirs.clear()
-		"hailstorm":         _hail_active = false; _hail_pellets.clear()
-		"wraithfire":        _wraith_active = false; _wraith_bolts.clear()
-		"hivemind":          _hive_active = false; _hive_bats.clear()
-		"annihilator":       _anni_active = false; _anni_shot.clear()
-		"event_horizon":     _eventh_active = false; _eventh_on = false
+		"homing":    _homing_active = false
 
 ## Cooldown/charge readiness for the slot HUD: 1.0 = ready (no mask), 0..1 = recovering (mask covers 1-frac).
 func weapon_cooldown_frac(kind: String) -> float:
 	var rate := maxf(0.01, _rate_mult)
 	match kind:
-		"gatling_gun", "orbital", "striker", "shooter", "chemtrail", "ionize", "moroboshi", "yari_jaeger", "swarm", "viper", "boomerang":
+		"gatling", "defensive_orbitals", "striker", "shooter", "chemtrail", "ionizing_field", "yari", "yari_jaeger", "swarm", "viper", "aliwa":
 			return 1.0   # continuous stream / always-on passive or familiar → never masked
 		"gauss":
 			return clampf(_gauss_charge / maxf(0.01, _gauss_charge_time() / rate), 0.0, 1.0)
@@ -5599,8 +5591,8 @@ func weapon_is_firing(kind: String) -> bool:
 		"arc":     return _arc_active
 		"red_x":   return _red_x_active
 		"chemtrail": return _chemtrail_active
-		"void":    return _void_active
-		"orbital": return _orbital_active
+		"rift_maker":    return _void_active
+		"defensive_orbitals": return _orbital_active
 		"striker": return _striker_active
 		"shooter": return _shooter_active
 		"death_beam":  return _death_beam_active and fmod(_db_t, _db_cycle()) < _db_duration()
@@ -6574,7 +6566,7 @@ func _tick_sonic(delta: float, enemy_on_screen: bool) -> void:
 					var sdmg := _sonic_dmg()
 					if overload and en.has_method("status_count"):
 						sdmg *= 1.0 + 0.20 * float(en.call("status_count"))   # +20% per status
-					var rr := _roll_damage(sdmg, "sonic")
+					var rr := _roll_damage(sdmg, "ultrasonicator")
 					if en.is_in_group("arena_ruin"):
 						en.take_damage(float(rr["dmg"]))   # ruins only implement the 3-arg form
 					else:
@@ -6664,7 +6656,7 @@ func _tick_zsword(delta: float, enemy_on_screen: bool) -> void:
 		else:
 			_zsword_cd -= delta
 			if _zsword_cd <= 0.0 and enemy_on_screen and _zsword_enemy_in_range():
-				_zsword_cd = ZSWORD_COOLDOWN * _cd_scale("zsword") / _rate_mult / _zsword_cd_mult()
+				_zsword_cd = ZSWORD_COOLDOWN * _cd_scale("z_sword") / _rate_mult / _zsword_cd_mult()
 				_zsword_queue = _zsword_swords()   # Dual Wielding starts 2 swings
 				_zsword_queue -= 1
 				_start_zsword_sweep(false)   # fresh burst's first swing → normal blue blade
@@ -7041,7 +7033,7 @@ func _tick_boom(delta: float, _enemy_on_screen: bool) -> void:
 				if float(b["age"]) - float(hits.get(eid, -999.0)) >= BOOM_HIT_CD:
 					hits[eid] = float(b["age"])
 					if en.has_method("take_damage"):
-						var r := _roll_damage(_boom_dmg(), "boomerang")
+						var r := _roll_damage(_boom_dmg(), "aliwa")
 						if en.is_in_group("arena_ruin"):
 							en.take_damage(float(r["dmg"]))   # ruins only implement the 3-arg form
 						else:
@@ -7290,7 +7282,7 @@ func _tick_moro(delta: float) -> void:
 					continue
 				if tp.distance_to((en as Node2D).global_position) <= reach:
 					if en.has_method("take_damage"):
-						var r := _roll_damage(MORO_DAMAGE, "moroboshi")
+						var r := _roll_damage(MORO_DAMAGE, "yari")
 						if en.is_in_group("arena_ruin"):
 							en.take_damage(float(r["dmg"]), MORO_STAGGER)   # ruins only implement the 3-arg form
 						else:

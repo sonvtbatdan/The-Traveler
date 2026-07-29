@@ -527,10 +527,29 @@ func _spawn_center() -> Vector2:
 func _radius() -> float:
 	return SPAWN_RADIUS + randf_range(-SPAWN_VARY, SPAWN_VARY)
 
+# ── Directional spawn bias ─────────────────────────────────────────────────────
+# With BLOCK_BIAS probability a spawn's base angle lands within ±BLOCK_CONE of the player's current
+# movement heading, so enemies tend to appear in the path the player is pushing into (à la Left 4 Dead's
+# AI Director). Otherwise the angle is fully random; a near-stationary player has no heading → stays
+# random. Applied to every spawn that has no authored "angle" (trickle scatter + the formation bases).
+const BLOCK_BIAS      := 0.5              # fraction of un-authored spawns biased toward the heading
+const BLOCK_CONE      := deg_to_rad(75.0) # half-width of the forward cone the biased spawns land in
+const BLOCK_MIN_SPEED := 20.0             # px/s below which there's no meaningful heading → stay random
+
+func _biased_angle() -> float:
+	if _player == null or not is_instance_valid(_player):
+		return randf() * TAU
+	# _player is typed Node2D; velocity lives on CharacterBody2D → fetch via get() to avoid a typed-access error.
+	var vv: Variant = _player.get("velocity")
+	var vel: Vector2 = vv if vv is Vector2 else Vector2.ZERO
+	if vel.length() < BLOCK_MIN_SPEED or randf() >= BLOCK_BIAS:
+		return randf() * TAU
+	return vel.angle() + randf_range(-BLOCK_CONE, BLOCK_CONE)
+
 func _one_position(angle_deg: float = NAN) -> Vector2:
 	var a: float
 	if is_nan(angle_deg):
-		a = randf() * TAU
+		a = _biased_angle()
 	else:
 		a = deg_to_rad(angle_deg) + randf_range(-0.15, 0.15)   # small jitter around the fixed heading
 	return _spawn_center() + Vector2(cos(a), sin(a)) * _radius()
@@ -540,12 +559,12 @@ func _pattern_positions(pattern: String, count: int, angle_deg: float = NAN) -> 
 	var c := _spawn_center()
 	match pattern:
 		"ring":   # evenly spaced full circle (anchored at angle_deg when given)
-			var off: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else randf() * TAU
+			var off: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else _biased_angle()
 			for k in count:
 				var a := off + TAU * float(k) / float(count)
 				out.append(c + Vector2(cos(a), sin(a)) * _radius())
 		"arc":    # partial arc from a random (or fixed) direction
-			var start: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else randf() * TAU
+			var start: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else _biased_angle()
 			var span := deg_to_rad(120.0)
 			for k in count:
 				var a := start + span * (float(k) / float(maxi(1, count - 1)) - 0.5)
@@ -554,7 +573,7 @@ func _pattern_positions(pattern: String, count: int, angle_deg: float = NAN) -> 
 			for k in count:
 				out.append(_one_position(angle_deg))
 		"pincer":   # two tight clusters on OPPOSITE flanks, both converging on the player
-			var pbase: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else randf() * TAU
+			var pbase: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else _biased_angle()
 			var pspan := deg_to_rad(45.0)
 			var per := int(ceil(count / 2.0))
 			for k in count:
@@ -562,7 +581,7 @@ func _pattern_positions(pattern: String, count: int, angle_deg: float = NAN) -> 
 				var t := (float(k / 2) / float(maxi(1, per - 1))) - 0.5
 				out.append(c + Vector2(cos(pbase + flank + pspan * t), sin(pbase + flank + pspan * t)) * _radius())
 		"wall":   # a straight line abreast (perpendicular to the approach) that advances as one front
-			var wa: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else randf() * TAU
+			var wa: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else _biased_angle()
 			var wdir := Vector2(cos(wa), sin(wa))
 			var wperp := Vector2(-wdir.y, wdir.x)
 			var wcenter := c + wdir * _radius()             # one radius call → the line stays straight
@@ -571,7 +590,7 @@ func _pattern_positions(pattern: String, count: int, angle_deg: float = NAN) -> 
 				var t := (float(k) / float(maxi(1, count - 1))) - 0.5
 				out.append(wcenter + wperp * (t * wwidth))
 		"wedge":   # arrowhead pointing AT the player: leader at the tip, ranks fan out behind it
-			var ga: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else randf() * TAU
+			var ga: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else _biased_angle()
 			var gdir := Vector2(cos(ga), sin(ga))
 			var gperp := Vector2(-gdir.y, gdir.x)
 			var tip := c + gdir * _radius()
@@ -581,7 +600,7 @@ func _pattern_positions(pattern: String, count: int, angle_deg: float = NAN) -> 
 				var side := 1.0 if (k % 2 == 1) else -1.0    # alternate wings
 				out.append(tip + gdir * (46.0 * float(rank)) + gperp * (40.0 * float(rank) * side))
 		"portal":   # a single off-screen "gate": the whole group pours in tightly from ONE point
-			var qa: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else randf() * TAU
+			var qa: float = deg_to_rad(angle_deg) if not is_nan(angle_deg) else _biased_angle()
 			var gate := c + Vector2(cos(qa), sin(qa)) * _radius()
 			for k in count:
 				var ja := randf() * TAU

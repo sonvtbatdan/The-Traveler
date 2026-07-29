@@ -17,8 +17,8 @@ const SHIELDBAND1_FILE := "shieldband1"   # HUD 1.1 decorative sheen — indepen
 const WEAPON_HUD_ICON_DIR := "res://assets/inventory/icon/"   # dedicated per-kind weapon icons for HUD slot btns
 # Weapons whose cooldown frac stays 1.0 (continuous fire / always-on) — never light btnred/btngreen.
 const CONTINUOUS_WEAPONS := {
-	"gatling": true, "orbital": true, "striker": true, "shooter": true, "chemtrail": true, "ionize": true,
-	"moroboshi": true, "yari_jaeger": true, "swarm": true, "snake": true, "boomerang": true,
+	"gatling": true, "defensive_orbitals": true, "striker": true, "shooter": true, "chemtrail": true, "ionizing_field": true,
+	"yari": true, "yari_jaeger": true, "swarm": true, "viper": true, "aliwa": true,
 }
 
 # Bar VFX fill/glow tones per bar (level=green, HP=red, shield=blue).

@@ -45,16 +45,29 @@ func _spawn_wrecks() -> void:
 		sep = -sep                       # randomize which side the second wreck sits on
 	var angles := [base, base + sep]
 	for i in range(SHIP_COUNT):
-		_spawn_one_wreck(origin, angles[i])
+		var a: float = angles[i]
+		var dist := randf_range(DIST_MIN, DIST_MAX)
+		var pos: Vector2 = origin + Vector2(cos(a), sin(a)) * dist
+		_spawn_wreck(pos, randi_range(1, 4))
 
-func _spawn_one_wreck(origin: Vector2, angle: float) -> void:
-	var dist := randf_range(DIST_MIN, DIST_MAX)
-	var pos: Vector2 = origin + Vector2(cos(angle), sin(angle)) * dist
-	var r: Node2D = RuinScript.new()
-	get_parent().add_child(r)
-	r.setup(randi_range(1, 4), _mgr)
-	r.global_position = pos
-	_spawn_pointer(r)
+func _spawn_wreck(pos: Vector2, variant: int) -> void:
+	var e: Node2D = EnemyScript.new()
+	# configure() must run BEFORE add_child (it sets fields _ready/_load_icon consume).
+	e.configure("dead_ship", _mgr, {
+		"behavior": "dummy",          # stationary + never distance-culled
+		"hp": GIANT_HP,
+		"speed": 0.0,
+		"size": GIANT_SIZE,
+		"contact": 0,                 # no contact damage — safe to fly right up to
+		"xp": 0.0,                    # no XP dump (the orb of light is the reward)
+		"no_collide": true,           # player flies through; no crowd-separation push
+		"idle_spin": GIANT_SPIN,
+		"drop_loot": "orb_of_light",  # dropped on death → pick-1-of-3 new-item choice
+		"icon": "res://assets/ruin/ship%d.png" % variant,
+	})
+	e.position = pos                  # parent (Arena) sits at world origin, so local == global
+	get_parent().add_child(e)
+	_spawn_pointer(e)
 
 ## Edge-of-screen arrow + live distance guiding the player to one wreck (mirrors _spawn_reward_chest's
 ## pointer). Its own CanvasLayer so it renders screen-space above gameplay; freed with the wreck.
