@@ -14,6 +14,9 @@ uniform float uv_scale = 0.0003;
 uniform float coverage = 0.55;
 uniform float softness = 0.18;
 uniform float max_alpha = 0.3;
+uniform float clumpiness = 0.65;   // see rubicon_clouds.gdshader's header — same mass/detail treatment,
+                                    // kept in sync so an asset clipped by this occluder visually matches
+                                    // the decorative 2D cloud layer above it
 uniform vec4 cloud_color : source_color = vec4(1.0, 1.0, 1.0, 1.0);
 
 varying vec2 world_xz;
@@ -23,8 +26,13 @@ void vertex() {
 }
 
 void fragment() {
-	float n = texture(tex_cloud, world_xz * uv_scale).r;
-	float a = smoothstep(coverage - softness, coverage + softness, n) * max_alpha;
+	float mass = texture(tex_cloud, world_xz * uv_scale).r;
+	float effective_coverage = coverage + 0.16 * clumpiness;
+	float edge_softness = mix(softness, softness * 0.15, clumpiness);
+	float mask = smoothstep(effective_coverage - edge_softness, effective_coverage + edge_softness, mass);
+	float detail = texture(tex_cloud, world_xz * uv_scale * 4.3 + vec2(91.0, -57.0)).r;
+	float detail_mod = mix(1.0, 0.55 + 0.75 * detail, clumpiness);
+	float a = clamp(mask * detail_mod, 0.0, 1.0) * max_alpha;
 	ALBEDO = cloud_color.rgb;
 	ALPHA = a;
 }

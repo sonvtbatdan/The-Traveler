@@ -3,6 +3,51 @@
 > Module of [`CLAUDE.md`](../CLAUDE.md). Read this when working on weapons, firing, inventory/affixes, ship visuals, arena weapon mechanics + their VFX.
 > Always-on core rules (conventions, coordinate system, image/render rules, LOCKED MODULES) live in CLAUDE.md — read that too.
 
+## Changelog — 2026-08-02 — Divinity loot no longer instant-kills Elite/Champion Creep, only bosses
+
+- `arena_divinity_visual.gd`'s `_kill_touching_enemies()` already spared bosses (`is_in_group("boss")` →
+  `RESIST_DPS`/s instead of an instant `take_damage(99999, ..., true)`) — extended the same carve-out to
+  `arena_enemy.gd`'s `_is_elite` (read via `en.get("_is_elite")`, no public getter exists). Since a prior
+  pass removed the separate `_is_champion` flag, Elite Creep and Champion Creep (`arena_wave_director_v2.gd`'s
+  two `_spawn_tiered_creep` tiers) are indistinguishable at the instance level — both just `_is_elite==true`
+  — so this is one shared bucket with boss, not three separately-tuned cases. `BOSS_DPS` (200) renamed to
+  `RESIST_DPS` and bumped to **300**/s, per-request, for all three.
+
+## Changelog — 2026-08-02 — Fixed 7 level-up weapon icons falling back to gray; beamer's beam now reuses death_beam's VFX (blue)
+
+- **Gray-icon bug root-caused**: NOT a locked-module problem — `inventory_manager.gd`'s `get_icon()` and
+  `ITEM_DEFS["yari"]` (etc.) were already correct. `get_icon()` never returns null (an unregistered id falls
+  through to `_make_placeholder()`, a solid-rarity-color swatch — gray for `"common"`), so a wrong `def_id`
+  silently renders as a gray box instead of erroring. The actual bug: `arena_weapons.gd`'s `WEAPON_INFO`
+  table had 7 stale/typo'd `def_id` values that don't match any `ITEM_DEFS` key — `yari→"moroboshi"`,
+  `gauss→"gauss_cannon"`, `defensive_orbitals→"orbitals"`, `dragons_breath→"red_x"`,
+  `fat_boy→"rosastro_nuclear"`, `ultrasonicator→"sonic_wave"`, `venomancer→"parasite_cloud"` — fixed to
+  match their own `ITEM_DEFS` key (all 7 already existed under the "expected" name). Also fixed a compounding
+  fallback-ordering bug in `arena_levelup_ui.gd` (`_option_icon_tex`/`_sprite_or_swatch`/`_board_make_choice`
+  — 3 call sites): each called `InventoryManager.get_icon(def_id)` unconditionally whenever `def_id != ""`,
+  never reaching the `icon` field override one line down since `get_icon()`'s placeholder return already
+  looked like success — now gated on `InventoryManager.ITEM_DEFS.has(def_id)` first. This specifically
+  matters for `shooter`/`vampire_host`, which have NO real `ITEM_DEFS` entry by design (their own dedicated
+  `icon` art, `res://assets/weaponry/shooter.png` / `res://assets/inventory/Vampire Host.png`) — they'd have
+  stayed gray even after the 7 def_id fixes above without this ordering fix. Verified via a real-render
+  script: 0 of 33 `WEAPON_INFO` + 6 `FUSION_DEFS` entries now resolve to neither an `ITEM_DEFS` match nor an
+  `icon` fallback. (Separately, unrelated: the perpetual boot-log `gatling_gun.png not found` error is a
+  DIFFERENT bug in `hud_binder.gd`'s HUD-slot icon loader, `assets/inventory/icon/` folder — that folder has
+  `gatling.png` not `gatling_gun.png`, and recovers harmlessly via its own `get_icon()` fallback since
+  `gatling_gun`'s own `def_id` was never wrong. Not fixed here — out of scope, no visible gray-icon symptom.)
+- **Beamer's beam VFX** (`arena_enemy.gd`) now reuses the player's `death_beam` weapon's own procedural
+  shader beam (`lasgun_ani_5.gd`, `arena_weapons.gd`'s `BeamScript`) instead of two flat `draw_line()` calls
+  — recolored blue via the class's existing `fx_core_color`/`fx_body_color`/`fx_glow_color`/`packet_color`
+  `@export` tint parameters (no shader/texture duplication needed, the color was already a parameter, not
+  baked in). New `_setup_laser_beam()` (called from `_ready()` for `behavior=="beamer"`) creates one
+  `LaserBeamScript` instance per beamer, `beam_thickness` scaled down to 20 (vs. the player weapon's 120) —
+  parented to `get_parent()` (Arena root, world-space, no rotation), NOT to the enemy itself, since
+  `set_beam(from, to, active, hit)` takes absolute WORLD coordinates every frame (`_beamer_tick`, computed
+  from the existing `_beam_origin`/`_beam_dir` state) and parenting under the moving/rotating enemy would
+  double-apply that transform. Freed via `tree_exited` (`_on_beamer_gone`) so it can't outlive its owner on
+  any removal path (death, `LIFETIME_MAX` despawn, any cull). `_beam_on`/`_beam_dir`/`_beam_origin` are kept
+  — still used for the player-hit distance math, just no longer for drawing.
+
 ## Changelog — 2026-07-28 (2nd pass) — Bismuth-reflected Gatling bullet slowed to jetfighter speed
 
 - Clarified two DIFFERENT "gatling bounces" mechanisms on request: the **Bouncing Round** perk

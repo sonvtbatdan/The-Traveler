@@ -14,6 +14,7 @@ var _root: Control = null
 var _list: VBoxContainer = null
 var _continue: Button = null
 var _pending: int = 0       # weapons still awaiting an Equip/Disassemble choice
+var _prev_paused: bool = false   # tree's paused state from just before we showed — restored on Continue instead of a blind unpause
 
 func _ready() -> void:
 	layer = 110
@@ -63,6 +64,10 @@ func _present_drops() -> void:
 		_add_weapon_choice(def_id)
 
 	_continue.disabled = _pending > 0
+	# Capture/restore instead of a blind force (2026-08-02: forcing false on Continue could clobber an outer
+	# pause some other panel/HUD button set — see arena_hud_buttons.gd's _on_pause() for the "needs 2 clicks"
+	# class of bug this caused).
+	_prev_paused = get_tree().paused
 	get_tree().paused = true
 	_root.show()
 
@@ -188,7 +193,7 @@ func _build_ui() -> void:
 	_continue.custom_minimum_size = Vector2(0, 52)
 	_continue.pressed.connect(func() -> void:
 		_root.hide()
-		get_tree().paused = false)
+		get_tree().paused = _prev_paused)
 	col.add_child(_continue)
 
 func _card() -> VBoxContainer:

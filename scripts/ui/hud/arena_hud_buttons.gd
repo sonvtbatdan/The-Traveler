@@ -23,12 +23,14 @@ var _click_player: AudioStreamPlayer = null   # uiclick — local + ALWAYS so it
 
 var _dev_mode:    bool  = false
 var _game_paused: bool  = false   # tracks the pause state managed by this HUD
-var _auto_fire:   bool  = false   # dev-mode toggle: ship auto-faces the nearest enemy instead of the mouse (read by arena.gd._aim(); movement is unaffected — WASD is absolute, not facing-relative)
+var _auto_fire:   bool  = false   # "Auto-Aim": ship auto-faces the nearest enemy instead of the mouse (read by arena.gd._aim(); movement is unaffected — WASD is absolute, not facing-relative). Flipped by either the dev-cluster AUTO button (_on_auto_fire, dev-mode only) or the Settings panel's Auto-Aim switch (set_auto_aim, persisted — see _ready())
+var _god_mode:    bool  = false   # dev-mode cheat toggle: forces Auto-Fire ON + GameManager.set_god_mode (10000x damage mult, full HP/shield immunity — see game_manager.gd)
 
 # Button references
 var _devon_btn:      TextureButton = null
 var _pause_btn:      TextureButton = null
 var _terrain_edit_btn: Button = null
+var _light_edit_btn: Button = null
 var _boss_edit_btn:  TextureButton = null
 var _creep_info_btn: Button = null
 var _creep_edit_btn: TextureButton = null
@@ -40,7 +42,9 @@ var _fleet_edit_btn: TextureButton = null
 var _wave_edit_btn:  TextureButton = null
 var _hud_edit_btn:   TextureButton = null
 var _end_run_btn:    Button = null
+var _boss_fight_btn: Button = null
 var _auto_fire_btn:  Button = null
+var _god_mode_btn:   Button = null
 var _level_btn:      Button = null
 var _inv_btn:        Button = null
 var _vb:             VBoxContainer = null
@@ -84,6 +88,8 @@ func _ready() -> void:
 	SettingsScript.apply_saved()       # apply saved SFX volume + window mode (covers arena-direct launch)
 	if bool(SettingsScript.load_cfg().get("dev_mode", false)):
 		set_dev_mode(true)   # re-arm a saved "Dev Mode: on" at the start of every arena load
+	if bool(SettingsScript.load_cfg().get("auto_aim", false)):
+		set_auto_aim(true)   # re-arm a saved "Auto-Aim: on" at the start of every arena load
 	_settings = SettingsScript.new()
 	_settings.add_to_group("settings_panel")   # so the HUD Menu button can open it (hud_edit_mode._open_menu)
 	add_child(_settings)
@@ -183,6 +189,16 @@ func _build_ui() -> void:
 	root.add_child(_terrain_edit_btn)
 	var simplified_y := SIMPLIFIED_Y + terrain_edit_h + BTN_SEP
 
+	# Light Edit — canopy normal-map lighting knobs (angle/height/ambient/specular, see rubicon_light_edit.gd),
+	# split out of the big Terrain Edit panel into its own small focused one. Sits directly ABOVE Terrain
+	# Edit, going upward from SIMPLIFIED_Y so it never disturbs the existing cascade below Terrain Edit.
+	var light_edit_h := BTN_SIZE * 0.5
+	_light_edit_btn = _make_label_btn("LIGHT EDIT", BTN_SIZE * 1.8, light_edit_h, 9)
+	_light_edit_btn.position = Vector2(SIMPLIFIED_X, SIMPLIFIED_Y - light_edit_h - BTN_SEP)
+	_light_edit_btn.visible = false
+	_light_edit_btn.pressed.connect(_on_light_edit)
+	root.add_child(_light_edit_btn)
+
 	var s_h := _btn_h(_tex_simplified)
 	_simplified_btn = _make_btn(_tex_simplified, s_h)
 	_simplified_btn.position = Vector2(SIMPLIFIED_X, simplified_y)
@@ -273,6 +289,15 @@ func _build_ui() -> void:
 	_end_run_btn.visible = false
 	_end_run_btn.pressed.connect(_on_end_run)
 	root.add_child(_end_run_btn)
+
+	# Boss Fight — to the RIGHT of End Run (same row, dev:on only). Skips straight to the loaded timeline's
+	# final-boss finale (arena_wave_director_v2.gd's debug_jump_to_final_boss(), via arena_debug_spawn.gd)
+	# for testing the fight + the BOSS ELIMINATED / RUN OVER screens without clearing every wave by hand.
+	_boss_fight_btn = _make_label_btn("BOSS FIGHT", SMALL_BTN_W, SMALL_BTN_H, 8)
+	_boss_fight_btn.position = Vector2(SIMPLIFIED_X + SMALL_BTN_W + BTN_SEP, y_small)
+	_boss_fight_btn.visible = false
+	_boss_fight_btn.pressed.connect(_on_boss_fight_debug)
+	root.add_child(_boss_fight_btn)
 	y_small += SMALL_BTN_H + BTN_SEP
 
 	# Auto-Fire — below End Run. ON: ship auto-faces the nearest enemy (read by arena.gd._aim() via
@@ -284,7 +309,17 @@ func _build_ui() -> void:
 	root.add_child(_auto_fire_btn)
 	y_small += SMALL_BTN_H + BTN_SEP
 
-	# +Level — below Auto-Fire, bottom of the dev cluster (dev:on only). Same effect as arena_debug_spawn's
+	# God Mode — below Auto-Fire. ON: forces Auto-Fire on (ship auto-aims/fires at the nearest enemy) +
+	# GameManager.set_god_mode (weapon damage ×10000, full HP/shield immunity — see game_manager.gd's
+	# ship_take_damage god_mode guard). A single combined dev cheat toggle, not 3 separate switches.
+	_god_mode_btn = _make_label_btn("GOD:OFF", SMALL_BTN_W, SMALL_BTN_H, 8)
+	_god_mode_btn.position = Vector2(SIMPLIFIED_X, y_small)
+	_god_mode_btn.visible = false
+	_god_mode_btn.pressed.connect(_on_god_mode)
+	root.add_child(_god_mode_btn)
+	y_small += SMALL_BTN_H + BTN_SEP
+
+	# +Level — below God Mode, bottom of the dev cluster (dev:on only). Same effect as arena_debug_spawn's
 	# "+ Level" button: grants exactly enough XP to force one player level-up.
 	_level_btn = _make_label_btn("+LEVEL", SMALL_BTN_W, SMALL_BTN_H, 8)
 	_level_btn.position = Vector2(SIMPLIFIED_X, y_small)
@@ -349,8 +384,14 @@ func _unhandled_input(event: InputEvent) -> void:
 	_settings.open()
 	get_viewport().set_input_as_handled()
 
+## Derives the new state from the tree's ACTUAL live paused flag, not _game_paused's own remembered value —
+## several other panels (weapon palette F12, planet menu F6, drop UI, weapon chest UI, level-up UI) force
+## get_tree().paused on/off directly for their own modal purposes without touching _game_paused, so a blind
+## `_game_paused = !_game_paused` could drift out of sync with reality (2026-08-02 bug report: "Pause needs
+## 2 clicks" — one click was silently just catching _game_paused up to whatever the tree already was, with
+## no visible effect, before the next click did what the user actually asked for).
 func _on_pause() -> void:
-	_game_paused = !_game_paused
+	_game_paused = not get_tree().paused
 	get_tree().paused = _game_paused
 
 func _on_codex() -> void:
@@ -396,6 +437,7 @@ func set_dev_mode(v: bool) -> void:
 	_vb.visible = _dev_mode
 	var is_rubicon := typeof(MetaManager) != TYPE_NIL and String(MetaManager.selected_map_id) == "rubicon"
 	_terrain_edit_btn.visible = _dev_mode and is_rubicon   # Default has no terrain/cloud/asset system to edit
+	_light_edit_btn.visible = _dev_mode and is_rubicon     # same gating — canopy lighting is Rubicon-only too
 	_simplified_btn.visible = _dev_mode
 	_boss_edit_btn.visible  = _dev_mode
 	_creep_info_btn.visible = _dev_mode
@@ -407,7 +449,9 @@ func set_dev_mode(v: bool) -> void:
 	_wave_edit_btn.visible  = _dev_mode
 	_hud_edit_btn.visible   = _dev_mode
 	_end_run_btn.visible    = _dev_mode
+	_boss_fight_btn.visible = _dev_mode
 	_auto_fire_btn.visible  = _dev_mode
+	_god_mode_btn.visible   = _dev_mode
 	_level_btn.visible      = _dev_mode
 
 	# Update Devon button texture
@@ -440,6 +484,12 @@ func _on_terrain_edit() -> void:
 	if tem != null and tem.has_method("toggle"):
 		tem.toggle()
 
+func _on_light_edit() -> void:
+	_click_sfx()
+	var lem := get_tree().get_first_node_in_group("rubicon_light_edit")
+	if lem != null and lem.has_method("toggle"):
+		lem.toggle()
+
 func _on_boss_edit() -> void:
 	_click_sfx()
 	var bem := get_tree().get_first_node_in_group("boss_edit")
@@ -464,9 +514,31 @@ func is_auto_fire_on() -> bool:
 
 func _on_auto_fire() -> void:
 	_click_sfx()
-	_auto_fire = not _auto_fire
+	set_auto_aim(not _auto_fire)
+
+## Public: Settings panel's "Auto-Aim" switch (settings_panel.gd, persisted to user://settings.cfg's
+## [game] auto_aim, re-armed at _ready() below) — same underlying flag as the dev-cluster AUTO button
+## above, just reachable by regular players instead of dev-mode only. Keeps the dev button's own
+## label/color in sync so flipping either one doesn't desync from the other.
+func set_auto_aim(v: bool) -> void:
+	_auto_fire = v
+	if _auto_fire_btn != null:
+		_auto_fire_btn.text = "AUTO:ON" if _auto_fire else "AUTO:OFF"
+		_auto_fire_btn.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5) if _auto_fire else Color(0.85, 0.90, 1.0))
+
+## Combined dev cheat: forces Auto-Fire on (and keeps that button's own label/color in sync) + GameManager's
+## damage-mult/invulnerability god_mode flag. Turning God Mode back off also turns Auto-Fire back off — one
+## bundled toggle, not 3 independent switches the user has to remember to undo separately.
+func _on_god_mode() -> void:
+	_click_sfx()
+	_god_mode = not _god_mode
+	_god_mode_btn.text = "GOD:ON" if _god_mode else "GOD:OFF"
+	_god_mode_btn.add_theme_color_override("font_color", Color(1.0, 0.85, 0.2) if _god_mode else Color(0.85, 0.90, 1.0))
+	_auto_fire = _god_mode
 	_auto_fire_btn.text = "AUTO:ON" if _auto_fire else "AUTO:OFF"
 	_auto_fire_btn.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5) if _auto_fire else Color(0.85, 0.90, 1.0))
+	if GameManager.has_method("set_god_mode"):
+		GameManager.set_god_mode(_god_mode)
 
 ## Same effect as arena_debug_spawn.gd's "+ Level" button: grants exactly enough XP for one level-up.
 func _on_add_level() -> void:
@@ -480,6 +552,13 @@ func _on_add_level() -> void:
 func _on_end_run() -> void:
 	_click_sfx()
 	_toggle_ds_panel("_skip_run")
+
+## Skip straight to the loaded timeline's final-boss finale (arena_debug_spawn.gd's _jump_to_boss_fight →
+## arena_wave_director_v2.gd's debug_jump_to_final_boss) — clears the field and fast-forwards past every
+## remaining regular wave so the boss shows up almost immediately, for testing the fight + end screens.
+func _on_boss_fight_debug() -> void:
+	_click_sfx()
+	_toggle_ds_panel("_jump_to_boss_fight")
 
 func _on_fleet_edit() -> void:
 	_click_sfx()

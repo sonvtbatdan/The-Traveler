@@ -39,6 +39,7 @@ var _dim: ColorRect = null
 var _center: CenterContainer = null
 var _cards_row: HBoxContainer = null
 var _sfx: AudioStreamPlayer = null
+var _prev_paused: bool = false   # tree's paused state from just before we showed — restored on pick instead of a blind unpause
 
 # Authored board host (runtime-only board_edit_mode), layered above _root's dim so its chrome is visible.
 var _board_layer: CanvasLayer = null
@@ -81,6 +82,10 @@ func show_chest() -> void:
 		for kind: String in picks:
 			_cards_row.add_child(_make_card(kind))
 	_root.show()
+	# Capture/restore instead of a blind force (2026-08-02: forcing false on pick could clobber an outer
+	# pause some other panel/HUD button set — see arena_hud_buttons.gd's _on_pause() for the "needs 2 clicks"
+	# class of bug this caused).
+	_prev_paused = get_tree().paused
 	get_tree().paused = true
 	_play(SFX_SHOW)
 
@@ -322,7 +327,7 @@ func _pick(kind: String) -> void:
 	_play(SFX_PICK)
 	_root.hide()
 	_board_layer.hide()
-	get_tree().paused = false
+	get_tree().paused = _prev_paused
 
 # ── Scaffold ────────────────────────────────────────────────────────────────────────
 func _build_ui() -> void:

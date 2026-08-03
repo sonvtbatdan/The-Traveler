@@ -25,11 +25,11 @@ const OWNED_UPGRADE_CHANCE := 0.65
 
 # Weapon spawn weights for the NEW-weapon roll (rarer/special weapons → lower weight). Upgrade weight reuses these.
 const WEAPON_WEIGHTS := {
-	"gatling": 100, "death_beam": 80, "arc": 80, "gauss": 70,
+	"gatling_gun": 100, "death_beam": 80, "arc": 80, "gauss": 70,
 	"defensive_orbitals": 50, "rift_maker": 40, "dragons_breath": 30, "chemtrail": 40,
 	"mortar": 20, "ultrasonicator": 60, "z_sword": 50, "ionizing_field": 70,
 	"aliwa": 50, "venomancer": 50, "yari": 30, "swarm": 40, "viper": 30,
-	"homing": 60, "shooter": 45, "striker": 45,
+	"homing_missile": 60, "shooter": 45, "striker": 45,
 }
 const WEAPON_FALLBACK_COLOR := Color(0.55, 0.62, 0.72)   # placeholder swatch if a weapon icon fails to load
 
@@ -40,6 +40,7 @@ var _pending: int = 0
 var _mode_queue: Array = []
 var _allow_new: bool = false   # the flag for the show currently on screen
 var _showing: bool = false
+var _prev_paused: bool = false   # tree's paused state from just before we began — restored on _finish instead of a blind unpause
 var _current: Array = []   # the OPTIONS-row array that _pick() acts on (pool / capstone / destroy / single confirm)
 var _choices: Array = []   # left-column offered items (tier-1), persistent for this screen
 var _route_cache: Dictionary = {}   # ckey → generated pool-perk options, rolled once per left-slot per screen
@@ -137,7 +138,7 @@ var _perk_icon_cache: Dictionary = {} # "aux_id/perk_id" → Texture2D (or null 
 # label, NOT WEAPON_INFO.label/name — kept as authored rather than renaming their folders).
 const WEAPON_PERK_ICON_DIR := "res://assets/hud/weapon perks/"
 const WEAPON_PERK_FOLDER := {
-	"gatling": "Gatling", "death_beam": "Death Beam", "arc": "Arc Lightning", "gauss": "Gauss Pulser",
+	"gatling_gun": "Gatling", "death_beam": "Death Beam", "arc": "Arc Lightning", "gauss": "Gauss Pulser",
 	"defensive_orbitals": "Orbital Defender", "dragons_breath": "red X", "chemtrail": "Chemtrail", "z_sword": "Z-Sword", "ultrasonicator": "ultrasonicator",
 	"shooter": "shooter", "viper": "viper", "ionizing_field": "blackhole", "player_2": "player 2",
 	"aliwa": "aliwa", "mortar": "mortar",
@@ -324,12 +325,14 @@ func _board_make_choice(frame: Control, spec: Dictionary, idx: int) -> Control:
 	var def_id := String(spec.get("def", ""))
 	var aux_id := String(spec.get("aux_id", ""))
 	var tex: Texture2D = null
-	if def_id != "":
+	# get_icon() always returns SOMETHING (a placeholder swatch for an unregistered def_id — see
+	# _option_icon_tex()'s comment), so only trust it when def_id is a real ITEM_DEFS key.
+	if def_id != "" and InventoryManager.ITEM_DEFS.has(def_id):
 		tex = InventoryManager.get_icon(def_id)
 	else:
-		# Weapons with no inventory def_id (e.g. Swarm, Striker) carry a direct art path in WEAPON_INFO["icon"]
-		# (threaded into spec's "icon" field by _render_left(), same fallback _sprite_or_swatch()/
-		# _option_icon_tex() use) — try that before falling to aux art.
+		# Weapons with no inventory def_id (e.g. Swarm, Striker, Shooter, Vampire Host) carry a direct art
+		# path in WEAPON_INFO["icon"] (threaded into spec's "icon" field by _render_left(), same fallback
+		# _sprite_or_swatch()/_option_icon_tex() use) — try that before falling to aux art.
 		var icon_path := String(spec.get("icon", ""))
 		if icon_path != "":
 			tex = load(icon_path) as Texture2D
@@ -1007,8 +1010,12 @@ func grant_new_item_choice() -> void:
 	if not _showing:
 		_begin()
 
+## Capture/restore instead of a blind force (2026-08-02: forcing false on _finish could clobber an outer
+## pause some other panel/HUD button set — e.g. arena_hud_buttons.gd's dev-mode Pause via the +LEVEL debug
+## button — see that file's _on_pause() for the "needs 2 clicks" class of bug this caused).
 func _begin() -> void:
 	_showing = true
+	_prev_paused = get_tree().paused
 	get_tree().paused = true
 	_board_reload()   # refresh the authored chrome + lay boxes out from its role rects
 	_show_cards()
@@ -1120,10 +1127,16 @@ func _option_icon_tex(c: Dictionary) -> Texture2D:
 		if wtex != null:
 			return wtex
 	var def_id := String(c.get("def_id", ""))
-	if def_id != "":
+	# get_icon() ALWAYS returns a texture (a solid-color placeholder swatch when def_id isn't a real
+	# ITEM_DEFS key — see inventory_manager.gd's _make_placeholder), so it can't itself signal "not found" —
+	# only call it when def_id is actually a registered item, or a stale/typo'd def_id (or one that
+	# deliberately has no ITEM_DEFS entry, e.g. Shooter/Vampire Host below) would return a placeholder
+	# instead of falling through to the real "icon" art path one line down.
+	if def_id != "" and InventoryManager.ITEM_DEFS.has(def_id):
 		return InventoryManager.get_icon(def_id)
-	# Weapons with no inventory def_id (e.g. Swarm, Striker) carry a direct art path in WEAPON_INFO["icon"],
-	# threaded into the choice dict by _weapon_choice()/_fusion_choice() — try that before falling to aux art.
+	# Weapons with no inventory def_id (e.g. Swarm, Striker, Shooter, Vampire Host) carry a direct art path
+	# in WEAPON_INFO/FUSION_DEFS["icon"], threaded into the choice dict by _weapon_choice()/_fusion_choice()
+	# — try that before falling to aux art.
 	var icon_path := String(c.get("icon", ""))
 	if icon_path != "":
 		var itex := load(icon_path) as Texture2D
@@ -1161,7 +1174,10 @@ func _fit_texture_rect(tex: Texture2D, max_w: float, max_h: float) -> Dictionary
 ## A centered sprite for a weapon/fusion def_id or an aux id, or a colour swatch fallback (missing art).
 ## The TextureRect keeps the texture's aspect (never stretched).
 func _sprite_or_swatch(def_id: String, color: Color, aux_id: String = "", icon_path: String = "") -> Control:
-	var tex: Texture2D = InventoryManager.get_icon(def_id) if def_id != "" else null
+	# See _option_icon_tex()'s comment: get_icon() always returns SOMETHING (a placeholder swatch for an
+	# unregistered def_id), so it must only be trusted when def_id is a real ITEM_DEFS key — otherwise a
+	# valid icon_path override below would never get a chance to run.
+	var tex: Texture2D = InventoryManager.get_icon(def_id) if (def_id != "" and InventoryManager.ITEM_DEFS.has(def_id)) else null
 	if tex == null and icon_path != "":
 		tex = load(icon_path) as Texture2D
 	if tex == null:
@@ -1680,25 +1696,25 @@ func _weapon_pool(kind: String) -> Dictionary:
 		return ArenaWeapons.ARC_POOL
 	if kind == "gauss":
 		return ArenaWeapons.GAUSS_POOL
-	# NOTE: these must match arena_weapons.gd's WEAPON_INFO *kind* keys, not their ITEM_DEFS def_id —
-	# orbital/red_x/zsword/sonic/parasite/boomerang were previously keyed by def_id (defensive_orbitals/
-	# dragons_breath/z_sword/ultrasonicator/venomancer) or a stray legacy alias (aliwa), so this function
-	# never matched and no pool card was ever offered for any of them.
-	if kind == "orbital":
+	# NOTE: these must match arena_weapons.gd's WEAPON_INFO *kind* keys, not their ITEM_DEFS def_id or any
+	# internal function-name-style alias — a prior pass here still used the stale aliases (orbital/red_x/
+	# zsword/sonic/parasite/boomerang instead of defensive_orbitals/dragons_breath/z_sword/ultrasonicator/
+	# venomancer/aliwa), so this function never matched and no pool card was ever offered for any of them.
+	if kind == "defensive_orbitals":
 		return ArenaWeapons.ORBITAL_POOL
-	if kind == "red_x":
+	if kind == "dragons_breath":
 		return ArenaWeapons.DRAGON_POOL
 	if kind == "chemtrail":
 		return ArenaWeapons.CHEMTRAIL_POOL
-	if kind == "zsword":
+	if kind == "z_sword":
 		return ArenaWeapons.ZSWORD_POOL
-	if kind == "sonic":
+	if kind == "ultrasonicator":
 		return ArenaWeapons.SONIC_POOL
 	if kind == "mortar":
 		return ArenaWeapons.MORTAR_POOL
-	if kind == "parasite":
+	if kind == "venomancer":
 		return ArenaWeapons.PARA_POOL
-	if kind == "boomerang":
+	if kind == "aliwa":
 		return ArenaWeapons.BOOM_POOL
 	if kind == "viper":
 		return ArenaWeapons.SNAKE_POOL
@@ -1995,7 +2011,7 @@ func _finish() -> void:
 	_root.hide()
 	_board_clear_all()
 	_board_show(false)
-	get_tree().paused = false
+	get_tree().paused = _prev_paused
 
 func _input(event: InputEvent) -> void:
 	if not _showing:

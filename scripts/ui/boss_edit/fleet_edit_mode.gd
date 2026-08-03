@@ -1,16 +1,19 @@
-extends CanvasLayer
+﻿extends CanvasLayer
 ## Fleet Edit (dev:on) — define named FLEETS of units for later spawn/backup wiring.
 ##
-## A fleet has SLOT_COUNT unit slots. Each slot holds either one enemy or a RANDOM POOL (up to SLOT_COUNT
-## enemies → shown as "R"; one is rolled when the fleet deploys). Each slot has a screen POSITION + SIZE
+## A fleet has UNIT_SLOT_COUNT unit slots. Each slot holds either one enemy or a RANDOM POOL (up to
+## RANDOM_POOL_MAX enemies → shown as "R"; one is rolled when the fleet deploys). Each slot has a screen POSITION + SIZE
 ## (per-slot: the random alternatives share the slot's transform). Enemies are dragged from the right-hand
 ## palette into Unit / Random slots; a static placeholder for each slot is shown on screen and can be dragged
 ## to position it. Editor-only: Save writes res://fleet_layout.cfg (consuming fleets in-game is a later task).
 
 const WaveDir   := preload("res://scripts/gameplay/arena_wave_director.gd")
 const CFG_PATH  := "res://fleet_layout.cfg"
-const SLOT_COUNT := 10          # unit slots per fleet / random pool max
-const UNIT_COLS  := 5
+const UNIT_SLOT_COUNT  := 20    # unit slots per fleet (2026-08-02: 4×5 grid, was 10 / 2×5)
+const RANDOM_POOL_MAX  := 10    # max alternatives in one slot's random pool (2×5 grid) — independent of UNIT_SLOT_COUNT
+const UNIT_COLS  := 5           # shared column count for both the UNIT (4 rows) and RANDOM (2 rows) grids
+const UNIT_DROP_GRID_ORIGIN  := Vector2(400.0, 300.0)   # top-left cell's canvas pos — matches _on_add_fleet()'s own default anchor
+const UNIT_DROP_GRID_SPACING := 90.0                     # px between grid cells (see drop_enemy()'s fresh-slot auto-arrange)
 const ENEMY_COLS := 5
 const ENEMY_ROWS := 5
 const CELL       := 50.0        # slot square px
@@ -30,10 +33,11 @@ var _zoom: float = 1.0
 var _pan: Vector2 = Vector2.ZERO
 
 # ── Data ──────────────────────────────────────────────────────────────────────
-# _fleets: [ { "name": String, "slots": [ { "enemies": [id,...], "pos": Vector2, "size": float } x SLOT_COUNT ] } ]
+# _fleets: [ { "name": String, "slots": [ { "enemies": [id,...], "pos": Vector2, "size": float } x UNIT_SLOT_COUNT ] } ]
 var _fleets: Array = []
+var _fleet_sort_dir: int = 0    # 0 = unsorted (creation/save order), 1 = A→Z, -1 = Z→A — toggled by the FLEET list's sort button; display-only, never mutates _fleets itself (see _fleet_display_order)
 var _active_fleet: int = -1     # LMB-selected fleet (drives Unit table + on-screen)
-var _active_unit: int = -1      # selected Unit slot (0..SLOT_COUNT-1) or -1 (drives Random table)
+var _active_unit: int = -1      # selected Unit slot (0..UNIT_SLOT_COUNT-1) or -1 (drives Random table)
 var _active_rand: int = -1      # selected Random alternative or -1
 var _sel_slots: Array = []      # slot indices selected for drag / transform
 var _clip_fleet: Dictionary = {}
@@ -53,10 +57,17 @@ var _ctx_menu: PopupMenu = null
 var _ctx_fleet: int = -1
 var _font: Font = null
 var _preview: Control = null              # 500×500 formation preview shown while hovering a FLEET row
+var _sort_btn: Button = null
 
 # on-screen drag
 var _dragging: bool = false
 var _drag_last: Vector2 = Vector2.ZERO
+
+# on-screen marquee box-select (started when LMB is pressed on EMPTY canvas space — see _canvas_input)
+var _box_selecting: bool = false
+var _box_additive: bool = false   # Shift was held when the drag started → adds to _sel_slots instead of replacing it
+var _box_start: Vector2 = Vector2.ZERO
+var _box_end: Vector2 = Vector2.ZERO
 
 var _enemy_ids: Array = []
 var _icon_cache: Dictionary = {}
@@ -240,6 +251,13 @@ func _build_left_panel() -> void:
 
 	# FLEET table
 	var fh := _hdr(vb, "FLEET")
+	_sort_btn = Button.new()
+	_sort_btn.text = "A→Z"
+	_sort_btn.tooltip_text = "Sort fleets alphabetically (click again to flip A→Z / Z→A)"
+	_sort_btn.custom_minimum_size = Vector2(44.0, 22.0)
+	if _font: _sort_btn.add_theme_font_override("font", _font)
+	_sort_btn.pressed.connect(_on_sort_fleets)
+	fh.add_child(_sort_btn)
 	var add_btn := Button.new()
 	add_btn.text = "+"
 	add_btn.custom_minimum_size = Vector2(26.0, 22.0)
@@ -256,7 +274,7 @@ func _build_left_panel() -> void:
 
 	vb.add_child(HSeparator.new())
 
-	# UNIT table (2 rows × 5)
+	# UNIT table (4 rows × 5)
 	_hdr(vb, "UNIT")
 	_unit_grid = GridContainer.new()
 	_unit_grid.columns = UNIT_COLS
@@ -296,8 +314,8 @@ func _build_right_panel() -> void:
 	# TRANSFORM
 	_hdr(vb, "TRANSFORM")
 	_w_spin = _mk_tspin(vb, "W", 4.0, 400.0, 1.0, _on_w_changed)
-	_x_spin = _mk_tspin(vb, "X", -4000.0, 4000.0, 1.0, _on_xy_changed)
-	_y_spin = _mk_tspin(vb, "Y", -4000.0, 4000.0, 1.0, _on_xy_changed)
+	_x_spin = _mk_tspin(vb, "X", -4000.0, 4000.0, 1.0, _on_x_changed)
+	_y_spin = _mk_tspin(vb, "Y", -4000.0, 4000.0, 1.0, _on_y_changed)
 	_rot_spin = _mk_tspin(vb, "Rot", -180.0, 180.0, 1.0, _on_rot_changed)
 	_rot_spin.suffix = "°"
 
@@ -349,7 +367,7 @@ func _build_enemy_palette() -> void:
 # ── Fleet table ────────────────────────────────────────────────────────────────
 func _on_add_fleet() -> void:
 	var slots: Array = []
-	for i in SLOT_COUNT:
+	for i in UNIT_SLOT_COUNT:
 		slots.append({"enemies": [], "pos": Vector2(400.0 + float(i) * 70.0, 300.0), "size": 50.0, "rot": 0.0})
 	_fleets.append({"name": "New Fleet", "slots": slots})
 	_active_fleet = _fleets.size() - 1
@@ -363,20 +381,83 @@ func _on_add_fleet() -> void:
 	# Let the player rename immediately.
 	_begin_rename(_active_fleet)
 
+## Sort button handler — cycles unsorted/Z→A → A→Z → Z→A → A→Z... Purely a DISPLAY order (see
+## _fleet_display_order); never reorders _fleets itself, so _active_fleet/_ctx_fleet/save-file order are
+## all untouched (fleets are looked up by name everywhere outside this file anyway — array position was
+## always cosmetic).
+func _on_sort_fleets() -> void:
+	_fleet_sort_dir = 1 if _fleet_sort_dir <= 0 else -1
+	if _sort_btn != null:
+		_sort_btn.text = "A→Z" if _fleet_sort_dir > 0 else "Z→A"
+	_rebuild_fleet_list()
+
+## _fleets indices in the order the FLEET list should currently display them — sorted by name
+## (case-insensitive) per _fleet_sort_dir, or plain creation order when 0 (unsorted).
+func _fleet_display_order() -> Array:
+	var order: Array = range(_fleets.size())
+	if _fleet_sort_dir == 0:
+		return order
+	var dir := _fleet_sort_dir
+	order.sort_custom(func(a: int, b: int) -> bool:
+		var na := String(_fleets[a].get("name", "")).to_lower()
+		var nb := String(_fleets[b].get("name", "")).to_lower()
+		return na < nb if dir > 0 else na > nb)
+	return order
+
+## Sum of base hp across every filled slot in `fl` — same semantics as arena_wave_editor.gd's own
+## _fleet_total_hp(), just reading the static WaveDir.ENEMY_DEFS table directly (Fleet Edit has no live
+## wave-director dependency — this works even outside a running run). Deliberately NOT × blob: a fleet slot
+## always deploys exactly ONE creep (arena_wave_director_v2.gd's _deploy_fleet() rigid carrier+dock), so a
+## blob-type unit (e.g. "swarm", blob:50) does NOT multiply out inside a fleet the way it does as a plain
+## Unit timeline entry.
+func _fleet_total_hp(fl: Dictionary) -> float:
+	var total := 0.0
+	for s: Dictionary in (fl.get("slots", []) as Array):
+		for en in (s.get("enemies", []) as Array):
+			var id := String(en)
+			if id == "":
+				continue
+			var d: Dictionary = WaveDir.ENEMY_DEFS.get(id, {})
+			total += float(d.get("hp", 0.0))
+	return total
+
+func _fmt_hp(v: float) -> String:
+	var s := str(int(round(v)))
+	var out := ""
+	var cnt := 0
+	for i in range(s.length() - 1, -1, -1):
+		out = s[i] + out
+		cnt += 1
+		if cnt % 3 == 0 and i > 0:
+			out = "," + out
+	return "HP " + out
+
 func _rebuild_fleet_list() -> void:
 	if _fleet_vbox == null:
 		return
 	for c in _fleet_vbox.get_children():
 		c.queue_free()
-	for fi in _fleets.size():
+	for fi in _fleet_display_order():
 		var fl: Dictionary = _fleets[fi]
+		var row := HBoxContainer.new()
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.custom_minimum_size = Vector2(0.0, 24.0)
 		var lbl := _FleetLabel.new()
 		lbl.owner_editor = self
 		lbl.fleet_index = fi
 		lbl.text = String(fl.get("name", "Fleet"))
-		lbl.custom_minimum_size = Vector2(0.0, 24.0)
+		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		lbl.set_active(fi == _active_fleet)
-		_fleet_vbox.add_child(lbl)
+		row.add_child(lbl)
+		var hp_lbl := Label.new()
+		hp_lbl.text = _fmt_hp(_fleet_total_hp(fl))
+		hp_lbl.add_theme_font_size_override("font_size", 11)
+		hp_lbl.modulate = Color(0.6, 0.85, 1.0)
+		hp_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		hp_lbl.custom_minimum_size = Vector2(64.0, 0.0)
+		hp_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(hp_lbl)
+		_fleet_vbox.add_child(row)
 
 ## Hover a FLEET row → show its formation in the 500×500 preview (mirrors the Wave Editor preview).
 func _show_fleet_preview(fi: int) -> void:
@@ -465,7 +546,16 @@ func _dup_fleet(fl: Dictionary) -> Dictionary:
 func _active_slots() -> Array:
 	if _active_fleet < 0 or _active_fleet >= _fleets.size():
 		return []
-	return _fleets[_active_fleet]["slots"]
+	var slots: Array = _fleets[_active_fleet]["slots"]
+	# Fleets saved before UNIT_SLOT_COUNT was raised (e.g. from the old 10-slot / 2×5 layout) still have
+	# shorter arrays on disk — pad in place so every UI-drawn cell (0..UNIT_SLOT_COUNT-1) has a real backing
+	# slot to read/write, instead of click_slot()/drop_enemy() silently no-op'ing past the old, shorter
+	# length (2026-08-02 bug report: "new slots exist but can't drag units into them" — every caller reads
+	# slots through this one function, so padding here fixes it everywhere at once).
+	while slots.size() < UNIT_SLOT_COUNT:
+		var last_pos: Vector2 = (slots[-1]["pos"] as Vector2) if not slots.is_empty() else Vector2(400.0, 300.0)
+		slots.append({"enemies": [], "pos": last_pos + Vector2(70.0, 0.0), "size": 50.0, "rot": 0.0})
+	return slots
 
 func _rebuild_unit_table() -> void:
 	if _unit_grid == null:
@@ -473,7 +563,7 @@ func _rebuild_unit_table() -> void:
 	for c in _unit_grid.get_children():
 		c.queue_free()
 	var slots := _active_slots()
-	for si in SLOT_COUNT:
+	for si in UNIT_SLOT_COUNT:
 		var cell := _SlotCell.new()
 		cell.owner_editor = self
 		cell.slot_index = si
@@ -497,7 +587,7 @@ func _rebuild_rand_table() -> void:
 	var pool: Array = []
 	if _active_unit >= 0 and _active_unit < slots.size():
 		pool = slots[_active_unit]["enemies"]
-	for ri in SLOT_COUNT:
+	for ri in RANDOM_POOL_MAX:
 		var cell := _SlotCell.new()
 		cell.owner_editor = self
 		cell.slot_index = ri
@@ -529,11 +619,21 @@ func drop_enemy(enemy_id: String, slot_index: int, is_random: bool) -> void:
 		if slot_index >= slots.size():
 			return
 		var enemies: Array = slots[slot_index]["enemies"]
-		if enemies.size() >= SLOT_COUNT:
+		if enemies.size() >= RANDOM_POOL_MAX:
 			return
-		# Dragging onto a slot ADDS the enemy (1 → single, 2+ → random pool "R").
+		var was_empty := enemies.is_empty()
+		# Dragging onto a slot ADDS the enemy (1 -> single, 2+ -> random pool "R").
 		enemies.append(enemy_id)
 		slots[slot_index]["enemies"] = enemies
+		if was_empty:
+			# Fresh slot (had no enemy at all before this drop) -- auto-arrange its canvas pos to mirror
+			# the Unit table's own 5-col x 4-row layout, instead of leaving it at the straight-line
+			# creation-time default (see _on_add_fleet()/_active_slots()'s +Vector2(70,0) stagger).
+			# Slots that already had an enemy (this drop is adding a 2nd+ into the random pool) keep
+			# their existing pos untouched -- never overwrite a position the user hand-dragged on canvas.
+			var col := slot_index % UNIT_COLS
+			var row := slot_index / UNIT_COLS
+			slots[slot_index]["pos"] = UNIT_DROP_GRID_ORIGIN + Vector2(col, row) * UNIT_DROP_GRID_SPACING
 		_active_unit = slot_index
 		_active_rand = -1
 		_sel_slots = [slot_index]
@@ -541,6 +641,7 @@ func drop_enemy(enemy_id: String, slot_index: int, is_random: bool) -> void:
 	_rebuild_rand_table()
 	_refresh_transform()
 	queue_redraw_canvas()
+	_rebuild_fleet_list()   # keep the FLEET list's Total HP column live as units are dragged in
 
 ## LMB on a Unit slot → select the slot. Shift+LMB on the Unit table → add/remove from a multi-selection.
 ## On a Random slot → select that one unit (no multi-select).
@@ -591,26 +692,38 @@ func _delete_selected_slot() -> bool:
 	_rebuild_rand_table()
 	_refresh_transform()
 	queue_redraw_canvas()
+	_rebuild_fleet_list()   # keep the FLEET list's Total HP column live as units are removed
 	return true
 
 # ── Transform ──────────────────────────────────────────────────────────────────
+## W/Rot stay single-selection-only (a "size"/"rotation" typed for a mixed multi-select has no sensible
+## single meaning). X/Y now also work with a box-selected GROUP (_sel_slots.size() > 1) — see
+## _on_x_changed()/_on_y_changed(): each axis broadcasts independently to every selected unit's SAME axis,
+## leaving the other axis untouched per-unit (so a group can be aligned to one X or one Y while keeping
+## each unit's own position on the other axis — not a "collapse to a single point" on both axes at once).
 func _refresh_transform() -> void:
 	if _w_spin == null:
 		return
+	var any := not _sel_slots.is_empty()
 	var single := _sel_slots.size() == 1
-	for sb: SpinBox in [_w_spin, _x_spin, _y_spin, _rot_spin]:
-		sb.editable = single
-	if not single:
+	_w_spin.editable = single
+	_rot_spin.editable = single
+	_x_spin.editable = any
+	_y_spin.editable = any
+	if not any:
 		return
 	var slots := _active_slots()
-	var si: int = _sel_slots[0]
+	# Multi-select shows the last-picked slot's (_active_unit) own position as the reference value in the
+	# X/Y fields — matches _apply_box_select()'s own "last picked" convention for _active_unit.
+	var si: int = _active_unit if (not single and _active_unit in _sel_slots) else _sel_slots[0]
 	if si < 0 or si >= slots.size():
 		return
 	var s: Dictionary = slots[si]
-	_w_spin.set_value_no_signal(float(s["size"]))
+	if single:
+		_w_spin.set_value_no_signal(float(s["size"]))
+		_rot_spin.set_value_no_signal(float(s.get("rot", 0.0)))
 	_x_spin.set_value_no_signal((s["pos"] as Vector2).x)
 	_y_spin.set_value_no_signal((s["pos"] as Vector2).y)
-	_rot_spin.set_value_no_signal(float(s.get("rot", 0.0)))
 
 func _on_w_changed() -> void:
 	var slots := _active_slots()
@@ -621,13 +734,28 @@ func _on_w_changed() -> void:
 		slots[si]["size"] = _w_spin.value
 		queue_redraw_canvas()
 
-func _on_xy_changed() -> void:
+## Typing X broadcasts that X to every selected unit, each keeping its OWN existing Y independently.
+## (Vector2 is a value type in GDScript — must read, mutate, then write the whole "pos" back, an in-place
+## `(slots[si]["pos"] as Vector2).x = ...` would silently mutate a throwaway copy and do nothing.)
+func _on_x_changed() -> void:
 	var slots := _active_slots()
-	if _sel_slots.size() != 1:
-		return
-	var si: int = _sel_slots[0]
-	if si >= 0 and si < slots.size():
-		slots[si]["pos"] = Vector2(_x_spin.value, _y_spin.value)
+	for si: int in _sel_slots:
+		if si >= 0 and si < slots.size():
+			var p: Vector2 = slots[si]["pos"]
+			p.x = _x_spin.value
+			slots[si]["pos"] = p
+	if not _sel_slots.is_empty():
+		queue_redraw_canvas()
+
+## Typing Y broadcasts that Y to every selected unit, each keeping its OWN existing X independently.
+func _on_y_changed() -> void:
+	var slots := _active_slots()
+	for si: int in _sel_slots:
+		if si >= 0 and si < slots.size():
+			var p: Vector2 = slots[si]["pos"]
+			p.y = _y_spin.value
+			slots[si]["pos"] = p
+	if not _sel_slots.is_empty():
 		queue_redraw_canvas()
 
 func _on_rot_changed() -> void:
@@ -680,6 +808,10 @@ func _draw_canvas(c: Control) -> void:
 		if si in _sel_slots:
 			c.draw_rect(rect, Color(1.0, 0.85, 0.2, 0.9), false, 2.0)
 	c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	if _box_selecting:
+		var box := Rect2(_box_start, Vector2.ZERO).expand(_box_end)
+		c.draw_rect(box, Color(0.3, 0.6, 1.0, 0.15))
+		c.draw_rect(box, Color(0.4, 0.75, 1.0, 0.9), false, 1.5)
 
 func _canvas_input(c: Control, event: InputEvent) -> void:
 	if not _open:
@@ -706,18 +838,61 @@ func _canvas_input(c: Control, event: InputEvent) -> void:
 					_dragging = true
 					_drag_last = mb.position
 					c.accept_event()
+				else:
+					_box_selecting = true
+					_box_additive = mb.shift_pressed
+					_box_start = mb.position
+					_box_end = mb.position
+					c.accept_event()
 			else:
-				_dragging = false
-	elif event is InputEventMouseMotion and _dragging:
-		var mm := event as InputEventMouseMotion
-		var delta := (mm.position - _drag_last) / _zoom   # screen → world
-		_drag_last = mm.position
-		var slots := _active_slots()
-		for si2 in _sel_slots:
-			if si2 >= 0 and si2 < slots.size():
-				slots[si2]["pos"] = (slots[si2]["pos"] as Vector2) + delta
-		_refresh_transform()
-		queue_redraw_canvas()
+				if _dragging:
+					_dragging = false
+				elif _box_selecting:
+					_box_selecting = false
+					_apply_box_select()
+	elif event is InputEventMouseMotion:
+		if _dragging:
+			var mm := event as InputEventMouseMotion
+			var delta := (mm.position - _drag_last) / _zoom   # screen -> world
+			_drag_last = mm.position
+			var slots := _active_slots()
+			for si2 in _sel_slots:
+				if si2 >= 0 and si2 < slots.size():
+					slots[si2]["pos"] = (slots[si2]["pos"] as Vector2) + delta
+			_refresh_transform()
+			queue_redraw_canvas()
+		elif _box_selecting:
+			_box_end = (event as InputEventMouseMotion).position
+			queue_redraw_canvas()
+
+## Finalizes a marquee box-select (started in _canvas_input when LMB is pressed on empty canvas space):
+## every filled slot whose SCREEN-SPACE center falls inside the drag rectangle is selected - additive
+## (adds to the existing _sel_slots) if Shift was held when the drag started, replacing it otherwise. A
+## drag under 3px in both axes is treated as a plain click-on-empty-space (deselects everything, same as
+## clicking empty space always did) rather than an intentional box.
+func _apply_box_select() -> void:
+	var box := Rect2(_box_start, Vector2.ZERO).expand(_box_end)
+	var slots := _active_slots()
+	var picked: Array = []
+	if box.size.x >= 3.0 or box.size.y >= 3.0:
+		for si in slots.size():
+			if _slot_repr(si) == "":
+				continue
+			var center: Vector2 = (slots[si]["pos"] as Vector2) * _zoom + _pan
+			if box.has_point(center):
+				picked.append(si)
+	if _box_additive:
+		for si in picked:
+			if si not in _sel_slots:
+				_sel_slots.append(si)
+	else:
+		_sel_slots = picked
+	_active_unit = _sel_slots[-1] if not _sel_slots.is_empty() else -1
+	_active_rand = -1
+	_rebuild_unit_table()
+	_rebuild_rand_table()
+	_refresh_transform()
+	queue_redraw_canvas()
 
 func _slot_at(p: Vector2) -> int:
 	var slots := _active_slots()

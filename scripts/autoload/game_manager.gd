@@ -29,6 +29,13 @@ signal boss_spawned
 signal boss_killed
 signal boss_defeated   # authoritative "boss HP reached zero" (victory) — NOT emitted on player death
 
+# A timeline's designated FINAL boss (arena_wave_director_v2.gd's _final_boss_entry — a plain arena_enemy.gd
+# boss_stub creep, not the scripted boss_fight.gd/boss_hp cutscene system above) dying to the player. Its OWN
+# signal — deliberately NOT boss_defeated, which arena_drop_ui.gd's salvage screen already listens for and
+# which only ever fires from the separate boss_hp/cutscene bosses (elephant/chromeleon/metalfly-cutscene/
+# nautilus/scorpion); reusing it here would incorrectly pop that salvage screen too.
+signal final_boss_defeated
+
 var boss_hp:     int = 0
 var boss_max_hp: int = 0
 var boss_armor:  float = 0.0   # enemy armor for the active boss (0 = none). A boss can set this in
@@ -61,7 +68,7 @@ var money: int = 0   # green-$ currency; new game starts at 0 (Phase 2 will spen
 # ── Character level / XP — ALL pacing knobs live here (Phases 1 & 2) ──────────
 # Diablo-2/Borderlands feel: quick early levels, a progressively longer late grind.
 # Tune these freely by feel; everything else derives from them.
-const BASE_XP: float = 1000.0     # XP for level 1→2; the whole curve scales off this
+const BASE_XP: float = 750.0      # XP for level 1→2; the whole curve scales off this (-25% across all levels, 2026-08-03)
 const GROWTH:  float = 1.12       # each level costs GROWTH× the previous (early fast, late grind)
 const MAX_LEVEL: int = 50         # level cap; XP stops accruing once reached
 # Early-level XP-requirement discount (levels 1-6 cheaper; 7+ unchanged). Applied in xp_to_next().
@@ -296,6 +303,25 @@ func take_player_push() -> Vector2:
 var _shield_immune: bool = false
 var _shield_timer: float = 0.0
 
+# ── God Mode (dev-mode cheat toggle, arena_hud_buttons.gd's GOD MODE button) ──────────────
+var god_mode: bool = false
+var _god_mode_prev_damage_mult: float = 1.0
+
+## Public: called by arena_hud_buttons.gd's GOD MODE button. Bundles 3 effects: full damage immunity (see the
+## god_mode guard at the top of ship_take_damage — skips HP AND shield loss entirely, unlike the timer-based
+## _shield_immune above which this is deliberately separate from, so a run reset / shield-loot expiry never
+## silently cancels it), a massive weapon-damage multiplier, and auto-fire (arena_hud_buttons.gd sets
+## _auto_fire alongside this call). Turning OFF restores the damage multiplier that was active before God Mode
+## was turned on, not a hardcoded 1.0 — so it doesn't clobber real damage upgrades earned this run.
+func set_god_mode(on: bool) -> void:
+	god_mode = on
+	if on:
+		_god_mode_prev_damage_mult = upg_damage_mult
+		upg_damage_mult = 10000.0
+	else:
+		upg_damage_mult = _god_mode_prev_damage_mult
+	player_stats_changed.emit()
+
 # ── Energy (dash resource) ────────────────────────────────────────────────────
 const SHIP_MAX_ENERGY: float = 100.0
 const ENERGY_REGEN:    float = 5.0      # energy per second
@@ -338,6 +364,8 @@ func set_boost(active: bool) -> void:
 	boost_changed.emit(active)
 
 func ship_take_damage(dmg: int) -> void:
+	if god_mode:
+		return
 	if dmg <= 0 or ship_hp <= 0:
 		return
 	if _shield_immune:

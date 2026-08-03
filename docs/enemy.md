@@ -3,6 +3,127 @@
 > Module of [`CLAUDE.md`](../CLAUDE.md). Read this when working on enemy behavior, bosses, waves, arena enemies, ruins, enemy panel.
 > Always-on core rules (conventions, coordinate system, image/render rules, LOCKED MODULES) live in CLAUDE.md — read that too.
 
+## Changelog — 2026-08-02 (5th pass) — Fleet Edit's UNIT/RANDOM grids widened from 2×5 (10) to 2×10 (20)
+
+- `fleet_edit_mode.gd`: `SLOT_COUNT` 10→20, `UNIT_COLS` 5→10 — both the UNIT and RANDOM tables share this
+  same column count, so both grew together. New `LEFT_PANEL_W` const (`PANEL_W + 310`) widens the left panel
+  to fit the now-10-wide `GridContainer`s (10×`CELL(50)` + 9×4px h_separation + 12px VBox margin = 548px
+  minimum); the hover-preview panel's x-position was updated to sit just right of the new width instead of
+  the old hardcoded `PANEL_W + 50`. No data-model or save-format change needed — `res://fleet_layout.cfg`
+  stores each fleet's `slots` as a plain variable-length Array (no fixed-10 assumption anywhere), and every
+  runtime consumer (`arena_wave_director.gd`/`_v2.gd`'s `_deploy_fleet()`, `arena_debug_spawn.gd`'s Fleet
+  tab, `arena_wave_editor.gd`'s `_fleet_total_hp()`) already iterates it generically — existing 10-slot
+  fleets in `fleet_layout.cfg` load unaffected, with slots 10-19 simply starting empty until edited.
+
+## Changelog — 2026-08-02 (4th pass) — Dragonfly "vortex_dive" behavior; fly sprite no_downscale
+
+- **Dragonfly**: `behavior` changed from `"orbit"` to a new `"vortex_dive"` (`arena_enemy.gd`) — swirls
+  inward on a GUARANTEED-shrinking radius (`VORTEX_SHRINK := 60.0`, double the old `"orbit"`'s `28`, same
+  `ORBIT_SPAWN_REF_R`-scaled rate pattern that fixed the "70 dragonfly stuck orbiting" bug) steered as
+  velocity toward a point on the shrinking ring (organic vortex feel, not a rigid position-snap like the old
+  `"orbit"`). Once the radius reaches `VORTEX_DIVE_TRIGGER` (40px) it commits a straight overshoot dash
+  (`VORTEX_DIVE_SPEED_MULT` × speed) for `VORTEX_OVERSHOOT_TIME` (0.4s), then curls back into the vortex,
+  re-homing on the player's CURRENT position — unlike the old `"orbit"` behavior's dash, which never
+  returned (kept re-aiming and dashing forever once committed). First implementation reused
+  `"steer_chaser"`'s pure dir+tangent pursuit-curve math verbatim ("bay dạng vortex giống flie1") — measured
+  via a real-render test to settle into a stable ~200-400px wide orbit that never reliably shrank (a known
+  property of constant-bearing pursuit against a near-stationary target at a high tangent ratio), so it was
+  replaced with the deterministic-shrink approach above; re-verified afterward to decay monotonically
+  (298px → 167px over the test window, no oscillation).
+- **Fly**: added `"no_downscale": true` to `ENEMY_DEFS`'s `fly` entry — the pre-baked
+  `assets/Enemies Downscale/flie1.png`/`flie2.png` copies (`tools/downscale_enemies.gd`'s
+  `Image.resize(..., INTERPOLATE_LANCZOS)`, no alpha premultiply) measurably brightened/introduced a
+  whitish edge fringe vs. the clean HD source (edge-pixel mean RGB brighter, near-white pixel share ~3×
+  higher) — this skips that bake and loads the full `assets/enemiesHD/` PNG directly, same flag Elite/
+  Champion Creep already use. Trade-off flagged: unlike Elite/Champion (rare), fly is high-volume (200-count
+  ring bursts) — the HD texture is shared/cached across instances (not duplicated per-fly), so VRAM cost is
+  bounded (~7.6MB total for flie1+flie2 combined, not ×200), but worth watching if it becomes a bottleneck.
+
+## Changelog — 2026-08-02 (3rd pass) — Two-tier Elite/Champion Creep, wave quiet-window, temple LIFETIME_MAX fix
+
+- **Bug fix**: `arena_enemy.gd`'s `LIFETIME_MAX` (120s) safety net — silently `queue_free()`s any enemy alive
+  too long, bypassing `_die()` entirely (no loot, no XP, no death FX) — only excluded `behavior=="boss_stub"`,
+  not `no_collide` landmarks. The rubicon temple (spawns 10,000-15,000px away, 2000 HP) could hit 120s from
+  travel+fight time alone and vanish mid-fight with no `orb_of_light` drop. Fixed: also exempt `_no_collide`
+  (`arena_enemy.gd:1856-1861`) — covers the temple and dead-ship wrecks (`arena_ruin_layer.gd`), the only
+  other `no_collide` landmark type; `no_collide` "bomb"/"thrown_bomb" projectiles are unaffected in practice
+  since they self-clean via their own behavior logic well under 120s.
+- **Elite Creep split into two independent tiers** (`arena_wave_director_v2.gd`), replacing the single-tier
+  version from the 1st/2nd-pass entries below:
+  - **Elite**: 200% size, 35× HP, every 30s starting at 1:30 (`ELITE_CREEP_*` consts).
+  - **Champion**: 300% size, 75× HP, every 60s starting at 2:30 (`CHAMPION_CREEP_*` consts) — note this
+    reuses the "Champion" name for a DIFFERENT mechanic than the one removed in the 2nd-pass entry (that one
+    was a random-archetype, fully-knockback-immune, gold-ringed spawn on an Agony-scaled timer with no
+    concept of "wave's weakest type"; this one is architecturally identical to Elite, just a bigger/rarer/
+    later tier of the same "weakest wave type" mechanism).
+  - Both tiers share the same picker (`_weakest_wave_type(used)`, now parameterized) and spawn path
+    (`_spawn_tiered_creep`), but track their OWN "already promoted" type set independently
+    (`_elite_creep_used` / `_champion_creep_used`) — Elite and Champion each escalate through the wave's
+    roster on their own schedule, not a shared progression. Both still 50% knockback resistance, "elite"
+    flag (cap-bypass + reward-on-death), "no_downscale" (HD sprite).
+- **Wave quiet-window**: new `WAVE_INTERVAL` (120s) / `WAVE_QUIET_TAIL` (10s) — the last 10 seconds of every
+  2-minute block spawn nothing at all: gates `_tick_spawn_loop` (ambient/cluster/wall AND the low-population
+  catch-up burst) and both `_tick_elite_creep`/`_tick_champion_creep` (a tick landing in the window is
+  skipped outright, not delayed — the accumulator still resets). Deliberately does NOT gate `_drain_spawn_queue`
+  (shared with the F7 timeline's own queued ring/scatter/wall/stream entries — gating it would stall
+  hand-authored timeline spawns, not just the ambient loop) or the timeline's own `_tl_tick` firing at all —
+  authored JSON spawn times are intentionally left untouched by this generic periodic rule.
+
+## Changelog — 2026-08-02 (2nd pass) — Removed the "Champion" spawner (redundant with Elite Creep)
+
+- `arena_wave_director_v2.gd`'s "Champion" mechanic (`_tick_champion`/`_spawn_champion`, `CHAMPION_*`
+  consts, `_champion_acc`) — a random test-roster archetype scaled ×50 HP/×2 size/×1.5 speed on its own
+  Agony-scaled ~30-150s timer, fully knockback-immune, drawing a gold ring (`arena_enemy.gd`'s
+  `_is_champion`) — removed entirely: it spawned "creeps with a gold ring and very high HP", the same role
+  Elite Creep (see the 2026-08-02 1st-pass entry above) now already covers more generally (any wave type,
+  not just the 4-archetype test roster; fixed 30s cadence; partial knockback resistance instead of full).
+  `_is_champion` field + its 2-line gold-ring `_draw()` block also removed (dead once nothing ever sets
+  `"champion": true`). The shared `"elite"` flag / `_is_elite` / `grant_reward`-on-death / alive-cap-bypass
+  infrastructure Champion used is untouched — Elite Creep depends on that same plumbing.
+
+## Changelog — 2026-08-02 — Automatic Elite Creep spawner replaces the 3 scripted milestone elites; bug_crawl removed
+
+- **Removed** v1's `ENEMY_DEFS` entries `elite_fly`/`elite_bug`/`elite_bee` (the fixed 5/10/15-minute
+  insect-only milestone mini-bosses, `arena_wave_director.gd`) and their `DEFAULT_TIMELINE`/
+  `Level_1_Minh.json` scripted appearances. Also removed `bug_crawl` (identical to `bug` except speed 120
+  vs 80, no distinct behavior — flagged as likely-redundant in a prior Creep Info icon-duplication audit);
+  `Level_1_Minh.json`'s `bug_crawl` rows now spawn `bug`. Orphaned `creep_info_overrides.cfg` entries for
+  all 4 removed types were deleted too (harmless either way — `CreepInfoPanelScript.apply_overrides` skips
+  any id no longer in `ENEMY_DEFS`).
+- **Replacement**: `arena_wave_director_v2.gd`'s new `_tick_elite_creep`/`_spawn_elite_creep`
+  (`ELITE_CREEP_INTERVAL` = 30s) — every 30 seconds, finds the CURRENT wave's own weakest (lowest-HP, "lvl"
+  scaled by player level for fair comparison) non-elite/non-boss creep type (`_weakest_wave_type`, scanning
+  the loaded F7 timeline's distinct `"type"` values, or the `TEST_TYPES` roster if no timeline is loaded)
+  and promotes it to an elite: 300% size (`ELITE_CREEP_SIZE_MULT`, applied to BOTH `def["size"]` for the
+  hitbox and `def["draw_w"]` — via new `arena_enemy.gd` static helper `base_draw_width()` — for the actual
+  sprite, since `creep_layout.cfg`'s fixed authored width would otherwise silently no-op a plain `size`
+  bump), 75× HP (`ELITE_CREEP_HP_MULT`). Unlike Champion/the old milestone elites (which are fully
+  knockback-immune), this one is only 50% resistant (`ELITE_CREEP_KNOCKBACK_MULT`) — new `arena_enemy.gd`
+  field `_knockback_mult` (`d.get("knockback_mult", 0.0 if elite else 1.0)`) lets a def override the
+  elite-implies-full-immunity default instead of the old hardcoded `not _is_elite` gate. Flagged `"elite"`
+  (same `MAX_ALIVE_V2` cap-bypass + reward-on-death as Champion) but not `"champion"` (no gold ring). This
+  mechanic now covers ANY creep type in the current wave, not just fly/bug/bee, and fires much more
+  frequently (30s flat vs 5/10/15 min) — a meaningfully different, more general difficulty knob than what it
+  replaced, not just a rename.
+
+### Update (same day) — 2-minute grace period, no-repeat progression, HD sprite, 100×→75× HP
+
+- **`ELITE_CREEP_START_DELAY` = 120s** — `_tick_elite_creep` now no-ops entirely until `_run_t` passes this,
+  so the field stays elite-free for the opening 2 minutes (accumulator starts counting at t=120, so the
+  first Elite Creep lands at ~2:30, not exactly 2:00).
+- **No immediate repeats**: new `_elite_creep_used: Dictionary` (type id → true, marked in
+  `_spawn_elite_creep` right after `_weakest_wave_type` picks one) is now excluded from `_weakest_wave_type`'s
+  candidate pool — each successive Elite Creep escalates to the wave's NEXT-weakest still-fresh type instead
+  of re-promoting the same one every 30s. Once every eligible type has had a turn, the used-set clears and
+  the cycle restarts from the weakest again (rather than the mechanic going silent once the roster is
+  exhausted) — worth flagging in case a hard stop after one full pass was actually intended instead.
+- **HD sprite, no blur**: `def["no_downscale"] = true` on every Elite Creep def → `arena_enemy.gd`'s
+  `_load_icon()` (via new `_no_downscale` field + `_resolve_sprite(path, skip_downscale)` param) now skips
+  the pre-baked-downscale substitution (`assets/Enemies Downscale/`, sized for the type's NORMAL on-screen
+  footprint) and loads the full `assets/enemiesHD/` source instead — needed because a 300%-size elite would
+  otherwise visibly blur, stretching a texture that was already downsized for the small regular version.
+- **`ELITE_CREEP_HP_MULT`: 100× → 75×.**
+
 ## Changelog — 2026-07-28 (26th pass) — Root-caused "dragonfly/diver stuck, never approaching": tighten rate
 
 - **Different bug from the 25th pass's despawn/teleport fix** — dragonfly ("orbit") and diver ("spiral")

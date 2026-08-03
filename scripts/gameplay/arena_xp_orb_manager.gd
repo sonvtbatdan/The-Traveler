@@ -1,12 +1,22 @@
 extends MultiMeshInstance2D
-## Single-node manager that renders and updates EVERY arena XP orb via one MultiMesh draw call.
+## Single-node manager that renders and updates EVERY arena XP orb via two batched MultiMesh draw calls.
 ##
 ## Replaces the old per-orb Node2D model (arena_xp_orb.gd), where each orb ran _process + queue_redraw
 ## + a 4-draw_circle _draw() every frame with no cap — hundreds of those were the dominant share of the
 ## node count that tanked arena FPS. Here all orb state lives in parallel Packed arrays (no node per orb)
-## and is drawn with one shared baked glow texture; idle orbs cost only a distance check per frame and are
-## never re-transformed. Lives on the sharp gameplay plane (arena root), world space (node at origin →
-## instance transforms ARE world positions). Found by callers via group "arena_xp_orb_mgr".
+## and is drawn with two shared MultiMeshInstance2D layers — idle orbs cost only a distance check per frame
+## and are never re-transformed. Lives on the sharp gameplay plane (arena root), world space (node at origin
+## → instance transforms ARE world positions). Found by callers via group "arena_xp_orb_mgr".
+##
+## Two layers, back to front:
+##  1. `self` — a fully procedural additive glow/sparkle aura (GLOW_SHADER_CODE), tinted per-instance by the
+##     orb's tier glow color, animated on the GPU (TIME-based pulse + rotating rim sparkles, desynced per
+##     orb via INSTANCE_CUSTOM's phase) — costs zero extra CPU per frame regardless of orb count.
+##  2. `_sprite_mm` (child, drawn on top) — the real orb artwork (assets/screen/xp/*.png, one baked atlas,
+##     SPRITE_SHADER_CODE) selected per-instance via INSTANCE_CUSTOM's tier index, same trick as
+##     arena_plume_manager.gd's flipbook-frame selection.
+## Both layers share the same slot index per orb (kept in lockstep by _write_instance/_swap_remove) so a
+## single position write updates glow + sprite together.
 
 # ── Magnet / collect tunables (ported verbatim from arena_xp_orb.gd) ───────────
 const COLLECT_RADIUS      := 16.0
@@ -15,6 +25,16 @@ const MAGNET_ACCEL        := 900.0    # acceleration when magnetized naturally (
 const MAGNET_MAX          := 1400.0   # speed cap for natural magnetization
 const FORCE_MAGNET_ACCEL  := 600.0    # acceleration when pulled by the magnetic loot item (0→1200 in 2s)
 const FORCE_MAGNET_MAX    := 1200.0   # speed cap for forced magnetization
+
+# ── Pickup-streak SFX pitch ramp ────────────────────────────────────────────────
+# Rapid consecutive pickups (walking through a field of orbs, or a mass suck-in) nudge the pickup sound's
+# pitch up a little each beat instead of replaying the exact same note — reads as a rising "combo" instead of
+# a machine-gun of identical clicks. One frame that collects ≥1 orb = one "beat" (matches the existing one-
+# sound-per-frame batching above, not one sound per orb). The streak resets once STREAK_RESET_TIME passes
+# with no pickup at all.
+const STREAK_RESET_TIME  := 0.35    # seconds of no pickup before the streak resets to 0
+const STREAK_PITCH_STEP  := 0.035   # pitch_scale added per consecutive beat
+const STREAK_PITCH_MAX   := 1.8     # cap so a huge mass-pickup doesn't chipmunk the sound
 
 # ── Population control ────────────────────────────────────────────────────────
 const MAX_ORBS      := 16000    # MultiMesh buffer size (raised so orbs pile up instead of silently auto-collecting the oldest)
@@ -36,51 +56,142 @@ const ST_FORCE  := 2   # pulled by the magnetic loot item (ramps from 0 speed)
 # land on the same pixel size) — same "rescale thresholds with value, rescale mult inversely, leave caps
 # alone" pattern as the PRIOR xp rescale this comment used to describe (that one was ÷20/×20; this one
 # compounds ×10/÷10 on top of it).
+# 2026-08-02: added ORANGE as a 5th tier between YELLOW and RED (real orb artwork dropped in
+# assets/screen/xp/ came in 5 colors) — threshold picked as the geometric midpoint of the yellow→red span
+# (sqrt(50×250)≈112, rounded) so the two new sub-ranges are proportionally similar instead of a raw average
+# skewing toward red; mult/cap interpolated between their yellow/red neighbors.
 const TIER_GREEN_MAX  := 25.0
 const TIER_YELLOW_MAX := 50.0
+const TIER_ORANGE_MAX := 110.0
 const TIER_RED_MAX    := 250.0
 const TIER_GREEN_MULT  := 2.0
 const TIER_YELLOW_MULT := 1.0
+const TIER_ORANGE_MULT := 0.6
 const TIER_RED_MULT    := 0.4
 const TIER_PURPLE_MULT := 0.2
 const TIER_GREEN_CAP  :=  8.0
 const TIER_YELLOW_CAP := 14.0
+const TIER_ORANGE_CAP := 18.0
 const TIER_RED_CAP    := 22.0
 const TIER_PURPLE_CAP := 32.0
-const GREEN_CORE  := Color(0.45, 1.0,  0.7)
-const YELLOW_CORE := Color(1.0,  0.95, 0.2)
-const RED_CORE    := Color(1.0,  0.18, 0.08)
-const PURPLE_CORE := Color(0.75, 0.2,  1.0)
 
-const GLOW_OUTER_MULT := 1.8   # outer faint glow radius = size × 1.8 (matches old _draw)
-const TEX_SIZE := 64
+# Tier index (0..4) ↔ atlas cell ↔ glow tint — order must match ORB_TEX_PATHS below.
+const TIER_GREEN  := 0
+const TIER_YELLOW := 1
+const TIER_ORANGE := 2
+const TIER_RED    := 3
+const TIER_PURPLE := 4
+const TIER_GLOW := [
+	Color(0.35, 1.0,  0.55),   # green  — matches green.png's neon trim
+	Color(1.0,  0.85, 0.15),   # yellow — matches yellow.png's gold plating
+	Color(1.0,  0.5,  0.05),   # orange — matches orange.png's copper plating
+	Color(1.0,  0.15, 0.1),    # red    — matches red.png's crimson trim
+	Color(0.75, 0.35, 1.0),    # purple — matches purple.png's violet trim
+]
+
+const GLOW_OUTER_MULT := 1.8   # outer glow/sparkle-ring radius = sprite radius × this
+const ATLAS_CELL := 128        # px per tier cell in the baked sprite atlas (real art downsampled once at load)
+const ORB_TEX_PATHS := [
+	"res://assets/screen/xp/green.png",
+	"res://assets/screen/xp/yellow.png",
+	"res://assets/screen/xp/orange.png",
+	"res://assets/screen/xp/red.png",
+	"res://assets/screen/xp/purple.png",
+]
+
+# Additive, fully procedural (no texture sample) — pulsing haze + rotating sparkle glints right at the
+# sprite's rim (t≈0.56 = 1/GLOW_OUTER_MULT, where the smaller sprite layer's edge sits inside this quad's
+# UV space), both desynced per orb via INSTANCE_CUSTOM.x (a random phase set once at spawn).
+const GLOW_SHADER_CODE := "shader_type canvas_item;\n" \
+	+ "render_mode blend_add, unshaded;\n" \
+	+ "varying flat float v_phase;\n" \
+	+ "void vertex() { v_phase = INSTANCE_CUSTOM.x; }\n" \
+	+ "void fragment() {\n" \
+	+ "	vec2 p = UV - 0.5;\n" \
+	+ "	float t = length(p) * 2.0;\n" \
+	+ "	float ang = atan(p.y, p.x);\n" \
+	+ "	float haze = pow(clamp(1.0 - t, 0.0, 1.0), 1.8);\n" \
+	+ "	float pulse = 0.7 + 0.3 * sin(TIME * 2.1 + v_phase);\n" \
+	+ "	float rim = 1.0 - smoothstep(0.10, 0.24, abs(t - 0.56));\n" \
+	+ "	float spin = ang - TIME * 1.3 - v_phase;\n" \
+	+ "	float glint = pow(max(0.0, cos(spin * 5.0)), 26.0);\n" \
+	+ "	float a = clamp(haze * pulse * 0.5 + rim * glint * 1.4, 0.0, 1.0);\n" \
+	+ "	COLOR = vec4(COLOR.rgb, COLOR.a * a);\n" \
+	+ "}\n"
+
+# Selects one of the 5 atlas cells per-instance (INSTANCE_CUSTOM.x = tier index), same pattern as
+# arena_plume_manager.gd's flipbook-frame shader. Normal alpha blend — this is opaque metal artwork, not glow.
+const SPRITE_SHADER_CODE := "shader_type canvas_item;\n" \
+	+ "uniform sampler2D atlas : source_color, filter_linear;\n" \
+	+ "uniform float cells;\n" \
+	+ "varying flat float v_cell;\n" \
+	+ "void vertex() { v_cell = INSTANCE_CUSTOM.x; }\n" \
+	+ "void fragment() {\n" \
+	+ "	float w = 1.0 / cells;\n" \
+	+ "	vec2 uv = vec2((floor(v_cell) + UV.x) * w, UV.y);\n" \
+	+ "	vec4 t = texture(atlas, uv);\n" \
+	+ "	COLOR = vec4(t.rgb, t.a) * COLOR;\n" \
+	+ "}\n"
 
 # Parallel arrays — index i is one live orb (count = _n). Swap-remove keeps them packed.
 var _pos:   PackedVector2Array = PackedVector2Array()
 var _vel:   PackedVector2Array = PackedVector2Array()
-var _col:   PackedColorArray   = PackedColorArray()
+var _col:   PackedColorArray   = PackedColorArray()   # glow/sparkle tint (see TIER_GLOW)
 var _value: PackedFloat32Array = PackedFloat32Array()
-var _diam:  PackedFloat32Array = PackedFloat32Array()   # quad world size (= glow diameter)
+var _diam:  PackedFloat32Array = PackedFloat32Array()   # glow-layer quad world size (sprite = this / GLOW_OUTER_MULT)
+var _tier:  PackedInt32Array   = PackedInt32Array()     # atlas cell / TIER_GLOW index
+var _phase: PackedFloat32Array = PackedFloat32Array()   # random shimmer phase, set once at spawn (desync)
 var _state: PackedInt32Array   = PackedInt32Array()
 var _age:   PackedFloat32Array = PackedFloat32Array()
 var _n: int = 0
 
+var _sprite_mm: MultiMeshInstance2D = null
 var _player: Node2D = null
 var _sfx: AudioStreamPlayer = null
+var _streak: int = 0            # consecutive pickup "beats" (one per frame that collects ≥1 orb)
+var _streak_gap: float = 0.0    # seconds since the last pickup beat — streak resets once this exceeds STREAK_RESET_TIME
 
 func _ready() -> void:
 	add_to_group("arena_xp_orb_mgr")
-	texture = _make_glow_texture()
-	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_2D
 	mm.use_colors = true
+	mm.use_custom_data = true
 	var quad := QuadMesh.new()
-	quad.size = Vector2.ONE   # unit quad, scaled per-instance to the orb's diameter
+	quad.size = Vector2.ONE   # unit quad, scaled per-instance to the orb's glow diameter
 	mm.mesh = quad
 	mm.instance_count = MAX_ORBS
 	mm.visible_instance_count = 0
 	multimesh = mm
+	var glow_sh := Shader.new()
+	glow_sh.code = GLOW_SHADER_CODE
+	var glow_mat := ShaderMaterial.new()
+	glow_mat.shader = glow_sh
+	material = glow_mat
+
+	var atlas := _bake_sprite_atlas()
+	_sprite_mm = MultiMeshInstance2D.new()
+	_sprite_mm.name = "OrbSpriteLayer"
+	_sprite_mm.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	var smm := MultiMesh.new()
+	smm.transform_format = MultiMesh.TRANSFORM_2D
+	smm.use_colors = true
+	smm.use_custom_data = true
+	var squad := QuadMesh.new()
+	squad.size = Vector2.ONE
+	smm.mesh = squad
+	smm.instance_count = MAX_ORBS
+	smm.visible_instance_count = 0
+	_sprite_mm.multimesh = smm
+	var sprite_sh := Shader.new()
+	sprite_sh.code = SPRITE_SHADER_CODE
+	var sprite_mat := ShaderMaterial.new()
+	sprite_mat.shader = sprite_sh
+	sprite_mat.set_shader_parameter("atlas", atlas)
+	sprite_mat.set_shader_parameter("cells", float(ORB_TEX_PATHS.size()))
+	_sprite_mm.material = sprite_mat
+	add_child(_sprite_mm)   # child → drawn after `self`, i.e. sprite renders on top of the glow
+
 	_player = get_tree().get_first_node_in_group("player")
 	_sfx = AudioStreamPlayer.new()
 	_sfx.stream = load("res://assets/audio/sfx/equip.wav") as AudioStream
@@ -89,6 +200,9 @@ func _ready() -> void:
 	add_child(_sfx)
 
 func _process(delta: float) -> void:
+	_streak_gap += delta   # ticked unconditionally so an idle stretch (no orbs at all) still decays the streak
+	if _streak_gap >= STREAK_RESET_TIME:
+		_streak = 0
 	if _n == 0:
 		return
 	if _player == null or not is_instance_valid(_player):
@@ -137,13 +251,11 @@ func _process(delta: float) -> void:
 		else:
 			_write_instance(i)
 		i -= 1
-	# One batched XP grant + one sound for everything collected this frame.
+	# One batched XP grant + one sound (pitched by the current streak) for everything collected this frame.
 	if got_any:
 		if GameManager.has_method("add_xp"):
 			GameManager.add_xp(got_xp)
-		if _sfx != null:
-			_sfx.stop()
-			_sfx.play()
+		_play_pickup_sfx()
 
 # ── Spawn / merge ─────────────────────────────────────────────────────────────
 ## Add a collectible XP orb at a world position. Merges into a nearby idle orb when possible to keep the
@@ -166,12 +278,16 @@ func spawn(world_pos: Vector2, value: float) -> void:
 	_col.append(Color.WHITE)
 	_value.append(value)
 	_diam.append(1.0)
+	_tier.append(0)
+	_phase.append(randf() * TAU)   # desync this orb's shimmer from every other orb
 	_state.append(ST_IDLE)
 	_age.append(0.0)
 	_n += 1
+	_sprite_mm.multimesh.set_instance_color(idx, Color.WHITE)   # sprite layer shows true art colors, never tinted
 	_apply_tier(idx)
 	_write_instance(idx)
 	multimesh.visible_instance_count = _n
+	_sprite_mm.multimesh.visible_instance_count = _n
 
 # ── Magnetic loot item hooks (replace the old per-node group iteration) ────────
 ## Pull every orb toward the player with the smooth 0→1200 px/s ramp (magnetic loot item, full-map sweep).
@@ -193,10 +309,20 @@ func magnetize_all_within(center: Vector2, rng: float) -> void:
 func _collect(i: int) -> void:
 	if GameManager.has_method("add_xp"):
 		GameManager.add_xp(_value[i])
-	if _sfx != null:
-		_sfx.stop()
-		_sfx.play()
+	_play_pickup_sfx()
 	_swap_remove(i)
+
+## One pickup "beat": bumps the streak (or starts a fresh one if the gap since the last beat exceeded
+## STREAK_RESET_TIME — see _process's unconditional gap tick), raises the sfx pitch a notch per streak step
+## up to STREAK_PITCH_MAX, and plays it.
+func _play_pickup_sfx() -> void:
+	if _sfx == null:
+		return
+	_streak = 1 if _streak_gap >= STREAK_RESET_TIME else _streak + 1
+	_streak_gap = 0.0
+	_sfx.pitch_scale = clampf(1.0 + float(_streak - 1) * STREAK_PITCH_STEP, 1.0, STREAK_PITCH_MAX)
+	_sfx.stop()
+	_sfx.play()
 
 ## Remove orb i by moving the last live orb into its slot (O(1)); the rest of the buffer is untouched.
 func _swap_remove(i: int) -> void:
@@ -207,6 +333,8 @@ func _swap_remove(i: int) -> void:
 		_col[i]   = _col[last]
 		_value[i] = _value[last]
 		_diam[i]  = _diam[last]
+		_tier[i]  = _tier[last]
+		_phase[i] = _phase[last]
 		_state[i] = _state[last]
 		_age[i]   = _age[last]
 		_write_instance(i)   # the moved orb now lives in slot i
@@ -215,49 +343,56 @@ func _swap_remove(i: int) -> void:
 	_col.remove_at(last)
 	_value.remove_at(last)
 	_diam.remove_at(last)
+	_tier.remove_at(last)
+	_phase.remove_at(last)
 	_state.remove_at(last)
 	_age.remove_at(last)
 	_n -= 1
 	multimesh.visible_instance_count = _n
+	_sprite_mm.multimesh.visible_instance_count = _n
 
-## Push slot i's position/scale/color into the MultiMesh. Quad is unit + centered → scale = diameter.
+## Push slot i's position/scale/color/phase into both the glow and sprite MultiMeshes. Quads are unit +
+## centered → scale = diameter.
 func _write_instance(i: int) -> void:
 	var d := _diam[i]
 	var xf := Transform2D(Vector2(d, 0.0), Vector2(0.0, d), _pos[i])
 	multimesh.set_instance_transform_2d(i, xf)
 	multimesh.set_instance_color(i, _col[i])
+	multimesh.set_instance_custom_data(i, Color(_phase[i], 0.0, 0.0, 0.0))
+	var sd := d / GLOW_OUTER_MULT   # sprite = the orb's actual size; glow/sparkle ring extends further out around it
+	var sxf := Transform2D(Vector2(sd, 0.0), Vector2(0.0, sd), _pos[i])
+	_sprite_mm.multimesh.set_instance_transform_2d(i, sxf)
+	_sprite_mm.multimesh.set_instance_custom_data(i, Color(float(_tier[i]), 0.0, 0.0, 0.0))
 
-## Compute tier size + color from the orb's current value (ported from arena_xp_orb._tier_params).
+## Compute tier size + glow color from the orb's current value (ported from arena_xp_orb._tier_params).
 func _apply_tier(i: int) -> void:
 	var v := float(_value[i])
 	var sz: float
-	var cc: Color
-	if _value[i] <= TIER_GREEN_MAX:
-		sz = minf(v * TIER_GREEN_MULT,  TIER_GREEN_CAP);  cc = GREEN_CORE
-	elif _value[i] <= TIER_YELLOW_MAX:
-		sz = minf(v * TIER_YELLOW_MULT, TIER_YELLOW_CAP); cc = YELLOW_CORE
-	elif _value[i] <= TIER_RED_MAX:
-		sz = minf(v * TIER_RED_MULT,    TIER_RED_CAP);    cc = RED_CORE
+	var tier: int
+	if v <= TIER_GREEN_MAX:
+		sz = minf(v * TIER_GREEN_MULT,  TIER_GREEN_CAP);  tier = TIER_GREEN
+	elif v <= TIER_YELLOW_MAX:
+		sz = minf(v * TIER_YELLOW_MULT, TIER_YELLOW_CAP); tier = TIER_YELLOW
+	elif v <= TIER_ORANGE_MAX:
+		sz = minf(v * TIER_ORANGE_MULT, TIER_ORANGE_CAP); tier = TIER_ORANGE
+	elif v <= TIER_RED_MAX:
+		sz = minf(v * TIER_RED_MULT,    TIER_RED_CAP);    tier = TIER_RED
 	else:
-		sz = minf(v * TIER_PURPLE_MULT, TIER_PURPLE_CAP); cc = PURPLE_CORE
-	_diam[i] = sz * GLOW_OUTER_MULT * 2.0   # quad spans the full outer-glow diameter
-	_col[i] = cc
+		sz = minf(v * TIER_PURPLE_MULT, TIER_PURPLE_CAP); tier = TIER_PURPLE
+	_diam[i] = sz * GLOW_OUTER_MULT * 2.0   # quad spans the full outer glow/sparkle diameter
+	_tier[i] = tier
+	_col[i] = TIER_GLOW[tier]
 
-## Bake the shared soft-glow sprite once: white RGB (so per-instance color tints it) with a layered radial
-## alpha profile reproducing the old 4-circle look (faint outer glow → solid core → hot centre).
-func _make_glow_texture() -> ImageTexture:
-	var img := Image.create(TEX_SIZE, TEX_SIZE, false, Image.FORMAT_RGBA8)
-	var c := float(TEX_SIZE) * 0.5
-	for y in TEX_SIZE:
-		for x in TEX_SIZE:
-			var dx := (float(x) + 0.5 - c) / c
-			var dy := (float(y) + 0.5 - c) / c
-			var t := sqrt(dx * dx + dy * dy)   # 0 at centre, 1 at edge
-			# Painter's-algorithm composite of the old layers (bottom → top), all white:
-			var a := 0.0
-			if t <= 1.0:               a = 0.15 + a * 0.85           # outer glow  (radius 1.0)
-			if t <= 1.0 / GLOW_OUTER_MULT * 1.1:  a = 0.30 + a * 0.70   # mid glow (radius 1.1/1.8)
-			if t <= 1.0 / GLOW_OUTER_MULT * 0.7:  a = 1.0               # solid core (radius 0.7/1.8)
-			if t <= 1.0 / GLOW_OUTER_MULT * 0.30: a = 0.88 + a * 0.12   # hot centre (radius 0.30/1.8)
-			img.set_pixel(x, y, Color(1.0, 1.0, 1.0, clampf(a, 0.0, 1.0)))
-	return ImageTexture.create_from_image(img)
+## Bake the shared sprite atlas once: the 5 real orb images (assets/screen/xp/*.png), each downsampled to a
+## fixed ATLAS_CELL square and laid out in a horizontal strip, in TIER_* index order. get_image() decodes the
+## imported PNG to a plain Image regardless of its import compression, so resize() always works here (unlike
+## casting a loaded texture straight to ImageTexture, which only succeeds for textures already in that format).
+func _bake_sprite_atlas() -> ImageTexture:
+	var atlas := Image.create(ATLAS_CELL * ORB_TEX_PATHS.size(), ATLAS_CELL, false, Image.FORMAT_RGBA8)
+	for i in ORB_TEX_PATHS.size():
+		var tex: Texture2D = load(ORB_TEX_PATHS[i])
+		var img := tex.get_image()
+		img.convert(Image.FORMAT_RGBA8)
+		img.resize(ATLAS_CELL, ATLAS_CELL, Image.INTERPOLATE_BILINEAR)
+		atlas.blit_rect(img, Rect2i(Vector2i.ZERO, img.get_size()), Vector2i(i * ATLAS_CELL, 0))
+	return ImageTexture.create_from_image(atlas)

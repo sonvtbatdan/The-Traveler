@@ -30,10 +30,10 @@ const ENEMY_DEFS := {
 	# Squid is NOT re-added (its sprites + tentacle art are missing from enemiesHD); octopus removed.
 	"diver":    {"behavior": "spiral",    "hp": 20.0,  "speed": 150.0, "size": 29.4, "contact": 5,  "explodes": true, "xp": 10.0, "icon": "res://assets/enemiesHD/kingfisher.png"},   # size ×3 then ×0.7 (2026-07-27)
 	"centipede":{"behavior": "centipede", "lvl": true, "hp": 15.0,  "speed": 225.0, "size": 20.0, "contact": 20, "xp": 8.0, "armor": 7.0, "icon": "res://assets/enemiesHD/centipedehead.png"},   # speed kept at 225 (75% Viper) per latest instruction; table lists 100
-	"dragonfly":{"behavior": "orbit",     "hp": 30.0,  "speed": 130.0, "size": 16.0, "contact": 5,  "explodes": true, "xp": 15.0, "icon": "res://assets/enemiesHD/animaldragonfly.png"},
+	"dragonfly":{"behavior": "vortex_dive", "hp": 30.0,  "speed": 130.0, "size": 16.0, "contact": 5,  "explodes": true, "xp": 15.0, "icon": "res://assets/enemiesHD/animaldragonfly.png"},   # 2026-08-02: was "orbit" — now a faster vortex-swirl-then-overshoot-dash pattern (arena_enemy.gd's "vortex_dive"), speed 130 already faster than the vortex reference (spawn_mode_2's flies at ~80)
 	# ── A.I.nimal — insects (levels 1→3) ──
 	"swarm":    {"behavior": "swarm", "group": "insects", "level": 1, "blob": 50, "hp": 10.0, "speed": 200.0, "size": 12.0, "contact": 1, "explodes": true, "xp": 2.0, "icon": "res://assets/enemiesHD/swarm.png"},
-	"fly":      {"behavior": "chase", "group": "insects", "level": 1, "hp": 20.0, "speed": 80.0, "size": 15.12,  "contact": 2, "explodes": true, "xp": 10.0, "icon": "res://assets/enemiesHD/flie1.png", "flap_icons": ["flie1", "flie2"]},   # size ×3 then ×0.7 (2026-07-27); wing-flap sprite pair (2026-07-27); static "icon" (UI/preview refs) switched animalflies→flie1 (2026-07-28) — the in-arena sprite was already flie1/flie2 via flap_icons regardless
+	"fly":      {"behavior": "chase", "group": "insects", "level": 1, "hp": 20.0, "speed": 80.0, "size": 15.12,  "contact": 2, "explodes": true, "xp": 10.0, "icon": "res://assets/enemiesHD/flie1.png", "flap_icons": ["flie1", "flie2"], "no_downscale": true},   # size ×3 then ×0.7 (2026-07-27); wing-flap sprite pair (2026-07-27); static "icon" (UI/preview refs) switched animalflies→flie1 (2026-07-28) — the in-arena sprite was already flie1/flie2 via flap_icons regardless; "no_downscale" (2026-08-02) — the pre-baked assets/Enemies Downscale/ copy (tools/downscale_enemies.gd's Image.resize(..., INTERPOLATE_LANCZOS), no alpha premultiply) was measurably introducing a whitish edge fringe (edge-pixel mean RGB brightened, near-white pixel share ~3x) vs the clean HD source — this skips that bake and loads the full assets/enemiesHD/ PNG directly, same flag Elite/Champion Creep already use
 	"bug":      {"behavior": "chase", "group": "insects", "level": 2, "hp": 200.0, "speed": 80.0, "size": 32.34, "contact": 3, "explodes": true, "xp": 50.0, "icon": "res://assets/enemiesHD/animalbug.png"},   # eye overlay dropped (animalbug_eye has no HD sprite); size ×3 then ×0.7 (2026-07-27)
 	"bee":      {"behavior": "chase", "group": "insects", "level": 2, "hp": 1000.0, "speed": 80.0, "size": 25.2, "contact": 3, "explodes": true, "xp": 100.0, "icon": "res://assets/enemiesHD/animalbee.png"},   # size ×3 then ×0.7 (2026-07-27)
 	"spider":   {"behavior": "jump_diag", "group": "insects", "level": 3, "hp": 100.0, "speed": 80.0, "size": 16.0, "contact": 8, "explodes": true, "xp": 50.0, "icon": "res://assets/enemiesHD/animalspider.png"},
@@ -113,18 +113,14 @@ const ENEMY_DEFS := {
 	"pros8": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 4.0, "armor": 3.0, "icon": "res://assets/enemiesHD/pros8.png"},
 	"prosmotherblank": {"behavior": "mothership", "lvl": true, "hp": 150.0, "speed": 130.0, "size": 40.0, "contact": 30, "xp": 10.0, "armor": 7.0, "icon": "res://assets/enemiesHD/prosmotherblank.png"},   # carrier: docked pros escort + flee/release/respawn cycle (see arena_enemy.gd `mothership`)
 	# ── Level_1_Minh variants (see levels/arena/Level_1_Minh.json) ──
-	"bug_crawl":  {"behavior": "chase",      "hp": 200.0,  "speed": 120.0, "size": 32.34, "contact": 3, "explodes": true, "xp": 50.0,  "icon": "res://assets/enemiesHD/animalbug.png"},   # size ×3 then ×0.7 (2026-07-27)
+	# "bug_crawl" removed 2026-08-02 (identical to "bug" except speed 120 vs 80, no meaningful behavior
+	# difference) — Level_1_Minh.json's bug_crawl rows now spawn "bug" instead.
 	"swarm_loop": {"behavior": "swarm_loop", "blob": 50,   "hp": 10.0,     "speed": 200.0, "size": 12.0, "contact": 1, "explodes": true, "xp": 2.0, "icon": "res://assets/enemiesHD/swarm.png"},
 	"bee_dive":   {"behavior": "bee_dive",   "hp": 1000.0, "speed": 150.0, "size": 25.2, "contact": 3, "explodes": true, "xp": 100.0, "icon": "res://assets/enemiesHD/animalbee.png"},   # size ×3 then ×0.7 (2026-07-27)
-	# ── Elites (milestone mini-bosses at 5/10/15 min). "elite": true → bypasses the alive-cap and, on death,
-	# grants a NEW arena item (arena_enemy._die → levelup_ui.grant_reward). Each is its base insect with
-	# 50× HP, 3× size, +50% speed ("same deal with all of them"). NOTE (2026-07-27): base fly/bug/bee sizes
-	# were tripled below without touching these — elite_bug/elite_bee now equal their base's new size (no
-	# longer visually bigger) and elite_fly is only ~1.25× fly instead of 3×. Left as-is since only the base
-	# 4 creatures were asked to scale; revisit if elites should stay visually distinct from the regular kind.
-	"elite_fly": {"behavior": "chase", "elite": true, "group": "insects", "hp": 2000.0,  "speed": 120.0, "size": 27.0, "contact": 2, "explodes": true, "xp": 250.0,  "icon": "res://assets/enemiesHD/flie1.png", "flap_icons": ["flie1", "flie2"]},
-	"elite_bug": {"behavior": "chase", "elite": true, "group": "insects", "hp": 20000.0, "speed": 180.0, "size": 46.2, "contact": 3, "explodes": true, "xp": 500.0,  "icon": "res://assets/enemiesHD/animalbug.png"},
-	"elite_bee": {"behavior": "chase", "elite": true, "group": "insects", "hp": 100000.0, "speed": 225.0, "size": 36.0, "contact": 3, "explodes": true, "xp": 1000.0, "icon": "res://assets/enemiesHD/animalbee.png"},
+	# "elite_fly"/"elite_bug"/"elite_bee" (milestone mini-bosses at 5/10/15 min) removed 2026-08-02 —
+	# replaced by arena_wave_director_v2.gd's automatic Elite Creep spawner: every 30s, promotes the current
+	# wave's own weakest-HP creep to an elite (300% size, 100× HP, 50% knockback) instead of 3 fixed,
+	# scripted, insect-only milestones.
 	# bosses — big high-HP stubs (real movesets later)
 	"elephant":  {"behavior": "boss_stub", "hp": 5500.0, "speed": 110.0, "size": 70.0, "contact": 40, "xp": 250.0, "shape": "circle",   "tint": Color(0.75, 0.70, 0.65), "icon": "res://assets/bosses/elephant/elephant.sheet.png", "boss_script": "res://scripts/gameplay/arena_elephant.gd"},
 	"chromeleon":{"behavior": "boss_stub", "hp": 4200.0, "speed": 70.0, "size": 60.0, "contact": 35, "xp": 200.0, "shape": "diamond",  "tint": Color(0.45, 0.90, 0.65), "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},
@@ -170,15 +166,11 @@ const DEFAULT_TIMELINE := [
 	{"time": 235.0, "type": "shooter",   "count": 6,  "pattern": "ring"},
 	{"time": 250.0, "type": "centipede", "count": 5,  "pattern": "scatter"},
 	{"time": 265.0, "type": "sentinel",  "count": 4,  "pattern": "arc"},
-	# ── 5:00 — ELITE FLY (milestone mini-boss) + full mix ──
-	{"time": 300.0, "type": "elite_fly", "count": 1,  "pattern": "ring"},
+	# ── 5:00 — full mix (milestone elite_fly/bug/bee removed 2026-08-02 — see arena_wave_director_v2.gd's
+	# automatic Elite Creep spawner, which now covers this role for spawn_mode_2 on its own 30s timer) ──
 	{"time": 305.0, "type": "diver",     "count": 12, "pattern": "stream", "duration": 12.0},
 	{"time": 320.0, "type": "missile",   "count": 3,  "pattern": "scatter"},
 	{"time": 335.0, "type": "swarm",     "count": 1,  "pattern": "ring"},   # one 50-strong blob
-	# ── 10:00 — ELITE BUG ──
-	{"time": 600.0, "type": "elite_bug", "count": 1,  "pattern": "ring"},
-	# ── 15:00 — ELITE BEE ──
-	{"time": 900.0, "type": "elite_bee", "count": 1,  "pattern": "ring"},
 	# ── 20:00 — SCORPION (final boss: gates the timeline, then ends all normal spawning) ──
 	{"time": 1200.0, "type": "scorpion", "count": 1,  "pattern": "ring", "is_boss": true},
 ]

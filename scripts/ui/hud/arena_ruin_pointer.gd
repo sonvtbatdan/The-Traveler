@@ -1,8 +1,8 @@
-extends Control
+﻿extends Control
 ## Off-screen pointer to ONE giant dead-ship wreck: the wreck's own icon pinned to the screen edge in its
-## direction, with the live distance printed beside it — hidden once the wreck itself is visible on
-## screen (the player has already located it, the number is just clutter at that point). Unlike
-## arena_chest_pointer.gd (which finds its single target by group), this holds a direct reference to a
+## direction, with the live distance printed level with it, snug against its right edge — both hidden once
+## the wreck itself is visible on screen (the player has already located it, so the pointer is just clutter
+## at that point). Unlike arena_chest_pointer.gd (which finds its single target by group), this holds a direct reference to a
 ## specific wreck so several can coexist — arena_ruin_layer.gd spawns one per wreck. When its wreck is
 ## destroyed, the pointer frees itself (and its parent CanvasLayer). Modeled on arena_chest_pointer.gd.
 
@@ -31,7 +31,7 @@ func _ready() -> void:
 	_mgr = get_tree().get_first_node_in_group("enemy_manager")
 	_lbl = Label.new()
 	_lbl.add_theme_font_override("font", FONT)
-	_lbl.add_theme_font_size_override("font_size", 16)
+	_lbl.add_theme_font_size_override("font_size", 12)
 	_lbl.add_theme_color_override("font_color", Color(0.9, 0.95, 1.0))
 	_lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	_lbl.add_theme_constant_override("outline_size", 4)
@@ -79,8 +79,8 @@ func _process(delta: float) -> void:
 		var tx := (half.x / absf(_dir.x)) if absf(_dir.x) > 0.0001 else 1.0e9
 		var ty := (half.y / absf(_dir.y)) if absf(_dir.y) > 0.0001 else 1.0e9
 		_anchor = center + _dir * minf(tx, ty)
-		# On-screen once the wreck itself sits inside the camera's visible world rect — the player can
-		# already see it directly, so the distance number is redundant (icon stays as a directional aid).
+		# On-screen once the wreck itself sits inside the camera's visible world rect - the player can already
+		# see it directly, so both the icon (_draw) and the distance label are redundant clutter at that point.
 		_on_screen = false
 		if _mgr != null and _mgr.has_method("visible_world_rect"):
 			_on_screen = (_mgr.call("visible_world_rect") as Rect2).has_point(_target.global_position)
@@ -89,12 +89,12 @@ func _process(delta: float) -> void:
 			var dist := int(round(_player.global_position.distance_to(_target.global_position)))
 			_lbl.text = str(dist)
 			_lbl.reset_size()
-			_lbl.position = _anchor - _dir * (_icon_size.x * 0.5 + 16.0) - _lbl.size * 0.5
+			_lbl.position = Vector2(_anchor.x + _icon_size.x * 0.5 + 6.0, _anchor.y - _lbl.size.y * 0.5)
 	else:
 		_lbl.visible = false
 	queue_redraw()
 
 func _draw() -> void:
-	if not _show or _icon_tex == null:
+	if not _show or _icon_tex == null or _on_screen:
 		return
 	draw_texture_rect(_icon_tex, Rect2(_anchor - _icon_size * 0.5, _icon_size), false)

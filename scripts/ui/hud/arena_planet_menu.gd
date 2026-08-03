@@ -19,6 +19,7 @@ var _grid_box: VBoxContainer = null
 var _status: Label = null
 var _font: FontFile = null
 var _open: bool = false
+var _prev_paused: bool = false   # tree's paused state from just before we opened — restored on close instead of a blind unpause
 var _rng := RandomNumberGenerator.new()
 
 var _placing: bool = false
@@ -62,10 +63,17 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion and _placing and _ghost != null:
 		_ghost.position = get_viewport().get_mouse_position() - Vector2(PREVIEW, PREVIEW) * 0.75
 
+## Captures/restores the tree's paused state around this modal (2026-08-02: was a blind
+## `get_tree().paused = _open`, which could clobber an outer pause some other panel/HUD button set — see
+## arena_hud_buttons.gd's _on_pause() for the "needs 2 clicks" class of bug this caused).
 func _toggle() -> void:
 	_open = not _open
 	_root.visible = _open
-	get_tree().paused = _open
+	if _open:
+		_prev_paused = get_tree().paused
+		get_tree().paused = true
+	else:
+		get_tree().paused = _prev_paused
 	if _open and _grid_box.get_child_count() == 0:
 		_rebuild()
 

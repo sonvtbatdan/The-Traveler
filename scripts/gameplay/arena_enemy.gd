@@ -18,6 +18,7 @@ const GifLoader        := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const ArenaExplosion   := preload("res://scripts/gameplay/arena_explosion.gd")
 const DeathFX          := preload("res://scripts/gameplay/arena_death_fx.gd")
 const EnergyVortex     := preload("res://scripts/gameplay/fx/energy_vortex.gd")
+const LaserBeamScript  := preload("res://scripts/gameplay/lasgun_ani_5.gd")   # beamer's beam VFX — same procedural shader beam as the player's death_beam weapon, recolored blue (see _ready()'s "beamer" setup)
 # Per-enemy attack SFX (one-shot; played from a lazily-created AudioStreamPlayer on bus "SFX").
 const SFX_SPIDER_JUMP  := preload("res://assets/audio/sfx/dash.wav")      # spider (jump_diag) leap
 const SFX_OCTOPUS_JUMP := preload("res://assets/audio/sfx/chargeby.wav")  # octopus (jump) leap
@@ -46,18 +47,24 @@ static func consume_death_count() -> int:
 const SWARM_ZOOM_SPEED := 400.0     # swarm "zoom" mode — fly straight through the player and keep going
 const SWARM_ZOOM_CULL  := 1200.0    # ...then silently despawn once this far from the player
 const RETURN_DIST := 900.0          # dive group re-aims at the player once it gets this far away (loops back)
-# "orbit"/"spiral" (dragonfly/diver) tighten their orbit radius at a rate scaled by _orbit_r0/ORBIT_SPAWN_REF_R
-# — SPIRAL_SHRINK/ORBIT_SHRINK are the rate AT ORBIT_SPAWN_REF_R (v1's SPAWN_RADIUS, arena_wave_director.gd —
-# where these constants were originally tuned/felt right). Without this scaling, a fixed px/s rate means
-# time-to-dive is proportional to spawn distance — fine at v1's ~600-840px spawn ring, but spawn_mode_2's
-# annulus spawns much farther out (~1000-1900px, see R_PADDING/R_WIDTH in arena_wave_director_v2.gd), which
-# was stretching dragonfly/diver's tighten-then-dive to 35-65+ seconds — reads as "stuck", not orbiting
-# (2026-07-28 bug report: "70 dragonfly, 32 diver, never seen approaching"). Scaling keeps time-to-dive
-# approximately CONSTANT (≈ ORBIT_SPAWN_REF_R / rate) regardless of where the enemy actually spawned, so
-# v1's own feel at its own spawn radius is unchanged (rate ≈ SPIRAL_SHRINK/ORBIT_SHRINK there by definition).
+# "spiral" (diver) and "vortex_dive" (dragonfly) tighten their orbit radius at a rate scaled by
+# _orbit_r0/ORBIT_SPAWN_REF_R — SPIRAL_SHRINK/VORTEX_SHRINK are the rate AT ORBIT_SPAWN_REF_R (v1's
+# SPAWN_RADIUS, arena_wave_director.gd — where they were originally tuned/felt right). Without this scaling,
+# a fixed px/s rate means time-to-dive is proportional to spawn distance — fine at v1's ~600-840px spawn
+# ring, but spawn_mode_2's annulus spawns much farther out (~1000-1900px, see R_PADDING/R_WIDTH in
+# arena_wave_director_v2.gd), which was stretching diver's tighten-then-dive to 35-65+ seconds — reads as
+# "stuck", not orbiting (2026-07-28 bug report: "32 diver, never seen approaching"). Scaling keeps
+# time-to-dive approximately CONSTANT (≈ ORBIT_SPAWN_REF_R / rate) regardless of where the enemy actually
+# spawned, so v1's own feel at its own spawn radius is unchanged (rate ≈ SPIRAL_SHRINK/VORTEX_SHRINK there
+# by definition). "vortex_dive" steers VELOCITY toward a point on this shrinking-radius ring (rather than
+# snapping global_position straight to it, like the old "orbit" behavior did) — a deliberate, guaranteed
+# radius decay, NOT a free pursuit-curve steer: an earlier version reused "steer_chaser"'s pure
+# dir+tangent-blend math verbatim, which measurably settled into a stable wide orbit (200-400px, oscillating,
+# never shrinking) instead of reliably reaching the dive trigger — a known real property of constant-bearing
+# pursuit against a near-stationary target at a high tangent ratio, not a rare edge case.
 const ORBIT_SPAWN_REF_R := 720.0    # v1's SPAWN_RADIUS (average) — the distance these rates were tuned at
 const SPIRAL_SHRINK := 75       # px/s the spiral radius tightens toward the player (diver), AT ORBIT_SPAWN_REF_R
-const ORBIT_SHRINK  := 28.0     # px/s the orbit radius tightens toward the player (dragonfly), AT ORBIT_SPAWN_REF_R
+const VORTEX_SHRINK  := 60.0    # px/s the vortex radius tightens toward the player (dragonfly), AT ORBIT_SPAWN_REF_R — faster than the old "orbit" behavior's 28, per "bay nhanh hơn"
 const SPIRAL_CENTER_SPEED := 80.0   # px/s the spiral center drifts toward the player — run faster to pull away
 const TURN_RATE := 10.0             # how fast a sprite eases to face its movement direction (head = sprite north)
 const THROWN_BOMB_SPEED := 460.0    # bomber's thrown bombs travel this fast (straight, aimed at the player)
@@ -87,6 +94,10 @@ const CENTI_TURN        := 3.0      # head max turn rad/s (mirrors SNAKE_TURN)
 # segment's along-spine length (height), so body segments sit flush.
 const CENTI_WIDTH_MUL   := 1.95     # across width of every segment = _radius × this (75% of ICON_DRAW_SCALE 2.6)
 const CENTI_HEAD_OVERLAP := 20.0    # px the head is pulled back into the first body segment (smaller neck gap)
+const CENTI_MAX_BEND := PI * 0.5    # max joint bend (rad) between two consecutive segments — a segment can
+									 # swing up to 90° off the previous one's own direction but no further, so
+									 # the body can't fold back on itself (e.g. the tail whipping around to
+									 # point back at the head) when the head reverses/turns sharply.
 
 # ── Teleport (alien) — blink toward the player every TELE_INTERVAL; gently FLOAT adrift between blinks ──
 const TELE_INTERVAL    := 2.0       # seconds between teleports
@@ -140,13 +151,30 @@ void fragment() {
 }
 """
 static var _flash_shader: Shader = null
-const HIT_SQUASH     := 0.42    # extra squash pulse on hit (more prominent)
-const HIT_SQUASH_DECAY := 8.0
 const KNOCKBACK_SPEED := 460.0  # recoil impulse away from the player on hit (px/s, decays) — more prominent
 const KNOCKBACK_DECAY := 10.0
 const SPAWN_POP_TIME := 0.20    # scale-up-with-overshoot + fade-in on spawn
 const DEATH_POP_TIME := 0.15    # stretch + scale-up + fade-out before freeing
 const SCALE_VAR      := 0.15    # per-enemy base-size variance (±) so the crowd looks individual
+# Docked (mothership/fleet escort) or fleet-carrier hit reaction: a real _knockback displacement here would
+# move global_position, which is exactly what every OTHER docked node re-pins itself to each frame — the
+# whole formation would jerk from a single hit. HIT_SHAKE is a small purely-VISUAL offset (applied only in
+# _draw()'s transform, decays independently) so the specific hit unit still reads as "hit" without moving
+# its actual position or dragging any sibling along.
+const HIT_SHAKE_MAG   := 14.0
+const HIT_SHAKE_DECAY := 10.0
+# Fleet Edit escort follow: each escort chases its carrier-relative slot (+ a small continuous positional
+# wander, "độ lệch vận tốc random nhỏ" so the formation looks loosely held rather than bolted) but is VELOCITY
+# CAPPED at FLEET_MAX_SPEED_MULT × its own `speed` stat — never faster than that, no matter how far the slot
+# just jumped. This matters most when the carrier turns: a wide formation's outer slots sweep through a big
+# arc (target = carrier_pos + base_off.rotated(_facing)), and a naive "snap/lerp toward target" would imply a
+# speed far beyond what the escort could ever actually fly, reading as a teleport. The same cap governs a
+# knocked-out-of-formation escort (real knockback now applies per-unit — see take_damage()'s dock_kind
+# "fleet") catching back up to its slot: it visibly "hustles" home at its own capped top speed, never faster.
+const FLEET_WANDER_FREQ_MIN := 0.6
+const FLEET_WANDER_FREQ_MAX := 1.4
+const FLEET_WANDER_AMP      := 4.0
+const FLEET_MAX_SPEED_MULT  := 1.3   # hard cap on hold-formation/catch-up speed: 130% of the escort's own `speed`
 
 ## Safety-net lifetime cap: a normal enemy still alive after this long (_t, since spawn) is silently freed
 ## via _despawn_stale() (queue_free, no death FX/kill-count/loot/reward — this isn't a kill) instead of
@@ -185,10 +213,19 @@ const ENEMY_PUSH_STRENGTH := 110.0
 # ── spawn_mode_2 steering behaviors (arena_wave_director_v2.gd test roster only) ──────────────────
 # "steer_chaser" (flies) — vortex/spiral seek: a tangential swirl blended with the straight seek dir, strong
 # far from the player and fading to a direct dive up close (funnels in like a vortex instead of beelining).
-# Separation is still entirely the manager's spatial-hash pass — never computed here.
+# Separation is still entirely the manager's spatial-hash pass - never computed here. NOT reused by v1's
+# "vortex_dive" (dragonfly, below) despite the similar name/feel - see VORTEX_SHRINK's comment for why a
+# free pursuit-curve steer like this one doesn't reliably converge against a near-stationary target.
 const VORTEX_TANGENT_RATIO := 1.6   # tangential/radial ratio at full strength (>1 → wide swirling arcs)
 const VORTEX_FADE_NEAR := 50.0      # ≤ this distance → no swirl, straight dive in for the hit
 const VORTEX_FADE_FAR  := 500.0     # ≥ this distance → full swirl strength
+# "vortex_dive" (dragonfly) — once the vortex swirl above closes to VORTEX_DIVE_TRIGGER, commits a straight
+# overshoot dash (like a whiffed strike carrying it past the player) for VORTEX_OVERSHOOT_TIME, then curls
+# back into the vortex — now re-homing on the player's CURRENT position — instead of the old "orbit"
+# behavior's dash, which never returned (just kept re-aiming and dashing forever once committed).
+const VORTEX_DIVE_TRIGGER     := 40.0   # px from the player that commits the vortex→overshoot dash
+const VORTEX_DIVE_SPEED_MULT  := 1.7    # overshoot dash speed = speed × this (matches the old "orbit" dash mult)
+const VORTEX_OVERSHOOT_TIME   := 0.4    # seconds spent in the committed straight dash before curling back into the vortex
 # "steer_flanker" — seeks a point AHEAD of the player (player_pos + player_vel * FLANK_PREDICT_T), read
 # from the v2 director via group "wave_director" (has_method("player_velocity") guarded).
 const FLANK_PREDICT_T := 0.5
@@ -239,6 +276,29 @@ static func _creep_layout() -> ConfigFile:
 		_creep_cfg = c if c.load("res://creep_layout.cfg") == OK else null
 	return _creep_cfg
 
+## Public: the on-screen sprite WIDTH (px) a NEW enemy spawned from `def` would resolve to at _load_icon()
+## time, mirroring that function's exact precedence — def["draw_w"] if already set, else creep_layout.cfg's
+## authored width for its icon, else the _radius-proportional default (ICON_DRAW_SCALE) — WITHOUT actually
+## loading the texture. For callers that need a faithful multiple of an enemy type's CURRENT visual size
+## (e.g. arena_wave_director_v2.gd's Elite Creep spawner setting its own def["draw_w"] to guarantee the
+## sprite — not just the hitbox — actually scales up; creep_layout.cfg's fixed authored size would otherwise
+## silently override a plain def["size"] bump, per _load_icon()'s own precedence below).
+static func base_draw_width(def: Dictionary) -> float:
+	var draw_w := float(def.get("draw_w", 0.0))
+	if draw_w > 0.0:
+		return draw_w
+	var icon := String(def.get("icon", ""))
+	if icon != "":
+		var raw_name := icon.get_file().get_basename()
+		var cname := raw_name.to_lower()
+		var eo_cfg := _creep_layout()
+		if eo_cfg != null:
+			var eo: Dictionary = eo_cfg.get_value("creeps", raw_name, eo_cfg.get_value("creeps", cname, {}))
+			var eo_sz: Vector2 = eo.get("size", Vector2.ZERO)
+			if eo_sz.x > 0.0:
+				return eo_sz.x
+	return float(def.get("size", 16.0)) * 1.05 * ICON_DRAW_SCALE
+
 static func _plume_styles_cfg() -> ConfigFile:
 	if not _plume_cfg_tried:
 		_plume_cfg_tried = true
@@ -277,6 +337,9 @@ var _plume_base: Array = []        # [{vel_min, vel_max, sc_min, sc_max, life}] 
 var _plume_base_cols: Array = []   # [PackedColorArray] per plume
 var _plume_red_cols: Array = []    # pre-built red gradient (dragonfly proximity)
 var _plume_in_red: bool = false
+var _plume_body_scale: float = 1.0 # _draw_size.x / creep_layout's authored size — same ratio _setup_vortexes()
+									# uses, so Elite/Champion (2x/3x draw_w) get proportionally bigger thrust jets
+									# instead of a normal-size flame anchored onto a much bigger body.
 
 var _type: String = "chase"
 var behavior: String = "chase"
@@ -384,14 +447,17 @@ var _death_spawn:  String = ""      # stone: spawn this enemy id at our position
 var _morph_to:     String = ""      # alien5: become this enemy id after _morph_after seconds alive
 var _morph_after:  float = 0.0
 var _strike_back:  bool = false     # fleet/sentinel: switch patrol→chase the first time it's hit
-var _is_elite:     bool = false     # milestone elite (fly/bug/bee): on death grants a NEW arena item (grant_reward)
-var _is_champion:  bool = false     # spawn_mode_2 Champion (arena_wave_director_v2.gd): draws a gold ring — visual only, no separate reward/cap logic (that rides on "elite", set alongside "champion")
+var _is_elite:     bool = false     # elite (spawn_mode_2's periodic Elite Creep — arena_wave_director_v2.gd): bypasses the alive-cap and, on death, grants a NEW arena item (grant_reward)
+var _is_final_boss: bool = false    # set externally by arena_wave_director_v2.gd's _tick_final_boss() right after spawning a timeline's designated final boss — on death, fires GameManager.final_boss_defeated (see _die())
+var _knockback_mult: float = 1.0    # take_damage()'s knockback scale — defaults to 0.0 (full immunity) for any "elite" def unless the def explicitly sets "knockback_mult" itself (e.g. arena_wave_director_v2.gd's Elite Creep: 0.5)
+var _no_downscale: bool = false     # _load_icon() loads the full HD sprite, skipping the pre-baked-downscale substitution — for anything drawn much bigger than its normal size (e.g. Elite Creep's 300%), where the downscale bake would visibly blur once stretched up
 var _magma_split:  bool = false     # LARGE magma: on death, burst into MAGMA_SPLIT_N small magma (which don't re-split)
 var _anti_magnetic: bool = false    # bismuth: reflects 50% of gatling bullets; takes 50% from laser/arc/void
 var _gauss_shooter: bool = false    # pros5: fire a gauss orb at the player every GAUSS_SHOOT_INTERVAL
 var _gauss_t:      float = 0.0
 # ── Mothership carrier state (behavior == "mothership") + docked-escort flag ──
 var _docked: bool = false           # rigidly docked in a carrier: no move, no plume, no collision (vortex stays)
+var _dock_kind: String = ""         # "mothership" | "fleet" — which carrier system docked this escort (see set_docked() callers); mothership escorts keep the original exact-snap/no-knockback behavior, fleet escorts get real per-unit knockback + a catch-up boost back to their slot (see take_damage() and _fleet_update_dock_positions())
 var _force_draw_w: float = 0.0      # >0 → override sprite draw width (world px), set by the carrier deploy
 var _ms_state: int = MS_READY
 var _ms_timer: float = 0.0
@@ -400,6 +466,8 @@ var _ms_respawn_idx: int = 0
 var _ms_dock: Array = []            # active docked escorts: [{node, base_off:Vector2, rot:float(rad)}]
 var _ms_roster: Array = []          # escort spec for respawn: [{id, base_off, draw_w, rot(deg)}]
 var _ms_respawn_bays: Array = []    # roster reordered by MS_RESPAWN_ORDER for the current rebuild
+# ── Generic Fleet Edit formation carrier state (any behavior — not just "mothership") ──
+var _fleet_dock: Array = []         # active docked fleet escorts: [{node, base_off:Vector2}] — see init_fleet_dock()
 var _orbit_r: float = 180.0
 var _orbit_r0: float = 180.0   # "orbit"/"spiral" (dragonfly/diver): _orbit_r AT SPAWN — used to scale the
 								# tighten rate so time-to-dive stays roughly constant regardless of spawn
@@ -411,6 +479,7 @@ var _init_done: bool = false
 var _beam_on: bool = false
 var _beam_dir: Vector2 = Vector2.RIGHT
 var _beam_origin: Vector2 = Vector2.ZERO   # local-space offset to muzzle (for draw + hit-test)
+var _laser_beam: Node2D = null             # beamer's LaserBeamScript instance — world-space child of get_parent(), NOT self (see _ready()'s "beamer" setup for why)
 var _burst_shots: int = 0   # shooter burst: bullets remaining in current burst
 var _burst_t: float = 0.0   # shooter burst: countdown to next shot
 var _missile_volley: Node = null   # missile: in-flight plasma volley (self-frees when done)
@@ -448,8 +517,8 @@ var _bob_phase: float = 0.0
 var _bob_freq: float = 3.0
 var _scale_var: float = 1.0
 var _squash: float = 0.0
-var _hit_squash: float = 0.0
 var _knockback: Vector2 = Vector2.ZERO
+var _hit_shake: Vector2 = Vector2.ZERO   # visual-only hit reaction for docked/carrier units — see HIT_SHAKE_MAG
 var velocity: Vector2 = Vector2.ZERO   # was CharacterBody2D.velocity; now integrated manually in _move_step
 var _separates: bool = false           # participates in the manager's spatial-hash separation (false = no_collide/dying/docked)
 var _spawn_t: float = 0.0
@@ -546,15 +615,18 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_flee_speed      = float(d.get("flee_speed", 0.0))
 	_flee_below      = float(d.get("flee_below", 0.0))
 	_death_spawn     = String(d.get("death_spawn", ""))
+	_drop_loot       = String(d.get("drop_loot", ""))
 	_morph_to        = String(d.get("morph_to", ""))
 	_morph_after     = float(d.get("morph_after", 0.0))
 	_strike_back     = bool(d.get("strike_back", false))
 	_is_elite        = bool(d.get("elite", false))
-	_is_champion     = bool(d.get("champion", false))
+	_knockback_mult  = float(d.get("knockback_mult", 0.0 if _is_elite else 1.0))
 	_magma_split     = bool(d.get("magma_split", false))
 	_anti_magnetic   = bool(d.get("anti_magnetic", false))
 	_gauss_shooter   = bool(d.get("gauss_shooter", false))
+	_idle_spin       = deg_to_rad(float(d.get("idle_spin", 0.0)))   # deg/s in the def -> rad/s stored
 	_flap_icons      = d.get("flap_icons", [])   # 2+ filenames (same folder as "icon") to alternate — wing-flap effect
+	_no_downscale    = bool(d.get("no_downscale", false))
 	_force_draw_w    = float(d.get("draw_w", 0.0))
 	if _force_draw_w > 0.0:
 		_radius = _force_draw_w * 0.42   # hit radius scales with the authored (carrier-honored) draw size
@@ -596,6 +668,8 @@ func _ready() -> void:
 	_setup_plumes()
 	_setup_vortexes()
 	_setup_fire_points()
+	if behavior == "beamer":
+		_setup_laser_beam()
 	# Per-enemy "alive" variation so the crowd reads as individuals, not synced clones.
 	_bob_phase = randf() * TAU
 	_bob_freq = randf_range(BOB_FREQ_MIN, BOB_FREQ_MAX)
@@ -604,7 +678,11 @@ func _ready() -> void:
 
 ## Prefer a high-res sprite from assets/enemiesHD/; fall back to the standard assets/enemies/ path.
 ## Only the texture SOURCE changes — draw size still comes from creep_layout.cfg, so the in-game scale/ratio is unchanged.
-static func _resolve_sprite(path: String) -> String:
+## `skip_downscale` bypasses the pre-baked-downscale substitution below, returning the full HD source
+## instead — for anything drawn meaningfully bigger than creep_layout.cfg's authored size (e.g. an Elite
+## Creep at 300%, see arena_wave_director_v2.gd's _spawn_elite_creep/"no_downscale"), where the downscale
+## bake (sized for the type's NORMAL on-screen footprint) would visibly blur once stretched up.
+static func _resolve_sprite(path: String, skip_downscale: bool = false) -> String:
 	const STD := "res://assets/enemies/"
 	const HD  := "res://assets/enemiesHD/"
 	const DS  := "res://assets/Enemies Downscale/"
@@ -615,7 +693,7 @@ static func _resolve_sprite(path: String) -> String:
 			p = hd
 	# Prefer the pre-baked downscaled sprite (tools/downscale_enemies.gd) — a light texture at the real display
 	# size. Missing → fall back to the HD source. Skipped for .gif / .sheet.png (no downscaled copy exists).
-	if USE_DOWNSCALED_SPRITES:
+	if USE_DOWNSCALED_SPRITES and not skip_downscale:
 		var ds := DS + p.get_file()
 		if ResourceLoader.exists(ds) or FileAccess.file_exists(ds):
 			return ds
@@ -625,13 +703,13 @@ static func _resolve_sprite(path: String) -> String:
 func _load_icon() -> void:
 	if _icon == "":
 		return
-	var src := _resolve_sprite(_icon)   # HD if available, else the standard path
+	var src := _resolve_sprite(_icon, _no_downscale)   # HD if available, else the standard path
 	if _flap_icons.size() >= 2:
 		var dir := _icon.get_base_dir() + "/"
 		_frames = []
 		_delays = []
 		for fname in _flap_icons:
-			var t := load(_resolve_sprite(dir + String(fname) + ".png")) as Texture2D   # downscaled copy if baked, else HD
+			var t := load(_resolve_sprite(dir + String(fname) + ".png", _no_downscale)) as Texture2D   # downscaled copy if baked, else HD
 			if t != null:
 				_frames.append(t)
 				_delays.append(FLAP_FRAME_TIME)
@@ -672,7 +750,7 @@ func _load_icon() -> void:
 		if _force_draw_w > 0.0 and ts.x > 0.0:
 			_draw_size = Vector2(_force_draw_w, _force_draw_w * (ts.y / ts.x))
 	if _has_eye and _eye_icon != "" and _eye_tex == null:
-		var eye_src := _resolve_sprite(_eye_icon)
+		var eye_src := _resolve_sprite(_eye_icon, _no_downscale)
 		_eye_tex = load(eye_src) as Texture2D
 		if _eye_tex == null and eye_src != _eye_icon:
 			_eye_tex = load(_eye_icon) as Texture2D
@@ -740,6 +818,15 @@ func _setup_plumes() -> void:
 	if _icon.is_empty() or _draw_size == Vector2.ZERO:
 		return
 	var cname := _icon.get_file().get_basename().to_lower()
+	# Same ratio _setup_vortexes() computes: config-authored body size vs. this instance's actual _draw_size
+	# (already Elite/Champion-scaled by the time this runs — see _load_icon()'s _force_draw_w override,
+	# called before _ready()'s _setup_plumes()). 1.0 for a normal-size creep, ~2.0/~3.0 for Elite/Champion.
+	var cfg := _creep_layout()
+	if cfg != null:
+		var eo: Dictionary = cfg.get_value("creeps", _resolve_cfg_key(cfg, "creeps", cname), {})
+		var eo_size: Vector2 = eo.get("size", Vector2.ZERO)
+		if eo_size.x > 0.0:
+			_plume_body_scale = _draw_size.x / eo_size.x
 	if not _tp_fracs_cache.has(cname):
 		_tp_fracs_cache[cname] = _load_tp_fracs(cname)
 	var fracs: Array = _tp_fracs_cache[cname]
@@ -980,15 +1067,16 @@ func _update_plumes() -> void:
 
 ## Re-anchor every plume to the sprite each frame using the LIVE sprite transform: its position is the
 ## fraction-of-sprite anchor scaled by _draw_size × the current squash/stretch (then rotated), and the
-## emitter NODE is scaled by `uniform` so the particles themselves grow/shrink with the enemy. Result:
-## plumes stay rigidly stuck to the sprite at any size — no per-scale re-adjustment needed.
+## emitter NODE is scaled by `uniform` × `_plume_body_scale` so the particles themselves grow/shrink with
+## the enemy's breathing AND its Elite/Champion body size. Result: plumes stay rigidly stuck to the sprite
+## at any size — no per-scale re-adjustment needed.
 func _update_plume_xform() -> void:
 	if _plumes.is_empty():
 		return
 	var rot := _spin if behavior == "centipede" else _facing
 	var vx := _visual_xform()
 	var svec: Vector2 = vx["scale"]
-	var uni: float = vx["uniform"]
+	var uni: float = vx["uniform"] * _plume_body_scale
 	var node_scale := Vector2(uni, uni)
 	for p: CPUParticles2D in _plumes:
 		if not is_instance_valid(p):
@@ -1345,18 +1433,33 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore
 			var sk := GameManager.mech_bonus("crit_shock")
 			if sk > 0.0:
 				apply_stun(sk)
-	# Hit reaction: flash (red if this blow kills, else white) + squash pulse + (optional) knockback + stagger.
+	# Hit reaction: flash (red if this blow kills, else white) + (optional) knockback + stagger.
 	_flash_color = KILL_FLASH_COLOR if hp <= 0.0 else HIT_FLASH_COLOR
 	_stagger_t = maxf(_stagger_t, stagger)
 	_flash = HIT_FLASH_TIME
-	_hit_squash = HIT_SQUASH
 	# Pushback ONLY when the hitting weapon asks for it (knock > 0). Most weapons no longer push — only the
-	# Nuke and Gatling pass knock=1.0. Elites (milestone elites, spawn_mode_2 Champions) are immune —
-	# a big, heavy "mini-boss" enemy shouldn't go skating across the screen on every hit.
-	if knock > 0.0 and not _is_elite:
+	# Nuke and Gatling pass knock=1.0. Elites are immune BY DEFAULT (_knockback_mult defaults to 0.0 whenever
+	# "elite" is set — a big, heavy "mini-boss" enemy shouldn't go skating across the screen on every hit);
+	# milestone elites and spawn_mode_2 Champions get that default, while arena_wave_director_v2.gd's
+	# periodic Elite Creep explicitly overrides it to 0.5 via def["knockback_mult"] — pushed at half a
+	# normal enemy's strength instead of full immunity. `no_collide` landmarks (dead-ship wrecks, rubicon
+	# temple boss) are exempt outright — deliberately stationary, and for the temple specifically, knockback
+	# would desync its 2D hit-box from the separate live 3D model rubicon_trees.gd renders at a fixed world
+	# position (that model has no way to follow a knockback push).
+	if knock > 0.0 and not _no_collide and _knockback_mult > 0.0:
 		var away := global_position - _player_pos()
-		var momentum: float = GameManager.get_momentum_mult() if GameManager.has_method("get_momentum_mult") else 1.0
-		_knockback = (away.normalized() if away.length() > 0.01 else Vector2.UP) * KNOCKBACK_SPEED * knock * momentum
+		var dir := away.normalized() if away.length() > 0.01 else Vector2.UP
+		# A docked MOTHERSHIP escort, or ANY carrier (fleet or mothership) leading a docked squad: a real
+		# _knockback on the carrier would drag every sibling re-pinned to its global_position each frame —
+		# shake only. A docked FLEET escort (dock_kind "fleet") is the one exception: it gets a real per-unit
+		# knockback below, same as any normal enemy — _fleet_update_dock_positions() eases it back to its
+		# slot afterward (with a catch-up speed boost while it's stray), so only THAT unit visibly recoils
+		# and the rest of the formation is untouched.
+		if (_docked and _dock_kind != "fleet") or not _fleet_dock.is_empty():
+			_hit_shake = dir * HIT_SHAKE_MAG
+		else:
+			var momentum: float = GameManager.get_momentum_mult() if GameManager.has_method("get_momentum_mult") else 1.0
+			_knockback = dir * KNOCKBACK_SPEED * knock * momentum * _knockback_mult
 	queue_redraw()
 	if hp <= 0.0:
 		_die()
@@ -1366,15 +1469,35 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore
 ## death FX/sound. Docked mothership escorts are released first so they don't freeze pinned to a carrier
 ## that's still alive.
 func _despawn_stale() -> void:
+	_release_all_docks()
+	if _squid_attached:
+		_squid_detach()
+	queue_free()
+
+## Free every docked escort of a generic Fleet Edit carrier (any behavior — see init_fleet_dock()) so they
+## don't freeze pinned to a carrier that's about to die/despawn. Released escorts become normal free-flying
+## enemies (own steering resumes via _docked=false), same fallback mothership escorts get when set free.
+func _release_fleet_dock() -> void:
+	for e: Dictionary in _fleet_dock:
+		var dn = e.get("node")
+		if dn != null and is_instance_valid(dn):
+			dn.call("set_docked", false)
+	_fleet_dock.clear()
+
+## Release BOTH dock systems (mothership _ms_dock + generic Fleet _fleet_dock) — call before ANY silent
+## self-removal of a live carrier (not just _despawn_stale()/_die()) so its escorts never freeze pinned to a
+## carrier that no longer exists. "patrol"-behavior carriers (e.g. Sentinel Fleet's sentinel1-4) never re-aim
+## at the player and self-cull via a raw queue_free() once PATROL_CULL away — that call used to bypass both
+## _despawn_stale() and _die(), so a Sentinel Fleet formation's escorts were orphaned in place forever the
+## moment the carrier flew off and culled itself (the whole formation reads as "never reaches the player").
+func _release_all_docks() -> void:
 	if behavior == "mothership":
 		for e: Dictionary in _ms_dock:
 			var dn = e.get("node")
 			if dn != null and is_instance_valid(dn):
 				dn.call("set_docked", false)
 		_ms_dock.clear()
-	if _squid_attached:
-		_squid_detach()
-	queue_free()
+	_release_fleet_dock()
 
 func _die() -> void:
 	if _dead:
@@ -1387,12 +1510,7 @@ func _die() -> void:
 		if aw != null and aw.has_method("chain_reaction_explode"):
 			aw.call("chain_reaction_explode", global_position)
 	# Carrier destroyed → set its docked escorts free so they don't freeze where they were pinned.
-	if behavior == "mothership":
-		for e: Dictionary in _ms_dock:
-			var dn = e.get("node")
-			if dn != null and is_instance_valid(dn):
-				dn.call("set_docked", false)
-		_ms_dock.clear()
+	_release_all_docks()
 	if _death_spawn != "":
 		_spawn_sibling(_death_spawn, global_position)   # stone → magma fragment that keeps fighting
 	if _magma_split:
@@ -1405,6 +1523,8 @@ func _die() -> void:
 		var ui := get_tree().get_first_node_in_group("levelup_ui")
 		if ui != null and is_instance_valid(ui) and ui.has_method("grant_reward"):
 			ui.call("grant_reward")
+	if _is_final_boss and GameManager.has_signal("final_boss_defeated"):
+		GameManager.final_boss_defeated.emit()
 	if _squid_attached:
 		_squid_detach()   # stop slowing the ship the instant this squid dies
 	# Custom loot on death (e.g. the dead-ship wrecks' orb of light). Because a wreck is now a real enemy,
@@ -1816,13 +1936,22 @@ func _process(delta: float) -> void:
 	var _run_full_tick := _stagger_exempt or on_screen \
 		or (int(Engine.get_physics_frames()) + get_instance_id()) % LOD_STAGGER_N == 0
 	_t += delta
-	if behavior != "boss_stub" and _t >= LIFETIME_MAX:
+	# `no_collide` landmarks (rubicon temple boss, dead-ship wrecks) are deliberately permanent fixtures, not
+	# ordinary mobile creeps that got stuck/never engaged — exempt them, or a landmark boss spawned far away
+	# (e.g. the temple, 10,000-15,000px out) can hit this 120s timeout mid-fight from travel+fight time alone,
+	# vanishing via _despawn_stale() (a plain queue_free(), never _die()) with no death FX and no loot drop.
+	# Elite Creep / Champion Creep (_is_elite — see arena_wave_director_v2.gd's _spawn_tiered_creep) are
+	# exempt for the same reason as bosses: a big, deliberately-spawned milestone encounter shouldn't quietly
+	# vanish mid-fight just because it took a while to find/kill — it should always end in a real kill (reward)
+	# or the player leaving the fight, never a silent timeout.
+	if behavior != "boss_stub" and not _no_collide and not _is_elite and _t >= LIFETIME_MAX:
 		_despawn_stale()
 		return
 	# alien5: transform into another enemy (e.g. alien4) after a fixed lifetime — silent swap, no death/XP.
 	if _morph_to != "" and _t >= _morph_after:
 		_spawn_sibling(_morph_to, global_position)
-		queue_free()
+		_release_all_docks()   # a Fleet Edit carrier (e.g. alien5) must free its escorts here — the morphed
+		queue_free()           # sibling doesn't inherit the dock
 		return
 	_spawn_t = minf(_spawn_t + delta, SPAWN_POP_TIME)
 	_stagger_t = maxf(0.0, _stagger_t - delta)
@@ -1851,23 +1980,40 @@ func _process(delta: float) -> void:
 			if _gauss_t >= GAUSS_SHOOT_INTERVAL:
 				_gauss_t = 0.0
 				_fire_gauss_orb()
+	elif not _docked and (_stagger_t > 0.0 or _stun_t > 0.0):
+		# _tick_behavior() is frozen by hit-stagger/stun (NOT the LOD off-turn case — that one is expected to
+		# catch up) but the lifetime clock _t keeps running. Many behaviors (bomber/scatter/etc.) gate their
+		# own periodic re-decisions with `_t - _timer > N`. Without this, a long stagger-lock (sustained
+		# Gatling fire keeps re-triggering GAT_STAGGER faster than it decays) lets _t run way ahead of _timer
+		# while movement is frozen; the INSTANT the stagger finally clears, the behavior sees a huge backlog
+		# and re-rolls its target/heading in one frame — a hard, full-speed direction snap. For a Fleet Edit
+		# carrier (e.g. Hornet Row), every docked escort rigidly mirrors the carrier's position/facing each
+		# frame, so that one snap reads as the WHOLE formation rotating and jerking at once. Advancing _timer
+		# in lockstep while frozen keeps `_t - _timer` from ever building up a backlog, so the re-decision
+		# happens on schedule instead of in a single instant catch-up burst.
+		_timer += delta
 	# Position after intended (pursuit) movement but BEFORE knockback — facing reads from this, so a knockback
 	# push only DISPLACES the enemy, it never turns/reorients it.
 	var pos_pre_knockback := global_position
-	# Knockback recoil (decays). Docked escorts ignore it — the carrier re-pins them each frame.
-	if not _docked and _knockback.length() > 1.0:
+	# Knockback recoil (decays). Docked MOTHERSHIP escorts ignore it — the carrier re-pins them exactly each
+	# frame with no easing, so a real push would just get silently overwritten anyway. Docked FLEET escorts
+	# DO apply their own knockback here (dock_kind "fleet") — _fleet_update_dock_positions() eases them back
+	# to their slot afterward instead of snapping, so the recoil actually reads visually.
+	if (not _docked or _dock_kind == "fleet") and _knockback.length() > 1.0:
 		global_position += _knockback * delta
 		_knockback = _knockback.lerp(Vector2.ZERO, clampf(KNOCKBACK_DECAY * delta, 0.0, 1.0))
-	# Movement squash/stretch disabled — enemies no longer stretch/expand while moving. Only the hit-squash
-	# pulse remains (it decays back to 0 here).
+	if _hit_shake.length() > 0.05:
+		_hit_shake = _hit_shake.lerp(Vector2.ZERO, clampf(HIT_SHAKE_DECAY * delta, 0.0, 1.0))
+	# Movement squash/stretch disabled — enemies no longer stretch/expand while moving or on hit.
 	_squash = 0.0
-	_hit_squash = lerpf(_hit_squash, 0.0, clampf(HIT_SQUASH_DECAY * delta, 0.0, 1.0))
 	# Face the intended movement direction only — knockback must NOT rotate the enemy (centipede keeps spin).
 	var intended := pos_pre_knockback - _prev_pos
 	# Carrier (mothership) drives its own _facing; docked escorts get it from the carrier each frame.
 	if behavior != "centipede" and behavior != "squid" and behavior != "mothership" and not _docked and intended.length() > 0.5:
 		_facing = lerp_angle(_facing, intended.angle() + PI * 0.5, clampf(TURN_RATE * delta, 0.0, 1.0))
 	_prev_pos = global_position
+	if not _fleet_dock.is_empty():   # generic Fleet Edit carrier — re-pin its rigidly-docked escorts each frame
+		_fleet_update_dock_positions(delta)
 	if _idle_spin != 0.0:
 		_facing += _idle_spin * delta   # slow in-place rotation for stationary wrecks (dummy behavior)
 	if not _frames.is_empty():
@@ -1880,7 +2026,11 @@ func _process(delta: float) -> void:
 	if _flash > 0.0:
 		_flash = maxf(0.0, _flash - delta)
 	# Attach the flash material only while flashing; otherwise leave material null (default = full brightness).
-	var _want_mat: ShaderMaterial = _flash_mat if _flash > 0.0 else null
+	# Also gated on _sprite_alpha > 0 — a landmark with no visible sprite (temple boss etc, sprite_alpha 0.0,
+	# real visual is a separate live 3D model) has nothing texture-based to whiten, but the shader would still
+	# apply to every OTHER draw call this node makes (the HP bar, the beam line...), visibly flashing those
+	# white/red on every hit even though the "creep" it's flashing has no on-screen body of its own.
+	var _want_mat: ShaderMaterial = _flash_mat if (_flash > 0.0 and _sprite_alpha > 0.0) else null
 	if material != _want_mat:
 		material = _want_mat
 	_check_contact()
@@ -2118,12 +2268,17 @@ func _init_behavior() -> void:
 		_tele_anchor = global_position
 		return
 	match behavior:
-		"orbit", "spiral":
+		"spiral":
 			_orbit_r = global_position.distance_to(_player_pos())
 			_orbit_r0 = _orbit_r
 			_orbit_ang = (global_position - _player_pos()).angle()
 			_spiral_dir = 1.0   # always clockwise (Y-down screen → increasing angle = clockwise)
 			_scatter_target = _player_pos()   # spiral: orbit center anchor; drifts toward player each frame
+		"vortex_dive":
+			_orbit_r = global_position.distance_to(_player_pos())
+			_orbit_r0 = _orbit_r
+			_orbit_ang = (global_position - _player_pos()).angle()
+			_vortex_sign = 1.0 if randf() < 0.5 else -1.0   # per-enemy swirl direction (CW/CCW), picked once so it doesn't flicker
 		"steer_chaser":
 			_vortex_sign = 1.0 if randf() < 0.5 else -1.0   # per-enemy swirl direction, picked once so it doesn't flicker
 		"scatter", "bomber":
@@ -2161,6 +2316,7 @@ func _tick_behavior(delta: float) -> void:
 		"chase", "boss_stub":
 			# Recycle a normal chaser once the player has outrun it far past the screen (bosses never culled).
 			if behavior == "chase" and dist > CHASE_CULL:
+				_release_all_docks()   # a Fleet Edit carrier (e.g. fly/bee/bug slots) must free its escorts here
 				queue_free()
 				return
 			# Pirate flee: once below the HP threshold, turn tail and run from the player at _flee_speed.
@@ -2232,7 +2388,8 @@ func _tick_behavior(delta: float) -> void:
 			velocity = _aim * speed
 			_move_step()
 			if dist > PATROL_CULL:
-				queue_free()   # flew off-screen
+				_release_all_docks()   # a Fleet Edit carrier riding this behavior (e.g. Sentinel Fleet) must
+				queue_free()           # free its escorts here — this bypasses _despawn_stale()/_die()
 		"teleport":   # blink TELE_DIST toward the player every TELE_INTERVAL; float adrift between blinks
 			_timer += delta
 			if _timer >= TELE_INTERVAL:
@@ -2253,6 +2410,7 @@ func _tick_behavior(delta: float) -> void:
 				velocity = _aim * SWARM_ZOOM_SPEED
 				_move_step()
 				if dist > SWARM_ZOOM_CULL:
+					_release_all_docks()   # a Fleet Edit carrier (e.g. "swarm" slot) must free its escorts here
 					queue_free()   # flew off the far side — vanish (no XP/explosion; it wasn't killed)
 			else:
 				velocity = dir * speed
@@ -2308,20 +2466,33 @@ func _tick_behavior(delta: float) -> void:
 					_aim = dir
 				velocity = _aim * speed
 				_move_step()
-		"orbit":  # dragonfly — orbit + tighten, then dive (loops back when it overshoots off-view)
+		"vortex_dive":   # dragonfly — swirls inward toward the player on a guaranteed-shrinking radius (see
+						 # VORTEX_SHRINK's comment for why this is a deterministic decay, not a free pursuit-
+						 # curve steer); once the radius reaches VORTEX_DIVE_TRIGGER it commits a straight
+						 # overshoot dash, then curls back into the vortex re-homing on the player's CURRENT
+						 # position instead of dashing off forever.
 			if _phase == 0:
-				_orbit_ang += (speed / maxf(20.0, _orbit_r)) * delta
-				var orbit_rate := ORBIT_SHRINK * (_orbit_r0 / ORBIT_SPAWN_REF_R)
-				_orbit_r = maxf(28.0, _orbit_r - orbit_rate * delta)
-				global_position = pp + Vector2(cos(_orbit_ang), sin(_orbit_ang)) * _orbit_r
-				if _orbit_r <= 32.0:
+				_orbit_ang += (speed / maxf(20.0, _orbit_r)) * delta * _vortex_sign
+				var shrink_rate := VORTEX_SHRINK * (_orbit_r0 / ORBIT_SPAWN_REF_R)
+				_orbit_r = maxf(VORTEX_DIVE_TRIGGER, _orbit_r - shrink_rate * delta)
+				var target := pp + Vector2(cos(_orbit_ang), sin(_orbit_ang)) * _orbit_r
+				var to_target := target - global_position
+				velocity = (to_target.normalized() if to_target.length() > 0.01 else dir) * speed
+				_move_step()
+				if _orbit_r <= VORTEX_DIVE_TRIGGER:
 					_phase = 1
+					_timer = 0.0
 					_aim = dir
 			else:
-				if dist > RETURN_DIST:
-					_aim = dir
-				velocity = _aim * (speed * 1.7)
+				velocity = _aim * (speed * VORTEX_DIVE_SPEED_MULT)
 				_move_step()
+				_timer += delta
+				if _timer >= VORTEX_OVERSHOOT_TIME:
+					# Overshot past the player — curl back into the vortex, spiraling in fresh from wherever
+					# the dash actually ended up (not a jarring snap back to the original spawn radius).
+					_phase = 0
+					_orbit_r = global_position.distance_to(pp)
+					_orbit_ang = (global_position - pp).angle()
 		"jump":   # octopus — wait, then leap toward the player, repeat
 			_jump_tick(delta, dir, false)
 		"jump_diag":   # spider — leap along the nearest 45° diagonal
@@ -2477,6 +2648,7 @@ func _tick_move_logic(delta: float, dist: float, dir: Vector2, pp: Vector2) -> v
 			velocity = _aim * speed
 			_move_step()
 			if dist > PATROL_CULL:
+				_release_all_docks()
 				queue_free()
 		"teleport":   # blink TELE_DIST toward the player every TELE_INTERVAL; idle-float between blinks
 			_cm_timer += delta
@@ -2614,8 +2786,11 @@ func set_docked(on: bool) -> void:
 	elif not _no_collide:
 		_separates = true
 
-## Spawn one escort rigidly docked in this carrier; returns its dock-tracking entry.
-func _spawn_docked_child(id: String, base_off: Vector2, draw_w: float, rot_deg: float) -> Dictionary:
+## Spawn one escort rigidly docked in this carrier; returns its dock-tracking entry. `keep_plumes` re-enables
+## the escort's own thrust jets right after docking — used by generic Fleet formations (init_fleet_dock()),
+## which never release/flee, so a permanently "powered down" look (mothership's default) would be wrong;
+## mothership escorts keep the default (plumes off while docked, on when released — see set_docked()).
+func _spawn_docked_child(id: String, base_off: Vector2, draw_w: float, rot_deg: float, keep_plumes: bool = false, dock_kind: String = "mothership") -> Dictionary:
 	var wd := get_tree().get_first_node_in_group("wave_director")
 	if wd == null:
 		return {}
@@ -2629,8 +2804,71 @@ func _spawn_docked_child(id: String, base_off: Vector2, draw_w: float, rot_deg: 
 	c.set("global_position", global_position + base_off.rotated(_facing))
 	get_parent().add_child(c)
 	c.set("_facing", _facing + deg_to_rad(rot_deg))
+	c.set("_dock_kind", dock_kind)
 	c.call("set_docked", true)
+	if keep_plumes:
+		c.call("_reenable_plumes")
 	return {"node": c, "base_off": base_off, "rot": deg_to_rad(rot_deg)}
+
+func _reenable_plumes() -> void:
+	for p: CPUParticles2D in _plumes:
+		if is_instance_valid(p):
+			p.emitting = true
+			p.visible = true
+
+## Rigidly dock every OTHER unit of a generic (non-mothership) Fleet Edit formation onto this carrier. The
+## carrier keeps running its own normal behavior/steering (whatever its own def authors — "di chuyển theo
+## logic của creep"), and each escort is re-pinned to carrier.global_position + its authored offset (rotated
+## with the carrier's live facing) every frame via _fleet_update_dock_positions(), so the whole squad glides
+## as one rigid block instead of every unit chasing the player independently and scattering apart. Unlike
+## mothership escorts, fleet escorts dock for the formation's entire lifetime — no release/flee/respawn cycle.
+func init_fleet_dock(roster: Array) -> void:
+	_fleet_dock.clear()
+	for spec: Dictionary in roster:
+		var e := _spawn_docked_child(String(spec["id"]), spec["base_off"] as Vector2, float(spec.get("draw_w", 0.0)), 0.0, true, "fleet")
+		if not e.is_empty():
+			# Per-escort randomized wander phase/freq (see FLEET_WANDER_* consts) — _fleet_update_dock_positions()
+			# uses these so the formation reads as loosely held rather than a perfectly rigid welded frame, while
+			# still fundamentally tracking the carrier's slot (speed-capped — see FLEET_MAX_SPEED_MULT).
+			e["wander_freq"] = randf_range(FLEET_WANDER_FREQ_MIN, FLEET_WANDER_FREQ_MAX)
+			e["wander_phase"] = randf() * TAU
+			e["wander_t"] = 0.0
+			_fleet_dock.append(e)
+
+## Fleet-formation counterpart of _ms_update_dock_positions(): unlike mothership's exact instant snap, each
+## escort CHASES its carrier-relative slot (+ a small continuous per-escort positional wander, own randomized
+## freq/phase — "độ lệch vận tốc random nhỏ" so the formation looks naturally held together instead of bolted
+## to an invisible rigid frame) but is velocity-capped at FLEET_MAX_SPEED_MULT × its own `speed` stat — it can
+## never move faster than ~130% of its natural flight speed to close the gap, no matter how far the slot just
+## moved (a sharp carrier turn sweeps a wide formation's outer slots through a big arc). Still fully recovers
+## to its authored slot given enough time (the wander is bounded, zero-mean) so the formation shape never
+## actually drifts apart — it just can't warp there instantly.
+func _fleet_update_dock_positions(delta: float) -> void:
+	var i := _fleet_dock.size() - 1
+	while i >= 0:
+		var e: Dictionary = _fleet_dock[i]
+		var n = e.get("node")
+		if n == null or not is_instance_valid(n):
+			_fleet_dock.remove_at(i)
+			i -= 1
+			continue
+		if n.get("_docked"):   # not bool(...) — n.get() with no default can return null, and bool(null) crashes
+			var t: float = float(e.get("wander_t", 0.0)) + delta
+			e["wander_t"] = t
+			var freq: float = float(e.get("wander_freq", 1.0))
+			var phase: float = float(e.get("wander_phase", 0.0))
+			var wander := Vector2(cos(t * freq + phase), sin(t * freq * 0.7 + phase)) * FLEET_WANDER_AMP
+			var target: Vector2 = global_position + (e["base_off"] as Vector2).rotated(_facing) + wander
+			var cur: Vector2 = n.get("global_position")
+			var to_target := target - cur
+			var max_step: float = float(n.get("speed")) * FLEET_MAX_SPEED_MULT * delta
+			if to_target.length() > max_step:
+				cur += to_target.normalized() * max_step
+			else:
+				cur = target
+			n.set("global_position", cur)
+			n.set("_facing", _facing)
+		i -= 1
 
 ## Called by the carrier deploy: store the escort roster + dock the initial squadron.
 func init_mothership(roster: Array) -> void:
@@ -2727,6 +2965,8 @@ func _fire_ready(interval: float) -> bool:
 		return true
 	return false
 
+const BEAM_RANGE := 2000.0   # beamer's beam draw/hit-test range (effectively "infinite" at arena scale)
+
 func _beamer_tick(delta: float, dir: Vector2) -> void:
 	# IDLE 0.6 → CHARGE 1.0 → FIRE 3.0 → COOLDOWN 1.5, beam aimed at the player when it starts.
 	_timer += delta
@@ -2749,18 +2989,49 @@ func _beamer_tick(delta: float, dir: Vector2) -> void:
 				_phase = 3
 				_timer = 0.0
 				_beam_on = false
+				if _laser_beam != null:
+					_laser_beam.set_beam(Vector2.ZERO, Vector2.ZERO, false, false)
 			else:
 				var beam_world := global_position + _beam_origin
 				var pp := _player_pos()
 				var proj := (pp - beam_world).dot(_beam_dir)
+				var beam_hit := false
 				if proj > 0.0:
 					var closest := beam_world + _beam_dir * proj
-					if _charm_t <= 0.0 and closest.distance_to(pp) <= 30.0 and fmod(_timer, 0.5) < delta:
+					beam_hit = closest.distance_to(pp) <= 30.0
+					if _charm_t <= 0.0 and beam_hit and fmod(_timer, 0.5) < delta:
 						GameManager.ship_take_damage(int(round(5.0 * damage_out_mult())))
+				if _laser_beam != null:
+					_laser_beam.set_beam(beam_world, beam_world + _beam_dir * BEAM_RANGE, true, beam_hit)
 		3:
 			if _timer >= 1.5:
 				_phase = 0
 				_timer = 0.0
+
+## Beamer's beam VFX — an independent LaserBeamScript instance (the SAME procedural shader beam the
+## player's death_beam weapon uses, arena_weapons.gd), recolored blue. Parented to get_parent() (this
+## enemy's own parent — Arena root, world-space, no rotation) rather than to this enemy itself: set_beam()
+## takes absolute WORLD from/to points every frame (see _beamer_tick), and parenting under the enemy (which
+## moves, and could rotate) would double-apply that transform on top of the world coordinates already
+## passed in. Freed via tree_exited (this enemy's own removal, whichever path — death, LIFETIME_MAX despawn,
+## any cull) so it never outlives its owner.
+func _setup_laser_beam() -> void:
+	_laser_beam = LaserBeamScript.new()
+	_laser_beam.beam_thickness = 20.0   # beamer's beam reads much smaller than the player's death_beam (120)
+	_laser_beam.fx_core_color = Color(0.85, 0.95, 1.0)
+	_laser_beam.fx_body_color = Color(0.15, 0.55, 1.0)
+	_laser_beam.fx_glow_color = Color(0.05, 0.25, 0.85)
+	_laser_beam.packet_color  = Color(0.85, 0.95, 1.0, 0.9)
+	_laser_beam.z_index = 5   # over regular enemies (z 1), under the player ship
+	var p := get_parent()
+	if p != null:
+		p.add_child(_laser_beam)
+	tree_exited.connect(_on_beamer_gone)
+
+func _on_beamer_gone() -> void:
+	if _laser_beam != null and is_instance_valid(_laser_beam):
+		_laser_beam.queue_free()
+	_laser_beam = null
 	queue_redraw()
 
 func _view() -> Vector2:
@@ -2882,9 +3153,50 @@ func _update_centipede_chain() -> void:
 		var prev: Vector2 = _centi_pts[k - 1]
 		var cur: Vector2 = _centi_pts[k]
 		var d := prev - cur
-		if d.length() > sp:
-			cur = prev - d.normalized() * sp
+		var dlen := d.length()
+		if dlen > sp:
+			d = d.normalized() * sp
+			dlen = sp
+			cur = prev - d
+		# Cap the bend at this joint to CENTI_MAX_BEND relative to the PREVIOUS joint's own direction (the
+		# segment closer to the head) — without this, the naive "just stay within sp of prev" rule lets a
+		# segment swing to ANY angle (including folding back over the segment ahead of it) when the head
+		# reverses/turns sharply, reading as the body snapping backward unnaturally.
+		if k >= 2 and dlen > 0.01:
+			var prev_dir: Vector2 = (_centi_pts[k - 2] as Vector2) - prev
+			if prev_dir.length() > 0.01:
+				var diff := wrapf(d.angle() - prev_dir.angle(), -PI, PI)
+				if absf(diff) > CENTI_MAX_BEND:
+					var clamped_ang := prev_dir.angle() + clampf(diff, -CENTI_MAX_BEND, CENTI_MAX_BEND)
+					d = Vector2(cos(clamped_ang), sin(clamped_ang)) * dlen
+					cur = prev - d
 		_centi_pts[k] = cur
+
+## Nearest point on this enemy's actual hittable body to `from` — for most enemies that's simply
+## global_position (a single point), but Centipede's body is drawn along CENTI_SEGMENTS visual points
+## while only the head (global_position) has ever been a real collision target: a shot landing on the
+## visually-present body/tail wouldn't register at all. Weapons call this instead of reading
+## global_position directly so every segment counts as a hittable point. Returns global_position
+## unchanged for every other enemy — zero behavior change there.
+func nearest_hit_point(from: Vector2) -> Vector2:
+	if behavior == "centipede" and not _centi_pts.is_empty():
+		var best: Vector2 = _centi_pts[0]
+		var best_d := from.distance_squared_to(best)
+		for i in range(1, _centi_pts.size()):
+			var d := from.distance_squared_to(_centi_pts[i] as Vector2)
+			if d < best_d:
+				best_d = d
+				best = _centi_pts[i]
+		return best
+	return global_position
+
+## Every world-space point that counts as part of this enemy's hittable body — just [global_position] for
+## almost every enemy, but every segment along a Centipede's body. Beam/line weapons that need to test a
+## whole swept LINE (not just the single nearest point to one test position) iterate this instead.
+func hit_points() -> Array:
+	if behavior == "centipede" and not _centi_pts.is_empty():
+		return _centi_pts
+	return [global_position]
 
 ## Draw the chain tail → head (head paints on top), each segment oriented along the body curve.
 ## Mirrors arena_weapons._draw_snake but in node-local space (pos − global_position) with a flash tint.
@@ -2945,7 +3257,7 @@ func _visual_xform() -> Dictionary:
 		alpha = sf                    # fade in
 	var uniform := _scale_var * bob * pop
 	# Squash/stretch along the head axis (local Y); thin across (local X). Frozen during death.
-	var sq := 0.0 if _dying else (_squash + _hit_squash)
+	var sq := 0.0 if _dying else _squash
 	var scale_vec := Vector2(uniform * (1.0 - sq * 0.5), uniform * (1.0 + sq))
 	return {"scale": scale_vec, "uniform": uniform, "alpha": alpha * _sprite_alpha}
 
@@ -2971,7 +3283,7 @@ func _draw() -> void:
 	if behavior == "centipede":
 		_draw_centipede(alpha, flash_s)   # head/body/tail chain (resets the transform itself)
 	else:
-		draw_set_transform(Vector2.ZERO, rot, scale_vec)
+		draw_set_transform(_hit_shake, rot, scale_vec)
 		if _tex != null:
 			draw_texture_rect(_tex, Rect2(-_draw_size * 0.5, _draw_size), false, Color(1, 1, 1, alpha))
 			# Tracking eye: drawn in the same rotated/scaled frame so it sits in the socket and slides toward the player.
@@ -2984,16 +3296,10 @@ func _draw() -> void:
 			var col := _color
 			col.a *= alpha
 			_draw_shape(_radius, col)
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # back to level/unscaled for beam + HP bar
-
-	if _is_champion:   # spawn_mode_2 Champion marker — gold ring, unrotated/unscaled so it reads at a glance
-		draw_arc(Vector2.ZERO, _radius * 1.25, 0.0, TAU, 28, Color(1.0, 0.85, 0.1, 0.9), 3.0)
-
-	if _beam_on:
-		var bstart := _beam_origin   # local offset from enemy center to muzzle
-		var bend := bstart + _beam_dir * 2000.0
-		draw_line(bstart, bend, Color(1.0, 0.3, 0.3, 0.85), 8.0)
-		draw_line(bstart, bend, Color(1.0, 1.0, 1.0, 0.9), 3.0)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # back to level/unscaled for the HP bar
+	# _beam_on's own visual is now LaserBeamScript (_laser_beam), a separate world-space node driven from
+	# _beamer_tick() — no draw_line() here anymore (see _setup_laser_beam()'s comment for why it isn't a
+	# child of this enemy). _beam_on/_beam_dir/_beam_origin are still kept for the hit-test math above.
 	if hp < hp_max and not _dying:
 		var ratio := clampf(hp / maxf(1.0, hp_max), 0.0, 1.0)
 		var w := _radius * 2.0

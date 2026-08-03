@@ -1,13 +1,18 @@
 extends CanvasLayer
 ## F7 in-game WAVE EDITOR for the arena. The timeline is authored on a 5-second grid: 360 rows (5s → 1800s).
 ## Each row is ONE moment in time that can spawn MANY things at once — up to 10 Unit/Fleet "slots" (a 2×5 grid)
-## dropped in from the Type popup. Each slot carries its own Count / Pattern / Boss (Fleets ignore count/pattern
-## and use their authored formation). Toggle with F7: pauses the game, shows the editable row list, a NAME field,
-## a Save/Load library (res://levels/arena/*.json), a live JSON readout, Apply&Restart / Reset / Sort.
+## dropped in from the Type popup. Each slot carries its own Count / Pattern / Boss checkbox (Fleets ignore
+## count/pattern/boss and use their authored formation, but add their own Spawn Angle + Fleet Rotate — see
+## _tl_fire()'s fleet branch in arena_wave_director_v2.gd). "Boss" bypasses the alive-cap on spawn; if it's
+## also the LAST entry (by time) in the WHOLE timeline, it becomes the run's final-boss finale (waits for the
+## field to clear, locks off reinforcement — see arena_wave_director_v2.gd's _final_boss_entry). Toggle with
+## F7: pauses the game, shows the editable row list, a NAME field, a Save/Load library (res://levels/arena/
+## *.json), a live JSON readout, Apply&Restart / Reset / Sort.
 ##
-## The wave_director timeline stays FLAT ({time,type,count,pattern,[duration],[is_boss]}) — this editor expands
-## each row's filled slots into one flat entry per slot on Apply/Save, and re-groups flat entries (snapped to the
-## 5s grid) back into rows on open. So old saved files + DEFAULT_TIMELINE keep working unchanged.
+## The wave_director timeline stays FLAT ({time,type,count,pattern,[duration],[is_boss],[angle],[fleet_rotate]})
+## — this editor expands each row's filled slots into one flat entry per slot on Apply/Save, and re-groups flat
+## entries (snapped to the 5s grid) back into rows on open. So old saved files + DEFAULT_TIMELINE keep working
+## unchanged (both new fields are absent = random direction / no rotation, identical to today's behavior).
 
 const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
 const LEVELS_DIR := "res://levels/arena"
@@ -42,6 +47,15 @@ var _font: FontFile = null
 var _dropdown: Control = null          # the open Type popup (Unit/Fleet picker + 2×5 slot grid)
 var _slots_grid: GridContainer = null  # the 2×5 slot grid inside the open popup
 var _icon_cache: Dictionary = {}
+# ── Shared Fleet direction-pad (spawn-angle 8-button compass + rotate slider) — ONE panel above the slot
+# grid, not per-slot; click a Fleet slot cell to make it the pad's target. See _build_fleet_dir_pad().
+var _pad_row: Dictionary = {}
+var _pad_slot_idx: int = -1
+var _pad_thumb: Control = null   # a _FleetPreview instance
+var _pad_buttons: Array = []
+var _pad_dirs: Array = []        # degrees per _pad_buttons index, same order
+var _pad_slider: HSlider = null
+var _pad_hint: Label = null
 
 func _ready() -> void:
 	add_to_group("wave_editor")   # the dev:on Wave_edit button toggles us via this group
@@ -176,10 +190,11 @@ func _build_ui() -> void:
 	vb.add_child(HSeparator.new())
 
 	# Column header. Count / Pattern / Dur / Boss now live PER-SLOT inside the Type popup, so the table is just
-	# Time + Type(Blank/Set) + Total HP + delete.
+	# Min + Time + Type(Blank/Set) + Total HP + delete. "Min" is a minute-mark ruler alongside Time(s) — see
+	# _add_row()'s minute label — not an independent editable value.
 	var hdr := HBoxContainer.new()
 	hdr.add_theme_constant_override("separation", 8)
-	for h: Array in [["Time(s)", 90], ["Type (Blank / Set)", 220], ["Total HP", 130], ["", 36]]:
+	for h: Array in [["Min", 36], ["Time(s)", 90], ["Type (Blank / Set)", 220], ["Total HP", 130], ["", 36]]:
 		var l := _mk_label(String(h[0]), 11)
 		l.custom_minimum_size = Vector2(float(h[1]), 0)
 		hdr.add_child(l)
@@ -247,6 +262,9 @@ func _rebuild_rows() -> void:
 					"pattern": String(entry.get("pattern", "ring")),
 					"is_boss": bool(entry.get("is_boss", false)),
 					"duration": float(entry.get("duration", 0.0)),
+					"angle": float(entry.get("angle", 0.0)),
+					"angle_fixed": entry.has("angle"),
+					"fleet_rotate": float(entry.get("fleet_rotate", 0.0)),
 				}
 				break
 		_update_type_btn(row)
@@ -256,7 +274,7 @@ func _rebuild_rows() -> void:
 func _grid_row_for_time(t: float) -> Dictionary:
 	var snapped := clampf(round(t / GRID_STEP) * GRID_STEP, GRID_STEP, GRID_STEP * float(GRID_ROWS))
 	for r: Dictionary in _rows:
-		if absf((r["time"] as SpinBox).value - snapped) < 0.01:
+		if absf(float(r["time_val"]) - snapped) < 0.01:
 			return r
 	return {}
 
@@ -264,8 +282,25 @@ func _add_row(time: float, preset_slots: Array = []) -> void:
 	var hb := HBoxContainer.new()
 	hb.add_theme_constant_override("separation", 8)
 
-	var time_sb := _mk_spin(0.0, 3600.0, 1.0, time, 90)
-	hb.add_child(time_sb)
+	# Minute-mark ruler: blank on every row except the ones landing exactly on a whole minute (60, 120,
+	# 180…), which show that minute number — a visual guide alongside the per-second Time column, not a
+	# separate editable value. Purely a function of this row's own `time`, independent of row order/neighbors.
+	var min_text := ""
+	if time > 0.0 and is_equal_approx(fmod(time, 60.0), 0.0):
+		min_text = "%d" % int(round(time / 60.0))
+	var min_lbl := _mk_label(min_text, 11)
+	min_lbl.custom_minimum_size = Vector2(36, 0)
+	min_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hb.add_child(min_lbl)
+
+	# Time — read-only display (2026-08-02: was an editable SpinBox; the 5s-grid template already covers
+	# every authorable time slot, see _build_template_grid(), so retiming a row in place is no longer
+	# offered here). The row's authoritative time now lives in `time_val` (a plain float), not a control
+	# property — _grid_row_for_time()/_collect()/_on_sort() all read that instead of a SpinBox.value.
+	var time_text := ("%d" % int(round(time))) if is_equal_approx(time, round(time)) else ("%.2f" % time)
+	var time_lbl := _mk_label(time_text, 12)
+	time_lbl.custom_minimum_size = Vector2(90, 0)
+	hb.add_child(time_lbl)
 
 	# Type — a fixed-width button showing Blank / Set; opens the picker + 2×5 slot popup.
 	var type_btn := Button.new()
@@ -290,7 +325,7 @@ func _add_row(time: float, preset_slots: Array = []) -> void:
 	var slots: Array = []
 	for i in SLOTS_PER_ROW:
 		slots.append(preset_slots[i] if i < preset_slots.size() else _slot_default())
-	var row := {"hbox": hb, "time": time_sb, "type_btn": type_btn, "hp_lbl": hp_lbl, "slots": slots}
+	var row := {"hbox": hb, "time_val": time, "type_btn": type_btn, "hp_lbl": hp_lbl, "slots": slots}
 	type_btn.pressed.connect(func() -> void: _open_type_dropdown(row))
 	clr.pressed.connect(func() -> void: _clear_row(row))
 	_update_type_btn(row)
@@ -311,7 +346,7 @@ func _clear_row(row: Dictionary) -> void:
 ## "blob" (e.g. "swarm", blob:50)
 ## multiplies in too — each queued position for a blob type actually spawns `blob` creeps around it at
 ## runtime (_tl_queue_or_spawn()), not just 1, so `count` alone understates the real total for those types.
-## Uses the RAW def "hp" — NOT the runtime-applied ENEMY_HP_TUNE (×2) or any "lvl"/Beacon/Champion
+## Uses the RAW def "hp" — NOT the runtime-applied ENEMY_HP_TUNE (×2) or any "lvl"/Beacon/Elite-Creep
 ## multiplier, since those depend on player level/aux state unknowable at authoring time — read as a
 ## relative/base-line indicator, not the exact in-run total. Fleet deployment (incl. "count"/n) is now
 ## wired up in arena_wave_director_v2.gd's _deploy_fleet(), so this matches what actually spawns.
@@ -332,11 +367,14 @@ func _row_total_hp(row: Dictionary) -> float:
 		total += hp * float(int(s.get("count", 1))) * float(blob)
 	return total
 
-## Total HP of fleet `fleet_name`: hp × blob summed over EVERY unit listed in EVERY slot's "enemies" array
-## (per explicit correction — the fleet's HP is the sum of all its units, full stop). Note this counts every
+## Total HP of fleet `fleet_name`: hp summed over EVERY unit listed in EVERY slot's "enemies" array (per
+## explicit correction — the fleet's HP is the sum of all its units, full stop). Note this counts every
 ## entry in a multi-option slot (e.g. Kingdom1's ["sentinel2","sentinel1"] slot) even though
-## arena_wave_director.gd's _deploy_fleet() only rolls ONE of them at actual deploy time — this is an
+## arena_wave_director_v2.gd's _deploy_fleet() only rolls ONE of them at actual deploy time — this is an
 ## authored/planning total ("everything in the fleet"), not a probability-weighted runtime estimate.
+## Deliberately NOT × blob (unlike a plain Unit slot's HP, which really does blob-expand — see
+## _row_total_hp() below): _deploy_fleet()'s rigid carrier+dock formation spawns exactly ONE creep per slot
+## regardless of that creep type's own "blob" stat — a blob-type unit inside a fleet does NOT multiply out.
 func _fleet_total_hp(fleet_name: String) -> float:
 	if _director == null:
 		return 0.0
@@ -354,7 +392,7 @@ func _fleet_total_hp(fleet_name: String) -> float:
 			if id == "":
 				continue
 			var d: Dictionary = _director.ENEMY_DEFS.get(id, {})
-			total += float(d.get("hp", 0.0)) * float(maxi(1, int(d.get("blob", 1))))
+			total += float(d.get("hp", 0.0))
 	return total
 
 ## Exact integer HP with thousands separators (e.g. "1,234,500") — no K/M abbreviation, no precision lost.
@@ -394,7 +432,7 @@ func _update_type_btn(row: Dictionary) -> void:
 func _collect() -> Array:
 	var entries: Array = []
 	for r: Dictionary in _rows:
-		var t: float = (r["time"] as SpinBox).value
+		var t: float = float(r["time_val"])
 		for s: Dictionary in r["slots"]:
 			var ty := String(s.get("type", ""))
 			if ty == "":
@@ -405,6 +443,10 @@ func _collect() -> Array:
 				e["duration"] = float(s.get("duration", 0.0))
 			if bool(s.get("is_boss", false)):
 				e["is_boss"] = true
+			if bool(s.get("angle_fixed", false)):
+				e["angle"] = float(s.get("angle", 0.0))
+			if ty.begins_with("fleet:") and not is_zero_approx(float(s.get("fleet_rotate", 0.0))):
+				e["fleet_rotate"] = float(s.get("fleet_rotate", 0.0))
 			entries.append(e)
 	return entries
 
@@ -417,7 +459,7 @@ func _on_add() -> void:
 
 ## Re-order the rows by ascending time (re-arranges them in the list).
 func _on_sort() -> void:
-	_rows.sort_custom(func(a, b): return (a["time"] as SpinBox).value < (b["time"] as SpinBox).value)
+	_rows.sort_custom(func(a, b): return float(a["time_val"]) < float(b["time_val"]))
 	for i in _rows.size():
 		_rows_box.move_child(_rows[i]["hbox"], i)
 	_set_status("Sorted %d rows by time" % _rows.size())
@@ -455,12 +497,22 @@ func _on_build_test() -> void:
 func _on_save() -> void:
 	DirAccess.make_dir_recursive_absolute(LEVELS_DIR)
 	var fname := _sanitize(_name_edit.text) + ".json"
+	var tl := _collect()
 	var f := FileAccess.open(LEVELS_DIR + "/" + fname, FileAccess.WRITE)
 	if f == null:
 		_set_status("Save FAILED")
 		return
-	f.store_string(JSON.stringify({"name": _name_edit.text, "timeline": _collect()}, "  "))
+	f.store_string(JSON.stringify({"name": _name_edit.text, "timeline": tl}, "  "))
 	f.close()
+	# Live-apply + remember, same as _on_load() does — otherwise the disk write succeeds but (a) THIS
+	# panel keeps showing the director's now-stale live timeline on reopen (_rebuild_rows() reads
+	# _director.get_timeline(), never the file — see its own comment) and (b) the next run's auto-load
+	# (_last_wave_cfg_path()) keeps pointing at whatever was last Loaded, not this Save — together making
+	# a Save-only edit look like it silently reverted (2026-08-02 bug report: reproduces on any map, not
+	# just Rubicon — Save alone never touched the live director before this fix).
+	if _director != null:
+		_director.set_timeline(tl)
+	_remember_last_wave(fname)
 	_refresh_files()
 	for i in _file_opt.item_count:
 		if _file_opt.get_item_text(i) == fname:
@@ -564,6 +616,13 @@ func _close_dropdown() -> void:
 		_dropdown.queue_free()
 	_dropdown = null
 	_slots_grid = null
+	_pad_row = {}
+	_pad_slot_idx = -1
+	_pad_thumb = null
+	_pad_buttons = []
+	_pad_dirs = []
+	_pad_slider = null
+	_pad_hint = null
 
 func _open_type_dropdown(row: Dictionary) -> void:
 	_close_dropdown()
@@ -622,7 +681,7 @@ func _open_type_dropdown(row: Dictionary) -> void:
 
 	# Left: the Unit grid / Fleet list picker (drag sources).
 	var picker := Control.new()
-	picker.custom_minimum_size = Vector2(600.0, 520.0)
+	picker.custom_minimum_size = Vector2(300.0, 520.0)
 	content.add_child(picker)
 	var unit_panel := _build_unit_tab()
 	var fleet_panel := _build_fleet_tab()
@@ -634,9 +693,23 @@ func _open_type_dropdown(row: Dictionary) -> void:
 
 	content.add_child(VSeparator.new())
 
-	# Right: the 2×5 spawn slots for this row (drop targets + per-slot config).
+	# Middle: the shared Fleet spawn-direction/rotate pad — ALWAYS visible (not tied to the Unit/Fleet tab
+	# above), targets whichever Fleet slot was last clicked on the right (see _select_fleet_pad_slot()).
+	# EXPAND_FILL: soaks up whatever width the narrower slot cells free up, so the panel grows instead of
+	# just leaving blank space — the slot grid (no expand flag of its own) ends up pushed flush to the
+	# popup's right edge as a result.
+	_pad_row = row
+	_pad_slot_idx = -1
+	var pad_box := _build_fleet_dir_pad()
+	pad_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_child(pad_box)
+
+	content.add_child(VSeparator.new())
+
+	# Right: the 2×5 spawn slots for this row (drop targets + per-slot config) — sized to the narrower cells
+	# (see _make_slot_cell()) so it doesn't force extra width the pad panel above could otherwise use.
 	var right := VBoxContainer.new()
-	right.custom_minimum_size = Vector2(540.0, 0.0)
+	right.custom_minimum_size = Vector2(370.0, 0.0)
 	right.add_theme_constant_override("separation", 6)
 	content.add_child(right)
 	var right_hdr := HBoxContainer.new()
@@ -653,7 +726,7 @@ func _open_type_dropdown(row: Dictionary) -> void:
 	right_hdr.add_child(total_hp_hdr_lbl)
 	row["popup_hp_lbl"] = total_hp_hdr_lbl
 	var sc := ScrollContainer.new()
-	sc.custom_minimum_size = Vector2(540.0, 500.0)
+	sc.custom_minimum_size = Vector2(370.0, 500.0)
 	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	right.add_child(sc)
 	_slots_grid = GridContainer.new()
@@ -667,12 +740,12 @@ func _build_unit_tab() -> Control:
 	var c := Control.new()
 	c.set_anchors_preset(Control.PRESET_FULL_RECT)
 	var scroll := ScrollContainer.new()
-	scroll.size = Vector2(580.0, 500.0)   # widened to use the picker's full 600px (was 290 — left a wide empty gap before the VSeparator)
-	scroll.custom_minimum_size = Vector2(580.0, 500.0)
+	scroll.size = Vector2(290.0, 500.0)
+	scroll.custom_minimum_size = Vector2(290.0, 500.0)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	c.add_child(scroll)
 	var grid := GridContainer.new()
-	grid.columns = 10   # was 5 — more columns to actually fill the widened scroll area instead of just leaving blank space
+	grid.columns = 5
 	grid.add_theme_constant_override("h_separation", 4)
 	grid.add_theme_constant_override("v_separation", 4)
 	scroll.add_child(grid)
@@ -699,18 +772,15 @@ func _build_unit_tab() -> Control:
 		grid.add_child(b)
 	return c
 
+## Just the fleet-name list (drag source) — the old per-hover preview panel is gone; the shared direction-pad
+## (always visible next to this picker — see _build_fleet_dir_pad()) now covers "what does this fleet look
+## like", driven by clicking a SLOT on the right rather than hovering a name here.
 func _build_fleet_tab() -> Control:
 	var c := Control.new()
 	c.set_anchors_preset(Control.PRESET_FULL_RECT)
-	var preview := _FleetPreview.new()
-	preview.editor = self
-	preview.position = Vector2(218.0, 0.0)
-	preview.size = Vector2(380.0, 500.0)
-	preview.custom_minimum_size = Vector2(380.0, 500.0)
-	c.add_child(preview)
 	var scroll := ScrollContainer.new()
-	scroll.size = Vector2(206.0, 500.0)
-	scroll.custom_minimum_size = Vector2(206.0, 500.0)
+	scroll.size = Vector2(290.0, 500.0)
+	scroll.custom_minimum_size = Vector2(290.0, 500.0)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	c.add_child(scroll)
 	var vb := VBoxContainer.new()
@@ -728,7 +798,6 @@ func _build_fleet_tab() -> Control:
 		lbl.payload = {"kind": "fleet", "name": nm}
 		lbl.ptext = "[F] " + nm
 		if _font: lbl.add_theme_font_override("font", _font)
-		lbl.mouse_entered.connect(func() -> void: preview.set_fleet(fld))
 		vb.add_child(lbl)
 	return c
 
@@ -755,8 +824,13 @@ func _assign_slot(row: Dictionary, idx: int, data: Dictionary) -> void:
 		slot["type"] = "fleet:" + String(data.get("name", ""))
 		slot["is_boss"] = false
 		slot["count"] = 1   # 1 deployment of the whole formation by default (not the unit-count default of 5)
+		slot["angle"] = 0.0
+		slot["angle_fixed"] = false   # random spawn direction by default
+		slot["fleet_rotate"] = 0.0
 	else:
 		return
+	if idx == _pad_slot_idx:
+		_refresh_pad_for_active_slot()   # pad was targeting this slot — reflect the new fleet/reset if now a Unit
 	_populate_slots_grid(row)
 	_update_type_btn(row)
 	_update_row_hp(row)
@@ -766,6 +840,8 @@ func _clear_slot(row: Dictionary, idx: int) -> void:
 	if idx < 0 or idx >= slots.size():
 		return
 	slots[idx] = _slot_default()
+	if idx == _pad_slot_idx:
+		_refresh_pad_for_active_slot()   # pad was targeting this slot — reset to the hint state
 	_populate_slots_grid(row)
 	_update_type_btn(row)
 	_update_row_hp(row)
@@ -775,16 +851,18 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 	cell.editor = self
 	cell.row = row
 	cell.idx = idx
-	cell.custom_minimum_size = Vector2(252.0, 104.0)
+	cell.custom_minimum_size = Vector2(170.0, 152.0)   # +20px for the Boss checkbox row (see _make_slot_cell)
 	cell.mouse_filter = Control.MOUSE_FILTER_STOP
 	_style_slot(cell)
 
 	var slot: Dictionary = row["slots"][idx]
 	var ty := String(slot.get("type", ""))
+	if ty.begins_with("fleet:") and idx == _pad_slot_idx:
+		_style_slot_selected(cell)   # highlight the slot the shared direction-pad is currently editing
 
 	var vb := VBoxContainer.new()
 	vb.position = Vector2(6.0, 4.0)
-	vb.size = Vector2(240.0, 96.0)
+	vb.size = Vector2(158.0, 144.0)
 	vb.add_theme_constant_override("separation", 3)
 	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cell.add_child(vb)
@@ -813,7 +891,7 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 			head.add_child(tr)
 	var nm := _mk_label(("[F] " + ty.substr(6)) if is_fleet else ty, 11)
 	nm.clip_text = true
-	nm.custom_minimum_size = Vector2(160.0, 0.0)
+	nm.custom_minimum_size = Vector2(92.0, 0.0)
 	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	head.add_child(nm)
 	var clr := _mk_button("x", func() -> void: _clear_slot(row, idx))
@@ -830,7 +908,7 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 		fcfg.add_theme_constant_override("separation", 4)
 		fcfg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		fcfg.add_child(_mk_label("n", 10))
-		var fcsb := _mk_spin(1.0, 1000.0, 1.0, float(slot.get("count", 1)), 56)
+		var fcsb := _mk_spin(1.0, 1000.0, 1.0, float(slot.get("count", 1)), 40)
 		fcfg.add_child(fcsb)
 		var fleet_hp_lbl := _mk_label("HP " + _fmt_hp(one_fleet_hp * float(slot.get("count", 1))), 9)
 		fleet_hp_lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
@@ -841,14 +919,13 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 		fcfg.add_child(fleet_hp_lbl)
 		vb.add_child(fcfg)
 
-		var fb := HBoxContainer.new()
-		fb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		fb.add_child(_mk_label("Boss", 10))
-		var bcb := CheckButton.new()
-		bcb.button_pressed = bool(slot.get("is_boss", false))
-		bcb.toggled.connect(func(p: bool) -> void: slot["is_boss"] = p)
-		fb.add_child(bcb)
-		vb.add_child(fb)
+		# Spawn Angle (8-direction pad) + Fleet Rotate (slider) are edited in the ONE shared direction-pad
+		# panel above the slot grid (see _build_fleet_dir_pad()/_select_fleet_pad_slot()), not per-slot here
+		# — click this cell (its background, not the n/HP/x controls) to make the pad operate on it.
+		var hint := _mk_label("(click to edit dir/rotate)" if idx != _pad_slot_idx else "★ editing dir/rotate", 8)
+		hint.add_theme_color_override("font_color", Color(0.5, 0.95, 0.6) if idx == _pad_slot_idx else Color(0.45, 0.5, 0.58))
+		hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		vb.add_child(hint)
 		return cell
 
 	# Unit config: Count + Pattern.
@@ -856,7 +933,7 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 	cfg.add_theme_constant_override("separation", 4)
 	cfg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cfg.add_child(_mk_label("n", 10))
-	var csb := _mk_spin(1.0, 100000.0, 1.0, float(slot.get("count", 1)), 56)   # 200-unit cap removed
+	var csb := _mk_spin(1.0, 100000.0, 1.0, float(slot.get("count", 1)), 48)   # 200-unit cap removed
 	# Per-slot HP readout (exact, no K/M — see _fmt_hp()): base hp × blob (a blob-type def like "swarm"
 	# actually spawns `blob` creeps per position at runtime, see _row_total_hp()'s comment) × count, kept
 	# live via the count SpinBox's own callback below — no full-grid rebuild needed just to refresh a number.
@@ -872,8 +949,16 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 		_update_row_hp(row))
 	cfg.add_child(csb)
 	cfg.add_child(slot_hp_lbl)
+	vb.add_child(cfg)
+
+	# Pattern gets its own row (was crammed onto the n/HP row) — doesn't fit next to them anymore at the
+	# narrower 158px cell content width.
+	var pat_row := HBoxContainer.new()
+	pat_row.add_theme_constant_override("separation", 4)
+	pat_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pat_row.add_child(_mk_label("pat", 10))
 	var pob := OptionButton.new()
-	pob.custom_minimum_size = Vector2(78.0, 0.0)   # shrunk from 92 to make room for the per-slot HP readout
+	pob.custom_minimum_size = Vector2(110.0, 0.0)
 	if _font: pob.add_theme_font_override("font", _font)
 	var patterns: Array = _director.PATTERNS
 	for i in patterns.size():
@@ -883,24 +968,34 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 	pob.item_selected.connect(func(i: int) -> void:
 		slot["pattern"] = String(patterns[i])
 		_populate_slots_grid(row))   # re-draw so the Dur field appears/disappears for "stream"
-	cfg.add_child(pob)
-	vb.add_child(cfg)
+	pat_row.add_child(pob)
+	vb.add_child(pat_row)
 
-	# Unit config row 2: Boss + (Dur only for the "stream" pattern).
-	var r2 := HBoxContainer.new()
-	r2.add_theme_constant_override("separation", 4)
-	r2.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	r2.add_child(_mk_label("Boss", 10))
-	var bcb2 := CheckButton.new()
-	bcb2.button_pressed = bool(slot.get("is_boss", false))
-	bcb2.toggled.connect(func(p: bool) -> void: slot["is_boss"] = p)
-	r2.add_child(bcb2)
+	# Boss toggle — bypasses the alive-cap on spawn. If this slot happens to be the LAST entry (by time) in
+	# the WHOLE timeline, arena_wave_director_v2.gd treats it as the run's final-boss finale (_final_boss_entry):
+	# waits for the field to clear + locks off reinforcement, then spawns it alone (see BOSS FIGHT debug button).
+	var boss_row := HBoxContainer.new()
+	boss_row.add_theme_constant_override("separation", 4)
+	boss_row.mouse_filter = Control.MOUSE_FILTER_STOP
+	var boss_cb := CheckBox.new()
+	boss_cb.button_pressed = bool(slot.get("is_boss", false))
+	boss_cb.text = "Boss"
+	if _font: boss_cb.add_theme_font_override("font", _font)
+	boss_cb.add_theme_font_size_override("font_size", 10)
+	boss_cb.toggled.connect(func(v: bool) -> void: slot["is_boss"] = v)
+	boss_row.add_child(boss_cb)
+	vb.add_child(boss_row)
+
+	# Unit config row 2: Dur, only shown for the "stream" pattern.
 	if String(slot.get("pattern", "ring")) == "stream":
+		var r2 := HBoxContainer.new()
+		r2.add_theme_constant_override("separation", 4)
+		r2.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		r2.add_child(_mk_label("dur", 10))
 		var dsb := _mk_spin(0.0, 120.0, 0.5, float(slot.get("duration", 0.0)), 56)
 		dsb.value_changed.connect(func(v: float) -> void: slot["duration"] = v)
 		r2.add_child(dsb)
-	vb.add_child(r2)
+		vb.add_child(r2)
 	return cell
 
 ## Drag source: a Button/Label that yields its payload dict (and a small preview) when dragged.
@@ -941,12 +1036,19 @@ class _SlotCell extends Panel:
 	func _drop_data(_at: Vector2, data: Variant) -> void:
 		if editor != null:
 			editor._assign_slot(row, idx, data as Dictionary)
+	## Click the cell's background (not the n/HP/x child controls, which consume the event themselves) to
+	## make the shared Fleet direction-pad operate on this slot — no-op for Unit/empty slots.
+	func _gui_input(event: InputEvent) -> void:
+		if event is InputEventMouseButton and (event as InputEventMouseButton).pressed \
+		and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT and editor != null:
+			editor._select_fleet_pad_slot(row, idx)
 
 ## Hovered-fleet formation preview: draws each non-empty slot's representative sprite at its placed
 ## position/size, scaled to fit the box.
 class _FleetPreview extends Control:
 	var editor = null
 	var fleet: Dictionary = {}
+	var rot: float = 0.0   # optional formation-shape rotation preview (radians) — mirrors the Fleet Rotate slider
 	func set_fleet(f: Dictionary) -> void:
 		fleet = f
 		queue_redraw()
@@ -982,7 +1084,9 @@ class _FleetPreview extends Control:
 		for r: Dictionary in rects:
 			var rw: float = float(r["w"]) * sc
 			var rh: float = float(r["h"]) * sc
-			var rp: Vector2 = (r["p"] as Vector2 - center) * sc + size * 0.5
+			var p0: Vector2 = r["p"] as Vector2
+			var rotp: Vector2 = (center + (p0 - center).rotated(rot)) if not is_zero_approx(rot) else p0
+			var rp: Vector2 = (rotp - center) * sc + size * 0.5
 			var rect := Rect2(rp - Vector2(rw, rh) * 0.5, Vector2(rw, rh))
 			if r["tex"] != null:
 				draw_texture_rect(r["tex"] as Texture2D, rect, false)
@@ -1033,3 +1137,178 @@ func _style_slot(p: Panel) -> void:
 	s.border_color = Color(0.35, 0.5, 0.65, 0.8)
 	s.set_corner_radius_all(4)
 	p.add_theme_stylebox_override("panel", s)
+
+## Highlight the Fleet slot the shared direction-pad is currently editing (see _select_fleet_pad_slot()).
+func _style_slot_selected(p: Panel) -> void:
+	var s := StyleBoxFlat.new()
+	s.bg_color = Color(0.09, 0.16, 0.12, 0.95)
+	s.set_border_width_all(2)
+	s.border_color = Color(0.4, 0.95, 0.5, 0.95)
+	s.set_corner_radius_all(4)
+	p.add_theme_stylebox_override("panel", s)
+
+# ── Shared Fleet direction-pad (spawn-angle 8-button compass + rotate slider) ────────────────────
+const PAD_DIR_FRACS := [
+	{"f": Vector2(0.0, 0.0), "deg": 225.0}, {"f": Vector2(0.5, 0.0), "deg": 270.0}, {"f": Vector2(1.0, 0.0), "deg": 315.0},
+	{"f": Vector2(0.0, 0.5), "deg": 180.0},                                          {"f": Vector2(1.0, 0.5), "deg": 0.0},
+	{"f": Vector2(0.0, 1.0), "deg": 135.0}, {"f": Vector2(0.5, 1.0), "deg": 90.0},   {"f": Vector2(1.0, 1.0), "deg": 45.0},
+]
+
+## Builds the ONE shared preview+8-direction-buttons+Rotate-slider panel shown above the slot grid. Each
+## button's position on the pad IS the compass direction it fixes (e.g. top-right = spawns from the NE and
+## advances toward the player out of there) — click the already-active one again to go back to random.
+## The panel always exists; _refresh_pad_for_active_slot() shows a hint until a Fleet slot cell is clicked.
+func _build_fleet_dir_pad() -> Control:
+	var box := Panel.new()
+	_style_slot(box)
+	var pad_size := Vector2(320.0, 150.0)
+	box.custom_minimum_size = Vector2(360.0, 520.0)
+
+	var hdr := _mk_label("Fleet direction / rotate", 12)
+	hdr.position = Vector2(14.0, 10.0)
+	box.add_child(hdr)
+
+	var pad := Control.new()
+	pad.position = Vector2(14.0, 40.0)
+	pad.custom_minimum_size = pad_size
+	pad.size = pad_size
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(pad)
+
+	_pad_thumb = _FleetPreview.new()
+	_pad_thumb.editor = self
+	_pad_thumb.position = Vector2.ZERO
+	_pad_thumb.size = pad_size
+	_pad_thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pad.add_child(_pad_thumb)
+
+	_pad_hint = _mk_label("Click a Fleet slot on\nthe right to edit its\nspawn direction /\nrotation here.", 11)
+	_pad_hint.position = Vector2(14.0, 236.0)
+	_pad_hint.add_theme_color_override("font_color", Color(0.55, 0.62, 0.72))
+	box.add_child(_pad_hint)
+
+	# Explicit styleboxes: this editor's base theme leaves default Button chrome nearly invisible at 16px
+	# against the thumbnail's near-black background, so give the pad's direction buttons their own clearly
+	# visible on/off look instead of relying on the (unstyled) engine default.
+	var sb_dir_off := StyleBoxFlat.new()
+	sb_dir_off.bg_color = Color(0.16, 0.22, 0.30, 0.95)
+	sb_dir_off.border_color = Color(0.45, 0.6, 0.75, 0.95)
+	sb_dir_off.set_border_width_all(1)
+	sb_dir_off.set_corner_radius_all(3)
+	var sb_dir_on := StyleBoxFlat.new()
+	sb_dir_on.bg_color = Color(0.25, 0.9, 0.4, 0.95)
+	sb_dir_on.border_color = Color(0.65, 1.0, 0.75, 1.0)
+	sb_dir_on.set_border_width_all(1)
+	sb_dir_on.set_corner_radius_all(3)
+
+	_pad_buttons = []
+	_pad_dirs = []
+	for dd: Dictionary in PAD_DIR_FRACS:
+		var b := Button.new()
+		b.toggle_mode = true
+		b.custom_minimum_size = Vector2(16.0, 16.0)
+		b.size = Vector2(16.0, 16.0)
+		b.position = pad_size * (dd["f"] as Vector2) - Vector2(8.0, 8.0)
+		b.add_theme_stylebox_override("normal", sb_dir_off)
+		b.add_theme_stylebox_override("hover", sb_dir_off)
+		b.add_theme_stylebox_override("focus", sb_dir_off)
+		b.add_theme_stylebox_override("pressed", sb_dir_on)
+		b.add_theme_stylebox_override("hover_pressed", sb_dir_on)
+		var deg: float = float(dd["deg"])
+		b.tooltip_text = "Spawn fixed from %d°" % int(deg)
+		pad.add_child(b)
+		_pad_buttons.append(b)
+		_pad_dirs.append(deg)
+	for i in _pad_buttons.size():
+		var b: Button = _pad_buttons[i]
+		var deg: float = float(_pad_dirs[i])
+		b.toggled.connect(func(p: bool) -> void:
+			var slot := _pad_active_slot()
+			if slot.is_empty():
+				return
+			if p:
+				slot["angle"] = deg
+				slot["angle_fixed"] = true
+				for ob: Button in _pad_buttons:
+					if ob != b:
+						ob.button_pressed = false
+			else:
+				slot["angle_fixed"] = false)
+
+	var rot_row := HBoxContainer.new()
+	rot_row.position = Vector2(14.0, 202.0)
+	rot_row.size = Vector2(pad_size.x, 20.0)
+	rot_row.add_theme_constant_override("separation", 4)
+	box.add_child(rot_row)
+	rot_row.add_child(_mk_label("Rot", 10))
+	_pad_slider = HSlider.new()
+	_pad_slider.min_value = 0.0
+	_pad_slider.max_value = 359.0
+	_pad_slider.step = 1.0
+	_pad_slider.custom_minimum_size = Vector2(pad_size.x - 30.0, 0.0)
+	_pad_slider.value_changed.connect(func(v: float) -> void:
+		var slot := _pad_active_slot()
+		if slot.is_empty():
+			return
+		slot["fleet_rotate"] = v
+		(_pad_thumb as _FleetPreview).rot = deg_to_rad(v)
+		_pad_thumb.queue_redraw())
+	rot_row.add_child(_pad_slider)
+
+	_refresh_pad_for_active_slot()
+	return box
+
+## The slot dict the pad currently targets, or {} if nothing selected / the selection is stale (slot got
+## cleared/reassigned to a Unit since being picked).
+func _pad_active_slot() -> Dictionary:
+	if _pad_slot_idx < 0 or _pad_row.is_empty():
+		return {}
+	var slots: Array = _pad_row.get("slots", [])
+	if _pad_slot_idx >= slots.size():
+		return {}
+	var s: Dictionary = slots[_pad_slot_idx]
+	if not String(s.get("type", "")).begins_with("fleet:"):
+		return {}
+	return s
+
+## Click target for _SlotCell — makes the shared direction-pad operate on slot `idx` of `row`. No-op for
+## Unit/empty slots (only Fleet slots have a spawn-direction/rotate concept).
+func _select_fleet_pad_slot(row: Dictionary, idx: int) -> void:
+	var slots: Array = row.get("slots", [])
+	if idx < 0 or idx >= slots.size():
+		return
+	if not String((slots[idx] as Dictionary).get("type", "")).begins_with("fleet:"):
+		return
+	_pad_row = row
+	_pad_slot_idx = idx
+	_refresh_pad_for_active_slot()
+	_populate_slots_grid(row)   # redraw so the newly-selected cell gets its highlight border
+
+## Sync the pad's thumbnail/8 buttons/slider to whatever _pad_active_slot() currently resolves to.
+func _refresh_pad_for_active_slot() -> void:
+	if _pad_thumb == null:
+		return
+	var slot := _pad_active_slot()
+	var has := not slot.is_empty()
+	_pad_hint.visible = not has
+	_pad_thumb.visible = has
+	for b: Button in _pad_buttons:
+		b.visible = has
+	_pad_slider.editable = has
+	if not has:
+		(_pad_thumb as _FleetPreview).set_fleet({})
+		return
+	var fleet_name := String(slot["type"]).substr(6)
+	for fl in _load_fleets():
+		if String((fl as Dictionary).get("name", "")) == fleet_name:
+			(_pad_thumb as _FleetPreview).set_fleet(fl)
+			break
+	var rv := float(slot.get("fleet_rotate", 0.0))
+	(_pad_thumb as _FleetPreview).rot = deg_to_rad(rv)
+	_pad_thumb.queue_redraw()
+	_pad_slider.value = rv
+	var cur_deg := float(slot.get("angle", 0.0))
+	var cur_fixed := bool(slot.get("angle_fixed", false))
+	for i in _pad_buttons.size():
+		var b: Button = _pad_buttons[i]
+		b.button_pressed = cur_fixed and is_equal_approx(fmod(cur_deg + 360.0, 360.0), float(_pad_dirs[i]))

@@ -1,0 +1,67 @@
+[gd_scene load_steps=8 format=2]
+
+[ext_resource path="res://Miscellaneous/Mesh/Landscape_B.glb" type="PackedScene" id=1]
+[ext_resource path="res://Miscellaneous/Textures/Sky_A_Colored.hdr" type="Texture" id=2]
+[ext_resource path="res://Materials/Sea_Water_B/Sea_Water_B.material" type="Material" id=3]
+[ext_resource path="res://Materials/Script/SeaWater.gd" type="Script" id=4]
+
+[sub_resource type="PanoramaSky" id=1]
+radiance_size = 3
+panorama = ExtResource( 2 )
+
+[sub_resource type="Environment" id=2]
+background_mode = 2
+background_sky = SubResource( 1 )
+background_sky_orientation = Basis( -1, 0, 8.74228e-08, 0, 1, 0, -8.74228e-08, 0, -1 )
+fog_enabled = true
+fog_color = Color( 0.556863, 0.945098, 1, 1 )
+fog_depth_begin = 291.2
+fog_depth_end = 1006.3
+fog_depth_curve = 6.49805
+ss_reflections_fade_in = 0.178381
+ss_reflections_depth_tolerance = 4.2
+ssao_enabled = true
+ssao_radius = 0.53
+ssao_intensity = 0.66
+dof_blur_far_enabled = true
+dof_blur_far_distance = 243.2
+dof_blur_far_transition = 825.08
+dof_blur_far_amount = 0.05
+glow_enabled = true
+glow_intensity = 0.3
+glow_strength = 0.56
+
+[sub_resource type="PlaneMesh" id=3]
+size = Vector2( 500, 500 )
+subdivide_width = 500
+subdivide_depth = 500
+center_offset = Vector3( 250, 0, 249.998 )
+
+[node name="Sea_Variant_B" type="Node"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource( 2 )
+
+[node name="DirectionalLight" type="DirectionalLight" parent="."]
+transform = Transform( -0.926167, -0.108878, 0.361054, 2.52402e-08, 0.957415, 0.288714, -0.377114, 0.267397, -0.886727, 0, 160.75, 0 )
+
+[node name="Water" type="MeshInstance" parent="."]
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, -250, 10.1308, -255.098 )
+mesh = SubResource( 3 )
+material/0 = ExtResource( 3 )
+script = ExtResource( 4 )
+override_center_offset = false
+
+[node name="Landscape_B" parent="." instance=ExtResource( 1 )]
+transform = Transform( -1, 0, 8.74228e-08, 0, 1, 0, -8.74228e-08, 0, -1, 0, 0, 0 )
+
+[node name="Camera" type="Camera" parent="."]
+transform = Transform( 0.886575, -0.0327032, -0.461427, 0, 0.997498, -0.0706966, 0.462584, 0.0626779, 0.884357, -65.757, 15.931, 239.233 )
+fov = 57.6
+far = 1500.0
+
+[node name="Camera2" type="Camera" parent="."]
+transform = Transform( 0.987005, -0.0520134, 0.15204, 0, 0.946164, 0.323686, -0.160691, -0.31948, 0.933869, 63.338, 71.8291, 219.911 )
+current = true
+fov = 50.0
+far = 1500.0

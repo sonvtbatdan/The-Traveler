@@ -21,7 +21,7 @@
     },
     {
       "time": 180.0,
-      "type": "bug_crawl",
+      "type": "bug",
       "count": 180,
       "pattern": "stream",
       "duration": 120.0,
@@ -30,7 +30,7 @@
     },
     {
       "time": 300.0,
-      "type": "bug_crawl",
+      "type": "bug",
       "count": 300,
       "pattern": "stream",
       "duration": 120.0,
@@ -44,14 +44,8 @@
       "pattern": "ring"
     },
     {
-      "time": 300.0,
-      "type": "elite_fly",
-      "count": 1,
-      "pattern": "ring"
-    },
-    {
       "time": 360.0,
-      "type": "bug_crawl",
+      "type": "bug",
       "count": 2333,
       "pattern": "stream",
       "duration": 240.0,
@@ -65,7 +59,7 @@
     },
     {
       "time": 420.0,
-      "type": "bug_crawl",
+      "type": "bug",
       "count": 2340,
       "pattern": "stream",
       "duration": 780.0,
@@ -92,18 +86,6 @@
     {
       "time": 600.0,
       "type": "swarm_loop",
-      "count": 1,
-      "pattern": "ring"
-    },
-    {
-      "time": 600.0,
-      "type": "elite_bug",
-      "count": 1,
-      "pattern": "ring"
-    },
-    {
-      "time": 900.0,
-      "type": "elite_bee",
       "count": 1,
       "pattern": "ring"
     },

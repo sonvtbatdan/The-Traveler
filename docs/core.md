@@ -3,6 +3,16 @@
 > Module of [`CLAUDE.md`](../CLAUDE.md). Read this when working on autoloads, main scene, GameManager, persistence, main menu, settings, music player.
 > Always-on core rules (conventions, coordinate system, image/render rules, LOCKED MODULES) live in CLAUDE.md — read that too.
 
+## Changelog — 2026-08-02 — Settings panel: new "Auto-Aim" toggle, persisted like Dev Mode/FPS
+
+- Exposes `arena_hud_buttons.gd`'s existing `_auto_fire` flag (ship auto-faces the nearest enemy instead of
+  the mouse — `arena.gd._aim()`; previously only reachable via the dev-cluster AUTO button) as a regular
+  Settings-panel `CheckButton`, following the exact same pattern as the Dev Mode/FPS switches
+  (`settings_panel.gd`): `_cur_auto_aim`/`_snap_auto_aim` state, live-apply via group "arena_hud_buttons" +
+  new public `arena_hud_buttons.gd.set_auto_aim(v)` (keeps the dev AUTO button's own label/color in sync),
+  persisted to `user://settings.cfg`'s `[game] auto_aim` key on Save, re-armed at the start of every arena
+  load (`arena_hud_buttons.gd._ready()`, mirroring the existing `dev_mode` re-arm).
+
 ## Changelog — 2026-07-28 (3rd pass) — replaced the Master limiter with smooth overlap ducking (limiter crackled)
 
 - **`audio_manager.gd`**: the `AudioEffectLimiter` added in the "Master bus limiter" pass below caused

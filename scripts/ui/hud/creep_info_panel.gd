@@ -321,7 +321,15 @@ func _on_save() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("overrides", "data", ov)
 	cfg.save(CFG_PATH)
-	_status.text = "Saved %d override(s) — takes effect next arena load" % ov.size()
+	# Live-apply to the CURRENTLY RUNNING director too (2026-08-02: previously only took effect on the next
+	# arena load, since apply_overrides() was only ever called once, at the director's own _ready() — the
+	# Wave Editor's Total HP column reads _director.ENEMY_DEFS live with no cache of its own, so re-applying
+	# here is sufficient; apply_overrides() only assigns values (never multiplies/accumulates), so re-running
+	# it is safe/idempotent even if Save is clicked repeatedly).
+	var wd := get_tree().get_first_node_in_group("wave_director")
+	if wd != null:
+		apply_overrides(wd.ENEMY_DEFS)
+	_status.text = "Saved %d override(s) — applied live" % ov.size()
 
 # ── Widget helpers ──────────────────────────────────────────────────────────────────────────────────
 func _mk_label(text: String, sz: int) -> Label:

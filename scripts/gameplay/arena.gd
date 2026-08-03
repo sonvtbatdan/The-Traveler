@@ -33,7 +33,9 @@ const ArenaSolarSystemScript := preload("res://scripts/gameplay/arena_solar_syst
 const RubiconGroundScript := preload("res://scripts/gameplay/rubicon/rubicon_ground.gd")
 const RubiconCloudsScript := preload("res://scripts/gameplay/rubicon/rubicon_clouds.gd")
 const RubiconTreesScript := preload("res://scripts/gameplay/rubicon/rubicon_trees.gd")
+const RubiconSparksScript := preload("res://scripts/gameplay/rubicon/rubicon_sparks.gd")
 const RubiconTerrainEditScript := preload("res://scripts/ui/hud/rubicon_terrain_edit.gd")
+const RubiconLightEditScript := preload("res://scripts/ui/hud/rubicon_light_edit.gd")
 const ArenaDofScript     := preload("res://scripts/gameplay/arena_dof.gd")
 const PlanetMenuScript   := preload("res://scripts/ui/hud/arena_planet_menu.gd")
 const DebugSpawnScript   := preload("res://scripts/gameplay/arena_debug_spawn.gd")
@@ -48,6 +50,7 @@ const WeaponSlotsScript  := preload("res://scripts/ui/hud/arena_weapon_slots.gd"
 const AuxSlotsScript     := preload("res://scripts/ui/hud/arena_aux_slots.gd")         # 5-slot aux-item HUD (row below weapons)
 const ArenaRuinLayerScript := preload("res://scripts/gameplay/arena_ruin_layer.gd")
 const ArenaSmallRuinLayerScript := preload("res://scripts/gameplay/arena_small_ruin_layer.gd")
+const RubiconTempleLayerScript := preload("res://scripts/gameplay/rubicon/rubicon_temple_layer.gd")
 const ArenaHudButtonsScript := preload("res://scripts/ui/hud/arena_hud_buttons.gd")
 const CreepInfoPanelScript  := preload("res://scripts/ui/hud/creep_info_panel.gd")
 const BossEditScript        := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
@@ -131,6 +134,7 @@ var _map_id: String = "default"        # MetaManager.selected_map_id, snapshotte
 var _rubicon_ground: CanvasLayer = null
 var _rubicon_clouds: Node2D = null
 var _rubicon_trees: Node2D = null
+var _rubicon_sparks: Node2D = null
 
 func _ready() -> void:
 	# TEMP DIAGNOSTIC — timing breakdown for the "arena load takes ~5s" report. Mirrors main_menu.gd's
@@ -148,6 +152,9 @@ func _ready() -> void:
 	# Run ends → back to the hub (death; rebirth charges are consumed first).
 	if GameManager.has_signal("ship_destroyed"):
 		GameManager.ship_destroyed.connect(_on_run_ended)
+	# A timeline's designated final boss going down to the PLAYER (not the ship dying) — victory framing.
+	if GameManager.has_signal("final_boss_defeated"):
+		GameManager.final_boss_defeated.connect(_on_final_boss_defeated)
 	# Depth-of-field: all non-gameplay layers render into the DoF SubViewport (blurred/dimmed/desaturated
 	# behind the sharp gameplay plane). bg is that SubViewport; parallax/streaming are unchanged because its
 	# camera is synced to the main camera each frame.
@@ -188,7 +195,10 @@ func _ready() -> void:
 	add_child(_hud_buttons)
 	add_child(CreepInfoPanelScript.new())   # dev-mode Creep Info table (group "creep_info") — toggled by the HUD button
 	print("[arena-startup]   hud_buttons: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
-	_build_parallax(bg)
+	if _map_id != "rubicon":   # space-only starfield — was building unconditionally, so it also composited
+		_build_parallax(bg)     # into Rubicon's DoF background as faint near-static dark smudges (the DoF blur
+	# shader blurs each dot's RGB against the SubViewport's transparent surroundings then dims — reads fine
+	# over black space, reads as dirt/dust specks over a jungle canopy) — see the bug report this fixed.
 	print("[arena-startup]   _build_parallax (procedural star tex ×%d layers): %.1fms" % [STAR_LAYERS.size(), (Time.get_ticks_usec() - _t0) / 1000.0]); _t0 = Time.get_ticks_usec()
 	_build_player()
 	print("[arena-startup] _build_player (incl. 3D ship SubViewport + GLB load): %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
@@ -232,6 +242,7 @@ func _ready() -> void:
 	call_deferred("_setup_hud_edit")     # authored playerhud = the live HUD (replaces the hidden cockpit HUD)
 	if _map_id == "rubicon":
 		call_deferred("_setup_rubicon_terrain_edit")
+		call_deferred("_setup_rubicon_light_edit")
 	call_deferred("_open_start_chest")   # grant every Loadout pick, then chest-offer any slots still empty
 
 ## Rubicon map background: procedural blue/dark-sand ground + scattered trees/temples + parallax clouds
@@ -253,6 +264,9 @@ func _build_rubicon_background() -> void:
 	add_child(_rubicon_trees)
 	_rubicon_clouds = RubiconCloudsScript.new()
 	add_child(_rubicon_clouds)
+	_rubicon_sparks = RubiconSparksScript.new()
+	add_child(_rubicon_sparks)   # topmost decorative layer — floating light-catching motes drift in front of everything
+	add_child(RubiconTempleLayerScript.new())   # giant temple boss landmark — 2 at run start + 1/3min, drops orb of light
 
 ## Canvas glow/bloom for the arena. With hdr_2d on (project.godot) + glow_hdr_threshold 1.0, only HDR (>1)
 ## pixels bloom — i.e. the DynamicFire effects that set glow>0 (Elephant M2, Red X). LDR content is untouched.
@@ -666,6 +680,7 @@ func _process(delta: float) -> void:
 		var pos: Vector2 = _player.global_position
 		_rubicon_ground.set_world_offset(pos)
 		_rubicon_clouds.set_world_offset(pos)
+		_rubicon_sparks.set_world_offset(pos)
 		var vp_size: Vector2 = get_viewport().get_visible_rect().size
 		_rubicon_trees.update_view(pos, vp_size)
 	if USE_PLACEHOLDER_FIRE:
@@ -805,6 +820,12 @@ func _setup_hud_edit() -> void:
 func _setup_rubicon_terrain_edit() -> void:
 	add_child(RubiconTerrainEditScript.new())
 
+## Rubicon-only: the LIGHT EDIT dev panel (canopy normal-map lighting angle/height/ambient/specular — see
+## scripts/ui/hud/rubicon_light_edit.gd). Group "rubicon_light_edit" is how arena_hud_buttons.gd's LIGHT EDIT
+## button finds it, same convention as rubicon_terrain_edit.
+func _setup_rubicon_light_edit() -> void:
+	add_child(RubiconLightEditScript.new())
+
 ## Hide the gameplay + all HUD (HP/XP, weapon/aux slots, button clusters, debug panels, player, live enemies)
 ## while a full-screen editor (Creep / Fleet) is open, so only the editor panels + its edit objects show.
 ## Restored when the editor closes. Background/parallax is left in place.
@@ -837,8 +858,9 @@ func _setup_fleet_edit() -> void:
 	fem.setup(oc)
 	print("[arena-startup] (deferred) _setup_fleet_edit: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0))
 
-# ── Run end (death → hub) ───────────────────────────────────────────────────────
+# ── Run end (death → hub, or the timeline's final boss going down to the player) ────────────────────
 var _run_over_shown: bool = false
+var _dock_corner_btn: Button = null   # persistent bottom-right "RETURN TO DOCK" — shown after CONTINUE EXPLORE
 
 func _on_run_ended() -> void:
 	# Phoenix Core passive: spend a revive charge and keep playing instead of ending the run.
@@ -851,7 +873,17 @@ func _on_run_ended() -> void:
 	if _run_over_shown:
 		return
 	_run_over_shown = true
-	call_deferred("_show_run_over")   # ship_destroyed can fire inside a boss tick → defer
+	call_deferred("_show_run_over", false)   # ship_destroyed can fire inside a boss tick → defer
+
+## The timeline's designated final boss (arena_wave_director_v2.gd) went down to the PLAYER, who's still
+## alive — victory framing ("BOSS ELIMINATED", no "last hit by", CONTINUE EXPLORE offered). If the ship also
+## died (e.g. the same hit that killed the boss splashed the player too), _on_run_ended's RUN OVER framing
+## already claimed _run_over_shown — that death always wins over this victory screen.
+func _on_final_boss_defeated() -> void:
+	if _run_over_shown:
+		return
+	_run_over_shown = true
+	call_deferred("_show_run_over", true)
 
 ## Debug-only: jump straight to the RUN OVER screen without a real death — deliberately bypasses the
 ## Phoenix Core / Player 2 revive checks in _on_run_ended (those exist to keep a real run alive, which
@@ -861,26 +893,43 @@ func force_end_run() -> void:
 	if _run_over_shown:
 		return
 	_run_over_shown = true
-	call_deferred("_show_run_over")
+	call_deferred("_show_run_over", false)
 
-func _show_run_over() -> void:
+## `victory` = the player defeated the timeline's final boss (BOSS ELIMINATED, no "last hit by", offers
+## CONTINUE EXPLORE alongside RETURN TO DOCK) vs a real death (RUN OVER, "last hit by" shown, only RETURN
+## TO DOCK). Background is the main-menu art (assets/hud/mainmenu) under a legibility scrim; content sits in
+## a CenterContainer so it's always genuinely centered regardless of its own size (the old anchor-preset
+## approach measured the box BEFORE its children were added, so it drifted off-center as content grew).
+func _show_run_over(victory: bool) -> void:
 	get_tree().paused = true
 	var cl := CanvasLayer.new()
 	cl.layer = 200
 	cl.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(cl)
+	var bg := TextureRect.new()
+	var bg_tex := load("res://assets/hud/mainmenu/background.png") as Texture2D
+	if bg_tex != null:
+		bg.texture = bg_tex
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cl.add_child(bg)
 	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.78)
+	dim.color = Color(0, 0, 0, 0.55)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	cl.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cl.add_child(center)
 	var box := VBoxContainer.new()
-	box.set_anchors_preset(Control.PRESET_CENTER)
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_theme_constant_override("separation", 18)
-	cl.add_child(box)
+	center.add_child(box)
 	var title := Label.new()
-	title.text = "RUN OVER"
+	title.text = "BOSS ELIMINATED" if victory else "RUN OVER"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var tf := load("res://assets/fonts/Good Old DOS.ttf") as Font
 	if tf != null:
@@ -895,25 +944,67 @@ func _show_run_over() -> void:
 	sub.add_theme_font_size_override("font_size", 22)
 	sub.add_theme_color_override("font_color", Color(0.8, 0.82, 0.88))
 	box.add_child(sub)
-	_build_run_over_stats(box)
-	var btn := Button.new()
-	btn.text = "RETURN TO DOCK"
-	btn.custom_minimum_size = Vector2(260, 56)
-	btn.add_theme_font_size_override("font_size", 22)
-	btn.pressed.connect(func() -> void:
+	_build_run_over_stats(box, victory)
+	var btn_row := HBoxContainer.new()
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	btn_row.add_theme_constant_override("separation", 16)
+	box.add_child(btn_row)
+	var dock_btn := Button.new()
+	dock_btn.text = "RETURN TO DOCK"
+	dock_btn.custom_minimum_size = Vector2(260, 56)
+	dock_btn.add_theme_font_size_override("font_size", 22)
+	dock_btn.pressed.connect(func() -> void:
 		get_tree().paused = false
 		get_tree().change_scene_to_file("res://scenes/hub.tscn"))
-	box.add_child(btn)
+	btn_row.add_child(dock_btn)
+	if victory:
+		var continue_btn := Button.new()
+		continue_btn.text = "CONTINUE EXPLORE"
+		continue_btn.custom_minimum_size = Vector2(260, 56)
+		continue_btn.add_theme_font_size_override("font_size", 22)
+		continue_btn.pressed.connect(func() -> void:
+			cl.queue_free()
+			get_tree().paused = false
+			_run_over_shown = false   # a later real death must still be able to show RUN OVER
+			_show_dock_corner_button())
+		btn_row.add_child(continue_btn)
 
-## RUN OVER stats: kills, per-weapon damage + DPS (damage / GameManager.run_time — weapons dealing 0 are
-## skipped), total damage, and "last hit by" (name + icon of whoever most recently damaged the player —
+## Persistent bottom-right RETURN TO DOCK — shown once the player picks CONTINUE EXPLORE after the boss
+## victory screen (no more creeps spawn from here on; this is just a manual "I'm done" affordance for
+## whenever they're ready, e.g. after flying to the Rubicon temples for blueprints).
+func _show_dock_corner_button() -> void:
+	if _dock_corner_btn != null and is_instance_valid(_dock_corner_btn):
+		return
+	var cl := CanvasLayer.new()
+	cl.layer = 90
+	cl.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(cl)
+	var btn := Button.new()
+	btn.text = "RETURN TO DOCK"
+	btn.custom_minimum_size = Vector2(200, 48)
+	btn.add_theme_font_size_override("font_size", 18)
+	btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	btn.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	btn.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	btn.offset_left = -220.0
+	btn.offset_top = -68.0
+	btn.offset_right = -20.0
+	btn.offset_bottom = -20.0
+	btn.pressed.connect(func() -> void:
+		get_tree().change_scene_to_file("res://scenes/hub.tscn"))
+	cl.add_child(btn)
+	_dock_corner_btn = btn
+
+## RUN OVER / BOSS ELIMINATED stats: kills, per-weapon damage + DPS (damage / GameManager.run_time —
+## weapons dealing 0 are skipped) as an icon+name+dmg+dps TABLE, total damage, and (death only — `victory`
+## suppresses this row entirely) "last hit by" (name + icon of whoever most recently damaged the player —
 ## see GameManager.record_last_hit / arena_enemy.gd/arena_enemy_manager.gd's call sites; boss-specific
 ## attacks aren't covered, a scoped/accepted gap). damage_stats() only covers the MAIN weapons instance —
 ## Player 2 companion damage (a separate arena_weapons.gd instance) isn't included either, same reasoning.
-func _build_run_over_stats(box: VBoxContainer) -> void:
+func _build_run_over_stats(box: VBoxContainer, victory: bool) -> void:
 	var panel := VBoxContainer.new()
 	panel.add_theme_constant_override("separation", 4)
-	panel.custom_minimum_size = Vector2(360.0, 0.0)
+	panel.custom_minimum_size = Vector2(420.0, 0.0)
 	box.add_child(panel)
 	panel.add_child(_run_over_stat_label("Creeps Killed: %d" % GameManager.run_kills))
 
@@ -922,6 +1013,12 @@ func _build_run_over_stats(box: VBoxContainer) -> void:
 	var run_t := maxf(1.0, GameManager.run_time)
 	var kinds: Array = dmg_stats.keys()
 	kinds.sort_custom(func(a, b): return float(dmg_stats[a]) > float(dmg_stats[b]))   # highest damage first
+
+	var grid := GridContainer.new()
+	grid.columns = 3   # icon | name | dmg (dps)
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 4)
+	panel.add_child(grid)
 	var total_dmg := 0.0
 	for kind: String in kinds:
 		var d := float(dmg_stats[kind])
@@ -929,10 +1026,21 @@ func _build_run_over_stats(box: VBoxContainer) -> void:
 			continue   # weapons that dealt 0 damage don't need a row
 		total_dmg += d
 		var name_s := String(aw.call("weapon_display_name", kind)) if aw != null else kind
-		panel.add_child(_run_over_stat_label("%s: %d dmg  (%.1f/s)" % [name_s, int(round(d)), d / run_t]))
+		var tex: Texture2D = (aw.call("weapon_icon_tex", kind) as Texture2D) if (aw != null and aw.has_method("weapon_icon_tex")) else null
+		grid.add_child(_run_over_icon(tex))
+		var name_lbl := _run_over_stat_label(name_s)
+		name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_lbl.custom_minimum_size = Vector2(140.0, 0.0)
+		grid.add_child(name_lbl)
+		var dmg_lbl := _run_over_stat_label("%d dmg  (%.1f/s)" % [int(round(d)), d / run_t])
+		dmg_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		dmg_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		dmg_lbl.custom_minimum_size = Vector2(140.0, 0.0)
+		grid.add_child(dmg_lbl)
 	panel.add_child(_run_over_stat_label("Total Damage: %d" % int(round(total_dmg))))
 
-	if GameManager.last_hit_name != "":
+	if not victory and GameManager.last_hit_name != "":
 		var row := HBoxContainer.new()
 		row.alignment = BoxContainer.ALIGNMENT_CENTER
 		row.add_theme_constant_override("separation", 8)
@@ -940,14 +1048,17 @@ func _build_run_over_stats(box: VBoxContainer) -> void:
 		if GameManager.last_hit_icon != "":
 			tex = load(GameManager.last_hit_icon) as Texture2D
 		if tex != null:
-			var tr := TextureRect.new()
-			tr.texture = tex
-			tr.custom_minimum_size = Vector2(28.0, 28.0)
-			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-			tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-			row.add_child(tr)
+			row.add_child(_run_over_icon(tex))
 		row.add_child(_run_over_stat_label("Last hit by: " + GameManager.last_hit_name))
 		panel.add_child(row)
+
+func _run_over_icon(tex: Texture2D) -> Control:
+	var tr := TextureRect.new()
+	tr.texture = tex
+	tr.custom_minimum_size = Vector2(28.0, 28.0)
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	return tr
 
 func _run_over_stat_label(text: String) -> Label:
 	var l := Label.new()

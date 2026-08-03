@@ -6,8 +6,11 @@ extends Node2D
 ##   - Overlays the divinity sprite ON TOP of the ship (z_index = ship's SHIP_Z + 1, screen blend), rotating
 ##     with the ship for free since it's parented to it. Flickers, then slows down and fades out over the
 ##     final WARN_T seconds, disappearing exactly as the buff ends.
-##   - Instantly kills any non-boss enemy touching the ship every frame; a touching boss instead takes
-##     BOSS_DPS per second (normal armor/mitigation applies, same as any other damage source).
+##   - Instantly kills any touching enemy every frame EXCEPT boss / Elite Creep / Champion Creep
+##     (arena_enemy.gd's `_is_elite` — both tiers, see arena_wave_director_v2.gd's _spawn_tiered_creep;
+##     there's no flag distinguishing Elite from Champion at the instance level, so both are one bucket
+##     here) — those instead take RESIST_DPS per second (normal armor/mitigation applies, same as any
+##     other damage source), so a well-timed divinity can't casually delete a boss or a beefed-up creep.
 ##   - Grants full damage immunity for the whole DURATION via GameManager.activate_shield() — while the
 ##     ship is glowing/growing it can't lose HP or shield to enemy contact (or anything else).
 ##   - In the final WARN_T seconds the ship shrinks back to its pre-buff size too.
@@ -19,7 +22,7 @@ const WARN_T         := 2.5    # final seconds: shrink back + flicker slows to a
 const SHIP_RADIUS    := 16.0   # matches arena.gd's PLAYER_RADIUS / arena_enemy.gd's ship-contact constant
 const SHIP_Z         := 100    # must match arena.gd's SHIP_Z — the overlay draws at SHIP_Z + 1, just above the ship sprite
 const SPRITE_WIDTH   := 70.0   # overlay sprite's on-ship width (unscaled by the grow animation)
-const BOSS_DPS       := 200.0
+const RESIST_DPS     := 300.0   # dmg/s dealt to boss/Elite Creep/Champion Creep instead of an instant kill
 const BLINK_FREQ_MAX := 5.0    # Hz, fast flicker while at full power
 
 var _t: float = 0.0
@@ -110,7 +113,7 @@ func _kill_touching_enemies(delta: float) -> void:
 		var enr: float = float(en.get("hit_radius")) if en.get("hit_radius") != null else 0.0
 		if _player.global_position.distance_to(en2.global_position) > ship_r + enr:
 			continue
-		if en.is_in_group("boss"):
-			en.take_damage(BOSS_DPS * delta)   # continuous DPS, normal armor mitigation applies
+		if en.is_in_group("boss") or bool(en.get("_is_elite")):
+			en.take_damage(RESIST_DPS * delta)   # continuous DPS, normal armor mitigation applies
 		else:
 			en.take_damage(99999.0, 0.0, 0.0, true)   # instant kill, ignores armor

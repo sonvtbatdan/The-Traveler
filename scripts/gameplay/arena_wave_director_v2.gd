@@ -26,6 +26,15 @@ const MAX_ALIVE_V2   := 120     # hard cap on live "arena_enemy" nodes
 const SPAWN_BUDGET   := 4       # max enemy nodes instantiated per frame (drains _spawn_queue)
 const DESPAWN_INTERVAL := 0.5   # throttle for the despawn/teleport sweep — corrective, not per-frame
 
+# ══ Wave cadence — a 2-minute "wave" cycle with a quiet tail: the last WAVE_QUIET_TAIL seconds of every
+# WAVE_INTERVAL-second block spawn NOTHING (a breather right before the next wave), whether the source is
+# the ambient/cluster/wall loop or the Elite/Champion Creep timers — see _in_wave_quiet_window(), gated in
+# _tick_spawn_loop()/_drain_spawn_queue() and _tick_elite_creep()/_tick_champion_creep(). Deliberately does
+# NOT gate the F7-authored timeline (_tl_tick) — those spawns are hand-placed at specific times by the level
+# designer, not something a generic periodic rule should silently eat.
+const WAVE_INTERVAL   := 120.0
+const WAVE_QUIET_TAIL := 10.0
+
 # ══ Pattern tunables ═══════════════════════════════════════════════════════════
 const CLUSTER_N_MIN   := 10
 const CLUSTER_N_MAX   := 50
@@ -45,15 +54,6 @@ const AGONY_TIME_INTERVAL := 300.0   # +1 rank every 5 minutes survived (paused 
 const AGONY_RATE_PER_RANK := 0.3     # flat enemies/sec added to the spawn rate per rank
 const FASTKILL_WINDOW := 1.0         # seconds — rolling window for the fast-kill check
 const FASTKILL_COUNT  := 20          # kills within FASTKILL_WINDOW → +1 rank (once per crossing, not per frame)
-
-# ══ Champion — a stronger, gold-ringed spawn on its own timer, independent of the ambient/cluster/wall
-# spawn loop and NOT gated by MAX_ALIVE_V2 (bosses/elites already bypass the cap in v1; same rule here).
-const CHAMPION_BASE_TIME     := 150.0  # base time between Champions (2:30), at Agony Rank 0
-const CHAMPION_TIME_PER_RANK := 9.0    # each rank shaves this many seconds off the interval
-const CHAMPION_TIME_FLOOR    := 30.0   # interval never drops below this regardless of rank
-const CHAMPION_HP_MULT    := 50.0   # HP mult still matches v1's milestone elites (elite_fly/bug/bee)
-const CHAMPION_SIZE_MULT  := 2.0    # exactly double a normal creep's size (was 3× — v1's elite HP/size multiplier, no longer used for size here)
-const CHAMPION_SPEED_MULT := 1.5
 
 # ══ Test roster — one enemy per new steering behavior, stats/sprite/count-weight taken straight from
 # v1's own early/low-tier roster (arena_wave_director.ENEMY_DEFS) so spawn_mode_2 fields the SAME kind
@@ -111,7 +111,7 @@ const START_BOOST_DECAY_T  := 60.0   # seconds to linearly decay 3× → 1× onc
 #     honor "never spawn in view" the same way the continuous loop does.
 #   • elapsed() is TIMELINE-relative (seconds since the timeline currently loaded was applied), not the
 #     overall run clock — set_timeline() stamps _tl_start_t = _run_t. Reason: _run_t also drives Agony
-#     Rank / unlock times / Champion timing and must never reset; but row times authored as "5, 10, 15…"
+#     Rank / unlock times / Elite Creep's start delay and must never reset; but row times authored as "5, 10, 15…"
 #     should always replay from their own start, whenever in the run you hit Apply, not skip ahead.
 #   • Boss entries bypass the alive-cap (via _spawn_def's is_boss); ordinary timeline entries share
 #     MAX_ALIVE_V2 with the continuous loop's own spawns (both funnel through the same cap check).
@@ -152,6 +152,17 @@ var _tl_next: int = 0         # index into _tl_fire_queue of the next entry to f
 var _tl_streams: Array = []   # active "stream" entries: {type, left, dur, elapsed, r0, ramp, credit, is_boss, ...}
 var _tl_seen_types: Dictionary = {}   # set of "safe" (non-boss/elite/blob) type ids the timeline has fired SO FAR — read by _reinforce_type()
 
+# ── Final-boss encounter: a timeline whose LAST entry is a solo is_boss spawn gets special handling —
+# instead of firing at its authored time regardless of the field, it's pulled OUT of the normal fire queue
+# and held until every earlier entry has fired, its own authored time has passed, AND the field is
+# completely clear (alive == 0) — a deliberate "clear everything, then the boss shows up" finale. Once
+# waiting begins, reinforcement (catch-up burst + Elite/Champion Creep) is locked off for the rest of the
+# timeline so the field can actually reach zero instead of being perpetually topped back up.
+var _final_boss_entry: Dictionary = {}
+var _final_boss_pending: bool = false
+var _final_boss_node: Node = null
+var _reinforcement_locked: bool = false
+
 # ══ Runtime ════════════════════════════════════════════════════════════════════
 var ENEMY_DEFS_V2: Dictionary = {}   # built in _ready(): TEST_ROSTER resolved against V1.ENEMY_DEFS
 var ENEMY_DEFS: Dictionary = {}   # V1.ENEMY_DEFS duplicated + ENEMY_DEFS_V2 merged in (see _ready)
@@ -170,7 +181,6 @@ var _agony_time_acc: float = 0.0
 var _last_run_kills: int = 0     # last-seen GameManager.run_kills, to diff new kills per frame
 var _kill_times: Array = []      # timestamps (_run_t) of recent kills, trimmed to the last FASTKILL_WINDOW
 var _fastkill_armed: bool = true # edge-trigger guard: re-arms once the rolling count drops back below threshold
-var _champion_acc: float = 0.0
 
 # ── Minimum-population catch-up state ──
 var _low_count_timer: float = 0.0
@@ -183,8 +193,8 @@ var _start_boost_t: float = 0.0
 # XP is proportional to HP, ratio pinned to v1's own "fly" (its very first intro enemy): xp/hp there is
 # 10.0/20.0 = 0.5 XP per HP (2026-07-28: every XP source, incl. fly's, scaled ×10 — was 1.0/20.0 = 0.05).
 # Applied to every test-roster def's BASE hp (pre the automatic ×2 HP/XP tune in arena_enemy.configure() —
-# since both sides double equally, the ratio survives the tune unchanged), and reapplied after Champion's
-# hp scaling so a Champion's XP scales right along with its HP. Read live from ENEMY_DEFS in _ready() below
+# since both sides double equally, the ratio survives the tune unchanged), and reapplied after Elite Creep's
+# hp scaling so an Elite Creep's XP scales right along with its HP. Read live from ENEMY_DEFS in _ready() below
 # (this initial value is just a placeholder, immediately overwritten), so it self-propagates automatically
 # whenever fly's own "xp"/"hp" change — no separate edit needed here for future re-tunes.
 var _xp_per_hp: float = 0.5
@@ -259,7 +269,7 @@ func get_timeline() -> Array:
 	return timeline
 
 ## Replace the timeline and restart its playback from "t=0" relative to right now (see the class-level
-## comment on elapsed() above for why this doesn't touch _run_t/Agony/Champion state). Also rebuilds the
+## comment on elapsed() above for why this doesn't touch _run_t/Agony/Elite-Creep state). Also rebuilds the
 ## gap-spread firing queue (_tl_fire_queue) — see the class-level comment on gap-spread.
 func set_timeline(entries: Array) -> void:
 	timeline = entries.duplicate(true)
@@ -269,6 +279,32 @@ func set_timeline(entries: Array) -> void:
 	_tl_next = 0
 	_tl_streams.clear()
 	_tl_seen_types.clear()
+	# See the class-level comment on _final_boss_entry: the LATEST-timed solo is_boss spawn in the whole
+	# timeline is pulled out of the normal fire queue and held until the field clears. Found by scanning
+	# every entry for the max "time" among is_boss/non-fleet/count<=1 candidates — NOT just checking
+	# _tl_fire_queue's last array index, because the authored grid's final row commonly holds SEVERAL
+	# entries at the exact same timestamp (e.g. the boss alongside a closing wave of regular creeps), and
+	# Array.sort_custom() is not a stable sort: ties can land in any order, so the boss entry isn't
+	# guaranteed to end up literally last even though it shares the timeline's latest timestamp.
+	_final_boss_entry = {}
+	_final_boss_pending = false
+	_final_boss_node = null
+	_reinforcement_locked = false
+	var _fb_idx := -1
+	var _fb_time := -INF
+	for i in _tl_fire_queue.size():
+		var e: Dictionary = _tl_fire_queue[i]
+		if not bool(e.get("is_boss", false)):
+			continue
+		if String(e.get("type", "")).begins_with("fleet:") or int(e.get("count", 1)) > 1:
+			continue
+		var et := float(e.get("time", 0.0))
+		if et > _fb_time:
+			_fb_time = et
+			_fb_idx = i
+	if _fb_idx >= 0:
+		_final_boss_entry = _tl_fire_queue[_fb_idx]
+		_tl_fire_queue.remove_at(_fb_idx)
 
 ## Expand `sorted` (already time-sorted) into the actual firing queue: a filled entry that follows a gap
 ## since the previous entry has its count divided evenly across every ~GRID_SPREAD_STEP tick spanning that
@@ -332,7 +368,8 @@ func _process(delta: float) -> void:
 	_tick_agony_fastkill()
 	_tick_low_count_watch(delta, alive)
 	_tick_start_boost(delta, alive)
-	_tick_champion(delta)
+	_tick_elite_creep(delta)
+	_tick_champion_creep(delta)
 	_tick_spawn_loop(delta, alive)
 	_tl_tick(delta)
 	_drain_spawn_queue()
@@ -371,6 +408,8 @@ func _tick_agony_fastkill() -> void:
 ## edge only) plus the ongoing rate climb in _tick_spawn_loop; it clears itself once alive reaches
 ## CATCHUP_TARGET.
 func _tick_low_count_watch(delta: float, alive: int) -> void:
+	if _reinforcement_locked:
+		return   # waiting for (or past) the timeline's final-boss finale — the field must reach zero, never topped back up
 	if alive < LOW_COUNT_THRESHOLD:
 		_low_count_timer += delta
 		if _low_count_timer >= LOW_COUNT_GRACE and not _catchup_active:
@@ -407,35 +446,123 @@ func _start_boost_mult() -> float:
 	var f := clampf(_start_boost_t / START_BOOST_DECAY_T, 0.0, 1.0)
 	return lerpf(START_BOOST_MULT, 1.0, f)
 
-func _champion_interval() -> float:
-	return maxf(CHAMPION_TIME_FLOOR, CHAMPION_BASE_TIME - CHAMPION_TIME_PER_RANK * float(_agony_rank))
+# ══ Tiered Creeps (Elite / Champion) — two independent escalation tracks, each on its own flat timer,
+# promoting the current wave's OWN weakest (lowest-HP) NOT-YET-PROMOTED creep type into a bigger/tougher
+# version — see _spawn_tiered_creep()/_weakest_wave_type() below. Champion is the bigger/rarer/later tier
+# (3× size, 75× HP, every 60s from 2:30) layered on top of Elite (2× size, 35× HP, every 30s from 1:30);
+# each tier tracks its OWN "already promoted" set independently, so Elite and Champion each escalate through
+# the wave's roster on their own schedule rather than sharing progress. This is now the ONLY milestone-elite
+# mechanic in the game (2026-08-02: replaced v1's 3 fixed, scripted, insect-only elite_fly/bug/bee entries —
+# see arena_wave_director.gd's ENEMY_DEFS/DEFAULT_TIMELINE — and, same day, the old single-tier "Champion"
+# mechanic that used to live here as a random-archetype, fully knockback-immune, gold-ringed spawn). Both
+# tiers are flagged "elite" (cap-bypass + grant_reward on death — see arena_enemy.gd's _is_elite) and only
+# 50% as resistant to knockback (arena_enemy.gd's "knockback_mult", overriding the elite-implies-full-
+# immunity default) and "no_downscale" (load the full HD source sprite — at 2-3× a normal creep's footprint,
+# the pre-baked-downscale copy, sized for the type's NORMAL on-screen size, would visibly blur once
+# stretched up).
+const ELITE_CREEP_START_DELAY    := 90.0
+const ELITE_CREEP_INTERVAL       := 30.0
+const ELITE_CREEP_HP_MULT        := 35.0
+const ELITE_CREEP_SIZE_MULT      := 2.0
+const ELITE_CREEP_KNOCKBACK_MULT := 0.5
 
-func _tick_champion(delta: float) -> void:
-	_champion_acc += delta
-	if _champion_acc < _champion_interval():
+const CHAMPION_CREEP_START_DELAY    := 150.0
+const CHAMPION_CREEP_INTERVAL       := 60.0
+const CHAMPION_CREEP_HP_MULT        := 75.0
+const CHAMPION_CREEP_SIZE_MULT      := 3.0
+const CHAMPION_CREEP_KNOCKBACK_MULT := 0.5
+
+var _elite_creep_acc: float = 0.0
+var _elite_creep_used: Dictionary = {}      # type ids already promoted to an Elite Creep this run — see _weakest_wave_type
+var _champion_creep_acc: float = 0.0
+var _champion_creep_used: Dictionary = {}   # same idea, tracked separately for the Champion tier
+
+func _tick_elite_creep(delta: float) -> void:
+	if _reinforcement_locked:
+		return   # waiting for (or past) the timeline's final-boss finale — no more milestone spawns either
+	if _run_t < ELITE_CREEP_START_DELAY:
 		return
-	_champion_acc = 0.0
-	_spawn_champion()
+	_elite_creep_acc += delta
+	if _elite_creep_acc < ELITE_CREEP_INTERVAL:
+		return
+	_elite_creep_acc = 0.0
+	if _in_wave_quiet_window():
+		return   # this beat lands in the quiet tail of a wave interval — skipped outright, not delayed
+	_spawn_tiered_creep(_elite_creep_used, ELITE_CREEP_SIZE_MULT, ELITE_CREEP_HP_MULT, ELITE_CREEP_KNOCKBACK_MULT)
 
-## A Champion is one of the 4 test-roster archetypes (random pick) scaled up with v1's own milestone-elite
-## multipliers (CHAMPION_HP/SIZE/SPEED_MULT) and flagged "elite" (bypasses MAX_ALIVE_V2, grants a reward on
-## death — same as v1's elite_fly/bug/bee) plus "champion" (arena_enemy.gd draws the gold ring). Spawned
-## straight into the annulus like any other enemy, bypassing the normal spawn-loop's room budget (same
-## exemption v1 gives bosses/elites).
-func _spawn_champion() -> void:
+func _tick_champion_creep(delta: float) -> void:
+	if _reinforcement_locked:
+		return   # waiting for (or past) the timeline's final-boss finale — no more milestone spawns either
+	if _run_t < CHAMPION_CREEP_START_DELAY:
+		return
+	_champion_creep_acc += delta
+	if _champion_creep_acc < CHAMPION_CREEP_INTERVAL:
+		return
+	_champion_creep_acc = 0.0
+	if _in_wave_quiet_window():
+		return
+	_spawn_tiered_creep(_champion_creep_used, CHAMPION_CREEP_SIZE_MULT, CHAMPION_CREEP_HP_MULT, CHAMPION_CREEP_KNOCKBACK_MULT)
+
+## Shared by both tiers — `used` is that tier's own promoted-types set (_elite_creep_used or
+## _champion_creep_used), kept independent so Elite and Champion each escalate through the wave's roster on
+## their own schedule instead of sharing progress.
+func _spawn_tiered_creep(used: Dictionary, size_mult: float, hp_mult: float, knockback_mult: float) -> void:
 	if _player == null or not is_instance_valid(_player):
 		return
-	var base_type: String = _rand_test_type()   # respects TYPE_UNLOCK_TIME — no charger champion before charger itself has unlocked
-	var def: Dictionary = (ENEMY_DEFS_V2.get(base_type, {}) as Dictionary).duplicate()
-	if def.is_empty():
+	var base_type := _weakest_wave_type(used)
+	var base_def: Dictionary = ENEMY_DEFS.get(base_type, {})
+	if base_def.is_empty():
 		return
-	def["hp"] = float(def.get("hp", 30.0)) * CHAMPION_HP_MULT
-	def["size"] = float(def.get("size", 16.0)) * CHAMPION_SIZE_MULT
-	def["speed"] = float(def.get("speed", 95.0)) * CHAMPION_SPEED_MULT
+	used[base_type] = true   # so this tier's NEXT spawn escalates to a different type instead of repeating this one
+	var def := base_def.duplicate()
+	# draw_w must be computed from the UN-scaled base_def (base_draw_width falls back to def["size"] × a
+	# fixed ratio when there's no creep_layout.cfg entry) — compute it BEFORE def["size"] is overwritten below.
+	def["draw_w"] = EnemyScript.base_draw_width(base_def) * size_mult
+	def["size"] = float(def.get("size", 16.0)) * size_mult
+	def["hp"] = float(def.get("hp", 30.0)) * hp_mult
 	def["xp"] = float(def["hp"]) * _xp_per_hp   # recompute AFTER the hp scale so XP stays proportional to HP
-	def["elite"] = true      # cap-bypass + grant_reward on death (arena_enemy.gd _is_elite)
-	def["champion"] = true   # gold-ring visual only (arena_enemy.gd _is_champion)
+	def["elite"] = true                    # cap-bypass + grant_reward on death (arena_enemy.gd _is_elite)
+	def["knockback_mult"] = knockback_mult   # override the elite default (full immunity)
+	def["no_downscale"] = true             # load the full HD sprite — see const-block comment above
 	_spawn_def(base_type, def, _annulus_pos(_player.global_position))
+
+## The current wave's own weakest creep type NOT YET in `used` (that tier's own promoted-types set): lowest
+## "hp" (scaled by player level for "lvl": true types, so a per-level base is compared fairly against a flat
+## one — see arena_enemy.gd's configure()) among the distinct, non-elite, non-boss types the loaded
+## timeline's JSON actually rosters ("type" values — fleet: pseudo-ids excluded, they aren't a real
+## ENEMY_DEFS entry; already-elite/boss types excluded — re-eliting an already-elite type or turning a boss
+## into a "creep" elite would be nonsensical). No timeline loaded → falls back to the TEST_TYPES roster.
+## Once every eligible type has had a turn, `used` resets so the cycle continues (weakest → … → strongest →
+## weakest again) rather than that tier quietly going silent for the rest of a long run.
+func _weakest_wave_type(used: Dictionary) -> String:
+	var candidates: Array = []
+	if not timeline.is_empty():
+		var seen := {}
+		for entry: Dictionary in timeline:
+			var t := String(entry.get("type", ""))
+			if t == "" or t.begins_with("fleet:") or seen.has(t):
+				continue
+			seen[t] = true
+			var d: Dictionary = ENEMY_DEFS.get(t, {})
+			if d.is_empty() or bool(d.get("elite", false)) or bool(entry.get("is_boss", false)) or String(d.get("behavior", "")) == "boss_stub":
+				continue
+			candidates.append(t)
+	if candidates.is_empty():
+		candidates = TEST_TYPES.duplicate()
+	var fresh: Array = candidates.filter(func(t: String) -> bool: return not used.has(t))
+	if fresh.is_empty():
+		used.clear()
+		fresh = candidates
+	var best := String(fresh[0])
+	var best_hp := INF
+	for t: String in fresh:
+		var d: Dictionary = ENEMY_DEFS.get(t, {})
+		var lvl_mult := float(GameManager.player_level) if bool(d.get("lvl", false)) else 1.0
+		var hp: float = float(d.get("hp", 0.0)) * lvl_mult
+		if hp < best_hp:
+			best_hp = hp
+			best = t
+	return best
 
 # ── Annulus geometry helpers ────────────────────────────────────────────────────
 func _r_min() -> float:
@@ -465,12 +592,16 @@ func _annulus_pos(center: Vector2, angle: float = NAN) -> Vector2:
 # from t=0, decaying back to 1× once the field first passes 50 alive.
 # When a custom F7 timeline is loaded (`timeline` non-empty), the NORMAL ambient/cluster/wall path steps
 # aside entirely — the timeline becomes the sole source of ordinary spawns, so what's on screen matches
-# exactly what was authored, no "stray" test-roster enemies mixed in. The catch-up path below is NOT
-# gated by this — a population-floor rescue still fires (from the test roster) even with a timeline
-# loaded, so the field can never truly empty out; Champion (_tick_champion, called separately) is also
-# untouched. _spawn_acc deliberately doesn't accumulate while skipped, so returning to a blank timeline
-# later doesn't unleash a built-up burst.
+# exactly what was authored, no "stray" test-roster enemies mixed in. The catch-up path below IS gated by
+# the wave quiet-window (see WAVE_INTERVAL/WAVE_QUIET_TAIL) but NOT by a loaded timeline — a population-floor
+# rescue still fires (from the test roster) even with a timeline loaded, so the field can never truly empty
+# out; Elite/Champion Creep (_tick_elite_creep/_tick_champion_creep, called separately) are also untouched
+# by the timeline check specifically (they have their own quiet-window gate). _spawn_acc deliberately
+# doesn't accumulate while skipped (timeline OR quiet window), so returning to a blank timeline / the next
+# non-quiet window doesn't unleash a built-up burst.
 func _tick_spawn_loop(delta: float, alive: int) -> void:
+	if _in_wave_quiet_window():
+		return
 	if not _catchup_active and not timeline.is_empty():
 		return
 	var cap := CATCHUP_TARGET if _catchup_active else MAX_ALIVE_V2
@@ -523,7 +654,7 @@ func _rand_test_type() -> String:
 ## reinforcement picks from _tl_seen_types (what the timeline has ALREADY spawned; never something from a
 ## later/harder wave that hasn't fired yet — "không vượt cấp"), falling back to the single weakest type
 ## if nothing has fired yet. No timeline loaded → unchanged, the default 4-type roster gated by
-## TYPE_UNLOCK_TIME (same pool Champion still always uses via _rand_test_type(), untouched by this).
+## TYPE_UNLOCK_TIME (same pool _rand_test_type()'s other callers use, untouched by this).
 func _reinforce_type() -> String:
 	if not timeline.is_empty():
 		if not _tl_seen_types.is_empty():
@@ -578,6 +709,15 @@ func _queue_wall(n: int) -> void:
 		var f := (float(k) / float(maxi(1, n - 1))) - 0.5
 		_spawn_queue.append({"type": t, "pos": wcenter + wperp * (f * WALL_WIDTH)})
 
+## True during the last WAVE_QUIET_TAIL seconds of every WAVE_INTERVAL-second block of run time — the
+## breather right before each "wave" transition (see the WAVE_INTERVAL/WAVE_QUIET_TAIL const comment).
+## Deliberately checked only at spawn-DECISION points (_tick_spawn_loop, _tick_elite_creep,
+## _tick_champion_creep), not in _drain_spawn_queue() — that queue is shared with the F7 timeline's own
+## ring/scatter/wall/stream entries, and gating it here would also stall hand-authored timeline spawns that
+## already queued just before the window opened, not just the ambient loop this rule is actually about.
+func _in_wave_quiet_window() -> bool:
+	return fmod(_run_t, WAVE_INTERVAL) >= (WAVE_INTERVAL - WAVE_QUIET_TAIL)
+
 ## Drains up to SPAWN_BUDGET spawns/frame, picking a RANDOM pending entry each time — NOT strict FIFO —
 ## so whichever wave is currently "in front" (e.g. a stream that just dumped its whole count in one frame)
 ## can't monopolize freed room; every source (timeline ring/scatter/wall/cluster, stream, catch-up) shares
@@ -616,12 +756,12 @@ func _effective_cap() -> int:
 	var base := CATCHUP_TARGET if _catchup_active else MAX_ALIVE_V2
 	return int(round(float(base) * spawn_mult))
 
-## Shared instancing path — takes an already-built def directly (Champion spawns a scaled-up variant that
-## isn't a registered ENEMY_DEFS entry; regular spawns just duplicate their def and call straight through).
-## Bosses and "elite" defs (Champion) always spawn — the alive-cap only applies to ordinary enemies, same
+## Shared instancing path — takes an already-built def directly (Elite Creep spawns a scaled-up variant of
+## a real ENEMY_DEFS entry this way; regular spawns just duplicate their def and call straight through).
+## Bosses and "elite" defs (Elite Creep) always spawn — the alive-cap only applies to ordinary enemies, same
 ## rule v1 uses. This is the one authoritative cap check (the continuous loop's own room bookkeeping in
 ## _tick_spawn_loop is just a pre-filter so it doesn't over-queue; this is the final gate everything —
-## continuous loop, timeline, Champion — funnels through).
+## continuous loop, timeline, Elite Creep — funnels through).
 func _spawn_def(type_id: String, def: Dictionary, pos: Vector2, is_boss: bool = false) -> Node:
 	# Unconditional — applies regardless of source (timeline, catch-up, cluster/wall) and ignores the
 	# usual boss/elite cap-bypass, since "missile" itself is never boss/elite. See const comment above.
@@ -643,20 +783,74 @@ func _tl_tick(delta: float) -> void:
 		_tl_fire(_tl_fire_queue[_tl_next])
 		_tl_next += 1
 	_tl_tick_streams(delta)
+	_tick_final_boss(t)
+
+## Final-boss finale: once every earlier entry has fired AND this entry's own authored time has passed,
+## lock reinforcement off and wait for the field to hit zero (real players, real kills — no shortcuts)
+## before spawning the boss alone. See the class-level comment on _final_boss_entry.
+func _tick_final_boss(t: float) -> void:
+	if _final_boss_entry.is_empty() or _final_boss_node != null:
+		return
+	if not _final_boss_pending:
+		if _tl_next < _tl_fire_queue.size() or t < float(_final_boss_entry.get("time", 0.0)):
+			return   # earlier entries (or streams from them) may still be playing out — not yet
+		_final_boss_pending = true
+		_reinforcement_locked = true
+	if not _tl_streams.is_empty() or get_tree().get_node_count_in_group("arena_enemy") > 0:
+		return   # still creeps alive (or a stream still has some left to fire) — keep waiting
+	var type_s := String(_final_boss_entry.get("type", ""))
+	var angle_deg := float(_final_boss_entry.get("angle", NAN))
+	var pattern := String(_final_boss_entry.get("pattern", "ring"))
+	if pattern == "random":
+		pattern = RANDOM_FORMATIONS[randi() % RANDOM_FORMATIONS.size()]
+	elif pattern == "stream" or not (pattern in PATTERNS):
+		pattern = "ring"   # a solo boss spawns once, not trickled in — "stream" (or anything unrecognized) has no single-point meaning here
+	var positions := _tl_pattern_positions(pattern, 1, angle_deg)
+	var pos: Vector2 = positions[0] if not positions.is_empty() \
+			else (_player.global_position if _player != null and is_instance_valid(_player) else Vector2.ZERO)
+	_final_boss_node = _spawn(type_s, pos, true)
+	if _final_boss_node != null:
+		_final_boss_pending = false
+		# Flag it so arena_enemy.gd's _die() knows to fire GameManager.final_boss_defeated on top of its
+		# normal death effects (XP/loot/kill-count all still happen — this is purely additive).
+		_final_boss_node.set("_is_final_boss", true)
+
+## Debug (arena_hud_buttons.gd's BOSS FIGHT button / arena_debug_spawn.gd): skip straight to the timeline's
+## final-boss finale. Silently despawns every currently-alive creep (no rewards — this is a dev shortcut,
+## not a kill) and fast-forwards past every remaining regular wave entry, so _tick_final_boss() spawns the
+## boss on its very next tick. Returns false (no-op) if the loaded timeline has no final-boss entry, or it
+## already spawned/is already pending.
+func debug_jump_to_final_boss() -> bool:
+	if _final_boss_entry.is_empty() or _final_boss_node != null:
+		return false
+	_tl_next = _tl_fire_queue.size()
+	_tl_streams.clear()
+	_reinforcement_locked = true
+	_final_boss_pending = true
+	for e in get_tree().get_nodes_in_group("arena_enemy"):
+		if is_instance_valid(e) and e.has_method("_despawn_stale"):
+			e.call("_despawn_stale")
+	return true
 
 func _tl_fire(entry: Dictionary) -> void:
 	var type_s := String(entry.get("type", ""))
 	var is_boss := bool(entry.get("is_boss", false))
+	var angle_deg := float(entry.get("angle", NAN))   # optional fixed spawn heading (deg); NAN = random
 	if type_s.begins_with("fleet:"):
 		# "n" (count) = how many times the whole formation deploys — same meaning as a Unit slot's count.
+		# "angle" = fixed heading the formation spawns from/advances out of (NAN = random, same as Unit).
+		# "fleet_rotate" = formation-shape rotation applied around its own centroid before placement.
+		# "is_boss" doesn't apply to fleets — every fleet now deploys immediately (bypassing the alive-cap),
+		# same as a mothership formation, since the rigid-dock carrier (_deploy_fleet()) needs a live node
+		# reference to dock escorts onto right away; it can't wait in the shared drained _spawn_queue.
 		# Not registered into _tl_seen_types: catch-up reinforcement spawns ONE type_id via _spawn_def(), it
 		# has no concept of deploying a multi-unit formation, so fleets stay a timeline-only feature.
+		var fleet_rot := float(entry.get("fleet_rotate", 0.0))
 		for i in maxi(1, int(entry.get("count", 1))):
-			_deploy_fleet(type_s.substr(6), is_boss)
+			_deploy_fleet(type_s.substr(6), angle_deg, fleet_rot)
 		return
 	var count := maxi(1, int(entry.get("count", 1)))
 	var pattern := String(entry.get("pattern", "ring"))
-	var angle_deg := float(entry.get("angle", NAN))   # optional fixed spawn heading (deg); NAN = random
 	if not is_boss:
 		# Track "safe" reinforcement candidates as the timeline actually plays out — never a boss, never
 		# an elite-flagged type, never a "blob" type (a rescue shouldn't summon 50 units at once). Read by
@@ -743,9 +937,17 @@ func _tl_queue_or_spawn(type_id: String, pos: Vector2, is_boss: bool) -> void:
 ## so skipped here — v2 already applies its tuning uniformly via arena_enemy.gd's configure(). A
 ## "mothership"-behavior slot deploys via _deploy_mothership_v2() (immediate, self-contained — the carrier
 ## manages its own docked escorts through init_mothership() regardless of which director spawned it, same
-## as v1). Every other (generic) slot rolls ONE enemy from its own pool and joins the shared _spawn_queue —
-## unlike v1's instant _spawn(), this respects MAX_ALIVE_V2 and the fair random drain (_drain_spawn_queue()).
-func _deploy_fleet(fleet_name: String, is_boss: bool) -> void:
+## as v1). Every OTHER (generic) formation now deploys the same way: the largest slot becomes the flagship
+## "carrier" (spawned immediately, running its own def's normal behavior/steering unmodified — real "creep"
+## movement logic), and every other slot rigidly docks onto it via arena_enemy.gd's init_fleet_dock(), so the
+## whole squad glides as one rigid block instead of each unit independently chasing the player and scattering
+## apart from the authored formation shape. Immediate/cap-bypassing for the same reason mothership is: the
+## carrier needs a live node reference to dock the rest onto right away, so it can't wait in _spawn_queue.
+## `spawn_angle_deg` (NAN = random, matches _annulus_pos/_tl_pattern_positions convention) fixes which
+## direction off the player the whole formation appears from/advances out of. `rotate_deg` spins the
+## formation's own shape (each slot's offset from the fleet centroid) around that centroid before placing —
+## independent of spawn_angle_deg, so a formation can face any way regardless of which side it enters from.
+func _deploy_fleet(fleet_name: String, spawn_angle_deg: float = NAN, rotate_deg: float = 0.0) -> void:
 	if _player == null or not is_instance_valid(_player):
 		return
 	var fleet: Dictionary = {}
@@ -755,9 +957,10 @@ func _deploy_fleet(fleet_name: String, is_boss: bool) -> void:
 			break
 	if fleet.is_empty():
 		return
+	var slots_arr: Array = fleet.get("slots", [])
 	var mother_slot: Dictionary = {}
 	var child_slots: Array = []
-	for s: Dictionary in (fleet.get("slots", []) as Array):
+	for s: Dictionary in slots_arr:
 		var ids: Array = []
 		for en in (s.get("enemies", []) as Array):
 			if String(en) != "":
@@ -770,13 +973,53 @@ func _deploy_fleet(fleet_name: String, is_boss: bool) -> void:
 		else:
 			child_slots.append({"ids": ids, "slot": s})
 	if not mother_slot.is_empty():
-		_deploy_mothership_v2(mother_slot, child_slots)
+		_deploy_mothership_v2(mother_slot, child_slots, spawn_angle_deg, rotate_deg)
 		return
-	# Generic formation: enters from a random off-screen annulus point (like every other enemy), keeping
-	# each unit's authored relative offset (Fleet Edit px = world px).
-	var anchor := _annulus_pos(_player.global_position)
+	# Generic formation: the largest (by authored "size") non-empty slot becomes the flagship/carrier.
+	var carrier_idx := -1
+	var carrier_size := -1.0
+	for i in slots_arr.size():
+		var s: Dictionary = slots_arr[i]
+		var has := false
+		for en in (s.get("enemies", []) as Array):
+			if String(en) != "":
+				has = true
+				break
+		if not has:
+			continue
+		var sz := float(s.get("size", 50.0))
+		if sz > carrier_size:
+			carrier_size = sz
+			carrier_idx = i
+	if carrier_idx < 0:
+		return
+	var carrier_slot: Dictionary = slots_arr[carrier_idx]
+	var anchor_angle := deg_to_rad(spawn_angle_deg) if not is_nan(spawn_angle_deg) else NAN
+	var anchor := _annulus_pos(_player.global_position, anchor_angle)
 	var ref := _fleet_centroid(fleet)
-	for s: Dictionary in (fleet.get("slots", []) as Array):
+	var rot := deg_to_rad(rotate_deg)
+	var cpool: Array = []
+	for en in (carrier_slot.get("enemies", []) as Array):
+		if String(en) != "":
+			cpool.append(String(en))
+	var carrier_id := String(cpool[randi() % cpool.size()])
+	var carrier_def: Dictionary = ENEMY_DEFS.get(carrier_id, {})
+	if carrier_def.is_empty():
+		return
+	var cdef := carrier_def.duplicate()
+	cdef["draw_w"] = float(carrier_slot.get("size", 60.0))   # render at the authored Fleet Edit size
+	var carrier := EnemyScript.new()
+	carrier.configure(carrier_id, _mgr, cdef)
+	var carrier_off: Vector2 = (carrier_slot.get("pos", Vector2.ZERO) as Vector2) - ref
+	if not is_zero_approx(rot):
+		carrier_off = carrier_off.rotated(rot)
+	carrier.global_position = anchor + carrier_off
+	get_parent().add_child(carrier)
+	var roster: Array = []
+	for i in slots_arr.size():
+		if i == carrier_idx:
+			continue
+		var s: Dictionary = slots_arr[i]
 		var pool: Array = []
 		for en in (s.get("enemies", []) as Array):
 			if String(en) != "":
@@ -784,11 +1027,11 @@ func _deploy_fleet(fleet_name: String, is_boss: bool) -> void:
 		if pool.is_empty():
 			continue
 		var id := String(pool[randi() % pool.size()])   # random pool → roll one, same as v1
-		var pos := anchor + ((s.get("pos", Vector2.ZERO) as Vector2) - ref)
-		if is_boss:
-			_spawn(id, pos, true)
-		else:
-			_spawn_queue.append({"type": id, "pos": pos})
+		var off: Vector2 = (s.get("pos", Vector2.ZERO) as Vector2) - ref
+		if not is_zero_approx(rot):
+			off = off.rotated(rot)
+		roster.append({"id": id, "base_off": off - carrier_off, "draw_w": float(s.get("size", 50.0))})
+	carrier.init_fleet_dock(roster)
 
 ## Centroid (world px, Fleet Edit's authored px = world px) of a fleet's non-empty slots — the anchor
 ## reference so the formation's relative shape is preserved when placed at a random off-screen point.
@@ -810,7 +1053,7 @@ func _fleet_centroid(fleet: Dictionary) -> Vector2:
 ## arena_wave_director.gd's _deploy_mothership() — self-contained (arena_enemy.gd's init_mothership() runs
 ## the whole flee/release/respawn cycle from here on), so it works identically regardless of which director
 ## spawned it. Deploys immediately, bypassing the population cap — same as v1 (a boss-scale formation).
-func _deploy_mothership_v2(mother_slot: Dictionary, child_slots: Array) -> void:
+func _deploy_mothership_v2(mother_slot: Dictionary, child_slots: Array, spawn_angle_deg: float = NAN, rotate_deg: float = 0.0) -> void:
 	var mslot: Dictionary = mother_slot["slot"]
 	var mpos_screen: Vector2 = mslot.get("pos", Vector2.ZERO)
 	var src: Dictionary = ENEMY_DEFS.get(String(mother_slot["id"]), {})
@@ -820,16 +1063,21 @@ func _deploy_mothership_v2(mother_slot: Dictionary, child_slots: Array) -> void:
 	mdef["draw_w"] = float(mslot.get("size", 60.0))   # render the mother at its authored size (world px)
 	var mother: Node = EnemyScript.new()
 	mother.call("configure", String(mother_slot["id"]), _mgr, mdef)
-	mother.set("global_position", _annulus_pos(_player.global_position))
+	var anchor_angle := deg_to_rad(spawn_angle_deg) if not is_nan(spawn_angle_deg) else NAN
+	mother.set("global_position", _annulus_pos(_player.global_position, anchor_angle))
 	get_parent().add_child(mother)
+	var rot := deg_to_rad(rotate_deg)
 	var roster: Array = []
 	for cs: Dictionary in child_slots:
 		var ids: Array = cs["ids"]
 		var cid := String(ids[randi() % ids.size()])   # random pool → roll one (as the generic deploy)
 		var cslot: Dictionary = cs["slot"]
+		var base_off: Vector2 = (cslot.get("pos", Vector2.ZERO) as Vector2) - mpos_screen
+		if not is_zero_approx(rot):
+			base_off = base_off.rotated(rot)
 		roster.append({
 			"id": cid,
-			"base_off": (cslot.get("pos", Vector2.ZERO) as Vector2) - mpos_screen,
+			"base_off": base_off,
 			"draw_w": float(cslot.get("size", 50.0)),
 			"rot": float(cslot.get("rot", 0.0)),
 		})
@@ -927,8 +1175,13 @@ func _tl_pattern_positions(pattern: String, count: int, angle_deg: float = NAN) 
 ## carrier would also visually snap its whole docked formation), "patrol" (intentionally a one-way flyby
 ## that self-culls via PATROL_CULL — recycling it would fight that design: it'd immediately head back out
 ## along the SAME captured heading and re-exceed R_despawn almost right away, jittering in place instead of
-## either reaching the player or leaving), and any `_docked` escort (pinned to its carrier's relative slot
-## every frame by _ms_update_dock_positions() — teleporting it independently would fight that pin).
+## either reaching the player or leaving), "dummy" (a deliberately-placed STATIONARY landmark — e.g. the
+## dead-ship wrecks/rubicon temple boss, both spawned far away on purpose with their own edge-of-screen
+## pointer arrow + live distance specifically so the player travels TO them; silently teleporting one next to
+## the player would defeat that whole point, and for the temple boss specifically would desync its 2D hit-box
+## from the separate live 3D model rubicon_trees.gd renders at the ORIGINAL spawn position, which this system
+## has no way to move in sync), and any `_docked` escort (pinned to its carrier's relative slot every frame by
+## _ms_update_dock_positions() — teleporting it independently would fight that pin).
 func _tick_despawn_teleport() -> void:
 	if _player == null or not is_instance_valid(_player):
 		return
@@ -938,7 +1191,7 @@ func _tick_despawn_teleport() -> void:
 		if not is_instance_valid(e):
 			continue
 		var beh: String = String(e.get("behavior"))
-		if beh == "boss_stub" or beh == "mothership" or beh == "patrol":
+		if beh == "boss_stub" or beh == "mothership" or beh == "patrol" or beh == "dummy":
 			continue
 		if bool(e.get("_docked")):
 			continue

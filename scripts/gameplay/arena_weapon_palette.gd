@@ -11,20 +11,20 @@ const WEAPONS := [
 	{"kind": "death_beam",  "def_id": "death_beam",       "label": "Laser"},
 	{"kind": "arc",     "def_id": "arc",          "label": "Lightning"},
 	{"kind": "gauss",   "def_id": "gauss", "label": "Gauss"},
-	{"kind": "orbital", "def_id": "defensive_orbitals",     "label": "Defensive Orbitals"},
-	{"kind": "void",    "def_id": "rift_maker",   "label": "Rift Maker"},
-	{"kind": "red_x",   "def_id": "dragons_breath",        "label": "Dragon's Breath"},
+	{"kind": "defensive_orbitals", "def_id": "defensive_orbitals",     "label": "Defensive Orbitals"},
+	{"kind": "rift_maker",    "def_id": "rift_maker",   "label": "Rift Maker"},
+	{"kind": "dragons_breath",   "def_id": "dragons_breath",        "label": "Dragon's Breath"},
 	{"kind": "chemtrail", "def_id": "chemtrail",  "label": "Chemtrail"},
 	{"kind": "mortar",      "def_id": "mortar",          "label": "Little Man"},
-	{"kind": "ultrasonicator",     "def_id": "sonic_wave",    "label": "Ultrasonicator"},
+	{"kind": "ultrasonicator",     "def_id": "ultrasonicator",    "label": "Ultrasonicator"},
 	{"kind": "z_sword",    "def_id": "z_sword",       "label": "Z-Sword"},
 	{"kind": "ionizing_field",    "def_id": "ionizing_field","label": "Ionizer"},
 	{"kind": "aliwa", "def_id": "boomerang",     "label": "Boomerang"},
-	{"kind": "venomancer",  "def_id": "parasite_cloud","label": "Venomancer"},
-	{"kind": "yari", "def_id": "moroboshi",     "label": "Yari"},
-	{"kind": "swarm",     "def_id": "swarm_host",    "label": "Offensive Orbitals"},
-	{"kind": "viper",     "def_id": "space_snake",   "label": "VIPER"},
-	{"kind": "homing",    "def_id": "homing_missile","label": "Homing"},
+	{"kind": "venomancer",  "def_id": "venomancer","label": "Venomancer"},
+	{"kind": "yari", "def_id": "yari",     "label": "Yari"},
+	{"kind": "swarm",     "def_id": "",    "label": "Offensive Orbitals"},
+	{"kind": "viper",     "def_id": "viper",   "label": "VIPER"},
+	{"kind": "homing_missile",    "def_id": "homing_missile","label": "Homing"},
 ]
 
 const THUMB := Vector2(56, 56)
@@ -32,6 +32,7 @@ const THUMB := Vector2(56, 56)
 const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")  # for FUSION_DEFS (fused weapons auto-listed)
 
 var _open := false
+var _prev_paused := false   # tree's paused state from just before we opened — restored on close instead of a blind unpause
 var _panel: Panel = null
 
 ## The base weapons plus every fused weapon (from FUSION_DEFS) — so any fusion auto-appears in F12 for testing.
@@ -200,10 +201,18 @@ func open() -> void:
 	if not _open:
 		_toggle()
 
+## Captures/restores the tree's paused state around this modal (2026-08-02: was a blind
+## `get_tree().paused = _open`, which could clobber an outer pause some other panel/HUD button set — e.g.
+## arena_hud_buttons.gd's dev-mode Pause — since restored-to-false on close regardless of what it was before
+## this opened; see that file's _on_pause() for the "needs 2 clicks" symptom this class of bug caused).
 func _toggle() -> void:
 	_open = not _open
 	visible = _open
-	get_tree().paused = _open
+	if _open:
+		_prev_paused = get_tree().paused
+		get_tree().paused = true
+	else:
+		get_tree().paused = _prev_paused
 
 func _input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):

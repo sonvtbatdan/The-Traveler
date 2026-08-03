@@ -10,8 +10,20 @@ class_name RubiconAssetScan
 ## material maps as if they were tree sprites. Driving off .glb stems sidesteps that entirely.
 
 const FOLDER := "res://assets/map/rubicon/"
+const SCATTER_EXCLUDED := ["temple"]   # landmark/boss objects spawned via a dedicated system
+                                        # (rubicon_temple_layer.gd), NOT the regular density-scatter or the
+                                        # Terrain Edit panel's Assets list — filename stem, case-sensitive.
+const MAPTILE_FOLDER := FOLDER + "maptile/"     # one subfolder per ground tile SET (e.g. "green", "grey") —
+                                                 # each holds the 3 canopy photos that set's ground uses; see
+                                                 # rubicon_ground.gd's apply_maptile_set / Terrain Edit panel's
+                                                 # "Tile Set" dropdown.
+const WATERTILE_FOLDER := FOLDER + "watertile/" # one subfolder per water wave-texture SET (e.g. "B"/"C"/"D",
+                                                 # named after the SeaWaterMaterial variant it's copied from —
+                                                 # see rubicon_ground.gd's apply_water_tile_set / Terrain Edit
+                                                 # panel's "Water Pattern" dropdown).
 
-## Every .glb directly inside FOLDER (not recursive), sorted for stable ordering.
+## Every .glb directly inside FOLDER (not recursive), sorted for stable ordering — excludes
+## SCATTER_EXCLUDED (landmark models loaded directly by their own spawner instead).
 static func glb_paths() -> Array:
 	var out: Array = []
 	var da := DirAccess.open(FOLDER)
@@ -20,12 +32,79 @@ static func glb_paths() -> Array:
 	da.list_dir_begin()
 	var fname := da.get_next()
 	while fname != "":
-		if not da.current_is_dir() and fname.get_extension().to_lower() == "glb":
+		if not da.current_is_dir() and fname.get_extension().to_lower() == "glb" and not SCATTER_EXCLUDED.has(fname.get_basename()):
 			out.append(FOLDER + fname)
 		fname = da.get_next()
 	da.list_dir_end()
 	out.sort()
 	return out
+
+## Every subfolder directly inside `folder`, sorted — shared by maptile_set_names()/watertile_set_names().
+static func _list_subdirs(folder: String) -> Array:
+	var out: Array = []
+	var da := DirAccess.open(folder)
+	if da == null:
+		return out
+	da.list_dir_begin()
+	var fname := da.get_next()
+	while fname != "":
+		if da.current_is_dir() and not fname.begins_with("."):
+			out.append(fname)
+		fname = da.get_next()
+	da.list_dir_end()
+	out.sort()
+	return out
+
+## Every image file directly inside `folder`, sorted — shared by maptile_set_image_paths()/
+## watertile_wave_path(). `exclude_normal` skips "*_normal.png" companion files (see maptile_normal_path).
+static func _list_images(folder: String, exclude_normal: bool) -> Array:
+	var out: Array = []
+	var da := DirAccess.open(folder)
+	if da == null:
+		return out
+	da.list_dir_begin()
+	var fname := da.get_next()
+	while fname != "":
+		var ext := fname.get_extension().to_lower()
+		var is_image := ext == "png" or ext == "jpg" or ext == "jpeg"
+		var is_companion := exclude_normal and fname.to_lower().contains("_normal")
+		if not da.current_is_dir() and is_image and not is_companion:
+			out.append(folder + fname)
+		fname = da.get_next()
+	da.list_dir_end()
+	out.sort()
+	return out
+
+## Every subfolder directly inside MAPTILE_FOLDER, sorted — one entry per available ground tile set. Drives
+## the Terrain Edit panel's "Tile Set" dropdown; adding a new set is just "drop a new subfolder in", no code
+## changes (mirrors glb_paths()' "add a tree = drop a .glb in" convention).
+static func maptile_set_names() -> Array:
+	return _list_subdirs(MAPTILE_FOLDER)
+
+## Every COLOR image file directly inside MAPTILE_FOLDER/set_name/, sorted — positional (1st/2nd/3rd file),
+## NOT filename-pattern-matched, since sets aren't guaranteed to share a naming convention (e.g. "green" ships
+## canopy1/2/3.png, "grey" ships canopy1a/2a/3a.png). Excludes "*_normal.png" companion files (see
+## maptile_normal_path/tools/generate_canopy_normal.py) — those live in the SAME folder but aren't a 4th/5th/6th
+## color tile, they're a per-pixel normal map for one of the first 3.
+static func maptile_set_image_paths(set_name: String) -> Array:
+	return _list_images(MAPTILE_FOLDER + set_name + "/", true)
+
+## The generated tangent-space normal map path for a color image returned by maptile_set_image_paths() — see
+## tools/generate_canopy_normal.py. May not exist (older/future sets not yet processed by that tool); caller is
+## expected to check ResourceLoader.exists() and fall back to a flat neutral normal.
+static func maptile_normal_path(color_path: String) -> String:
+	return color_path.get_basename() + "_normal.png"
+
+## Every subfolder directly inside WATERTILE_FOLDER, sorted — one entry per available water wave-texture set.
+## Drives the Terrain Edit panel's "Water Pattern" dropdown.
+static func watertile_set_names() -> Array:
+	return _list_subdirs(WATERTILE_FOLDER)
+
+## The wave-texture image inside WATERTILE_FOLDER/set_name/ — positional (1st file found), same convention as
+## maptile. Returns "" if the set has no image yet.
+static func watertile_wave_path(set_name: String) -> String:
+	var paths := _list_images(WATERTILE_FOLDER + set_name + "/", false)
+	return String(paths[0]) if not paths.is_empty() else ""
 
 ## Where tools/bake_rubicon_trees.gd writes (icon/reference use) the baked top-down PNG for a given
 ## .glb — same folder, same filename stem, .png extension. NOT used for in-game scattering any more

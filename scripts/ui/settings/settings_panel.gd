@@ -20,6 +20,11 @@ extends CanvasLayer
 ##             Mode (2026-07-28): saved "on" re-arms itself at the START of every arena load
 ##             (perf_overlay.gd._ready() reads it). Live-applied via group "perf_overlay" meanwhile,
 ##             no-op in the Main Menu.
+##   Auto-Aim: switch for the ship auto-facing the nearest enemy instead of the mouse (arena.gd._aim()) —
+##             same underlying flag as arena_hud_buttons.gd's dev-cluster AUTO button, now reachable by
+##             regular players too. Same persisted pattern as Dev Mode/FPS (2026-08-02): saved "on"
+##             re-arms itself at the START of every arena load (arena_hud_buttons.gd._ready() reads it).
+##             Live-applied via group "arena_hud_buttons" meanwhile, no-op in the Main Menu.
 ##   Save    : persist to user://settings.cfg + close.
 ##   Reset   : restore defaults (Volume 100%, Windowed, HUD 1.0, English) live (persisted only if you then Save).
 ##   Cancel  : revert any live change to the snapshot taken on open + close (no save).
@@ -69,6 +74,7 @@ static func load_cfg() -> Dictionary:
 		"language": language,
 		"dev_mode": bool(cfg.get_value("game", "dev_mode", false)),
 		"fps_shown": bool(cfg.get_value("game", "fps_shown", false)),
+		"auto_aim": bool(cfg.get_value("game", "auto_aim", false)),
 	}
 
 static func _language_ids() -> Array:
@@ -107,12 +113,14 @@ var _cur_hud: String = DEF_HUD_VERSION
 var _cur_lang: String = DEF_LANGUAGE
 var _cur_dev: bool = false
 var _cur_fps: bool = false
+var _cur_auto_aim: bool = false
 var _snap_vol: float = DEF_VOLUME
 var _snap_fs:  bool = DEF_FULLSCREEN
 var _snap_hud: String = DEF_HUD_VERSION
 var _snap_lang: String = DEF_LANGUAGE
 var _snap_dev: bool = false
 var _snap_fps: bool = false
+var _snap_auto_aim: bool = false
 var _was_paused: bool = false
 var _updating: bool = false
 
@@ -125,6 +133,7 @@ var _hud_opt: OptionButton = null
 var _lang_opt: OptionButton = null
 var _dev_chk: CheckButton = null
 var _fps_chk: CheckButton = null
+var _auto_aim_chk: CheckButton = null
 
 func _ready() -> void:
 	layer = 100
@@ -144,12 +153,14 @@ func open() -> void:
 	_cur_lang = String(s["language"])
 	_cur_dev = _read_dev_mode()
 	_cur_fps = _read_fps_shown()
+	_cur_auto_aim = _read_auto_aim()
 	_snap_vol = _cur_vol
 	_snap_fs  = _cur_fs
 	_snap_hud = _cur_hud
 	_snap_lang = _cur_lang
 	_snap_dev = _cur_dev
 	_snap_fps = _cur_fps
+	_snap_auto_aim = _cur_auto_aim
 	_sync_controls()
 	_apply_volume(_cur_vol)
 	_apply_fullscreen(_cur_fs)
@@ -293,6 +304,19 @@ func _build_ui() -> void:
 	_fps_chk.toggled.connect(_on_fps_toggled)
 	fps_row.add_child(_fps_chk)
 
+	# ── Auto-Aim ──
+	var auto_aim_row := HBoxContainer.new()
+	auto_aim_row.add_theme_constant_override("separation", 10)
+	col.add_child(auto_aim_row)
+	var auto_aim_lbl := Label.new()
+	auto_aim_lbl.text = "Auto-Aim"
+	auto_aim_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_font(auto_aim_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
+	auto_aim_row.add_child(auto_aim_lbl)
+	_auto_aim_chk = CheckButton.new()
+	_auto_aim_chk.toggled.connect(_on_auto_aim_toggled)
+	auto_aim_row.add_child(_auto_aim_chk)
+
 	col.add_child(HSeparator.new())
 
 	# ── Save / Reset / Cancel (image buttons, equal width in a row) ──
@@ -398,6 +422,25 @@ func _apply_fps_shown(v: bool) -> void:
 	if po != null and po.has_method("set_shown"):
 		po.call("set_shown", v)
 
+func _on_auto_aim_toggled(v: bool) -> void:
+	if _updating:
+		return
+	_cur_auto_aim = v
+	_apply_auto_aim(_cur_auto_aim)
+
+## Read the live Auto-Aim state (false if none — e.g. Main Menu).
+func _read_auto_aim() -> bool:
+	var hb := get_tree().get_first_node_in_group("arena_hud_buttons")
+	if hb != null and hb.has_method("is_auto_fire_on"):
+		return bool(hb.call("is_auto_fire_on"))
+	return false
+
+## Live-toggle the arena's Auto-Aim (if an arena instance exists). No-op in the Main Menu.
+func _apply_auto_aim(v: bool) -> void:
+	var hb := get_tree().get_first_node_in_group("arena_hud_buttons")
+	if hb != null and hb.has_method("set_auto_aim"):
+		hb.call("set_auto_aim", v)
+
 func _sync_controls() -> void:
 	_updating = true
 	_slider.value = _cur_vol * 100.0
@@ -413,6 +456,7 @@ func _sync_controls() -> void:
 			break
 	_dev_chk.button_pressed = _cur_dev
 	_fps_chk.button_pressed = _cur_fps
+	_auto_aim_chk.button_pressed = _cur_auto_aim
 	_updating = false
 
 func _update_mode_highlight() -> void:
@@ -431,6 +475,7 @@ func _on_save() -> void:
 	cfg.set_value("game", "language", _cur_lang)
 	cfg.set_value("game", "dev_mode", _cur_dev)
 	cfg.set_value("game", "fps_shown", _cur_fps)
+	cfg.set_value("game", "auto_aim", _cur_auto_aim)
 	cfg.save(CFG_PATH)
 	_close()
 
@@ -441,12 +486,14 @@ func _on_reset() -> void:
 	_cur_lang = DEF_LANGUAGE
 	_cur_dev = false
 	_cur_fps = false
+	_cur_auto_aim = false
 	_sync_controls()
 	_apply_volume(_cur_vol)
 	_apply_fullscreen(_cur_fs)
 	_apply_hud_version(_cur_hud)
 	_apply_dev_mode(_cur_dev)
 	_apply_fps_shown(_cur_fps)
+	_apply_auto_aim(_cur_auto_aim)
 
 func _on_cancel() -> void:
 	# Revert live changes to the snapshot taken on open, then close without saving.
@@ -455,6 +502,7 @@ func _on_cancel() -> void:
 	_apply_hud_version(_snap_hud)
 	_apply_dev_mode(_snap_dev)
 	_apply_fps_shown(_snap_fps)
+	_apply_auto_aim(_snap_auto_aim)
 	_cur_lang = _snap_lang   # no live surface to revert — just drop the unsaved pick
 	_close()
 

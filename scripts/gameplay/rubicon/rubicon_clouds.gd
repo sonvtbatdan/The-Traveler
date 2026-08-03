@@ -35,6 +35,8 @@ var _mats: Array = []
 var _tex: NoiseTexture2D
 var _opacity_mult: float = 1.0
 var _brightness_mult: float = 1.0
+var _color: Color = RubiconTerrainSettings.DEFAULT_CLOUD_COLOR
+var _clumpiness: float = RubiconTerrainSettings.DEFAULT_CLOUD_CLUMPINESS
 
 func _ready() -> void:
 	add_to_group("rubicon_clouds")   # so the Terrain Edit panel can find this instance
@@ -55,19 +57,24 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_resize)
 
 	var s := RubiconTerrainSettings.load_settings()
-	apply_cloud_settings(s["cloud_opacity"], s["cloud_brightness"])
+	apply_cloud_settings(s["cloud_opacity"], s["cloud_brightness"], s["cloud_color"], s["cloud_clumpiness"])
 
-## Public: called by the Terrain Edit panel (live, on slider change) and by this node's own _ready()
-## (persisted settings). `opacity_mult` scales each layer's own base max_alpha; `brightness_mult` scales
-## the cloud color toward white (>1) or grey/black (<1).
-func apply_cloud_settings(opacity_mult: float, brightness_mult: float) -> void:
+## Public: called by the Terrain Edit panel (live, on slider/ColorPickerButton change) and by this node's own
+## _ready() (persisted settings). `opacity_mult` scales each layer's own base max_alpha; `color` is the base
+## cloud tint and `brightness_mult` scales its intensity toward white-out (>1) or grey/black (<1).
+## `clumpiness` (0..1) morphs the look from a soft misty veil toward distinct chunky cloud masses with clear
+## gaps — see rubicon_clouds.gdshader's header.
+func apply_cloud_settings(opacity_mult: float, brightness_mult: float, color: Color, clumpiness: float) -> void:
 	_opacity_mult = opacity_mult
 	_brightness_mult = brightness_mult
+	_color = color
+	_clumpiness = clumpiness
 	for i in LAYERS.size():
 		var spec: Array = LAYERS[i]
 		var base_alpha: float = spec[3]
 		_mats[i].set_shader_parameter("max_alpha", base_alpha * _opacity_mult)
-		_mats[i].set_shader_parameter("cloud_color", Color(1.0, 1.0, 1.0) * _brightness_mult)
+		_mats[i].set_shader_parameter("cloud_color", _color * _brightness_mult)
+		_mats[i].set_shader_parameter("clumpiness", _clumpiness)
 
 func _resize() -> void:
 	var vp_size: Vector2 = get_viewport().get_visible_rect().size

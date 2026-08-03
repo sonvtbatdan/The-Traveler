@@ -8,14 +8,16 @@ extends Control
 ## dim overlay over them — the objects stay in place so you can resize/move them live).
 ## Positions/sizes/Z persist to res://mainmenu_layout.cfg.
 ##
-##   Resume  → load the Arena (continue playing)
+##   Resume  → load the Hub/Dock screen (2026-08-02: was a direct load straight into the Arena — now stops
+##             at the Hub first, same "RETURN TO DOCK" screen the Arena's own RUN OVER button uses, see
+##             hub_screen.gd; its own "Launch" room is what actually starts a run from there)
 ##   Setting → "Coming soon" toast (panel not built yet)
 ##   Codex   → "Coming soon" toast (panel not built yet)
 ##   Quit    → persist all managers, then exit the application
 ##
 ## Press F4 to open the object edit mode.
 
-const ARENA_SCENE     := "res://scenes/arena.tscn"
+const HUB_SCENE       := "res://scenes/hub.tscn"
 const EditScript      := preload("res://scripts/ui/mainmenu/main_menu_edit_mode.gd")
 const SpawnerScript   := preload("res://scripts/ui/mainmenu/menu_enemy_spawner.gd")
 const SettingsScript  := preload("res://scripts/ui/settings/settings_panel.gd")
@@ -103,8 +105,8 @@ func _set_hover(base: String) -> void:
 func _on_menu_button(base: String) -> void:
 	match base:
 		"resume":
-			AudioManager.play_sfx(SFX_RESUME)   # persists into the arena scene
-			get_tree().change_scene_to_file(ARENA_SCENE)
+			AudioManager.play_sfx(SFX_RESUME)   # persists into the hub scene
+			get_tree().change_scene_to_file(HUB_SCENE)
 		"setting":
 			AudioManager.play_sfx(SFX_SETTING)
 			if _settings != null:

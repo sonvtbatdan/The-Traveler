@@ -41,10 +41,10 @@ const WEAPON_TABS := {
 		{"kind": "yari", "def_id": "yari",     "label": "Yari"},
 		{"kind": "z_sword",    "def_id": "z_sword",       "label": "Z-Sword"},
 		{"kind": "mortar",      "def_id": "mortar",          "label": "Little Man"},
-		{"kind": "dragons_breath",     "def_id": "red_x",         "label": "Dragon's Breath"},
+		{"kind": "dragons_breath",     "def_id": "dragons_breath",         "label": "Dragon's Breath"},
 		{"kind": "aliwa", "def_id": "boomerang",     "label": "Boomerang"},
-		{"kind": "gauss",     "def_id": "gauss_cannon",  "label": "Gauss Pulser"},
-		{"kind": "viper",     "def_id": "space_snake",   "label": "Viper"},
+		{"kind": "gauss",     "def_id": "gauss",  "label": "Gauss Pulser"},
+		{"kind": "viper",     "def_id": "viper",   "label": "Viper"},
 		{"kind": "swarm",     "def_id": "",              "label": "Swarm", "icon": "res://assets/inventory/Swarm.png"},
 		{"kind": "ultrasonicator",     "def_id": "ultrasonicator",    "label": "Ultrasonicator"},
 		{"kind": "homing_missile",    "def_id": "homing_missile","label": "Homing Missile"},   # temp impl (copied from enemy missile launcher) — not in the Corp doc
@@ -260,6 +260,18 @@ func _skip_run() -> void:
 	if arena != null and arena.has_method("force_end_run"):
 		arena.call("force_end_run")
 	print("[debug] F4 skip run — simulated %d kills / %d bosses / level %d" % [SIM_KILLS, SIM_BOSSES, SIM_TARGET_LEVEL])
+
+## Debug: jump straight to the loaded timeline's final-boss finale (arena_hud_buttons.gd's BOSS FIGHT
+## button, next to END RUN) — silently clears the field and fast-forwards past every remaining regular
+## wave, so the boss spawns almost immediately for testing the fight + the BOSS ELIMINATED / RUN OVER
+## screens. No-op (logged) if the currently loaded timeline doesn't end in a solo is_boss entry.
+func _jump_to_boss_fight() -> void:
+	var wd := get_tree().get_first_node_in_group("wave_director")
+	if wd == null or not wd.has_method("debug_jump_to_final_boss"):
+		print("[debug] BOSS FIGHT — no wave director found")
+		return
+	var ok := bool(wd.call("debug_jump_to_final_boss"))
+	print("[debug] BOSS FIGHT jump -> %s" % ("spawning shortly" if ok else "loaded timeline has no final-boss entry"))
 
 func _near_player() -> Vector2:
 	var cam := get_viewport().get_camera_2d()
@@ -526,7 +538,7 @@ func _deploy_fleet_via_director(fleet_name: String) -> bool:
 	var wd := get_tree().get_first_node_in_group("wave_director")
 	if wd == null or not wd.has_method("_deploy_fleet"):
 		return false
-	wd.call("_deploy_fleet", fleet_name, false)
+	wd.call("_deploy_fleet", fleet_name)
 	return true
 
 ## First saved fleet whose any slot contains `unit_id` — used to deploy a carrier fleet from a lone
@@ -582,7 +594,7 @@ func _make_quick_cell(type_id: String, cell_size: int) -> Control:
 			tr.offset_top  = 3; tr.offset_bottom = -3
 			btn.add_child(tr)
 
-	btn.pressed.connect(_spawn_quick_enemy.bind(type_id))
+	btn.pressed.connect(_spawn_quick_enemy.bind(type_id, btn))
 	return btn
 
 func _load_thumb(icon: String) -> Texture2D:
@@ -604,30 +616,36 @@ func _load_thumb(icon: String) -> Texture2D:
 ## waiting for the wave timeline to build up naturally over real playtime.
 const BULK_SPAWN_COUNT := 300
 
-func _spawn_quick_enemy(type_id: String) -> void:
+func _spawn_quick_enemy(type_id: String, btn: Button) -> void:
 	var cam := get_viewport().get_camera_2d()
 	var base := cam.global_position if cam != null else Vector2.ZERO
 	var n := BULK_SPAWN_COUNT if Input.is_key_pressed(KEY_SHIFT) else 1
+	var spawned := 0
 	for _i in n:
 		var pos := base + Vector2(_rng.randf_range(-500.0, 500.0), _rng.randf_range(-270.0, 270.0))
-		_spawn_enemy_at(type_id, pos)
+		if _spawn_enemy_at(type_id, pos):
+			spawned += 1
+	if spawned == 0:
+		_flash_cap_blocked(btn, type_id)
 
 ## Instantiate one enemy of `type_id` at `pos` (shared by quick-spawn + fleet-spawn). Routes through
 ## the wave director's own _spawn() when available so debug-spawned enemies go through the SAME
 ## path as real gameplay spawns — including the MAX_ALIVE cap. Falls back to the old direct-instantiate
-## path only if no wave director is present at all.
-func _spawn_enemy_at(type_id: String, pos: Vector2) -> void:
+## path only if no wave director is present at all. Returns false when nothing was actually spawned
+## (unknown type_id, or the director rejected it — most commonly the MAX_ALIVE/MAX_ALIVE_V2 population
+## cap, see arena_wave_director_v2.gd's _spawn_def) so _spawn_quick_enemy can surface that to the user
+## instead of the click looking like a no-op.
+func _spawn_enemy_at(type_id: String, pos: Vector2) -> bool:
 	var src: Dictionary = WaveDir.ENEMY_DEFS.get(type_id, {})
 	if src.is_empty():
-		return
+		return false
 	# A carrier (mothership) spawned alone makes no sense — deploy its full fleet, exactly like Wave Edit.
 	if String(src.get("behavior", "")) == "mothership":
 		if _deploy_fleet_via_director(_fleet_name_containing(type_id)):
-			return
+			return true
 	var wd := get_tree().get_first_node_in_group("wave_director")
 	if wd != null:
-		wd.call("_spawn", type_id, pos, false)
-		return
+		return wd.call("_spawn", type_id, pos, false) != null
 	var def := src.duplicate()
 	var mgr := get_tree().get_first_node_in_group("enemy_manager")
 	var e: Node
@@ -639,6 +657,21 @@ func _spawn_enemy_at(type_id: String, pos: Vector2) -> void:
 	e.call("configure", type_id, mgr, def)
 	e.set("position", pos)
 	get_tree().current_scene.add_child(e)
+	return true
+
+const CAP_FLASH_COLOR := Color(1.0, 0.25, 0.2)
+const CAP_FLASH_TIME  := 0.4
+
+## Every Quick Spawn attempt for `type_id` was rejected — the one real way _spawn_enemy_at can silently do
+## nothing is the wave director's population cap (MAX_ALIVE / MAX_ALIVE_V2). Flash the cell red so the click
+## doesn't read as a no-op, plus a console line with the concrete reason for anyone watching the log.
+func _flash_cap_blocked(btn: Button, type_id: String) -> void:
+	print("[debug] quick-spawn '%s' blocked — enemy population is at cap" % type_id)
+	if not is_instance_valid(btn):
+		return
+	btn.modulate = CAP_FLASH_COLOR
+	var tw := create_tween()
+	tw.tween_property(btn, "modulate", Color.WHITE, CAP_FLASH_TIME)
 
 ## "CLEAR ALL" — wipes every live creep on the arena (real wave-director spawns included, not just ones
 ## quick-spawned through this panel), matching what a dev testing the arena actually wants: a clean field.

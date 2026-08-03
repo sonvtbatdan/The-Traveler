@@ -1,0 +1,35 @@
+[remap]
+
+importer="texture"
+type="StreamTexture"
+path="res://.import/Sky_Base_Colored.hdr-9ced0114779bb1d2b5b17c77583a09b7.stex"
+metadata={
+"vram_texture": false
+}
+
+[deps]
+
+source_file="res://Miscellaneous/Textures/Sky_Base_Colored.hdr"
+dest_files=[ "res://.import/Sky_Base_Colored.hdr-9ced0114779bb1d2b5b17c77583a09b7.stex" ]
+
+[params]
+
+compress/mode=0
+compress/lossy_quality=0.7
+compress/hdr_mode=0
+compress/bptc_ldr=0
+compress/normal_map=0
+flags/repeat=0
+flags/filter=true
+flags/mipmaps=false
+flags/anisotropic=false
+flags/srgb=2
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/HDR_as_SRGB=false
+process/invert_color=false
+process/normal_map_invert_y=false
+stream=false
+size_limit=0
+detect_3d=true
+svg/scale=1.0
