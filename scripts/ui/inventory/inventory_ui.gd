@@ -53,7 +53,7 @@ func _ready() -> void:
 	add_to_group("inventory_ui")   # weapon_system checks this to pause firing while open
 	add_to_group("hud_editable")
 	set_meta("hud_key", "inventory_btn")
-	_font = load("res://assets/fonts/Gameplay.ttf") as FontFile
+	_font = load("res://assets/fonts/mandalore/mandalore.ttf") as FontFile
 	_build_toggle_button()
 	_build_panel()
 	close()
@@ -65,7 +65,7 @@ func _ready() -> void:
 
 func _build_toggle_button() -> void:
 	_toggle_btn = Button.new()
-	_toggle_btn.text = "INVENTORY (I)"
+	_toggle_btn.text = MandaloreText.a("INVENTORY (I)")
 	_toggle_btn.position = Vector2(1240, 310)
 	_toggle_btn.size = Vector2(192, 30)
 	_style_button(_toggle_btn)
@@ -122,7 +122,7 @@ func _build_panel() -> void:
 
 func _build_panel_contents() -> void:
 	var title := Label.new()
-	title.text = "INVENTORY"
+	title.text = MandaloreText.a("INVENTORY")
 	title.position = Vector2(0, 12)
 	title.size = Vector2(PANEL_SIZE.x, 28)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -130,7 +130,7 @@ func _build_panel_contents() -> void:
 	_panel.add_child(title)
 
 	var close_btn := Button.new()
-	close_btn.text = "X"
+	close_btn.text = MandaloreText.a("X")
 	close_btn.position = Vector2(PANEL_SIZE.x - 42, 10)
 	close_btn.size = Vector2(32, 32)
 	_style_button(close_btn)
@@ -140,7 +140,7 @@ func _build_panel_contents() -> void:
 
 	# WEAPONS (top) — 5 read-only slots mirroring the live in-run HUD bar (arena_weapons).
 	var weap_label := Label.new()
-	weap_label.text = "WEAPONS"
+	weap_label.text = MandaloreText.a("WEAPONS")
 	weap_label.position = Vector2(40, 48)
 	weap_label.size = Vector2(300, 20)
 	_apply_font(weap_label, 13)
@@ -151,7 +151,7 @@ func _build_panel_contents() -> void:
 
 	# AUX (below weapons) — 5 read-only slots mirroring the live in-run HUD bar (arena_aux).
 	var aux_label := Label.new()
-	aux_label.text = "AUX"
+	aux_label.text = MandaloreText.a("AUX")
 	aux_label.position = Vector2(40, 150)
 	aux_label.size = Vector2(300, 20)
 	_apply_font(aux_label, 13)
@@ -162,7 +162,7 @@ func _build_panel_contents() -> void:
 
 	# GEAR (below aux) — the 3 remaining real equip slots (shield / thruster / hull), simple row.
 	var gear_label := Label.new()
-	gear_label.text = "GEAR"
+	gear_label.text = MandaloreText.a("GEAR")
 	gear_label.position = Vector2(40, 252)
 	gear_label.size = Vector2(300, 20)
 	_apply_font(gear_label, 13)
@@ -181,7 +181,7 @@ func _build_panel_contents() -> void:
 
 	# Cargo (right side) — placed past the WEAPONS/AUX/GEAR column (~x 600). Items picked up during play.
 	var bp_label := Label.new()
-	bp_label.text = "CARGO"
+	bp_label.text = MandaloreText.a("CARGO")
 	bp_label.position = Vector2(600, 52)
 	bp_label.size = Vector2(200, 20)
 	_apply_font(bp_label, 13)
@@ -193,7 +193,7 @@ func _build_panel_contents() -> void:
 	_panel.add_child(_grid)
 
 	var hint := Label.new()
-	hint.text = "Drag an item onto a matching slot to equip · drag back to the backpack to remove"
+	hint.text = MandaloreText.a("Drag an item onto a matching slot to equip · drag back to the backpack to remove")
 	hint.position = Vector2(40, PANEL_SIZE.y - 40)
 	hint.size = Vector2(PANEL_SIZE.x - 80, 20)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -317,7 +317,7 @@ func _fill_readonly_slot(slot: Panel, tex: Texture2D, fallback_color: Color, ite
 		cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		slot.add_child(cr)
 	var lvl_lbl := Label.new()
-	lvl_lbl.text = str(level)
+	lvl_lbl.text = MandaloreText.a(str(level))
 	lvl_lbl.position = Vector2(2.0, RS_SLOT - 16.0)
 	lvl_lbl.size = Vector2(RS_SLOT - 4.0, 14.0)
 	lvl_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -482,7 +482,7 @@ func flash_message(msg: String) -> void:
 		_apply_font(_msg_label, 16)
 		_msg_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.45))
 		_panel.add_child(_msg_label)
-	_msg_label.text = msg
+	_msg_label.text = MandaloreText.a(msg)
 	_msg_label.modulate.a = 1.0
 	var t := create_tween()
 	t.tween_interval(1.0)

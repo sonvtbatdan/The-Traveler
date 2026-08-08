@@ -68,14 +68,20 @@ var money: int = 0   # green-$ currency; new game starts at 0 (Phase 2 will spen
 # ── Character level / XP — ALL pacing knobs live here (Phases 1 & 2) ──────────
 # Diablo-2/Borderlands feel: quick early levels, a progressively longer late grind.
 # Tune these freely by feel; everything else derives from them.
-const BASE_XP: float = 750.0      # XP for level 1→2; the whole curve scales off this (-25% across all levels, 2026-08-03)
+const BASE_XP: float = 1875.0     # XP for level 1→2; the whole curve scales off this (×0.5, 2026-08-05 (2nd), on request — was 3750.0 (×5, same day, earlier pass); -25% across all levels, 2026-08-03)
 const GROWTH:  float = 1.12       # each level costs GROWTH× the previous (early fast, late grind)
 const MAX_LEVEL: int = 50         # level cap; XP stops accruing once reached
 # Early-level XP-requirement discount (levels 1-6 cheaper; 7+ unchanged). Applied in xp_to_next().
-const LEVEL_XP_MULT := {1: 0.39, 2: 0.52, 3: 0.65, 4: 0.91, 5: 1.04, 6: 0.90}   # levels 1–5 = old ×1.3 (+30% req) — ratios, unaffected by the ×10 pass below
-const XP_PER_ASTEROID: float = 0.5        # flat XP per asteroid destroyed
-const XP_ASTEROID_SIZE_DIV: float = 12.0  # + (width / this) / 2 → bigger rocks worth more
-const XP_PER_BOSS: float = 250.0          # one lump on a boss's FINAL defeat
+const LEVEL_XP_MULT := {1: 0.39, 2: 0.52, 3: 0.65, 4: 0.91, 5: 1.04, 6: 0.90}   # levels 1–5 = old ×1.3 (+30% req) — ratios, unaffected by any of the blanket XP-source passes below
+const XP_PER_ASTEROID: float = 5.0        # flat XP per asteroid destroyed (×10, 2026-08-05 — was 0.5)
+const XP_ASTEROID_SIZE_DIV: float = 1.2   # + (width / this) / 2 → bigger rocks worth more (÷10, 2026-08-05, so this term also scales ×10 — was 12.0)
+const XP_PER_BOSS: float = 2500.0         # one lump on a boss's FINAL defeat (×10, 2026-08-05 — was 250.0)
+# 2026-08-05: XP DROP rebalanced ×10 across every source (this file's XP_PER_ASTEROID/XP_PER_BOSS + every
+# ENEMY_DEFS "xp" in arena_wave_director.gd/boss_scorpion.gd + arena_wave_director_v2's HP-proportional
+# _xp_per_hp, which self-propagates off "fly"'s xp/hp so it needed no separate edit), on request — a genuine
+# pacing buff (kills-needed-per-level DROPS ~2× net, since BASE_XP below only went up ×5, not ×10). This is a
+# deliberate gameplay change, unlike the 2026-07-28 pass below which was a units-only rescale (no pacing
+# change) done for the unrelated reason of avoiding decimal xp values.
 # 2026-07-28: every XP source (this file + ENEMY_DEFS in arena_wave_director.gd/boss_scorpion.gd) scaled
 # ×10 so per-kill/per-source XP values are whole numbers instead of decimals (e.g. swarm 0.2→2, ghost 0.25→3
 # rounded, elephant 25→250) — BASE_XP scaled ×10 to match, so the number of kills needed per level is
@@ -338,6 +344,9 @@ var _ammo_regen_block: float = 0.0
 
 func add_money(amount: int) -> void:
 	money += amount
+	if amount > 0:
+		run_coin += amount   # RUN OVER stats' "Coin collected" — every gain counted, dock interest/refunds too
+		                     # (harmless: those only ever fire in the hub, between run_kills/run_coin resets)
 	money_changed.emit(money)
 	save_game()
 
@@ -363,12 +372,30 @@ func set_boost(active: bool) -> void:
 	manual_boost = active
 	boost_changed.emit(active)
 
+## Event Horizon shelter (2026-08-07, on request): the player's own ship, standing inside its own active
+## Event Horizon field, is fully damage-immune — queried fresh every hit (position-based, not a timer like
+## _shield_immune) off arena_weapons.gd's event_horizon_field(). False whenever that weapon isn't equipped/
+## open, or the arena/player aren't around (menus, between runs) — never throws in those cases.
+func _in_event_horizon_shelter() -> bool:
+	var aw := get_tree().get_first_node_in_group("arena_weapons")
+	if aw == null or not aw.has_method("event_horizon_field"):
+		return false
+	var field: Dictionary = aw.call("event_horizon_field")
+	if not bool(field.get("active", false)):
+		return false
+	var player := get_tree().get_first_node_in_group("player")
+	if player == null or not is_instance_valid(player):
+		return false
+	return (player as Node2D).global_position.distance_to(field.get("pos", Vector2.ZERO)) <= float(field.get("radius", 0.0))
+
 func ship_take_damage(dmg: int) -> void:
 	if god_mode:
 		return
 	if dmg <= 0 or ship_hp <= 0:
 		return
 	if _shield_immune:
+		return
+	if _in_event_horizon_shelter():
 		return
 	if _iframe_timer > 0.0:
 		return   # still invincible from a recent hit
@@ -636,11 +663,118 @@ func hit_stop(ms: float, scale: float = 0.0) -> void:
 func _ready() -> void:
 	# InventoryManager autoloads AFTER GameManager, so defer the hookup to the first idle frame.
 	call_deferred("_init_equipment_stats")
+	_apply_saved_cursor()
 
 func _init_equipment_stats() -> void:
 	InventoryManager.item_equipped.connect(_on_equipment_changed)
 	InventoryManager.item_unequipped.connect(_on_equipment_changed)
 	recompute_max_hp()
+
+# ── Custom mouse cursor (2026-08-06, on request) ────────────────────────────────────────────────────────
+# Settings panel's "Custom Mouse" button (settings_panel.gd) picks one of these; lives here (not in the
+# settings panel script) so the SAME code path both restores the saved pick at boot (_apply_saved_cursor,
+# called above) and live-applies a new pick the instant the player clicks one, with zero duplication.
+const CURSOR_SETTINGS_PATH  := "user://settings.cfg"   # same file settings_panel.gd's own CFG_PATH points at
+const CURSOR_WIDTH          := 30.0    # final cursor width, px (30 → 10 → 20 → back to 30, per feedback)
+const CURSOR_ROTATE_CCW_DEG := 30.0
+const CURSOR_OPTIONS := [
+	{"id": "default",      "label": "Default", "icon": ""},
+	{"id": "pros2",        "icon": "res://assets/enemiesHD/pros2.png"},
+	{"id": "sentinel",     "icon": "res://assets/enemiesHD/sentinel.png"},
+	{"id": "alien8",       "icon": "res://assets/enemiesHD/alien8.png"},
+	{"id": "alienfighter", "icon": "res://assets/enemiesHD/alienfighter.png"},
+	{"id": "fleet2",       "icon": "res://assets/enemiesHD/fleet2.png"},
+	{"id": "bismuth4",     "icon": "res://assets/enemiesHD/bismuth4.png"},
+	{"id": "jetfighter",   "icon": "res://assets/enemiesHD/jetfighter.png"},
+	{"id": "magma3",       "icon": "res://assets/enemiesHD/magma3.png"},
+	{"id": "pirate2",      "icon": "res://assets/enemiesHD/pirate2.png"},
+	{"id": "squid_body",   "icon": "res://assets/enemiesHD/Squid-body.png"},
+	{"id": "yarimouse",    "icon": "res://assets/inventory/YariMouse.png"},
+	{"id": "newship",      "icon": "res://assets/hud/aux perk/newship.png"},
+	{"id": "shooter",      "icon": "res://assets/weaponry/shooter.png"},
+]   # 14 entries; the settings panel's 4×4 picker grid shows all of them + 2 blank trailing cells
+
+func _cursor_icon_for(id: String) -> String:
+	for o: Dictionary in CURSOR_OPTIONS:
+		if String(o["id"]) == id:
+			return String(o.get("icon", ""))
+	return ""
+
+func _apply_saved_cursor() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(CURSOR_SETTINGS_PATH) != OK:
+		return
+	var id := String(cfg.get_value("game", "cursor_id", "default"))
+	if id != "default" and id != "":
+		apply_cursor(id)
+
+## Public: switch the OS mouse cursor. "default"/"" restores the normal system arrow. Anything else must be a
+## CURSOR_OPTIONS id — builds a custom cursor from that option's source icon (rotated CURSOR_ROTATE_CCW_DEG°
+## counter-clockwise, rescaled to CURSOR_WIDTH px wide, aspect preserved) and sets it via
+## Input.set_custom_mouse_cursor(). Entirely in-memory: the source PNG (also used elsewhere as a live enemy
+## sprite / inventory icon) is only ever rendered through a throwaway SubViewport and rescaled in RAM — never
+## read-modified-written back to disk, so nothing else that uses the same file is affected.
+func apply_cursor(id: String) -> void:
+	if id == "default" or id == "":
+		Input.set_custom_mouse_cursor(null)
+		return
+	var path := _cursor_icon_for(id)
+	if path == "":
+		return
+	_build_cursor_texture(path, func(tex: ImageTexture) -> void:
+		if tex != null:
+			Input.set_custom_mouse_cursor(tex, Input.CURSOR_ARROW, tex.get_size() * 0.5))
+
+## Renders `icon_path` into a temporary SubViewport (GPU does the rotation — sidesteps CompressedTexture2D
+## not being CPU-pixel-readable, see traveler_texture_scaling precedent), waits 2 frames for it to actually
+## draw, captures + autocrops + rescales the result, and hands the finished ImageTexture to `on_done` (null
+## on any failure). The temp SubViewport/Sprite2D are freed immediately after capture.
+func _build_cursor_texture(icon_path: String, on_done: Callable) -> void:
+	var src := load(icon_path) as Texture2D
+	if src == null:
+		on_done.call(null)
+		return
+	var src_size := src.get_size()
+	var diag := int(ceil(src_size.length())) + 4   # big enough to hold the icon at any rotation, uncropped
+	var vp := SubViewport.new()
+	vp.size = Vector2i(diag, diag)
+	vp.transparent_bg = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	add_child(vp)
+	var spr := Sprite2D.new()
+	spr.texture = src
+	spr.centered = true
+	spr.position = Vector2(diag, diag) * 0.5
+	spr.rotation = deg_to_rad(-CURSOR_ROTATE_CCW_DEG)   # Godot 2D's Y-down axis flips the usual CCW sign
+	vp.add_child(spr)
+	await get_tree().process_frame
+	await get_tree().process_frame   # SubViewport needs a couple ticks before UPDATE_ONCE actually renders
+	var img := vp.get_texture().get_image()
+	vp.queue_free()
+	if img == null:
+		on_done.call(null)
+		return
+	img.convert(Image.FORMAT_RGBA8)
+	img = _autocrop_image(img)
+	var target_w := int(CURSOR_WIDTH)
+	var target_h := maxi(1, int(round(float(target_w) * float(img.get_height()) / float(maxi(1, img.get_width())))))
+	img.resize(target_w, target_h, Image.INTERPOLATE_LANCZOS)
+	on_done.call(ImageTexture.create_from_image(img))
+
+## Trims fully-transparent margins down to a tight bounding box (the SubViewport capture above is a big
+## square, mostly empty around the rotated icon) — otherwise the final tiny cursor would be mostly blank.
+func _autocrop_image(img: Image) -> Image:
+	var w := img.get_width()
+	var h := img.get_height()
+	var min_x := w; var min_y := h; var max_x := -1; var max_y := -1
+	for y in h:
+		for x in w:
+			if img.get_pixel(x, y).a > 0.01:
+				min_x = mini(min_x, x); max_x = maxi(max_x, x)
+				min_y = mini(min_y, y); max_y = maxi(max_y, y)
+	if max_x < min_x:
+		return img   # fully transparent (shouldn't happen) — bail out unchanged
+	return img.get_region(Rect2i(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1))
 
 func _process(delta: float) -> void:
 	run_time += delta   # frozen while paused (this autoload's process_mode is the default PAUSABLE) — RUN OVER stats' DPS divisor
@@ -850,14 +984,42 @@ func roll_coin_value(hp: float, skew: float) -> int:
 	return VALS[clampi(idx, 0, VALS.size() - 1)]
 var run_luck:        float = 0.0          # Lucky drone: additive luck this run (drop/fragment/coin chance)
 var run_kills:       int   = 0            # enemies killed this run (arena HUD; reset each run)
+var run_coin:        int   = 0            # coins gained this run (RUN OVER "Coin collected" — see add_money)
 var run_time:        float = 0.0          # seconds of actual play time this run (frozen while paused) — RUN OVER stats' DPS divisor
 var last_hit_name:   String = ""          # display name of the enemy/boss that most recently damaged the player
 var last_hit_icon:   String = ""          # its icon path (res://...) — "" if unknown/never set this run
 
+## Transient (not saved) — set by arena.gd to MetaManager.apply_dock_interest()'s return value right before
+## EITHER "RETURN TO DOCK" scene change to hub.tscn; hub_screen.gd reads + clears it in _ready() to show the
+## interest-earned notification exactly once per dock arrival. 0 = no notification this arrival.
+var pending_interest_notice: int = 0
+
+## Transient (not saved) — Dock room-unlock notification queue. MetaManager.unlock_room() appends the
+## room's display name here whenever a lock condition is met, wherever that happens (mid-run boss kill,
+## a Merchant/Equipment purchase back at the Dock, etc.). hub_screen.gd drains this — on _ready() (covers
+## unlocks that happened away from the Dock) AND on every MetaManager.meta_changed (covers unlocks that
+## happen while the Dock is already on-screen) — showing one "<room> is now accessible" card per entry.
+## Same "queue it, drain it whenever the Dock is looking" idiom as pending_interest_notice above.
+var pending_room_unlock_notices: Array[String] = []
+
+## Run-scoped (reset in reset_run()) — this run's assigned rescue-landmark character (MetaManager.
+## RESCUE_CHARACTER_DEFS key, "" = no landmark spawned this run — either the map has none, e.g. "default",
+## or everyone reachable from it is already rescued) and whether its landmark was destroyed yet. Set by
+## rubicon_ruin_layer.gd / volcanic_ruin_layer.gd; read by arena.gd's _show_run_over for the rescue result
+## line ("successfully rescued" / "failed rescued" / "not found") and the MetaManager.unlock_room() call.
+var run_rescue_char_id: String = ""
+var run_rescue_collected: bool = false
+
+const KILLS_PER_BONUS_COIN := 100   # every Nth kill (cumulative, this run) mints 1 free bonus coin
+
 ## Tally one enemy kill for the run (arena HUD counter). Called from arena_enemy._die().
+## Every KILLS_PER_BONUS_COIN-th kill also mints 1 bonus coin straight into the persistent wallet (2026-08-05,
+## on request) — live, same as a normal coin pickup, not deferred to run-end.
 func add_kill() -> void:
 	run_kills += 1
 	kills_changed.emit(run_kills)
+	if run_kills % KILLS_PER_BONUS_COIN == 0:
+		add_money(1)
 
 ## Records whoever most recently damaged the player (RUN OVER's "last hit by"). Called from the enemy
 ## contact/bullet/explosion damage paths in arena_enemy.gd + arena_enemy_manager.gd — NOT from boss-specific
@@ -985,6 +1147,8 @@ func activate_shield(duration: float) -> void:
 ## Start a fresh arena run: reset level/XP + all upgrade modifiers, restore full HP. Called from arena._ready
 ## (flag RESET_RUN_ON_START) so each survival run is a clean Vampire-Survivors climb from level 1.
 func reset_run() -> void:
+	run_rescue_char_id = ""
+	run_rescue_collected = false
 	player_level = 1
 	player_xp = 0
 	_shield_immune = false
@@ -1065,6 +1229,7 @@ func reset_run() -> void:
 	_coin_buff_t = 0.0
 	run_luck = 0.0
 	run_kills = 0
+	run_coin = 0
 	run_time = 0.0
 	last_hit_name = ""
 	last_hit_icon = ""
@@ -1095,6 +1260,22 @@ func reset_stats() -> void:
 # ---------------------------------------------------------------------------
 
 const SAVE_PATH := "user://save.cfg"
+
+## Public: wipes this manager's own [player] slice of the profile back to a fresh-start state — money,
+## level/XP, attribute points, and ship HP/shield. Part of Settings' "Reset Profile" action (see
+## settings_panel.gd); MetaManager.reset_profile()/InventoryManager.reset_profile() handle their own slices.
+## Does NOT touch settings.cfg (audio/display/etc — that's the existing separate "Reset" button in Settings).
+func reset_profile() -> void:
+	money = 0
+	player_level = 1
+	player_xp = 0
+	for n: String in ATTRIBUTE_NAMES:
+		attributes[n] = 0
+	unspent_points = 0
+	recompute_max_hp()   # BASE_SHIP_HP + upg_max_hp_bonus (0 outside an active run) — not a persisted field itself
+	ship_hp = ship_max_hp
+	ship_shield = 0.0
+	save_game()
 
 func save_game() -> void:
 	var cfg := ConfigFile.new()

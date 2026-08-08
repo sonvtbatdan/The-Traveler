@@ -36,6 +36,27 @@ const RubiconTreesScript := preload("res://scripts/gameplay/rubicon/rubicon_tree
 const RubiconSparksScript := preload("res://scripts/gameplay/rubicon/rubicon_sparks.gd")
 const RubiconTerrainEditScript := preload("res://scripts/ui/hud/rubicon_terrain_edit.gd")
 const RubiconLightEditScript := preload("res://scripts/ui/hud/rubicon_light_edit.gd")
+const VolcanicGroundScript := preload("res://scripts/gameplay/volcanic/volcanic_ground.gd")
+const VolcanicCloudsScript := preload("res://scripts/gameplay/volcanic/volcanic_clouds.gd")
+const VolcanicTreesScript := preload("res://scripts/gameplay/volcanic/volcanic_trees.gd")
+const VolcanicSparksScript := preload("res://scripts/gameplay/volcanic/volcanic_sparks.gd")
+const VolcanicTerrainEditScript := preload("res://scripts/ui/hud/volcanic_terrain_edit.gd")
+const VolcanicLightEditScript := preload("res://scripts/ui/hud/volcanic_light_edit.gd")
+const VolcanicPlumeEditScript := preload("res://scripts/ui/hud/volcanic_plume_edit.gd")
+const VolcanicCraterMarkScript := preload("res://scripts/ui/hud/volcanic_crater_mark.gd")
+const VolcanicLandmarkMarkScript := preload("res://scripts/ui/hud/volcanic_landmark_mark.gd")
+const VolcanicTempleLayerScript := preload("res://scripts/gameplay/volcanic/volcanic_temple_layer.gd")
+const AtlanticGroundScript := preload("res://scripts/gameplay/atlantic/atlantic_ground.gd")
+const AtlanticCloudsScript := preload("res://scripts/gameplay/atlantic/atlantic_clouds.gd")
+const AtlanticTreesScript := preload("res://scripts/gameplay/atlantic/atlantic_trees.gd")
+const AtlanticSparksScript := preload("res://scripts/gameplay/atlantic/atlantic_sparks.gd")
+const AtlanticWaterSurfaceScript := preload("res://scripts/gameplay/atlantic/atlantic_water_surface.gd")
+const AtlanticTerrainEditScript := preload("res://scripts/ui/hud/atlantic_terrain_edit.gd")
+const AtlanticLightEditScript := preload("res://scripts/ui/hud/atlantic_light_edit.gd")
+const AtlanticPlumeEditScript := preload("res://scripts/ui/hud/atlantic_plume_edit.gd")
+const AtlanticCraterMarkScript := preload("res://scripts/ui/hud/atlantic_crater_mark.gd")
+const AtlanticLandmarkMarkScript := preload("res://scripts/ui/hud/atlantic_landmark_mark.gd")
+const AtlanticTempleLayerScript := preload("res://scripts/gameplay/atlantic/atlantic_temple_layer.gd")
 const ArenaDofScript     := preload("res://scripts/gameplay/arena_dof.gd")
 const PlanetMenuScript   := preload("res://scripts/ui/hud/arena_planet_menu.gd")
 const DebugSpawnScript   := preload("res://scripts/gameplay/arena_debug_spawn.gd")
@@ -48,17 +69,20 @@ const DropUIScript       := preload("res://scripts/ui/hud/arena_drop_ui.gd")    
 const WeaponChestScript  := preload("res://scripts/ui/hud/arena_weapon_chest_ui.gd")  # start-of-run pick-1-of-3 chest
 const WeaponSlotsScript  := preload("res://scripts/ui/hud/arena_weapon_slots.gd")     # 5-slot weapon HUD + cooldown pies
 const AuxSlotsScript     := preload("res://scripts/ui/hud/arena_aux_slots.gd")         # 5-slot aux-item HUD (row below weapons)
-const ArenaRuinLayerScript := preload("res://scripts/gameplay/arena_ruin_layer.gd")
 const ArenaSmallRuinLayerScript := preload("res://scripts/gameplay/arena_small_ruin_layer.gd")
 const RubiconTempleLayerScript := preload("res://scripts/gameplay/rubicon/rubicon_temple_layer.gd")
+const RubiconRuinLayerScript := preload("res://scripts/gameplay/rubicon/rubicon_ruin_layer.gd")
+const VolcanicRuinLayerScript := preload("res://scripts/gameplay/volcanic/volcanic_ruin_layer.gd")
 const ArenaHudButtonsScript := preload("res://scripts/ui/hud/arena_hud_buttons.gd")
 const CreepInfoPanelScript  := preload("res://scripts/ui/hud/creep_info_panel.gd")
+const WeaponInfoPanelScript := preload("res://scripts/ui/hud/weapon_info_panel.gd")
 const BossEditScript        := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
 const CreepEditScript       := preload("res://scripts/ui/boss_edit/creep_edit_mode.gd")
 const WeaponEditScript      := preload("res://scripts/ui/boss_edit/weapon_edit_mode.gd")
 const FleetEditScript       := preload("res://scripts/ui/boss_edit/fleet_edit_mode.gd")
 const HudEditScript         := preload("res://scripts/ui/boss_edit/hud_edit_mode.gd")   # authored playerhud (the active HUD)
 const SettingsScript        := preload("res://scripts/ui/settings/settings_panel.gd")
+const MenuSpawnerScript     := preload("res://scripts/ui/mainmenu/menu_enemy_spawner.gd")   # RUN OVER backdrop's decorative flying creeps
 const RESET_RUN_ON_START := true   # each arena run starts a fresh VS climb (level 1, no upgrades). Flip off to keep saved level.
 const WEAPON_TEST_MODE := false    # TEST: skip the hub launch page + start-of-run weapon-pick chest; boot straight into
 								   # the arena, then auto-pause and open the F12 weapon palette. Flip off to restore normal flow.
@@ -135,6 +159,15 @@ var _rubicon_ground: CanvasLayer = null
 var _rubicon_clouds: Node2D = null
 var _rubicon_trees: Node2D = null
 var _rubicon_sparks: Node2D = null
+var _volcanic_ground: CanvasLayer = null
+var _volcanic_clouds: Node2D = null
+var _volcanic_trees: Node2D = null
+var _volcanic_sparks: Node2D = null
+var _atlantic_ground: CanvasLayer = null
+var _atlantic_clouds: Node2D = null
+var _atlantic_trees: Node2D = null
+var _atlantic_sparks: Node2D = null
+var _atlantic_water_surface: CanvasLayer = null
 
 func _ready() -> void:
 	# TEMP DIAGNOSTIC — timing breakdown for the "arena load takes ~5s" report. Mirrors main_menu.gd's
@@ -145,6 +178,9 @@ func _ready() -> void:
 	randomize()                          # fresh RNG each launch → random spawn spot (below)
 	if MetaManager.has_method("purge_run_temp"):
 		MetaManager.purge_run_temp()     # clear last run's temporary boss-drop loot
+	if "run_pending_blueprints" in MetaManager:
+		MetaManager.run_pending_blueprints.clear()   # last run's un-committed DISASSEMBLE picks never made it home
+		MetaManager.run_weapon_drop_seen = false
 	if RESET_RUN_ON_START and GameManager.has_method("reset_run"):
 		GameManager.reset_run()          # fresh VS climb: level 1, no upgrades, full HP
 		if typeof(MetaManager) != TYPE_NIL and MetaManager.has_method("apply_run_start"):
@@ -164,6 +200,10 @@ func _ready() -> void:
 	var bg: Node = dof.background_parent()   # DoF SubViewport, or the arena itself when the mask is disabled
 	if _map_id == "rubicon":
 		_build_rubicon_background()
+	elif _map_id == "volcanic":
+		_build_volcanic_background()
+	elif _map_id == "atlantic":
+		_build_atlantic_background()
 	else:
 		add_child(ArenaNebulaScript.new())      # procedural nebula — EXCLUDED from the blur (stays sharp in the
 												# main viewport at CL -10, behind the DoF composite at CL -5)
@@ -194,11 +234,12 @@ func _ready() -> void:
 	_hud_buttons = ArenaHudButtonsScript.new()  # bottom-right HUD: Setting / Devon / Quit
 	add_child(_hud_buttons)
 	add_child(CreepInfoPanelScript.new())   # dev-mode Creep Info table (group "creep_info") — toggled by the HUD button
+	add_child(WeaponInfoPanelScript.new())  # dev-mode Weapon Info catalog (group "weapon_info") — toggled by the HUD button
 	print("[arena-startup]   hud_buttons: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
-	if _map_id != "rubicon":   # space-only starfield — was building unconditionally, so it also composited
-		_build_parallax(bg)     # into Rubicon's DoF background as faint near-static dark smudges (the DoF blur
-	# shader blurs each dot's RGB against the SubViewport's transparent surroundings then dims — reads fine
-	# over black space, reads as dirt/dust specks over a jungle canopy) — see the bug report this fixed.
+	if _map_id == "default":   # space-only starfield — was building unconditionally, so it also composited into
+		_build_parallax(bg)     # Rubicon/Volcanic's DoF background as faint near-static dark smudges (the DoF
+	# blur shader blurs each dot's RGB against the SubViewport's transparent surroundings then dims — reads
+	# fine over black space, reads as dirt/dust specks over a terrain map) — see the bug report this fixed.
 	print("[arena-startup]   _build_parallax (procedural star tex ×%d layers): %.1fms" % [STAR_LAYERS.size(), (Time.get_ticks_usec() - _t0) / 1000.0]); _t0 = Time.get_ticks_usec()
 	_build_player()
 	print("[arena-startup] _build_player (incl. 3D ship SubViewport + GLB load): %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
@@ -219,20 +260,25 @@ func _ready() -> void:
 	add_child(XpOrbMgrScript.new())       # single MultiMesh node that renders+updates ALL xp orbs (group "arena_xp_orb_mgr")
 	add_child(PlumeMgrScript.new())       # single MultiMesh node that renders ALL enemy plumes (group "arena_plume_mgr")
 	print("[arena-startup] enemy_mgr + xp_orb_mgr + plume_mgr: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
-	if USE_TEST_SPAWNER:
-		add_child(TestTemplateScript.new())   # quick test: one enemy every 5s
-	elif USE_SPAWN_MODE_2:
-		add_child(WaveDirectorV2Script.new())   # spawn_mode_2: continuous annulus director (chaser/flanker/kiter/charger test roster)
-		add_child(WaveEditorScript.new())       # F7 also works here — authors an OPTIONAL timeline that runs alongside the continuous loop
-	else:
-		add_child(WaveDirectorScript.new())   # authored-timeline wave spawner
-		add_child(WaveEditorScript.new())     # F7 in-game wave editor (add/edit/remove waves live)
+	# TEMP (2026-08-08, on request: "Ngăn chặn spawn trong map atlantic để tôi test map") — skip the enemy-wave
+	# director entirely on Atlantic so terrain/water visuals can be tested without combat interference. Does NOT
+	# touch atlantic_temple_layer.gd's own landmark-boss spawns (a separate, rare, deliberate map feature, not
+	# the ambient creep stream). Revert by deleting this `if _map_id != "atlantic":` guard (and its matching
+	# indent) once Atlantic's own wave timeline is ready to test.
+	if _map_id != "atlantic":
+		if USE_TEST_SPAWNER:
+			add_child(TestTemplateScript.new())   # quick test: one enemy every 5s
+		elif USE_SPAWN_MODE_2:
+			add_child(WaveDirectorV2Script.new())   # spawn_mode_2: continuous annulus director (chaser/flanker/kiter/charger test roster)
+			add_child(WaveEditorScript.new())       # F7 also works here — authors an OPTIONAL timeline that runs alongside the continuous loop
+		else:
+			add_child(WaveDirectorScript.new())   # authored-timeline wave spawner
+			add_child(WaveEditorScript.new())     # F7 in-game wave editor (add/edit/remove waves live)
 	print("[arena-startup] wave director + wave editor: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 	add_child(ArenaWeaponsScript.new())   # bespoke 5-slot weapons (chest + F12 pickups) — the ONLY arena combat path
 	add_child(ArenaAuxScript.new())       # auxiliary passive-item store (level-up offers; group "arena_aux")
 	# arena_loadout (fires EQUIPPED inventory weapons) is intentionally NOT instantiated: combat is driven solely by
 	# the bespoke 5-slot system, so equipped starter/inventory weapons no longer auto-fire in the arena.
-	add_child(ArenaRuinLayerScript.new()) # 2 giant dead-ship wrecks at run start + 1 more every 3 min (drop orb of light)
 	if USE_SPAWN_MODE_2:
 		add_child(ArenaSmallRuinLayerScript.new())   # restored legacy small ruins (ship→box→coin/heart/magnetic/divinity), spawn_mode_2 only
 	call_deferred("_setup_boss_edit")
@@ -243,6 +289,18 @@ func _ready() -> void:
 	if _map_id == "rubicon":
 		call_deferred("_setup_rubicon_terrain_edit")
 		call_deferred("_setup_rubicon_light_edit")
+	elif _map_id == "volcanic":
+		call_deferred("_setup_volcanic_terrain_edit")
+		call_deferred("_setup_volcanic_light_edit")
+		call_deferred("_setup_volcanic_plume_edit")
+		call_deferred("_setup_volcanic_crater_mark")
+		call_deferred("_setup_volcanic_landmark_mark")
+	elif _map_id == "atlantic":
+		call_deferred("_setup_atlantic_terrain_edit")
+		call_deferred("_setup_atlantic_light_edit")
+		call_deferred("_setup_atlantic_plume_edit")
+		call_deferred("_setup_atlantic_crater_mark")
+		call_deferred("_setup_atlantic_landmark_mark")
 	call_deferred("_open_start_chest")   # grant every Loadout pick, then chest-offer any slots still empty
 
 ## Rubicon map background: procedural blue/dark-sand ground + scattered trees/temples + parallax clouds
@@ -267,6 +325,49 @@ func _build_rubicon_background() -> void:
 	_rubicon_sparks = RubiconSparksScript.new()
 	add_child(_rubicon_sparks)   # topmost decorative layer — floating light-catching motes drift in front of everything
 	add_child(RubiconTempleLayerScript.new())   # giant temple boss landmark — 2 at run start + 1/3min, drops orb of light
+	add_child(RubiconRuinLayerScript.new())     # rescue-character ruin (constructor→mechanic→Scholar) — at most 1/run, within 15000px of the player
+
+## Volcanic map background: procedural basalt/ash ground scarred by jagged cracks of flowing lava + parallax
+## ash clouds (scripts/gameplay/volcanic/*) — mirrors _build_rubicon_background() above (same draw order:
+## ground → trees → clouds → sparks → temple landmark). No rock/obsidian .glb assets exist yet, so
+## VolcanicTrees currently scatters nothing on its own (drop-in later addition, not a code change — see
+## volcanic_asset_scan.gd's header) — but temple.glb DOES exist and is spawned as a landmark (not scattered)
+## by VolcanicTempleLayer, see that file's header.
+func _build_volcanic_background() -> void:
+	_volcanic_ground = VolcanicGroundScript.new()
+	add_child(_volcanic_ground)
+	_volcanic_trees = VolcanicTreesScript.new()
+	add_child(_volcanic_trees)
+	_volcanic_clouds = VolcanicCloudsScript.new()
+	add_child(_volcanic_clouds)
+	_volcanic_sparks = VolcanicSparksScript.new()
+	add_child(_volcanic_sparks)   # topmost decorative layer — rising embers drift in front of everything
+	add_child(VolcanicTempleLayerScript.new())   # temple landmark(s), visual only — see that file's header
+	add_child(VolcanicRuinLayerScript.new())     # rescue-character ruin (engineer→psyker→Scholar) — at most 1/run, within 15000px of the player
+
+## Atlantic map background: deep-sea sunken-city ground (real seabed/ruin-floor photos once the user supplies
+## them, see atlantic_asset_scan.gd) scarred by a winding CURRENT channel, bubble/whirlpool plumes instead of
+## Volcanic's ash/fire (2026-08-06, on request: "bong bóng nổi lên và vòi rồng xoáy") — mirrors
+## _build_volcanic_background() above (same draw order: ground → trees → clouds → sparks → temple landmark),
+## plus a screen-space water-surface overlay (2026-08-08, on request: continuous whole-scene refraction +
+## caustic sparkle — see atlantic_water_surface.gd's header) that Volcanic has no equivalent of.
+## No coral/wreckage .glb assets exist yet, so AtlanticTrees currently scatters nothing on its own (drop-in
+## later addition, not a code change — see atlantic_asset_scan.gd's header) — but the REUSED Rubicon/Electric
+## temple.glb IS spawned as a landmark (not scattered) by AtlanticTempleLayer, see that file's header. No ruin
+## layer (rescue-character landmark) — out of scope for Atlantic per this map's own request ("làm đầy đủ" was
+## scoped to the temple boss, not a second rescue-ruin landmark type).
+func _build_atlantic_background() -> void:
+	_atlantic_ground = AtlanticGroundScript.new()
+	add_child(_atlantic_ground)
+	_atlantic_trees = AtlanticTreesScript.new()
+	add_child(_atlantic_trees)
+	_atlantic_clouds = AtlanticCloudsScript.new()
+	add_child(_atlantic_clouds)
+	_atlantic_sparks = AtlanticSparksScript.new()
+	add_child(_atlantic_sparks)   # topmost decorative layer — bioluminescent motes drift in front of everything
+	add_child(AtlanticTempleLayerScript.new())   # temple landmark(s), visual only — see that file's header
+	_atlantic_water_surface = AtlanticWaterSurfaceScript.new()
+	add_child(_atlantic_water_surface)   # screen-space refraction + caustic sparkle over the whole scene
 
 ## Canvas glow/bloom for the arena. With hdr_2d on (project.godot) + glow_hdr_threshold 1.0, only HDR (>1)
 ## pixels bloom — i.e. the DynamicFire effects that set glow>0 (Elephant M2, Red X). LDR content is untouched.
@@ -683,6 +784,21 @@ func _process(delta: float) -> void:
 		_rubicon_sparks.set_world_offset(pos)
 		var vp_size: Vector2 = get_viewport().get_visible_rect().size
 		_rubicon_trees.update_view(pos, vp_size)
+	if _volcanic_ground != null:
+		var pos: Vector2 = _player.global_position
+		_volcanic_ground.set_world_offset(pos)
+		_volcanic_sparks.set_world_offset(pos)
+		var vp_size: Vector2 = get_viewport().get_visible_rect().size
+		_volcanic_clouds.update_view(pos, vp_size)
+		_volcanic_trees.update_view(pos, vp_size)
+	if _atlantic_ground != null:
+		var pos: Vector2 = _player.global_position
+		_atlantic_ground.set_world_offset(pos)
+		_atlantic_sparks.set_world_offset(pos)
+		_atlantic_water_surface.set_world_offset(pos)
+		var vp_size: Vector2 = get_viewport().get_visible_rect().size
+		_atlantic_clouds.update_view(pos, vp_size)
+		_atlantic_trees.update_view(pos, vp_size)
 	if USE_PLACEHOLDER_FIRE:
 		_fire_acc += delta
 		while _fire_acc >= FIRE_INTERVAL:
@@ -826,6 +942,56 @@ func _setup_rubicon_terrain_edit() -> void:
 func _setup_rubicon_light_edit() -> void:
 	add_child(RubiconLightEditScript.new())
 
+## Volcanic-only: the TERRAIN EDIT dev panel — see scripts/ui/hud/volcanic_terrain_edit.gd. Group
+## "volcanic_terrain_edit" is how arena_hud_buttons.gd's TERRAIN EDIT button finds it.
+func _setup_volcanic_terrain_edit() -> void:
+	add_child(VolcanicTerrainEditScript.new())
+
+## Volcanic-only: the LIGHT EDIT dev panel — see scripts/ui/hud/volcanic_light_edit.gd. Group
+## "volcanic_light_edit" is how arena_hud_buttons.gd's LIGHT EDIT button finds it.
+func _setup_volcanic_light_edit() -> void:
+	add_child(VolcanicLightEditScript.new())
+
+## Volcanic-only: the PLUME EDIT dev panel — see scripts/ui/hud/volcanic_plume_edit.gd. Group
+## "volcanic_plume_edit" is how arena_hud_buttons.gd's PLUME EDIT button finds it.
+func _setup_volcanic_plume_edit() -> void:
+	add_child(VolcanicPlumeEditScript.new())
+
+## Volcanic-only: the CRATER MARK dev panel — see scripts/ui/hud/volcanic_crater_mark.gd. Group
+## "volcanic_crater_mark" is how arena_hud_buttons.gd's CRATER MARK button finds it.
+func _setup_volcanic_crater_mark() -> void:
+	add_child(VolcanicCraterMarkScript.new())
+
+## Volcanic-only: the LANDMARK MARK dev panel — see scripts/ui/hud/volcanic_landmark_mark.gd. Group
+## "volcanic_landmark_mark" is how arena_hud_buttons.gd's LANDMARK MARK button finds it.
+func _setup_volcanic_landmark_mark() -> void:
+	add_child(VolcanicLandmarkMarkScript.new())
+
+## Atlantic-only: the TERRAIN EDIT dev panel — see scripts/ui/hud/atlantic_terrain_edit.gd. Group
+## "atlantic_terrain_edit" is how arena_hud_buttons.gd's TERRAIN EDIT button finds it.
+func _setup_atlantic_terrain_edit() -> void:
+	add_child(AtlanticTerrainEditScript.new())
+
+## Atlantic-only: the LIGHT EDIT dev panel — see scripts/ui/hud/atlantic_light_edit.gd. Group
+## "atlantic_light_edit" is how arena_hud_buttons.gd's LIGHT EDIT button finds it.
+func _setup_atlantic_light_edit() -> void:
+	add_child(AtlanticLightEditScript.new())
+
+## Atlantic-only: the PLUME EDIT dev panel — see scripts/ui/hud/atlantic_plume_edit.gd. Group
+## "atlantic_plume_edit" is how arena_hud_buttons.gd's PLUME EDIT button finds it.
+func _setup_atlantic_plume_edit() -> void:
+	add_child(AtlanticPlumeEditScript.new())
+
+## Atlantic-only: the CRATER MARK dev panel — see scripts/ui/hud/atlantic_crater_mark.gd. Group
+## "atlantic_crater_mark" is how arena_hud_buttons.gd's CRATER MARK button finds it.
+func _setup_atlantic_crater_mark() -> void:
+	add_child(AtlanticCraterMarkScript.new())
+
+## Atlantic-only: the LANDMARK MARK dev panel — see scripts/ui/hud/atlantic_landmark_mark.gd. Group
+## "atlantic_landmark_mark" is how arena_hud_buttons.gd's LANDMARK MARK button finds it.
+func _setup_atlantic_landmark_mark() -> void:
+	add_child(AtlanticLandmarkMarkScript.new())
+
 ## Hide the gameplay + all HUD (HP/XP, weapon/aux slots, button clusters, debug panels, player, live enemies)
 ## while a full-screen editor (Creep / Fleet) is open, so only the editor panels + its edit objects show.
 ## Restored when the editor closes. Background/parallax is left in place.
@@ -885,44 +1051,108 @@ func _on_final_boss_defeated() -> void:
 	_run_over_shown = true
 	call_deferred("_show_run_over", true)
 
-## Debug-only: jump straight to the RUN OVER screen without a real death — deliberately bypasses the
-## Phoenix Core / Player 2 revive checks in _on_run_ended (those exist to keep a real run alive, which
-## would defeat a deliberate skip). Caller (arena_debug_spawn.gd, F4) is responsible for granting
-## simulated run rewards first via MetaManager.simulate_run_rewards().
-func force_end_run() -> void:
+## Debug-only: jump straight to the RUN OVER / BOSS ELIMINATED screen without a real death or boss kill —
+## deliberately bypasses the Phoenix Core / Player 2 revive checks in _on_run_ended (those exist to keep a
+## real run alive, which would defeat a deliberate skip). Caller (arena_debug_spawn.gd, F4 / dev-cluster END
+## RUN button) is responsible for granting simulated run rewards first via MetaManager.simulate_run_rewards().
+## `victory` (2026-08-07, on request — END RUN now asks WIN/LOSE first instead of always ending in defeat)
+## just picks which of the two end-screen framings _show_run_over() shows (BOSS ELIMINATED / RUN OVER, incl.
+## the rescue + blueprint result wording) — unlike a REAL boss kill (_on_final_boss_defeated,
+## GameManager.final_boss_defeated), it does NOT emit boss_defeated/final_boss_defeated, so it never touches
+## the salvage/blueprint-drop screen (arena_drop_ui.gd) — this is purely an end-screen/outcome-framing skip.
+func force_end_run(victory: bool = false) -> void:
 	if _run_over_shown:
 		return
 	_run_over_shown = true
-	call_deferred("_show_run_over", false)
+	call_deferred("_show_run_over", victory)
+
+## RUN OVER / BOSS ELIMINATED backdrop (2026-08-06, on request: "lấy lại main menu — nền, không gian, creep
+## bay — không lấy logo/nút") — the Main Menu's own background+space art layers plus its decorative
+## flying-creep spawner, WITHOUT the Logo or the 4 menu buttons (those stay main-menu-only). Reads
+## mainmenu_layout.cfg for whatever pos/size the player has dragged those two layers to via the Main Menu's
+## F4 editor, falling back to their shipped defaults (main_menu_edit_mode.gd's own DEFAULT_GEOM) if the cfg
+## or that key is missing. Everything here is parented under `cl` so it's cleaned up automatically either
+## way this screen ends (scene change, or `cl.queue_free()` on BOSS ELIMINATED → CONTINUE EXPLORE).
+##
+## Deliberately ignores the cfg's own authored z_index (background=5, space=1 there) and leaves every
+## z_index at the CanvasItem default (0) instead — those values only made sense in the Main Menu's own
+## CanvasLayer, where nothing else on it goes above z=0 except the Logo(5)/buttons(10) this screen omits.
+## Reused here, z=5 on "background" would escape ITS container and out-stack every later sibling in `cl`
+## still sitting at the default z=0 — the dim scrim AND the whole stats/title/button box — hiding them
+## behind an opaque image (2026-08-06 bug report: "text disappeared, no flying creeps either" — creeps also
+## vanished for the same reason, menu_enemy_spawner.gd hardcodes its own enemies to z_index=3, likewise under
+## 5). Tree order alone keeps "background" drawn over "space" (added second) with both at z=0; _show_run_over
+## then explicitly raises `dim`/`center` to Z_UI_FRONT so they always win regardless of the backdrop's own
+## z-index quirks (the enemies' hardcoded z=3 included).
+const MENU_BG_DEFAULT_GEOM := {
+	"space":      {"pos": Vector2(0.0, -12.0), "size": Vector2(1440.0, 804.0)},
+	"background": {"pos": Vector2(0.0, -12.0), "size": Vector2(1440.0, 804.0)},
+}
+const Z_UI_FRONT := 20   # dim scrim + stats/title/button box — see the class-level comment above
+func _build_run_over_backdrop(cl: CanvasLayer) -> void:
+	var oc := Control.new()
+	oc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	oc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cl.add_child(oc)
+	var cfg := ConfigFile.new()
+	var have_cfg := cfg.load("res://mainmenu_layout.cfg") == OK
+	for layer_name: String in ["space", "background"]:   # tree order = draw order: space first, background over it
+		var geom: Dictionary = MENU_BG_DEFAULT_GEOM[layer_name]
+		var pos: Vector2 = geom["pos"]
+		var size: Vector2 = geom["size"]
+		var path := "res://assets/hud/mainmenu/" + layer_name + ".png"
+		if have_cfg and cfg.has_section_key("layers", layer_name):
+			var l: Dictionary = cfg.get_value("layers", layer_name, {})
+			pos  = l.get("pos", pos)
+			size = l.get("size", size)
+			path = String(l.get("path", path))
+		var tex := load(path) as Texture2D
+		if tex == null:
+			continue
+		var tr := TextureRect.new()
+		tr.texture = tex
+		# Match EditableObjectNode's own TextureRect config exactly (scenes/ui/edit_mode/editable_object.tscn:
+		# expand_mode=3/EXPAND_FIT_WIDTH_PROPORTIONAL, stretch_mode=0/STRETCH_SCALE) — a plain TextureRect
+		# otherwise defaults to EXPAND_KEEP_SIZE and draws at the source PNG's native pixel size instead of
+		# `size`, which is what made this backdrop render zoomed-in/cropped (2026-08-06 bug report).
+		tr.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+		tr.stretch_mode = TextureRect.STRETCH_SCALE
+		tr.position = pos
+		tr.size = size
+		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		oc.add_child(tr)
+	# Decorative flying creeps — same backdrop as the Main Menu (real arena AI, no bosses; PAUSABLE, so once
+	# get_tree().paused = true takes hold they freeze in place — same "frozen snapshot" behavior the F4 menu
+	# editor already relies on). Its own _ready() prespawns a handful immediately, pause or not.
+	var spawner := MenuSpawnerScript.new()
+	spawner.setup(oc)
+	cl.add_child(spawner)
 
 ## `victory` = the player defeated the timeline's final boss (BOSS ELIMINATED, no "last hit by", offers
 ## CONTINUE EXPLORE alongside RETURN TO DOCK) vs a real death (RUN OVER, "last hit by" shown, only RETURN
-## TO DOCK). Background is the main-menu art (assets/hud/mainmenu) under a legibility scrim; content sits in
-## a CenterContainer so it's always genuinely centered regardless of its own size (the old anchor-preset
-## approach measured the box BEFORE its children were added, so it drifted off-center as content grew).
+## TO DOCK). Background is the live Main Menu backdrop (see _build_run_over_backdrop) under a legibility
+## scrim; content sits in a CenterContainer so it's always genuinely centered regardless of its own size (the
+## old anchor-preset approach measured the box BEFORE its children were added, so it drifted off-center as
+## content grew).
 func _show_run_over(victory: bool) -> void:
 	get_tree().paused = true
 	var cl := CanvasLayer.new()
-	cl.layer = 200
+	cl.layer = 190   # below HudEditRuntime's own overlay (layer 200, "above absolutely everything else in the
+	                  # game") so its hold-to-edit selection box/handles are visible over this screen — see the
+	                  # HudEditRuntime.register() calls below (2026-08-06, on request: same mechanism as Dock)
 	cl.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(cl)
-	var bg := TextureRect.new()
-	var bg_tex := load("res://assets/hud/mainmenu/background.png") as Texture2D
-	if bg_tex != null:
-		bg.texture = bg_tex
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	cl.add_child(bg)
+	_build_run_over_backdrop(cl)
 	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.55)
+	dim.color = Color(0, 0, 0, 0.3)   # 2026-08-06, on request: legibility scrim over the live menu backdrop
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.z_index = Z_UI_FRONT   # always above the backdrop art/creeps — see _build_run_over_backdrop's doc comment
 	cl.add_child(dim)
 	var center := CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
 	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center.z_index = Z_UI_FRONT
 	cl.add_child(center)
 	var box := VBoxContainer.new()
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -937,6 +1167,7 @@ func _show_run_over(victory: bool) -> void:
 	title.add_theme_font_size_override("font_size", 48)
 	title.add_theme_color_override("font_color", Color("#E5792A"))
 	box.add_child(title)
+	HudEditRuntime.register(title, "run_over.title")   # 2026-08-06, on request: same hold-to-edit as the Dock
 	var sub := Label.new()
 	var lvl: int = GameManager.player_level if "player_level" in GameManager else 1
 	sub.text = "Reached level %d" % lvl
@@ -944,16 +1175,21 @@ func _show_run_over(victory: bool) -> void:
 	sub.add_theme_font_size_override("font_size", 22)
 	sub.add_theme_color_override("font_color", Color(0.8, 0.82, 0.88))
 	box.add_child(sub)
+	HudEditRuntime.register(sub, "run_over.subtitle")
 	_build_run_over_stats(box, victory)
+	_build_rescue_result(box, victory)
+	_build_blueprint_result(box, victory)
 	var btn_row := HBoxContainer.new()
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	btn_row.add_theme_constant_override("separation", 16)
 	box.add_child(btn_row)
+	HudEditRuntime.register(btn_row, "run_over.buttons")
 	var dock_btn := Button.new()
 	dock_btn.text = "RETURN TO DOCK"
 	dock_btn.custom_minimum_size = Vector2(260, 56)
 	dock_btn.add_theme_font_size_override("font_size", 22)
 	dock_btn.pressed.connect(func() -> void:
+		GameManager.pending_interest_notice = MetaManager.apply_dock_interest()
 		get_tree().paused = false
 		get_tree().change_scene_to_file("res://scenes/hub.tscn"))
 	btn_row.add_child(dock_btn)
@@ -991,22 +1227,112 @@ func _show_dock_corner_button() -> void:
 	btn.offset_right = -20.0
 	btn.offset_bottom = -20.0
 	btn.pressed.connect(func() -> void:
+		GameManager.pending_interest_notice = MetaManager.apply_dock_interest()
 		get_tree().change_scene_to_file("res://scenes/hub.tscn"))
 	cl.add_child(btn)
 	_dock_corner_btn = btn
 
-## RUN OVER / BOSS ELIMINATED stats: kills, per-weapon damage + DPS (damage / GameManager.run_time —
-## weapons dealing 0 are skipped) as an icon+name+dmg+dps TABLE, total damage, and (death only — `victory`
-## suppresses this row entirely) "last hit by" (name + icon of whoever most recently damaged the player —
-## see GameManager.record_last_hit / arena_enemy.gd/arena_enemy_manager.gd's call sites; boss-specific
-## attacks aren't covered, a scoped/accepted gap). damage_stats() only covers the MAIN weapons instance —
-## Player 2 companion damage (a separate arena_weapons.gd instance) isn't included either, same reasoning.
+## Rescue-landmark result line (2026-08-06, on request) — reads GameManager.run_rescue_char_id/
+## run_rescue_collected (set by rubicon_ruin_layer.gd / volcanic_ruin_layer.gd on spawn/kill) and shows
+## exactly one of three outcomes. Only "successfully rescued" (landmark collected AND this run ended in
+## victory) actually calls MetaManager.unlock_room() — dying after collecting, or never finding the landmark
+## at all (win or lose), grants nothing and leaves that character eligible to spawn again next run (see
+## MetaManager.rescue_candidate_for_map()). No line at all if no rescue landmark was even offered this run
+## (run_rescue_char_id == "" — map has none, e.g. "default", or everyone reachable from it is already home).
+func _build_rescue_result(box: VBoxContainer, victory: bool) -> void:
+	var char_id := String(GameManager.run_rescue_char_id) if "run_rescue_char_id" in GameManager else ""
+	if char_id == "" or not MetaManager.RESCUE_CHARACTER_DEFS.has(char_id):
+		return
+	var def: Dictionary = MetaManager.RESCUE_CHARACTER_DEFS[char_id]
+	var char_name: String = String(def["name"])
+	var collected: bool = bool(GameManager.run_rescue_collected)
+	var text: String
+	if not collected:
+		text = "You have not found %s" % char_name
+	elif victory:
+		text = "You have successfully rescued %s" % char_name
+		MetaManager.unlock_room(String(def["room"]))
+	else:
+		text = "You have failed rescued %s" % char_name
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var tf := load("res://assets/fonts/Good Old DOS.ttf") as Font
+	if tf != null:
+		lbl.add_theme_font_override("font", tf)
+	lbl.add_theme_font_size_override("font_size", 20)
+	lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.2))
+	box.add_child(lbl)
+	HudEditRuntime.register(lbl, "run_over.rescue")   # 2026-08-06, on request: same hold-to-edit as the Dock
+
+## Boss-salvage DISASSEMBLE result line(s) (2026-08-06, on request) — mirrors _build_rescue_result's outcome
+## framing but for MetaManager.run_pending_blueprints (arena_drop_ui.gd's "DISASSEMBLE" choice, staged not
+## committed — see that var's own doc comment). One row per DISTINCT staged def_id (duplicates from
+## disassembling the same weapon twice this run are folded into one line): "Blueprint secured" (and actually
+## committed to MetaManager.blueprints, permanent from here on) on victory, "Blueprint lost" (never
+## committed — stays un-owned, that copy simply evaporates) on death. If nothing was ever staged, shows one
+## "No blueprint acquired" line — but ONLY if a boss salvage screen was actually shown this run
+## (run_weapon_drop_seen); otherwise (no boss fought at all) this whole section is skipped, same as the
+## rescue-landmark line's "not offered this run" case.
+func _build_blueprint_result(box: VBoxContainer, victory: bool) -> void:
+	var staged: Array = MetaManager.run_pending_blueprints if "run_pending_blueprints" in MetaManager else []
+	var drop_seen: bool = bool(MetaManager.run_weapon_drop_seen) if "run_weapon_drop_seen" in MetaManager else false
+	if staged.is_empty() and not drop_seen:
+		return
+	if victory:
+		MetaManager.commit_pending_blueprints()   # every staged pick becomes a real, permanent blueprint now
+	# All rows live in one sub-container so hold-to-edit (below) moves/resizes them as a single block, same
+	# granularity as _build_rescue_result's one line — an individual row per def_id would need per-run-varying
+	# ids (a fresh weapon each run), which HudEditRuntime's "id must be STABLE" contract doesn't support.
+	var section := VBoxContainer.new()
+	section.add_theme_constant_override("separation", 4)
+	box.add_child(section)
+	HudEditRuntime.register(section, "run_over.blueprint")   # 2026-08-06, on request: same hold-to-edit as the Dock
+	if staged.is_empty():
+		section.add_child(_run_over_text_label("No blueprint acquired"))
+		return
+	var seen: Dictionary = {}
+	for def_id: String in staged:
+		if seen.has(def_id):
+			continue
+		seen[def_id] = true
+		var d := InventoryManager.get_def(def_id)
+		var name_s := String(d.get("name", def_id))
+		var row := HBoxContainer.new()
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		row.add_theme_constant_override("separation", 8)
+		var tex := InventoryManager.get_icon(def_id)
+		if tex != null:
+			row.add_child(_run_over_icon(tex))
+		var text := ("Blueprint secured: %s" % name_s) if victory else ("Blueprint lost: %s (died before returning to Dock)" % name_s)
+		row.add_child(_run_over_text_label(text))
+		section.add_child(row)
+
+## RUN OVER / BOSS ELIMINATED stats — two columns (2026-08-06, on request): col 1 = label (+ icon for the
+## per-weapon and "Last Hit By" rows), col 2 = its matching value. Rows: Creeps Killed, Coin Collected, one
+## per weapon with damage>0 (icon+name | dmg (dps), highest damage first), Total Damage, and (death only —
+## `victory` suppresses this row entirely) "Last Hit By" (icon + name of whoever most recently damaged the
+## player — see GameManager.record_last_hit / arena_enemy.gd/arena_enemy_manager.gd's call sites; boss-
+## specific attacks aren't covered, a scoped/accepted gap). damage_stats() only covers the MAIN weapons
+## instance — Player 2 companion damage (a separate arena_weapons.gd instance) isn't included either, same
+## reasoning.
 func _build_run_over_stats(box: VBoxContainer, victory: bool) -> void:
 	var panel := VBoxContainer.new()
 	panel.add_theme_constant_override("separation", 4)
-	panel.custom_minimum_size = Vector2(420.0, 0.0)
+	panel.custom_minimum_size = Vector2(460.0, 0.0)
 	box.add_child(panel)
-	panel.add_child(_run_over_stat_label("Creeps Killed: %d" % GameManager.run_kills))
+	HudEditRuntime.register(panel, "run_over.stats")   # 2026-08-06, on request: same hold-to-edit as the Dock
+
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 24)
+	grid.add_theme_constant_override("v_separation", 4)
+	panel.add_child(grid)
+
+	grid.add_child(_stat_cell("Creeps Killed", null, false))
+	grid.add_child(_stat_cell(str(GameManager.run_kills), null, true))
+	grid.add_child(_stat_cell("Coin Collected", null, false))
+	grid.add_child(_stat_cell(str(GameManager.run_coin) if "run_coin" in GameManager else "0", null, true))
 
 	var aw := get_tree().get_first_node_in_group("arena_weapons")
 	var dmg_stats: Dictionary = aw.call("damage_stats") if (aw != null and aw.has_method("damage_stats")) else {}
@@ -1014,11 +1340,6 @@ func _build_run_over_stats(box: VBoxContainer, victory: bool) -> void:
 	var kinds: Array = dmg_stats.keys()
 	kinds.sort_custom(func(a, b): return float(dmg_stats[a]) > float(dmg_stats[b]))   # highest damage first
 
-	var grid := GridContainer.new()
-	grid.columns = 3   # icon | name | dmg (dps)
-	grid.add_theme_constant_override("h_separation", 12)
-	grid.add_theme_constant_override("v_separation", 4)
-	panel.add_child(grid)
 	var total_dmg := 0.0
 	for kind: String in kinds:
 		var d := float(dmg_stats[kind])
@@ -1027,30 +1348,53 @@ func _build_run_over_stats(box: VBoxContainer, victory: bool) -> void:
 		total_dmg += d
 		var name_s := String(aw.call("weapon_display_name", kind)) if aw != null else kind
 		var tex: Texture2D = (aw.call("weapon_icon_tex", kind) as Texture2D) if (aw != null and aw.has_method("weapon_icon_tex")) else null
-		grid.add_child(_run_over_icon(tex))
-		var name_lbl := _run_over_stat_label(name_s)
-		name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		name_lbl.custom_minimum_size = Vector2(140.0, 0.0)
-		grid.add_child(name_lbl)
-		var dmg_lbl := _run_over_stat_label("%d dmg  (%.1f/s)" % [int(round(d)), d / run_t])
-		dmg_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		dmg_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		dmg_lbl.custom_minimum_size = Vector2(140.0, 0.0)
-		grid.add_child(dmg_lbl)
-	panel.add_child(_run_over_stat_label("Total Damage: %d" % int(round(total_dmg))))
+		grid.add_child(_stat_cell(name_s, tex, false))
+		grid.add_child(_stat_cell("%d dmg  (%.1f/s)" % [int(round(d)), d / run_t], null, true))
+
+	grid.add_child(_stat_cell("Total Damage", null, false))
+	grid.add_child(_stat_cell(str(int(round(total_dmg))), null, true))
 
 	if not victory and GameManager.last_hit_name != "":
-		var row := HBoxContainer.new()
-		row.alignment = BoxContainer.ALIGNMENT_CENTER
-		row.add_theme_constant_override("separation", 8)
 		var tex: Texture2D = null
 		if GameManager.last_hit_icon != "":
 			tex = load(GameManager.last_hit_icon) as Texture2D
-		if tex != null:
-			row.add_child(_run_over_icon(tex))
-		row.add_child(_run_over_stat_label("Last hit by: " + GameManager.last_hit_name))
-		panel.add_child(row)
+		grid.add_child(_stat_cell("Last Hit By", null, false))
+		grid.add_child(_stat_cell(GameManager.last_hit_name, tex, true))
+
+## One GridContainer cell: plain text (`tex == null`), or an icon+text HBox otherwise — icon always sits
+## nearest the grid's outer edge (left of the text in col 1, right of the text in col 2) so both columns'
+## text stays readably flush against the gap between them.
+func _stat_cell(text: String, tex: Texture2D, right: bool) -> Control:
+	var l := _run_over_stat_label(text)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT if right else HORIZONTAL_ALIGNMENT_LEFT
+	if tex == null:
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		return l
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if right:
+		var sp := Control.new(); sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(sp)
+		row.add_child(l)
+		row.add_child(_run_over_icon(tex))
+	else:
+		row.add_child(_run_over_icon(tex))
+		row.add_child(l)
+	return row
+
+## Plain centered label — same look as _build_rescue_result's own outcome line, factored out for
+## _build_blueprint_result's rows.
+func _run_over_text_label(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var tf := load("res://assets/fonts/Good Old DOS.ttf") as Font
+	if tf != null:
+		l.add_theme_font_override("font", tf)
+	l.add_theme_font_size_override("font_size", 20)
+	l.add_theme_color_override("font_color", Color(1.0, 0.85, 0.2))
+	return l
 
 func _run_over_icon(tex: Texture2D) -> Control:
 	var tr := TextureRect.new()

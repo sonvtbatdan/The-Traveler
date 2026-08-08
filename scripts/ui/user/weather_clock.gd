@@ -86,7 +86,7 @@ var _alarm_player: AudioStreamPlayer = null
 func _ready() -> void:
 	custom_minimum_size = PANEL_SIZE
 	size = PANEL_SIZE
-	_gameplay_font = load("res://assets/fonts/Gameplay.ttf") as FontFile
+	_gameplay_font = load("res://assets/fonts/mandalore/mandalore.ttf") as FontFile
 	_apply_style()
 	_build_ui()
 	_build_float_panel()
@@ -155,7 +155,7 @@ func _build_ui() -> void:
 
 func _make_lbl(txt: String, fsize: int, col: Color) -> Label:
 	var l := Label.new()
-	l.text = txt
+	l.text = MandaloreText.a(txt)
 	l.add_theme_font_size_override("font_size", fsize)
 	l.add_theme_color_override("font_color", col)
 	if _gameplay_font:
@@ -215,7 +215,7 @@ func _build_float_panel() -> void:
 	_timer_box.add_child(tm_row)
 
 	var tm_lbl := Label.new()
-	tm_lbl.text = "Minutes:"
+	tm_lbl.text = MandaloreText.a("Minutes:")
 	tm_lbl.add_theme_font_size_override("font_size", 11)
 	tm_lbl.add_theme_color_override("font_color", Color(0.72, 0.80, 0.95))
 	tm_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -234,7 +234,7 @@ func _build_float_panel() -> void:
 	_timer_go_btn.pressed.connect(_on_timer_go)
 
 	_timer_lbl = Label.new()
-	_timer_lbl.text = "—"
+	_timer_lbl.text = MandaloreText.a("—")
 	_timer_lbl.add_theme_font_size_override("font_size", 14)
 	_timer_lbl.add_theme_color_override("font_color", Color(0.90, 0.95, 1.0))
 	_timer_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -259,7 +259,7 @@ func _build_float_panel() -> void:
 	al_row.add_child(_alarm_h_spin)
 
 	var colon_lbl := Label.new()
-	colon_lbl.text = ":"
+	colon_lbl.text = MandaloreText.a(":")
 	colon_lbl.add_theme_font_size_override("font_size", 16)
 	colon_lbl.add_theme_color_override("font_color", Color(0.80, 0.80, 0.80))
 	colon_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -277,7 +277,7 @@ func _build_float_panel() -> void:
 	_alarm_set_btn.pressed.connect(_on_alarm_toggle)
 
 	_alarm_info_lbl = Label.new()
-	_alarm_info_lbl.text = "No alarm set"
+	_alarm_info_lbl.text = MandaloreText.a("No alarm set")
 	_alarm_info_lbl.add_theme_font_size_override("font_size", 11)
 	_alarm_info_lbl.add_theme_color_override("font_color", Color(0.55, 0.62, 0.78))
 	_alarm_info_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -286,7 +286,7 @@ func _build_float_panel() -> void:
 
 	# ── Flash label (always in tree, empty when idle) ────────────────────────
 	_flash_lbl = Label.new()
-	_flash_lbl.text = ""
+	_flash_lbl.text = MandaloreText.a("")
 	_flash_lbl.add_theme_font_size_override("font_size", 12)
 	_flash_lbl.add_theme_color_override("font_color", Color(1.0, 0.72, 0.20))
 	_flash_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -298,7 +298,7 @@ func _build_float_panel() -> void:
 
 func _make_fbtn(txt: String) -> Button:
 	var btn := Button.new()
-	btn.text = txt
+	btn.text = MandaloreText.a(txt)
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.add_theme_font_size_override("font_size", 11)
 	if _gameplay_font:
@@ -400,16 +400,16 @@ func _process(delta: float) -> void:
 	if is_instance_valid(_flash_lbl):
 		if firing:
 			_flash_t += delta
-			_flash_lbl.text = "⏰  TIME'S UP!"
+			_flash_lbl.text = MandaloreText.a("⏰  TIME'S UP!")
 			_flash_lbl.modulate.a = 0.55 + 0.45 * sin(_flash_t * 5.0)
 		else:
-			_flash_lbl.text = ""
+			_flash_lbl.text = MandaloreText.a("")
 			_flash_lbl.modulate.a = 1.0
 			_flash_t = 0.0
 
 func _update_clock() -> void:
 	var t := Time.get_time_dict_from_system()
-	_clock_lbl.text = "%02d:%02d" % [t["hour"], t["minute"]]
+	_clock_lbl.text = MandaloreText.a("%02d:%02d" % [t["hour"], t["minute"]])
 
 	var elapsed := Time.get_unix_time_from_system() - _start_time
 	if is_instance_valid(_elapsed_lbl):
@@ -429,13 +429,13 @@ func _update_timer_display() -> void:
 		return
 	match _tstate:
 		TState.IDLE:
-			_timer_lbl.text = "—"
-			if is_instance_valid(_timer_go_btn): _timer_go_btn.text = "▶  START"
+			_timer_lbl.text = MandaloreText.a("—")
+			if is_instance_valid(_timer_go_btn): _timer_go_btn.text = MandaloreText.a("▶  START")
 		TState.RUNNING:
-			_timer_lbl.text = _fmt_duration(_timer_left)
+			_timer_lbl.text = MandaloreText.a(_fmt_duration(_timer_left))
 		TState.FIRED:
-			_timer_lbl.text = "Done!"
-			if is_instance_valid(_timer_go_btn): _timer_go_btn.text = "▶  START"
+			_timer_lbl.text = MandaloreText.a("Done!")
+			if is_instance_valid(_timer_go_btn): _timer_go_btn.text = MandaloreText.a("▶  START")
 
 func _fmt_duration(sec: float) -> String:
 	var s  := int(sec)
@@ -503,7 +503,7 @@ func _on_timer_go() -> void:
 		return
 	_tstate = TState.RUNNING
 	_timer_left = float(_timer_spin.value) * 60.0
-	if is_instance_valid(_timer_go_btn): _timer_go_btn.text = "■  STOP"
+	if is_instance_valid(_timer_go_btn): _timer_go_btn.text = MandaloreText.a("■  STOP")
 	_update_timer_display()
 
 # ── Alarm ─────────────────────────────────────────────────────────────────────
@@ -512,16 +512,16 @@ func _on_alarm_toggle() -> void:
 	if _alarm_active:
 		_alarm_active = false
 		_alarm_fired  = false
-		if is_instance_valid(_alarm_set_btn):  _alarm_set_btn.text  = "SET ALARM"
-		if is_instance_valid(_alarm_info_lbl): _alarm_info_lbl.text = "No alarm set"
+		if is_instance_valid(_alarm_set_btn):  _alarm_set_btn.text  = MandaloreText.a("SET ALARM")
+		if is_instance_valid(_alarm_info_lbl): _alarm_info_lbl.text = MandaloreText.a("No alarm set")
 	else:
 		_alarm_active = true
 		_alarm_fired  = false
 		_alarm_h = int(_alarm_h_spin.value)
 		_alarm_m = int(_alarm_m_spin.value)
-		if is_instance_valid(_alarm_set_btn):  _alarm_set_btn.text  = "CLEAR ALARM"
+		if is_instance_valid(_alarm_set_btn):  _alarm_set_btn.text  = MandaloreText.a("CLEAR ALARM")
 		if is_instance_valid(_alarm_info_lbl):
-			_alarm_info_lbl.text = "Alarm: %02d:%02d" % [_alarm_h, _alarm_m]
+			_alarm_info_lbl.text = MandaloreText.a("Alarm: %02d:%02d" % [_alarm_h, _alarm_m])
 
 func _ring_alarm() -> void:
 	if is_instance_valid(_alarm_player): _alarm_player.play()
@@ -544,7 +544,7 @@ func _on_geo_done(_result: int, code: int, _headers: PackedStringArray, body: Pa
 		_lon = float(j.get("lon", 0.0))
 		var city:   String = j.get("city", "")
 		var region: String = j.get("regionName", "")
-		_city_lbl.text = ("%s, %s" % [city, region]).strip_edges()
+		_city_lbl.text = MandaloreText.a(("%s, %s" % [city, region]).strip_edges())
 		_fetch_weather()
 
 func _fetch_weather() -> void:
@@ -561,7 +561,7 @@ func _on_weather_done(_result: int, code: int, _headers: PackedStringArray, body
 		var cur: Dictionary = j["current"]
 		var temp:  float = float(cur.get("temperature_2m", 0.0))
 		var wcode: int   = int(cur.get("weathercode", 0))
-		_weather_lbl.text = "%s — %.0f°C" % [WMO_LABELS.get(wcode, "Unknown"), temp]
+		_weather_lbl.text = MandaloreText.a("%s — %.0f°C" % [WMO_LABELS.get(wcode, "Unknown"), temp])
 
 # ── Session ───────────────────────────────────────────────────────────────────
 
@@ -619,9 +619,9 @@ class _RunLabel extends Control:
 		custom_minimum_size.y = float(fsize) + 4.0
 
 	func set_text(t: String) -> void:
-		if _lbl.text == t:
+		if _lbl.text =MandaloreText.a(= t:)
 			return
-		_lbl.text = t
+		_lbl.text = MandaloreText.a(t)
 		_ox   = 0.0
 		_dir  = -1.0
 		_wait = PAUSE

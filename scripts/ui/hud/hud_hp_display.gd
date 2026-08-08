@@ -1,6 +1,6 @@
 extends Control
 
-const FONT_PATH     := "res://assets/fonts/Gameplay.ttf"
+const FONT_PATH     := "res://assets/fonts/mandalore/mandalore.ttf"
 const LAYOUT_PATH   := "res://default_layout.cfg"
 const HP_FRAMES     := 40
 const SHIELD_FRAMES := 20
@@ -164,7 +164,7 @@ func _on_hp_changed(hp: int) -> void:
 	if _hp_clip:
 		_hp_clip.size.x = _hpsheet_rect.size.x * float(n_frames) / float(HP_FRAMES)
 	if _hp_label:
-		_hp_label.text = "%d / %d" % [hp, GameManager.ship_max_hp]
+		_hp_label.text = MandaloreText.a("%d / %d" % [hp, GameManager.ship_max_hp])
 
 func _on_shield_changed(shield: float) -> void:
 	var cap      := GameManager.shield_capacity_total()
@@ -174,4 +174,4 @@ func _on_shield_changed(shield: float) -> void:
 		_shield_clip.size.x = _shieldsheet_rect.size.x * float(n_frames) / float(SHIELD_FRAMES)
 	if _shield_label:
 		_shield_label.visible = shield > 0.0
-		_shield_label.text    = "%d / %d" % [int(round(shield)), int(round(cap))]
+		_shield_label.text    = MandaloreText.a("%d / %d" % [int(round(shield)), int(round(cap))])

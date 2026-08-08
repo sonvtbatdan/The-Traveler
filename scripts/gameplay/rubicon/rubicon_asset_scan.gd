@@ -10,9 +10,12 @@ class_name RubiconAssetScan
 ## material maps as if they were tree sprites. Driving off .glb stems sidesteps that entirely.
 
 const FOLDER := "res://assets/map/rubicon/"
-const SCATTER_EXCLUDED := ["temple"]   # landmark/boss objects spawned via a dedicated system
-                                        # (rubicon_temple_layer.gd), NOT the regular density-scatter or the
-                                        # Terrain Edit panel's Assets list — filename stem, case-sensitive.
+const SCATTER_EXCLUDED := ["temple", "constructor", "mechanic"]   # landmark/rescue objects spawned via a
+                                        # dedicated system (rubicon_temple_layer.gd / rubicon_ruin_layer.gd),
+                                        # NOT the regular density-scatter or the Terrain Edit panel's Assets
+                                        # list — filename stem, case-sensitive. constructor.glb/mechanic.glb
+                                        # moved into this folder 2026-08-06 (from assets/ruin/) — MUST stay
+                                        # excluded or they'd get randomly ambient-scattered as decoration.
 const MAPTILE_FOLDER := FOLDER + "maptile/"     # one subfolder per ground tile SET (e.g. "green", "grey") —
                                                  # each holds the 3 canopy photos that set's ground uses; see
                                                  # rubicon_ground.gd's apply_maptile_set / Terrain Edit panel's

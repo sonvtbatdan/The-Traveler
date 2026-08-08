@@ -18,12 +18,24 @@ extends CanvasLayer
 const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const WaveDir   := preload("res://scripts/gameplay/arena_wave_director.gd")
 const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
+const ArenaToastScript := preload("res://scripts/ui/hud/arena_toast.gd")   # BOSS FIGHT button no-op feedback
 const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")   # for WEAPON_INFO/FUSION_DEFS code names
-# Weapon roster for the Dev → Weapon panel, classified per the Corp design doc into 4 tabs:
-#   drop     = obtained from drops               (Spawn = "Drop")
-#   evolve   = upgraded from ONE parent weapon   (Spawn names 1 weapon)  — evolve mechanic not coded yet
-#   fusion   = combined from TWO weapons         (Spawn names 2 weapons)
-#   obsolete = the 3 reworked/replaced code kinds (vampire_host / toxic_ballistic / singularities)
+# Weapon roster for the Dev → Weapon panel. Four tabs (WEAPON_TAB_ORDER, below):
+#   drop     = obtained from drops, incl. the 2 "narratively fusion" kinds that aren't real FUSION_DEFS
+#              recipes (Venomancer, Yari Jaeger — see "fusion"'s own comment)
+#   evolve   = NOT a WEAPON_TABS key — built live from the real EVOLVE capstones (3/weapon), see
+#              _evolved_entries(). Replaced a static hand-picked list here 2026-08-07, on request (it was
+#              incomplete — 6 entries, not each weapon's real 3 choices, 2 not even coded in CAPSTONES).
+#   fusion   = the game's actual FUSION_DEFS recipes (combine 2 owned max-level weapons), audited 2026-08-07
+#              against arena_weapons.gd's real implementation — see that key's own comment for what changed.
+#   unique   = the 10 fragment-crafted uniques (split out of "drop" 2026-08-07, on request, to match
+#              weapon_info_panel.gd's own Drop/Evolve/Fusion/Unique split — same weapons, just their own tab
+#              instead of buried at the tail of Drop)
+# The old dynamic "Evolved"/"Combined" tabs and the static "obsolete" tab are gone (removed from
+# WEAPON_TAB_ORDER/_all_weapon_tabs(), same 2026-08-07 request) — Evolved's content is now just "evolve"
+# above; Combined's content is superseded by the audited "fusion" above; obsolete (vampire_host/
+# toxic_ballistic/singularities old reworks + a retired Shield Generator placeholder) only ever duplicated
+# concepts spawnable elsewhere — its dict entry is left in place, unreferenced, in case it's wanted back.
 # `kind` = arena_weapons code kind (spawnable on click). Entries with "ph": true are PLACEHOLDERS — the weapon
 # isn't implemented yet, so the cell renders dimmed + non-spawnable (a gray placeholder icon) until it lands.
 # `from` (optional) = the source recipe, shown in the tooltip. NOTE: a few PDF→code kind mappings are
@@ -48,25 +60,49 @@ const WEAPON_TABS := {
 		{"kind": "swarm",     "def_id": "",              "label": "Swarm", "icon": "res://assets/inventory/Swarm.png"},
 		{"kind": "ultrasonicator",     "def_id": "ultrasonicator",    "label": "Ultrasonicator"},
 		{"kind": "homing_missile",    "def_id": "homing_missile","label": "Homing Missile"},   # temp impl (copied from enemy missile launcher) — not in the Corp doc
+		# Moved in from "fusion" 2026-08-07 — neither is an actual FUSION_DEFS recipe (not obtained by
+		# combining 2 owned max-level weapons); both are ordinary standalone droppable kinds, their mfr
+		# just narratively hints at a dual-origin. See the "fusion" key's own audit comment below.
+		{"kind": "venomancer",  "def_id": "venomancer",  "label": "Venomancer"},
+		{"kind": "yari_jaeger", "def_id": "yari_jaeger", "label": "Yari Jeager"},
 	],
-	"evolve": [
-		{"kind": "",       "def_id": "",               "label": "Kinetic Induction Cannon", "code": "Big Gun",    "from": "Gatling Gun", "icon": "res://assets/inventory/VB-KIC-6.png",      "ph": true},
-		{"kind": "",       "def_id": "",               "label": "Isotope Laser",            "code": "Super Laser", "from": "Death Beam",   "icon": "res://assets/inventory/KM-IL-200.png", "ph": true},
-		{"kind": "ionizing_field", "def_id": "ionizing_field", "label": "Ionizing Field",        "from": "Rift Maker"},
-		{"kind": "",       "def_id": "",               "label": "Mobile Vacuum",            "code": "Black Ship", "from": "Rift Maker",    "icon": "res://assets/inventory/M-ST-17.png",     "ph": true},
-		{"kind": "",       "def_id": "",               "label": "Thunder Strike",           "code": "Zeus",       "from": "Arc Lightning Chain", "icon": "res://assets/inventory/Zeus.png",          "ph": true},
-		{"kind": "fat_boy", "def_id": "fat_boy", "label": "Fat Boy",        "from": "Little Man"},
+	"unique": [
+		{"kind": "thunderhead",      "def_id": "thunderhead",      "label": "Thunderhead"},        # fragment-crafted unique
+		{"kind": "graviton_well",    "def_id": "graviton_well",    "label": "Graviton Well"},       # fragment-crafted unique
+		{"kind": "omega_swarm",      "def_id": "omega_swarm",      "label": "Omega Swarm"},         # fragment-crafted unique
+		{"kind": "singularity_lance","def_id": "singularity_lance","label": "Singularity Lance"},   # fragment-crafted unique
+		{"kind": "prism_array",      "def_id": "prism_array",      "label": "Prism Array"},         # fragment-crafted unique
+		{"kind": "hailstorm",        "def_id": "hailstorm",        "label": "Hailstorm"},           # fragment-crafted unique
+		{"kind": "wraithfire",       "def_id": "wraithfire",       "label": "Wraithfire"},          # fragment-crafted unique
+		{"kind": "hivemind",         "def_id": "hivemind",         "label": "Hivemind"},            # fragment-crafted unique
+		{"kind": "annihilator",      "def_id": "annihilator",      "label": "Annihilator"},         # fragment-crafted unique
+		{"kind": "event_horizon",    "def_id": "event_horizon",    "label": "Event Horizon"},       # fragment-crafted unique — all 9 restored 2026-08-06, back to full parity with graviton_well
 	],
+	# "evolve" is intentionally NOT a key here anymore — the old static list was a hand-picked, incomplete
+	# design-doc excerpt (6 entries — not each weapon's real 3 evolve choices, 2 didn't correspond to
+	# anything CAPSTONES implements). The Evolve tab is built live from CAPSTONES instead (accurate, all
+	# 3/weapon) — see _evolved_entries() / _weapon_tab_entries()'s special case for "evolve".
+	#
+	# fusion — audited 2026-08-07 against the game's actual FUSION_DEFS (arena_weapons.gd): all 6 real
+	# recipes are FULLY IMPLEMENTED (each has a working activate_<kind>() + fire/tick logic — verified by
+	# reading the code, not assumed), so none of them should be "ph": true. Two bugs fixed from the prior
+	# hand-curated list: "Vampire Host" was wrongly marked ph:true with no kind (it's real — kind
+	# "vampire_host", recipe is Ultrasonicator × Swarm, not "× Offensive Orbitals" as it said); "Singularities"
+	# was the same — real kind "singularities", recipe Rift Maker × Gauss Pulser. "Toxic Ballistic" was
+	# missing entirely (it had been filed under the now-removed "obsolete" tab instead, despite being a
+	# real, working FUSION_DEFS recipe — Homing Missile × Chemtrail — just narratively superseded by
+	# Venomancer; included here since it's still genuinely fusable in-game). Venomancer and Yari Jaeger
+	# moved OUT to "drop" above — neither is an actual FUSION_DEFS recipe. "KM Quantum Beam Rifle" and
+	# "Drone Cannon" remain genuine placeholders (ph: true) — truly not in FUSION_DEFS, never implemented.
 	"fusion": [
 		{"kind": "",            "def_id": "",              "label": "KM Quantum Beam Rifle",        "code": "Jedi Laser",  "from": "Gatling Gun × Death Beam", "icon": "res://assets/inventory/KM-QBM-200.png", "ph": true},
 		{"kind": "",            "def_id": "",              "label": "Drone Cannon",                 "code": "Candy Crush", "from": "Gatling Gun × Defensive Orbitals", "icon": "res://assets/inventory/NC-DC-F.png", "ph": true},
-		{"kind": "",            "def_id": "",              "label": "Vampire Host",                 "from": "Ultrasonicator × Offensive Orbitals", "icon": "res://assets/inventory/Vampire Host.png", "ph": true},
-		{"kind": "venomancer",    "def_id": "venomancer","label": "Venomancer", "from": "Chemtrail × Swarm"},
+		{"kind": "vampire_host", "def_id": "offensive_orbitals", "label": "Vampire Host",           "from": "Ultrasonicator × Swarm", "icon": "res://assets/inventory/Vampire Host.png"},
 		{"kind": "overcharger", "def_id": "gauss",  "label": "Overcharger",                  "from": "Arc Lightning Chain × Gauss Pulser", "icon": "res://assets/inventory/Overcharger.png"},
-		{"kind": "yari_jaeger", "def_id": "yari_jaeger",   "label": "Yari Jeager",                  "from": "Yari × Z-Sword"},
 		{"kind": "carnage",     "def_id": "gatling_gun",   "label": "Thermitic Auto Cannon",        "from": "Dragon's Breath × Gatling Gun"},
-		{"kind": "",            "def_id": "",              "label": "Singularities",                "from": "Rift Maker × Gauss Pulser", "icon": "res://assets/inventory/Singularities.png", "ph": true},
 		{"kind": "predator",    "def_id": "death_beam",        "label": "Predator",                     "from": "Viper × Death Beam"},
+		{"kind": "toxic_ballistic", "def_id": "homing_missile", "label": "Toxic Ballistic",         "from": "Homing Missile × Chemtrail"},
+		{"kind": "singularities", "def_id": "defensive_orbitals", "label": "Singularities",         "from": "Rift Maker × Gauss Pulser", "icon": "res://assets/inventory/Singularities.png"},
 	],
 	"obsolete": [
 		{"kind": "vampire_host",    "def_id": "offensive_orbitals",     "label": "Vampire Host (old)",  "from": "Swarm + Sonic — reworked"},
@@ -75,12 +111,10 @@ const WEAPON_TABS := {
 		{"kind": "", "def_id": "shield_generator", "label": "Shield Generator", "from": "retired item", "ph": true},
 	],
 }
-const WEAPON_TAB_ORDER: Array[String] = ["drop", "evolve", "fusion", "obsolete"]
-const WEAPON_TAB_LABELS := {"drop": "Drop", "evolve": "Evolve", "fusion": "Fusion", "obsolete": "Obsolete"}
-# Two extra tabs built dynamically from the live weapon data (not from WEAPON_TABS): "Evolved" = the real EVOLVE
-# capstones (3/weapon, e.g. "Dragon's Breath: The Sun"); "Combined" = the FUSION recipes ("Combined (A + B)").
-const EXTRA_WEAPON_TABS: Array[String] = ["evolved", "combined"]
-const EXTRA_TAB_LABELS := {"evolved": "Evolved", "combined": "Combined"}
+const WEAPON_TAB_ORDER: Array[String] = ["drop", "evolve", "fusion", "unique"]
+const WEAPON_TAB_LABELS := {"drop": "Drop", "evolve": "Evolve", "fusion": "Fusion", "unique": "Unique"}
+# "evolve" is NOT a WEAPON_TABS key — it's built live from the real EVOLVE capstones (3/weapon, e.g.
+# "Dragon's Breath: The Sun") by _evolved_entries(); see _weapon_tab_entries()'s special case for it.
 # In-fiction base name where WEAPON_INFO's label differs from the design name (red_x is the Dragon's Breath weapon).
 const BASE_NAME_OVERRIDE := {"dragons_breath": "Dragon's Breath"}
 const SFX_UICLICK := preload("res://assets/audio/sfx/uiclick.wav")
@@ -246,9 +280,12 @@ func _input(event: InputEvent) -> void:
 
 ## Debug: skip the rest of the current run — grants roughly what a real run of SIM_KILLS kills / SIM_BOSSES
 ## bosses / SIM_TARGET_LEVEL levels would have paid out (coins, field-drop weapon/aux tokens, boss fragments,
-## attribute points from leveling), then jumps straight to the RUN OVER screen. Persistent rewards only —
-## in-run-only state (equipped weapons/aux, HP) is simply discarded, same as any other run ending.
-func _skip_run() -> void:
+## attribute points from leveling), then jumps straight to the RUN OVER / BOSS ELIMINATED screen. Persistent
+## rewards only — in-run-only state (equipped weapons/aux, HP) is simply discarded, same as any other run
+## ending. `victory` (2026-08-07: the END RUN dev button now asks WIN/LOSE first via a popup — see
+## arena_hud_buttons.gd's _on_end_run) just picks which end-screen framing force_end_run() shows; F4's
+## keybind still calls this with no arg, defaulting to the original LOSE/RUN OVER behavior.
+func _skip_run(victory: bool = false) -> void:
 	if MetaManager.has_method("simulate_run_rewards"):
 		MetaManager.simulate_run_rewards(SIM_KILLS, SIM_BOSSES)
 	if GameManager.has_method("add_xp") and GameManager.has_method("xp_to_next"):
@@ -258,20 +295,27 @@ func _skip_run() -> void:
 		GameManager.add_xp(total_xp)
 	var arena := get_parent()
 	if arena != null and arena.has_method("force_end_run"):
-		arena.call("force_end_run")
-	print("[debug] F4 skip run — simulated %d kills / %d bosses / level %d" % [SIM_KILLS, SIM_BOSSES, SIM_TARGET_LEVEL])
+		arena.call("force_end_run", victory)
+	print("[debug] skip run (%s) — simulated %d kills / %d bosses / level %d" % ["WIN" if victory else "LOSE", SIM_KILLS, SIM_BOSSES, SIM_TARGET_LEVEL])
 
 ## Debug: jump straight to the loaded timeline's final-boss finale (arena_hud_buttons.gd's BOSS FIGHT
-## button, next to END RUN) — silently clears the field and fast-forwards past every remaining regular
-## wave, so the boss spawns almost immediately for testing the fight + the BOSS ELIMINATED / RUN OVER
-## screens. No-op (logged) if the currently loaded timeline doesn't end in a solo is_boss entry.
+## button, next to END RUN) — clears the field and fast-forwards past every remaining regular wave, so the
+## boss spawns almost immediately for testing the fight + the BOSS ELIMINATED / RUN OVER screens. No-op if
+## the currently loaded map's timeline doesn't end in a solo is_boss entry (2026-08-06: checked — the
+## "default"/Space and "volcanic"/Volcanic map timelines currently have NO is_boss entry at all, so the
+## button correctly does nothing there; "rubicon"/Electric's elecforest.json does, at t=1800s, and jumping
+## to it works). Used to only `print()` this (console-only — invisible in a built/played game, which is
+## exactly why a no-op here read as "the button is broken"); now also surfaces via ArenaToast so the result
+## is visible on screen either way.
 func _jump_to_boss_fight() -> void:
 	var wd := get_tree().get_first_node_in_group("wave_director")
 	if wd == null or not wd.has_method("debug_jump_to_final_boss"):
 		print("[debug] BOSS FIGHT — no wave director found")
+		ArenaToastScript.show(self, "BOSS FIGHT — no wave director found")
 		return
 	var ok := bool(wd.call("debug_jump_to_final_boss"))
 	print("[debug] BOSS FIGHT jump -> %s" % ("spawning shortly" if ok else "loaded timeline has no final-boss entry"))
+	ArenaToastScript.show(self, "BOSS FIGHT — boss incoming" if ok else "BOSS FIGHT — this map's timeline has no boss entry")
 
 func _near_player() -> Vector2:
 	var cam := get_viewport().get_camera_2d()
@@ -689,7 +733,7 @@ func _build_weapon_spawn_panel() -> void:
 	const COLS  := 4
 	const HDR_H := 40
 	const TAB_H := 26
-	const ROWS  := 5                # fixed grid area (Drop tab is the tallest at 17 = 5 rows)
+	const ROWS  := 5                # fixed VISIBLE grid height (Evolve is the tallest tab overall — scrolls; this just sets the window)
 	const W     := COLS * CELL
 	var grid_h: int = CELL * ROWS
 
@@ -756,7 +800,7 @@ func _build_weapon_spawn_panel() -> void:
 	btn_edit.pressed.connect(_on_edit_weapon)
 	hdr.add_child(btn_edit)
 
-	# ── Tab row: Drop / Evolve / Fusion / Obsolete ──
+	# ── Tab row: Drop / Evolve / Fusion / Unique ──
 	var tabs := HBoxContainer.new()
 	tabs.custom_minimum_size = Vector2(0.0, float(TAB_H))
 	tabs.add_theme_constant_override("separation", 2)
@@ -774,7 +818,7 @@ func _build_weapon_spawn_panel() -> void:
 
 	vbox.add_child(HSeparator.new())
 
-	# ── Cell grid (rebuilt per active tab) — scrollable so the Evolved tab's 27 cells fit the fixed panel ──
+	# ── Cell grid (rebuilt per active tab) — scrollable so the Evolve tab's ~50 cells fit the fixed panel ──
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = Vector2(float(W), float(grid_h))
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -887,33 +931,39 @@ func _spawn_weapon_pickup(kind: String) -> void:
 	var pos := base + Vector2(_rng.randf_range(-80.0, 80.0), _rng.randf_range(-80.0, 80.0))
 	weapons.spawn_weapon_pickup(kind, pos)
 
-# ── Dynamic weapon tabs: Evolved (real EVOLVE capstones) + Combined (FUSION recipes) ────────────────────
+# ── Weapon tabs ──────────────────────────────────────────────────────────────────────────────────────
+# 2026-08-07, on request (the static "evolve" list only ever had 6 hand-picked entries — not each weapon's
+# real 3 evolve choices, and 2 of those didn't even correspond to anything CAPSTONES actually implements —
+# while the dynamic capstone-derived list was already complete/accurate): "evolve" now points at
+# _evolved_entries() (real EVOLVE capstones, 3/weapon) instead of a WEAPON_TABS static list — that key was
+# deleted from WEAPON_TABS entirely. The old dynamic "Combined" tab (auto-generated FUSION_DEFS recipe
+# list) is removed outright, per request — WEAPON_TABS["fusion"] (hand-curated, audited to include the
+# game's actual 6 FUSION_DEFS recipes: carnage/vampire_host/overcharger/predator/toxic_ballistic/
+# singularities — see that key's own comment) is the one true Fusion tab now.
 func _all_weapon_tabs() -> Array:
-	var out: Array = []
-	out.append_array(WEAPON_TAB_ORDER)
-	out.append_array(EXTRA_WEAPON_TABS)
-	return out
+	return WEAPON_TAB_ORDER
 
 func _weapon_tab_label(tab_id: String) -> String:
-	if WEAPON_TAB_LABELS.has(tab_id):
-		return String(WEAPON_TAB_LABELS[tab_id])
-	return String(EXTRA_TAB_LABELS.get(tab_id, tab_id))
+	return String(WEAPON_TAB_LABELS.get(tab_id, tab_id))
 
 func _weapon_tab_entries(tab_id: String) -> Array:
-	match tab_id:
-		"evolved":  return _evolved_entries()
-		"combined": return _combined_entries()
+	if tab_id == "evolve":
+		return _evolved_entries()
 	return WEAPON_TABS.get(tab_id, [])
 
-## Base weapon's display name for the Evolved/Combined labels (override → WEAPON_INFO label → kind).
-func _base_name(kind: String) -> String:
+## Base weapon's display name for the Evolve tab's "<Base>: <Evolution>" labels (override → WEAPON_INFO
+## label → kind). Static (no instance state) so weapon_info_panel.gd can call it too, via the preloaded
+## script directly, without needing a live arena_debug_spawn instance.
+static func _base_name(kind: String) -> String:
 	if BASE_NAME_OVERRIDE.has(kind):
 		return String(BASE_NAME_OVERRIDE[kind])
 	return String((ArenaWeapons.WEAPON_INFO as Dictionary).get(kind, {}).get("label", kind))
 
 ## Every EVOLVE capstone (3/weapon) as a spawnable cell: "<Base>: <Evolved>", drawn with the BASE weapon's
-## icon, carrying the capstone id so a click grants the base weapon then forces its evolution.
-func _evolved_entries() -> Array:
+## icon, carrying the capstone id so a click grants the base weapon then forces its evolution. Static for
+## the same reason as _base_name() — weapon_info_panel.gd's Weapon tab reuses this exact function for its
+## own "Evolve" sub-tab (single source of truth, not a duplicated copy).
+static func _evolved_entries() -> Array:
 	var out: Array = []
 	for kind: String in (ArenaWeapons.CAPSTONES as Dictionary).keys():
 		var info: Dictionary = (ArenaWeapons.WEAPON_INFO as Dictionary).get(kind, {})
@@ -926,20 +976,6 @@ func _evolved_entries() -> Array:
 				"from": String(cap.get("desc", "")),
 				"capstone": String(cap.get("id", "")),
 			})
-	return out
-
-## Every fusion recipe as a spawnable cell: "Combined (<A> + <B>)" with the fusion's icon.
-func _combined_entries() -> Array:
-	var out: Array = []
-	for fid: String in (ArenaWeapons.FUSION_DEFS as Dictionary).keys():
-		var rec: Dictionary = ArenaWeapons.FUSION_DEFS[fid]
-		out.append({
-			"kind": fid,
-			"def_id": String(rec.get("def_id", "")),
-			"icon": String(rec.get("icon", "")),
-			"label": "Combined (%s + %s)" % [_base_name(String(rec.get("a", ""))), _base_name(String(rec.get("b", "")))],
-			"from": String(rec.get("name", "")),
-		})
 	return out
 
 ## Grant an evolved weapon: acquire the base weapon, then force its evolution capstone.

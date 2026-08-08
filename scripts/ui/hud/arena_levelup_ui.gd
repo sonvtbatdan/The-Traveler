@@ -10,6 +10,7 @@ extends CanvasLayer
 
 const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")
 const ArenaAux     := preload("res://scripts/gameplay/arena_aux.gd")
+const ArenaToastScript := preload("res://scripts/ui/hud/arena_toast.gd")
 # Optional authored "Level Up" board (edited with the shared board editor): supplies role rects for the
 # title / 3 slots / selected / options / stats so this UI can be laid out visually. Empty board → fallback.
 const BoardEditScript := preload("res://scripts/ui/boss_edit/hud_edit_mode.gd")
@@ -146,6 +147,9 @@ const WEAPON_PERK_FOLDER := {
 	# actually PARA_POOL's ids (Parasite Cloud / Venomancer) — mismatched folder name, kept as authored. The
 	# "swarm" KIND (Offensive Orbitals bats) has no skill-point pool in code at all, so it needs no folder.
 	"venomancer": "swarm",
+	"graviton_well": "gravitation well",   # 2026-08-06 — folder name as authored ("gravitation", not "graviton");
+	                                        # files (damage/pull/radius/uptime.png) already match GRAVWELL_POOL's
+	                                        # ids exactly, no WEAPON_PERK_ID_ALIAS entries needed
 }
 # A few files were authored with a shorthand name instead of the exact pool id — tolerate those instead of
 # requiring a rename: GAUSS_POOL "aoe_mastery" → aoe.png; ZSWORD_POOL/SONIC_POOL "cd" → cooldown.png;
@@ -1003,12 +1007,39 @@ func grant_reward() -> void:
 		_begin()
 
 ## Grant ONE pick-1-of-3 of BRAND-NEW items only, guaranteed to mix weapons and passives (never all
-## weapons, never all passives). Dropped by the giant dead-ship wrecks' orb of light (arena_loot.gd).
+## weapons, never all passives). Dropped by a temple boss's orb of light (arena_loot.gd) — rubicon_temple_
+## layer.gd / volcanic_temple_layer.gd.
 func grant_new_item_choice() -> void:
 	_pending += 1
 	_mode_queue.append({"allow_new": true, "mixed": true})
 	if not _showing:
 		_begin()
+
+## Champion Creep reward (2026-08-06, on request: "champion sẽ drop weapon/aux mới. Nếu đã full 10 slot thì
+## drop fragment") — same guaranteed-new-mixed pick as grant_new_item_choice() above UNLESS every run-slot is
+## already full (5 weapons + 5 aux = 10, arena_weapons.gd's weapons_full() + arena_aux.gd's aux_slots_full()),
+## in which case there's nothing new left to hand out that way — grants a MetaManager unique-fragment
+## directly instead (toast, no choice screen; see MetaManager.roll_fragment_drop()'s own doc comment for how
+## the fragment itself is picked). Falls back to a flat 50 coin if even the fragment pool is exhausted (every
+## unique's every fragment already owned) so a full-loadout Champion kill is never a complete dead end.
+## Deliberately separate from grant_new_item_choice() rather than adding this branching to it — the temple's
+## orb_of_light pickup keeps its existing (silent no-op when full) behavior unchanged.
+func grant_champion_reward() -> void:
+	var aw := get_tree().get_first_node_in_group("arena_weapons")
+	var ax := get_tree().get_first_node_in_group("arena_aux")
+	var weapons_full: bool = aw == null or bool(aw.call("weapons_full"))
+	var aux_full: bool = ax == null or bool(ax.call("aux_slots_full"))
+	if weapons_full and aux_full:
+		_grant_champion_fragment()
+		return
+	grant_new_item_choice()
+
+func _grant_champion_fragment() -> void:
+	var result: Dictionary = MetaManager.roll_fragment_drop()
+	if result.is_empty():
+		GameManager.add_money(50)   # every unique's fragments already owned — coin instead of nothing
+		return
+	ArenaToastScript.show(self, "%s Fragment Acquired" % String(result["name"]))
 
 ## Capture/restore instead of a blind force (2026-08-02: forcing false on _finish could clobber an outer
 ## pause some other panel/HUD button set — e.g. arena_hud_buttons.gd's dev-mode Pause via the +LEVEL debug
@@ -2032,6 +2063,9 @@ func _apply(c: Dictionary) -> void:
 				return
 			if String(c["action"]) == "new":
 				aw.call("acquire_weapon", String(c["key"]))
+				# 2026-08-06, on request — a brand-new weapon (from a normal level-up offer OR the orb of
+				# light's pick-1-of-3, grant_new_item_choice()) gets an explicit pickup confirmation.
+				ArenaToastScript.show(self, "%s Blueprint Acquired" % String(c["name"]))
 			else:
 				aw.call("level_up_weapon", String(c["key"]))
 		"aux":

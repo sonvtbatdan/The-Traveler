@@ -32,7 +32,127 @@ const PASSIVE_DEFS := {
 	"start_shield":{"name": "Aegis Battery",   "max": 4,  "base_cost": 400,  "growth": 1.8,  "mag": 2.0,   "desc": "Start each run with +2s of shielding / level"},
 	"coin_drop":   {"name": "Scavenger",       "max": 5,  "base_cost": 350,  "growth": 1.6,  "mag": 0.2,   "desc": "+20% coins per pickup / level"},
 	"rebirth":     {"name": "Phoenix Core",    "max": 1,  "base_cost": 5000, "growth": 1.0,  "mag": 1.0,   "desc": "Revive once per run at 50% HP"},
+	"interest_boost": {"name": "Cunning Engineer", "max": 5, "base_cost": 300, "growth": 1.6, "mag": 0.02, "desc": "+2% dock interest / level (see DOCK_INTEREST_BASE_RATE)"},
 }
+
+# ── Dock interest (2026-08-05, on request) ─────────────────────────────────────────
+# Saved coins earn interest on every "RETURN TO DOCK" (arena.gd's two dock_btn/_show_dock_corner_button
+# handlers both call apply_dock_interest() right before the scene change), but ONLY if the run lasted at
+# least DOCK_INTEREST_MIN_RUN_TIME — a sub-10-minute run earns nothing, specifically to close off an
+# exploit where the player could farm interest by instantly quitting back to dock over and over. Rate =
+# base 5% + 2%/level of the "interest_boost" passive above (max +10% at level 5, so 5–15% total).
+const DOCK_INTEREST_BASE_RATE := 0.05
+const DOCK_INTEREST_MIN_RUN_TIME := 600.0   # 10 minutes, in seconds — GameManager.run_time (frozen while paused)
+
+## Apply one dock-interest payout to the persistent wallet (GameManager.money) and return the amount paid
+## (0 if the run didn't qualify, or the wallet was already empty). Idempotent to call at most once per
+## dock arrival — arena.gd is the only caller, right before each of its two hub.tscn scene changes.
+func apply_dock_interest() -> int:
+	if GameManager.run_time < DOCK_INTEREST_MIN_RUN_TIME:
+		return 0
+	var rate := DOCK_INTEREST_BASE_RATE + float(passive_level("interest_boost")) * float(PASSIVE_DEFS["interest_boost"]["mag"])
+	var interest := int(round(float(GameManager.money) * rate))
+	if interest <= 0:
+		return 0
+	GameManager.add_money(interest)
+	return interest
+
+# ── Dock room unlocks (2026-08-06, on request) ────────────────────────────────────
+# Rooms on the Dock board that start LOCKED — an overlay "<room> lock.png" hides the room (see
+# dock_binder.gd) until unlock_room() is called for it. Rooms with no lock asset (Bridge, Launch) aren't
+# listed here and are always open. "name" is the player-facing label shown in the unlock notification
+# (hub_screen.gd) — mirrors dock_binder.ROOM_NAME_OVERRIDE's "mechanic"→"Merchant" precedent for the
+# internal-id-vs-display-label split. Pilot/Pilot2 share the "Pilot" label since they're the same room
+# conceptually, just two plaques unlocked by two separate Constructor-room upgrades.
+#
+# Unlock conditions (per 2026-08-06 design, some "set up in a later level/system" — TODO markers below):
+#   beacon      → rescue the Psyker                         (TODO: no rescue system yet)
+#   codex       → defeat your first boss                    (wired: _on_boss_defeated below)
+#   constructor → rescue the Constructor                     (TODO: no rescue system yet)
+#   engineer    → rescue the Engineer                        (TODO: no rescue system yet)
+#   equipment   → buy any weapon other than the starter gatling_gun (wired: buy_weapon below)
+#   instructor  → rescue the Scholar                         (TODO: no rescue system yet)
+#   mechanic    → rescue the Mechanic                        (TODO: no rescue system yet)
+#   pilot       → Constructor-room upgrade #1                (TODO: Constructor upgrades not built yet)
+#   pilot2      → Constructor-room upgrade #2                (TODO: Constructor upgrades not built yet)
+#   trophy      → complete your first achievement            (TODO: achievement list not defined yet)
+const ROOM_UNLOCK_DEFS := {
+	"beacon":      {"name": "Beacon"},
+	"codex":       {"name": "Codex"},
+	"constructor": {"name": "Constructor"},
+	"engineer":    {"name": "Engineer"},
+	"equipment":   {"name": "Equipment"},
+	"instructor":  {"name": "Instructor"},
+	"mechanic":    {"name": "Merchant"},
+	"pilot":       {"name": "Pilot"},
+	"pilot2":      {"name": "Pilot"},
+	"trophy":      {"name": "Trophy"},
+}
+var room_unlocks: Dictionary = {}   # room_id (key of ROOM_UNLOCK_DEFS) -> bool; missing/false = still locked
+
+## True if `room_id` is playable — either it has no lock def at all (Bridge/Launch) or it's been unlocked.
+func is_room_unlocked(room_id: String) -> bool:
+	if not ROOM_UNLOCK_DEFS.has(room_id):
+		return true
+	return bool(room_unlocks.get(room_id, false))
+
+## Unlock a Dock room (idempotent — false if already unlocked or `room_id` isn't a known lockable room).
+## Every future rescue/boss/upgrade/achievement hook is meant to call this one function — dock_binder.gd
+## reacts to meta_changed and shows/hides the room's lock overlay accordingly. Also queues a
+## GameManager.pending_room_unlock_notices entry so hub_screen.gd can show the "<room> is now accessible"
+## card next time it's on-screen, whether the unlock happened while already on the Dock or elsewhere
+## (mid-run boss kill, etc. — same "queue it, drain it on arrival" idiom as pending_interest_notice).
+func unlock_room(room_id: String) -> bool:
+	if not ROOM_UNLOCK_DEFS.has(room_id) or is_room_unlocked(room_id):
+		return false
+	room_unlocks[room_id] = true
+	save_meta()
+	meta_changed.emit()
+	if "pending_room_unlock_notices" in GameManager:
+		GameManager.pending_room_unlock_notices.append(String(ROOM_UNLOCK_DEFS[room_id]["name"]))
+	return true
+
+# ── Rescue landmarks (2026-08-06, on request) ──────────────────────────────────────
+# The 5 rescue-character ruin landmarks (Electric/Volcanic maps — rubicon_ruin_layer.gd / volcanic_ruin_
+# layer.gd render+fight them). Each maps to the Dock room it unlocks (ROOM_UNLOCK_DEFS key above) and the
+# display name used in the "has been taken on your ship" pickup toast + the run-end rescue result line.
+const RESCUE_CHARACTER_DEFS := {
+	"constructor": {"room": "constructor", "name": "Constructor", "glb": "res://assets/map/rubicon/constructor.glb",  "icon": "res://assets/map/rubicon/constructor.png"},
+	"mechanic":    {"room": "mechanic",    "name": "Mechanic",    "glb": "res://assets/map/rubicon/mechanic.glb",     "icon": "res://assets/map/rubicon/mechanic.png"},
+	"engineer":    {"room": "engineer",    "name": "Engineer",    "glb": "res://assets/map/volcanic/engineer.glb",    "icon": "res://assets/map/volcanic/engineer.png"},
+	"psyker":      {"room": "beacon",      "name": "Psyker",      "glb": "res://assets/map/volcanic/psyker.glb",      "icon": "res://assets/map/volcanic/psyker.png"},
+	"scholar":     {"room": "instructor",  "name": "Scholar",     "glb": "res://assets/ruin/Scholar.glb",             "icon": "res://assets/ruin/Scholar.png"},
+}
+# Per-map priority order — the FIRST not-yet-rescued character in a map's own list is that map's landmark
+# for the run (e.g. Electric: constructor until rescued, then mechanic). Scholar isn't map-owned — she's the
+# shared fallback (see rescue_candidate_for_map()) once EVERY map's own list is fully rescued. Default/space
+# never gets a rescue landmark at all (no 3D landmark rendering pipeline exists for it — 2026-08-06, on
+# request, scoped out).
+const RESCUE_MAP_QUEUE := {
+	"rubicon":  ["constructor", "mechanic"],
+	"volcanic": ["engineer", "psyker"],
+}
+
+## Which rescue character (if any) should spawn as this run's landmark for `map_id` ("rubicon"/"volcanic" —
+## any other id, e.g. "default", always returns ""). "" means there's truly nothing left to offer here: this
+## map's own pair are both already rescued, AND Scholar isn't available either — either some OTHER map's pair
+## isn't fully rescued yet (she's not eligible anywhere until every map's own pair is done), or she herself is
+## already rescued too. Called once per run at spawn time; rubicon_ruin_layer.gd / volcanic_ruin_layer.gd own
+## the actual spawning mechanics.
+func rescue_candidate_for_map(map_id: String) -> String:
+	var queue: Array = RESCUE_MAP_QUEUE.get(map_id, [])
+	for char_id: String in queue:
+		if not is_room_unlocked(String(RESCUE_CHARACTER_DEFS[char_id]["room"])):
+			return char_id
+	if queue.is_empty():
+		return ""   # not a map with its own rescue queue (e.g. "default") — Scholar doesn't spawn here either
+	if is_room_unlocked(String(RESCUE_CHARACTER_DEFS["scholar"]["room"])):
+		return ""   # Scholar already rescued — nothing left to spawn anywhere
+	for m: String in RESCUE_MAP_QUEUE:
+		for char_id: String in (RESCUE_MAP_QUEUE[m] as Array):
+			if not is_room_unlocked(String(RESCUE_CHARACTER_DEFS[char_id]["room"])):
+				return ""   # some OTHER map's character isn't rescued yet — Scholar not eligible here yet
+	return "scholar"
 
 var blueprints: Array = []           # known def_ids (buyable in the shop)
 var fragments_owned: Dictionary = {} # unique_id -> Array[int] of owned fragment indices
@@ -41,38 +161,55 @@ var passives: Dictionary = {}        # passive_id -> level (int)
 var run_temp_uids: Array = []        # item uids dropped mid-run (lost = sold off at the next run start)
 var loadout: Array = []              # arena_weapons kind strings picked for the next run (max MAX_WEAPONS)
 
+# ── Run-scoped (2026-08-06, on request) — boss-salvage DISASSEMBLE picks this run, NOT YET permanent ──
+# (Not saved: cleared by arena.gd's _ready() at every run start, same as run_temp_uids.) A DISASSEMBLE choice
+# in arena_drop_ui.gd's salvage screen used to call unlock_blueprint() immediately — now it only stages the
+# def_id here (stage_blueprint()); arena.gd's RUN OVER screen commits the whole list to `blueprints` via
+# commit_pending_blueprints() IF the run ends in victory (boss defeated), or simply lets it lapse (never
+# committed) if the ship is destroyed first — "picked up a blueprint but died before bringing it home", the
+# same risk-of-loss framing as a rescue-landmark character (see RESCUE_CHARACTER_DEFS / run_rescue_collected).
+var run_pending_blueprints: Array = []   # def_ids, in disassemble order (may repeat; de-duped on display)
+var run_weapon_drop_seen: bool = false   # true once ANY boss-salvage weapon card was shown this run — lets
+                                          # arena.gd tell "no boss fought" (suppress the line) apart from
+                                          # "fought a boss, disassembled nothing" (show "no blueprint" line)
+
 # Map Pack registry — hub's "Launch" flow opens a map-select panel over this list (see hub_screen.gd
 # _build_mapselect). Every map is the SAME scene/arena.gd (same ship, weapons, HUD, dev-mode editors,
 # enemy/wave systems) — only the terrain/background visuals and the creep spawn timeline differ per map_id
 # (see arena.gd's map_id branch in _ready(), and arena_wave_director_v2.gd's _last_wave_cfg_path()). Add a
 # new theme by dropping one more entry here + a matching background-builder branch in arena.gd.
+## `name` is the player-facing display name (shown on the Hub Launch thumbnails, hub_screen.gd
+## _build_mapselect) — NOT necessarily the map_id key. "rubicon"/"default" keep their original internal
+## id (folder names, class names, group names, cfg filenames all still say "rubicon"/"default" — renaming
+## THOSE would be a large, purely-cosmetic-value refactor) even though the display name changed to
+## "Electric"/"Space" per user request.
 const MAP_DEFS := {
-	"default": {"name": "Default", "desc": "The original space arena — asteroids, waves, weapons, bosses.", "scene": "res://scenes/arena.tscn"},
-	"rubicon": {"name": "Rubicon", "desc": "Procedural blue-grass / dark-sand terrain under drifting parallax clouds, scattered trees — same ship/weapons/HUD/waves as Default, different spawn timeline.", "scene": "res://scenes/arena.tscn"},
+	"default": {"name": "Space", "desc": "The original space arena — asteroids, waves, weapons, bosses.", "scene": "res://scenes/arena.tscn"},
+	"rubicon": {"name": "Electric", "desc": "Procedural blue-grass / dark-sand terrain under drifting parallax clouds, scattered trees — same ship/weapons/HUD/waves as Default, different spawn timeline.", "scene": "res://scenes/arena.tscn"},
+	"volcanic": {"name": "Volcanic", "desc": "Procedural basalt-rock / ash terrain scarred by jagged cracks of flowing lava, under drifting ash clouds and rising embers — same ship/weapons/HUD/waves as Default, different spawn timeline.", "scene": "res://scenes/arena.tscn"},
+	"atlantic": {"name": "Atlantic", "desc": "Deep-sea sunken-ruin seabed terrain scarred by a winding current channel, under rising bubble columns and spiraling whirlpools — same ship/weapons/HUD/waves as Default, different spawn timeline.", "scene": "res://scenes/arena.tscn"},
 }
 var selected_map_id: String = "default"   # last map picked in the Launch panel (not persisted — resets each session)
 
 func _ready() -> void:
 	load_meta()
 	_seed_starter_blueprints()
+	if GameManager.has_signal("boss_defeated") and not GameManager.boss_defeated.is_connected(_on_boss_defeated):
+		GameManager.boss_defeated.connect(_on_boss_defeated)
+
+## Codex Lock unlock condition: "defeat your first boss" — boss_defeated fires on EVERY boss kill, but
+## unlock_room() is idempotent, so this only actually does anything (save + notify) the first time.
+func _on_boss_defeated() -> void:
+	unlock_room("codex")
 
 # ── Blueprints / shop ────────────────────────────────────────────────────────────
-## Grant every common + uncommon standard weapon as a starting blueprint so the shop is usable from
-## the first run. Rarer blueprints are unlocked by disassembling boss drops (Phase 3).
+## Grant ONLY gatling_gun as a starting blueprint (user feedback: "trong kho (equipment) chỉ có vũ khí cơ bản
+## là gatling gun... Mechanic cũng reset, chưa có vũ khí gì để mua" — a fresh profile's shop should be
+## effectively empty, not pre-stocked with every common/uncommon weapon). Every other blueprint is earned by
+## disassembling boss drops (Phase 3) — see arena_drop_ui.gd, now including Rubicon's temple landmark boss.
 func _seed_starter_blueprints() -> void:
-	var changed := false
-	for id: String in InventoryManager.ITEM_DEFS:
-		var d: Dictionary = InventoryManager.ITEM_DEFS[id]
-		var tags: Array = d.get("tags", [])
-		if not tags.has("weapon") or tags.has("shield"):
-			continue
-		if bool(d.get("unique", false)):
-			continue
-		var r := String(d.get("rarity", "common"))
-		if (r == "common" or r == "uncommon") and not blueprints.has(id):
-			blueprints.append(id)
-			changed = true
-	if changed:
+	if not blueprints.has(InventoryManager.STARTER_WEAPON_ID):
+		blueprints.append(InventoryManager.STARTER_WEAPON_ID)
 		save_meta()
 
 func has_blueprint(def_id: String) -> bool:
@@ -86,14 +223,34 @@ func unlock_blueprint(def_id: String) -> bool:
 	meta_changed.emit()
 	return true
 
+## Boss-salvage DISASSEMBLE choice (arena_drop_ui.gd) — stage `def_id` instead of unlocking it outright; see
+## run_pending_blueprints' own doc comment above. Duplicates allowed (disassembling the same weapon twice in
+## one run just shows twice on the RUN OVER report — harmless, commit_pending_blueprints() below is
+## idempotent per entry either way).
+func stage_blueprint(def_id: String) -> void:
+	run_pending_blueprints.append(def_id)
+
+## Called by arena.gd's _show_run_over ONLY when the run ends in victory — turns every staged DISASSEMBLE
+## pick this run into a real, permanent blueprint. Left uncalled (the list just lapses, cleared at the next
+## run's start) on a real death — that's the "picked up a blueprint but died before bringing it home" loss.
+func commit_pending_blueprints() -> void:
+	for def_id: String in run_pending_blueprints:
+		unlock_blueprint(def_id)
+
 func blueprint_price(def_id: String) -> int:
 	var r := String(InventoryManager.get_def(def_id).get("rarity", "common"))
 	return int(BLUEPRINT_PRICE.get(r, 100))
 
-## Buy one clean copy of a known-blueprint weapon for coins → into the backpack. Returns true on success.
+## Buy one clean copy of a weapon for coins → into the backpack. Returns true on success. Normally requires
+## an already-known blueprint — EXCEPT the CHEST_POOL "starter tier" (gatling_gun/death_beam/arc/gauss),
+## which is always buyable for coin alone (2026-08-05, on request): buying one of those with no blueprint yet
+## also silently teaches it (unlock_blueprint), so it becomes pickable in the Loadout tab from then on.
 func buy_weapon(def_id: String) -> bool:
 	if not has_blueprint(def_id):
-		return false
+		if def_id in ArenaWeapons.CHEST_POOL:
+			unlock_blueprint(def_id)
+		else:
+			return false
 	if not InventoryManager.has_room_for(def_id):
 		return false
 	var price := blueprint_price(def_id)
@@ -104,16 +261,23 @@ func buy_weapon(def_id: String) -> bool:
 		GameManager.add_money(price)   # refund if it somehow failed to place
 		return false
 	meta_changed.emit()
+	# Equipment Lock unlock condition: buy any weapon other than the starter gatling_gun.
+	if def_id != InventoryManager.STARTER_WEAPON_ID:
+		unlock_room("equipment")
 	return true
 
 # ── Loadout (which unlocked arena_weapons kinds to bring into the next run) ──────────────────────
-## Every kind the player can currently pick from: the always-available starters (arena_weapons.CHEST_POOL)
-## plus any kind whose WEAPON_INFO.def_id has a known blueprint or a crafted unique.
+## Every kind the player can currently pick from: any kind whose WEAPON_INFO.def_id has a known blueprint or
+## a crafted unique. (2026-08-05, on request: used to ALSO blanket-include arena_weapons.CHEST_POOL —
+## gatling_gun/death_beam/arc/gauss — regardless of ownership, which is why "RESET PROFILE" appeared to leave
+## 3 extra weapons equipped: they were never actually owned, just always shown as pickable. Fixed by requiring
+## real ownership for ALL kinds, including CHEST_POOL ones — buy_weapon() lets those 4 be bought for coin
+## alone with no blueprint prerequisite, so they're still trivially available, just not pre-unlocked for
+## free. gatling_gun itself is unaffected in practice since it's a STARTER_ITEM, always in `blueprints`. The
+## in-run start-of-run chest (arena_weapon_chest_ui.gd) reads CHEST_POOL directly and is untouched by this.
 func unlocked_weapon_kinds() -> Array:
-	var out: Array = (ArenaWeapons.CHEST_POOL as Array).duplicate()
+	var out: Array = []
 	for kind: String in ArenaWeapons.WEAPON_INFO:
-		if kind in out:
-			continue
 		var def_id := String((ArenaWeapons.WEAPON_INFO[kind] as Dictionary).get("def_id", ""))
 		if def_id != "" and (blueprints.has(def_id) or crafted_uniques.has(def_id)):
 			out.append(kind)
@@ -146,6 +310,21 @@ func gear_ids() -> Array:
 	for id: String in InventoryManager.ITEM_DEFS:
 		var tags: Array = InventoryManager.ITEM_DEFS[id].get("tags", [])
 		if tags.has("hull") or tags.has("thruster") or tags.has("shield"):
+			out.append(id)
+	return out
+
+## Every ITEM_DEFS id carrying `tag`, for the Merchant's per-category tabs (Weapon/Hull/Thruster/Shield/Aux —
+## 2026-08-05, on request). Craft-only uniques (fragments-assembled, see unique_ids()) are deliberately
+## excluded from every category — they never appear in a coin-shop tab, only in Craft. An item can appear in
+## more than one tab if it carries more than one tag (e.g. Ionizing Field is tagged both "weapon" and
+## "shield").
+func shop_ids_by_tag(tag: String) -> Array:
+	var out: Array = []
+	for id: String in InventoryManager.ITEM_DEFS:
+		var d: Dictionary = InventoryManager.ITEM_DEFS[id]
+		if bool(d.get("unique", false)):
+			continue
+		if (d.get("tags", []) as Array).has(tag):
 			out.append(id)
 	return out
 
@@ -222,14 +401,17 @@ func simulate_run_rewards(kills: int, bosses: int) -> void:
 		roll_fragment_drop()
 
 # ── Unique fragments / crafting ──────────────────────────────────────────────────
-## All unique weapon ids (fragment-crafted), in catalog order. Skips uniques with no icon art yet
-## ("icon": "") — temporarily disconnected from Craft/Fragments/boss fragment drops until they have a
-## sprite (2026-07-27); still fully defined in code and spawnable via the F12 debug weapon palette.
+## All unique weapon ids (fragment-crafted), in catalog order. Used to skip uniques with no icon art yet
+## ("icon": "") — temporarily disconnected from Craft/Fragments/boss fragment drops until they had a sprite
+## (2026-07-27). 2026-08-06, on request: that gate is OFF again — InventoryManager.get_icon() already falls
+## back to a rarity-colored placeholder swatch for an empty "icon" (see its own _make_placeholder()), so an
+## icon-less unique now shows fine (just with a swatch instead of real art) instead of being hidden outright.
+## Swap the placeholder for real art later by just filling in ITEM_DEFS' "icon" field — no code change needed.
 func unique_ids() -> Array:
 	var out: Array = []
 	for id: String in InventoryManager.ITEM_DEFS:
 		var d: Dictionary = InventoryManager.ITEM_DEFS[id]
-		if bool(d.get("unique", false)) and String(d.get("icon", "")) != "":
+		if bool(d.get("unique", false)):
 			out.append(id)
 	return out
 
@@ -383,6 +565,36 @@ func buy_passive(id: String) -> bool:
 	meta_changed.emit()
 	return true
 
+# ── Constructor room: Pilot Room upgrades (2026-08-06, on request) ──────────────────
+# 2 one-time purchases that unlock the "pilot"/"pilot2" Dock rooms (both display as "Pilot" — see
+# ROOM_UNLOCK_DEFS' own doc comment). Shown on the Constructor room panel (hub_screen.gd's
+# _build_construction) as "Pilot Room (N/2)".
+const PILOT_UPGRADE_ROOMS  := ["pilot", "pilot2"]
+const PILOT_UPGRADE_PRICES := [3000, 5000]
+
+## How many of the 2 Pilot Room upgrades are already bought (0/1/2).
+func pilot_upgrade_level() -> int:
+	var n := 0
+	for room_id: String in PILOT_UPGRADE_ROOMS:
+		if not is_room_unlocked(room_id):
+			break
+		n += 1
+	return n
+
+## Coin cost of the NEXT Pilot Room upgrade, or -1 once both are bought.
+func pilot_upgrade_price() -> int:
+	var lvl := pilot_upgrade_level()
+	return PILOT_UPGRADE_PRICES[lvl] if lvl < PILOT_UPGRADE_PRICES.size() else -1
+
+func buy_pilot_upgrade() -> bool:
+	var lvl := pilot_upgrade_level()
+	if lvl >= PILOT_UPGRADE_PRICES.size():
+		return false
+	if not GameManager.spend_money(PILOT_UPGRADE_PRICES[lvl]):
+		return false
+	unlock_room(PILOT_UPGRADE_ROOMS[lvl])   # already saves + emits meta_changed
+	return true
+
 ## Fold all owned passives into the fresh run state. Call AFTER GameManager.reset_run() each run start.
 func apply_run_start() -> void:
 	var hp := passive_level("max_hp")
@@ -404,6 +616,22 @@ func apply_run_start() -> void:
 	if sh > 0 and GameManager.has_method("activate_shield"):
 		GameManager.activate_shield(sh * float(PASSIVE_DEFS["start_shield"]["mag"]))
 
+## Public: wipes this manager's own [meta] slice of the profile back to a fresh-start state — blueprints,
+## fragments, crafted uniques, passive levels, and loadout — then reseeds the single starter blueprint
+## (gatling_gun). Part of Settings' "Reset Profile" action (see settings_panel.gd); GameManager.reset_profile()/
+## InventoryManager.reset_profile() handle their own slices.
+func reset_profile() -> void:
+	blueprints = []
+	fragments_owned = {}
+	crafted_uniques = []
+	passives = {}
+	run_temp_uids = []
+	loadout = []
+	room_unlocks = {}
+	_seed_starter_blueprints()   # re-adds just gatling_gun + saves
+	save_meta()
+	meta_changed.emit()
+
 # ── Persistence ──────────────────────────────────────────────────────────────────
 func save_meta() -> void:
 	var cfg := ConfigFile.new()
@@ -414,6 +642,7 @@ func save_meta() -> void:
 	cfg.set_value("meta", "passives", passives)
 	cfg.set_value("meta", "run_temp", run_temp_uids)
 	cfg.set_value("meta", "loadout", loadout)
+	cfg.set_value("meta", "room_unlocks", room_unlocks)
 	cfg.save(SAVE_PATH)
 
 func load_meta() -> void:
@@ -426,3 +655,4 @@ func load_meta() -> void:
 	passives = cfg.get_value("meta", "passives", {})
 	run_temp_uids = cfg.get_value("meta", "run_temp", [])
 	loadout = cfg.get_value("meta", "loadout", [])
+	room_unlocks = cfg.get_value("meta", "room_unlocks", {})

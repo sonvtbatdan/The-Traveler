@@ -50,25 +50,28 @@ const ST_MAGNET := 1   # naturally magnetized (player walked into pickup radius)
 const ST_FORCE  := 2   # pulled by the magnetic loot item (ramps from 0 speed)
 
 # ── XP orb tiers (threshold = max xp for that tier, inclusive) ────────────────
-# 2026-07-28: every ENEMY_DEFS "xp" value scaled ×10 (see core.md's changelog) → thresholds rescaled ×10 to
-# match (a fly's kill should still land in the same GREEN tier it always did), MULTs rescaled ÷10 to keep
-# on-screen orb SIZE unchanged (size = value × mult; value is 10× bigger, so mult must be 10× smaller to
-# land on the same pixel size) — same "rescale thresholds with value, rescale mult inversely, leave caps
-# alone" pattern as the PRIOR xp rescale this comment used to describe (that one was ÷20/×20; this one
-# compounds ×10/÷10 on top of it).
+# 2026-08-05: creep XP DROP scaled ×10 AGAIN (real pacing buff this time, not just a units rescale — see
+# game_manager.gd's changelog) → thresholds rescaled ×10 to match (a fly's kill should still land in the same
+# GREEN tier it always did), MULTs rescaled ÷10 to keep on-screen orb SIZE unchanged — same "rescale
+# thresholds with value, rescale mult inversely, leave caps alone" pattern as the two PRIOR xp rescales below
+# (÷20/×20, then ×10/÷10; this one compounds another ×10/÷10 on top of both).
+# 2026-07-28: every ENEMY_DEFS "xp" value scaled ×10 (units-only rescale, see core.md's changelog) →
+# thresholds rescaled ×10 to match, MULTs rescaled ÷10 to keep on-screen orb SIZE unchanged (size = value ×
+# mult; value is 10× bigger, so mult must be 10× smaller to land on the same pixel size).
 # 2026-08-02: added ORANGE as a 5th tier between YELLOW and RED (real orb artwork dropped in
 # assets/screen/xp/ came in 5 colors) — threshold picked as the geometric midpoint of the yellow→red span
 # (sqrt(50×250)≈112, rounded) so the two new sub-ranges are proportionally similar instead of a raw average
-# skewing toward red; mult/cap interpolated between their yellow/red neighbors.
-const TIER_GREEN_MAX  := 25.0
-const TIER_YELLOW_MAX := 50.0
-const TIER_ORANGE_MAX := 110.0
-const TIER_RED_MAX    := 250.0
-const TIER_GREEN_MULT  := 2.0
-const TIER_YELLOW_MULT := 1.0
-const TIER_ORANGE_MULT := 0.6
-const TIER_RED_MULT    := 0.4
-const TIER_PURPLE_MULT := 0.2
+# skewing toward red; mult/cap interpolated between their yellow/red neighbors. (Both since-rescaled ×10 by
+# the 2026-08-05 pass above, same as every other tier threshold/mult.)
+const TIER_GREEN_MAX  := 250.0
+const TIER_YELLOW_MAX := 500.0
+const TIER_ORANGE_MAX := 1100.0
+const TIER_RED_MAX    := 2500.0
+const TIER_GREEN_MULT  := 0.2
+const TIER_YELLOW_MULT := 0.1
+const TIER_ORANGE_MULT := 0.06
+const TIER_RED_MULT    := 0.04
+const TIER_PURPLE_MULT := 0.02
 const TIER_GREEN_CAP  :=  8.0
 const TIER_YELLOW_CAP := 14.0
 const TIER_ORANGE_CAP := 18.0

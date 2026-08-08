@@ -3,6 +3,26 @@
 > Module of [`CLAUDE.md`](../CLAUDE.md). Read this when working on enemy behavior, bosses, waves, arena enemies, ruins, enemy panel.
 > Always-on core rules (conventions, coordinate system, image/render rules, LOCKED MODULES) live in CLAUDE.md — read that too.
 
+## Changelog — 2026-08-05 — Creep XP drop ×10 (real pacing buff, not the 2026-07-28 units-only rescale)
+
+- On request: every creep's `"xp"` value in `ENEMY_DEFS` (`arena_wave_director.gd`, `boss_scorpion.gd`'s own
+  minion table) **scaled ×10 again**, plus every runtime `xp`/`_xp` default-fallback constant that mirrors an
+  `ENEMY_DEFS` entry (`arena_enemy.gd`'s FALLBACK "chase", `arena_enemy_manager.gd`'s debug `spawn_bee()`,
+  `arena_elephant.gd`/`boss_scorpion.gd`'s own boss `xp`/`_xp` vars). `arena_wave_director_v2.gd`'s
+  `_xp_per_hp` (test-roster + Elite/Champion Creep XP, proportional to HP) needed **no separate edit** — it's
+  pinned live to v1's own "fly" entry, so it self-propagated. See [`core.md`](core.md)'s matching entry for
+  `GameManager.BASE_XP`/`XP_PER_ASTEROID`/`XP_PER_BOSS` and, importantly, why this pass is NOT the same as the
+  2026-07-28 one below: that pass was a pure units rescale (BASE_XP scaled ×10 in lockstep, so kills-per-level
+  was unchanged); THIS pass only scaled BASE_XP ×5 (separate request), so the actual grind is now genuinely
+  ~2× faster — a real pacing change, not cosmetic.
+- **HP→XP auto-fill button** formula updated to match: `max(10, round(hp_spin.value / 10.0))` (was
+  `max(1, round(hp_spin.value / 100.0))` from the 2026-07-28 pass below) — see `creep_info_panel.gd`.
+- **Side effect caught and fixed**: `arena_xp_orb_manager.gd`'s tier-color thresholds (`TIER_GREEN_MAX` etc.)
+  classify an orb's on-screen color/size from its raw xp `value` — since creep xp just went up another ×10,
+  those thresholds would have under-classified every orb again (same failure mode the 2026-07-28 pass below
+  hit and fixed once already). Rescaled the same way: `TIER_*_MAX` ×10, `TIER_*_MULT` ÷10 (keeps on-screen
+  orb pixel size unchanged), `TIER_*_CAP` left alone.
+
 ## Changelog — 2026-08-02 (5th pass) — Fleet Edit's UNIT/RANDOM grids widened from 2×5 (10) to 2×10 (20)
 
 - `fleet_edit_mode.gd`: `SLOT_COUNT` 10→20, `UNIT_COLS` 5→10 — both the UNIT and RANDOM tables share this

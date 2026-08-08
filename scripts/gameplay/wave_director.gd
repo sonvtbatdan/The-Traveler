@@ -278,12 +278,12 @@ func _show_danger() -> void:
 	_danger_layer.layer = 95
 	add_child(_danger_layer)
 	_danger_label = Label.new()
-	_danger_label.text = "DANGER"
+	_danger_label.text = MandaloreText.a("DANGER")
 	_danger_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_danger_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_danger_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_danger_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var font := load("res://assets/fonts/Gameplay.ttf") as FontFile
+	var font := load("res://assets/fonts/mandalore/mandalore.ttf") as FontFile
 	if font != null:
 		_danger_label.add_theme_font_override("font", font)
 	_danger_label.add_theme_font_size_override("font_size", 110)

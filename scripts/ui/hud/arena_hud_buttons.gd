@@ -28,11 +28,19 @@ var _god_mode:    bool  = false   # dev-mode cheat toggle: forces Auto-Fire ON +
 
 # Button references
 var _devon_btn:      TextureButton = null
+var _dev_toggle_btn: TextureButton = null   # 2026-08-06, on request: always-visible bottom-right Dev Mode
+                                              # toggle (separate from _devon_btn, which lives inside _vb — the
+                                              # 6-button column that only SHOWS once dev mode is already on, so
+                                              # it can't turn dev mode ON by itself; see set_dev_mode()'s doc).
 var _pause_btn:      TextureButton = null
 var _terrain_edit_btn: Button = null
 var _light_edit_btn: Button = null
+var _plume_edit_btn: Button = null
+var _crater_mark_btn: Button = null
+var _landmark_mark_btn: Button = null
 var _boss_edit_btn:  TextureButton = null
 var _creep_info_btn: Button = null
+var _weapon_info_btn: Button = null
 var _creep_edit_btn: TextureButton = null
 var _simplified_btn: TextureButton = null
 var _creep_btn:      TextureButton = null
@@ -42,6 +50,7 @@ var _fleet_edit_btn: TextureButton = null
 var _wave_edit_btn:  TextureButton = null
 var _hud_edit_btn:   TextureButton = null
 var _end_run_btn:    Button = null
+var _end_run_popup:  CanvasLayer = null   # WIN/LOSE choice popup — built lazily on first END RUN click
 var _boss_fight_btn: Button = null
 var _auto_fire_btn:  Button = null
 var _god_mode_btn:   Button = null
@@ -174,13 +183,29 @@ func _build_ui() -> void:
 	# MENU/INV board buttons (hud_binder.gd); Dev mode moved to a switch in the Settings panel.
 	_vb.visible = false
 
+	# Always-visible bottom-right Dev Mode toggle (2026-08-06, on request) — independent of _vb (which is
+	# hidden until dev mode is ALREADY on, so it can't be the thing that turns it on). Sits one button-width
+	# to the LEFT of _vb's own column so the two never overlap once _vb shows.
+	_dev_toggle_btn = _make_btn(_tex_devoff, BTN_SIZE)
+	_dev_toggle_btn.anchor_left   = 1.0
+	_dev_toggle_btn.anchor_right  = 1.0
+	_dev_toggle_btn.anchor_top    = 1.0
+	_dev_toggle_btn.anchor_bottom = 1.0
+	_dev_toggle_btn.offset_right  = -(BTN_SIZE + MARGIN * 2.0)
+	_dev_toggle_btn.offset_left   = -(BTN_SIZE * 2.0 + MARGIN * 2.0)
+	_dev_toggle_btn.offset_bottom = -MARGIN
+	_dev_toggle_btn.offset_top    = -(BTN_SIZE + MARGIN)
+	_dev_toggle_btn.pressed.connect(_on_devon)
+	root.add_child(_dev_toggle_btn)
+
 	# Dev buttons at top-left (below HP bar): Terrain Edit → Simplified → Boss_edit → Creep_edit
 	# Only visible when dev mode is on; spacing = BTN_SEP (same as right column)
 
-	# Terrain Edit — Rubicon-map-only (density/scale/blur/cloud opacity+brightness/2 terrain colors — see
-	# rubicon_terrain_edit.gd). No dedicated icon art, so a compact label button; ALSO gated on the current
-	# map (set_dev_mode() below only reveals it when MetaManager.selected_map_id == "rubicon" — Default has
-	# no terrain/cloud/asset system for it to edit).
+	# Terrain Edit — terrain-map-only (Rubicon/Volcanic/Atlantic; density/scale/blur/cloud opacity+brightness/2
+	# terrain colors — see rubicon_terrain_edit.gd / volcanic_terrain_edit.gd / atlantic_terrain_edit.gd). No
+	# dedicated icon art, so a compact label button; ALSO gated on the current map (set_dev_mode() below only
+	# reveals it when MetaManager.selected_map_id is "rubicon"/"volcanic"/"atlantic" — Default has no
+	# terrain/cloud/asset system to edit).
 	var terrain_edit_h := BTN_SIZE * 0.5
 	_terrain_edit_btn = _make_label_btn("TERRAIN EDIT", BTN_SIZE * 1.8, terrain_edit_h, 9)
 	_terrain_edit_btn.position = Vector2(SIMPLIFIED_X, SIMPLIFIED_Y)
@@ -198,6 +223,35 @@ func _build_ui() -> void:
 	_light_edit_btn.visible = false
 	_light_edit_btn.pressed.connect(_on_light_edit)
 	root.add_child(_light_edit_btn)
+
+	# Plume Edit — Volcanic/Atlantic-only (ash/bubble-plume speed/height/density/color, see
+	# volcanic_plume_edit.gd / atlantic_plume_edit.gd), split out of Terrain Edit into its own dedicated
+	# panel/button (user feedback: "cột khói bốc lên có nút chỉnh riêng"). Sits directly ABOVE Light Edit,
+	# continuing the same upward cascade.
+	var plume_edit_h := BTN_SIZE * 0.5
+	_plume_edit_btn = _make_label_btn("PLUME EDIT", BTN_SIZE * 1.8, plume_edit_h, 9)
+	_plume_edit_btn.position = Vector2(SIMPLIFIED_X, _light_edit_btn.position.y - plume_edit_h - BTN_SEP)
+	_plume_edit_btn.visible = false
+	_plume_edit_btn.pressed.connect(_on_plume_edit)
+	root.add_child(_plume_edit_btn)
+
+	# Crater Mark — Volcanic/Atlantic-only (click the maptile reference photo to mark craters/vents, see
+	# volcanic_crater_mark.gd / atlantic_crater_mark.gd). Sits directly ABOVE Plume Edit.
+	var crater_mark_h := BTN_SIZE * 0.5
+	_crater_mark_btn = _make_label_btn("CRATER MARK", BTN_SIZE * 1.8, crater_mark_h, 9)
+	_crater_mark_btn.position = Vector2(SIMPLIFIED_X, _plume_edit_btn.position.y - crater_mark_h - BTN_SEP)
+	_crater_mark_btn.visible = false
+	_crater_mark_btn.pressed.connect(_on_crater_mark)
+	root.add_child(_crater_mark_btn)
+
+	# Landmark Mark — Volcanic/Atlantic-only (click the temple's top-down reference render to mark plume
+	# points, see volcanic_landmark_mark.gd / atlantic_landmark_mark.gd). Sits directly ABOVE Crater Mark.
+	var landmark_mark_h := BTN_SIZE * 0.5
+	_landmark_mark_btn = _make_label_btn("LANDMARK MARK", BTN_SIZE * 1.8, landmark_mark_h, 9)
+	_landmark_mark_btn.position = Vector2(SIMPLIFIED_X, _crater_mark_btn.position.y - landmark_mark_h - BTN_SEP)
+	_landmark_mark_btn.visible = false
+	_landmark_mark_btn.pressed.connect(_on_landmark_mark)
+	root.add_child(_landmark_mark_btn)
 
 	var s_h := _btn_h(_tex_simplified)
 	_simplified_btn = _make_btn(_tex_simplified, s_h)
@@ -222,14 +276,26 @@ func _build_ui() -> void:
 	_creep_info_btn.pressed.connect(_on_creep_info)
 	root.add_child(_creep_info_btn)
 
+	# Weapon Info — right under Creep Info (same small-label-button style, dev:on only). Opens the item
+	# catalog table (icon/name/code/category/mfr/damage/speed/lore + expandable perk pools, Drop/Evolve/
+	# Fusion/Unique sub-tabs on the Weapon tab) across Weapon/Aux/Shield/Hull/Thruster — see
+	# weapon_info_panel.gd. NOT the same as the icon "weapon" button below (_weapon_btn) — that one opens
+	# the older Spawn Weapon debug grid (arena_debug_spawn.gd); this text button is the new one.
+	var weapon_info_h := BTN_SIZE * 0.5
+	_weapon_info_btn = _make_label_btn("WEAPON INFO", BTN_SIZE * 1.8, weapon_info_h, 9)
+	_weapon_info_btn.position = Vector2(SIMPLIFIED_X, simplified_y + s_h + BTN_SEP + boss_edit_h + BTN_SEP + creep_info_h + BTN_SEP)
+	_weapon_info_btn.visible = false
+	_weapon_info_btn.pressed.connect(_on_weapon_info)
+	root.add_child(_weapon_info_btn)
+
 	_creep_edit_btn = _make_btn(_tex_creep_edit, creep_edit_h)
-	_creep_edit_btn.position = Vector2(SIMPLIFIED_X, simplified_y + s_h + BTN_SEP + boss_edit_h + BTN_SEP + creep_info_h + BTN_SEP)
+	_creep_edit_btn.position = Vector2(SIMPLIFIED_X, simplified_y + s_h + BTN_SEP + boss_edit_h + BTN_SEP + creep_info_h + BTN_SEP + weapon_info_h + BTN_SEP)
 	_creep_edit_btn.visible = false
 	_creep_edit_btn.pressed.connect(_on_creep_edit)
 	root.add_child(_creep_edit_btn)
 
 	# Panel-toggle buttons below the edit cluster: creep / weapon / hotkey (dev:on only).
-	var y_panels := simplified_y + s_h + BTN_SEP + boss_edit_h + BTN_SEP + creep_info_h + BTN_SEP + creep_edit_h + BTN_SEP
+	var y_panels := simplified_y + s_h + BTN_SEP + boss_edit_h + BTN_SEP + creep_info_h + BTN_SEP + weapon_info_h + BTN_SEP + creep_edit_h + BTN_SEP
 	var creep_h := _btn_h(_tex_creep)
 	_creep_btn = _make_btn(_tex_creep, creep_h)
 	_creep_btn.position = Vector2(SIMPLIFIED_X, y_panels)
@@ -319,8 +385,8 @@ func _build_ui() -> void:
 	root.add_child(_god_mode_btn)
 	y_small += SMALL_BTN_H + BTN_SEP
 
-	# +Level — below God Mode, bottom of the dev cluster (dev:on only). Same effect as arena_debug_spawn's
-	# "+ Level" button: grants exactly enough XP to force one player level-up.
+	# +Level — below God Mode. Same effect as arena_debug_spawn's "+ Level" button: grants exactly enough
+	# XP to force one player level-up.
 	_level_btn = _make_label_btn("+LEVEL", SMALL_BTN_W, SMALL_BTN_H, 8)
 	_level_btn.position = Vector2(SIMPLIFIED_X, y_small)
 	_level_btn.visible = false
@@ -329,7 +395,7 @@ func _build_ui() -> void:
 
 func _make_label_btn(label: String, width: float = BTN_SIZE, height: float = BTN_SIZE, font_size: int = 11) -> Button:
 	var btn := Button.new()
-	btn.text = label
+	btn.text = MandaloreText.a(label)
 	btn.custom_minimum_size = Vector2(width, height)
 	var s := StyleBoxFlat.new()
 	s.bg_color = Color(0.10, 0.12, 0.16, 0.85)
@@ -344,7 +410,7 @@ func _make_label_btn(label: String, width: float = BTN_SIZE, height: float = BTN
 	var sp := s.duplicate() as StyleBoxFlat
 	sp.bg_color = Color(0.25, 0.35, 0.55, 1.0)
 	btn.add_theme_stylebox_override("pressed", sp)
-	var font := load("res://assets/fonts/Gameplay.ttf") as Font
+	var font := load("res://assets/fonts/mandalore/mandalore.ttf") as Font
 	if font:
 		btn.add_theme_font_override("font", font)
 	btn.add_theme_font_size_override("font_size", font_size)
@@ -435,9 +501,14 @@ func set_dev_mode(v: bool) -> void:
 
 	# Show / hide the bottom-right column (Pause/Codex/Inv/Setting/Devon/Quit) + dev buttons at top-left
 	_vb.visible = _dev_mode
-	var is_rubicon := typeof(MetaManager) != TYPE_NIL and String(MetaManager.selected_map_id) == "rubicon"
-	_terrain_edit_btn.visible = _dev_mode and is_rubicon   # Default has no terrain/cloud/asset system to edit
-	_light_edit_btn.visible = _dev_mode and is_rubicon     # same gating — canopy lighting is Rubicon-only too
+	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
+	var _has_terrain_editor := map_id == "rubicon" or map_id == "volcanic" or map_id == "atlantic"
+	var _has_plume_system := map_id == "volcanic" or map_id == "atlantic"
+	_terrain_edit_btn.visible = _dev_mode and _has_terrain_editor   # Default has no terrain/cloud/asset system to edit
+	_light_edit_btn.visible = _dev_mode and _has_terrain_editor     # same gating — ground lighting is terrain-map-only too
+	_plume_edit_btn.visible = _dev_mode and _has_plume_system    # ash/bubble plumes — no clouds system on Rubicon
+	_crater_mark_btn.visible = _dev_mode and _has_plume_system   # crater/vent marking — same gating as Plume Edit
+	_landmark_mark_btn.visible = _dev_mode and _has_plume_system # landmark marking — same gating as Plume Edit
 	_simplified_btn.visible = _dev_mode
 	_boss_edit_btn.visible  = _dev_mode
 	_creep_info_btn.visible = _dev_mode
@@ -453,9 +524,11 @@ func set_dev_mode(v: bool) -> void:
 	_auto_fire_btn.visible  = _dev_mode
 	_god_mode_btn.visible   = _dev_mode
 	_level_btn.visible      = _dev_mode
+	_weapon_info_btn.visible = _dev_mode
 
-	# Update Devon button texture
+	# Update Devon button texture (both the legacy in-column one and the always-visible corner toggle)
 	_devon_btn.texture_normal = _tex_devon if _dev_mode else _tex_devoff
+	_dev_toggle_btn.texture_normal = _tex_devon if _dev_mode else _tex_devoff
 
 func _click_sfx() -> void:
 	if _click_player != null:
@@ -480,15 +553,45 @@ func _on_hotkey_panel() -> void:
 
 func _on_terrain_edit() -> void:
 	_click_sfx()
-	var tem := get_tree().get_first_node_in_group("rubicon_terrain_edit")
+	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
+	var group := ("atlantic_terrain_edit" if map_id == "atlantic"
+		else ("volcanic_terrain_edit" if map_id == "volcanic" else "rubicon_terrain_edit"))
+	var tem := get_tree().get_first_node_in_group(group)
 	if tem != null and tem.has_method("toggle"):
 		tem.toggle()
 
 func _on_light_edit() -> void:
 	_click_sfx()
-	var lem := get_tree().get_first_node_in_group("rubicon_light_edit")
+	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
+	var group := ("atlantic_light_edit" if map_id == "atlantic"
+		else ("volcanic_light_edit" if map_id == "volcanic" else "rubicon_light_edit"))
+	var lem := get_tree().get_first_node_in_group(group)
 	if lem != null and lem.has_method("toggle"):
 		lem.toggle()
+
+func _on_plume_edit() -> void:
+	_click_sfx()
+	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
+	var group := "atlantic_plume_edit" if map_id == "atlantic" else "volcanic_plume_edit"
+	var pem := get_tree().get_first_node_in_group(group)
+	if pem != null and pem.has_method("toggle"):
+		pem.toggle()
+
+func _on_crater_mark() -> void:
+	_click_sfx()
+	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
+	var group := "atlantic_crater_mark" if map_id == "atlantic" else "volcanic_crater_mark"
+	var cmm := get_tree().get_first_node_in_group(group)
+	if cmm != null and cmm.has_method("toggle"):
+		cmm.toggle()
+
+func _on_landmark_mark() -> void:
+	_click_sfx()
+	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
+	var group := "atlantic_landmark_mark" if map_id == "atlantic" else "volcanic_landmark_mark"
+	var lmm := get_tree().get_first_node_in_group(group)
+	if lmm != null and lmm.has_method("toggle"):
+		lmm.toggle()
 
 func _on_boss_edit() -> void:
 	_click_sfx()
@@ -508,6 +611,12 @@ func _on_creep_edit() -> void:
 	if cem != null and cem.has_method("toggle"):
 		cem.toggle()
 
+func _on_weapon_info() -> void:
+	_click_sfx()
+	var wip := get_tree().get_first_node_in_group("weapon_info")
+	if wip != null and wip.has_method("toggle"):
+		wip.toggle()
+
 ## Read every frame by arena.gd._aim() (group "arena_hud_buttons") to decide mouse-aim vs. nearest-enemy-aim.
 func is_auto_fire_on() -> bool:
 	return _auto_fire
@@ -523,7 +632,7 @@ func _on_auto_fire() -> void:
 func set_auto_aim(v: bool) -> void:
 	_auto_fire = v
 	if _auto_fire_btn != null:
-		_auto_fire_btn.text = "AUTO:ON" if _auto_fire else "AUTO:OFF"
+		_auto_fire_btn.text = MandaloreText.a("AUTO:ON" if _auto_fire else "AUTO:OFF")
 		_auto_fire_btn.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5) if _auto_fire else Color(0.85, 0.90, 1.0))
 
 ## Combined dev cheat: forces Auto-Fire on (and keeps that button's own label/color in sync) + GameManager's
@@ -532,10 +641,10 @@ func set_auto_aim(v: bool) -> void:
 func _on_god_mode() -> void:
 	_click_sfx()
 	_god_mode = not _god_mode
-	_god_mode_btn.text = "GOD:ON" if _god_mode else "GOD:OFF"
+	_god_mode_btn.text = MandaloreText.a("GOD:ON" if _god_mode else "GOD:OFF")
 	_god_mode_btn.add_theme_color_override("font_color", Color(1.0, 0.85, 0.2) if _god_mode else Color(0.85, 0.90, 1.0))
 	_auto_fire = _god_mode
-	_auto_fire_btn.text = "AUTO:ON" if _auto_fire else "AUTO:OFF"
+	_auto_fire_btn.text = MandaloreText.a("AUTO:ON" if _auto_fire else "AUTO:OFF")
 	_auto_fire_btn.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5) if _auto_fire else Color(0.85, 0.90, 1.0))
 	if GameManager.has_method("set_god_mode"):
 		GameManager.set_god_mode(_god_mode)
@@ -548,10 +657,79 @@ func _on_add_level() -> void:
 		var xp_needed: int = GameManager.xp_to_next(level) if GameManager.has_method("xp_to_next") else 100
 		GameManager.add_xp(xp_needed)
 
-## Same effect as F4: simulated rewards (arena_debug_spawn.gd's _skip_run), then straight to RUN OVER.
+## 2026-08-07, on request: END RUN now asks WIN or LOSE first (small popup) instead of always ending in
+## defeat like F4 does — WIN shows the BOSS ELIMINATED / victory framing (arena.gd's force_end_run(true),
+## same screen a real final-boss kill shows), LOSE is the original RUN OVER behavior. Same simulated rewards
+## either way (arena_debug_spawn.gd's _skip_run) — only the end-screen outcome differs.
 func _on_end_run() -> void:
 	_click_sfx()
-	_toggle_ds_panel("_skip_run")
+	if _end_run_popup == null:
+		_build_end_run_popup()
+	_end_run_popup.visible = true
+
+func _build_end_run_popup() -> void:
+	_end_run_popup = CanvasLayer.new()
+	_end_run_popup.layer = 90   # above the dev HUD buttons (this CanvasLayer has no explicit layer = 0), below Settings (100)
+	_end_run_popup.process_mode = Node.PROCESS_MODE_ALWAYS   # dev mode pauses the tree; popup must still take input
+	add_child(_end_run_popup)
+
+	var dim := ColorRect.new()
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0.0, 0.0, 0.0, 0.55)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	_end_run_popup.add_child(dim)
+
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_end_run_popup.add_child(center)
+
+	var panel := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.07, 0.08, 0.12, 0.98)
+	sb.set_corner_radius_all(8)
+	sb.set_border_width_all(2)
+	sb.border_color = Color(0.30, 0.45, 0.75)
+	sb.set_content_margin_all(18.0)
+	panel.add_theme_stylebox_override("panel", sb)
+	center.add_child(panel)
+
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 12)
+	panel.add_child(vb)
+
+	var title := Label.new()
+	title.text = MandaloreText.a("End Run — pick an outcome")
+	title.add_theme_font_size_override("font_size", 14)
+	title.add_theme_color_override("font_color", Color(0.9, 0.95, 1.0))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(title)
+
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 10)
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vb.add_child(btn_row)
+
+	var win_btn := _make_label_btn("WIN", 90.0, 34.0, 13)
+	win_btn.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5))
+	win_btn.pressed.connect(_on_end_run_choice.bind(true))
+	btn_row.add_child(win_btn)
+
+	var lose_btn := _make_label_btn("LOSE", 90.0, 34.0, 13)
+	lose_btn.add_theme_color_override("font_color", Color(1.0, 0.45, 0.4))
+	lose_btn.pressed.connect(_on_end_run_choice.bind(false))
+	btn_row.add_child(lose_btn)
+
+	var cancel_btn := _make_label_btn("Cancel", 190.0, 26.0, 11)
+	cancel_btn.pressed.connect(func() -> void: _end_run_popup.visible = false)
+	vb.add_child(cancel_btn)
+
+func _on_end_run_choice(victory: bool) -> void:
+	_click_sfx()
+	_end_run_popup.visible = false
+	var ds := get_tree().get_first_node_in_group("arena_debug_spawn")
+	if ds != null and ds.has_method("_skip_run"):
+		ds.call("_skip_run", victory)
 
 ## Skip straight to the loaded timeline's final-boss finale (arena_debug_spawn.gd's _jump_to_boss_fight →
 ## arena_wave_director_v2.gd's debug_jump_to_final_boss) — clears the field and fast-forwards past every

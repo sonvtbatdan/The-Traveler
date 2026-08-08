@@ -14,8 +14,9 @@ extends CanvasLayer
 ## entries (snapped to the 5s grid) back into rows on open. So old saved files + DEFAULT_TIMELINE keep working
 ## unchanged (both new fields are absent = random direction / no rotation, identical to today's behavior).
 
-const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
+const FONT_PATH := "res://assets/fonts/mandalore/mandalore.ttf"
 const LEVELS_DIR := "res://levels/arena"
+const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")   # for enemy_draw_width()'s canonical size lookup
 ## Per-map "last-Loaded wave file" pointer — MUST match arena_wave_director_v2.gd's copy of this logic
 ## (that script is the reader; this one is the writer, via _remember_last_wave below).
 func _last_wave_cfg_path() -> String:
@@ -107,7 +108,7 @@ func _sync_active_file() -> void:
 	var fname := String(cfg.get_value("wave", "last_file", ""))
 	if fname == "":
 		return
-	_name_edit.text = fname.get_basename()
+	_name_edit.text = MandaloreText.a(fname.get_basename())
 	for i in _file_opt.item_count:
 		if _file_opt.get_item_text(i) == fname:
 			_file_opt.selected = i
@@ -115,7 +116,7 @@ func _sync_active_file() -> void:
 
 func _process(_delta: float) -> void:
 	if _open and _director != null and _director.has_method("elapsed"):
-		_title.text = "ARENA WAVE EDITOR   (F7 to close)    —    t = %.1fs" % _director.elapsed()
+		_title.text = MandaloreText.a("ARENA WAVE EDITOR   (F7 to close)    —    t = %.1fs" % _director.elapsed())
 
 # ── UI ──────────────────────────────────────────────────────────────────────────
 func _build_ui() -> void:
@@ -150,7 +151,7 @@ func _build_ui() -> void:
 	lib.add_theme_constant_override("separation", 8)
 	lib.add_child(_mk_label("Name", 12))
 	_name_edit = LineEdit.new()
-	_name_edit.text = "my_timeline"
+	_name_edit.text = MandaloreText.a("my_timeline")
 	_name_edit.custom_minimum_size = Vector2(180, 0)
 	if _font: _name_edit.add_theme_font_override("font", _font)
 	lib.add_child(_name_edit)
@@ -315,7 +316,7 @@ func _add_row(time: float, preset_slots: Array = []) -> void:
 	hb.add_child(hp_lbl)
 
 	var clr := Button.new()
-	clr.text = "X"
+	clr.text = MandaloreText.a("X")
 	clr.tooltip_text = "Clear this row's units/fleets (back to Blank)"
 	clr.custom_minimum_size = Vector2(36, 0)
 	if _font: clr.add_theme_font_override("font", _font)
@@ -412,11 +413,11 @@ func _fmt_hp(v: float) -> String:
 
 func _update_row_hp(row: Dictionary) -> void:
 	var txt := _fmt_hp(_row_total_hp(row))
-	(row["hp_lbl"] as Label).text = "HP " + txt
+	(row["hp_lbl"] as Label).text = MandaloreText.a("HP " + txt)
 	# Also refresh the Type popup's own "Total HP" header, if it's currently open for this row.
 	var popup_lbl: Variant = row.get("popup_hp_lbl")
 	if popup_lbl != null and is_instance_valid(popup_lbl):
-		(popup_lbl as Label).text = "Total HP " + txt
+		(popup_lbl as Label).text = MandaloreText.a("Total HP " + txt)
 
 ## Type button label: "Set (N)" when any slot is filled (N = filled count), else "Blank".
 func _update_type_btn(row: Dictionary) -> void:
@@ -425,7 +426,7 @@ func _update_type_btn(row: Dictionary) -> void:
 		if String(s.get("type", "")) != "":
 			n += 1
 	var btn := row["type_btn"] as Button
-	btn.text = ("Set (%d)" % n) if n > 0 else "Blank"
+	btn.text = MandaloreText.a(("Set (%d)" % n) if n > 0 else "Blank")
 	btn.add_theme_color_override("font_color", Color(0.35, 0.9, 0.35) if n > 0 else Color(1.0, 1.0, 1.0))
 
 ## Expand every row's filled slots into FLAT timeline entries (one entry per slot, all sharing the row's time).
@@ -534,7 +535,7 @@ func _on_load() -> void:
 	if typeof(parsed) != TYPE_DICTIONARY or not (parsed as Dictionary).has("timeline"):
 		_set_status("Bad JSON")
 		return
-	_name_edit.text = String((parsed as Dictionary).get("name", fname.get_basename()))
+	_name_edit.text = MandaloreText.a(String((parsed as Dictionary).get("name", fname.get_basename())))
 	if _director != null:
 		_director.set_timeline((parsed as Dictionary)["timeline"])
 	_remember_last_wave(fname)
@@ -575,11 +576,11 @@ func _refresh_files() -> void:
 
 func _refresh_readout() -> void:
 	if _readout != null and _director != null:
-		_readout.text = JSON.stringify(_director.get_timeline(), "  ")
+		_readout.text = MandaloreText.a(JSON.stringify(_director.get_timeline(), "  "))
 
 func _set_status(t: String) -> void:
 	if _status != null:
-		_status.text = t
+		_status.text = MandaloreText.a(t)
 
 func _sanitize(s: String) -> String:
 	var r := s.strip_edges().to_lower()
@@ -603,6 +604,14 @@ func _enemy_icon(id: String) -> Texture2D:
 			tex = load(p) as Texture2D
 	_icon_cache[id] = tex
 	return tex
+
+## Canonical on-screen draw width (px) for enemy `id`, mirroring fleet_edit_mode.gd's own enemy_draw_width() —
+## Creep Edit's res://creep_layout.cfg is the sole source of truth for size (fleets no longer store their own
+## per-slot size; see fleet_edit_mode.gd's header for the full rationale).
+func enemy_draw_width(id: String) -> float:
+	if _director == null:
+		return 50.0
+	return EnemyScript.base_draw_width(_director.ENEMY_DEFS.get(id, {}))
 
 func _load_fleets() -> Array:
 	var cfg := ConfigFile.new()
@@ -767,7 +776,7 @@ func _build_unit_tab() -> Control:
 			tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			b.add_child(tr)
 		else:
-			b.text = ids.substr(0, 4)
+			b.text = MandaloreText.a(ids.substr(0, 4))
 			if _font: b.add_theme_font_override("font", _font)
 		grid.add_child(b)
 	return c
@@ -791,7 +800,7 @@ func _build_fleet_tab() -> Control:
 		var fld: Dictionary = fl
 		var nm := String(fld.get("name", "Fleet"))
 		var lbl := _DragSrc.new()
-		lbl.text = nm
+		lbl.text = MandaloreText.a(nm)
 		lbl.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		lbl.custom_minimum_size = Vector2(0.0, 24.0)
 		lbl.tooltip_text = nm + "  (drag → slot)"
@@ -914,7 +923,7 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 		fleet_hp_lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
 		fcsb.value_changed.connect(func(v: float) -> void:
 			slot["count"] = int(v)
-			fleet_hp_lbl.text = "HP " + _fmt_hp(one_fleet_hp * v)
+			fleet_hp_lbl.text = MandaloreText.a("HP " + _fmt_hp(one_fleet_hp * v))
 			_update_row_hp(row))
 		fcfg.add_child(fleet_hp_lbl)
 		vb.add_child(fcfg)
@@ -945,7 +954,7 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 	slot_hp_lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
 	csb.value_changed.connect(func(v: float) -> void:
 		slot["count"] = int(v)
-		slot_hp_lbl.text = "HP " + _fmt_hp(hp_per_unit * v)
+		slot_hp_lbl.text = MandaloreText.a("HP " + _fmt_hp(hp_per_unit * v))
 		_update_row_hp(row))
 	cfg.add_child(csb)
 	cfg.add_child(slot_hp_lbl)
@@ -979,7 +988,7 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 	boss_row.mouse_filter = Control.MOUSE_FILTER_STOP
 	var boss_cb := CheckBox.new()
 	boss_cb.button_pressed = bool(slot.get("is_boss", false))
-	boss_cb.text = "Boss"
+	boss_cb.text = MandaloreText.a("Boss")
 	if _font: boss_cb.add_theme_font_override("font", _font)
 	boss_cb.add_theme_font_size_override("font_size", 10)
 	boss_cb.toggled.connect(func(v: bool) -> void: slot["is_boss"] = v)
@@ -1021,7 +1030,7 @@ class _DragSrc extends Button:
 			prev.add_child(tr)
 		else:
 			var l := Label.new()
-			l.text = ptext
+			l.text = MandaloreText.a(ptext)
 			prev.add_child(l)
 		set_drag_preview(prev)
 		return payload
@@ -1066,7 +1075,7 @@ class _FleetPreview extends Control:
 			if enemies.is_empty():
 				continue
 			var tex: Texture2D = editor._enemy_icon(String(enemies[0]))
-			var w: float = float(s.get("size", 50.0))
+			var w: float = editor.enemy_draw_width(String(enemies[0]))
 			var h := w
 			if tex != null and tex.get_width() > 0:
 				h = w * float(tex.get_height()) / float(tex.get_width())
@@ -1096,7 +1105,7 @@ class _FleetPreview extends Control:
 # ── Widget helpers ──────────────────────────────────────────────────────────────
 func _mk_label(text: String, sz: int) -> Label:
 	var l := Label.new()
-	l.text = text
+	l.text = MandaloreText.a(text)
 	if _font:
 		l.add_theme_font_override("font", _font)
 	l.add_theme_font_size_override("font_size", sz)
@@ -1116,7 +1125,7 @@ func _mk_spin(lo: float, hi: float, step: float, val: float, w: int) -> SpinBox:
 
 func _mk_button(text: String, cb: Callable) -> Button:
 	var b := Button.new()
-	b.text = text
+	b.text = MandaloreText.a(text)
 	if _font:
 		b.add_theme_font_override("font", _font)
 	b.pressed.connect(cb)

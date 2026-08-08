@@ -51,7 +51,7 @@ var _level_lbl: Label = null
 var _unspent_lbl: Label = null
 
 func _ready() -> void:
-	_font = load("res://assets/fonts/Gameplay.ttf") as FontFile
+	_font = load("res://assets/fonts/mandalore/mandalore.ttf") as FontFile
 	# Dock to the right screen edge, vertically centred — resolution-independent.
 	anchor_left = 1.0; anchor_right = 1.0
 	anchor_top = 0.5;  anchor_bottom = 0.5
@@ -72,7 +72,7 @@ func _style() -> void:
 
 func _mk_label(txt: String, sz: int, col: Color) -> Label:
 	var l := Label.new()
-	l.text = txt
+	l.text = MandaloreText.a(txt)
 	if _font != null:
 		l.add_theme_font_override("font", _font)
 	l.add_theme_font_size_override("font_size", sz)
@@ -81,7 +81,7 @@ func _mk_label(txt: String, sz: int, col: Color) -> Label:
 
 func _mk_btn(txt: String, sz: int) -> Button:
 	var b := Button.new()
-	b.text = txt
+	b.text = MandaloreText.a(txt)
 	if _font != null:
 		b.add_theme_font_override("font", _font)
 	b.add_theme_font_size_override("font_size", sz)
@@ -176,25 +176,25 @@ func _process(_delta: float) -> void:
 	_refresh()
 
 func _refresh() -> void:
-	_values["hp"].text           = "%d / %d" % [GameManager.ship_hp, GameManager.ship_max_hp]
-	_values["ammo"].text         = "%d / %d" % [int(round(GameManager.ship_ammo)), int(round(GameManager.max_ammo()))]
-	_values["energy"].text       = "%d / %d" % [int(round(GameManager.ship_energy)), int(round(GameManager.max_energy()))]
-	_values["armor"].text        = str(GameManager.total_armor())
-	_values["dr"].text           = "%.1f%%" % (GameManager.player_total_dr() * 100.0)
-	_values["hp_regen"].text     = "%.1f /s" % GameManager.hp_regen_rate()
-	_values["energy_regen"].text = "%.1f /s" % GameManager.energy_regen_rate()
-	_values["shield"].text       = "%d" % int(round(GameManager.shield_capacity_total()))
-	_values["speed"].text        = "%d px/s" % int(round(GameManager.effective_move_speed()))
-	_values["dash_cd"].text      = "%.2f s" % GameManager.effective_dash_cd()
-	_values["dash_range"].text   = "%d px" % int(round(GameManager.effective_dash_range()))
-	_values["dmg_l"].text        = _dmg_text("primary_weapon")
-	_values["dmg_r"].text        = _dmg_text("secondary_weapon")
+	_values["hp"].text           = MandaloreText.a("%d / %d" % [GameManager.ship_hp, GameManager.ship_max_hp])
+	_values["ammo"].text         = MandaloreText.a("%d / %d" % [int(round(GameManager.ship_ammo)), int(round(GameManager.max_ammo()))])
+	_values["energy"].text       = MandaloreText.a("%d / %d" % [int(round(GameManager.ship_energy)), int(round(GameManager.max_energy()))])
+	_values["armor"].text        = MandaloreText.a(str(GameManager.total_armor()))
+	_values["dr"].text           = MandaloreText.a("%.1f%%" % (GameManager.player_total_dr() * 100.0))
+	_values["hp_regen"].text     = MandaloreText.a("%.1f /s" % GameManager.hp_regen_rate())
+	_values["energy_regen"].text = MandaloreText.a("%.1f /s" % GameManager.energy_regen_rate())
+	_values["shield"].text       = MandaloreText.a("%d" % int(round(GameManager.shield_capacity_total())))
+	_values["speed"].text        = MandaloreText.a("%d px/s" % int(round(GameManager.effective_move_speed())))
+	_values["dash_cd"].text      = MandaloreText.a("%.2f s" % GameManager.effective_dash_cd())
+	_values["dash_range"].text   = MandaloreText.a("%d px" % int(round(GameManager.effective_dash_range())))
+	_values["dmg_l"].text        = MandaloreText.a(_dmg_text("primary_weapon"))
+	_values["dmg_r"].text        = MandaloreText.a(_dmg_text("secondary_weapon"))
 	# Level + attributes.
-	_level_lbl.text   = "Level %d" % GameManager.player_level
-	_unspent_lbl.text = "Unspent: %d" % GameManager.unspent_points
+	_level_lbl.text   = MandaloreText.a("Level %d" % GameManager.player_level)
+	_unspent_lbl.text = MandaloreText.a("Unspent: %d" % GameManager.unspent_points)
 	var has_pts: bool = GameManager.unspent_points > 0
 	for key: String in _attr_values:
-		_attr_values[key].text = str(GameManager.attr(key))
+		_attr_values[key].text = MandaloreText.a(str(GameManager.attr(key)))
 		(_attr_btns[key] as Button).disabled = not has_pts
 
 ## Damage per hit as a "min - max" range (same number twice for single-damage weapons). "—" if empty.

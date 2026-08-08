@@ -4,7 +4,7 @@ extends CanvasLayer
 ## and accumulates delta, so paused frames simply don't tick. A fresh instance is built per run, so it
 ## always starts at 0. Mirrors perf_overlay.gd's top-right pinning.
 
-const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
+const FONT_PATH := "res://assets/fonts/mandalore/mandalore.ttf"
 
 var _elapsed: float = 0.0
 var _label: Label
@@ -44,6 +44,6 @@ func _update_text(total_sec: int) -> void:
 	var m := (total_sec % 3600) / 60
 	var s := total_sec % 60
 	if h > 0:
-		_label.text = "%d:%02d:%02d" % [h, m, s]
+		_label.text = MandaloreText.a("%d:%02d:%02d" % [h, m, s])
 	else:
-		_label.text = "%02d:%02d" % [m, s]
+		_label.text = MandaloreText.a("%02d:%02d" % [m, s])

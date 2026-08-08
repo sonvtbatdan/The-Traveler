@@ -3,6 +3,68 @@
 > Module of [`CLAUDE.md`](../CLAUDE.md). Read this when working on weapons, firing, inventory/affixes, ship visuals, arena weapon mechanics + their VFX.
 > Always-on core rules (conventions, coordinate system, image/render rules, LOCKED MODULES) live in CLAUDE.md — read that too.
 
+## Changelog — 2026-08-05 (2nd pass) — Gatling `GATLING_POOL` per-rank value dialed from +50% down to +20%, hybrid resolution
+
+- Same-day follow-up to the +50%/rank redesign below, on request: every local rank now contributes **+20%**
+  output damage instead of 50%.
+- **Hardened Round / Quick Round**: trivial — pure continuous multipliers, just changed `0.5` → `0.2` in
+  `_gat_bullet_base()`/`_gat_fire_bonus()`. Still zero RNG.
+- **Multishot / Bouncing / Piercing** (bullet-count-based, twin-barrel base = 2 bullets): 20%×2 = 0.4, not a
+  whole number — unlike 50%×2 = 1, which is why the prior pass could stay fully deterministic. Asked the user
+  how to handle the fractional remainder; picked **hybrid** (guaranteed integer part + a `_proc()` roll for the
+  leftover fraction, landing on the correct +20%/rank *expected* value every rank, with an outright guarantee
+  every 5th rank since 0.2×5 = 1.0 exactly):
+  - `_gat_multishot_chance()`: per-rank constant `1.0` → **`0.4`** (still resolved once per shot in
+    `_fire_gatling`, unchanged call site — that function already had the guaranteed+`_proc()` split built in).
+  - `_gat_bounces()` / `_gat_pierce_budget()`: dropped the `n`-based even/odd split entirely (no longer needed
+    — that trick existed specifically to keep the old 50% design deterministic) and now roll **independently
+    per bullet at spawn time** in `_spawn_gat_bullet()` (same place/pattern as the existing Healing Round
+    roll), each returning `floor(0.2×rank) + (1 if _proc(frac) else 0)`. Call sites updated back to no-arg.
+- **Side-effect**: since Bouncing's fractional roll now goes through `_proc()`, it gains Stroke of Luck synergy
+  for the first time (it was always-guaranteed and RNG-free in the 50% pass, so it never touched `_proc()`
+  before this). Piercing already had this synergy pre-50%-redesign, lost it when made deterministic, and now
+  regains it here.
+- **Advance Ballistic** (global) left untouched at +10%/rank, per the same standing decision as the prior pass.
+- `GATLING_POOL`'s `"per"`/`"desc"` strings updated to say "20%" and to describe the chance-based framing for
+  the three hybrid perks (dropped "guaranteed" wording, added "20%/rank, guaranteed every 5th rank").
+
+## Changelog — 2026-08-05 — Gatling `GATLING_POOL` perks redesigned: every local rank = +50% output damage, deterministic (no RNG)
+
+- **Requested design goal**: each Gatling perk rank should contribute a uniform +50% output damage, so ranks
+  are directly comparable across perks (previously Quick Round's 16%/rank, Multishot's 25%/rank, and
+  Bouncing's conditional ricochet were not apples-to-apples — see prior conversation turn for the audit).
+- **Quick Round** (`_gat_fire_bonus`): 0.16 → **0.5**/rank. Already unconditional/linear, no other change needed.
+- **Multishot** (`_gat_multishot_chance`): 0.25 → **1.0**/rank. Root cause of the old dilution: the twin-barrel
+  base is already 2 bullets, so a 0.25/rank chance for ONE extra bullet was only ~12.5%/rank relative to that
+  base, not 25%. Fixed by making the per-rank contribution 1.0 (= +50% of the 2-bullet base), which also makes
+  it fully deterministic at every local rank — `int(ms)` guaranteed extras, no leftover fraction unless a
+  global source (Advance Ballistic) mixes one in.
+- **Hardened Round** (`_gat_bullet_base`): flat `+2/rank` additive → **multiplicative** `GAT_DAMAGE × (1 +
+  0.5×rank)`. Chosen over keeping it flat because multiplicative strictly dominates flat at every rank for
+  `GAT_DAMAGE = 5.0` (0.5×5=2.5 > flat 2 per rank), per an explicit "whichever is bigger" request.
+- **Piercing Round**: was a hybrid perk (`+20%/rank _proc pierce chance` + `+10%/rank flat damage`, buffed by
+  Arc's Stroke of Luck via `_proc()`). Both replaced by a single deterministic mechanic mirroring Bouncing:
+  a bullet gets a **guaranteed pierce budget** (`_gat_pierce_budget(n)`) that lets it keep flying straight
+  through for one more hit on the next un-hit enemy in its path. The flat `+10%/rank` damage component was
+  dropped entirely (per explicit request) so Piercing's whole contribution is the extra-hit budget — and since
+  the roll is gone, Piercing **no longer benefits from Stroke of Luck** (a side-effect, not a bug).
+- **Bouncing Round**: mechanic unchanged (still a guaranteed ricochet to the most-perpendicular un-hit enemy
+  within `GAT_BOUNCE_RANGE`), but the **budget is now per-bullet-slot** instead of a flat rank-wide value:
+  `_gat_bounces(n)` / `_gat_pierce_budget(n)` split `ceil(rank/2)` to even slots and `floor(rank/2)` to odd
+  slots — deterministic, no RNG. This is what lets both perks keep scaling past rank 2 even though the
+  twin-barrel base is only 2 bullets: rank 1 = 1 of 2 bullets gets 1 extra hit, rank 2 = both get 1, rank 3 =
+  one bullet chains 2 extra hits + the other 1, etc. — always exactly `rank` extra hits per shot, i.e. +50%
+  output damage per rank, same accounting as Multishot's extra-bullet count.
+- **`_gat_bounce_or_pierce`/`_gat_spawn_bounce_clone`** rewritten: both budgets now live on the bullet dict
+  (`"bounces"`, `"pierce"`) from spawn time; on a hit, whichever budgets are still >0 fire (both can fire the
+  same hit — pierce keeps the original bullet going straight while a clone peels off with the bounce, exactly
+  as before, just without the RNG roll deciding whether pierce applies).
+- **Advance Ballistic** (global multishot perk, buffs every "shots"-tagged weapon, not just Gatling) was
+  explicitly left at its original **+10%/rank**, per request — the +50%/rank scheme applies only to Gatling's
+  own local pool.
+- `GATLING_POOL`'s `"per"`/`"desc"` display strings (read directly by `arena_levelup_ui.gd` — no separate
+  numeric binding to update) updated to match.
+
 ## Changelog — 2026-08-02 — Divinity loot no longer instant-kills Elite/Champion Creep, only bosses
 
 - `arena_divinity_visual.gd`'s `_kill_touching_enemies()` already spared bosses (`is_in_group("boss")` →

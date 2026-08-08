@@ -2,12 +2,23 @@
 ## Fleet Edit (dev:on) — define named FLEETS of units for later spawn/backup wiring.
 ##
 ## A fleet has UNIT_SLOT_COUNT unit slots. Each slot holds either one enemy or a RANDOM POOL (up to
-## RANDOM_POOL_MAX enemies → shown as "R"; one is rolled when the fleet deploys). Each slot has a screen POSITION + SIZE
-## (per-slot: the random alternatives share the slot's transform). Enemies are dragged from the right-hand
-## palette into Unit / Random slots; a static placeholder for each slot is shown on screen and can be dragged
-## to position it. Editor-only: Save writes res://fleet_layout.cfg (consuming fleets in-game is a later task).
+## RANDOM_POOL_MAX enemies → shown as "R"; one is rolled when the fleet deploys). Each slot has a screen
+## POSITION (per-slot: the random alternatives share the slot's transform). Enemies are dragged from the
+## right-hand palette into Unit / Random slots; a static placeholder for each slot is shown on screen and can
+## be dragged to position it. Editor-only: Save writes res://fleet_layout.cfg (consuming fleets in-game is a
+## later task).
+##
+## SIZE is NOT stored per-slot here — user feedback: "lấy nguồn từ creep edit làm nguồn chuẩn cho mọi kích
+## thước cần đọc, xóa bỏ các nguồn không chính thống" (Creep Edit is the canonical source for every size
+## reader; remove the non-canonical ones). Every placeholder/preview draws at enemy_draw_width(id), which
+## delegates to arena_enemy.gd's own static base_draw_width() — the EXACT precedence real spawns use
+## (creep_layout.cfg's authored width for that icon, else an ENEMY_DEFS-size-derived fallback) — so what you
+## see here always matches what actually spawns. (An older revision had an editable per-slot "size" field,
+## independently stored in fleet_layout.cfg and threaded into spawns as a draw_w override that WON over
+## creep_layout.cfg — removed; wave-director spawn code no longer reads/writes it either.)
 
 const WaveDir   := preload("res://scripts/gameplay/arena_wave_director.gd")
+const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 const CFG_PATH  := "res://fleet_layout.cfg"
 const UNIT_SLOT_COUNT  := 20    # unit slots per fleet (2026-08-02: 4×5 grid, was 10 / 2×5)
 const RANDOM_POOL_MAX  := 10    # max alternatives in one slot's random pool (2×5 grid) — independent of UNIT_SLOT_COUNT
@@ -18,7 +29,7 @@ const ENEMY_COLS := 5
 const ENEMY_ROWS := 5
 const CELL       := 50.0        # slot square px
 const PANEL_W    := 250.0
-const FONT_PATH  := "res://assets/fonts/Gameplay.ttf"
+const FONT_PATH  := "res://assets/fonts/mandalore/mandalore.ttf"
 const ZOOM_MIN   := 0.4
 const ZOOM_MAX   := 5.0
 const ZOOM_RATIO := 1.15        # per wheel notch
@@ -33,7 +44,8 @@ var _zoom: float = 1.0
 var _pan: Vector2 = Vector2.ZERO
 
 # ── Data ──────────────────────────────────────────────────────────────────────
-# _fleets: [ { "name": String, "slots": [ { "enemies": [id,...], "pos": Vector2, "size": float } x UNIT_SLOT_COUNT ] } ]
+# _fleets: [ { "name": String, "slots": [ { "enemies": [id,...], "pos": Vector2, "rot": float } x UNIT_SLOT_COUNT ] } ]
+# NOTE: an older revision also had "size" here — removed, see this file's header (Creep Edit is canonical now).
 var _fleets: Array = []
 var _fleet_sort_dir: int = 0    # 0 = unsorted (creation/save order), 1 = A→Z, -1 = Z→A — toggled by the FLEET list's sort button; display-only, never mutates _fleets itself (see _fleet_display_order)
 var _active_fleet: int = -1     # LMB-selected fleet (drives Unit table + on-screen)
@@ -49,7 +61,6 @@ var _fleet_vbox: VBoxContainer = null
 var _unit_grid: GridContainer = null
 var _rand_grid: GridContainer = null
 var _enemy_grid: GridContainer = null
-var _w_spin: SpinBox = null
 var _x_spin: SpinBox = null
 var _y_spin: SpinBox = null
 var _rot_spin: SpinBox = null
@@ -185,6 +196,11 @@ func _enemy_icon(id: String) -> Texture2D:
 	_icon_cache[id] = tex
 	return tex
 
+## Public: the canonical on-screen draw width (px) for enemy `id` — see this file's header. Used by every
+## placeholder/preview instead of a per-slot stored size.
+func enemy_draw_width(id: String) -> float:
+	return EnemyScript.base_draw_width(WaveDir.ENEMY_DEFS.get(id, {}))
+
 # ── UI construction ────────────────────────────────────────────────────────────
 func _build_ui() -> void:
 	_root = Control.new()
@@ -238,7 +254,7 @@ func _hdr(parent: Control, text: String) -> HBoxContainer:
 	row.add_theme_constant_override("separation", 4)
 	parent.add_child(row)
 	var lbl := Label.new()
-	lbl.text = text
+	lbl.text = MandaloreText.a(text)
 	lbl.add_theme_font_size_override("font_size", 12)
 	lbl.modulate = Color(0.55, 0.90, 1.0)
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -252,14 +268,14 @@ func _build_left_panel() -> void:
 	# FLEET table
 	var fh := _hdr(vb, "FLEET")
 	_sort_btn = Button.new()
-	_sort_btn.text = "A→Z"
+	_sort_btn.text = MandaloreText.a("A→Z")
 	_sort_btn.tooltip_text = "Sort fleets alphabetically (click again to flip A→Z / Z→A)"
 	_sort_btn.custom_minimum_size = Vector2(44.0, 22.0)
 	if _font: _sort_btn.add_theme_font_override("font", _font)
 	_sort_btn.pressed.connect(_on_sort_fleets)
 	fh.add_child(_sort_btn)
 	var add_btn := Button.new()
-	add_btn.text = "+"
+	add_btn.text = MandaloreText.a("+")
 	add_btn.custom_minimum_size = Vector2(26.0, 22.0)
 	add_btn.pressed.connect(_on_add_fleet)
 	fh.add_child(add_btn)
@@ -311,9 +327,8 @@ func _build_right_panel() -> void:
 
 	vb.add_child(HSeparator.new())
 
-	# TRANSFORM
+	# TRANSFORM (no size/"W" field — size is read-only from Creep Edit, see this file's header)
 	_hdr(vb, "TRANSFORM")
-	_w_spin = _mk_tspin(vb, "W", 4.0, 400.0, 1.0, _on_w_changed)
 	_x_spin = _mk_tspin(vb, "X", -4000.0, 4000.0, 1.0, _on_x_changed)
 	_y_spin = _mk_tspin(vb, "Y", -4000.0, 4000.0, 1.0, _on_y_changed)
 	_rot_spin = _mk_tspin(vb, "Rot", -180.0, 180.0, 1.0, _on_rot_changed)
@@ -327,12 +342,12 @@ func _build_right_panel() -> void:
 	srow.add_theme_constant_override("separation", 6)
 	vb.add_child(srow)
 	var save_btn := Button.new()
-	save_btn.text = "Save"
+	save_btn.text = MandaloreText.a("Save")
 	save_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	save_btn.pressed.connect(_on_save)
 	srow.add_child(save_btn)
 	var close_btn := Button.new()
-	close_btn.text = "Close"
+	close_btn.text = MandaloreText.a("Close")
 	close_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	close_btn.pressed.connect(_close)
 	srow.add_child(close_btn)
@@ -342,7 +357,7 @@ func _mk_tspin(parent: Control, label: String, mn: float, mx: float, step: float
 	row.add_theme_constant_override("separation", 4)
 	parent.add_child(row)
 	var lbl := Label.new()
-	lbl.text = label
+	lbl.text = MandaloreText.a(label)
 	lbl.custom_minimum_size = Vector2(18.0, 0.0)
 	row.add_child(lbl)
 	var sb := SpinBox.new()
@@ -368,7 +383,7 @@ func _build_enemy_palette() -> void:
 func _on_add_fleet() -> void:
 	var slots: Array = []
 	for i in UNIT_SLOT_COUNT:
-		slots.append({"enemies": [], "pos": Vector2(400.0 + float(i) * 70.0, 300.0), "size": 50.0, "rot": 0.0})
+		slots.append({"enemies": [], "pos": Vector2(400.0 + float(i) * 70.0, 300.0), "rot": 0.0})
 	_fleets.append({"name": "New Fleet", "slots": slots})
 	_active_fleet = _fleets.size() - 1
 	_active_unit = -1
@@ -388,7 +403,7 @@ func _on_add_fleet() -> void:
 func _on_sort_fleets() -> void:
 	_fleet_sort_dir = 1 if _fleet_sort_dir <= 0 else -1
 	if _sort_btn != null:
-		_sort_btn.text = "A→Z" if _fleet_sort_dir > 0 else "Z→A"
+		_sort_btn.text = MandaloreText.a("A→Z" if _fleet_sort_dir > 0 else "Z→A")
 	_rebuild_fleet_list()
 
 ## _fleets indices in the order the FLEET list should currently display them — sorted by name
@@ -445,12 +460,12 @@ func _rebuild_fleet_list() -> void:
 		var lbl := _FleetLabel.new()
 		lbl.owner_editor = self
 		lbl.fleet_index = fi
-		lbl.text = String(fl.get("name", "Fleet"))
+		lbl.text = MandaloreText.a(String(fl.get("name", "Fleet")))
 		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		lbl.set_active(fi == _active_fleet)
 		row.add_child(lbl)
 		var hp_lbl := Label.new()
-		hp_lbl.text = _fmt_hp(_fleet_total_hp(fl))
+		hp_lbl.text = MandaloreText.a(_fmt_hp(_fleet_total_hp(fl)))
 		hp_lbl.add_theme_font_size_override("font_size", 11)
 		hp_lbl.modulate = Color(0.6, 0.85, 1.0)
 		hp_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -495,7 +510,7 @@ func _begin_rename(fi: int) -> void:
 	dlg.title = "Fleet name"
 	dlg.process_mode = Node.PROCESS_MODE_ALWAYS
 	var le := LineEdit.new()
-	le.text = String(_fleets[fi].get("name", "New Fleet"))
+	le.text = MandaloreText.a(String(_fleets[fi].get("name", "New Fleet")))
 	le.custom_minimum_size = Vector2(220.0, 0.0)
 	dlg.add_child(le)
 	dlg.register_text_enter(le)
@@ -539,7 +554,7 @@ func _on_ctx_id(id: int) -> void:
 func _dup_fleet(fl: Dictionary) -> Dictionary:
 	var slots: Array = []
 	for s: Dictionary in fl["slots"]:
-		slots.append({"enemies": (s["enemies"] as Array).duplicate(), "pos": s["pos"], "size": s["size"], "rot": s.get("rot", 0.0)})
+		slots.append({"enemies": (s["enemies"] as Array).duplicate(), "pos": s["pos"], "rot": s.get("rot", 0.0)})
 	return {"name": String(fl.get("name", "Fleet")), "slots": slots}
 
 # ── Unit table ─────────────────────────────────────────────────────────────────
@@ -554,7 +569,7 @@ func _active_slots() -> Array:
 	# slots through this one function, so padding here fixes it everywhere at once).
 	while slots.size() < UNIT_SLOT_COUNT:
 		var last_pos: Vector2 = (slots[-1]["pos"] as Vector2) if not slots.is_empty() else Vector2(400.0, 300.0)
-		slots.append({"enemies": [], "pos": last_pos + Vector2(70.0, 0.0), "size": 50.0, "rot": 0.0})
+		slots.append({"enemies": [], "pos": last_pos + Vector2(70.0, 0.0), "rot": 0.0})
 	return slots
 
 func _rebuild_unit_table() -> void:
@@ -643,6 +658,46 @@ func drop_enemy(enemy_id: String, slot_index: int, is_random: bool) -> void:
 	queue_redraw_canvas()
 	_rebuild_fleet_list()   # keep the FLEET list's Total HP column live as units are dragged in
 
+## Public: read by _SlotCell to decide whether it's a valid drag SOURCE (must be occupied) and, for a
+## slot-to-slot drop, whether the target is a valid drop TARGET (must be empty — see copy_slot()).
+func slot_has_enemies(slot_index: int) -> bool:
+	var slots := _active_slots()
+	if slot_index < 0 or slot_index >= slots.size():
+		return false
+	return not (slots[slot_index]["enemies"] as Array).is_empty()
+
+## User feedback: "có thể nắm slot unit (đã có unit) kéo sang unit trống, để copy slot sang slot trống (copy
+## cả giá trị random)" — dragging an occupied UNIT slot onto an EMPTY one duplicates its whole `enemies` array
+## (a single unit OR a full random pool, "R") into the target, instead of the palette's "add one enemy" drop.
+## Only ever writes to an EMPTY target (_SlotCell._can_drop_data already enforces this, checked again here
+## defensively) — never overwrites an occupied slot, so this can't accidentally destroy existing content.
+func copy_slot(from_index: int, to_index: int) -> void:
+	var slots := _active_slots()
+	if from_index < 0 or from_index >= slots.size() or to_index < 0 or to_index >= slots.size():
+		return
+	if from_index == to_index:
+		return
+	if slot_has_enemies(to_index):
+		return
+	var src_enemies: Array = slots[from_index]["enemies"]
+	if src_enemies.is_empty():
+		return
+	slots[to_index]["enemies"] = src_enemies.duplicate()
+	# Fresh slot (was empty) — auto-arrange its canvas pos to the Unit table's grid layout, same convention
+	# drop_enemy() uses for a freshly-filled slot (never overwrites a hand-dragged position on an occupied one,
+	# which doesn't apply here since the target was just confirmed empty).
+	var col := to_index % UNIT_COLS
+	var row := to_index / UNIT_COLS
+	slots[to_index]["pos"] = UNIT_DROP_GRID_ORIGIN + Vector2(col, row) * UNIT_DROP_GRID_SPACING
+	_active_unit = to_index
+	_active_rand = -1
+	_sel_slots = [to_index]
+	_rebuild_unit_table()
+	_rebuild_rand_table()
+	_refresh_transform()
+	queue_redraw_canvas()
+	_rebuild_fleet_list()
+
 ## LMB on a Unit slot → select the slot. Shift+LMB on the Unit table → add/remove from a multi-selection.
 ## On a Random slot → select that one unit (no multi-select).
 func click_slot(slot_index: int, is_random: bool, additive: bool = false) -> void:
@@ -664,10 +719,26 @@ func click_slot(slot_index: int, is_random: bool, additive: bool = false) -> voi
 				_sel_slots.append(slot_index)
 		else:
 			_sel_slots = [slot_index]
-	_rebuild_unit_table()
+	# NOT _rebuild_unit_table(): a click fires on mouse-DOWN, before any drag motion — queue_free()'ing and
+	# recreating the Unit grid's cells here would destroy the very _SlotCell the mouse is pressed on, so a
+	# drag gesture starting from this same press could never begin (the engine tracks the drag by the specific
+	# Control instance that received the initial press; a freshly-recreated cell never received it). Content
+	# (icon/text) never changes from a click anyway — only which cell(s) show the selected border — so just
+	# restyle the existing cells in place.
+	_refresh_unit_selection()
 	_rebuild_rand_table()
 	_refresh_transform()
 	queue_redraw_canvas()
+
+## Restyles the Unit grid's existing _SlotCell nodes' selected-border state from _sel_slots, WITHOUT
+## destroying/recreating them — see click_slot()'s comment for why a full _rebuild_unit_table() there would
+## break drag-and-drop.
+func _refresh_unit_selection() -> void:
+	if _unit_grid == null:
+		return
+	for c in _unit_grid.get_children():
+		if c is _SlotCell:
+			(c as _SlotCell).set_selected((c as _SlotCell).slot_index in _sel_slots)
 
 ## Delete key handler. If a Random alternative is selected, remove just that one from the active
 ## Unit's pool; otherwise clear the selected Unit slot(s). Returns true if anything was deleted.
@@ -696,17 +767,17 @@ func _delete_selected_slot() -> bool:
 	return true
 
 # ── Transform ──────────────────────────────────────────────────────────────────
-## W/Rot stay single-selection-only (a "size"/"rotation" typed for a mixed multi-select has no sensible
-## single meaning). X/Y now also work with a box-selected GROUP (_sel_slots.size() > 1) — see
-## _on_x_changed()/_on_y_changed(): each axis broadcasts independently to every selected unit's SAME axis,
-## leaving the other axis untouched per-unit (so a group can be aligned to one X or one Y while keeping
-## each unit's own position on the other axis — not a "collapse to a single point" on both axes at once).
+## Rot stays single-selection-only (a "rotation" typed for a mixed multi-select has no sensible single
+## meaning). X/Y now also work with a box-selected GROUP (_sel_slots.size() > 1) — see _on_x_changed()/
+## _on_y_changed(): each axis broadcasts independently to every selected unit's SAME axis, leaving the other
+## axis untouched per-unit (so a group can be aligned to one X or one Y while keeping each unit's own position
+## on the other axis — not a "collapse to a single point" on both axes at once). No "W"/size field — size is
+## read-only from Creep Edit, see this file's header.
 func _refresh_transform() -> void:
-	if _w_spin == null:
+	if _x_spin == null:
 		return
 	var any := not _sel_slots.is_empty()
 	var single := _sel_slots.size() == 1
-	_w_spin.editable = single
 	_rot_spin.editable = single
 	_x_spin.editable = any
 	_y_spin.editable = any
@@ -720,19 +791,9 @@ func _refresh_transform() -> void:
 		return
 	var s: Dictionary = slots[si]
 	if single:
-		_w_spin.set_value_no_signal(float(s["size"]))
 		_rot_spin.set_value_no_signal(float(s.get("rot", 0.0)))
 	_x_spin.set_value_no_signal((s["pos"] as Vector2).x)
 	_y_spin.set_value_no_signal((s["pos"] as Vector2).y)
-
-func _on_w_changed() -> void:
-	var slots := _active_slots()
-	if _sel_slots.size() != 1:
-		return
-	var si: int = _sel_slots[0]
-	if si >= 0 and si < slots.size():
-		slots[si]["size"] = _w_spin.value
-		queue_redraw_canvas()
 
 ## Typing X broadcasts that X to every selected unit, each keeping its OWN existing Y independently.
 ## (Vector2 is a value type in GDScript — must read, mutate, then write the whole "pos" back, an in-place
@@ -791,7 +852,7 @@ func _draw_canvas(c: Control) -> void:
 		if id == "":
 			continue
 		var s: Dictionary = slots[si]
-		var w: float = float(s["size"]) * _zoom
+		var w: float = enemy_draw_width(id) * _zoom
 		var tex := _enemy_icon(id)
 		var h := w
 		if tex != null and tex.get_width() > 0:
@@ -902,7 +963,7 @@ func _slot_at(p: Vector2) -> int:
 		if id == "":
 			continue
 		var s: Dictionary = slots[i]
-		var w: float = float(s["size"]) * _zoom
+		var w: float = enemy_draw_width(id) * _zoom
 		var tex := _enemy_icon(id)
 		var h := w
 		if tex != null and tex.get_width() > 0:
@@ -928,6 +989,12 @@ func _load_cfg() -> void:
 	var data = cfg.get_value("fleets", "data", [])
 	if data is Array:
 		_fleets = data
+		# Strip any stray per-slot "size" left over from an older revision (independently stored, read as a
+		# spawn-size override that WON over Creep Edit — removed, see this file's header). Nothing reads this
+		# key anymore; stripping it here means it naturally stops being written back out on the next Save.
+		for fl: Dictionary in _fleets:
+			for s: Dictionary in (fl.get("slots", []) as Array):
+				s.erase("size")
 
 # ── Inner UI classes ───────────────────────────────────────────────────────────
 
@@ -1036,7 +1103,7 @@ class _SlotCell extends Panel:
 		add_child(_tr)
 	func set_text(t: String) -> void:
 		_lbl = Label.new()
-		_lbl.text = t
+		_lbl.text = MandaloreText.a(t)
 		_lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
 		_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -1044,10 +1111,60 @@ class _SlotCell extends Panel:
 		_lbl.modulate = Color(1.0, 0.7, 0.2)
 		_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(_lbl)
+	## Drag SOURCE: only a filled UNIT-table cell (never Random-table, never an empty cell) can start a
+	## slot-to-slot copy drag — see owner_editor.copy_slot()'s header for the user feedback this implements.
+	## The preview reuses whatever this cell is already showing (icon or "R" text) so the drag reads as
+	## "picking up" this exact slot's contents.
+	func _get_drag_data(_pos: Vector2) -> Variant:
+		if is_random_table or owner_editor == null or not owner_editor.slot_has_enemies(slot_index):
+			return null
+		var wrap := Control.new()
+		if _tr != null and _tr.texture != null:
+			var tex: Texture2D = _tr.texture
+			var maxd := 44.0   # CELL - 6, matches _PaletteCell's own drag-preview sizing
+			var w := maxd
+			var h := maxd
+			if tex.get_width() > 0 and tex.get_height() > 0:
+				var tw := float(tex.get_width())
+				var th := float(tex.get_height())
+				if tw >= th:
+					h = maxd * th / tw
+				else:
+					w = maxd * tw / th
+			var trp := TextureRect.new()
+			trp.texture = tex
+			trp.stretch_mode = TextureRect.STRETCH_SCALE
+			trp.size = Vector2(w, h)
+			trp.position = Vector2(-w * 0.5, -h * 0.5)
+			wrap.add_child(trp)
+		elif _lbl != null:
+			var lbl2 := Label.new()
+			lbl2.text = MandaloreText.a(_lbl.text)
+			lbl2.add_theme_font_size_override("font_size", 20)
+			lbl2.modulate = Color(1.0, 0.7, 0.2)
+			lbl2.position = Vector2(-10.0, -12.0)
+			wrap.add_child(lbl2)
+		set_drag_preview(wrap)
+		return {"src_slot_index": slot_index}
 	func _can_drop_data(_pos: Vector2, data: Variant) -> bool:
-		return data is Dictionary and (data as Dictionary).has("enemy_id")
+		if not (data is Dictionary):
+			return false
+		var d := data as Dictionary
+		if d.has("enemy_id"):
+			return true
+		if d.has("src_slot_index"):
+			# Slot-copy drops only ever target an EMPTY Unit-table cell — never the Random table, never onto
+			# itself, never onto an already-occupied slot (that would silently discard its contents).
+			if is_random_table or int(d["src_slot_index"]) == slot_index:
+				return false
+			return owner_editor != null and not owner_editor.slot_has_enemies(slot_index)
+		return false
 	func _drop_data(_pos: Vector2, data: Variant) -> void:
-		owner_editor.drop_enemy(String((data as Dictionary)["enemy_id"]), slot_index, is_random_table)
+		var d := data as Dictionary
+		if d.has("enemy_id"):
+			owner_editor.drop_enemy(String(d["enemy_id"]), slot_index, is_random_table)
+		elif d.has("src_slot_index"):
+			owner_editor.copy_slot(int(d["src_slot_index"]), slot_index)
 	func _on_input(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.pressed and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
 			owner_editor.click_slot(slot_index, is_random_table, (event as InputEventMouseButton).shift_pressed)
@@ -1084,7 +1201,7 @@ class _FleetPreview extends Control:
 			if enemies.is_empty():
 				continue
 			var tex: Texture2D = editor._enemy_icon(String(enemies[0]))
-			var w: float = float(s.get("size", 50.0))
+			var w: float = editor.enemy_draw_width(String(enemies[0]))
 			var h := w
 			if tex != null and tex.get_width() > 0:
 				h = w * float(tex.get_height()) / float(tex.get_width())

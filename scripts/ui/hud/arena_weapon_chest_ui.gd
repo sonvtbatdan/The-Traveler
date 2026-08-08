@@ -17,7 +17,7 @@ const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")
 const BoardEditScript := preload("res://scripts/ui/boss_edit/hud_edit_mode.gd")
 
 const FONT_TITLE := "res://assets/fonts/Good Old DOS.ttf"
-const FONT_BODY  := "res://assets/fonts/Gameplay.ttf"
+const FONT_BODY  := "res://assets/fonts/mandalore/mandalore.ttf"
 const CARD_SIZE  := Vector2(180, 220)
 
 const SFX_SHOW   := preload("res://assets/audio/sfx/uialert.wav")
@@ -311,7 +311,7 @@ func _make_card(kind: String) -> Button:
 	vb.add_child(name_lbl)
 
 	var hint := Label.new()
-	hint.text = "Click to equip"
+	hint.text = MandaloreText.a("Click to equip")
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_font(hint, FONT_BODY, 12, Color(0.7, 0.75, 0.85))
 	vb.add_child(hint)

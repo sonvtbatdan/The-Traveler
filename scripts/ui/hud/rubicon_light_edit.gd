@@ -220,8 +220,19 @@ func _apply_live() -> void:
 	if sparks != null and sparks.has_method("apply_spark_settings"):
 		sparks.call("apply_spark_settings", _values["spark_amount"], _values["spark_color"], _values["spark_speed"], _values["spark_size"], _values["spark_direction_deg"], _values["spark_brightness"], _values["spark_opacity"])
 
+## Scoped save — re-reads whatever's CURRENTLY on disk and overwrites ONLY this panel's own keys, instead of
+## blanket-writing this panel's own possibly-stale `_values` snapshot (taken once, back when the panel was
+## opened). 2026-08-08 bug fix (found via the Atlantic port — the very "Electric map" recurrence the user
+## flagged): with the old blanket save, opening this panel and clicking SAVE at any later point silently
+## reverted every OTHER panel's changes since (e.g. rubicon_terrain_edit.gd's) back to whatever they were when
+## THIS panel was first opened.
 func _on_save() -> void:
-	RubiconTerrainSettings.save_settings(_values)
+	var fresh := RubiconTerrainSettings.load_settings()
+	for key: String in _sliders.keys():
+		fresh[key] = _values[key]
+	for key: String in _color_btns.keys():
+		fresh[key] = _values[key]
+	RubiconTerrainSettings.save_settings(fresh)
 	if _status != null:
 		_status.text = "Saved."
 

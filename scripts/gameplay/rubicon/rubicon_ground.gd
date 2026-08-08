@@ -165,24 +165,37 @@ func apply_water_tile_set(set_name: String) -> void:
 		return
 	_mat.set_shader_parameter("tex_water_wave", load(path))
 
-## Public: called by whatever spawns/despawns landmark objects (e.g. rubicon_temple_layer.gd's temple boss)
-## every time one appears or is removed — rebuilds the full ring set from scratch each time (cheap; landmarks
-## are rare, at most MAX_LANDMARKS). `landmarks` is an Array of {"pos": Vector2, "half_extent": Vector2,
-## "yaw": float} (world-space — same coordinate system as world_offset/set_world_offset; half_extent/yaw come
-## straight from RubiconTrees.spawn_landmark's return value — the model's actual base footprint, an oriented
-## box, not a circle). Extra entries beyond MAX_LANDMARKS are ignored; unused array slots are pushed far away
-## so they never contribute to the ring — see the shader's fragment().
-func apply_landmarks(landmarks: Array) -> void:
+## Public: called by whatever spawns/despawns landmark objects (rubicon_temple_layer.gd's temple boss,
+## rubicon_ruin_layer.gd's rescue-character ruins) every time one appears or is removed — rebuilds the full
+## ring set from scratch each time (cheap; landmarks are rare, at most MAX_LANDMARKS). `landmarks` is an
+## Array of {"pos": Vector2, "half_extent": Vector2, "yaw": float} (world-space — same coordinate system as
+## world_offset/set_world_offset; half_extent/yaw come straight from RubiconTrees.spawn_landmark's return
+## value — the model's actual base footprint, an oriented box, not a circle). Extra entries beyond
+## MAX_LANDMARKS (combined across every source below) are ignored; unused array slots are pushed far away so
+## they never contribute to the ring — see the shader's fragment().
+##
+## `source` (2026-08-06, on request — added when rubicon_ruin_layer.gd joined rubicon_temple_layer.gd as a
+## second independent landmark spawner): each caller passes its OWN distinct id and its OWN full current list
+## — this just replaces that source's slice in `_landmark_sources` and re-flattens everyone's lists before
+## pushing to the shader, so two spawners calling independently never stomp each other's ring set the way a
+## single un-keyed list would. Default "" preserves old single-caller behavior for any other future caller
+## that doesn't care about sharing.
+var _landmark_sources: Dictionary = {}   # source id -> Array (that source's own current landmark list)
+func apply_landmarks(landmarks: Array, source: String = "") -> void:
 	if _mat == null:
 		return
+	_landmark_sources[source] = landmarks
+	var flat: Array = []
+	for src: String in _landmark_sources:
+		flat.append_array(_landmark_sources[src] as Array)
 	var positions := PackedVector2Array()
 	var half_extents := PackedVector2Array()
 	var yaws := PackedFloat32Array()
 	for i in MAX_LANDMARKS:
-		if i < landmarks.size():
-			positions.append(landmarks[i]["pos"])
-			half_extents.append(landmarks[i]["half_extent"])
-			yaws.append(landmarks[i]["yaw"])
+		if i < flat.size():
+			positions.append(flat[i]["pos"])
+			half_extents.append(flat[i]["half_extent"])
+			yaws.append(flat[i]["yaw"])
 		else:
 			positions.append(Vector2(1.0e9, 1.0e9))
 			half_extents.append(Vector2.ZERO)
@@ -190,7 +203,7 @@ func apply_landmarks(landmarks: Array) -> void:
 	_mat.set_shader_parameter("landmark_pos", positions)
 	_mat.set_shader_parameter("landmark_half_extent", half_extents)
 	_mat.set_shader_parameter("landmark_yaw", yaws)
-	_mat.set_shader_parameter("landmark_count", mini(landmarks.size(), MAX_LANDMARKS))
+	_mat.set_shader_parameter("landmark_count", mini(flat.size(), MAX_LANDMARKS))
 
 ## Public: called by the Terrain Edit panel (live, on dropdown change) and by this node's own _ready()
 ## (persisted settings). Loads the 3 canopy photos from assets/map/rubicon/maptile/<set_name>/ (positionally —

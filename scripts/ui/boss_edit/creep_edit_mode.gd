@@ -1124,10 +1124,40 @@ func _apply_spin_to_selected() -> void:
 	if eo == null or not is_instance_valid(eo):
 		return
 	_push_undo_transform(eo)
+	var old_size: Vector2 = eo.size
 	eo.size    = Vector2(_sz_w_spin.value, _sz_h_spin.value)
 	eo.z_index = int(_z_spin.value)
 	eo._sync_rect_size()
+	_rescale_points_for_resize(_active_creep, eo.position, old_size, eo.size)
 	_dirty = true
+
+## Rescales every fire/thrust/tentacle/vortex point belonging to `creep_name` so each stays at the SAME
+## fractional position within the sprite's bounding box after a resize — user feedback: "khi resize unit
+## trong creep edit, các thrust point cũng được tính toán lại để re-position theo". Points are stored as
+## ABSOLUTE editor-canvas pixels (see _add_thrustpoint_at() etc.), not normalized, so without this a resize
+## leaves every point marker frozen at its old absolute spot — visibly drifting off the sprite's new outline,
+## and silently changing the fraction arena_enemy.gd's _load_tp_fracs() recomputes at spawn time (that
+## fraction is (point - eo.position) / eo.size, using whatever size is CURRENTLY saved — i.e. real gameplay
+## plume/tentacle/muzzle placement would drift too, not just the editor preview).
+##
+## `origin` (eo.position) is OC-space (canvas pixels — see the SS/OC split in _drop_data()/creep placement,
+## `node.position = ss_pos + SCREEN_ORIGIN`), but every point dict stores "pos" in SS-space (`ss_pos`,
+## WITHOUT SCREEN_ORIGIN — see _add_thrustpoint_at() etc: `ss_pos := (viewport_pos - oc_pos)/_zoom -
+## SCREEN_ORIGIN`). An earlier version of this function used `origin` as-is against the SS-space points,
+## which bakes in a SCREEN_ORIGIN-sized error scaled by (new_size/old_size) — invisible at ratio≈1, growing
+## with the resize ratio (user report: "vẫn hơi lệch khi scale lên mức lớn hơn"). Converting `origin` to the
+## SAME SS-space the points use (subtract SCREEN_ORIGIN once) fixes it exactly, at any scale.
+func _rescale_points_for_resize(creep_name: String, origin: Vector2, old_size: Vector2, new_size: Vector2) -> void:
+	if creep_name.is_empty() or old_size.x <= 0.0 or old_size.y <= 0.0 or old_size.is_equal_approx(new_size):
+		return
+	var ss_origin := origin - SCREEN_ORIGIN
+	for points_dict: Dictionary in [_fire_points, _thrust_points, _tentacle_points, _vortex_points]:
+		var arr: Array = points_dict.get(creep_name, [])
+		for pt: Dictionary in arr:
+			var old_pos: Vector2 = pt.get("pos", Vector2.ZERO)
+			var frac: Vector2 = (old_pos - ss_origin) / old_size
+			pt["pos"] = ss_origin + frac * new_size
+	_update_grid_overlay()
 
 func _on_pos_spin_changed() -> void:
 	if _updating_spin or _active_creep.is_empty():

@@ -1,6 +1,6 @@
 extends Control
 
-const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
+const FONT_PATH := "res://assets/fonts/mandalore/mandalore.ttf"
 const BAR_W     := 135.0
 
 var _fill:      ColorRect = null
@@ -27,7 +27,7 @@ func _ready() -> void:
 	_on_auto_fire_changed(0)  # Ensure auto-fire is OFF on startup
 
 	_label = Label.new()
-	_label.text = ""
+	_label.text = MandaloreText.a("")
 	if font:
 		_label.add_theme_font_override("font", font)
 	_label.add_theme_font_size_override("font_size", 9)
@@ -48,7 +48,7 @@ func _ready() -> void:
 	_track.add_child(_fill)
 
 	_move_lbl = Label.new()
-	_move_lbl.text = ""
+	_move_lbl.text = MandaloreText.a("")
 	if font:
 		_move_lbl.add_theme_font_override("font", font)
 	_move_lbl.add_theme_font_size_override("font_size", 9)
@@ -82,11 +82,11 @@ func _process(_delta: float) -> void:
 	var mgr := get_tree().get_first_node_in_group("boss_fight")
 	if mgr != null and mgr.has_method("get_move_name"):
 		name_str = mgr.call("get_move_name")
-	_move_lbl.text = name_str
+	_move_lbl.text = MandaloreText.a(name_str)
 
 func _on_boss_spawned() -> void:
 	visible = true
-	_label.text  = "HP BOSS  %d / %d" % [GameManager.boss_hp, GameManager.boss_max_hp]
+	_label.text  = MandaloreText.a("HP BOSS  %d / %d" % [GameManager.boss_hp, GameManager.boss_max_hp])
 	_fill.size.x = BAR_W
 	_fill.color  = _bar_color(1.0)
 
@@ -96,7 +96,7 @@ func _on_boss_hp_changed(hp: int) -> void:
 	var ratio := clampf(float(hp) / float(GameManager.boss_max_hp), 0.0, 1.0)
 	_fill.size.x = BAR_W * ratio
 	_fill.color  = _bar_color(ratio)
-	_label.text  = "HP BOSS  %d / %d" % [hp, GameManager.boss_max_hp]
+	_label.text  = MandaloreText.a("HP BOSS  %d / %d" % [hp, GameManager.boss_max_hp])
 
 func _on_boss_killed() -> void:
 	visible = false

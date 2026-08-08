@@ -6,7 +6,7 @@ extends CanvasLayer
 ## blueprint for the hub shop). Fragments are auto-recovered. Pause-safe (layer 110 + PROCESS_MODE_ALWAYS).
 
 const FONT_TITLE := "res://assets/fonts/Good Old DOS.ttf"
-const FONT_BODY  := "res://assets/fonts/Gameplay.ttf"
+const FONT_BODY  := "res://assets/fonts/mandalore/mandalore.ttf"
 const SHOW_DELAY := 1.1   # let the boss death FX play before the salvage screen pops
 
 var _boss_index: int = 0
@@ -78,18 +78,19 @@ func _add_fragment_notice(fragment: Dictionary) -> void:
 	var row := _card()
 	var l := Label.new()
 	_font(l, FONT_BODY, 18, Color(0.55, 0.95, 0.5))
-	l.text = "✦ Recovered fragment: %s  —  %s (%d/%d)" % [
+	l.text = MandaloreText.a("✦ Recovered fragment: %s  —  %s (%d/%d)" % [
 		String(fragment["name"]), String(d.get("name", uid)),
-		MetaManager.owned_fragment_count(uid), MetaManager.fragment_count(uid)]
+		MetaManager.owned_fragment_count(uid), MetaManager.fragment_count(uid)])
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	row.add_child(l)
 	if MetaManager.is_unique_complete(uid) and not MetaManager.is_unique_crafted(uid):
 		var hint := Label.new()
 		_font(hint, FONT_BODY, 14, Color(1.0, 0.86, 0.3))
-		hint.text = "All fragments collected — craft %s at the Dock!" % String(d.get("name", uid))
+		hint.text = MandaloreText.a("All fragments collected — craft %s at the Dock!" % String(d.get("name", uid)))
 		row.add_child(hint)
 
 func _add_weapon_choice(def_id: String) -> void:
+	MetaManager.run_weapon_drop_seen = true   # 2026-08-06: lets the RUN OVER screen tell "no boss fought" apart from "fought one, disassembled nothing"
 	var d := InventoryManager.get_def(def_id)
 	var row := _card()
 	var top := HBoxContainer.new()
@@ -98,30 +99,33 @@ func _add_weapon_choice(def_id: String) -> void:
 	var name_lbl := Label.new()
 	var rcol: Color = InventoryManager.RARITY_COLORS.get(String(d.get("rarity", "common")), Color.WHITE)
 	_font(name_lbl, FONT_BODY, 18, rcol)
-	name_lbl.text = "%s  ·  %s" % [String(d.get("name", def_id)), String(d.get("group", "")).capitalize()]
+	name_lbl.text = MandaloreText.a("%s  ·  %s" % [String(d.get("name", def_id)), String(d.get("group", "")).capitalize()])
 	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(name_lbl)
 
 	var equip_btn := Button.new()
-	equip_btn.text = "EQUIP (run)"
+	equip_btn.text = MandaloreText.a("EQUIP (run)")
 	_font_btn(equip_btn, 15)
 	equip_btn.custom_minimum_size = Vector2(140, 0)
 	var dis_btn := Button.new()
-	dis_btn.text = "DISASSEMBLE"
+	dis_btn.text = MandaloreText.a("DISASSEMBLE")
 	_font_btn(dis_btn, 15)
 	dis_btn.custom_minimum_size = Vector2(140, 0)
 	var status := Label.new()
 	_font(status, FONT_BODY, 13, Color(0.6, 0.62, 0.68))
-	status.text = "Equip for this run, or break down for a permanent blueprint."
+	status.text = MandaloreText.a("Equip for this run, or break down for a permanent blueprint.")
 
 	equip_btn.pressed.connect(func() -> void:
 		_equip_drop(def_id)
-		status.text = "Equipped — this copy is lost at the end of the run."
+		status.text = MandaloreText.a("Equipped — this copy is lost at the end of the run.")
 		status.add_theme_color_override("font_color", Color(0.5, 0.9, 0.5))
 		_resolve(equip_btn, dis_btn))
 	dis_btn.pressed.connect(func() -> void:
-		MetaManager.unlock_blueprint(def_id)
-		status.text = "Blueprint learned — buy more copies at the Dock shop."
+		# 2026-08-06, on request: no longer an instant unlock — staged, becomes a real blueprint only if this
+		# run ends in victory (arena.gd's _show_run_over → MetaManager.commit_pending_blueprints()). Dying
+		# first loses it, same risk as an uncollected rescue-landmark character.
+		MetaManager.stage_blueprint(def_id)
+		status.text = MandaloreText.a("Blueprint secured — permanent only if you make it back to the Dock.")
 		status.add_theme_color_override("font_color", Color(0.5, 0.75, 1.0))
 		_resolve(equip_btn, dis_btn))
 
@@ -188,7 +192,7 @@ func _build_ui() -> void:
 	col.add_child(_list)
 
 	_continue = Button.new()
-	_continue.text = "CONTINUE RUN"
+	_continue.text = MandaloreText.a("CONTINUE RUN")
 	_font_btn(_continue, 22)
 	_continue.custom_minimum_size = Vector2(0, 52)
 	_continue.pressed.connect(func() -> void:

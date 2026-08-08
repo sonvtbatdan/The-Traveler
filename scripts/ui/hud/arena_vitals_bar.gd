@@ -6,7 +6,7 @@ extends Control
 ## `mode = "player"` → bottom, flush on the bottom edge. `mode = "boss"` → mirrored (wider at top), GONE when no
 ## boss, DROPS DOWN on spawn.
 
-const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
+const FONT_PATH := "res://assets/fonts/mandalore/mandalore.ttf"
 const BAR_H := 52.0
 const BAR_W_FRAC := 0.5
 const BAR_W_MIN := 480.0

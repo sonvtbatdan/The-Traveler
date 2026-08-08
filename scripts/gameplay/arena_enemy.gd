@@ -254,7 +254,7 @@ const CHARGE_DASH_T         := 0.5
 
 # Fallbacks so the enemy is self-sufficient if configured without a def (e.g. manager.spawn_bomb).
 const FALLBACK := {
-	"chase": {"behavior": "chase", "hp": 30.0, "speed": 95.0, "size": 16.0, "contact": 6, "xp": 3.0, "shape": "diamond", "tint": Color(0.95, 0.35, 0.30)},
+	"chase": {"behavior": "chase", "hp": 30.0, "speed": 95.0, "size": 16.0, "contact": 6, "xp": 30.0, "shape": "diamond", "tint": Color(0.95, 0.35, 0.30)},
 	"bomb":  {"behavior": "bomb",  "hp": 50.0, "speed": 120.0, "size": 18.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(0.9, 0.5, 0.2), "no_collide": true},
 	"thrown_bomb": {"behavior": "thrown_bomb", "hp": 12.0, "speed": THROWN_BOMB_SPEED, "size": 13.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(1.0, 0.55, 0.2), "icon": "res://assets/enemiesHD/bomb.png", "no_collide": true},
 }
@@ -447,7 +447,8 @@ var _death_spawn:  String = ""      # stone: spawn this enemy id at our position
 var _morph_to:     String = ""      # alien5: become this enemy id after _morph_after seconds alive
 var _morph_after:  float = 0.0
 var _strike_back:  bool = false     # fleet/sentinel: switch patrol→chase the first time it's hit
-var _is_elite:     bool = false     # elite (spawn_mode_2's periodic Elite Creep — arena_wave_director_v2.gd): bypasses the alive-cap and, on death, grants a NEW arena item (grant_reward)
+var _is_elite:     bool = false     # elite (spawn_mode_2's periodic Elite/Champion Creep — arena_wave_director_v2.gd): bypasses the alive-cap; reward on death depends on _is_champion below (see _die())
+var _is_champion:  bool = false     # Champion tier only (also carries _is_elite=true for the cap-bypass) — on death, grants a guaranteed-new weapon/aux (or a fragment if every run-slot is full) instead of Elite's flat coin — see _die()
 var _is_final_boss: bool = false    # set externally by arena_wave_director_v2.gd's _tick_final_boss() right after spawning a timeline's designated final boss — on death, fires GameManager.final_boss_defeated (see _die())
 var _knockback_mult: float = 1.0    # take_damage()'s knockback scale — defaults to 0.0 (full immunity) for any "elite" def unless the def explicitly sets "knockback_mult" itself (e.g. arena_wave_director_v2.gd's Elite Creep: 0.5)
 var _no_downscale: bool = false     # _load_icon() loads the full HD sprite, skipping the pre-baked-downscale substitution — for anything drawn much bigger than its normal size (e.g. Elite Creep's 300%), where the downscale bake would visibly blur once stretched up
@@ -620,6 +621,7 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_morph_after     = float(d.get("morph_after", 0.0))
 	_strike_back     = bool(d.get("strike_back", false))
 	_is_elite        = bool(d.get("elite", false))
+	_is_champion     = bool(d.get("champion", false))
 	_knockback_mult  = float(d.get("knockback_mult", 0.0 if _is_elite else 1.0))
 	_magma_split     = bool(d.get("magma_split", false))
 	_anti_magnetic   = bool(d.get("anti_magnetic", false))
@@ -1517,12 +1519,17 @@ func _die() -> void:
 		_burst_small_magma()   # large magma → MAGMA_SPLIT_N small magma flung outward
 	if GameManager.has_method("add_kill"):
 		GameManager.add_kill()   # tally for the arena HUD kill counter
-	# Milestone elites are an item source now that level-ups no longer hand out new weapons/aux: beating one
-	# opens a reward choice (a brand-new arena weapon or aux), same as a chest.
-	if _is_elite:
+	# Milestone Elite/Champion Creep reward on death (2026-08-06, on request — split by tier; see
+	# arena_wave_director_v2.gd's header comment above _tick_elite_creep for the full rationale):
+	#   Champion (_is_champion) → guaranteed-new weapon/aux pick (or a fragment if every slot's full).
+	#   Elite (plain _is_elite)  → flat 50 coin, no UI.
+	if _is_champion:
 		var ui := get_tree().get_first_node_in_group("levelup_ui")
-		if ui != null and is_instance_valid(ui) and ui.has_method("grant_reward"):
-			ui.call("grant_reward")
+		if ui != null and is_instance_valid(ui) and ui.has_method("grant_champion_reward"):
+			ui.call("grant_champion_reward")
+	elif _is_elite:
+		if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("spawn_loot"):
+			_mgr.spawn_loot(global_position, "coin")   # spawn_loot's own default value is 50
 	if _is_final_boss and GameManager.has_signal("final_boss_defeated"):
 		GameManager.final_boss_defeated.emit()
 	if _squid_attached:
@@ -2041,7 +2048,13 @@ func _process(delta: float) -> void:
 	# computed at the top of this function (reused here, not recomputed) so it can ALSO gate the
 	# behavior/separation stagger before any movement happens this tick.
 	var crowded := false
-	if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("enemy_count"):
+	if not _is_elite and _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("enemy_count"):
+		# Elite/Champion Creep (_is_elite) are exempt — same "deliberate milestone encounter, must not quietly
+		# degrade" reasoning as their LIFETIME_MAX despawn exemption above. They spawn 2-3x sized specifically
+		# to stand out, and the fight is BUSIEST (closest to PLUME_LOD_COUNT) exactly when one is likely to be
+		# up — without this exemption their thrust jets would silently vanish (`emitting = false` below) the
+		# moment the field got crowded, i.e. almost immediately in the situations they're meant to be seen in.
+		# User bug report: "elite unit khi được scale lại từ folder HDenemies thì mất thrust point".
 		crowded = _mgr.enemy_count() > PLUME_LOD_COUNT   # density LOD: too many enemies → drop plume sim
 	# Plumes emit only when on-screen AND the field isn't overcrowded; the sprite still draws while on-screen.
 	var plumes_on := on_screen and not crowded
@@ -2052,7 +2065,19 @@ func _process(delta: float) -> void:
 				if is_instance_valid(p):
 					p.emitting = plumes_on
 	if on_screen:
-		if plumes_on and not _plumes.is_empty():
+		# `_docked` escorts (Fleet Edit / mothership) never have their plumes emit-toggled off by `crowded`
+		# above (see the `if not _docked:` guard) — set_docked()/_reenable_plumes() keep them permanently
+		# emitting so a formation always reads as "powered on". But this rotation-glue block used to gate on
+		# `plumes_on` (on_screen AND not crowded) just like the emit toggle, so once the arena's alive count
+		# crossed PLUME_LOD_COUNT, a docked escort's plumes kept firing (never turned off) while their
+		# DIRECTION silently froze at whatever it last was — often the raw, un-rotated creep_layout.cfg
+		# dir_angle if the escort had never gotten a single on-screen+uncrowded tick since spawning off the
+		# annulus. User bug report: bee/diver fleet escorts' thrust always pointing straight down the SCREEN
+		# regardless of which way the formation was actually flying — bee/diver's own points are ALL authored
+		# near dir_angle=90° (straight "down" in un-rotated body space, see creep_layout.cfg), so a frozen,
+		# never-rotated plume is indistinguishable from "always down". Docked escorts must keep rotating in
+		# lockstep with the (always-emitting) plume, same as they're exempted from the emit toggle.
+		if (plumes_on or _docked) and not _plumes.is_empty():
 			# Glue plume emitters to the sprite: same rotation AND scale as the drawn sprite (draw_set_transform
 			# rotates/scales the sprite but not child nodes, so we mirror it here).
 			_update_plumes()

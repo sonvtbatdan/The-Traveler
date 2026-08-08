@@ -127,10 +127,12 @@ const START_BOOST_DECAY_T  := 60.0   # seconds to linearly decay 3× → 1× onc
 #     manually filling every row in between. Applied once in set_timeline() (_spread_gaps()), producing
 #     _tl_fire_queue — the SPARSE, exactly-as-authored `timeline` (what get_timeline()/Save/Load see, so
 #     re-opening F7 still shows your original rows, not a wall of tiny expanded ones) is left untouched;
-#     _tl_tick() fires from the expanded queue instead. The first entry in a timeline never spreads
-#     (nothing precedes it to spread FROM); "Boss" entries and "stream" entries are exempt (a boss is a
-#     single dramatic moment, not a name in the entry's own dictionary and streams already have their
-#     own ramp/duration spread — stacking gap-spread on top would double up).
+#     _tl_tick() fires from the expanded queue instead. The FIRST entry's gap is measured from t=0 (the run's
+#     start) exactly like any other entry's gap from its predecessor, so a lone first row authored well past
+#     t=0 (e.g. a single row @30s) also spreads across that runway instead of bursting all at once; "Boss"
+#     entries and "stream" entries are exempt (a boss is a single dramatic moment, not a name in the entry's
+#     own dictionary, and streams already have their own ramp/duration spread — stacking gap-spread on top
+#     would double up).
 const PATTERNS := ["ring", "arc", "stream", "scatter", "pincer", "wall", "wedge", "portal", "random"]
 const RANDOM_FORMATIONS := ["ring", "pincer", "wall", "wedge", "portal"]
 const TL_BLOB_SPAWN_R := 90.0    # cluster radius for a "blob" def (e.g. "swarm", blob:50), timeline path only
@@ -191,13 +193,14 @@ var _start_boost_decaying: bool = false
 var _start_boost_t: float = 0.0
 
 # XP is proportional to HP, ratio pinned to v1's own "fly" (its very first intro enemy): xp/hp there is
-# 10.0/20.0 = 0.5 XP per HP (2026-07-28: every XP source, incl. fly's, scaled ×10 — was 1.0/20.0 = 0.05).
+# 100.0/20.0 = 5.0 XP per HP (2026-08-05: every creep XP source, incl. fly's, scaled ×10 again on request —
+# was 10.0/20.0 = 0.5; before that, 2026-07-28's units-only pass had it at 1.0/20.0 = 0.05).
 # Applied to every test-roster def's BASE hp (pre the automatic ×2 HP/XP tune in arena_enemy.configure() —
 # since both sides double equally, the ratio survives the tune unchanged), and reapplied after Elite Creep's
 # hp scaling so an Elite Creep's XP scales right along with its HP. Read live from ENEMY_DEFS in _ready() below
 # (this initial value is just a placeholder, immediately overwritten), so it self-propagates automatically
 # whenever fly's own "xp"/"hp" change — no separate edit needed here for future re-tunes.
-var _xp_per_hp: float = 0.5
+var _xp_per_hp: float = 5.0
 
 func _ready() -> void:
 	add_to_group("wave_director")   # so _spawn_sibling / debug-spawn / weapon-palette lookups keep working
@@ -311,20 +314,22 @@ func set_timeline(entries: Array) -> void:
 ## gap (tick spacing = gap / round(gap / GRID_SPREAD_STEP), so the LAST tick always lands exactly on the
 ## entry's own authored time, even if that time isn't itself grid-aligned). Remainder units go to the
 ## final ticks so the total spawned always equals the authored count exactly. Skipped (passed through
-## unchanged) for: the first entry (nothing precedes it), "Boss" entries, and "stream" entries.
+## unchanged) for: "Boss" entries and "stream" entries. The FIRST entry's own gap is measured from t=0 (the
+## run's start, `prev_t`'s own initial value below) exactly like any other entry's gap from ITS predecessor —
+## user bug report: a single-entry timeline (e.g. Volcanic's vocalnic.json, one "magma1" row at t=30s) was
+## dumping its entire count in one instant burst at t=30 instead of spreading across the 30s runway, because
+## this used to special-case "no previous entry" as "never spread" regardless of how large that gap was.
 func _spread_gaps(sorted: Array) -> Array:
 	var out: Array = []
 	var prev_t := 0.0
-	var has_prev := false
 	for entry: Dictionary in sorted:
 		var t := float(entry.get("time", 0.0))
 		var pattern := String(entry.get("pattern", "ring"))
 		var is_boss := bool(entry.get("is_boss", false))
 		var gap := t - prev_t
-		if not has_prev or is_boss or pattern == "stream" or gap <= GRID_SPREAD_STEP:
+		if is_boss or pattern == "stream" or gap <= GRID_SPREAD_STEP:
 			out.append(entry)
 			prev_t = t
-			has_prev = true
 			continue
 		var n_ticks: int = maxi(1, int(round(gap / GRID_SPREAD_STEP)))
 		var step := gap / float(n_ticks)
@@ -340,7 +345,6 @@ func _spread_gaps(sorted: Array) -> Array:
 			sub["count"] = n
 			out.append(sub)
 		prev_t = t
-		has_prev = true
 	return out
 
 ## Seconds since the current timeline was applied (NOT the overall run clock — see class comment).
@@ -455,11 +459,19 @@ func _start_boost_mult() -> float:
 # mechanic in the game (2026-08-02: replaced v1's 3 fixed, scripted, insect-only elite_fly/bug/bee entries —
 # see arena_wave_director.gd's ENEMY_DEFS/DEFAULT_TIMELINE — and, same day, the old single-tier "Champion"
 # mechanic that used to live here as a random-archetype, fully knockback-immune, gold-ringed spawn). Both
-# tiers are flagged "elite" (cap-bypass + grant_reward on death — see arena_enemy.gd's _is_elite) and only
-# 50% as resistant to knockback (arena_enemy.gd's "knockback_mult", overriding the elite-implies-full-
-# immunity default) and "no_downscale" (load the full HD source sprite — at 2-3× a normal creep's footprint,
-# the pre-baked-downscale copy, sized for the type's NORMAL on-screen size, would visibly blur once
-# stretched up).
+# tiers are flagged "elite" (cap-bypass — see arena_enemy.gd's _is_elite) and only 50% as resistant to
+# knockback (arena_enemy.gd's "knockback_mult", overriding the elite-implies-full-immunity default) and
+# "no_downscale" (load the full HD source sprite — at 2-3× a normal creep's footprint, the pre-baked-
+# downscale copy, sized for the type's NORMAL on-screen size, would visibly blur once stretched up).
+#
+# Reward on death DIFFERS per tier (2026-08-06, on request) — ONLY Champion also carries "champion": true
+# (arena_enemy.gd's _is_champion), which is what actually branches the reward, "elite" alone stays the
+# cap-bypass/knockback-tune flag both share:
+#   Elite     → flat 50 coin (arena_enemy.gd's _die(), plain spawn_loot "coin" — no UI, no choice).
+#   Champion  → guaranteed-new weapon/aux pick (arena_levelup_ui.gd's grant_champion_reward(), same
+#               guaranteed-new-mixed flow the temple's orb_of_light drop uses) — UNLESS every run-slot (5
+#               weapons + 5 aux = 10) is already full, in which case a MetaManager unique-fragment is
+#               granted directly instead (see grant_champion_reward()'s own doc comment for the full chain).
 const ELITE_CREEP_START_DELAY    := 90.0
 const ELITE_CREEP_INTERVAL       := 30.0
 const ELITE_CREEP_HP_MULT        := 35.0
@@ -488,7 +500,7 @@ func _tick_elite_creep(delta: float) -> void:
 	_elite_creep_acc = 0.0
 	if _in_wave_quiet_window():
 		return   # this beat lands in the quiet tail of a wave interval — skipped outright, not delayed
-	_spawn_tiered_creep(_elite_creep_used, ELITE_CREEP_SIZE_MULT, ELITE_CREEP_HP_MULT, ELITE_CREEP_KNOCKBACK_MULT)
+	_spawn_tiered_creep(_elite_creep_used, ELITE_CREEP_SIZE_MULT, ELITE_CREEP_HP_MULT, ELITE_CREEP_KNOCKBACK_MULT, false)
 
 func _tick_champion_creep(delta: float) -> void:
 	if _reinforcement_locked:
@@ -501,12 +513,14 @@ func _tick_champion_creep(delta: float) -> void:
 	_champion_creep_acc = 0.0
 	if _in_wave_quiet_window():
 		return
-	_spawn_tiered_creep(_champion_creep_used, CHAMPION_CREEP_SIZE_MULT, CHAMPION_CREEP_HP_MULT, CHAMPION_CREEP_KNOCKBACK_MULT)
+	_spawn_tiered_creep(_champion_creep_used, CHAMPION_CREEP_SIZE_MULT, CHAMPION_CREEP_HP_MULT, CHAMPION_CREEP_KNOCKBACK_MULT, true)
 
 ## Shared by both tiers — `used` is that tier's own promoted-types set (_elite_creep_used or
 ## _champion_creep_used), kept independent so Elite and Champion each escalate through the wave's roster on
-## their own schedule instead of sharing progress.
-func _spawn_tiered_creep(used: Dictionary, size_mult: float, hp_mult: float, knockback_mult: float) -> void:
+## their own schedule instead of sharing progress. `is_champion` sets the def's "champion" flag, which is
+## the ONLY thing that actually picks which reward arena_enemy.gd's _die() grants — see this file's own
+## header comment above _tick_elite_creep for the full Elite-vs-Champion reward split.
+func _spawn_tiered_creep(used: Dictionary, size_mult: float, hp_mult: float, knockback_mult: float, is_champion: bool) -> void:
 	if _player == null or not is_instance_valid(_player):
 		return
 	var base_type := _weakest_wave_type(used)
@@ -521,7 +535,8 @@ func _spawn_tiered_creep(used: Dictionary, size_mult: float, hp_mult: float, kno
 	def["size"] = float(def.get("size", 16.0)) * size_mult
 	def["hp"] = float(def.get("hp", 30.0)) * hp_mult
 	def["xp"] = float(def["hp"]) * _xp_per_hp   # recompute AFTER the hp scale so XP stays proportional to HP
-	def["elite"] = true                    # cap-bypass + grant_reward on death (arena_enemy.gd _is_elite)
+	def["elite"] = true                    # cap-bypass (arena_enemy.gd _is_elite) — shared by both tiers
+	def["champion"] = is_champion          # reward-tier flag (arena_enemy.gd _is_champion) — see header comment
 	def["knockback_mult"] = knockback_mult   # override the elite default (full immunity)
 	def["no_downscale"] = true             # load the full HD sprite — see const-block comment above
 	_spawn_def(base_type, def, _annulus_pos(_player.global_position))
@@ -534,19 +549,29 @@ func _spawn_tiered_creep(used: Dictionary, size_mult: float, hp_mult: float, kno
 ## into a "creep" elite would be nonsensical). No timeline loaded → falls back to the TEST_TYPES roster.
 ## Once every eligible type has had a turn, `used` resets so the cycle continues (weakest → … → strongest →
 ## weakest again) rather than that tier quietly going silent for the rest of a long run.
-func _weakest_wave_type(used: Dictionary) -> String:
+## Distinct enemy type ids authored ANYWHERE in the current timeline (regardless of whether they've fired
+## yet), excluding boss/fleet/elite entries — the map-appropriate candidate pool shared by _weakest_wave_type()
+## (Elite/Champion Creep promotion) and _timeline_fallback_type() (reinforcement before the timeline has
+## fired anything at all) so BOTH systems only ever pick something the CURRENT map's own JSON actually
+## authored, never the hardcoded cross-map TEST_ROSTER (user bug report: Volcanic's vocalnic.json only has
+## one entry at t=30s, so a low-population catch-up triggering before then used to fall back to "fly" —
+## Electric's intro roster — via TEST_TYPES[0]; see _timeline_fallback_type()).
+func _timeline_type_pool() -> Array:
 	var candidates: Array = []
-	if not timeline.is_empty():
-		var seen := {}
-		for entry: Dictionary in timeline:
-			var t := String(entry.get("type", ""))
-			if t == "" or t.begins_with("fleet:") or seen.has(t):
-				continue
-			seen[t] = true
-			var d: Dictionary = ENEMY_DEFS.get(t, {})
-			if d.is_empty() or bool(d.get("elite", false)) or bool(entry.get("is_boss", false)) or String(d.get("behavior", "")) == "boss_stub":
-				continue
-			candidates.append(t)
+	var seen := {}
+	for entry: Dictionary in timeline:
+		var t := String(entry.get("type", ""))
+		if t == "" or t.begins_with("fleet:") or seen.has(t):
+			continue
+		seen[t] = true
+		var d: Dictionary = ENEMY_DEFS.get(t, {})
+		if d.is_empty() or bool(d.get("elite", false)) or bool(entry.get("is_boss", false)) or String(d.get("behavior", "")) == "boss_stub":
+			continue
+		candidates.append(t)
+	return candidates
+
+func _weakest_wave_type(used: Dictionary) -> String:
+	var candidates: Array = _timeline_type_pool()
 	if candidates.is_empty():
 		candidates = TEST_TYPES.duplicate()
 	var fresh: Array = candidates.filter(func(t: String) -> bool: return not used.has(t))
@@ -652,9 +677,11 @@ func _rand_test_type() -> String:
 ## Type for ambient/cluster/wall queuing. These only ever fire during the low-population catch-up while a
 ## custom timeline is loaded — the normal path stands aside entirely (see _tick_spawn_loop) — so
 ## reinforcement picks from _tl_seen_types (what the timeline has ALREADY spawned; never something from a
-## later/harder wave that hasn't fired yet — "không vượt cấp"), falling back to the single weakest type
-## if nothing has fired yet. No timeline loaded → unchanged, the default 4-type roster gated by
-## TYPE_UNLOCK_TIME (same pool _rand_test_type()'s other callers use, untouched by this).
+## later/harder wave that hasn't fired yet — "không vượt cấp"), falling back to _timeline_fallback_type() —
+## the map's own FULL authored roster, not yet-fired entries included — if nothing has fired yet (a catch-up
+## triggering in the gap before the timeline's first entry, e.g. Volcanic's vocalnic.json only starting at
+## t=30s). No timeline loaded → unchanged, the default 4-type roster gated by TYPE_UNLOCK_TIME (same pool
+## _rand_test_type()'s other callers use, untouched by this).
 func _reinforce_type() -> String:
 	if not timeline.is_empty():
 		if not _tl_seen_types.is_empty():
@@ -666,10 +693,62 @@ func _reinforce_type() -> String:
 			if _type_alive_count(MISSILE_TYPE_ID) >= MISSILE_MAX_ALIVE:
 				keys = keys.filter(func(k: Variant) -> bool: return String(k) != MISSILE_TYPE_ID)
 			if keys.is_empty():
-				return TEST_TYPES[0]
+				return _timeline_fallback_type()
 			return String(keys[randi() % keys.size()])
-		return TEST_TYPES[0]
+		return _timeline_fallback_type()
 	return _rand_test_type()
+
+## Reinforcement fallback for when the loaded timeline hasn't fired ANY entry yet — see _reinforce_type()'s
+## header (original bug report: "trong map vocalnic... vì sao vẫn thấy flies (vốn là creep của map electric)").
+##
+## Picks ONLY from types scheduled at the EARLIEST authored time in the timeline (_timeline_earliest_type_pool()),
+## NOT the whole map's roster. A first pass at this used the full _timeline_type_pool() (every distinct type
+## anywhere in the timeline) — correct by coincidence for Volcanic's single-entry timeline (whole roster == 1
+## type), but wrong for a densely-authored map: user bug report — "elecforest.json ở 30 giây đầu chỉ có flies,
+## nhưng tôi thấy có rất nhiều các loại khác (beamer, centipede, hornet...)" — elecforest.json's own roster
+## spans fly/diver/dragonfly/bee/spider/squid/centipede/swarm/bug/animalhornet/beamer/missile across a full
+## 30-minute run; drawing from ALL of it during the opening seconds let a low-population catch-up spawn any
+## of those, including types whose own first scripted entry is 15+ minutes away — the exact "vượt cấp"
+## (spawning ahead of schedule) _tl_seen_types-based reinforcement was designed to prevent, just re-opened for
+## the brief window before the timeline's first entry fires. Restricting to the earliest timestamp's types
+## closes that window: elecforest.json's earliest entry is t=30 (type "fly" only), so this now returns "fly",
+## matching what the timeline itself schedules first.
+func _timeline_fallback_type() -> String:
+	var candidates: Array = _timeline_earliest_type_pool()
+	if candidates.is_empty():
+		candidates = _timeline_type_pool()   # degenerate timeline (nothing found at any single earliest time) — fall back to the whole roster rather than the cross-map TEST_ROSTER
+	if candidates.is_empty():
+		return TEST_TYPES[0]   # nothing usable authored at all — last-resort fallback (shouldn't happen for a real level)
+	return String(candidates[randi() % candidates.size()])
+
+## Distinct enemy type ids scheduled at the EARLIEST "time" value anywhere in the timeline (excluding boss/
+## fleet entries, same filtering as _timeline_type_pool()) — see _timeline_fallback_type()'s header for why
+## this is the correct pool for pre-first-fire reinforcement specifically (as opposed to _weakest_wave_type()'s
+## Elite/Champion Creep promotion, which intentionally still ranks across the WHOLE authored roster by design).
+func _timeline_earliest_type_pool() -> Array:
+	var min_t := INF
+	for entry: Dictionary in timeline:
+		if bool(entry.get("is_boss", false)) or String(entry.get("type", "")).begins_with("fleet:"):
+			continue
+		min_t = minf(min_t, float(entry.get("time", 0.0)))
+	if min_t == INF:
+		return []
+	var candidates: Array = []
+	var seen := {}
+	for entry: Dictionary in timeline:
+		if bool(entry.get("is_boss", false)) or String(entry.get("type", "")).begins_with("fleet:"):
+			continue
+		if not is_equal_approx(float(entry.get("time", 0.0)), min_t):
+			continue
+		var t := String(entry.get("type", ""))
+		if t == "" or seen.has(t):
+			continue
+		var d: Dictionary = ENEMY_DEFS.get(t, {})
+		if d.is_empty() or bool(d.get("elite", false)):
+			continue
+		seen[t] = true
+		candidates.append(t)
+	return candidates
 
 ## Live count of a specific enemy type currently alive (group "arena_enemy"). Used by the "missile" hard
 ## cap — O(alive), only called at spawn-decision time (never every frame), so cheap even at 500 alive.
@@ -975,19 +1054,20 @@ func _deploy_fleet(fleet_name: String, spawn_angle_deg: float = NAN, rotate_deg:
 	if not mother_slot.is_empty():
 		_deploy_mothership_v2(mother_slot, child_slots, spawn_angle_deg, rotate_deg)
 		return
-	# Generic formation: the largest (by authored "size") non-empty slot becomes the flagship/carrier.
+	# Generic formation: the largest (by CANONICAL creep_layout.cfg draw width — Fleet Edit no longer stores
+	# its own per-slot size, see fleet_edit_mode.gd's header) non-empty slot becomes the flagship/carrier.
 	var carrier_idx := -1
 	var carrier_size := -1.0
 	for i in slots_arr.size():
 		var s: Dictionary = slots_arr[i]
-		var has := false
+		var rep := ""
 		for en in (s.get("enemies", []) as Array):
 			if String(en) != "":
-				has = true
+				rep = String(en)
 				break
-		if not has:
+		if rep == "":
 			continue
-		var sz := float(s.get("size", 50.0))
+		var sz := EnemyScript.base_draw_width(ENEMY_DEFS.get(rep, {}))
 		if sz > carrier_size:
 			carrier_size = sz
 			carrier_idx = i
@@ -1006,8 +1086,7 @@ func _deploy_fleet(fleet_name: String, spawn_angle_deg: float = NAN, rotate_deg:
 	var carrier_def: Dictionary = ENEMY_DEFS.get(carrier_id, {})
 	if carrier_def.is_empty():
 		return
-	var cdef := carrier_def.duplicate()
-	cdef["draw_w"] = float(carrier_slot.get("size", 60.0))   # render at the authored Fleet Edit size
+	var cdef := carrier_def.duplicate()   # no draw_w override — creep_layout.cfg is the sole size source
 	var carrier := EnemyScript.new()
 	carrier.configure(carrier_id, _mgr, cdef)
 	var carrier_off: Vector2 = (carrier_slot.get("pos", Vector2.ZERO) as Vector2) - ref
@@ -1030,7 +1109,7 @@ func _deploy_fleet(fleet_name: String, spawn_angle_deg: float = NAN, rotate_deg:
 		var off: Vector2 = (s.get("pos", Vector2.ZERO) as Vector2) - ref
 		if not is_zero_approx(rot):
 			off = off.rotated(rot)
-		roster.append({"id": id, "base_off": off - carrier_off, "draw_w": float(s.get("size", 50.0))})
+		roster.append({"id": id, "base_off": off - carrier_off})
 	carrier.init_fleet_dock(roster)
 
 ## Centroid (world px, Fleet Edit's authored px = world px) of a fleet's non-empty slots — the anchor
@@ -1059,8 +1138,7 @@ func _deploy_mothership_v2(mother_slot: Dictionary, child_slots: Array, spawn_an
 	var src: Dictionary = ENEMY_DEFS.get(String(mother_slot["id"]), {})
 	if src.is_empty():
 		return
-	var mdef := src.duplicate()
-	mdef["draw_w"] = float(mslot.get("size", 60.0))   # render the mother at its authored size (world px)
+	var mdef := src.duplicate()   # no draw_w override — creep_layout.cfg is the sole size source
 	var mother: Node = EnemyScript.new()
 	mother.call("configure", String(mother_slot["id"]), _mgr, mdef)
 	var anchor_angle := deg_to_rad(spawn_angle_deg) if not is_nan(spawn_angle_deg) else NAN
@@ -1078,7 +1156,6 @@ func _deploy_mothership_v2(mother_slot: Dictionary, child_slots: Array, spawn_an
 		roster.append({
 			"id": cid,
 			"base_off": base_off,
-			"draw_w": float(cslot.get("size", 50.0)),
 			"rot": float(cslot.get("rot", 0.0)),
 		})
 	mother.call("init_mothership", roster)

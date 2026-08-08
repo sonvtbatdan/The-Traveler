@@ -39,7 +39,7 @@ func _build_tip() -> void:
 	_tip.add_theme_color_override("font_color", Color(0.88, 0.95, 1.0))
 	_tip.add_theme_color_override("font_outline_color", Color.BLACK)
 	_tip.add_theme_constant_override("outline_size", 4)
-	var font := load("res://assets/fonts/Gameplay.ttf") as FontFile
+	var font := load("res://assets/fonts/mandalore/mandalore.ttf") as FontFile
 	if font:
 		_tip.add_theme_font_override("font", font)
 	_tip.z_index = 60
@@ -64,7 +64,7 @@ func _update_hover_tip() -> void:
 	for i in acquired.size():
 		var r := _slot_rect(i)
 		if r.has_point(mpos):
-			_tip.text = _code_for(String(acquired[i]))
+			_tip.text = MandaloreText.a(_code_for(String(acquired[i])))
 			_tip.reset_size()
 			# Tooltip to the RIGHT of the slot (column is on the left edge), vertically centered on it.
 			_tip.position = Vector2(r.position.x + SLOT + 6.0, r.get_center().y - _tip.size.y * 0.5)

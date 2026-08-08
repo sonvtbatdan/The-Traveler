@@ -8,7 +8,7 @@ extends CanvasLayer
 const LevelRecipeScript := preload("res://scripts/gameplay/level_recipe.gd")
 const WaveDirectorScript := preload("res://scripts/gameplay/wave_director.gd")   # for the difficulty preview + Test Play
 const ChoreographyRegistry := preload("res://scripts/gameplay/choreography_registry.gd")   # Phase 2 choreography list
-const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
+const FONT_PATH := "res://assets/fonts/mandalore/mandalore.ttf"
 const LEVELS_DIR := "res://levels"
 
 var _recipe                       # LevelRecipe (untyped to avoid a cross-file class_name dependency)
@@ -98,7 +98,7 @@ func _build_form() -> void:
 	_form.add_child(tp_row)
 
 	var name_edit := LineEdit.new()
-	name_edit.text = String(_recipe.name)
+	name_edit.text = MandaloreText.a(String(_recipe.name))
 	_apply_font(name_edit, 12)
 	name_edit.text_changed.connect(_on_name_changed)
 	_form.add_child(_row("Name", name_edit))
@@ -187,7 +187,7 @@ func _build_random_section() -> void:
 		var hb := HBoxContainer.new()
 		hb.add_theme_constant_override("separation", 8)
 		var c := CheckBox.new()
-		c.text = t
+		c.text = MandaloreText.a(t)
 		c.button_pressed = (_recipe.enemy_pool as Array).has(t)
 		c.custom_minimum_size = Vector2(195, 0)
 		_apply_font(c, 12)
@@ -203,7 +203,7 @@ func _build_random_section() -> void:
 	var edge_box := HBoxContainer.new()
 	for e: String in LevelRecipeScript.EDGES:
 		var c := CheckBox.new()
-		c.text = e
+		c.text = MandaloreText.a(e)
 		c.button_pressed = (_recipe.entry_edges as Array).has(e)
 		_apply_font(c, 12)
 		c.toggled.connect(_on_edge_toggled.bind(e))
@@ -283,7 +283,7 @@ func _build_choreo_pool_editor() -> void:
 	_form.add_child(_label("Pool (allowed choreographies — each wave is rolled from these):"))
 	for nm: String in ChoreographyRegistry.names():
 		var c := CheckBox.new()
-		c.text = nm
+		c.text = MandaloreText.a(nm)
 		c.button_pressed = (_recipe.choreo_pool as Array).has(nm)
 		_apply_font(c, 12)
 		c.toggled.connect(_on_choreo_pool_toggled.bind(nm))
@@ -441,13 +441,13 @@ func _help_entry(nm: String, highlighted: bool) -> PanelContainer:
 	margin.add_child(vb)
 
 	var name_l := Label.new()
-	name_l.text = nm
+	name_l.text = MandaloreText.a(nm)
 	_apply_font(name_l, 13)
 	name_l.add_theme_color_override("font_color", Color(0.7, 1.0, 0.75) if highlighted else Color(0.7, 0.85, 1.0))
 	vb.add_child(name_l)
 
 	var desc_l := Label.new()
-	desc_l.text = ChoreographyRegistry.describe(nm)
+	desc_l.text = MandaloreText.a(ChoreographyRegistry.describe(nm))
 	_apply_font(desc_l, 11)
 	desc_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	desc_l.custom_minimum_size = Vector2(376, 0)   # bound the width so the text wraps inside the scroll box
@@ -496,9 +496,9 @@ func _difficulty_preview() -> String:
 
 func _refresh() -> void:
 	if _readout != null:
-		_readout.text = JSON.stringify(_recipe.to_dict(), "  ")
+		_readout.text = MandaloreText.a(JSON.stringify(_recipe.to_dict(), "  "))
 	if _preview != null:
-		_preview.text = _choreo_preview() if String(_recipe.mode) == "choreography" else _difficulty_preview()
+		_preview.text = MandaloreText.a(_choreo_preview() if String(_recipe.mode) == "choreography" else _difficulty_preview())
 
 ## One-line summary of a choreography-mode level (shown in place of the difficulty preview).
 func _choreo_preview() -> String:
@@ -590,7 +590,7 @@ func _sanitize(s: String) -> String:
 
 func _set_status(t: String) -> void:
 	if _status != null:
-		_status.text = t
+		_status.text = MandaloreText.a(t)
 
 # ── Widgets ─────────────────────────────────────────────────────────────────────
 func _spin(mn: float, mx: float, step: float, val: float) -> SpinBox:
@@ -604,7 +604,7 @@ func _spin(mn: float, mx: float, step: float, val: float) -> SpinBox:
 
 func _btn(t: String) -> Button:
 	var b := Button.new()
-	b.text = t
+	b.text = MandaloreText.a(t)
 	_apply_font(b, 12)
 	return b
 
@@ -620,14 +620,14 @@ func _row(label_text: String, control: Control) -> HBoxContainer:
 
 func _label(t: String) -> Label:
 	var l := Label.new()
-	l.text = t
+	l.text = MandaloreText.a(t)
 	_apply_font(l, 12)
 	l.add_theme_color_override("font_color", Color(0.82, 0.9, 1.0))
 	return l
 
 func _title(t: String) -> Label:
 	var l := Label.new()
-	l.text = t
+	l.text = MandaloreText.a(t)
 	_apply_font(l, 15)
 	l.add_theme_color_override("font_color", Color(0.75, 0.88, 1.0))
 	return l

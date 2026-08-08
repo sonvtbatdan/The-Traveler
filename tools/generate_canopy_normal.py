@@ -16,16 +16,19 @@ Technique (pure PIL, no numpy available in this environment):
 Re-run whenever a maptile set's color photos change. Skips any file that's already itself a "_normal" output.
 Also deletes any leftover "*_bump.png" from the old technique in the same folder (superseded).
 
-Usage: python tools/generate_canopy_normal.py
+Usage: python tools/generate_canopy_normal.py [maptile_root]
+  maptile_root defaults to assets/map/rubicon/maptile — pass another map's maptile folder (e.g.
+  assets/map/volcanic/maptile) to bake that map's normals instead.
 """
 
+import sys
 from pathlib import Path
 from PIL import Image, ImageFilter, ImageMath
 
 BLUR_RADIUS = 1.0       # denoise pass before taking the gradient (same as the old bump script)
 GRADIENT_SCALE = 6.0    # divisor on the raw Sobel sum before the +128 offset — lower = more sensitive/steeper
 FLATNESS = 1.5          # "nz" before normalizing — lower = more dramatic relief, higher = subtler/flatter
-MAPTILE_ROOT = Path(__file__).resolve().parent.parent / "assets" / "map" / "rubicon" / "maptile"
+DEFAULT_MAPTILE_ROOT = Path(__file__).resolve().parent.parent / "assets" / "map" / "rubicon" / "maptile"
 
 SOBEL_X = (-1, 0, 1, -2, 0, 2, -1, 0, 1)
 SOBEL_Y = (-1, -2, -1, 0, 0, 0, 1, 2, 1)
@@ -51,22 +54,23 @@ def make_normal(src_path: Path, dst_path: Path) -> None:
 
 
 def main() -> None:
-    if not MAPTILE_ROOT.is_dir():
-        print(f"no maptile folder at {MAPTILE_ROOT}")
+    maptile_root = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_MAPTILE_ROOT
+    if not maptile_root.is_dir():
+        print(f"no maptile folder at {maptile_root}")
         return
     count = 0
-    for set_dir in sorted(MAPTILE_ROOT.iterdir()):
+    for set_dir in sorted(maptile_root.iterdir()):
         if not set_dir.is_dir():
             continue
         for old_bump in sorted(set_dir.glob("*_bump.png")):
             old_bump.unlink()
-            print(f"  removed superseded {old_bump.relative_to(MAPTILE_ROOT.parent)}")
+            print(f"  removed superseded {old_bump.relative_to(maptile_root.parent)}")
         for src in sorted(set_dir.glob("*.png")):
             if "_normal" in src.stem:
                 continue
             dst = src.with_name(src.stem + "_normal.png")
             make_normal(src, dst)
-            print(f"  {src.relative_to(MAPTILE_ROOT.parent)} -> {dst.name}")
+            print(f"  {src.relative_to(maptile_root.parent)} -> {dst.name}")
             count += 1
     print(f"done: {count} normal map(s) generated")
 

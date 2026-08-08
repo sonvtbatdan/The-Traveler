@@ -6,7 +6,7 @@ extends CanvasLayer
 const PlanetScript := preload("res://scripts/gameplay/arena_planet.gd")
 const AsteroidScript := preload("res://scripts/gameplay/arena_asteroid.gd")
 const CometScript := preload("res://scripts/gameplay/arena_comet.gd")
-const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
+const FONT_PATH := "res://assets/fonts/mandalore/mandalore.ttf"
 const PANEL_W := 340.0
 const PREVIEW := 76.0
 const VARIANT_COUNT := 4          # previews per type
@@ -254,14 +254,14 @@ func _finish_place() -> void:
 		var al := get_tree().get_first_node_in_group("arena_asteroids")
 		if al != null:
 			var n: int = al.spawn_field_near(world)
-			_status.text = "Placed asteroid field (%d rocks)" % n
+			_status.text = MandaloreText.a("Placed asteroid field (%d rocks)" % n)
 			print("[object] placed asteroid field (%d rocks)" % n)
 		return
 	if _place_kind == "comet":
 		var cl := get_tree().get_first_node_in_group("arena_comets")
 		if cl != null:
 			cl.spawn_comet_near(world)
-			_status.text = "Placed comet"
+			_status.text = MandaloreText.a("Placed comet")
 			print("[object] placed comet")
 		return
 	# planet or planet_moons → spawn into the planet layer at the cursor depth
@@ -282,7 +282,7 @@ func _finish_place() -> void:
 	var ti := int(_place_params.get("type", 0))
 	var tname: String = PlanetScript.TYPE_NAMES[ti] if ti < PlanetScript.TYPE_NAMES.size() else str(ti)
 	var moons_txt := " + moons" if _place_kind == "planet_moons" else ""
-	_status.text = "Placed %s%s (r=%.0f)" % [tname, moons_txt, float(_place_params.get("radius", 0.0))]
+	_status.text = MandaloreText.a("Placed %s%s (r=%.0f)" % [tname, moons_txt, float(_place_params.get("radius", 0.0))])
 	print("[planet] placed type %d (%s)%s" % [ti, tname, moons_txt])
 
 func _clear_placed() -> void:
@@ -294,12 +294,12 @@ func _clear_placed() -> void:
 		if layer != null and layer.has_method("clear_debug"):
 			layer.clear_debug()
 	if _status != null:
-		_status.text = "Cleared placed planets / asteroids / comets"
+		_status.text = MandaloreText.a("Cleared placed planets / asteroids / comets")
 
 # ── Widgets ───────────────────────────────────────────────────────────────────
 func _label(text: String, sz: int) -> Label:
 	var l := Label.new()
-	l.text = text
+	l.text = MandaloreText.a(text)
 	if _font:
 		l.add_theme_font_override("font", _font)
 	l.add_theme_font_size_override("font_size", sz)
@@ -308,7 +308,7 @@ func _label(text: String, sz: int) -> Label:
 
 func _button(text: String, cb: Callable) -> Button:
 	var b := Button.new()
-	b.text = text
+	b.text = MandaloreText.a(text)
 	if _font:
 		b.add_theme_font_override("font", _font)
 	b.pressed.connect(cb)

@@ -1,10 +1,14 @@
 extends Node2D
-## Spawner for the giant temple boss landmark — same spawn rule as arena_ruin_layer.gd's dead-ship wrecks
-## (2 stationary landmarks 10,000-15,000 px from the player at run start, ~60-120° apart as seen from the
-## player's spawn point, then one more every PERIODIC_INTERVAL near the player's THEN-current position), but
-## rendered as the REAL temple.glb model (via RubiconTrees.spawn_landmark(), the same shared 3D pass every
-## scattered tree/cloud-occluder renders through) instead of a flat 2D wreck sprite. temple.glb is excluded
-## from the regular density-scatter pool (RubiconAssetScan.SCATTER_EXCLUDED) — this is its only spawn path.
+## Spawner for the giant temple boss landmark — exactly TEMPLE_COUNT (2) per run, each appearing at its own
+## random TIME within SPAWN_WINDOW (30min of GameManager.run_time) rather than all at run start (2026-08-06,
+## on request: "Mỗi map chỉ có 2 temple random spawn vào những thời điểm ngẫu nhiên trong vòng 30 phút run
+## time" — replaces the old "2 at run start, ~60-120° apart, +1 more every 3min forever" design). Each spawns
+## 10,000-15,000px from the player's CURRENT position at ITS OWN scheduled moment (not the run-start origin —
+## the player has likely moved on by whatever random minute its turn comes up), same distance band
+## arena_ruin_layer.gd's dead-ship wrecks use. Rendered as the REAL temple.glb model (via RubiconTrees.
+## spawn_landmark(), the same shared 3D pass every scattered tree/cloud-occluder renders through) instead of a
+## flat 2D wreck sprite. temple.glb is excluded from the regular density-scatter pool (RubiconAssetScan.
+## SCATTER_EXCLUDED) — this is its only spawn path.
 ##
 ## Combat/HP/hit-detection/loot-on-death still goes through the normal 2D EnemyScript (arena_enemy.gd) — that
 ## system has no notion of a live 3D visual, so this enemy is configured with "sprite_alpha": 0.0 (its own
@@ -16,9 +20,8 @@ extends Node2D
 ## apply_landmarks) — solid-filled from the model's own center out to its actual BASE footprint (an oriented
 ## box from spawn_landmark's half_extent/yaw, not a circle) plus a ring margin, and that fill also suppresses
 ## the river mask beneath it (rubicon_ground.gdshader's final_river_mask) — so ground is GUARANTEED under the
-## temple no matter where it spawns, without this spawner needing to search for dry land itself; position is
-## picked the same simple way as arena_ruin_layer.gd's dead-ship wrecks. Pushed every time a temple spawns or
-## dies.
+## temple no matter where it spawns, without this spawner needing to search for dry land itself. Pushed every
+## time a temple spawns or dies.
 
 const RuinPointerScript := preload("res://scripts/ui/hud/arena_ruin_pointer.gd")
 const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
@@ -26,12 +29,12 @@ const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 const TEMPLE_GLB_PATH := "res://assets/map/rubicon/temple.glb"
 const TEMPLE_ICON_PATH := "res://assets/map/rubicon/temple.png"
 
-const TEMPLE_COUNT := 2       # temples spawned at run start — matches arena_ruin_layer.gd's SHIP_COUNT
-const DIST_MIN     := 10000.0 # minimum spawn distance from player (px)
-const DIST_MAX     := 15000.0 # maximum spawn distance from player (px)
-const ANGLE_MIN    := 60.0    # minimum angle (deg) between the two run-start temples, as seen from the player
-const ANGLE_MAX    := 120.0   # maximum angle (deg) between the two run-start temples
-const PERIODIC_INTERVAL := 180.0   # seconds between each additional temple after the run-start pair (3 min)
+const TEMPLE_COUNT := 2       # total temples for the whole run — "mỗi map chỉ có 2 temple"
+const SPAWN_WINDOW := 1800.0  # 30 minutes, in seconds — each temple's spawn TIME is rolled uniformly in
+                                # [0, SPAWN_WINDOW) against GameManager.run_time (pause-safe, already the
+                                # project's canonical run clock — see GameManager.run_time's own doc comment)
+const DIST_MIN     := 10000.0 # minimum spawn distance from the player's position AT SPAWN TIME (px)
+const DIST_MAX     := 15000.0 # maximum spawn distance from the player's position AT SPAWN TIME (px)
 const TEMPLE_HP := 2000.0
 const ENEMY_HP_TUNE := 2.0   # arena_enemy.gd's global ×2 HP tune for every non-"boss_stub" enemy — must divide
                               # it back out of "hp" here so the temple's actual displayed/effective hp_max
@@ -42,7 +45,8 @@ const TEMPLE_SCALE_MULT := 3.0   # 3x the regular auto-scale every scattered typ
 
 var _mgr: Node = null
 var _player: Node2D = null
-var _periodic_acc: float = 0.0
+var _spawn_times: Array = []   # TEMPLE_COUNT random floats in [0, SPAWN_WINDOW), sorted ascending
+var _spawned_count: int = 0    # how many of _spawn_times have already fired
 var _active: Array = []   # [{enemy, node3d, pos, radius}] — every currently-alive temple
 
 func _ready() -> void:
@@ -51,31 +55,20 @@ func _ready() -> void:
 	if _player == null or not is_instance_valid(_player):
 		call_deferred("_ready")   # player not built yet — retry next frame
 		return
-	_spawn_temples()
+	_spawn_times.clear()
+	for _i in TEMPLE_COUNT:
+		_spawn_times.append(randf() * SPAWN_WINDOW)
+	_spawn_times.sort()
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	if _player == null or not is_instance_valid(_player):
 		_player = get_tree().get_first_node_in_group("player")
 		return
-	_periodic_acc += delta
-	if _periodic_acc >= PERIODIC_INTERVAL:
-		_periodic_acc -= PERIODIC_INTERVAL
+	while _spawned_count < _spawn_times.size() and GameManager.run_time >= float(_spawn_times[_spawned_count]):
+		_spawned_count += 1
 		var angle := randf() * TAU
 		var dist := randf_range(DIST_MIN, DIST_MAX)
 		var pos: Vector2 = _player.global_position + Vector2(cos(angle), sin(angle)) * dist
-		_spawn_temple(pos)
-
-func _spawn_temples() -> void:
-	var origin := _player.global_position
-	var base := randf() * TAU
-	var sep := deg_to_rad(randf_range(ANGLE_MIN, ANGLE_MAX))
-	if randf() < 0.5:
-		sep = -sep   # randomize which side the second temple sits on
-	var angles := [base, base + sep]
-	for i in range(TEMPLE_COUNT):
-		var a: float = angles[i]
-		var dist := randf_range(DIST_MIN, DIST_MAX)
-		var pos: Vector2 = origin + Vector2(cos(a), sin(a)) * dist
 		_spawn_temple(pos)
 
 func _spawn_temple(pos: Vector2) -> void:
@@ -115,8 +108,16 @@ func _spawn_temple(pos: Vector2) -> void:
 
 ## Freed on the enemy's own tree_exited (fires once its death-pop animation finishes and arena_enemy.gd
 ## queue_free()s itself, or if it's ever removed any other way) — frees the companion 3D visual and drops
-## this temple out of the ground's ring set.
+## this temple out of the ground's ring set. Also fires GameManager.boss_defeated on a GENUINE kill (user
+## feedback: "Khi bắn các temple sẽ có blue print để mua ở mechanic" — temple now feeds the same salvage
+## screen/blueprint pipeline as every other boss, see arena_drop_ui.gd) — gated on the enemy's own `_dead`
+## flag (set at the very top of arena_enemy.gd's _die(), well before tree_exited fires) so a temple removed
+## for any OTHER reason (scene teardown, run ending) never falsely pops the salvage screen or advances its
+## loot-scaling index.
 func _on_temple_gone(entry: Dictionary) -> void:
+	var e: Node2D = entry["enemy"]
+	if is_instance_valid(e) and bool(e.get("_dead")) and GameManager.has_signal("boss_defeated"):
+		GameManager.boss_defeated.emit()
 	if is_instance_valid(entry["node3d"]):
 		entry["node3d"].queue_free()
 	_active.erase(entry)
@@ -134,7 +135,7 @@ func _push_landmarks() -> void:
 			"pos": entry["pos"], "radius": entry["radius"],
 			"half_extent": entry["half_extent"], "yaw": entry["yaw"],
 		})
-	ground.call("apply_landmarks", landmarks)
+	ground.call("apply_landmarks", landmarks, "temple")
 
 ## Edge-of-screen arrow + live distance guiding the player to one temple (mirrors arena_ruin_layer.gd's own
 ## _spawn_pointer exactly — arena_ruin_pointer.gd is generic, takes any Node2D target).

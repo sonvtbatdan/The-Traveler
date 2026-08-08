@@ -135,7 +135,7 @@ var _radius: float = 70.0
 var hit_radius: float:
 	get: return _radius
 var contact_damage: int = 40
-var xp: float = 25.0
+var xp: float = 250.0   # fallback only — real value always comes from ENEMY_DEFS["elephant"]["xp"] via configure() (2026-08-05 ×10 pass)
 var _icon: String = ""
 
 # ── Runtime ─────────────────────────────────────────────────────────────────────
@@ -199,7 +199,7 @@ func configure(_type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	speed = float(def.get("speed", 120.0))
 	_radius = float(def.get("size", 70.0))
 	contact_damage = int(def.get("contact", 40))
-	xp = float(def.get("xp", 25.0))
+	xp = float(def.get("xp", 250.0))
 	_icon = String(def.get("icon", ""))
 
 func _ready() -> void:

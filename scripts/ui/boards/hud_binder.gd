@@ -15,11 +15,6 @@ const HUD_BLEND_SHADER  := "res://assets/shaders/hud_blend.gdshader"
 const SHIELDBAND1_VFX_SHADER := "res://assets/shaders/shieldband1_vfx.gdshader"
 const SHIELDBAND1_FILE := "shieldband1"   # HUD 1.1 decorative sheen — independent of shieldband/_shield_fill
 const WEAPON_HUD_ICON_DIR := "res://assets/inventory/icon/"   # dedicated per-kind weapon icons for HUD slot btns
-# Weapons whose cooldown frac stays 1.0 (continuous fire / always-on) — never light btnred/btngreen.
-const CONTINUOUS_WEAPONS := {
-	"gatling": true, "defensive_orbitals": true, "striker": true, "shooter": true, "chemtrail": true, "ionizing_field": true,
-	"yari": true, "yari_jaeger": true, "swarm": true, "viper": true, "aliwa": true,
-}
 
 # Bar VFX fill/glow tones per bar (level=green, HP=red, shield=blue).
 const LV_FILL_COL := Color(0.18, 0.85, 0.32, 1.0)
@@ -30,10 +25,17 @@ const SH_FILL_COL := Color(0.13, 0.48, 0.86, 1.0)
 const SH_GLOW_COL := Color(0.40, 0.78, 1.00, 1.0)
 # Band sprites act as the crop-frame/mask for their bar VFX; they only show in the editor (indicators).
 const BAR_BAND_FILES := {"levelband": true, "HPband": true, "shieldband": true}
-const SHOW_CHARGE_FX  := false  # TEMP: false = hide btnred/btngreen charge overlays (icon-check mode)
-const SHOW_SLOT_BTN   := false  # TEMP: false = hide the btn frame sprite (stays as an invisible icon anchor)
 const SLOT_ICON_FIT   := 0.72   # weapon/aux icon box = this fraction of the btn
 const SLOT_ICON_BLEND := 0      # weapon/aux icon blend mode → "Normal"
+# HUD 1.1 (2026-08-06, on request): every weapon/aux slot now ALWAYS shows a background — "btn" itself
+# stays hidden (position-anchor only, same role it always had — see git history's old SHOW_SLOT_BTN/
+# SHOW_CHARGE_FX TEMP flags, both retired here); btnblack is the always-visible base in its place. Exactly
+# one of btnblack/btngreen/btnblue shows per slot: btnblack (empty slot, or a normal/non-fusable item),
+# btngreen (this slot's item completes the FIRST currently-owned fusable pair), btnblue (completes the
+# SECOND pair). Aux slots (Button6-10) never fuse — always btnblack. "Owned" is the whole bar here — no
+# level/evolve gate, unlike the FUSE card itself (arena_levelup_ui.gd's available_fusions(), which additionally
+# requires both ≥ FUSION_MIN_LEVEL and neither evolved) — this is meant to flag the pairing itself early, not
+# mirror exactly when the FUSE card will appear. See _fusion_pair_colors().
 
 # ── Macro groups (gameplay-only): 4 screen-edge regions built from the editor groups ────────────────
 const MACRO_KEYS     := ["Weapon", "Aux", "KillCoin", "LV"]
@@ -133,10 +135,17 @@ func build() -> void:
 					brk[String(ch.get("file", ""))] = _ed._nodes.get(int(ch.get("id", -1)))
 			if num >= 1 and num <= 5:
 				var wbtn = brk.get("btn")
-				_wslots[num - 1] = {"btn": wbtn, "red": brk.get("btnred"), "green": brk.get("btngreen"), "icon": _make_slot_icon(wbtn, "Weapon")}
+				_wslots[num - 1] = {
+					"btn": wbtn, "red": brk.get("btnred"), "green": brk.get("btngreen"),
+					"black": brk.get("btnblack"), "blue": brk.get("btnblue"),
+					"icon": _make_slot_icon(wbtn, "Weapon"),
+				}
 			elif num >= 6 and num <= 10:
 				var abtn = brk.get("btn")
-				_aslots[num - 6] = {"btn": abtn, "yellow": brk.get("btnyellow"), "icon": _make_slot_icon(abtn, "Aux")}
+				_aslots[num - 6] = {
+					"btn": abtn, "yellow": brk.get("btnyellow"), "black": brk.get("btnblack"),
+					"icon": _make_slot_icon(abtn, "Aux"),
+				}
 		# Collect unique-role item CHILDREN (bands / buttons) from every group, regardless of group name.
 		for ch: Dictionary in children:
 			if String(ch.get("type", "")) == "item":
@@ -323,12 +332,14 @@ func _update_weapons() -> void:
 	if _last_acquired_n >= 0 and acquired.size() > _last_acquired_n:
 		_trigger_shrink("Weapon")   # a new weapon → pop the Weapon region to full, then re-shrink
 	_last_acquired_n = acquired.size()
+	var pair_color := _fusion_pair_colors(acquired)   # slot index -> "green"/"blue", see its own doc comment
 	for i in _wslots.size():
 		var s = _wslots[i]
 		if s == null:
 			continue
 		var has: bool = i < acquired.size()
-		_set_vis(s.get("btn"), has and SHOW_SLOT_BTN)   # btn kept as an invisible position anchor when off
+		_set_vis(s.get("btn"), false)   # anchor only — btnblack is the always-visible base now, not btn (2026-08-06)
+		_set_vis(s.get("red"), false)   # charge-FX retired in favor of the fusion-pair highlight below
 		var icon = s.get("icon")
 		if has:
 			var kind := String(acquired[i])
@@ -336,26 +347,52 @@ func _update_weapons() -> void:
 				var tex := _weapon_icon_tex(kind)
 				(icon as TextureRect).texture = tex
 				(icon as TextureRect).visible = tex != null
-			if not SHOW_CHARGE_FX:
-				_set_vis(s.get("red"), false)
-				_set_vis(s.get("green"), false)
-			else:
-				var cont: bool = CONTINUOUS_WEAPONS.has(kind)
-				var firing: bool = _weapons_node.has_method("weapon_is_firing") and bool(_weapons_node.call("weapon_is_firing", kind))
-				var frac := 1.0
-				if _weapons_node.has_method("weapon_cooldown_frac"):
-					frac = float(_weapons_node.call("weapon_cooldown_frac", kind))
-				if cont:
-					_set_vis(s.get("red"), false)
-					_set_vis(s.get("green"), false)
-				else:
-					_set_vis(s.get("green"), firing)
-					_set_vis(s.get("red"), frac < 0.999 and not firing)
+			var col := String(pair_color.get(i, ""))
+			_set_vis(s.get("green"), col == "green")
+			_set_vis(s.get("blue"), col == "blue")
+			_set_vis(s.get("black"), col == "")
 		else:
-			_set_vis(s.get("red"), false)
 			_set_vis(s.get("green"), false)
+			_set_vis(s.get("blue"), false)
+			_set_vis(s.get("black"), true)   # empty slot → black, same as a normal/non-fusable item
 			if icon != null and is_instance_valid(icon):
 				(icon as CanvasItem).visible = false
+
+## HUD 1.1 fusion-pair highlight (2026-08-06, on request): which of the 5 weapon slots (by index into
+## `acquired`) light up green (first ready pair) / blue (second ready pair). "Ready" here = BOTH of a
+## FUSION_DEFS recipe's component kinds are somewhere in `acquired` — no level/evolve requirement (see the
+## HUD 1.1 class-level doc comment for why this is deliberately looser than the FUSE card's own gate).
+## Recipes are checked in FUSION_DEFS declaration order; a slot already claimed by an earlier pair can't be
+## claimed again (matters for "gauss", which is a component of both "overcharger" and "singularities") — at
+## most 2 disjoint pairs can exist across 5 slots anyway, matching the 2 colors available.
+func _fusion_pair_colors(acquired: Array) -> Dictionary:
+	var out := {}
+	var claimed := {}   # slot index -> true
+	var colors := ["green", "blue"]
+	var color_i := 0
+	for fid: String in ArenaWeapons.FUSION_DEFS:
+		if color_i >= colors.size():
+			break
+		var rec: Dictionary = ArenaWeapons.FUSION_DEFS[fid]
+		var a := String(rec["a"])
+		var b := String(rec["b"])
+		var ia := -1
+		var ib := -1
+		for i in acquired.size():
+			if claimed.has(i):
+				continue
+			var k := String(acquired[i])
+			if k == a and ia == -1:
+				ia = i
+			elif k == b and ib == -1:
+				ib = i
+		if ia != -1 and ib != -1:
+			claimed[ia] = true
+			claimed[ib] = true
+			out[ia] = colors[color_i]
+			out[ib] = colors[color_i]
+			color_i += 1
+	return out
 
 func _update_aux() -> void:
 	if _aux_node == null or not is_instance_valid(_aux_node):
@@ -372,7 +409,8 @@ func _update_aux() -> void:
 			continue
 		_set_vis(s.get("yellow"), false)   # btnyellow unused → always hidden
 		var has: bool = i < owned.size()
-		_set_vis(s.get("btn"), has and SHOW_SLOT_BTN)   # btn kept as an invisible position anchor when off
+		_set_vis(s.get("btn"), false)    # anchor only — btnblack is the always-visible base now, not btn
+		_set_vis(s.get("black"), true)   # aux never fuses — always black, filled or empty
 		var icon = s.get("icon")
 		if has:
 			var id := String(owned[i])
@@ -600,6 +638,47 @@ func _clear_macros() -> void:
 			(kid as Node).reparent(_ed._objects_container, false)
 		(c as Node).queue_free()
 	_macros.clear()
+
+## Public (2026-08-06, on request): current on-screen bounding rect of macro region `key` ("Weapon"=left/
+## "Aux"=right/"KillCoin"=top/"LV"=bottom, see MACRO_KEYS/MACRO_EDGE) — merges every member's OWN global
+## rect, since the container itself never sets a "size" (position + scale only, see _build_macros()). Empty
+## Rect2() if that region doesn't currently exist (no weapons/aux owned yet, HUD Edit mode open and macros
+## torn down, etc.) — callers must treat an empty/zero-size rect as "nothing to avoid". Used by
+## arena_ruin_pointer.gd to keep its edge-of-screen icon clear of HUD chrome (Weapon/Aux/LV bars).
+## 2026-08-06 bug report: the ruin-pointer icon was rendering INSIDE the Weapon/Aux HUD bars instead of
+## dodging them. Root cause — Control.get_global_rect() reports `size` in the control's own LOCAL
+## (unscaled) units; it does NOT fold in any ancestor's `scale`. Weapon/Aux macros animate their container's
+## scale between SHRINK_SCALE (0.7, resting) and 1.0 (held briefly on pickup — see MACRO_BEHAVIOR/
+## _trigger_shrink), so the old per-kid get_global_rect() misjudged their true on-screen footprint by that
+## same ~30% every time they weren't at exactly 1.0 scale. Fixed the way HudEditRuntime already fixes the
+## identical class of bug (_control_rect_global()) — build the local-space union of every member's rect
+## first, THEN map its 4 corners through the container's own get_global_transform_with_canvas() once, which
+## correctly folds in position + scale together.
+func macro_global_rect(key: String) -> Rect2:
+	var m = _macros.get(key)
+	if m == null:
+		return Rect2()
+	var c = m.get("container")
+	if c == null or not is_instance_valid(c):
+		return Rect2()
+	var local_rect := Rect2()
+	var has := false
+	for kid in (c as Node).get_children():
+		if kid is Control:
+			var k := kid as Control
+			var r := Rect2(k.position, k.size * k.scale)
+			local_rect = r if not has else local_rect.merge(r)
+			has = true
+	if not has:
+		return Rect2()
+	var xform := (c as Control).get_global_transform_with_canvas()
+	var p0 := xform * local_rect.position
+	var p1 := xform * Vector2(local_rect.end.x, local_rect.position.y)
+	var p2 := xform * local_rect.end
+	var p3 := xform * Vector2(local_rect.position.x, local_rect.end.y)
+	var minv := p0.min(p1).min(p2).min(p3)
+	var maxv := p0.max(p1).max(p2).max(p3)
+	return Rect2(minv, maxv - minv)
 
 ## Which macro region a design child belongs to ("" = none). The "Text" group is split by sentinel.
 func _macro_for_child(child_id: int) -> String:

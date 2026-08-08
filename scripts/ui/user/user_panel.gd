@@ -45,13 +45,13 @@ func _build() -> void:
 	var title_lbl := Label.new()
 	title_lbl.position = Vector2(0, 10)
 	title_lbl.size = Vector2(PANEL_W, HANDLE_H)
-	title_lbl.text = "USER"
+	title_lbl.text = MandaloreText.a("USER")
 	title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	title_lbl.add_theme_font_size_override("font_size", 28)
 	title_lbl.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	title_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var _gf := load("res://assets/fonts/Gameplay.ttf") as FontFile
+	var _gf := load("res://assets/fonts/mandalore/mandalore.ttf") as FontFile
 	if _gf:
 		title_lbl.add_theme_font_override("font", _gf)
 	_root.add_child(title_lbl)
@@ -68,7 +68,7 @@ func _build() -> void:
 
 	var hlbl := Label.new()
 	hlbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	hlbl.text = "≡  USER PANEL  —  drag to move"
+	hlbl.text = MandaloreText.a("≡  USER PANEL  —  drag to move")
 	hlbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hlbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	hlbl.add_theme_font_size_override("font_size", 11)

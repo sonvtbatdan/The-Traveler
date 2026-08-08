@@ -151,9 +151,11 @@ func _build_ui() -> void:
 	_hp_hdr_btn.custom_minimum_size = Vector2(74.0, 0.0)
 	_hp_hdr_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	hdr.add_child(_hp_hdr_btn)
-	var hp_to_xp_hdr := _mk_label("", 11)   # spacer over each row's HP→XP auto-fill button
-	hp_to_xp_hdr.custom_minimum_size = Vector2(30.0, 0.0)
-	hdr.add_child(hp_to_xp_hdr)
+	# Master HP→XP auto-fill: same formula as each row's own "→" button, applied to EVERY row at once.
+	var hp_to_xp_hdr_btn := _mk_button("→", _on_recalc_all_xp)
+	hp_to_xp_hdr_btn.custom_minimum_size = Vector2(30.0, 0.0)
+	hp_to_xp_hdr_btn.tooltip_text = "Set EVERY row's XP Drop = round(HP / 10), minimum 10"
+	hdr.add_child(hp_to_xp_hdr_btn)
 	for h: Array in [["XP Drop", 74], ["Move", 150], ["Shoot", 110]]:
 		var l := _mk_label(String(h[0]), 11)
 		l.custom_minimum_size = Vector2(float(h[1]), 0)
@@ -215,10 +217,11 @@ func _make_row(id: String, def: Dictionary, ov: Dictionary) -> Control:
 	xp_spin.value = float(ov.get("xp", def.get("xp", 0.0)))
 	xp_spin.custom_minimum_size = Vector2(74.0, 0.0)
 
-	# HP→XP auto-fill: XP = round(HP / 100). Between the HP and XP Drop columns.
-	var hp_to_xp_btn := _mk_button("→", func() -> void: xp_spin.value = maxf(1.0, round(hp_spin.value / 100.0)))
+	# HP→XP auto-fill: XP = round(HP / 10). Between the HP and XP Drop columns.
+	# (2026-08-05: ×10'd along with every other XP-drop source, on request — was round(HP / 100), min 1.)
+	var hp_to_xp_btn := _mk_button("→", func() -> void: xp_spin.value = maxf(10.0, round(hp_spin.value / 10.0)))
 	hp_to_xp_btn.custom_minimum_size = Vector2(30.0, 0.0)
-	hp_to_xp_btn.tooltip_text = "Set XP Drop = round(HP / 100), minimum 1"
+	hp_to_xp_btn.tooltip_text = "Set XP Drop = round(HP / 10), minimum 10"
 	hb.add_child(hp_to_xp_btn)
 
 	hb.add_child(xp_spin)
@@ -295,6 +298,16 @@ func _icon(path: String) -> Texture2D:
 	var tex := load(path) as Texture2D
 	_icon_cache[path] = tex
 	return tex
+
+## Master HP→XP auto-fill (header button, next to the per-row "→" column): reapplies the SAME formula
+## (round(HP / 10), minimum 10) to every row's XP Drop SpinBox in one click. Only touches the live SpinBox
+## values — nothing is persisted until Save.
+func _on_recalc_all_xp() -> void:
+	for r: Dictionary in _rows:
+		var hp_spin := r["hp_spin"] as SpinBox
+		var xp_spin := r["xp_spin"] as SpinBox
+		xp_spin.value = maxf(10.0, round(hp_spin.value / 10.0))
+	_status.text = "Recalculated XP from HP for all %d creep(s) — remember to Save." % _rows.size()
 
 func _on_save() -> void:
 	var ov: Dictionary = {}

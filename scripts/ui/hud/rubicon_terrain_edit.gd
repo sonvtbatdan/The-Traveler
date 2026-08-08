@@ -610,8 +610,22 @@ func _apply_live_global() -> void:
 	if trees != null and trees.has_method("apply_jitter"):
 		trees.call("apply_jitter", _values["jitter"])
 
+## Scoped save — re-reads whatever's CURRENTLY on disk and overwrites ONLY this panel's own keys (plus
+## asset_settings), instead of blanket-writing this panel's own possibly-stale `_values` snapshot (taken once,
+## back when the panel was opened). 2026-08-08 bug fix (found via the Atlantic port — the very "Electric map"
+## recurrence the user flagged): with the old blanket save, opening this panel and clicking SAVE at any later
+## point silently reverted every OTHER panel's changes since (e.g. rubicon_light_edit.gd's) back to whatever
+## they were when THIS panel was first opened.
 func _on_save() -> void:
-	RubiconTerrainSettings.save_settings(_values)
+	var fresh := RubiconTerrainSettings.load_settings()
+	for key: String in _sliders.keys():
+		fresh[key] = _values[key]
+	for key: String in _color_btns.keys():
+		fresh[key] = _values[key]
+	for key: String in _dropdowns.keys():
+		fresh[key] = _values[key]
+	fresh["asset_settings"] = _values["asset_settings"]
+	RubiconTerrainSettings.save_settings(fresh)
 	if _status != null:
 		_status.text = "Saved."
 

@@ -1,0 +1,43 @@
+{
+  "name": "vocalnic",
+  "timeline": [
+    {
+      "count": 50,
+      "pattern": "ring",
+      "time": 30.0,
+      "type": "magma1"
+    },
+    {
+      "count": 50,
+      "pattern": "ring",
+      "time": 30.0,
+      "type": "magma4"
+    },
+    {
+      "count": 50,
+      "duration": 5.0,
+      "pattern": "stream",
+      "time": 60.0,
+      "type": "magma1"
+    },
+    {
+      "count": 10,
+      "pattern": "ring",
+      "time": 60.0,
+      "type": "magma3"
+    },
+    {
+      "count": 20,
+      "pattern": "ring",
+      "time": 60.0,
+      "type": "magma6"
+    },
+    {
+      "count": 1,
+      "is_boss": true,
+      "pattern": "ring",
+      "time": 1800.0,
+      "type": "elephant"
+    }
+  ]
+}

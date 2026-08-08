@@ -1,18 +1,25 @@
 extends Node2D
-## Restored legacy small-ruin prop (spawn_mode_2 only — see arena_small_ruin_layer.gd). Two-phase life:
-## ship (200 HP, 70 px wide) → box (50 HP, 40 px wide). Ships drift at 20–50 px/s and rotate at 15 RPM.
-## On death the ship spawns its matching box; the box drops a random loot item. Joins group "arena_ruin"
-## (shared with the giant wrecks in arena_ruin.gd) so arena_weapons and explode() hit it for free —
-## nothing needs to change there. This is the original pre-giant-wreck ruin design (see git history,
-## commit ade3fd1), reintroduced as a distinct small/frequent counterpart to the giant wrecks.
+## Restored legacy small-ruin prop (spawn_mode_2 only — see arena_small_ruin_layer.gd). Ships drift at
+## 20–50 px/s and rotate at 15 RPM; death drops a random loot item directly. Joins group "arena_ruin" so
+## arena_weapons and explode() hit it for free — nothing needs to change there. This is the original
+## pre-giant-wreck ruin design (see git history, commit ade3fd1), reintroduced as a distinct small/frequent
+## counterpart to the giant wrecks that used to also exist (arena_ruin_layer.gd/arena_ruin.gd — REMOVED
+## 2026-08-06, on request: "loại bỏ các ruin dùng assets\ruin (loại lớn, nằm ở xa, có chỉ hướng)" — the giant
+## dead-ship wrecks, 10,000-15,000px away with their own edge-of-screen pointer, are gone; this small/nearby/
+## no-pointer type dropping small loot directly is now the ONLY "ruin" prop left in the Default map. See git
+## history if the giant wrecks are ever wanted back).
+##
+## 2026-08-06, on request ("bỏ cơ chế bắn ruin ra box, giờ đây bắn ruin vỡ thì drop loot luôn"): used to be a
+## two-phase ship (200 HP) → box (50 HP) → loot life, the ship spawning its own box on death instead of
+## dropping loot itself. That box phase is now gone — a ship drops loot directly on death, one hit-to-death
+## chain instead of two. box1-4.png/BOX_WIDTH/BOX_HP/setup_as_box removed with it (no other caller referenced
+## them — see git history if the box phase is ever wanted back).
 
 const ArenaExplosion := preload("res://scripts/gameplay/arena_explosion.gd")
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
 const SHIP_WIDTH  := 70.0
-const BOX_WIDTH   := 40.0
 const SHIP_HP     := 200.0
-const BOX_HP      := 50.0
 const ROT_SPEED   := deg_to_rad(90.0)   # 15 RPM
 const SPEED_MIN   := 20.0
 const SPEED_MAX   := 50.0
@@ -23,11 +30,10 @@ const HIT_FLASH_T := 0.12               # seconds of white flash per hit
 const LOOT_POOL := ["coin", "diamond", "heart", "magnetic", "divinity"]
 
 # ── State ─────────────────────────────────────────────────────────────────────
-var _phase: String = "ship"   # "ship" | "box"
-var _variant: int = 1         # 1–4 (which ship/box texture)
+var _variant: int = 1         # 1–4 (which ship texture)
 var hp: float = SHIP_HP
 var hp_max: float = SHIP_HP
-var hit_radius: float = 0.0   # circular hitbox radius; set in setup() based on phase
+var hit_radius: float = 0.0   # circular hitbox radius; set in setup()
 var _vel: Vector2 = Vector2.ZERO
 var _tex: Texture2D = null
 var _draw_size: Vector2 = Vector2.ZERO
@@ -40,33 +46,20 @@ func setup(variant: int, mgr: Node) -> void:
 	add_to_group("arena_ruin")
 	_variant = clampi(variant, 1, 4)
 	_mgr = mgr
-	_phase = "ship"
 	hp = SHIP_HP
 	hp_max = SHIP_HP
 	hit_radius = SHIP_WIDTH * 0.45   # ~31.5px; covers most of the 70px sprite
 	_load_tex()
 	_randomize_vel()
 
-func setup_as_box(variant: int, mgr: Node) -> void:
-	add_to_group("arena_ruin")
-	_variant = clampi(variant, 1, 4)
-	_mgr = mgr
-	_phase = "box"
-	hp = BOX_HP
-	hp_max = BOX_HP
-	hit_radius = BOX_WIDTH * 0.45   # ~18px; covers most of the 40px sprite
-	_load_tex()
-	_randomize_vel()
-
 func _load_tex() -> void:
-	var path := "res://assets/ruin/%s%d.png" % [_phase, _variant]
+	var path := "res://assets/ruin/ship%d.png" % _variant
 	_tex = load(path) as Texture2D
 	if _tex == null:
 		return
 	var tw := float(_tex.get_width())
 	var th := float(_tex.get_height())
-	var target_w := SHIP_WIDTH if _phase == "ship" else BOX_WIDTH
-	_draw_size = Vector2(target_w, target_w * th / tw)
+	_draw_size = Vector2(SHIP_WIDTH, SHIP_WIDTH * th / tw)
 
 func _randomize_vel() -> void:
 	var speed := randf_range(SPEED_MIN, SPEED_MAX)
@@ -96,13 +89,7 @@ func _die() -> void:
 	_dead = true
 	_spawn_explosion(_draw_size.x)
 	_play_boom()
-	if _phase == "ship":
-		var box: Node2D = get_script().new()
-		get_parent().add_child(box)
-		box.setup_as_box(_variant, _mgr)
-		box.global_position = global_position
-	else:
-		_drop_loot()
+	_drop_loot()
 	queue_free()
 
 func _spawn_explosion(size_px: float) -> void:
@@ -121,9 +108,21 @@ func _play_boom() -> void:
 	p.play()
 	p.finished.connect(p.queue_free)
 
+const DIAMOND_COIN_COUNT := 5     # 2026-08-06, on request: a "diamond" roll no longer drops one 50-value
+const DIAMOND_COIN_VALUE := 10    # diamond pickup — it scatters DIAMOND_COIN_COUNT individual coin pickups
+                                   # instead (same total value: 5×10 = the old diamond's 50, just visually as
+                                   # a handful of coins rather than one gem). Each arena_loot.gd instance rolls
+                                   # its own random drift angle/speed in its own setup(), so spawning several
+                                   # at the same origin already scatters them naturally — no extra code needed.
+
 func _drop_loot() -> void:
+	if _mgr == null or not _mgr.has_method("spawn_loot"):
+		return
 	var t: String = LOOT_POOL[randi() % LOOT_POOL.size()]
-	if _mgr != null and _mgr.has_method("spawn_loot"):
+	if t == "diamond":
+		for _c in DIAMOND_COIN_COUNT:
+			_mgr.spawn_loot(global_position, "coin", DIAMOND_COIN_VALUE)
+	else:
 		_mgr.spawn_loot(global_position, t)
 
 # ── Draw ──────────────────────────────────────────────────────────────────────

@@ -1310,10 +1310,10 @@ func _show_victory_screen() -> void:
 	)
 	layer.add_child(dim)
 
-	var font := load("res://assets/fonts/Gameplay.ttf") as FontFile
+	var font := load("res://assets/fonts/mandalore/mandalore.ttf") as FontFile
 
 	var title := Label.new()
-	title.text = "METALFLY DESTROYED"
+	title.text = MandaloreText.a("METALFLY DESTROYED")
 	title.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -1327,7 +1327,7 @@ func _show_victory_screen() -> void:
 	layer.add_child(title)
 
 	var hint := Label.new()
-	hint.text = "Click to continue"
+	hint.text = MandaloreText.a("Click to continue")
 	hint.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER

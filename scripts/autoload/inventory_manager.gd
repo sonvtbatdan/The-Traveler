@@ -297,7 +297,7 @@ const ITEM_DEFS: Dictionary = {
 	# [fragments] save section (Phase 2) tracks which indices you own. very_rare=3 / unique=4 /
 	# legendary=5 pieces. They reuse existing fire_types so the shared engine fires them unchanged.
 	"singularity_lance": {
-		"name": "Singularity Lance", "icon": "", "size": Vector2i(3, 1), "tags": ["weapon"],
+		"name": "Singularity Lance", "icon": "res://assets/inventory/Singularity Lance.png", "size": Vector2i(3, 1), "tags": ["weapon"],
 		"fire_mode": "beam", "fire_type": "hitscan_beam",
 		"rarity": "very_rare", "unique": true, "craftable_from_fragments": true,
 		"group": "hybrid", "damage_kind": ["energy", "light"], "uses_ammo": true,
@@ -306,7 +306,7 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "damage": 45, "tick_interval_sec": 0.12, "range_px": 900, "beam_width": 56, "splash_radius": 60, "weight": 6, "ammo": 24, "activation_ammo": 12 },
 	},
 	"hailstorm": {
-		"name": "Hailstorm", "icon": "", "size": Vector2i(2, 2), "tags": ["weapon"],
+		"name": "Hailstorm", "icon": "res://assets/inventory/Hailstorm.png", "size": Vector2i(2, 2), "tags": ["weapon"],
 		"fire_mode": "repeat", "fire_type": "cone",
 		"rarity": "very_rare", "unique": true, "craftable_from_fragments": true,
 		"group": "ballistic", "damage_kind": ["kinetic"], "uses_ammo": true,
@@ -315,7 +315,7 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "damage": 22, "pellets": 10, "spread_deg": 46, "range_px": 320, "cooldown_sec": 0.45, "slow": 30, "weight": 6, "ammo": 3 },
 	},
 	"wraithfire": {
-		"name": "Wraithfire", "icon": "", "size": Vector2i(2, 2), "tags": ["weapon"],
+		"name": "Wraithfire", "icon": "res://assets/inventory/Wraithfire.png", "size": Vector2i(2, 2), "tags": ["weapon"],
 		"fire_mode": "repeat", "fire_type": "projectile",
 		"rarity": "very_rare", "unique": true, "craftable_from_fragments": true,
 		"group": "explosive", "damage_kind": ["fire", "explosive"],
@@ -324,7 +324,7 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "damage": 40, "cooldown_sec": 0.7, "splash_radius": 120, "burn": 18, "weight": 6 },
 	},
 	"hivemind": {
-		"name": "Hivemind", "icon": "", "size": Vector2i(2, 2), "tags": ["weapon"],
+		"name": "Hivemind", "icon": "res://assets/inventory/hivemind.png", "size": Vector2i(2, 2), "tags": ["weapon"],
 		"fire_mode": "channel", "fire_type": "minion",
 		"rarity": "unique", "unique": true, "craftable_from_fragments": true,
 		"group": "summon", "damage_kind": ["bio"], "uses_energy": true,
@@ -333,7 +333,7 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "damage": 12, "attack_interval_sec": 0.3, "bats": 8, "respawn_sec": 2.0, "bat_range_px": 320, "chain_jumps": 2, "weight": 7, "energy": 12 },
 	},
 	"prism_array": {
-		"name": "Prism Array", "icon": "", "size": Vector2i(3, 1), "tags": ["weapon"],
+		"name": "Prism Array", "icon": "res://assets/inventory/Prism Array.png", "size": Vector2i(3, 1), "tags": ["weapon"],
 		"fire_mode": "beam", "fire_type": "hitscan_beam",
 		"rarity": "unique", "unique": true, "craftable_from_fragments": true,
 		"group": "energy", "damage_kind": ["light", "energy"], "uses_ammo": true,
@@ -342,7 +342,7 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "damage": 35, "tick_interval_sec": 0.12, "range_px": 820, "beam_width": 36, "beams": 3, "beam_spread_deg": 16, "weight": 6, "ammo": 26, "activation_ammo": 12 },
 	},
 	"graviton_well": {
-		"name": "Graviton Well", "icon": "", "size": Vector2i(2, 2), "tags": ["weapon"],
+		"name": "Graviton Well", "icon": "res://assets/inventory/graviton_well.png", "size": Vector2i(2, 2), "tags": ["weapon"],
 		"fire_mode": "channel", "fire_type": "growing_zone",
 		"rarity": "unique", "unique": true, "craftable_from_fragments": true,
 		"group": "area_dot", "damage_kind": ["energy"], "uses_ammo": true,
@@ -351,7 +351,7 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "damage_min": 30, "damage_max": 260, "ramp_sec": 2.5, "tick_interval_sec": 0.25, "radius_min": 50, "radius_max": 120, "pull": 180, "weight": 8, "ammo": 22, "activation_ammo": 10 },
 	},
 	"thunderhead": {
-		"name": "Thunderhead", "icon": "", "size": Vector2i(2, 2), "tags": ["weapon"],
+		"name": "Thunderhead", "icon": "res://assets/inventory/Thunderhead.png", "size": Vector2i(2, 2), "tags": ["weapon"],
 		"fire_mode": "repeat", "fire_type": "chain",
 		"rarity": "unique", "unique": true, "craftable_from_fragments": true,
 		"group": "energy", "damage_kind": ["energy"], "uses_energy": true,
@@ -360,7 +360,7 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "damage": 30, "cooldown_sec": 0.3, "chain_jumps": 10, "chain_range_px": 240, "radius_px": 150, "weight": 7, "energy": 18 },
 	},
 	"annihilator": {
-		"name": "Annihilator", "icon": "", "size": Vector2i(3, 2), "tags": ["weapon"],
+		"name": "Annihilator", "icon": "res://assets/inventory/Annihilator.png", "size": Vector2i(3, 2), "tags": ["weapon"],
 		"fire_mode": "charge", "fire_type": "projectile",
 		"rarity": "legendary", "unique": true, "craftable_from_fragments": true,
 		"group": "hybrid", "damage_kind": ["kinetic", "energy"], "uses_energy": true,
@@ -369,7 +369,7 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "damage": 320, "cooldown_sec": 1.6, "pierce": 12, "splash_radius": 100, "weight": 9, "energy_per_shot": 22 },
 	},
 	"omega_swarm": {
-		"name": "Omega Swarm", "icon": "", "size": Vector2i(2, 2), "tags": ["weapon"],
+		"name": "Omega Swarm", "icon": "res://assets/inventory/omegaswarm.png", "size": Vector2i(2, 2), "tags": ["weapon"],
 		"fire_mode": "orbital", "fire_type": "orbital",
 		"rarity": "legendary", "unique": true, "craftable_from_fragments": true,
 		"group": "summon", "damage_kind": ["kinetic", "energy"], "uses_energy": true,
@@ -378,7 +378,7 @@ const ITEM_DEFS: Dictionary = {
 		"stats": { "damage": 70, "orbs": 6, "weight": 8, "energy": 22, "activation_energy": 12 },
 	},
 	"event_horizon": {
-		"name": "Event Horizon", "icon": "", "size": Vector2i(2, 2), "tags": ["weapon"],
+		"name": "Event Horizon", "icon": "res://assets/inventory/Event Horizon.png", "size": Vector2i(2, 2), "tags": ["weapon"],
 		"fire_mode": "channel", "fire_type": "growing_zone",
 		"rarity": "legendary", "unique": true, "craftable_from_fragments": true,
 		"group": "area_dot", "damage_kind": ["energy"], "uses_ammo": true,
@@ -653,7 +653,13 @@ const ITEM_DEFS: Dictionary = {
 # Items granted automatically the FIRST time a save is created (new game only).
 # Keeping this separate from ITEM_DEFS means future items (e.g. asteroid drops in
 # Phase 4) can be defined without being auto-placed in the backpack.
-const STARTER_ITEMS: Array[String] = ["gauss", "shield_generator", "gatling_gun", "homing_missile", "death_beam", "arc", "rift_maker", "defensive_orbitals"]
+# User feedback: "trong kho (equipment) chỉ có vũ khí cơ bản là gatling gun" — a fresh profile starts with
+# ONLY the basic weapon, no gear (hull/thruster/shield). Zero gear is a safe, already-handled baseline: the
+# ship still has BASE_SHIP_HP/BASE_SHIELD_MAX (game_manager.gd) with no hull/shield item owned or equipped —
+# every other weapon/gear item is earned via boss drops (see meta_manager.gd's _seed_starter_blueprints() and
+# arena_drop_ui.gd's salvage screen).
+const STARTER_WEAPON_ID := "gatling_gun"
+const STARTER_ITEMS: Array[String] = [STARTER_WEAPON_ID]
 
 # ── Runtime state ─────────────────────────────────────────────────────────────
 # _items: uid(int) -> {"def": String, "where": String, "cell": Vector2i}
@@ -1151,6 +1157,13 @@ func item_display_name(uid: int) -> String:
 	return " ".join(parts)
 
 # ── Persistence (shared user://save.cfg, section [inventory]) ───────────────────
+
+## Public: wipes this manager's own [inventory] slice of the profile back to a fresh-start state — every
+## owned item (weapons/gear/whatever's in the backpack or equipped) is cleared and replaced with just
+## STARTER_ITEMS (gatling_gun). Part of Settings' "Reset Profile" action (see settings_panel.gd);
+## GameManager.reset_profile()/MetaManager.reset_profile() handle their own slices.
+func reset_profile() -> void:
+	_seed_starter_items()   # clears _items, re-grants STARTER_ITEMS, saves
 
 func save_game() -> void:
 	var cfg := ConfigFile.new()

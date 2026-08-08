@@ -22,6 +22,8 @@ GameManager="*res://scripts/autoload/game_manager.gd"
 AffixManager="*res://scripts/autoload/affix_manager.gd"
 InventoryManager="*res://scripts/autoload/inventory_manager.gd"
 MetaManager="*res://scripts/autoload/meta_manager.gd"
+HudEditRuntime="*res://scripts/autoload/hud_edit_runtime.gd"
+MandaloreText="*res://scripts/autoload/mandalore_text.gd"
 
 [display]
 

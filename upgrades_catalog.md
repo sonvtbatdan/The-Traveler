@@ -65,19 +65,23 @@
 
 Mỗi perk có rank tối đa (`max`). `max: 0` = perk global/đặc biệt, hiện chưa giới hạn rank theo cách thường (một số phần "TBD").
 
-### Gatling Gun — `GATLING_POOL`
+### Gatling Gun — `GATLING_POOL` *(2026-08-05 redesign, revised — mỗi rank = +20% output damage, đồng nhất)*
 | Perk | Mỗi rank | Max rank | Mô tả |
 |------|----------|----------|-------|
-| Hardened Round | +1 flat damage | 10 | Đạn mạnh hơn. |
-| Piercing Round | +12% pierce chance | 5 | Đạn xuyên qua địch. |
-| Quick Round | +8% fire rate | 10 | Bắn nhanh hơn. |
-| Bouncing Round | +1 bounce | 5 | Đạn nảy sang địch gần (mỗi rank +1 lần nảy, tối đa 5). |
-| Multishot | +10% extra-bullet chance | 10 | Cơ hội bắn thêm đạn. |
-| Advance Ballistic | +5% multishot (mọi vũ khí "shots") | 5 | Global: vũ khí có tag 'shots' được thêm multishot. |
+| Hardened Round | +20% damage (nhân trực tiếp lên base damage viên đạn) | ∞ (không cap, chỉ giới hạn bởi tần suất roll) | Tuyến tính, KHÔNG RNG: `GAT_DAMAGE × (1 + 0.2×rank)`. |
+| Piercing Round | +20% damage (kỳ vọng — % cơ hội thêm 1 hit xuyên thẳng lên địch kế tiếp) | ∞ | HYBRID: `guaranteed = floor(0.2×rank)` + `_proc()` roll cho phần lẻ, roll ĐỘC LẬP từng viên lúc bắn. Rank 5/10/… luôn chắc chắn (0.2×5=1.0). |
+| Quick Round | +20% fire rate | ∞ | Tuyến tính, KHÔNG RNG. |
+| Bouncing Round | +20% damage (kỳ vọng — % cơ hội thêm 1 hit nảy sang địch gần) | ∞ | HYBRID giống hệt Piercing — roll độc lập từng viên, guaranteed mỗi rank thứ 5. |
+| Multishot | +20% damage (kỳ vọng — % cơ hội thêm 1 viên đạn) | ∞ | HYBRID nhưng roll 1 LẦN/lượt bắn (không phải per-bullet): `0.4×rank` (=20% của base 2 viên) → guaranteed + `_proc()` phần lẻ, y hệt cơ chế multishot gốc trước khi sửa (đã sửa lại số cho đúng kỳ vọng). |
+| Advance Ballistic | +10% multishot (mọi vũ khí "shots") | ∞ | **Không đổi** — perk global, giữ nguyên giá trị cũ theo yêu cầu. |
 
+> **Vì sao HYBRID (có RNG) thay vì tất định:** base Gatling là 2 viên/lượt. 20%×2 = 0.4 (không phải số nguyên) → không thể vừa "mỗi rank luôn có tác dụng nhìn thấy" vừa "hoàn toàn không RNG" cùng lúc (khác với bản 50% trước, vì 50%×2 = 1, chia hết). Đã chọn theo yêu cầu: giữ tác dụng thấy được mỗi rank (kỳ vọng đúng +20%), đổi lại có RNG nhẹ ở Bouncing/Piercing/Multishot.
+>
 > **Firing:** đạn cánh TRÁI bắn trước, đạn cánh PHẢI bắn sau 0.2s (`GAT_FIRE_STAGGER`). Multishot thêm cũng theo luật chẵn=ngay / lẻ=+0.2s.
 >
-> **Bounce + Pierce:** 2 hiệu ứng ĐỘC LẬP. Nếu cả 2 cùng kích hoạt → đạn gốc XUYÊN thẳng, đồng thời SINH thêm 1 đạn mới bay đi nảy. Cả 2 đạn cùng trừ 1 bounce budget và dùng chung đồng hồ `life` (không tự gia hạn vô hạn).
+> **Bounce + Pierce:** 2 budget ĐỘC LẬP, mỗi viên đạn tự mang theo cả 2 (`bounces`, `pierce`) — roll xong NGAY lúc bullet spawn (`_spawn_gat_bullet`), không phụ thuộc n (chẵn/lẻ) như bản 50% trước nữa. Nếu cả 2 còn budget trong cùng 1 lần trúng → đạn gốc XUYÊN thẳng (trừ 1 pierce), đồng thời SINH thêm 1 đạn clone bay đi nảy (trừ 1 bounce) — clone mang theo budget còn lại của CẢ HAI để có thể tiếp tục chain. Dùng chung đồng hồ `life` (không tự gia hạn vô hạn). Xem `_gat_bounce_or_pierce`/`_gat_spawn_bounce_clone` trong `arena_weapons.gd`.
+>
+> **Side-effect Stroke of Luck:** vì Bouncing/Piercing giờ dùng `_proc()` cho phần lẻ, CẢ HAI đều ăn buff "Stroke of Luck" (Arc pool, +% mọi proc chance) — Piercing đã có tương tác này từ trước bản 50%, còn Bouncing thì đây là tương tác MỚI (bản 50% trước nó chưa từng roll nên chưa từng ăn buff này).
 
 ### Lasgun (Laser) — `LASGUN_POOL`
 | Perk | Mỗi rank | Max | Mô tả |

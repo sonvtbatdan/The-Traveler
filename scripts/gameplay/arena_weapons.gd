@@ -31,12 +31,21 @@ const GAT_MUZZLE_DECAY  := 0.08     # s the muzzle-fire flash decays over (refre
 # from the weapon's LEVEL (see _gat_* effective-stat helpers). The level-up UI's 2nd tier rolls 3 of these. ──
 ## All gatling perks are UNCAPPED (max 0) — pick rate is limited by the level-gate roll, not a rank ceiling
 ## (bouncing: at most once per 3 weapon levels; every other perk: once per 2 levels — see _perk_offer_allowed).
+## 2026-08-05 redesign (revised): every LOCAL Gatling perk (all but Advance Ballistic, which stays
+## global/unchanged at +10%/rank) contributes a uniform +20% output damage per rank. Hardened/Quick are pure
+## continuous multipliers — no RNG involved. Multishot/Bouncing/Piercing are bullet-count-based (twin-barrel
+## base = 2 bullets), and 20% doesn't divide evenly into that base (20%×2 = 0.4, not a whole bullet/hit) — so
+## those three use a HYBRID resolution: a guaranteed integer part + a `_proc()` roll for the fractional
+## remainder, landing on the correct +20%/rank EXPECTED value every rank (exact integer catch-up every 5
+## ranks). This reintroduces Stroke of Luck synergy for Piercing (lost in the prior all-deterministic 50%
+## version) and, new this pass, for Bouncing too (previously always fully guaranteed, never rolled). See
+## _gat_bullet_base/_gat_fire_bonus/_gat_multishot_chance/_gat_bounces/_gat_pierce_budget for the per-perk math.
 const GATLING_POOL := {
-	"hardened":  {"name": "Hardened Round",  "max": 0, "per": "+2 flat damage",        "desc": "Bullets hit harder."},
-	"piercing":  {"name": "Piercing Round",  "max": 0, "per": "+20% pierce chance, +10% damage", "desc": "Bullets pass through enemies and hit harder."},
-	"quick":     {"name": "Quick Round",     "max": 0, "per": "+16% fire rate",        "desc": "Shoot faster."},
-	"bouncing":  {"name": "Bouncing Round",  "max": 0, "per": "+1 bounce",             "desc": "Bullets ricochet to nearby foes (1 extra ricochet per rank)."},
-	"multishot": {"name": "Multishot",       "max": 0, "per": "+25% multishot",        "desc": "Extra bullets — every 100% is one guaranteed extra (triple shot and beyond)."},
+	"hardened":  {"name": "Hardened Round",  "max": 0, "per": "+20% damage",           "desc": "Bullets hit 20% harder per rank (multiplicative on base damage)."},
+	"piercing":  {"name": "Piercing Round",  "max": 0, "per": "+20% damage",           "desc": "Bullets pierce straight through for a chance at an extra hit on the next foe in their path (20%/rank, guaranteed every 5th rank)."},
+	"quick":     {"name": "Quick Round",     "max": 0, "per": "+20% fire rate",        "desc": "Shoot faster."},
+	"bouncing":  {"name": "Bouncing Round",  "max": 0, "per": "+20% damage",           "desc": "Bullets have a chance to ricochet for an extra hit on a nearby foe (20%/rank, guaranteed every 5th rank)."},
+	"multishot": {"name": "Multishot",       "max": 0, "per": "+20% damage",           "desc": "Chance at an extra bullet in the twin-barrel volley (20%/rank, guaranteed every 5th rank)."},
 	"advance_ballistic": {"name": "Advance Ballistic", "max": 0, "per": "+10% multishot (all shots weapons)", "desc": "Global: every weapon with the 'shots' tag gains multishot chance."},
 }
 const GAT_BOUNCE_RANGE := 280.0    # search radius for a bounce target
@@ -202,9 +211,11 @@ const FUSION_BONUS_LEVELS := 4   # fused weapons can climb this many levels past
 # (Carnage / Vampire Host tunables are declared later in the file — the canonical OURS copies.)
 
 # ── Unique weapons (fragment-crafted, ITEM_DEFS "craftable_from_fragments") — Thunderhead / Graviton Well /
-# Omega Swarm. First implementation pass: real targeting/damage/cooldown-HUD wiring matching the ITEM_DEFS
-# stat blocks, with a small skill-point pool each. No capstone/evolve tier yet (level-up-UI card-offer
-# integration is a separate follow-up — see pool_rank/pool_grant below and arena_levelup_ui.gd).
+# Omega Swarm / Singularity Lance / Prism Array / Hailstorm / Wraithfire / Hivemind / Annihilator / Event
+# Horizon. Real targeting/damage/cooldown-HUD wiring matching the ITEM_DEFS stat blocks, with a small
+# skill-point pool each. No capstone/evolve tier yet (level-up-UI card-offer integration is a separate
+# follow-up — see pool_rank/pool_grant below and arena_levelup_ui.gd). (2026-08-06: all 9 non-Graviton-Well
+# uniques were removed for lacking icon art, then restored same-day on request — back to full parity.)
 # ── Thunderhead (chain lightning discharge + a shock pulse around the ship) ──
 const THUNDER_DAMAGE         := 30.0
 const THUNDER_COOLDOWN       := 0.3
@@ -234,7 +245,17 @@ const GRAVWELL_PULL_RADIUS   := 320.0
 const GRAVWELL_RECAST_DELAY  := 1.0
 const GRAVWELL_ACQUIRE_RANGE := 900.0
 const GRAVWELL_HIT_PAD       := 14.0
-const GRAVWELL_COL           := Color(0.55, 0.35, 0.95)
+const GRAVWELL_COL           := Color(0.0, 0.0, 0.0)   # was the suction shader's "tint" uniform; now the
+														  # spiral-line draw color (see _draw_gravwell())
+# 2026-08-07, on request — differentiate Graviton Well from Event Horizon (they'd become mechanically
+# near-identical): pull is now an ADDITIVE spiral nudge (radial + tangential component, layered ON TOP of
+# whatever the enemy's own _move_step() already did that frame — its own movement is never overridden) so
+# a caught enemy visibly spirals in while still fighting to move on its own path, instead of a hard
+# move_toward() snap. Event Horizon keeps the old hard override (full weight to the pull, by design).
+const GRAVWELL_SPIRAL_RADIAL_FRAC  := 0.55   # fraction of pull speed spent closing the distance
+const GRAVWELL_SPIRAL_TANGENT_FRAC := 0.85   # fraction of pull speed spent swirling around the well
+# The screen-space suction shader (gravwell_suction.gdshader) is retired in favor of the world-space spiral
+# line draw below (_draw_gravwell()) — replaced outright, per request, not layered on top of it.
 const GRAVWELL_POOL := {
 	"damage": {"name": "Crush Depth",        "max": 10, "per": "+10% damage",        "desc": "The well digests faster."},
 	"radius": {"name": "Event Radius",       "max": 5,  "per": "+10% max radius",    "desc": "A wider well at full growth."},
@@ -258,12 +279,6 @@ const OMEGA_POOL := {
 	"count":  {"name": "Swarm Growth",  "max": 4,  "per": "+1 orb",            "desc": "One more orb joins the ring."},
 }
 
-var _thunder_active: bool = false
-var _thunder_cd: float = 0.0
-var _thunder_chain: PackedVector2Array = PackedVector2Array()
-var _thunder_chain_age: float = 0.0
-var _thunder_upg: Dictionary = {"damage": 0, "cd": 0, "jumps": 0, "pulse": 0}
-
 var _gravwell_active: bool = false
 var _gravwell_cd: float = 0.0
 var _gravwell_on: bool = false
@@ -271,6 +286,13 @@ var _gravwell_pos: Vector2 = Vector2.ZERO
 var _gravwell_age: float = 0.0
 var _gravwell_tick: float = 0.0
 var _gravwell_upg: Dictionary = {"damage": 0, "radius": 0, "pull": 0, "uptime": 0}
+var _gravwell_spiral_t: float = 0.0   # world-space spiral-line draw phase (advances every open frame)
+
+var _thunder_active: bool = false
+var _thunder_cd: float = 0.0
+var _thunder_chain: PackedVector2Array = PackedVector2Array()
+var _thunder_chain_age: float = 0.0
+var _thunder_upg: Dictionary = {"damage": 0, "cd": 0, "jumps": 0, "pulse": 0}
 
 var _omega_active: bool = false
 var _omega_angle: float = 0.0
@@ -406,14 +428,24 @@ func _tick_gravwell(delta: float, enemy_on_screen: bool) -> void:
 		return
 	var t := clampf(_gravwell_age / GRAVWELL_RAMP, 0.0, 1.0)
 	var radius := lerpf(GRAVWELL_RADIUS_MIN, _gravwell_max_radius(), t)
-	var pull := _gravwell_pull_speed() * t * delta
+	var pull_speed := _gravwell_pull_speed() * t
+	# Additive spiral: radial (toward the well) + tangential (perpendicular, one consistent winding
+	# direction) components layered ON TOP of the enemy's own movement — never overrides global_position
+	# outright, so whatever _move_step() already did for it this frame stands. This is what makes a caught
+	# enemy visibly spiral in while still "trying" to move on its own path, unlike Event Horizon's full
+	# override below.
 	for en in _enemies():
 		if not is_instance_valid(en) or en.is_in_group("boss"):
 			continue
 		var ep: Vector2 = (en as Node2D).global_position
-		var d := _gravwell_pos.distance_to(ep)
+		var to_center := _gravwell_pos - ep
+		var d := to_center.length()
 		if d > 1.0 and d <= GRAVWELL_PULL_RADIUS:
-			(en as Node2D).global_position = ep.move_toward(_gravwell_pos, pull)
+			var radial_dir := to_center / d
+			var tangent_dir := Vector2(-radial_dir.y, radial_dir.x)
+			var radial_amt := minf(pull_speed * GRAVWELL_SPIRAL_RADIAL_FRAC * delta, d - 1.0)   # never overshoot past the well's centre
+			var tangent_amt := pull_speed * GRAVWELL_SPIRAL_TANGENT_FRAC * delta
+			(en as Node2D).global_position = ep + radial_dir * radial_amt + tangent_dir * tangent_amt
 	_gravwell_tick += delta
 	while _gravwell_tick >= GRAVWELL_TICK:
 		_gravwell_tick -= GRAVWELL_TICK
@@ -424,14 +456,34 @@ func _tick_gravwell(delta: float, enemy_on_screen: bool) -> void:
 			if _gravwell_pos.distance_to((en2 as Node2D).global_position) <= radius + GRAVWELL_HIT_PAD:
 				var r := _roll_damage(per_tick, "graviton_well")
 				en2.take_damage(float(r["dmg"]), 0.0, 0.0, false, false, bool(r["is_crit"]))
+	_gravwell_spiral_t += delta
 
+## World-space vortex: several logarithmic-spiral arms winding from the well's current (ramping) radius
+## down to its centre, rotating over time (_gravwell_spiral_t) so they read as continuously being sucked
+## in — replaces the old screen-space suction shader outright, per request. Called from the main _draw()
+## dispatch, gated on _gravwell_on (mirrors _draw_event_horizon()'s own call site).
+const GRAVWELL_SPIRAL_ARMS      := 3      # evenly-spaced arms around the well
+const GRAVWELL_SPIRAL_TURNS     := 1.25   # revolutions each arm makes from rim to centre
+const GRAVWELL_SPIRAL_SEGMENTS  := 24     # points per arm (draw smoothness)
+const GRAVWELL_SPIRAL_SPEED     := 1.6    # rad/s rotation
 func _draw_gravwell() -> void:
 	if not _gravwell_on:
 		return
 	var t := clampf(_gravwell_age / GRAVWELL_RAMP, 0.0, 1.0)
 	var radius := lerpf(GRAVWELL_RADIUS_MIN, _gravwell_max_radius(), t)
-	draw_circle(_gravwell_pos, radius, Color(GRAVWELL_COL, 0.35))
-	draw_arc(_gravwell_pos, radius, 0.0, TAU, 40, Color(GRAVWELL_COL.lightened(0.2), 0.9), 2.5, true)
+	if radius <= 1.0:
+		return
+	var spin := _gravwell_spiral_t * GRAVWELL_SPIRAL_SPEED
+	for arm in GRAVWELL_SPIRAL_ARMS:
+		var arm_off := TAU * float(arm) / float(GRAVWELL_SPIRAL_ARMS)
+		var pts := PackedVector2Array()
+		for i in (GRAVWELL_SPIRAL_SEGMENTS + 1):
+			var f := float(i) / float(GRAVWELL_SPIRAL_SEGMENTS)   # 0 (rim) → 1 (centre)
+			var r := radius * (1.0 - f)
+			var ang := arm_off + spin + f * TAU * GRAVWELL_SPIRAL_TURNS
+			pts.append(_gravwell_pos + Vector2(cos(ang), sin(ang)) * r)
+		draw_polyline(pts, Color(GRAVWELL_COL.lightened(0.55), 0.8 - 0.5 * (float(arm) / float(GRAVWELL_SPIRAL_ARMS))), 2.5, true)
+	draw_arc(_gravwell_pos, radius, 0.0, TAU, 40, Color(GRAVWELL_COL, 0.6), 2.0, true)
 
 # ── Omega Swarm: acquire/rank API + tick/draw ──
 func omega_upgrade_rank(id: String) -> int:
@@ -787,20 +839,34 @@ const HIVE_POOL := {
 	"chain":  {"name": "Neural Arc",       "max": 5,  "per": "+1 chain jump",  "desc": "The neural jolt reaches one more victim."},
 }
 
-const ANNI_DAMAGE        := 320.0
+# 2026-08-07, redesigned on request — was a forward hitscan beam (pierce 12, 320 dmg/target, splash at the
+# far end); now a smart lightning strike that always hits the most targets it can reach (no aim/facing
+# needed): every ANNI_COOLDOWN it picks up to ANNI_MAX_TARGETS nearest live enemies within ANNI_RANGE and
+# strikes ALL of them at once, splitting one damage pool evenly across however many it actually hit (1 hit
+# = full pool, 10 hits = 1/10th each). ANNI_DAMAGE raised 320→600 so the single-target case matches
+# Singularity Lance's sustained DPS at base rank: 600/1.6 = 375/s = SLANCE_DAMAGE/SLANCE_TICK (45/0.12).
+const ANNI_DAMAGE        := 600.0
 const ANNI_COOLDOWN      := 1.6
-const ANNI_WIDTH         := 50.0
-const ANNI_RANGE         := 1000.0
-const ANNI_PIERCE        := 12
-const ANNI_SPLASH_RADIUS := 100.0
-const ANNI_SPLASH_FRAC   := 0.5
+const ANNI_RANGE         := 1000.0   # search radius for eligible strike targets
+const ANNI_MAX_TARGETS   := 10       # struck at once (fewer if that's all there are in range)
+const ANNI_BOLT_WIDTH    := 6.0      # VFX line thickness
+const ANNI_STRIKE_HEIGHT := 260.0    # px above a primary target the bolt visually falls from
+# Chain (replaces the old flat Pierce perk): each PRIMARY struck target arcs to the nearest not-yet-hit
+# creep within ANNI_CHAIN_RANGE, then (rank ≥ 2) that chained target itself searches for one more from
+# where IT landed, up to `chain` rank hops deep. Every hop — 1st through last — deals a flat ANNI_CHAIN_FRAC
+# of its ORIGIN primary target's own damage share (not a diminishing 50%-of-50%-of-50%).
+const ANNI_CHAIN_RANGE   := 200.0
+const ANNI_CHAIN_FRAC    := 0.5
+# Burn (replaces the old Splash/AoE perk): each rank is a flat +20% chance, rolled per PRIMARY struck
+# target only (chain targets never burn) — max rank 5 = 100%, i.e. every primary hit ignites for sure.
+const ANNI_BURN_CHANCE_PER_RANK := 0.20
 const ANNI_FLASH_LIFE    := 0.2
 const ANNI_COL           := Color(1.0, 0.3, 0.2)
 const ANNI_POOL := {
-	"damage": {"name": "Reactor Overload", "max": 10, "per": "+10% damage",       "desc": "Vent more of the reactor per shot."},
-	"cd":     {"name": "Coolant Flush",    "max": 10, "per": "+8% fire rate",     "desc": "Recharge faster."},
-	"pierce": {"name": "Long Column",      "max": 5,  "per": "+2 pierce",        "desc": "The lance punches through more targets."},
-	"splash": {"name": "Terminal Blast",   "max": 5,  "per": "+15% splash radius","desc": "Bigger detonation at the end of the lance."},
+	"damage": {"name": "Reactor Overload", "max": 10, "per": "+10% damage",        "desc": "Vent more of the reactor per shot."},
+	"cd":     {"name": "Coolant Flush",    "max": 10, "per": "+8% fire rate",      "desc": "Recharge faster."},
+	"chain":  {"name": "Chain Lightning",  "max": 5,  "per": "+1 chain hop",       "desc": "Struck targets arc to one more nearby creep (50% of that target's damage, 200px reach)."},
+	"burn":   {"name": "Ignition Charge",  "max": 5,  "per": "+20% burn chance",   "desc": "A struck target (not a chain hop) may ignite on hit."},
 }
 
 const EVENTH_RAMP          := 3.0
@@ -815,6 +881,14 @@ const EVENTH_RECAST_DELAY  := 1.2
 const EVENTH_ACQUIRE_RANGE := 950.0
 const EVENTH_HIT_PAD       := 16.0
 const EVENTH_COL           := Color(0.65, 0.15, 0.85)
+# 2026-08-07, on request — a distinct look from Graviton Well's spiral: concentric rings continuously
+# spawning at the current (ramping) rim and collapsing to the centre, looping. See _draw_event_horizon().
+const EVENTH_RING_COUNT    := 4      # concurrent rings, evenly staggered
+const EVENTH_RING_PERIOD   := 1.1    # s for one ring's full rim→centre collapse
+# Sheltering the player's own ship inside its Event Horizon (2026-08-07, on request): darken + full damage
+# immunity, applied purely by distance-to-field each frame — see _tick_event_horizon()'s tail +
+# game_manager.gd's ship_take_damage() guard (queries this instance's event_horizon_field()).
+const EVENTH_PLAYER_DIM_COL := Color(0.35, 0.32, 0.4, 1.0)
 const EVENTH_POOL := {
 	"damage": {"name": "Singularity Mass",   "max": 10, "per": "+10% damage",        "desc": "The void devours faster."},
 	"radius": {"name": "Horizon Expansion",  "max": 5,  "per": "+10% max radius",    "desc": "A wider event horizon at full growth."},
@@ -833,9 +907,9 @@ var _hive_upg: Dictionary = {"damage": 0, "count": 0, "speed": 0, "chain": 0}
 
 var _anni_active: bool = false
 var _anni_charge: float = 0.0
-var _anni_shot: PackedVector2Array = PackedVector2Array()
+var _anni_bolts: Array = []   # this volley's VFX segments — one PackedVector2Array per primary strike (falls from above) + per chain arc
 var _anni_shot_age: float = 0.0
-var _anni_upg: Dictionary = {"damage": 0, "cd": 0, "pierce": 0, "splash": 0}
+var _anni_upg: Dictionary = {"damage": 0, "cd": 0, "chain": 0, "burn": 0}
 
 var _eventh_active: bool = false
 var _eventh_cd: float = 0.0
@@ -844,6 +918,7 @@ var _eventh_pos: Vector2 = Vector2.ZERO
 var _eventh_age: float = 0.0
 var _eventh_tick: float = 0.0
 var _eventh_upg: Dictionary = {"damage": 0, "radius": 0, "pull": 0, "uptime": 0}
+var _eventh_player_sheltered: bool = false   # true while the player's own ship sits inside its Event Horizon — darkens + damage-immune (see _tick_event_horizon / game_manager.gd's ship_take_damage)
 
 # ── Wraithfire: acquire/rank API + fire/tick/draw ──
 func wraith_upgrade_rank(id: String) -> int:
@@ -999,55 +1074,82 @@ func _anni_dmg() -> float:
 func _anni_cooldown() -> float:
 	return ANNI_COOLDOWN * (1.0 - 0.08 * float(_anni_upg["cd"]))
 
+## No aim/facing involved at all — picks up to ANNI_MAX_TARGETS of the nearest live enemies within
+## ANNI_RANGE (all of them if there are fewer) and strikes every one simultaneously, splitting one shared
+## damage pool evenly across however many actually got hit. Each PRIMARY struck target then independently
+## rolls Burn (chance-based) and Chain (rank-deep arc to nearby creeps, see ANNI_CHAIN_RANGE/FRAC's own doc
+## comment above) — chain hops never burn, and never re-strike a target already hit this volley.
 func _tick_annihilator(delta: float, enemy_on_screen: bool) -> void:
 	_anni_charge += delta
 	if _anni_charge < _anni_cooldown() / _rate_mult or not enemy_on_screen:
 		return
-	_anni_charge = 0.0
-	var from := _muzzle()
-	var dir := _forward()
-	var hits := _beam_hits(from, dir, ANNI_RANGE, ANNI_WIDTH * 0.5)
-	var pierce := ANNI_PIERCE + int(_anni_upg["pierce"]) * 2
-	var farthest := from
-	var count := 0
-	for en in hits:
-		if count >= pierce:
-			break
-		if not en.has_method("take_damage"):
+	var candidates: Array = []
+	for en in _enemies():
+		if not is_instance_valid(en) or not en.has_method("take_damage"):
 			continue
-		var r := _roll_damage(_anni_dmg(), "annihilator")
+		var d := (en as Node2D).global_position.distance_to(_player.global_position)
+		if d <= ANNI_RANGE:
+			candidates.append({"en": en, "d": d})
+	if candidates.is_empty():
+		return
+	_anni_charge = 0.0
+	candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return float(a["d"]) < float(b["d"]))
+	var n := mini(ANNI_MAX_TARGETS, candidates.size())
+	var share := _anni_dmg() / float(n)   # 1 hit = the whole pool, 10 hits = 1/10th each
+	var hops := int(_anni_upg["chain"])
+	var burn_chance := ANNI_BURN_CHANCE_PER_RANK * float(_anni_upg["burn"])
+	var struck: Array = []
+	for i in n:
+		struck.append(candidates[i]["en"])
+	_anni_bolts.clear()
+	for en in struck:
+		var ep: Vector2 = (en as Node2D).global_position
+		var r := _roll_damage(share, "annihilator")
 		en.take_damage(float(r["dmg"]), 0.2, 0.0, false, false, bool(r["is_crit"]))
 		if bool(r["is_crit"]):
-			_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
-		count += 1
-		var ep: Vector2 = (en as Node2D).global_position
-		if ep.distance_to(from) > farthest.distance_to(from):
-			farthest = ep
-	if count > 0:
-		var sr := ANNI_SPLASH_RADIUS * (1.0 + 0.15 * float(_anni_upg["splash"]))
-		for en2 in _enemies_near(farthest, sr):
-			if en2 in hits or not en2.has_method("take_damage"):
-				continue
-			var r2 := _roll_damage(_anni_dmg() * ANNI_SPLASH_FRAC, "annihilator")
-			en2.take_damage(float(r2["dmg"]), 0.2, 0.0, false, false, bool(r2["is_crit"]))
-	_anni_shot = PackedVector2Array([from, from + dir * ANNI_RANGE])
+			_spawn_crit_number(ep, float(r["dmg"]))
+		_anni_bolts.append(PackedVector2Array([ep + Vector2(0.0, -ANNI_STRIKE_HEIGHT), ep]))
+		if burn_chance > 0.0 and en.has_method("apply_burn") and _proc(burn_chance):
+			en.apply_burn(1)
+		# Chain: search from wherever the PREVIOUS hop landed (starts at the primary target itself), each
+		# hop dealing a flat ANNI_CHAIN_FRAC of THIS primary's own share — not compounding hop-over-hop.
+		var chain_from := ep
+		var chain_exclude := struck.duplicate()
+		var chain_dmg := share * ANNI_CHAIN_FRAC
+		for h in hops:
+			var target := _nearest_enemy(chain_from, ANNI_CHAIN_RANGE, chain_exclude)
+			if target == null:
+				break
+			chain_exclude.append(target)
+			var cr := _roll_damage(chain_dmg, "annihilator")
+			if target.is_in_group("arena_ruin"):
+				target.take_damage(float(cr["dmg"]), 0.2)
+			else:
+				target.take_damage(float(cr["dmg"]), 0.2, 0.0, false, false, bool(cr["is_crit"]))
+			if bool(cr["is_crit"]):
+				_spawn_crit_number((target as Node2D).global_position, float(cr["dmg"]))
+			var tp: Vector2 = (target as Node2D).global_position
+			_anni_bolts.append(PackedVector2Array([chain_from, tp]))
+			chain_from = tp
 	_anni_shot_age = 0.0
 
 func _tick_anni_shot(delta: float) -> void:
-	if _anni_shot.is_empty():
+	if _anni_bolts.is_empty():
 		return
 	_anni_shot_age += delta
 	if _anni_shot_age > ANNI_FLASH_LIFE:
-		_anni_shot.clear()
+		_anni_bolts.clear()
 
 func _draw_annihilator() -> void:
-	if _anni_shot.size() < 2:
+	if _anni_bolts.is_empty():
 		return
 	var alpha := 1.0 - clampf(_anni_shot_age / ANNI_FLASH_LIFE, 0.0, 1.0)
 	if alpha <= 0.0:
 		return
-	draw_line(_anni_shot[0], _anni_shot[1], Color(ANNI_COL, alpha * 0.5), ANNI_WIDTH, true)
-	draw_line(_anni_shot[0], _anni_shot[1], Color(1.0, 1.0, 1.0, alpha), 6.0, true)
+	for bolt: PackedVector2Array in _anni_bolts:
+		draw_polyline(bolt, Color(ANNI_COL, alpha * 0.6), ANNI_BOLT_WIDTH, true)
+		draw_polyline(bolt, Color(1.0, 1.0, 1.0, alpha), 3.0, true)
+		draw_circle(bolt[bolt.size() - 1], 8.0, Color(ANNI_COL.lightened(0.4), alpha * 0.8))
 
 # ── Event Horizon: acquire/rank API + tick/draw (Graviton Well's bigger, legendary sibling) ──
 func eventh_upgrade_rank(id: String) -> int:
@@ -1081,6 +1183,7 @@ func _eventh_pull_speed() -> float:
 func _tick_event_horizon(delta: float, enemy_on_screen: bool) -> void:
 	if not _eventh_on:
 		_eventh_cd -= delta
+		_set_eventh_player_shelter(false)
 		if _eventh_cd > 0.0 or not enemy_on_screen:
 			return
 		var target := _nearest_enemy(_player.global_position, EVENTH_ACQUIRE_RANGE, [])
@@ -1096,10 +1199,14 @@ func _tick_event_horizon(delta: float, enemy_on_screen: bool) -> void:
 	if _eventh_age >= dur:
 		_eventh_on = false
 		_eventh_cd = EVENTH_RECAST_DELAY / _rate_mult
+		_set_eventh_player_shelter(false)
 		return
 	var t := clampf(_eventh_age / EVENTH_RAMP, 0.0, 1.0)
 	var radius := lerpf(EVENTH_RADIUS_MIN, _eventh_max_radius(), t)
 	var pull := _eventh_pull_speed() * t * delta
+	# Full override (weight = 0 on the enemy's own trajectory) — unlike Graviton Well's additive spiral,
+	# this always wins: whatever the enemy's own _move_step() contributed this frame gets overwritten by a
+	# straight radial pull. Facing/rotation (computed elsewhere off `velocity`) is untouched.
 	for en in _enemies():
 		if not is_instance_valid(en) or en.is_in_group("boss"):
 			continue
@@ -1117,14 +1224,45 @@ func _tick_event_horizon(delta: float, enemy_on_screen: bool) -> void:
 			if _eventh_pos.distance_to((en2 as Node2D).global_position) <= radius + EVENTH_HIT_PAD:
 				var r := _roll_damage(per_tick, "event_horizon")
 				en2.take_damage(float(r["dmg"]), 0.0, 0.0, false, false, bool(r["is_crit"]))
+	# Shelter: the player's OWN ship, if it flies inside its own Event Horizon's radius, darkens and takes
+	# no damage at all (see game_manager.gd's ship_take_damage(), which queries event_horizon_field()).
+	_set_eventh_player_shelter(not _companion and _player != null and is_instance_valid(_player) and _eventh_pos.distance_to(_player.global_position) <= radius)
 
+## Darken (or restore) the player ship's modulate to match the current shelter state — a plain assignment,
+## not a tween, since the state can flip every frame right at the field's edge; cheap enough either way.
+func _set_eventh_player_shelter(on: bool) -> void:
+	if on == _eventh_player_sheltered:
+		return
+	_eventh_player_sheltered = on
+	if _player != null and is_instance_valid(_player):
+		_player.modulate = EVENTH_PLAYER_DIM_COL if on else Color(1, 1, 1, 1)
+
+## Public: is this instance's Event Horizon currently open, and where — read by arena_enemy_manager.gd's
+## _tick_bullets() (redirects any enemy bullet caught inside the radius toward the centre, per request —
+## "creep không thể bắn ra ngoài") and by game_manager.gd's ship_take_damage() (player immunity while
+## sheltered). Companion (Player 2) instances always report inactive.
+func event_horizon_field() -> Dictionary:
+	if _companion or not _eventh_on:
+		return {"active": false}
+	var t := clampf(_eventh_age / EVENTH_RAMP, 0.0, 1.0)
+	return {"active": true, "pos": _eventh_pos, "radius": lerpf(EVENTH_RADIUS_MIN, _eventh_max_radius(), t)}
+
+## Concentric rings continuously spawning at the current (ramping) rim and collapsing to the centre,
+## looping every EVENTH_RING_PERIOD — replaces the old single static circle+arc, per request (distinct
+## from Graviton Well's spiral-arm look). EVENTH_RING_COUNT rings, evenly staggered in their cycle phase.
 func _draw_event_horizon() -> void:
 	if not _eventh_on:
 		return
 	var t := clampf(_eventh_age / EVENTH_RAMP, 0.0, 1.0)
 	var radius := lerpf(EVENTH_RADIUS_MIN, _eventh_max_radius(), t)
-	draw_circle(_eventh_pos, radius, Color(EVENTH_COL, 0.4))
-	draw_arc(_eventh_pos, radius, 0.0, TAU, 40, Color(EVENTH_COL.lightened(0.3), 0.95), 3.0, true)
+	draw_circle(_eventh_pos, radius, Color(EVENTH_COL, 0.25))
+	for i in EVENTH_RING_COUNT:
+		var phase := fmod(_eventh_age + EVENTH_RING_PERIOD * float(i) / float(EVENTH_RING_COUNT), EVENTH_RING_PERIOD) / EVENTH_RING_PERIOD
+		var ring_r := radius * (1.0 - phase)   # 1 (rim) → 0 (centre), then wraps to a fresh ring at the rim
+		if ring_r <= 1.0:
+			continue
+		draw_arc(_eventh_pos, ring_r, 0.0, TAU, 40, Color(EVENTH_COL.lightened(0.3), 0.95 * (1.0 - phase * 0.3)), 3.0, true)
+
 
 # ── TUNABLES: Batch-1 weapons (Nuke / Sonic Wave / Z-Sword / Ionizing Field) ──────
 # Mortar (Little Man, code "Mortar") + Fat Boy (Fat Boy): a mouse-aimed mortarbullet that flies
@@ -2342,7 +2480,7 @@ func _ready() -> void:
 	_crit_host.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_crit_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_crit_layer.add_child(_crit_host)
-	_crit_font = load("res://assets/fonts/Gameplay.ttf") as FontFile   # load ONCE, not per crit number
+	_crit_font = load("res://assets/fonts/mandalore/mandalore.ttf") as FontFile   # load ONCE, not per crit number
 
 ## Fallback (see GAUSS_USE_SPRITE_VFX): load the 24-frame Gauss plasma-orb flipbook (individual transparent
 ## PNGs). CPU Image.load (no import dependency). The FULL frame is kept (NOT cropped to get_used_rect): the
@@ -2655,7 +2793,7 @@ func _process(delta: float) -> void:
 		_tick_hivemind(delta)
 	if _anni_active:
 		_tick_annihilator(delta, enemy_on_screen)
-	if not _anni_shot.is_empty():
+	if not _anni_bolts.is_empty():
 		_tick_anni_shot(delta)
 	if _eventh_active:
 		_tick_event_horizon(delta, enemy_on_screen)
@@ -2985,7 +3123,7 @@ func _spawn_crit_number(world_pos: Vector2, amount: float) -> void:
 	_crit_active += 1
 	var lbl: Label = _crit_pool.pop_back() if not _crit_pool.is_empty() else _make_crit_label()
 	var screen_pos: Vector2 = get_viewport().get_canvas_transform() * world_pos
-	lbl.text = str(roundi(amount))
+	lbl.text = MandaloreText.a(str(roundi(amount)))
 	lbl.modulate.a = 1.0
 	lbl.reset_size()
 	lbl.position = screen_pos + Vector2(randf_range(-10.0, 10.0), -16.0) - lbl.size * 0.5
@@ -3021,19 +3159,33 @@ func gat_set_capstone(id: String) -> void:
 func _gat_lvl() -> int:
 	return weapon_level("gatling_gun")   # 0 if unowned, 1..7
 
-func _gat_pierce_chance() -> float:
-	return clampf(float(_gat_upg["piercing"]) * 0.20, 0.0, 1.0)
+## Pierce budget for a freshly-spawned bullet: HYBRID resolution — 20%/rank chance of ONE extra pierce-through
+## hit, rolled independently per bullet at spawn time (like the Healing Round roll just below it in
+## _spawn_gat_bullet). Guaranteed part is `floor(0.2×rank)`; the leftover fraction is a `_proc()` roll (+
+## Stroke of Luck), so the EXPECTED value is exactly +20%/rank (guaranteed outright every 5th rank, e.g. rank 5
+## = every bullet always pierces once, rank 10 = always twice).
+func _gat_pierce_budget() -> int:
+	var val := 0.2 * float(_gat_upg["piercing"])
+	var guaranteed := int(val)
+	return guaranteed + (1 if _proc(val - float(guaranteed)) else 0)
 
-## How many times a freshly-fired bullet may ricochet: +1 per Bouncing Round rank (pool caps rank at 5).
+## Bounce budget for a freshly-spawned bullet: same HYBRID resolution as _gat_pierce_budget — 20%/rank chance
+## of ONE extra ricochet hit, rolled independently per bullet. (Previously fully deterministic/guaranteed at
+## the old 50%/rank design; now rolls like Piercing since 20% doesn't divide evenly into the 2-bullet base.)
 func _gat_bounces() -> int:
-	return int(_gat_upg["bouncing"])
+	var val := 0.2 * float(_gat_upg["bouncing"])
+	var guaranteed := int(val)
+	return guaranteed + (1 if _proc(val - float(guaranteed)) else 0)
 
 func _gat_fire_bonus() -> float:
-	return float(_gat_upg["quick"]) * 0.16
+	return float(_gat_upg["quick"]) * 0.2   # Quick Round: +20% fire rate per rank
 
+## Multishot: HYBRID resolution, same shape as _gat_bounces/_gat_pierce_budget but resolved ONCE per shot (not
+## per bullet) in _fire_gatling — 0.4/rank = 20% of the 2-bullet base, so the guaranteed+_proc() split there
+## lands on the correct +20%/rank expected value (guaranteed extra bullet every 5th rank).
 func _gat_multishot_chance() -> float:
 	var glob: float = GameManager.mech_bonus("multishot_pct") if GameManager.has_method("mech_bonus") else 0.0
-	return float(_gat_upg["multishot"]) * 0.25 + glob   # local ranks + global (Advance Ballistic etc.)
+	return float(_gat_upg["multishot"]) * 0.4 + glob   # local ranks (0.4 = 20% of the 2-bullet base) + global
 
 func _gat_multishot_flat() -> int:
 	return 2 if _gat_capstone == "spray" else 0   # Spray and Pray capstone
@@ -3042,14 +3194,16 @@ func _gat_spread_deg() -> float:
 	return 15.0 if _gat_capstone == "spray" else GAT_SPREAD_DEG   # Spray and Pray → much wider fan
 
 ## Per-bullet base damage before crit/global mult. Kinetic mastery is GLOBAL (applied in _roll_damage).
+## Hardened Round: multiplicative +20% base damage per rank (was a flat +2/rank additive design). Piercing no
+## longer touches damage directly — its whole contribution is now the extra-hit budget (_gat_pierce_budget).
 func _gat_bullet_base() -> float:
-	return (GAT_DAMAGE + 2.0 * float(_gat_upg["hardened"])) * (1.0 + 0.10 * float(_gat_upg["piercing"]))   # Piercing Round: +10% dmg/rank
+	return GAT_DAMAGE * (1.0 + 0.2 * float(_gat_upg["hardened"]))
 
 func _fire_gatling() -> void:
 	# Twin-barrel volley: LEFT-wing bullets (even slot n) fire immediately; RIGHT-wing bullets (odd n)
 	# fire GAT_FIRE_STAGGER (0.2s) later — so the left barrel visibly leads the right. Any Multishot extra
 	# bullets fan out to wider slots but keep the same even=now / odd=+delay rule.
-	var ms := _gat_multishot_chance()    # total multishot value (0.25/rank + globals); 1.0 = one guaranteed extra
+	var ms := _gat_multishot_chance()    # total multishot value (0.4/local rank + globals); 1.0 = one guaranteed extra
 	var extra := _gat_multishot_flat()   # Spray and Pray capstone flat bonus
 	extra += int(ms)                     # every full 100% = a guaranteed extra bullet (triple, quad, …)
 	if _proc(ms - float(int(ms))):       # leftover fraction = chance for one more (+ Stroke of Luck)
@@ -3086,7 +3240,7 @@ func _spawn_gat_bullet(n: int) -> void:
 		var slot := float(n / 2)                  # 0,0,1,1,2,2…  (pair index → distance out)
 		var sgn := -1.0 if (n % 2 == 0) else 1.0   # alternate left / right
 		start = base + perp * (sgn * GAT_WING_SPACING * (0.5 + slot * 0.6))
-	var bullet := {"pos": start, "vel": dir * GAT_SPEED * _weapon_speed_mult(), "life": 0.0, "start": start, "kind": "gatling_gun", "hits": [], "bounces": _gat_bounces()}
+	var bullet := {"pos": start, "vel": dir * GAT_SPEED * _weapon_speed_mult(), "life": 0.0, "start": start, "kind": "gatling_gun", "hits": [], "bounces": _gat_bounces(), "pierce": _gat_pierce_budget()}
 	# Healing Round capstone: a directly-fired bullet has a 1-in-GAT_HEAL_ODDS chance to be a healing bullet.
 	if _gat_capstone == "healing" and randi() % GAT_HEAL_ODDS == 0:
 		bullet["healing"] = true
@@ -4176,7 +4330,7 @@ func _process_chemtrail_puffs(delta: float, kind: String) -> void:
 			_chem_sat_t -= 2.0
 			var next := {}
 			for en in _enemies():
-				if is_instance_valid(en) and _chemtrail_covers((en as Node2D).global_position):
+				if is_instance_valid(en) and _chemtrail_covers_any(en):
 					var eid := (en as Node2D).get_instance_id()
 					next[eid] = float(_chem_sat.get(eid, 0.0)) + 0.25   # +25% ramp per 2s sustained
 			_chem_sat = next
@@ -4196,15 +4350,14 @@ func _chemtrail_dot_tick(kind := "chemtrail") -> void:
 	for en in _enemies():
 		if not is_instance_valid(en):
 			continue
-		var ep := (en as Node2D).global_position
-		if _chemtrail_covers(ep) and en.has_method("take_damage"):
+		if _chemtrail_covers_any(en) and en.has_method("take_damage"):
 			var dmg_base := base
 			if saturating:
 				dmg_base *= 1.0 + float(_chem_sat.get((en as Node2D).get_instance_id(), 0.0))
 			var r := _roll_damage(dmg_base, kind)
 			en.take_damage(float(r["dmg"]), 0.0)
 			if bool(r["is_crit"]):
-				_spawn_crit_number(ep, float(r["dmg"]))
+				_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
 			if burn_ch > 0.0 and en.has_method("apply_burn") and _proc(burn_ch * tick_int):
 				en.call("apply_burn", 1)
 			if sed > 0.0 and en.has_method("apply_sedative"):
@@ -4219,6 +4372,18 @@ func _chemtrail_dot_tick(kind := "chemtrail") -> void:
 func _chemtrail_covers(p: Vector2) -> bool:
 	for puff: Dictionary in _chemtrail_puffs:
 		if p.distance_to(puff["pos"]) <= float(puff["radius"]):
+			return true
+	return false
+
+## True if ANY point of `en`'s hittable body (every segment for Centipede, just its own position for
+## everyone else — see arena_enemy.gd's hit_points()) sits inside any live puff. Coverage is area-vs-area,
+## not point-vs-point, so this can't reuse _hit_pos()'s "nearest point to ONE external reference" shortcut —
+## a segment near the puff center still counts even if the enemy's own global_position (the head, for
+## Centipede) happens to sit outside every puff.
+func _chemtrail_covers_any(en: Node) -> bool:
+	var pts: Array = en.call("hit_points") if en.has_method("hit_points") else [(en as Node2D).global_position]
+	for pt: Vector2 in pts:
+		if _chemtrail_covers(pt):
 			return true
 	return false
 
@@ -5816,39 +5981,49 @@ func _reflect_bullet(b: Dictionary, hit_pos: Vector2) -> void:
 	b["life"] = 0.0        # reset lifetime so it can fly back across the screen
 
 ## On a Gatling bullet hit: maybe BOUNCE (redirect to a perpendicular nearby foe) or PIERCE (continue straight).
-## Returns true if the bullet survives, false if it should die.
+## Both budgets are deterministic (set at fire time by _gat_bounces/_gat_pierce_budget — no RNG here at all,
+## unlike the old _proc-rolled pierce chance). Spend a bounce only when a fresh target actually exists, so a
+## wasted look doesn't burn the budget. Returns true if the bullet (or a clone) survives, false if it should die.
 func _gat_bounce_or_pierce(b: Dictionary) -> bool:
-	var vel: Vector2 = b["vel"]
-	var pierced := _proc(_gat_pierce_chance())   # + Stroke of Luck
-	# Bouncing Round: a GUARANTEED ricochet per remaining bounce in this bullet's budget (+1 per rank at fire
-	# time). Spend one only when a fresh target actually exists, so a wasted look doesn't burn the budget.
+	var bounce_left := int(b.get("bounces", 0))
+	var pierce_left := int(b.get("pierce", 0))
 	var tgt: Node = null
-	if int(b.get("bounces", 0)) > 0:
-		tgt = _gat_bounce_target(b["pos"], vel, b["hits"])
-	if tgt == null:
-		return pierced   # nothing to ricochet into → pierce alone decides whether the bullet lives
-	var left := int(b["bounces"]) - 1
-	var newdir := ((tgt as Node2D).global_position - (b["pos"] as Vector2)).normalized()
-	b["bounces"] = left
-	if pierced:
-		# BOTH procced → split: the original ploughs straight on, a clone peels off to take the ricochet.
-		_gat_spawn_bounce_clone(b, newdir, left)
+	if bounce_left > 0:
+		tgt = _gat_bounce_target(b["pos"], b["vel"], b["hits"])
+	var will_bounce := tgt != null
+	var will_pierce := pierce_left > 0
+	if not will_bounce and not will_pierce:
+		return false   # both budgets spent (or no bounce target in range) → bullet dies
+	var newdir := Vector2.ZERO
+	if will_bounce:
+		newdir = ((tgt as Node2D).global_position - (b["pos"] as Vector2)).normalized()
+		b["bounces"] = bounce_left - 1
+	if will_pierce:
+		b["pierce"] = pierce_left - 1
+	if will_bounce and will_pierce:
+		# BOTH have budget this hit → split: the original ploughs straight on (pierce), a clone peels off to
+		# take the ricochet (bounce), each carrying its own now-decremented budgets onward.
+		_gat_spawn_bounce_clone(b, newdir, int(b["bounces"]), int(b["pierce"]))
 		return true
-	# Bounce only → the bullet itself takes the ricochet.
-	b["vel"] = newdir * GAT_SPEED * _weapon_speed_mult()
-	b["start"] = b["pos"]   # refresh the travel-distance budget so it doesn't instantly despawn
-	return true
+	if will_bounce:
+		# Bounce only → the bullet itself takes the ricochet.
+		b["vel"] = newdir * GAT_SPEED * _weapon_speed_mult()
+		b["start"] = b["pos"]   # refresh the travel-distance budget so it doesn't instantly despawn
+		return true
+	return true   # pierce only → bullet just keeps flying straight, nothing to change
 
 ## The ricochet half of a pierce+bounce hit: a fresh bullet at the impact point flying at `dir`, inheriting the
-## parent's hit list (so it can't re-hit what the parent already hit) and its remaining bounce budget. Shares the
-## parent's `life` clock so a splitting chain still dies at GAT_LIFETIME rather than renewing itself forever.
-## Appended to the end of _bullets — _tick_bullets walks the index DOWNWARD, so it isn't re-processed this frame.
-func _gat_spawn_bounce_clone(parent: Dictionary, dir: Vector2, bounces_left: int) -> void:
+## parent's hit list (so it can't re-hit what the parent already hit) and its remaining bounce/pierce budgets.
+## Shares the parent's `life` clock so a splitting chain still dies at GAT_LIFETIME rather than renewing itself
+## forever. Appended to the end of _bullets — _tick_bullets walks the index DOWNWARD, so it isn't re-processed
+## this frame.
+func _gat_spawn_bounce_clone(parent: Dictionary, dir: Vector2, bounces_left: int, pierce_left: int) -> void:
 	var pos: Vector2 = parent["pos"]
 	var clone := {
 		"pos": pos, "vel": dir * GAT_SPEED * _weapon_speed_mult(),
 		"life": float(parent.get("life", 0.0)), "start": pos,   # fresh distance budget, inherited age
-		"kind": "gatling_gun", "hits": (parent["hits"] as Array).duplicate(), "bounces": bounces_left,
+		"kind": "gatling_gun", "hits": (parent["hits"] as Array).duplicate(),
+		"bounces": bounces_left, "pierce": pierce_left,
 	}
 	if bool(parent.get("healing", false)):
 		clone["healing"] = true
@@ -6519,7 +6694,7 @@ func _fire_mitigation_shockwave() -> void:
 	for en in _enemies() + _ruins():
 		if not is_instance_valid(en):
 			continue
-		if center.distance_to((en as Node2D).global_position) <= REACTIVE_RADIUS:
+		if center.distance_to(_hit_pos(en, center)) <= REACTIVE_RADIUS:
 			if en.has_method("take_damage"):
 				var r := _roll_damage(REACTIVE_DAMAGE, "")   # kinetic (global dmg mult + crit; no per-weapon scaling)
 				en.take_damage(float(r["dmg"]), 0.3)
@@ -6599,7 +6774,7 @@ func _tick_sonic(delta: float, enemy_on_screen: bool) -> void:
 		for en in _enemies() + _ruins():
 			if not is_instance_valid(en) or en in hit:
 				continue
-			var off := (en as Node2D).global_position - center
+			var off := _hit_pos(en, center) - center
 			# Hit only enemies the arc front sweeps AND that lie within the forward cone.
 			if absf(off.length() - r) <= SONIC_BAND and absf(wrapf(off.angle() - aim, -PI, PI)) <= cone:
 				if en.has_method("take_damage"):
@@ -6669,7 +6844,7 @@ func _zsword_enemy_in_range() -> bool:
 	for en in _enemies() + _ruins():
 		if not is_instance_valid(en):
 			continue
-		if ((en as Node2D).global_position - center).length() <= reach:
+		if (_hit_pos(en, center) - center).length() <= reach:
 			return true
 	return false
 
@@ -6722,7 +6897,7 @@ func _tick_zsword(delta: float, enemy_on_screen: bool) -> void:
 	for en in _enemies() + _ruins():
 		if not is_instance_valid(en) or en in _zsword_hit:
 			continue
-		var off := (en as Node2D).global_position - center
+		var off := _hit_pos(en, center) - center
 		if off.length() > reach:
 			continue
 		if absf(wrapf(off.angle() - blade_ang, -PI, PI)) <= ZSWORD_ARC_HALF:
@@ -7192,7 +7367,7 @@ func _tick_para(delta: float, enemy_on_screen: bool) -> void:
 			for en in _enemies() + _ruins():
 				if not is_instance_valid(en):
 					continue
-				if cp.distance_to((en as Node2D).global_position) <= reach:
+				if cp.distance_to(_hit_pos(en, cp)) <= reach:
 					if en.has_method("take_damage"):
 						var r := _roll_damage(_para_dmg(), "venomancer")
 						en.take_damage(float(r["dmg"]), 0.0)
@@ -7322,7 +7497,7 @@ func _tick_moro(delta: float) -> void:
 			for en in _enemies() + _ruins():
 				if not is_instance_valid(en):
 					continue
-				if tp.distance_to((en as Node2D).global_position) <= reach:
+				if tp.distance_to(_hit_pos(en, tp)) <= reach:
 					if en.has_method("take_damage"):
 						var r := _roll_damage(MORO_DAMAGE, "yari")
 						if en.is_in_group("arena_ruin"):
@@ -7490,7 +7665,7 @@ func _tick_yari(delta: float) -> void:
 		for en in _enemies() + _ruins():
 			if not is_instance_valid(en) or en in _yari_hit:
 				continue
-			var off := (en as Node2D).global_position - _yari_pos
+			var off := _hit_pos(en, _yari_pos) - _yari_pos
 			if off.length() <= reach and absf(wrapf(off.angle() - blade_ang, -PI, PI)) <= YARI_ARC_HALF:
 				if en.has_method("take_damage"):
 					var r := _roll_damage(YARI_DAMAGE, "yari_jaeger")
@@ -7989,7 +8164,7 @@ func _best_beam_dir(head: Vector2) -> Vector2:
 	for cand in enemies:
 		if not is_instance_valid(cand):
 			continue
-		var cd: Vector2 = (cand as Node2D).global_position - head
+		var cd: Vector2 = _hit_pos(cand, head) - head
 		if cd.length() < 1.0:
 			continue
 		var dir := cd.normalized()
@@ -7997,7 +8172,7 @@ func _best_beam_dir(head: Vector2) -> Vector2:
 		for en in enemies:
 			if not is_instance_valid(en):
 				continue
-			var to_e: Vector2 = (en as Node2D).global_position - head
+			var to_e: Vector2 = _hit_pos(en, head) - head
 			var along := to_e.dot(dir)
 			if along < 0.0 or along > DEATHBEAM_RANGE:
 				continue
@@ -8494,7 +8669,7 @@ func _tick_vampire(delta: float) -> void:
 		for en in _enemies() + _ruins():
 			if not is_instance_valid(en) or en in hit:
 				continue
-			var off := (en as Node2D).global_position - c
+			var off := _hit_pos(en, c) - c
 			if absf(off.length() - r) <= SONIC_BAND and absf(wrapf(off.angle() - aim, -PI, PI)) <= SONIC_CONE_HALF:
 				if en.has_method("take_damage"):
 					var rr := _roll_damage(SONIC_DAMAGE * VAMPIRE_DMG_FRAC, "vampire_host")

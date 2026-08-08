@@ -120,9 +120,9 @@ const M3_SPAWN_MUZZLE := 4
 const SPAWNING_CLIP  := "Spawning stuff"
 const M3_ENEMY_IDS := ["fly", "bug", "bee"]   # rotation 1 / 2 / 3
 const M3_ENEMY_DEFS := {
-	"fly": {"behavior": "chase", "hp": 20.0,   "speed": 120.0, "size": 7.2,  "contact": 2, "explodes": true, "xp": 10.0,  "icon": "res://assets/enemiesHD/flie1.png"},
-	"bug": {"behavior": "chase", "hp": 200.0,  "speed": 100.0, "size": 15.4, "contact": 3, "explodes": true, "xp": 50.0,  "icon": "res://assets/enemiesHD/animalbug.png"},
-	"bee": {"behavior": "chase", "hp": 1000.0, "speed": 110.0, "size": 12.0, "contact": 3, "explodes": true, "xp": 100.0, "icon": "res://assets/enemiesHD/animalbee.png"},
+	"fly": {"behavior": "chase", "hp": 20.0,   "speed": 120.0, "size": 7.2,  "contact": 2, "explodes": true, "xp": 100.0,  "icon": "res://assets/enemiesHD/flie1.png"},
+	"bug": {"behavior": "chase", "hp": 200.0,  "speed": 100.0, "size": 15.4, "contact": 3, "explodes": true, "xp": 500.0,  "icon": "res://assets/enemiesHD/animalbug.png"},
+	"bee": {"behavior": "chase", "hp": 1000.0, "speed": 110.0, "size": 12.0, "contact": 3, "explodes": true, "xp": 1000.0, "icon": "res://assets/enemiesHD/animalbee.png"},
 }
 
 # ── Move 4 ──
@@ -221,7 +221,7 @@ var _hp: float = 4000.0
 var _hp_max: float = 4000.0
 # ── Arena boss stats (set by configure() when the wave director spawns it) ──
 var _armor: float = 0.0
-var _xp: float = 30.0
+var _xp: float = 300.0   # fallback only — real value always comes from ENEMY_DEFS["scorpion"]["xp"] via configure()
 var _mgr: Node = null
 var _dead: bool = false
 
@@ -308,7 +308,7 @@ func configure(_type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_hp_max = float(def.get("hp", _hp_max))
 	_hp = _hp_max
 	_armor = float(def.get("armor", 0.0))
-	_xp = float(def.get("xp", 30.0))
+	_xp = float(def.get("xp", 300.0))
 	_enabled = { "m1": true, "m2": true, "m3": true, "m4": true }   # exact spec = the full 4-move set
 
 func _ready() -> void:

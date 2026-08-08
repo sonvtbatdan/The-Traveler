@@ -40,10 +40,10 @@ drone/thrust/hull, và một đợt cân bằng. Chi tiết từng task (file:li
 - **20 vũ khí thường** = 13 cũ + **7 mới**: `ricochet_cannon`, `flak_burst`, `shockwave_emitter`,
   `tesla_coil`, `railgun`, `mortar`, `splash_hammer`. Hai fire_type mới: `radial` (sóng xung quanh) và
   `splash_melee` (chém AoE phía trước).
-- **10 vũ khí unique** (ghép từ mảnh, không bao giờ roll ngẫu nhiên), kèm danh sách `fragments`:
-  - very_rare (3 mảnh): `singularity_lance`, `hailstorm`, `wraithfire`
-  - unique (4 mảnh): `hivemind`, `prism_array`, `graviton_well`, `thunderhead`
-  - legendary (5 mảnh): `annihilator`, `omega_swarm`, `event_horizon`
+- **1 vũ khí unique còn lại** (ghép từ mảnh, không bao giờ roll ngẫu nhiên): `graviton_well` (unique,
+  4 mảnh). 2026-08-06, theo yêu cầu: 9 vũ khí unique còn lại (`singularity_lance`, `hailstorm`,
+  `wraithfire`, `hivemind`, `prism_array`, `thunderhead`, `annihilator`, `omega_swarm`, `event_horizon`)
+  đã bị xoá hoàn toàn khỏi code — chưa từng có icon art, xem git history nếu cần khôi phục.
 - **`weapon_stats.gd` (mới)**: `raw_stat / get_stat / resolve_def / roll_crit`. `weapon_system.gd`
   uỷ quyền 4 hàm (`get_weapon_stat / _stat / _equipped_def / _roll_crit`) sang đây — giữ nguyên hành vi.
 - **`arena_loadout.gd` (mới)**: engine bắn theo trang bị, dispatch đủ fire_mode (repeat/charge/beam/

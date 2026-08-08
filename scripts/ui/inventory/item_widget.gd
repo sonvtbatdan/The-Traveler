@@ -93,14 +93,14 @@ func _display_name() -> String:
 ## placeholder widget and on the drag preview.
 func _make_name_label(def: Dictionary) -> Label:
 	var lbl := Label.new()
-	lbl.text = _display_name()
+	lbl.text = MandaloreText.a(_display_name())
 	lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	lbl.clip_text = true
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var font := load("res://assets/fonts/Gameplay.ttf") as FontFile
+	var font := load("res://assets/fonts/mandalore/mandalore.ttf") as FontFile
 	if font != null:
 		lbl.add_theme_font_override("font", font)
 	lbl.add_theme_font_size_override("font_size", 9)
@@ -116,7 +116,7 @@ func _make_name_label(def: Dictionary) -> Label:
 ## separator → affix lines (blue). No affixes → just name + base stats.
 func _make_custom_tooltip(_for_text: String) -> Object:
 	var def: Dictionary = InventoryManager.get_def(def_id)
-	var font := load("res://assets/fonts/Gameplay.ttf") as FontFile
+	var font := load("res://assets/fonts/mandalore/mandalore.ttf") as FontFile
 	var disp_col: Color = InventoryManager.item_display_color(uid)   # white = no affixes, blue = affixed
 
 	var panel := PanelContainer.new()
@@ -170,7 +170,7 @@ func _make_custom_tooltip(_for_text: String) -> Object:
 
 func _tt_label(text: String, color: Color, size: int, font: FontFile) -> Label:
 	var l := Label.new()
-	l.text = text
+	l.text = MandaloreText.a(text)
 	if font != null:
 		l.add_theme_font_override("font", font)
 	l.add_theme_font_size_override("font_size", size)

@@ -3,7 +3,8 @@ extends Control
 ## top-right kill + coin counter. Reads GameManager run state and re-pins itself on viewport resize.
 ## Hosted in the arena "UI" CanvasLayer (screen space) — see arena._build_ui().
 
-const FONT_PATH := "res://assets/fonts/Gameplay.ttf"
+const FONT_PATH := "res://assets/fonts/mandalore/mandalore.ttf"
+const COIN_ICON_PATH := "res://assets/screen/coin.png"
 
 # ── XP bar geometry ──
 const XP_H            := 9.0     # bar height — thin strip hugging the top edge
@@ -35,7 +36,7 @@ var _lv_label: Label     = null   # right: "Level N"
 # Top-right counter nodes
 var _kill_icon:  ColorRect = null
 var _kill_label: Label     = null
-var _coin_icon:  ColorRect = null
+var _coin_icon:  TextureRect = null
 var _coin_label: Label     = null
 
 func _ready() -> void:
@@ -82,7 +83,7 @@ func _build() -> void:
 	_kill_label = _make_label(Color("#FFE7E7"), HORIZONTAL_ALIGNMENT_LEFT)
 	add_child(_kill_label)
 
-	_coin_icon = _make_icon(Color(0.95, 0.80, 0.20, 0.95))  # placeholder square — swap for a coin icon later
+	_coin_icon = _make_texture_icon(COIN_ICON_PATH)   # 2026-08-06: real coin art, was a yellow placeholder square
 	add_child(_coin_icon)
 	_coin_label = _make_label(Color("#FFF4C2"), HORIZONTAL_ALIGNMENT_LEFT)
 	add_child(_coin_label)
@@ -104,6 +105,18 @@ func _make_icon(color: Color) -> ColorRect:
 	var r := ColorRect.new()
 	r.color = color
 	r.size = Vector2(TR_ICON, TR_ICON)
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return r
+
+## Real-art icon scaled to fit the same TR_ICON×TR_ICON box the old placeholder ColorRects used (rescaled
+## DOWN to fit, aspect preserved — same EXPAND_IGNORE_SIZE + STRETCH_KEEP_ASPECT_CENTERED idiom hub_screen.gd
+## uses for its own item-grid icons).
+func _make_texture_icon(path: String) -> TextureRect:
+	var r := TextureRect.new()
+	r.texture = load(path) as Texture2D
+	r.size = Vector2(TR_ICON, TR_ICON)
+	r.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	r.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return r
 
@@ -138,19 +151,19 @@ func _relayout() -> void:
 
 # ── Live updates ──
 func _on_xp_changed(xp: int, xp_to_next: int) -> void:
-	_xp_label.text = "%d / %d" % [xp, xp_to_next]
+	_xp_label.text = MandaloreText.a("%d / %d" % [xp, xp_to_next])
 	_refresh_xp_fill()
 
 func _on_level_changed(level: int) -> void:
-	_lv_label.text = "Level %d" % level
+	_lv_label.text = MandaloreText.a("Level %d" % level)
 	# Refresh the bar text/fill against the new threshold even if xp_changed fires separately.
 	_on_xp_changed(GameManager.player_xp, GameManager.xp_to_next(level))
 
 func _on_money_changed(amount: int) -> void:
-	_coin_label.text = str(amount)
+	_coin_label.text = MandaloreText.a(str(amount))
 
 func _on_kills_changed(kills: int) -> void:
-	_kill_label.text = str(kills)
+	_kill_label.text = MandaloreText.a(str(kills))
 
 ## Target XP fraction toward the next level.
 func _xp_target() -> float:

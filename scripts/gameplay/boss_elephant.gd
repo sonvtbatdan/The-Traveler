@@ -295,13 +295,13 @@ func _show_victory_screen() -> void:
 	var cx := vp_sz.x / 2.0
 	var cy := vp_sz.y / 2.0
 
-	var font_path := "res://assets/fonts/Gameplay.ttf"
+	var font_path := "res://assets/fonts/mandalore/mandalore.ttf"
 	var font: FontFile = null
 	if ResourceLoader.exists(font_path):
 		font = load(font_path) as FontFile
 
 	var title := Label.new()
-	title.text = "DISASTER AVOIDED"
+	title.text = MandaloreText.a("DISASTER AVOIDED")
 	title.add_theme_font_size_override("font_size", 28)
 	title.add_theme_color_override("font_color", Color(0.3, 1.0, 0.45))
 	title.size = Vector2(640.0, 60.0)
@@ -312,7 +312,7 @@ func _show_victory_screen() -> void:
 	bg.add_child(title)
 
 	var btn := Button.new()
-	btn.text = "Continue to Universe"
+	btn.text = MandaloreText.a("Continue to Universe")
 	btn.size = Vector2(240.0, 44.0)
 	btn.position = Vector2(cx - 120.0, cy + 10.0)
 	if font != null:

@@ -44,7 +44,7 @@ const BoardDefs  := preload("res://scripts/ui/boards/board_defs.gd")
 const CFG_PATH   := "user://settings.cfg"
 const ASSET_DIR  := "res://assets/hud/mainmenu/"
 const FONT_TITLE := "res://assets/fonts/Good Old DOS.ttf"
-const FONT_BODY  := "res://assets/fonts/Gameplay.ttf"
+const FONT_BODY  := "res://assets/fonts/mandalore/mandalore.ttf"
 const DEF_VOLUME := 1.0
 const DEF_FULLSCREEN := false
 const DEF_HUD_VERSION := "hud"   # board_defs.gd id for "HUD 1.0"
@@ -134,6 +134,8 @@ var _lang_opt: OptionButton = null
 var _dev_chk: CheckButton = null
 var _fps_chk: CheckButton = null
 var _auto_aim_chk: CheckButton = null
+var _reset_profile_dialog: ConfirmationDialog = null
+var _cursor_popup: PopupPanel = null
 
 func _ready() -> void:
 	layer = 100
@@ -215,7 +217,7 @@ func _build_ui() -> void:
 
 	# ── Volume ──
 	var vol_lbl := Label.new()
-	vol_lbl.text = "Volume"
+	vol_lbl.text = MandaloreText.a("Volume")
 	_font(vol_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
 	col.add_child(vol_lbl)
 	var vol_row := HBoxContainer.new()
@@ -237,7 +239,7 @@ func _build_ui() -> void:
 
 	# ── Graphic ──
 	var gfx_lbl := Label.new()
-	gfx_lbl.text = "Graphic"
+	gfx_lbl.text = MandaloreText.a("Graphic")
 	_font(gfx_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
 	col.add_child(gfx_lbl)
 	var gfx_row := HBoxContainer.new()
@@ -252,7 +254,7 @@ func _build_ui() -> void:
 
 	# ── HUD ──
 	var hud_lbl := Label.new()
-	hud_lbl.text = "HUD"
+	hud_lbl.text = MandaloreText.a("HUD")
 	_font(hud_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
 	col.add_child(hud_lbl)
 	_hud_opt = OptionButton.new()
@@ -266,7 +268,7 @@ func _build_ui() -> void:
 
 	# ── Language ──
 	var lang_lbl := Label.new()
-	lang_lbl.text = "Language"
+	lang_lbl.text = MandaloreText.a("Language")
 	_font(lang_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
 	col.add_child(lang_lbl)
 	_lang_opt = OptionButton.new()
@@ -283,7 +285,7 @@ func _build_ui() -> void:
 	dev_row.add_theme_constant_override("separation", 10)
 	col.add_child(dev_row)
 	var dev_lbl := Label.new()
-	dev_lbl.text = "Dev Mode"
+	dev_lbl.text = MandaloreText.a("Dev Mode")
 	dev_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_font(dev_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
 	dev_row.add_child(dev_lbl)
@@ -296,7 +298,7 @@ func _build_ui() -> void:
 	fps_row.add_theme_constant_override("separation", 10)
 	col.add_child(fps_row)
 	var fps_lbl := Label.new()
-	fps_lbl.text = "FPS"
+	fps_lbl.text = MandaloreText.a("FPS")
 	fps_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_font(fps_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
 	fps_row.add_child(fps_lbl)
@@ -309,13 +311,28 @@ func _build_ui() -> void:
 	auto_aim_row.add_theme_constant_override("separation", 10)
 	col.add_child(auto_aim_row)
 	var auto_aim_lbl := Label.new()
-	auto_aim_lbl.text = "Auto-Aim"
+	auto_aim_lbl.text = MandaloreText.a("Auto-Aim")
 	auto_aim_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_font(auto_aim_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
 	auto_aim_row.add_child(auto_aim_lbl)
 	_auto_aim_chk = CheckButton.new()
 	_auto_aim_chk.toggled.connect(_on_auto_aim_toggled)
 	auto_aim_row.add_child(_auto_aim_chk)
+
+	# ── Custom Mouse (2026-08-06, on request) ──
+	var cursor_row := HBoxContainer.new()
+	cursor_row.add_theme_constant_override("separation", 10)
+	col.add_child(cursor_row)
+	var cursor_lbl := Label.new()
+	cursor_lbl.text = MandaloreText.a("Custom Mouse")
+	cursor_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_font(cursor_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
+	cursor_row.add_child(cursor_lbl)
+	var cursor_btn := Button.new()
+	cursor_btn.text = MandaloreText.a("Choose...")
+	_font_btn(cursor_btn, 14)
+	cursor_btn.pressed.connect(_open_cursor_picker)
+	cursor_row.add_child(cursor_btn)
 
 	col.add_child(HSeparator.new())
 
@@ -329,9 +346,23 @@ func _build_ui() -> void:
 	btn_row.add_child(_img_btn("cancel.png", _on_cancel))
 	btn_row.add_child(_img_btn("quit.png",   _on_quit))
 
+	# ── Reset Profile (destructive — wipes money/blueprints/loadout/inventory back to a fresh start) ──
+	# Deliberately separate from the "Reset" image button above (that one only reverts THIS panel's own
+	# settings fields — volume/fullscreen/HUD/language — to their defaults, live, not persisted till Save).
+	# Plain red text button, not another icon, so it doesn't visually blend in with the routine Save/Reset/
+	# Cancel/Quit row and get pressed by accident.
+	var reset_profile_btn := Button.new()
+	reset_profile_btn.text = MandaloreText.a("RESET PROFILE (delete save)")
+	reset_profile_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_font_btn(reset_profile_btn, 14)
+	reset_profile_btn.add_theme_color_override("font_color", Color(0.95, 0.35, 0.30))
+	reset_profile_btn.add_theme_color_override("font_hover_color", Color(1.0, 0.5, 0.45))
+	reset_profile_btn.pressed.connect(_on_reset_profile_pressed)
+	col.add_child(reset_profile_btn)
+
 func _mode_btn(text: String) -> Button:
 	var b := Button.new()
-	b.text = text
+	b.text = MandaloreText.a(text)
 	b.toggle_mode = false
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.custom_minimum_size = Vector2(0.0, 42.0)
@@ -357,7 +388,7 @@ func _on_slider(v: float) -> void:
 	if _updating:
 		return
 	_cur_vol = clampf(v / 100.0, 0.0, 1.0)
-	_pct_lbl.text = "%d%%" % int(round(v))
+	_pct_lbl.text = MandaloreText.a("%d%%" % int(round(v)))
 	_apply_volume(_cur_vol)
 
 func _on_mode(fullscreen: bool) -> void:
@@ -444,7 +475,7 @@ func _apply_auto_aim(v: bool) -> void:
 func _sync_controls() -> void:
 	_updating = true
 	_slider.value = _cur_vol * 100.0
-	_pct_lbl.text = "%d%%" % int(round(_cur_vol * 100.0))
+	_pct_lbl.text = MandaloreText.a("%d%%" % int(round(_cur_vol * 100.0)))
 	_update_mode_highlight()
 	for i in _hud_opt.item_count:
 		if String(_hud_opt.get_item_metadata(i)) == _cur_hud:
@@ -517,6 +548,100 @@ func _on_quit() -> void:
 		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 	else:
 		get_tree().quit()
+
+## Destructive — confirmed via _reset_profile_dialog before anything actually happens. User feedback: "reset
+## lại profile người chơi, giờ đây trong kho (equipment) chỉ có vũ khí cơ bản là gatling gun... Mechanic cũng
+## reset, chưa có vũ khí gì để mua."
+func _on_reset_profile_pressed() -> void:
+	if _reset_profile_dialog == null:
+		_reset_profile_dialog = ConfirmationDialog.new()
+		_reset_profile_dialog.title = "Reset Profile"
+		_reset_profile_dialog.dialog_text = "Delete ALL progress — coins, unlocked blueprints, loadout, inventory, gear, passives? Only the basic Gatling Gun will remain. This cannot be undone."
+		_reset_profile_dialog.ok_button_text = "Delete everything"
+		_reset_profile_dialog.confirmed.connect(_on_reset_profile_confirmed)
+		add_child(_reset_profile_dialog)
+	_reset_profile_dialog.popup_centered()
+
+## Wipes each autoload's own slice of user://save.cfg back to a fresh-start profile (see each manager's own
+## reset_profile() for exactly what that means), then returns to the Main Menu — same navigation as _on_quit()
+## — so nothing is left showing a live run's now-stale in-scene state (equipped weapons/ship HP etc.).
+func _on_reset_profile_confirmed() -> void:
+	for mgr in [GameManager, MetaManager, InventoryManager]:
+		if mgr != null and mgr.has_method("reset_profile"):
+			mgr.reset_profile()
+	get_tree().paused = false
+	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+
+# ── Custom Mouse picker (2026-08-06, on request) ──────────────────────────────────
+# 4×4 grid of 20×20px cells — GameManager.CURSOR_OPTIONS has 14 entries (Default + 13 icons), so the last 2
+# cells are left blank per explicit follow-up ("4x4 nhưng ẩn 2 ô trống đi" — ẩn, not just empty-looking, so
+# they're a bare invisible Control, not even a faint empty-button outline). Picking a cell both live-applies
+# the cursor immediately (GameManager.apply_cursor) and persists the choice to settings.cfg so it survives
+# a restart (GameManager._apply_saved_cursor() reads it back at the next boot).
+const CURSOR_GRID_COLS := 4
+const CURSOR_GRID_ROWS := 4
+const CURSOR_CELL := 50.0   # 2026-08-06: bumped from 20 so icons actually read clearly, per feedback
+
+func _open_cursor_picker() -> void:
+	if _cursor_popup == null:
+		_build_cursor_popup()
+	_cursor_popup.popup_centered()
+
+func _build_cursor_popup() -> void:
+	_cursor_popup = PopupPanel.new()
+	add_child(_cursor_popup)
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	_cursor_popup.add_child(margin)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 8)
+	margin.add_child(vb)
+	var title := Label.new()
+	title.text = MandaloreText.a("Choose Cursor")
+	_font(title, FONT_BODY, 16, Color(0.9, 0.92, 1.0))
+	vb.add_child(title)
+	var grid := GridContainer.new()
+	grid.columns = CURSOR_GRID_COLS
+	grid.add_theme_constant_override("h_separation", 6)
+	grid.add_theme_constant_override("v_separation", 6)
+	vb.add_child(grid)
+	var total := CURSOR_GRID_COLS * CURSOR_GRID_ROWS
+	var opts: Array = GameManager.CURSOR_OPTIONS
+	for i in total:
+		if i >= opts.size():
+			var blank := Control.new()   # invisible filler — not a button, no hover/click affordance at all
+			blank.custom_minimum_size = Vector2(CURSOR_CELL, CURSOR_CELL)
+			blank.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			grid.add_child(blank)
+			continue
+		grid.add_child(_make_cursor_cell(opts[i] as Dictionary))
+
+func _make_cursor_cell(opt: Dictionary) -> Control:
+	var id := String(opt["id"])
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(CURSOR_CELL, CURSOR_CELL)
+	btn.tooltip_text = String(opt.get("label", id.capitalize()))
+	var icon_path := String(opt.get("icon", ""))
+	if icon_path == "":
+		btn.text = MandaloreText.a("Default")   # fits fine now at 50px (was abbreviated "Def" at the old 20px size)
+		_font_btn(btn, 10)
+	else:
+		btn.icon = load(icon_path) as Texture2D
+		btn.expand_icon = true
+	btn.pressed.connect(func() -> void:
+		GameManager.apply_cursor(id)
+		_save_cursor_choice(id)
+		_cursor_popup.hide())
+	return btn
+
+func _save_cursor_choice(id: String) -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(CFG_PATH)   # preserve every other settings.cfg key
+	cfg.set_value("game", "cursor_id", id)
+	cfg.save(CFG_PATH)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────────
 func _load_tex(path: String) -> Texture2D:

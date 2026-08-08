@@ -477,7 +477,7 @@ func _tick_orbital(ctx: Dictionary, def: Dictionary, delta: float) -> void:
 		if String(k).begins_with("_orb_cd_"):
 			ctx[k] = maxf(0.0, float(ctx[k]) - delta)
 
-# ── Minions (swarm host / hivemind) ─────────────────────────────────────────────
+# ── Minions (swarm host) ─────────────────────────────────────────────
 func _tick_minions(ctx: Dictionary, def: Dictionary, delta: float) -> void:
 	var want := maxi(1, int(WeaponStats.raw_stat(def, "bats", 4.0)))
 	var minions: Array = ctx["minions"]
@@ -688,9 +688,9 @@ func _spawn_crit_number(world_pos: Vector2, amount: float) -> void:
 	if _crit_host == null:
 		return
 	var lbl := Label.new()
-	lbl.text = str(roundi(amount))
+	lbl.text = MandaloreText.a(str(roundi(amount)))
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var font := load("res://assets/fonts/Gameplay.ttf") as FontFile
+	var font := load("res://assets/fonts/mandalore/mandalore.ttf") as FontFile
 	if font != null:
 		lbl.add_theme_font_override("font", font)
 	lbl.add_theme_font_size_override("font_size", 22)

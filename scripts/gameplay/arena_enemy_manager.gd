@@ -373,9 +373,22 @@ func _tick_bullets(delta: float) -> void:
 	# Impenetrable evo: orbiting balls destroy enemy projectiles they touch.
 	var aw := get_tree().get_first_node_in_group("arena_weapons")
 	var blocks: Array = aw.call("orbital_block_positions") if (aw != null and aw.has_method("orbital_block_positions")) else []
+	# Event Horizon (2026-08-07, on request): any enemy bullet caught inside the field's radius — its own
+	# shooter's, or one that just flew in from outside — gets redirected straight toward the centre every
+	# frame (same speed, new direction), same "no escape" treatment the field gives the enemies themselves.
+	# It still can't hit its OWN shooter (_bullet_hits_enemy excludes the owner, unchanged) but very
+	# routinely ends up hitting some OTHER enemy also being dragged toward that same point.
+	var eventh: Dictionary = aw.call("event_horizon_field") if (aw != null and aw.has_method("event_horizon_field")) else {"active": false}
+	var eventh_on: bool = bool(eventh.get("active", false))
+	var eventh_pos: Vector2 = eventh.get("pos", Vector2.ZERO)
+	var eventh_r: float = float(eventh.get("radius", 0.0))
 	var i := _bullets.size() - 1
 	while i >= 0:
 		var b: Dictionary = _bullets[i]
+		if eventh_on and (b["pos"] as Vector2).distance_to(eventh_pos) <= eventh_r:
+			var to_center := eventh_pos - (b["pos"] as Vector2)
+			if to_center.length() > 1.0:
+				b["vel"] = to_center.normalized() * (b["vel"] as Vector2).length()
 		b["pos"] = (b["pos"] as Vector2) + (b["vel"] as Vector2) * delta
 		b["life"] = float(b["life"]) + delta
 		var p: Vector2 = b["pos"]
@@ -407,13 +420,26 @@ func _report_bullet_owner(owner_id: int) -> void:
 	if owner != null and is_instance_valid(owner):
 		GameManager.record_last_hit(String(owner.get("_type")).capitalize(), String(owner.get("_original_icon")))
 
+## World position to test a hit against for `en` — nearest_hit_point() when the enemy exposes one (currently
+## only Centipede, whose long segmented body is drawn well past its single collidable global_position — see
+## arena_enemy.gd's own doc comment on nearest_hit_point()), else just en.global_position unchanged.
+## 2026-08-06, bug fix: this manager's own AoE/bullet hit-tests (_bullet_hits_enemy/explode/retaliation below)
+## used to read global_position directly, same class of bug arena_weapons.gd's _hit_pos() was already built
+## to avoid for its own hit-tests — Centipede's body/tail segments (9 of its 10 CENTI_SEGMENTS) silently
+## couldn't be hit through THESE particular paths, only its head, which reads as "unkillable" since most of
+## what's on screen is the un-hittable body.
+func _enemy_hit_pos(en: Node, test_pos: Vector2) -> Vector2:
+	if en.has_method("nearest_hit_point"):
+		return en.call("nearest_hit_point", test_pos)
+	return (en as Node2D).global_position
+
 ## A bullet at `p` damages the first enemy it touches (excluding its owner). Returns true if it hit one.
 func _bullet_hits_enemy(p: Vector2, owner_id: int, dmg: int) -> bool:
 	for en in get_tree().get_nodes_in_group("arena_enemy"):
 		if not is_instance_valid(en) or en.get_instance_id() == owner_id:
 			continue
 		var er: float = float(en.get("_radius")) if en.get("_radius") != null else 16.0
-		if p.distance_to((en as Node2D).global_position) <= er + BULLET_RADIUS:
+		if p.distance_to(_enemy_hit_pos(en, p)) <= er + BULLET_RADIUS:
 			if en.has_method("take_damage"):
 				en.take_damage(float(dmg))
 			return true
@@ -430,7 +456,7 @@ func explode(blast_center: Vector2, blast_radius: float, dmg: int, source: Node 
 	for en in get_tree().get_nodes_in_group("arena_enemy"):
 		if en == source or not is_instance_valid(en):
 			continue
-		if (en as Node2D).global_position.distance_to(blast_center) <= blast_radius and en.has_method("take_damage"):
+		if _enemy_hit_pos(en, blast_center).distance_to(blast_center) <= blast_radius and en.has_method("take_damage"):
 			en.take_damage(float(dmg))
 	# Ruin ships/boxes also take blast damage
 	for ruin in get_tree().get_nodes_in_group("arena_ruin"):
@@ -479,7 +505,7 @@ func throw_bomb(pos: Vector2) -> void:
 ## Spawn a small flock of bee enemies near the player — used by the F12 debug palette to test plume VFX.
 func spawn_bee() -> void:
 	const BEE_DEF := {"behavior": "swarm_dive", "hp": 20.0, "speed": 150.0, "size": 12.0,
-		"contact": 8, "explodes": true, "xp": 2.0, "icon": "res://assets/enemiesHD/animalbee.png"}
+		"contact": 8, "explodes": true, "xp": 20.0, "icon": "res://assets/enemiesHD/animalbee.png"}
 	var pp := ship_center()
 	for i in 6:
 		var e := ArenaEnemyScript.new()
@@ -506,7 +532,7 @@ func _play_hit() -> void:
 		for en in get_tree().get_nodes_in_group("arena_enemy"):
 			if not is_instance_valid(en):
 				continue
-			if (en as Node2D).global_position.distance_to(center) <= radius and en.has_method("take_damage"):
+			if _enemy_hit_pos(en, center).distance_to(center) <= radius and en.has_method("take_damage"):
 				en.take_damage(total)
 
 # ── Draw bullets + explosion rings (world space) ───────────────────────────────
