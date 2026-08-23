@@ -3,9 +3,10 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://sglqtnakttoa"
-path="res://.godot/imported/tree ship_Baked_BaseColor.png-7735bd5ef769a08ac4a686710e55115f.ctex"
+path.s3tc="res://.godot/imported/tree ship_Baked_BaseColor.png-7735bd5ef769a08ac4a686710e55115f.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 generator_parameters={
 "md5": "139b48d6d408d28c55c96adfa7ad5d9c"
@@ -14,11 +15,11 @@ generator_parameters={
 [deps]
 
 source_file="res://assets/ruin/tree ship_Baked_BaseColor.png"
-dest_files=["res://.godot/imported/tree ship_Baked_BaseColor.png-7735bd5ef769a08ac4a686710e55115f.ctex"]
+dest_files=["res://.godot/imported/tree ship_Baked_BaseColor.png-7735bd5ef769a08ac4a686710e55115f.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -40,4 +41,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=1
+detect_3d/compress_to=0

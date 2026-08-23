@@ -367,7 +367,20 @@ func _scan_creeps() -> void:
 						_all_creep_names.append(name)
 			entry = dir.get_next()
 		dir.list_dir_end()
+	# Names that exist WITHOUT a file of their own on disk. Jeager's ten palette entries all render out of
+	# one merged glb (see weapon_edit_mode._asset_path_for), but until 2026-08-24 they were still discovered
+	# by this scan finding ten separate .glb files sitting next to it — so the nine source clips and the
+	# duplicate Yari-Jeager.glb had to stay in the repo, ~260 MB, purely to keep the palette populated.
+	# Declaring them instead unties the palette from the files and lets those be deleted.
+	for extra: String in _extra_names():
+		if not seen.has(extra):
+			seen[extra] = true
+			_all_creep_names.append(extra)
 	_all_creep_names.sort()
+
+## Override to add palette entries the folder scan cannot find. Base: none.
+func _extra_names() -> Array[String]:
+	return []
 
 ## Multi-node auto-grouping (2026-08-13): sprite files named "<Prefix>Head" / "<Prefix>Body<N>" /
 ## "<Prefix>Tail" (case-insensitive suffix — e.g. "ViperHead.png"/"Viperbody1.png"/"VIPERBODY2.png"/

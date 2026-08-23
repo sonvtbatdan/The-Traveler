@@ -70,6 +70,13 @@ func _preview_clip(creep_name: String) -> String:
 ## and Jeager's clip folder.
 func _folders() -> Array[String]: return [_folder(), SHIP_FOLDER, JAEGER_FOLDER]
 
+## Jeager's root entry and its nine layers are declared, not discovered — all ten draw from the single
+## merged glb, so no per-layer file needs to exist for them to appear in the palette.
+func _extra_names() -> Array[String]:
+	var out: Array[String] = [JAEGER_ROOT]
+	out.append_array(JAEGER_LAYERS)
+	return out
+
 ## Hangs Jeager's clip glbs off the weapon itself in the LAYERS list. `super()` first so the VIPER chain (and
 ## any Head/Body/Tail convention group) is built exactly as before; this only adds parents the regex could
 ## never have found, since these names share no prefix with their root.
