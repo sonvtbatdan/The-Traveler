@@ -1,6 +1,6 @@
 shader_type spatial;
 render_mode unshaded, cull_disabled;
-// Flat "blur amount" proxy material — verbatim port of rubicon_blur_mask.gdshader (see that file's header).
+// Flat "blur amount" proxy material — verbatim port of electric_blur_mask.gdshader (see that file's header).
 
 const float MAX_BLUR_PX = 6.0;   // matches volcanic_terrain_edit.gd's Blur slider range (0..6.0)
 

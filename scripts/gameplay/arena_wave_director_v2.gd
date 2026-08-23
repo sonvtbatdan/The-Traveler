@@ -9,6 +9,7 @@ extends Node2D
 
 const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 const CreepInfoPanelScript := preload("res://scripts/ui/hud/creep_info_panel.gd")
+const CreepEditModeScript := preload("res://scripts/ui/boss_edit/creep_edit_mode.gd")
 const V1 := preload("res://scripts/gameplay/arena_wave_director.gd")
 
 # ══ Annulus geometry ═══════════════════════════════════════════════════════════
@@ -220,6 +221,7 @@ func _ready() -> void:
 	for k in ENEMY_DEFS_V2:
 		ENEMY_DEFS[k] = ENEMY_DEFS_V2[k]
 	CreepInfoPanelScript.apply_overrides(ENEMY_DEFS)   # Creep Info dev panel's saved HP/Move/Shoot overrides
+	CreepEditModeScript.apply_chain_overrides(ENEMY_DEFS)   # Creep Edit's CHAIN section — segments/spacing/bend-lock
 	_player = get_tree().get_first_node_in_group("player")
 	_mgr = get_tree().get_first_node_in_group("enemy_manager")
 	if _player != null:
@@ -233,7 +235,7 @@ func _ready() -> void:
 ## timeline picked in a previous run is still active on the next one without having to reopen F7 and
 ## Load it again. No-op if nothing was ever remembered, or the remembered file is missing/malformed —
 ## falls back to the plain continuous annulus loop either way. Per-map: each Map Pack entry remembers its
-## OWN last-loaded file (Rubicon's spawn config edits never touch Default's) — _last_wave_cfg_path()'s
+## OWN last-loaded file (Electric's spawn config edits never touch Default's) — _last_wave_cfg_path()'s
 ## logic MUST match the copy in arena_wave_editor.gd (that's the writer; this is the reader).
 func _last_wave_cfg_path() -> String:
 	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
@@ -721,33 +723,66 @@ func _timeline_fallback_type() -> String:
 		return TEST_TYPES[0]   # nothing usable authored at all — last-resort fallback (shouldn't happen for a real level)
 	return String(candidates[randi() % candidates.size()])
 
-## Distinct enemy type ids scheduled at the EARLIEST "time" value anywhere in the timeline (excluding boss/
-## fleet entries, same filtering as _timeline_type_pool()) — see _timeline_fallback_type()'s header for why
-## this is the correct pool for pre-first-fire reinforcement specifically (as opposed to _weakest_wave_type()'s
-## Elite/Champion Creep promotion, which intentionally still ranks across the WHOLE authored roster by design).
+## Distinct enemy type ids scheduled at the EARLIEST "time" value anywhere in the timeline — see
+## _timeline_fallback_type()'s header for why this is the correct pool for pre-first-fire reinforcement
+## specifically (as opposed to _weakest_wave_type()'s Elite/Champion Creep promotion, which intentionally
+## still ranks across the WHOLE authored roster by design). Boss entries at that time are skipped (a boss
+## should never be a filler/reinforcement pick). A `fleet:<name>` entry at that time is resolved to its OWN
+## member enemy ids (2026-08-18 fix — bug report: authoring the timeline's very first row as ONLY a fleet,
+## e.g. Atlantic's t=30 "fleet:AT.Whale.Duo.2" alone, used to make this function find zero non-fleet
+## candidates at that timestamp and silently fall through to whatever the NEXT-earliest non-fleet time
+## happened to contain — Atlantic's t=60 row, "atlantic_squid" — so the entire pre-t=30 AND t=30-to-60
+## window ambient-spawned atlantic_squid almost exclusively, reading as "set 1 fleet at t=30 but see tons
+## of atlantic_squid" from the player's side. Resolving the fleet's own roster instead keeps this window
+## thematically AND tier-correct: whatever the first authored moment actually introduces, fleet or not).
 func _timeline_earliest_type_pool() -> Array:
 	var min_t := INF
 	for entry: Dictionary in timeline:
-		if bool(entry.get("is_boss", false)) or String(entry.get("type", "")).begins_with("fleet:"):
+		if bool(entry.get("is_boss", false)):
 			continue
 		min_t = minf(min_t, float(entry.get("time", 0.0)))
 	if min_t == INF:
 		return []
 	var candidates: Array = []
 	var seen := {}
+	var fleets_cache: Array = []   # lazy-loaded only if an earliest-time entry is actually a fleet
+	var fleets_loaded := false
 	for entry: Dictionary in timeline:
-		if bool(entry.get("is_boss", false)) or String(entry.get("type", "")).begins_with("fleet:"):
+		if bool(entry.get("is_boss", false)):
 			continue
 		if not is_equal_approx(float(entry.get("time", 0.0)), min_t):
 			continue
-		var t := String(entry.get("type", ""))
-		if t == "" or seen.has(t):
+		var type_s := String(entry.get("type", ""))
+		if type_s == "":
 			continue
-		var d: Dictionary = ENEMY_DEFS.get(t, {})
+		if type_s.begins_with("fleet:"):
+			if not fleets_loaded:
+				fleets_cache = _load_fleets()
+				fleets_loaded = true
+			var fleet_name := type_s.substr(6)
+			var fleet: Dictionary = {}
+			for fl in fleets_cache:
+				if String((fl as Dictionary).get("name", "")) == fleet_name:
+					fleet = fl
+					break
+			for s: Dictionary in (fleet.get("slots", []) as Array):
+				for en in (s.get("enemies", []) as Array):
+					var t := String(en)
+					if t == "" or seen.has(t):
+						continue
+					var d: Dictionary = ENEMY_DEFS.get(t, {})
+					if d.is_empty() or bool(d.get("elite", false)):
+						continue
+					seen[t] = true
+					candidates.append(t)
+			continue
+		if seen.has(type_s):
+			continue
+		var d: Dictionary = ENEMY_DEFS.get(type_s, {})
 		if d.is_empty() or bool(d.get("elite", false)):
 			continue
-		seen[t] = true
-		candidates.append(t)
+		seen[type_s] = true
+		candidates.append(type_s)
 	return candidates
 
 ## Live count of a specific enemy type currently alive (group "arena_enemy"). Used by the "missile" hard
@@ -1253,10 +1288,10 @@ func _tl_pattern_positions(pattern: String, count: int, angle_deg: float = NAN) 
 ## that self-culls via PATROL_CULL — recycling it would fight that design: it'd immediately head back out
 ## along the SAME captured heading and re-exceed R_despawn almost right away, jittering in place instead of
 ## either reaching the player or leaving), "dummy" (a deliberately-placed STATIONARY landmark — e.g. the
-## dead-ship wrecks/rubicon temple boss, both spawned far away on purpose with their own edge-of-screen
+## dead-ship wrecks/electric temple boss, both spawned far away on purpose with their own edge-of-screen
 ## pointer arrow + live distance specifically so the player travels TO them; silently teleporting one next to
 ## the player would defeat that whole point, and for the temple boss specifically would desync its 2D hit-box
-## from the separate live 3D model rubicon_trees.gd renders at the ORIGINAL spawn position, which this system
+## from the separate live 3D model electric_trees.gd renders at the ORIGINAL spawn position, which this system
 ## has no way to move in sync), and any `_docked` escort (pinned to its carrier's relative slot every frame by
 ## _ms_update_dock_positions() — teleporting it independently would fight that pin).
 func _tick_despawn_teleport() -> void:

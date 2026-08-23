@@ -1,6 +1,6 @@
 shader_type canvas_item;
 // Composites volcanic_asset_layer.gd's color pass with its blur-mask pass — verbatim port of
-// rubicon_asset_composite.gdshader (see that file's header for the full rationale).
+// electric_asset_composite.gdshader (see that file's header for the full rationale).
 
 uniform sampler2D tex_blur_mask;
 const float MAX_BLUR_PX = 6.0;   // must match volcanic_blur_mask.gdshader's MAX_BLUR_PX

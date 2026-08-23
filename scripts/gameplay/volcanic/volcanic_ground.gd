@@ -1,17 +1,17 @@
 extends CanvasLayer
 class_name VolcanicGround
 ## Screen-filling ground for the Volcanic map — real top-down cracked-lava-rock PHOTOS (assets/map/volcanic/
-## maptile/<set>/), tinted per-zone and tiled at world-scale. Mirrors rubicon/rubicon_ground.gd's overall
+## maptile/<set>/), tinted per-zone and tiled at world-scale. Mirrors electric/electric_ground.gd's overall
 ## technique (baked seamless NoiseTexture2D level-sets, sampled + tiled via repeat wrap in
 ## volcanic_ground.gdshader) with one deliberate difference: the lava contour is baked from TWO textures —
 ## tex_river (smooth simplex, organic macro flow path) PLUS tex_river_detail (cellular/Manhattan, high
 ## frequency), the latter perturbing the boundary into jagged cracked-rock nicks without turning the whole
 ## flow into a mathematical zigzag — see VolcanicNoise's header for the full rationale (an earlier
 ## cellular-only version read as straight polyline segments, not a natural lava river). No landmark system yet
-## (see rubicon_ground.gd's apply_landmarks for the pattern to port once a landmark asset exists).
+## (see electric_ground.gd's apply_landmarks for the pattern to port once a landmark asset exists).
 ##
 ## Sits on a negative CanvasLayer (screen-space, always covers the viewport) — set_world_offset() shifts the
-## CONTENT via a shader uniform each frame, same trick as rubicon_ground.gd.
+## CONTENT via a shader uniform each frame, same trick as electric_ground.gd.
 
 const GROUND_SHADER := preload("res://scripts/gameplay/volcanic/volcanic_ground.gdshader")
 const VolcanicConfig := preload("res://scripts/gameplay/volcanic/volcanic_config.gd")
@@ -84,7 +84,7 @@ func apply_river_width(width: float) -> void:
 
 ## Public: called by the Terrain Edit panel's "River Bank Width" slider (live) and by this node's own
 ## _ready() (persisted settings). Noise-value half-width the obsidian-crust rim extends beyond river_width —
-## mirrors Rubicon's river_bank_width uniform (rubicon_ground.gdshader), just exposed as a slider here
+## mirrors Electric's river_bank_width uniform (electric_ground.gdshader), just exposed as a slider here
 ## instead of a hardcoded constant.
 func apply_river_bank_width(width: float) -> void:
 	if _mat != null:
@@ -171,7 +171,7 @@ func _load_normal_or_flat(color_path: String) -> Texture2D:
 		_neutral_normal_tex = ImageTexture.create_from_image(img)
 	return _neutral_normal_tex
 
-## Public: drives the ground's per-pixel N.L (+ specular) shading — see rubicon_ground.gd's
+## Public: drives the ground's per-pixel N.L (+ specular) shading — see electric_ground.gd's
 ## apply_canopy_lighting for the parameter semantics (identical here, just renamed canopy->ground).
 func apply_ground_lighting(angle_deg: float, height: float, ambient: float, specular: float, color: Color, contrast: float) -> void:
 	if _mat == null:
@@ -196,7 +196,7 @@ func _resize() -> void:
 func set_world_offset(world_pos: Vector2) -> void:
 	_mat.set_shader_parameter("world_offset", world_pos)
 
-## Bake one seamless SIMPLEX noise texture (zone/mottle fields — mirrors rubicon_ground.gd's _make_noise_tex).
+## Bake one seamless SIMPLEX noise texture (zone/mottle fields — mirrors electric_ground.gd's _make_noise_tex).
 func _make_noise_tex(freq_cycles: float, octaves: int, seed_v: int) -> NoiseTexture2D:
 	var n := FastNoiseLite.new()
 	n.frequency = freq_cycles / float(TEX_SIZE)
@@ -214,7 +214,7 @@ func _make_noise_tex(freq_cycles: float, octaves: int, seed_v: int) -> NoiseText
 
 ## Bake one seamless CELLULAR (Manhattan-distance Voronoi) noise texture — the high-frequency EDGE-JAG DETAIL
 ## field mixed into the lava contour (see volcanic_ground.gdshader's fragment()), not the macro river shape
-## itself (that's tex_river, baked by _make_noise_tex like Rubicon's). Polygonal, faceted iso-contours are what
+## itself (that's tex_river, baked by _make_noise_tex like Electric's). Polygonal, faceted iso-contours are what
 ## make the boundary read as jagged cracked crust. See VolcanicNoise._ensure_river_detail() for the matching
 ## CPU-side field (river avoidance) — same distance function/return type/frequency multiplier so the two
 ## agree on roughly where the lava actually is.

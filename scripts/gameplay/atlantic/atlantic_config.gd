@@ -20,7 +20,7 @@ const RIVER_NOISE_FREQ := 0.001   # much lower than NOISE_FREQ -> a few big wind
 const RIVER_LEVEL := 0.5          # which contour of the noise field becomes the current centerline
 
 ## Altitude model, single source of truth (world-px) — own constants so this map's systems never accidentally
-## read Rubicon's/Volcanic's.
+## read Electric's/Volcanic's.
 const TERRAIN_HEIGHT_PX := 0.0
 const CLOUD_MIN_PX := 120.0
 const CLOUD_MAX_PX := 130.0

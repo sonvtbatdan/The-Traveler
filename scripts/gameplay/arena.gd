@@ -30,12 +30,30 @@ const ArenaAsteroidsScript := preload("res://scripts/gameplay/arena_asteroids.gd
 const ArenaCometsScript    := preload("res://scripts/gameplay/arena_comets.gd")
 const ArenaStructuresScript := preload("res://scripts/gameplay/arena_structures.gd")
 const ArenaSolarSystemScript := preload("res://scripts/gameplay/arena_solar_system.gd")
-const RubiconGroundScript := preload("res://scripts/gameplay/rubicon/rubicon_ground.gd")
-const RubiconCloudsScript := preload("res://scripts/gameplay/rubicon/rubicon_clouds.gd")
-const RubiconTreesScript := preload("res://scripts/gameplay/rubicon/rubicon_trees.gd")
-const RubiconSparksScript := preload("res://scripts/gameplay/rubicon/rubicon_sparks.gd")
-const RubiconTerrainEditScript := preload("res://scripts/ui/hud/rubicon_terrain_edit.gd")
-const RubiconLightEditScript := preload("res://scripts/ui/hud/rubicon_light_edit.gd")
+const ElectricGroundScript := preload("res://scripts/gameplay/electric/electric_ground.gd")
+const ElectricCloudsScript := preload("res://scripts/gameplay/electric/electric_clouds.gd")
+const ElectricTreesScript := preload("res://scripts/gameplay/electric/electric_trees.gd")
+const ElectricSparksScript := preload("res://scripts/gameplay/electric/electric_sparks.gd")
+const ElectricTerrainEditScript := preload("res://scripts/ui/hud/electric_terrain_edit.gd")
+const ElectricLightEditScript := preload("res://scripts/ui/hud/electric_light_edit.gd")
+const MechanicGroundScript := preload("res://scripts/gameplay/mechanic/mechanic_ground.gd")
+const MechanicCloudsScript := preload("res://scripts/gameplay/mechanic/mechanic_clouds.gd")
+const MechanicTreesScript := preload("res://scripts/gameplay/mechanic/mechanic_trees.gd")
+const MechanicSparksScript := preload("res://scripts/gameplay/mechanic/mechanic_sparks.gd")
+const MechanicTerrainEditScript := preload("res://scripts/ui/hud/mechanic_terrain_edit.gd")
+const MechanicLightEditScript := preload("res://scripts/ui/hud/mechanic_light_edit.gd")
+const MechanicPlumesScript := preload("res://scripts/gameplay/mechanic/mechanic_plumes.gd")
+const MechanicPlumeEditScript := preload("res://scripts/ui/hud/mechanic_plume_edit.gd")
+const MechanicVentMarkScript := preload("res://scripts/ui/hud/mechanic_vent_mark.gd")
+const ArcticGroundScript := preload("res://scripts/gameplay/arctic/arctic_ground.gd")
+const ArcticCloudsScript := preload("res://scripts/gameplay/arctic/arctic_clouds.gd")
+const ArcticTreesScript := preload("res://scripts/gameplay/arctic/arctic_trees.gd")
+const ArcticSparksScript := preload("res://scripts/gameplay/arctic/arctic_sparks.gd")
+const ArcticPlumesScript := preload("res://scripts/gameplay/arctic/arctic_plumes.gd")
+const ArcticTerrainEditScript := preload("res://scripts/ui/hud/arctic_terrain_edit.gd")
+const ArcticLightEditScript := preload("res://scripts/ui/hud/arctic_light_edit.gd")
+const ArcticPlumeEditScript := preload("res://scripts/ui/hud/arctic_plume_edit.gd")
+const ArcticVentMarkScript := preload("res://scripts/ui/hud/arctic_vent_mark.gd")
 const VolcanicGroundScript := preload("res://scripts/gameplay/volcanic/volcanic_ground.gd")
 const VolcanicCloudsScript := preload("res://scripts/gameplay/volcanic/volcanic_clouds.gd")
 const VolcanicTreesScript := preload("res://scripts/gameplay/volcanic/volcanic_trees.gd")
@@ -57,6 +75,7 @@ const AtlanticPlumeEditScript := preload("res://scripts/ui/hud/atlantic_plume_ed
 const AtlanticCraterMarkScript := preload("res://scripts/ui/hud/atlantic_crater_mark.gd")
 const AtlanticLandmarkMarkScript := preload("res://scripts/ui/hud/atlantic_landmark_mark.gd")
 const AtlanticTempleLayerScript := preload("res://scripts/gameplay/atlantic/atlantic_temple_layer.gd")
+const AtlanticRuinLayerScript := preload("res://scripts/gameplay/atlantic/atlantic_ruin_layer.gd")   # 2026-08-19: Scholar's new home — see that file's header
 const ArenaDofScript     := preload("res://scripts/gameplay/arena_dof.gd")
 const PlanetMenuScript   := preload("res://scripts/ui/hud/arena_planet_menu.gd")
 const DebugSpawnScript   := preload("res://scripts/gameplay/arena_debug_spawn.gd")
@@ -70,8 +89,8 @@ const WeaponChestScript  := preload("res://scripts/ui/hud/arena_weapon_chest_ui.
 const WeaponSlotsScript  := preload("res://scripts/ui/hud/arena_weapon_slots.gd")     # 5-slot weapon HUD + cooldown pies
 const AuxSlotsScript     := preload("res://scripts/ui/hud/arena_aux_slots.gd")         # 5-slot aux-item HUD (row below weapons)
 const ArenaSmallRuinLayerScript := preload("res://scripts/gameplay/arena_small_ruin_layer.gd")
-const RubiconTempleLayerScript := preload("res://scripts/gameplay/rubicon/rubicon_temple_layer.gd")
-const RubiconRuinLayerScript := preload("res://scripts/gameplay/rubicon/rubicon_ruin_layer.gd")
+const ElectricTempleLayerScript := preload("res://scripts/gameplay/electric/electric_temple_layer.gd")
+const ElectricRuinLayerScript := preload("res://scripts/gameplay/electric/electric_ruin_layer.gd")
 const VolcanicRuinLayerScript := preload("res://scripts/gameplay/volcanic/volcanic_ruin_layer.gd")
 const ArenaHudButtonsScript := preload("res://scripts/ui/hud/arena_hud_buttons.gd")
 const CreepInfoPanelScript  := preload("res://scripts/ui/hud/creep_info_panel.gd")
@@ -95,6 +114,16 @@ const SHIP_MODEL         := "res://assets/defense/Ship_model_1.glb"   # 3D ship 
 const VP_SIZE            := 256               # SubViewport render resolution for the ship
 const SHIP_DISPLAY_GAIN  := 3.5               # size fudge so the framed model fills ~PLAYER_SIZE_PX (tune to taste)
 const SHIP_ISO_DEG       := 30.0             # camera tilt from top-down (0 = flat top-down, ~30 = isometric)
+# -- Ship exhaust plumes (2026-08-23) ---------------------------------------------------------------------
+# "Dat player ship vao bang weapon edit nhu 1 loai vu khi de toi co the gan plume. Plume cua player se bien
+# thien theo toc do (khi khong di chuyen thi chi chay cam chung, khi di chuyen moi day manh plume, gia tri
+# define bang 2 so trong o Sc)." The ship is now a palette entry in Weapon Edit (see weapon_edit_mode.gd's
+# SHIP_FOLDER/SHIP_NAME), so its thrust points are authored exactly like any weapon's -- and the two Sc
+# numbers, which for a weapon are a per-particle random range, are re-purposed here as the two ENDS of the
+# throttle: Sc-min at a standstill (idle burn), Sc-max at full speed.
+const SHIP_PLUME_NAME    := "Ship_model_1"   # weapon_layout.cfg key == SHIP_MODEL's own basename
+const SHIP_THROTTLE_LERP := 6.0              # per-second easing on the throttle read, so the flame swells
+											 # and dies back instead of snapping on the frame a key goes down
 const SHIP_LEAN_MAX_DEG  := 18.0             # gentle bank into turns (0 = never lean)
 const SHIP_YAW_SIGN      := 1.0              # flip to -1.0 if the ship turns opposite the mouse
 const SHIP_INVERT_SIDES  := -1.0             # lean direction — flip to +1.0 if it leans the wrong way
@@ -155,10 +184,20 @@ var _weapon_chest: Node = null   # start-of-run weapon chest UI
 var _ui_layer: CanvasLayer = null      # HP / weapon / aux / XP HUD layer (hidden while a full-screen editor is open)
 var _hud_buttons: Node = null          # bottom-right + left dev button clusters
 var _map_id: String = "default"        # MetaManager.selected_map_id, snapshotted at _ready() — which background branch below ran
-var _rubicon_ground: CanvasLayer = null
-var _rubicon_clouds: Node2D = null
-var _rubicon_trees: Node2D = null
-var _rubicon_sparks: Node2D = null
+var _electric_ground: CanvasLayer = null
+var _electric_clouds: Node2D = null
+var _electric_trees: Node2D = null
+var _electric_sparks: Node2D = null
+var _mechanic_ground: CanvasLayer = null
+var _mechanic_clouds: Node2D = null
+var _mechanic_trees: Node2D = null
+var _mechanic_sparks: Node2D = null
+var _mechanic_plumes: Node2D = null
+var _arctic_ground: CanvasLayer = null
+var _arctic_clouds: Node2D = null
+var _arctic_trees: Node2D = null
+var _arctic_sparks: Node2D = null
+var _arctic_plumes: Node2D = null
 var _volcanic_ground: CanvasLayer = null
 var _volcanic_clouds: Node2D = null
 var _volcanic_trees: Node2D = null
@@ -198,12 +237,16 @@ func _ready() -> void:
 	var dof := ArenaDofScript.new()
 	add_child(dof)
 	var bg: Node = dof.background_parent()   # DoF SubViewport, or the arena itself when the mask is disabled
-	if _map_id == "rubicon":
-		_build_rubicon_background()
+	if _map_id == "electric":
+		_build_electric_background()
+	elif _map_id == "mechanic":
+		_build_mechanic_background()
 	elif _map_id == "volcanic":
 		_build_volcanic_background()
 	elif _map_id == "atlantic":
 		_build_atlantic_background()
+	elif _map_id == "arctic":
+		_build_arctic_background()
 	else:
 		add_child(ArenaNebulaScript.new())      # procedural nebula — EXCLUDED from the blur (stays sharp in the
 												# main viewport at CL -10, behind the DoF composite at CL -5)
@@ -227,7 +270,7 @@ func _ready() -> void:
 		bg.add_child(structures)
 		bg.add_child(asteroids)
 		bg.add_child(solar)
-		add_child(PlanetMenuScript.new())    # F6 menu: inspect/drag-spawn planets (space-only tool, no planets on Rubicon)
+		add_child(PlanetMenuScript.new())    # F6 menu: inspect/drag-spawn planets (space-only tool, no planets on Electric)
 	print("[arena-startup] background/parallax/dof: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 	add_child(DebugSpawnScript.new())    # F5 asteroids / F9 comet / F10 planet+moons (Shift = clear)
 	print("[arena-startup] DebugSpawnScript (quick-spawn + weapon-spawn icon grids): %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
@@ -237,7 +280,7 @@ func _ready() -> void:
 	add_child(WeaponInfoPanelScript.new())  # dev-mode Weapon Info catalog (group "weapon_info") — toggled by the HUD button
 	print("[arena-startup]   hud_buttons: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 	if _map_id == "default":   # space-only starfield — was building unconditionally, so it also composited into
-		_build_parallax(bg)     # Rubicon/Volcanic's DoF background as faint near-static dark smudges (the DoF
+		_build_parallax(bg)     # Electric/Volcanic's DoF background as faint near-static dark smudges (the DoF
 	# blur shader blurs each dot's RGB against the SubViewport's transparent surroundings then dims — reads
 	# fine over black space, reads as dirt/dust specks over a terrain map) — see the bug report this fixed.
 	print("[arena-startup]   _build_parallax (procedural star tex ×%d layers): %.1fms" % [STAR_LAYERS.size(), (Time.get_ticks_usec() - _t0) / 1000.0]); _t0 = Time.get_ticks_usec()
@@ -260,20 +303,28 @@ func _ready() -> void:
 	add_child(XpOrbMgrScript.new())       # single MultiMesh node that renders+updates ALL xp orbs (group "arena_xp_orb_mgr")
 	add_child(PlumeMgrScript.new())       # single MultiMesh node that renders ALL enemy plumes (group "arena_plume_mgr")
 	print("[arena-startup] enemy_mgr + xp_orb_mgr + plume_mgr: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
-	# TEMP (2026-08-08, on request: "Ngăn chặn spawn trong map atlantic để tôi test map") — skip the enemy-wave
-	# director entirely on Atlantic so terrain/water visuals can be tested without combat interference. Does NOT
-	# touch atlantic_temple_layer.gd's own landmark-boss spawns (a separate, rare, deliberate map feature, not
-	# the ambient creep stream). Revert by deleting this `if _map_id != "atlantic":` guard (and its matching
-	# indent) once Atlantic's own wave timeline is ready to test.
-	if _map_id != "atlantic":
-		if USE_TEST_SPAWNER:
-			add_child(TestTemplateScript.new())   # quick test: one enemy every 5s
-		elif USE_SPAWN_MODE_2:
+	# 2026-08-08 TEMP guard ("Ngăn chặn spawn trong map atlantic để tôi test map") removed 2026-08-16 —
+	# Atlantic's own wave timeline (levels/arena/atlantic.json) is now authored and ready, per the revert
+	# note this comment used to carry. Does NOT touch atlantic_temple_layer.gd's own landmark-boss spawns
+	# (a separate, rare, deliberate map feature, not the ambient creep stream).
+	# 2026-08-18 TEMP guard ("Tạm dừng việc spawn creep ở map mechanic") — Mechanic has no wave timeline/
+	# roster of its own yet (see MAP_FIXED_FILES/MAP_ENEMY_FOLDERS in arena_wave_editor.gd), so leaving the
+	# continuous director on just fields the generic TEST_ROSTER placeholder creeps while the map's visuals
+	# are still being tuned. Mirrors the same "skip the director for one map_id" shape the old Atlantic TEMP
+	# guard used (removed 2026-08-16 once atlantic.json was authored) — remove this once Mechanic gets its
+	# own timeline. F7's WaveEditorScript stays available either way (authoring an optional timeline doesn't
+	# need the continuous director running underneath it).
+	# Arctic joins this same guard 2026-08-19 (just built — blend canopy/plume/cloud/river only this pass,
+	# no wave content yet either) — remove once Arctic gets its own timeline too.
+	if USE_TEST_SPAWNER:
+		add_child(TestTemplateScript.new())   # quick test: one enemy every 5s
+	elif USE_SPAWN_MODE_2:
+		if _map_id != "mechanic" and _map_id != "arctic":
 			add_child(WaveDirectorV2Script.new())   # spawn_mode_2: continuous annulus director (chaser/flanker/kiter/charger test roster)
-			add_child(WaveEditorScript.new())       # F7 also works here — authors an OPTIONAL timeline that runs alongside the continuous loop
-		else:
-			add_child(WaveDirectorScript.new())   # authored-timeline wave spawner
-			add_child(WaveEditorScript.new())     # F7 in-game wave editor (add/edit/remove waves live)
+		add_child(WaveEditorScript.new())       # F7 also works here — authors an OPTIONAL timeline that runs alongside the continuous loop
+	else:
+		add_child(WaveDirectorScript.new())   # authored-timeline wave spawner
+		add_child(WaveEditorScript.new())     # F7 in-game wave editor (add/edit/remove waves live)
 	print("[arena-startup] wave director + wave editor: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0)); _t0 = Time.get_ticks_usec()
 	add_child(ArenaWeaponsScript.new())   # bespoke 5-slot weapons (chest + F12 pickups) — the ONLY arena combat path
 	add_child(ArenaAuxScript.new())       # auxiliary passive-item store (level-up offers; group "arena_aux")
@@ -286,9 +337,14 @@ func _ready() -> void:
 	call_deferred("_setup_weapon_edit")
 	call_deferred("_setup_fleet_edit")
 	call_deferred("_setup_hud_edit")     # authored playerhud = the live HUD (replaces the hidden cockpit HUD)
-	if _map_id == "rubicon":
-		call_deferred("_setup_rubicon_terrain_edit")
-		call_deferred("_setup_rubicon_light_edit")
+	if _map_id == "electric":
+		call_deferred("_setup_electric_terrain_edit")
+		call_deferred("_setup_electric_light_edit")
+	elif _map_id == "mechanic":
+		call_deferred("_setup_mechanic_terrain_edit")
+		call_deferred("_setup_mechanic_light_edit")
+		call_deferred("_setup_mechanic_plume_edit")
+		call_deferred("_setup_mechanic_vent_mark")
 	elif _map_id == "volcanic":
 		call_deferred("_setup_volcanic_terrain_edit")
 		call_deferred("_setup_volcanic_light_edit")
@@ -301,34 +357,78 @@ func _ready() -> void:
 		call_deferred("_setup_atlantic_plume_edit")
 		call_deferred("_setup_atlantic_crater_mark")
 		call_deferred("_setup_atlantic_landmark_mark")
+	elif _map_id == "arctic":
+		call_deferred("_setup_arctic_terrain_edit")
+		call_deferred("_setup_arctic_light_edit")
+		call_deferred("_setup_arctic_plume_edit")
+		call_deferred("_setup_arctic_vent_mark")
 	call_deferred("_open_start_chest")   # grant every Loadout pick, then chest-offer any slots still empty
 
-## Rubicon map background: procedural blue/dark-sand ground + scattered trees/temples + parallax clouds
-## (scripts/gameplay/rubicon/*), replacing the space nebula/dust/planets/asteroids block above. Ship,
+## Electric map background: procedural blue/dark-sand ground + scattered trees/temples + parallax clouds
+## (scripts/gameplay/electric/*), replacing the space nebula/dust/planets/asteroids block above. Ship,
 ## weapons, HUD, dev-mode editors, enemy manager and wave director are untouched — only the terrain visual
 ## and (via arena_wave_director_v2._last_wave_cfg_path()) the spawn timeline differ per map. Position is
 ## updated every frame in _process() once the player exists.
 ##
 ## Draw order (back→front): ground (own CanvasLayer, always behind) → trees (ONE merged 3D pass — every
 ## scattered asset AND the real cloud-occluder mesh share one World3D/camera, so the engine's own depth test
-## clips tall assets against the cloud per-pixel — see rubicon_trees.gd's header) → clouds (decorative 2D
+## clips tall assets against the cloud per-pixel — see electric_trees.gd's header) → clouds (decorative 2D
 ## parallax atmosphere layer, purely stylistic now, no longer responsible for any occlusion) → enemies
 ## (z_index 1) → ship (z_index SHIP_Z=100). Trees/clouds are plain z_index-0 world Node2Ds, so ADD ORDER
 ## decides who's on top among them.
-func _build_rubicon_background() -> void:
-	_rubicon_ground = RubiconGroundScript.new()
-	add_child(_rubicon_ground)
-	_rubicon_trees = RubiconTreesScript.new()
-	add_child(_rubicon_trees)
-	_rubicon_clouds = RubiconCloudsScript.new()
-	add_child(_rubicon_clouds)
-	_rubicon_sparks = RubiconSparksScript.new()
-	add_child(_rubicon_sparks)   # topmost decorative layer — floating light-catching motes drift in front of everything
-	add_child(RubiconTempleLayerScript.new())   # giant temple boss landmark — 2 at run start + 1/3min, drops orb of light
-	add_child(RubiconRuinLayerScript.new())     # rescue-character ruin (constructor→mechanic→Scholar) — at most 1/run, within 15000px of the player
+func _build_electric_background() -> void:
+	_electric_ground = ElectricGroundScript.new()
+	add_child(_electric_ground)
+	_electric_trees = ElectricTreesScript.new()
+	add_child(_electric_trees)
+	_electric_clouds = ElectricCloudsScript.new()
+	add_child(_electric_clouds)
+	_electric_sparks = ElectricSparksScript.new()
+	add_child(_electric_sparks)   # topmost decorative layer — floating light-catching motes drift in front of everything
+	add_child(ElectricTempleLayerScript.new())   # giant temple boss landmark — 2 at run start + 1/3min, drops orb of light
+	add_child(ElectricRuinLayerScript.new())     # rescue-character ruin (Constructor) — at most 1/run, within 15000px of the player
+
+## Mechanic map background: same structure as Electric (canopy-photo ground tinted by baked noise zones, a
+## procedural river, parallax clouds, spark motes) — see scripts/gameplay/mechanic/mechanic_ground.gdshader's
+## header for the one deliberate difference (7 canopy photos blended together instead of 3). No temple/ruin
+## landmark layer — Mechanic has no landmark .glb yet (mirrors mechanic_ground.gdshader's own scope). Energy
+## beam vents (mechanic_plumes.gd, 2026-08-19 on request, redesigned same day into straight vertical pulses)
+## sit on TOP of the clouds — a separate layer
+## from them (Mechanic kept plain 2D parallax clouds on request, unlike Volcanic/Atlantic which repurpose
+## their own "clouds" slot into a ground-anchored plume system).
+func _build_mechanic_background() -> void:
+	_mechanic_ground = MechanicGroundScript.new()
+	add_child(_mechanic_ground)
+	_mechanic_trees = MechanicTreesScript.new()
+	add_child(_mechanic_trees)
+	_mechanic_clouds = MechanicCloudsScript.new()
+	add_child(_mechanic_clouds)
+	_mechanic_plumes = MechanicPlumesScript.new()
+	add_child(_mechanic_plumes)
+	_mechanic_sparks = MechanicSparksScript.new()
+	add_child(_mechanic_sparks)   # topmost decorative layer — floating light-catching motes drift in front of everything
+
+## Arctic map background: same structure as Mechanic (canopy-photo ground blended by a baked noise field, a
+## procedural river, parallax clouds, spark motes, energy-beam vents) — see scripts/gameplay/arctic/
+## arctic_ground.gdshader's header for the one deliberate difference vs Mechanic's own fixed 7-photo blend:
+## Arctic's canopy count is auto-detected from however many photos sit in assets/map/arctic/maptile/default/
+## (currently 4), up to ArcticNoise.MAX_CANOPY (10) — no code change needed to add more later. No temple/ruin
+## landmark layer yet — Engineer is assigned to this map (see [[traveler_rubicon_ruin_landmarks]]) but no
+## arctic_ruin_layer.gd spawner exists yet, matching this pass's scope (terrain/blend/plume/cloud/river only).
+func _build_arctic_background() -> void:
+	_arctic_ground = ArcticGroundScript.new()
+	add_child(_arctic_ground)
+	_arctic_trees = ArcticTreesScript.new()
+	add_child(_arctic_trees)
+	_arctic_clouds = ArcticCloudsScript.new()
+	add_child(_arctic_clouds)
+	_arctic_plumes = ArcticPlumesScript.new()
+	add_child(_arctic_plumes)
+	_arctic_sparks = ArcticSparksScript.new()
+	add_child(_arctic_sparks)   # topmost decorative layer — floating light-catching motes drift in front of everything
 
 ## Volcanic map background: procedural basalt/ash ground scarred by jagged cracks of flowing lava + parallax
-## ash clouds (scripts/gameplay/volcanic/*) — mirrors _build_rubicon_background() above (same draw order:
+## ash clouds (scripts/gameplay/volcanic/*) — mirrors _build_electric_background() above (same draw order:
 ## ground → trees → clouds → sparks → temple landmark). No rock/obsidian .glb assets exist yet, so
 ## VolcanicTrees currently scatters nothing on its own (drop-in later addition, not a code change — see
 ## volcanic_asset_scan.gd's header) — but temple.glb DOES exist and is spawned as a landmark (not scattered)
@@ -343,7 +443,7 @@ func _build_volcanic_background() -> void:
 	_volcanic_sparks = VolcanicSparksScript.new()
 	add_child(_volcanic_sparks)   # topmost decorative layer — rising embers drift in front of everything
 	add_child(VolcanicTempleLayerScript.new())   # temple landmark(s), visual only — see that file's header
-	add_child(VolcanicRuinLayerScript.new())     # rescue-character ruin (engineer→psyker→Scholar) — at most 1/run, within 15000px of the player
+	add_child(VolcanicRuinLayerScript.new())     # rescue-character ruin (Mechanic) — at most 1/run, within 15000px of the player
 
 ## Atlantic map background: deep-sea sunken-city ground (real seabed/ruin-floor photos once the user supplies
 ## them, see atlantic_asset_scan.gd) scarred by a winding CURRENT channel, bubble/whirlpool plumes instead of
@@ -352,10 +452,11 @@ func _build_volcanic_background() -> void:
 ## plus a screen-space water-surface overlay (2026-08-08, on request: continuous whole-scene refraction +
 ## caustic sparkle — see atlantic_water_surface.gd's header) that Volcanic has no equivalent of.
 ## No coral/wreckage .glb assets exist yet, so AtlanticTrees currently scatters nothing on its own (drop-in
-## later addition, not a code change — see atlantic_asset_scan.gd's header) — but the REUSED Rubicon/Electric
-## temple.glb IS spawned as a landmark (not scattered) by AtlanticTempleLayer, see that file's header. No ruin
-## layer (rescue-character landmark) — out of scope for Atlantic per this map's own request ("làm đầy đủ" was
-## scoped to the temple boss, not a second rescue-ruin landmark type).
+## later addition, not a code change — see atlantic_asset_scan.gd's header) — but the REUSED Electric/Electric
+## temple.glb IS spawned as a landmark (not scattered) by AtlanticTempleLayer, see that file's header. Also has
+## its own rescue-character ruin layer (AtlanticRuinLayer, Scholar) as of 2026-08-19 — previously out of scope
+## ("làm đầy đủ" was scoped to the temple boss only), added once the same-day map redistribution made Scholar
+## Atlantic-exclusive (she has no other map to fall back to any more — see AtlanticRuinLayer's own header).
 func _build_atlantic_background() -> void:
 	_atlantic_ground = AtlanticGroundScript.new()
 	add_child(_atlantic_ground)
@@ -366,6 +467,7 @@ func _build_atlantic_background() -> void:
 	_atlantic_sparks = AtlanticSparksScript.new()
 	add_child(_atlantic_sparks)   # topmost decorative layer — bioluminescent motes drift in front of everything
 	add_child(AtlanticTempleLayerScript.new())   # temple landmark(s), visual only — see that file's header
+	add_child(AtlanticRuinLayerScript.new())     # rescue-character ruin (Scholar) — at most 1/run, within 15000px of the player
 	_atlantic_water_surface = AtlanticWaterSurfaceScript.new()
 	add_child(_atlantic_water_surface)   # screen-space refraction + caustic sparkle over the whole scene
 
@@ -455,6 +557,12 @@ func _build_ui() -> void:
 	var _stats  := ArenaStatsHudScript.new(); _stats.visible = false; ui.add_child(_stats)
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
+# Ship exhaust -- see SHIP_PLUME_NAME's header. `_ship_plumes` holds the built particles alongside the Sc
+# pair they were authored with, so the per-frame update never has to re-read the cfg.
+var _ship_plume_root: Node3D = null
+var _ship_plumes: Array = []          # [{p: CPUParticles3D, sc_min: float, sc_max: float}]
+var _ship_throttle: float = 0.0       # 0 = stationary, 1 = at full move speed (eased)
+
 func _build_player() -> void:
 	add_to_group("arena")   # so arena_weapons can resolve muzzle_world() anchors
 	_player = CharacterBody2D.new()
@@ -522,6 +630,7 @@ func _build_ship_viewport() -> void:
 		_ship_pivot.add_child(model)
 		_frame_ship_cam(model)
 		_load_muzzle_anchors(model)
+		_load_ship_plumes(model)
 	else:
 		push_warning("arena: could not load ship model at " + SHIP_MODEL)
 		_ship_cam.position = Vector3(0.0, 0.0, 5.0)
@@ -541,6 +650,82 @@ func _frame_ship_cam(model: Node3D) -> void:
 	_ship_cam.look_at(Vector3.ZERO, Vector3(0.0, 1.0, 0.0))
 	_ship_cam.near = maxf(0.05, dist - radius * 2.0)
 	_ship_cam.far  = dist + radius * 2.0
+
+## Builds the ship's exhaust plumes from its weapon_layout.cfg thrust points -- the same authoring flow every
+## 3D weapon uses, pointed at the player. See SHIP_PLUME_NAME's header for the request.
+##
+## The one thing that needs care is SCALE. A TP is stored as a FRACTION of the EO rect it was placed on in
+## Weapon Edit, where the model is fitted so its XZ footprint DIAGONAL equals that rect (glb_topdown_rig's
+## `center_and_fit`). Here the model sits at whatever scale the .glb was authored at, framed by
+## `_frame_ship_cam`. Normalising BOTH by that same footprint diagonal is what makes a TP land on the same
+## part of the hull in the editor and in play -- and every other length the TP carries (its `z` lift, the
+## style's velocities) has to cross the same way, or it lands at the editor's scale on a differently-sized
+## model. That is the exact bug that put the shooter's plume a model-width off its nozzles (see
+## arena_weapons.gd's `_tp_scale` header).
+##
+## Known and deliberate limitation: the editor previews TPs through a top-down ORTHOGRAPHIC camera, while the
+## ship viewport is PERSPECTIVE and tilted SHIP_ISO_DEG. A plume is therefore attached to the right point of
+## the hull and banks with it, but its on-screen position is not pixel-identical to the editor's preview.
+## Parenting it under `_ship_pivot` is what buys the correct compositing, lighting and banking with the hull,
+## which for an exhaust flame matters more than matching a top-down preview exactly.
+func _load_ship_plumes(model: Node3D) -> void:
+	if _ship_pivot == null:
+		return
+	var cfg := ConfigFile.new()
+	if cfg.load("res://weapon_layout.cfg") != OK:
+		return
+	var eo: Dictionary  = cfg.get_value("creeps",       SHIP_PLUME_NAME, {})
+	var tps: Array      = cfg.get_value("thrustpoints", SHIP_PLUME_NAME, [])
+	if eo.is_empty() or tps.is_empty():
+		return   # ship not placed / no TPs authored yet -- nothing to build, no plume
+	var eo_pos:  Vector2 = eo.get("pos",  Vector2(480.0, 380.0))
+	var eo_size: Vector2 = eo.get("size", Vector2(60.0, 60.0))
+	if eo_size.x <= 0.0 or eo_size.y <= 0.0:
+		return
+	var aabb := _model_aabb(model)   # in _ship_pivot space, i.e. the size the viewport actually renders
+	var diag: float = maxf(Vector2(aabb.size.x, aabb.size.z).length(), 0.001)
+	var k: float = diag / maxf(maxf(eo_size.x, eo_size.y), 0.001)   # editor rect -> ship-viewport units
+
+	var rig := preload("res://scripts/gameplay/fx/glb_topdown_rig.gd").new()
+	var scfg := ConfigFile.new()
+	scfg.load("res://weapon_plume_styles.cfg")
+	var styles: Dictionary = scfg.get_value("styles", SHIP_PLUME_NAME, {})
+
+	_ship_plume_root = Node3D.new()
+	# The hull's own orientation comes from aim (_update_ship_3d), so the cfg's mount angle turns the plume
+	# RIG instead -- every TP together. See WIRED_3D_CREEPS' note in creep_edit_mode.gd.
+	_ship_plume_root.rotation = rig.view_rotation(rig.compose_rot(
+		eo.get("rot_base", Vector3.ZERO), eo.get("rot", Vector3.ZERO)))
+	_ship_pivot.add_child(_ship_plume_root)
+
+	for tp: Dictionary in tps:
+		var frac := (((tp["pos"] as Vector2) + Vector2(15.0, 8.0)) - eo_pos) / eo_size
+		var style: Dictionary = (styles.get("tp_%d" % int(tp.get("id", 1)), {}) as Dictionary).duplicate()
+		style["vel_min"] = float(style.get("vel_min", 60.0)) * k
+		style["vel_max"] = float(style.get("vel_max", 100.0)) * k
+		var pivot := Node3D.new()
+		pivot.position = Vector3((frac.x - 0.5) * diag, float(tp.get("z", 0.0)) * k, (frac.y - 0.5) * diag)
+		pivot.rotation = rig.tp_view_rotation(tp)
+		_ship_plume_root.add_child(pivot)
+		var p: CPUParticles3D = rig.make_plume(Vector3.ZERO, Vector3(0.0, 0.0, 1.0), style, diag)
+		pivot.add_child(p)
+		_ship_plumes.append({
+			"p": p,
+			"sc_min": float(style.get("sc_min", 1.5)),
+			"sc_max": float(style.get("sc_max", 2.5)),
+		})
+
+## Drives every ship plume from the eased throttle: Sc-min at a standstill, Sc-max at full move speed. Both
+## ends of `scale_amount_*` are set to the SAME value on purpose -- for a weapon that pair is a per-particle
+## random range, but here it is the throttle curve's two ends, so a given speed has one definite flame size.
+func _update_ship_plumes() -> void:
+	for e: Dictionary in _ship_plumes:
+		var p: CPUParticles3D = e["p"]
+		if not is_instance_valid(p):
+			continue
+		var sc: float = lerpf(float(e["sc_min"]), float(e["sc_max"]), _ship_throttle)
+		p.scale_amount_min = sc
+		p.scale_amount_max = sc
 
 func _model_aabb(root: Node) -> AABB:
 	var acc := AABB()
@@ -709,6 +894,11 @@ func _physics_process(delta: float) -> void:
 	if GameManager.has_method("take_player_push"):
 		vel += GameManager.take_player_push()
 	_player.velocity = vel
+	# Throttle for the exhaust plumes: actual speed against the current cap, so a shove or a smart-thruster
+	# dodge lights the flame too, not just a held key. Eased so it swells instead of snapping.
+	var throttle_tgt: float = clampf(vel.length() / maxf(spd, 0.001), 0.0, 1.0)
+	_ship_throttle = lerpf(_ship_throttle, throttle_tgt, clampf(SHIP_THROTTLE_LERP * delta, 0.0, 1.0))
+	_update_ship_plumes()
 	_update_ship_lean(dir)
 	_player.move_and_slide()
 	_apply_boundary(delta)
@@ -777,13 +967,29 @@ func _process(delta: float) -> void:
 			_ship_spr.scale = Vector2.ONE * (PLAYER_SIZE_PX * SHIP_DISPLAY_GAIN / float(VP_SIZE) * sm)
 	_aim(delta)
 	_update_ship_3d()
-	if _rubicon_ground != null:
+	if _electric_ground != null:
 		var pos: Vector2 = _player.global_position
-		_rubicon_ground.set_world_offset(pos)
-		_rubicon_clouds.set_world_offset(pos)
-		_rubicon_sparks.set_world_offset(pos)
+		_electric_ground.set_world_offset(pos)
+		_electric_clouds.set_world_offset(pos)
+		_electric_sparks.set_world_offset(pos)
 		var vp_size: Vector2 = get_viewport().get_visible_rect().size
-		_rubicon_trees.update_view(pos, vp_size)
+		_electric_trees.update_view(pos, vp_size)
+	if _mechanic_ground != null:
+		var pos: Vector2 = _player.global_position
+		_mechanic_ground.set_world_offset(pos)
+		_mechanic_clouds.set_world_offset(pos)
+		_mechanic_sparks.set_world_offset(pos)
+		var vp_size: Vector2 = get_viewport().get_visible_rect().size
+		_mechanic_trees.update_view(pos, vp_size)
+		_mechanic_plumes.update_view(pos, vp_size)
+	if _arctic_ground != null:
+		var pos: Vector2 = _player.global_position
+		_arctic_ground.set_world_offset(pos)
+		_arctic_clouds.set_world_offset(pos)
+		_arctic_sparks.set_world_offset(pos)
+		var vp_size: Vector2 = get_viewport().get_visible_rect().size
+		_arctic_trees.update_view(pos, vp_size)
+		_arctic_plumes.update_view(pos, vp_size)
 	if _volcanic_ground != null:
 		var pos: Vector2 = _player.global_position
 		_volcanic_ground.set_world_offset(pos)
@@ -930,17 +1136,57 @@ func _setup_hud_edit() -> void:
 	hem.setup(oc, hud_version)
 	print("[arena-startup] (deferred) _setup_hud_edit (playerhud icon/layer loads): %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0))
 
-## Rubicon-only: the TERRAIN EDIT dev panel (density/scale/blur/cloud opacity+brightness/2 terrain colors —
-## see scripts/ui/hud/rubicon_terrain_edit.gd). Group "rubicon_terrain_edit" is how arena_hud_buttons.gd's
+## Electric-only: the TERRAIN EDIT dev panel (density/scale/blur/cloud opacity+brightness/2 terrain colors —
+## see scripts/ui/hud/electric_terrain_edit.gd). Group "electric_terrain_edit" is how arena_hud_buttons.gd's
 ## TERRAIN EDIT button finds it, same convention as boss_edit/creep_edit/fleet_edit/wave_editor/hud_edit.
-func _setup_rubicon_terrain_edit() -> void:
-	add_child(RubiconTerrainEditScript.new())
+func _setup_electric_terrain_edit() -> void:
+	add_child(ElectricTerrainEditScript.new())
 
-## Rubicon-only: the LIGHT EDIT dev panel (canopy normal-map lighting angle/height/ambient/specular — see
-## scripts/ui/hud/rubicon_light_edit.gd). Group "rubicon_light_edit" is how arena_hud_buttons.gd's LIGHT EDIT
-## button finds it, same convention as rubicon_terrain_edit.
-func _setup_rubicon_light_edit() -> void:
-	add_child(RubiconLightEditScript.new())
+## Electric-only: the LIGHT EDIT dev panel (canopy normal-map lighting angle/height/ambient/specular — see
+## scripts/ui/hud/electric_light_edit.gd). Group "electric_light_edit" is how arena_hud_buttons.gd's LIGHT EDIT
+## button finds it, same convention as electric_terrain_edit.
+func _setup_electric_light_edit() -> void:
+	add_child(ElectricLightEditScript.new())
+
+## Mechanic-only: the TERRAIN EDIT dev panel — see scripts/ui/hud/mechanic_terrain_edit.gd. Group
+## "mechanic_terrain_edit" is how arena_hud_buttons.gd's TERRAIN EDIT button finds it.
+func _setup_mechanic_terrain_edit() -> void:
+	add_child(MechanicTerrainEditScript.new())
+
+## Mechanic-only: the LIGHT EDIT dev panel — see scripts/ui/hud/mechanic_light_edit.gd. Group
+## "mechanic_light_edit" is how arena_hud_buttons.gd's LIGHT EDIT button finds it.
+func _setup_mechanic_light_edit() -> void:
+	add_child(MechanicLightEditScript.new())
+
+## Mechanic-only: the PLUME EDIT dev panel — see scripts/ui/hud/mechanic_plume_edit.gd. Group
+## "mechanic_plume_edit" is how arena_hud_buttons.gd's PLUME EDIT button finds it.
+func _setup_mechanic_plume_edit() -> void:
+	add_child(MechanicPlumeEditScript.new())
+
+## Mechanic-only: the VENT MARK dev panel — see scripts/ui/hud/mechanic_vent_mark.gd. Group
+## "mechanic_vent_mark" is how arena_hud_buttons.gd's CRATER MARK button finds it.
+func _setup_mechanic_vent_mark() -> void:
+	add_child(MechanicVentMarkScript.new())
+
+## Arctic-only: the TERRAIN EDIT dev panel — see scripts/ui/hud/arctic_terrain_edit.gd. Group
+## "arctic_terrain_edit" is how arena_hud_buttons.gd's TERRAIN EDIT button finds it.
+func _setup_arctic_terrain_edit() -> void:
+	add_child(ArcticTerrainEditScript.new())
+
+## Arctic-only: the LIGHT EDIT dev panel — see scripts/ui/hud/arctic_light_edit.gd. Group
+## "arctic_light_edit" is how arena_hud_buttons.gd's LIGHT EDIT button finds it.
+func _setup_arctic_light_edit() -> void:
+	add_child(ArcticLightEditScript.new())
+
+## Arctic-only: the PLUME EDIT dev panel — see scripts/ui/hud/arctic_plume_edit.gd. Group
+## "arctic_plume_edit" is how arena_hud_buttons.gd's PLUME EDIT button finds it.
+func _setup_arctic_plume_edit() -> void:
+	add_child(ArcticPlumeEditScript.new())
+
+## Arctic-only: the VENT MARK dev panel — see scripts/ui/hud/arctic_vent_mark.gd. Group
+## "arctic_vent_mark" is how arena_hud_buttons.gd's CRATER MARK button finds it.
+func _setup_arctic_vent_mark() -> void:
+	add_child(ArcticVentMarkScript.new())
 
 ## Volcanic-only: the TERRAIN EDIT dev panel — see scripts/ui/hud/volcanic_terrain_edit.gd. Group
 ## "volcanic_terrain_edit" is how arena_hud_buttons.gd's TERRAIN EDIT button finds it.
@@ -1138,8 +1384,8 @@ func _show_run_over(victory: bool) -> void:
 	get_tree().paused = true
 	var cl := CanvasLayer.new()
 	cl.layer = 190   # below HudEditRuntime's own overlay (layer 200, "above absolutely everything else in the
-	                  # game") so its hold-to-edit selection box/handles are visible over this screen — see the
-	                  # HudEditRuntime.register() calls below (2026-08-06, on request: same mechanism as Dock)
+					  # game") so its hold-to-edit selection box/handles are visible over this screen — see the
+					  # HudEditRuntime.register() calls below (2026-08-06, on request: same mechanism as Dock)
 	cl.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(cl)
 	_build_run_over_backdrop(cl)
@@ -1207,7 +1453,7 @@ func _show_run_over(victory: bool) -> void:
 
 ## Persistent bottom-right RETURN TO DOCK — shown once the player picks CONTINUE EXPLORE after the boss
 ## victory screen (no more creeps spawn from here on; this is just a manual "I'm done" affordance for
-## whenever they're ready, e.g. after flying to the Rubicon temples for blueprints).
+## whenever they're ready, e.g. after flying to the Electric temples for blueprints).
 func _show_dock_corner_button() -> void:
 	if _dock_corner_btn != null and is_instance_valid(_dock_corner_btn):
 		return
@@ -1233,7 +1479,7 @@ func _show_dock_corner_button() -> void:
 	_dock_corner_btn = btn
 
 ## Rescue-landmark result line (2026-08-06, on request) — reads GameManager.run_rescue_char_id/
-## run_rescue_collected (set by rubicon_ruin_layer.gd / volcanic_ruin_layer.gd on spawn/kill) and shows
+## run_rescue_collected (set by electric_ruin_layer.gd / volcanic_ruin_layer.gd on spawn/kill) and shows
 ## exactly one of three outcomes. Only "successfully rescued" (landmark collected AND this run ended in
 ## victory) actually calls MetaManager.unlock_room() — dying after collecting, or never finding the landmark
 ## at all (win or lose), grants nothing and leaves that character eligible to spawn again next run (see

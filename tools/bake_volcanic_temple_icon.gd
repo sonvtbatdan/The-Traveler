@@ -1,6 +1,6 @@
 extends SceneTree
 ## One-shot bake: renders assets/map/volcanic/temple.glb into a tilted-perspective top-down reference PNG
-## with real alpha — the SAME idiom tools/bake_rubicon_trees.gd used for Electric's temple.png (which already
+## with real alpha — the SAME idiom tools/bake_electric_trees.gd used for Electric's temple.png (which already
 ## exists; Volcanic's never got one). Not the true-orthogonal tools/bake_volcanic_landmark.gd's output
 ## (temple_mark_ref.png, used for smoke/flame click-marking) — this is the THUMBNAIL/pointer-icon style.
 ##
@@ -15,9 +15,9 @@ extends SceneTree
 
 const VolcanicAssetScan := preload("res://scripts/gameplay/volcanic/volcanic_asset_scan.gd")
 
-const GLB_PATH := "res://assets/map/volcanic/temple.glb"
-const OUT_PATH := "res://assets/map/volcanic/temple.png"
-const ISO_DEG := 30.0   # matches bake_rubicon_trees.gd's TREE_ISO_DEG / bake_ruin_landmarks.gd's ISO_DEG
+const GLB_PATH := "res://assets/map/volcanic/landmark/temple.glb"
+const OUT_PATH := "res://assets/map/volcanic/landmark/temple.png"
+const ISO_DEG := 30.0   # matches bake_electric_trees.gd's TREE_ISO_DEG / bake_ruin_landmarks.gd's ISO_DEG
 const VP_SIZE := 512
 const SETTLE_FRAMES := 5
 

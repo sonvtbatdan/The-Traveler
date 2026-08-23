@@ -615,13 +615,14 @@ func _build_craft() -> void:
 ## "coming soon" entries have no thumbnail, so _make_map_card() falls back to a plain "?" placeholder.
 const LAUNCH_CARDS := [
 	{"map_id": "default", "name": "Space", "thumb": "res://assets/hud/mapselect/space_thumb.png"},
-	{"map_id": "rubicon", "name": "Electric", "thumb": "res://assets/hud/mapselect/electric_thumb.png"},
+	{"map_id": "electric", "name": "Electric", "thumb": "res://assets/hud/mapselect/electric_thumb.png"},
 	{"map_id": "volcanic", "name": "Volcanic", "thumb": "res://assets/hud/mapselect/volcanic_thumb.png"},
 	{"map_id": "atlantic", "name": "Atlantic", "thumb": "res://assets/hud/mapselect/atlantic_thumb.png"},   # thumb not baked yet (awaiting the 3 canopy photos) — falls back to the "?" placeholder until tools/generate_map_thumbnails.py runs for this set
-	{"name": "Mechanic"},
-	{"name": "Arctic"},
-	{"name": "???"},   # 2026-08-06, on request: 8-map plan (2 boss/map, semi-boss@15m + final@30m) — slot 7,
-	{"name": "???"},   # name/theme TBD, still needs a real name + (later) MAP_DEFS entry once it's built out
+	{"map_id": "mechanic", "name": "Mechanic", "thumb": "res://assets/hud/mapselect/mechanic_thumb.png"},   # 2026-08-19 fix: was pointing straight at the raw SQUARE source canopy photo, which STRETCH_SCALE then squashed into the 3:4 portrait card box ("ép dẹp") — now a properly center-cropped 480x640 bake via tools/generate_map_thumbnails.py, same as every other real map
+	{"map_id": "arctic", "name": "Arctic", "thumb": "res://assets/hud/mapselect/arctic_thumb.png"},   # 2026-08-19: blend canopy/plume/cloud/river built, mirrors Mechanic — see [[traveler_rubicon_ruin_landmarks]] for the Engineer rescue tie-in still pending
+	{"name": "Cosmic"},   # 2026-08-17: named (was "???") — 8-map plan (2 boss/map, semi-boss@15m + final@30m),
+	{"name": "Mystic"},   # slot 7/8. Still no theme/scene/enemy set — empty assets/map/cosmic|mystic/ folders
+	                      # created for sprites; needs a real MAP_DEFS entry once it's built out
 ]
 const MAPSELECT_CARD_W := 300.0   # aspect-ratio reference only (3:4 portrait) — actual on-screen size is
 const MAPSELECT_CARD_H := 400.0   # computed per-frame by _fit_mapselect_grid() to exactly fill the panel.

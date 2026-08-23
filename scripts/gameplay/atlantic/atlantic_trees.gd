@@ -4,10 +4,10 @@ class_name AtlanticTrees
 ## assets/map/atlantic/ — see AtlanticAssetScan). Port of volcanic/volcanic_trees.gd's fully generic
 ## scatter/compositor system (see that file's header for the complete rationale — shared World3D "host"
 ## viewport, two-pass color+blur-mask render, orthogonal tilted camera), INCLUDING spawn_landmark() (used by
-## atlantic_temple_layer.gd to place the reused Rubicon temple.glb).
+## atlantic_temple_layer.gd to place the reused Electric temple.glb).
 ##
 ## assets/map/atlantic/ currently has no coral/wreckage .glb files, so _types stays empty and the regular
-## density-scatter places nothing — the same "drop a .glb, no code changes" convention Volcanic/Rubicon
+## density-scatter places nothing — the same "drop a .glb, no code changes" convention Volcanic/Electric
 ## document, just with an empty pool for now.
 
 const AtlanticNoise := preload("res://scripts/gameplay/atlantic/atlantic_noise.gd")
@@ -150,7 +150,7 @@ func _measure_one(glb_path: String) -> Dictionary:
 	}
 
 ## Public: places a single instance of `glb_path` at an explicit world position, OUTSIDE the density-scatter
-## system entirely — for one-off landmark objects (atlantic_temple_layer.gd, reusing Rubicon's temple.glb)
+## system entirely — for one-off landmark objects (atlantic_temple_layer.gd, reusing Electric's temple.glb)
 ## whose lifetime is owned by whatever spawned them. Caller owns the returned Node3D and must queue_free() it
 ## when the landmark should disappear. Verbatim port of volcanic_trees.gd's spawn_landmark().
 func spawn_landmark(glb_path: String, world_pos: Vector2, scale_mult: float = 1.0) -> Dictionary:

@@ -18,6 +18,8 @@ extends CanvasLayer
 const GifLoader := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const WaveDir   := preload("res://scripts/gameplay/arena_wave_director.gd")
 const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
+const CreepInfoPanelScript := preload("res://scripts/ui/hud/creep_info_panel.gd")   # see _ready()'s apply_overrides() call
+const CreepEditModeScript  := preload("res://scripts/ui/boss_edit/creep_edit_mode.gd")   # see _ready()'s apply_chain_overrides() call
 const ArenaToastScript := preload("res://scripts/ui/hud/arena_toast.gd")   # BOSS FIGHT button no-op feedback
 const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")   # for WEAPON_INFO/FUSION_DEFS code names
 # Weapon roster for the Dev → Weapon panel. Four tabs (WEAPON_TAB_ORDER, below):
@@ -36,6 +38,14 @@ const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")   # for
 # above; Combined's content is superseded by the audited "fusion" above; obsolete (vampire_host/
 # toxic_ballistic/singularities old reworks + a retired Shield Generator placeholder) only ever duplicated
 # concepts spawnable elsewhere — its dict entry is left in place, unreferenced, in case it's wanted back.
+## Weapon-cell edge, in px. 2026-08-23 ("Bảng spawn weapon tôi không tìm thấy Jeager"): cells used to be
+## icon-ONLY, so finding a weapon meant recognising its inventory art — and several of those don't look like
+## what the arena draws (Yari Jeager's icon is a ship with a blue blade; the arena draws a humanoid mech).
+## Every cell carries its name now, which needs a slightly bigger cell to stay legible: 48 -> 62. Nothing was
+## actually missing from the table. Named here because the panel's width and `_rebuild_weapon_grid()`'s
+## per-cell size both need it, and they had already drifted apart (the grid was hardcoding 48).
+const WEAPON_CELL := 62
+
 # `kind` = arena_weapons code kind (spawnable on click). Entries with "ph": true are PLACEHOLDERS — the weapon
 # isn't implemented yet, so the cell renders dimmed + non-spawnable (a gray placeholder icon) until it lands.
 # `from` (optional) = the source recipe, shown in the tooltip. NOTE: a few PDF→code kind mappings are
@@ -44,7 +54,10 @@ const WEAPON_TABS := {
 	"drop": [
 		{"kind": "gatling_gun",   "def_id": "gatling_gun",  "label": "Gatling Gun"},
 		{"kind": "death_beam",    "def_id": "death_beam",        "label": "Death Beam"},
-		{"kind": "defensive_orbitals",   "def_id": "orbitals",      "label": "Defensive Orbitals"},
+		# 2026-08-23: def_id was "orbitals", which is not an ITEM_DEFS key — InventoryManager.get_icon() fell
+		# through to _make_placeholder() and this cell rendered as a blank grey square. The real def (and what
+		# WEAPON_INFO has always used for this kind) is "defensive_orbitals".
+		{"kind": "defensive_orbitals",   "def_id": "defensive_orbitals",      "label": "Defensive Orbitals"},
 		{"kind": "striker",   "def_id": "",              "label": "Striker", "icon": "res://assets/weaponry/ND-OIF-F.png"},
 		{"kind": "shooter",   "def_id": "swarm_host",    "label": "Shooter", "icon": "res://assets/weaponry/shooter.png"},
 		{"kind": "chemtrail", "def_id": "chemtrail",     "label": "Chemtrail"},
@@ -134,6 +147,10 @@ const QUICK_SPAWN_ORDER: Array[String] = [
 	"magma1", "magma2", "magma3", "magma4", "magma5", "magma6", "magma7",
 	"stone1", "stone2", "stone3", "stone4", "stone5", "stone6", "stone7",
 	"pros1", "pros2", "pros3", "pros4", "pros5", "pros6", "pros7", "pros8", "prosmotherblank",
+	# Atlantic sea creatures (2026-08-13) — data-only wire-up, no wave timeline yet; this is the easiest way
+	# to test-spawn them in the meantime (see docs/enemy.md's matching changelog entry).
+	"shark", "killer_whale", "whale", "spermwhale", "atlantic_squid", "stingray", "stingray_elite",
+	"atlantic_centipede", "hammerhead", "killerwhale", "shark_elite", "spermwhale2",
 	"elephant", "chromeleon", "metalfly",
 ]
 const QUICK_BOSS_IDS: Array[String] = ["elephant", "chromeleon", "metalfly"]
@@ -149,6 +166,8 @@ const SIM_TARGET_LEVEL := 15   # F4 skip-run: in-run level to simulate reaching 
 var _rng := RandomNumberGenerator.new()
 var _struct_cycle: int = 0   # F11 steps through the four structure types
 var _dev_ui_root: Control = null
+var _sweep_delay_slider: HSlider = null   # bottom-left dev tuner — see _build_sweep_delay_slider()
+var _sweep_delay_lbl:    Label   = null
 var _creep_panel:  Panel = null   # Quick Spawn (creep) — button-toggled, default hidden
 var _weapon_panel: Panel = null   # Spawn Weapon — button-toggled, default hidden
 var _weapon_grid: GridContainer = null         # current-tab cell grid (rebuilt on tab switch)
@@ -168,6 +187,21 @@ var _click_player: AudioStreamPlayer = null   # uiclick — local + ALWAYS so it
 func _ready() -> void:
 	# TEMP DIAGNOSTIC — see the note on arena.gd's _ready() timers. Safe to delete once the cause is found.
 	var _t0 := Time.get_ticks_usec()
+	# 2026-08-14 bug fix ("tôi chỉnh segment thành 8, tắt game mở lại vẫn bị reset về 3" — the SAVED override
+	# was correct on disk, but never got READ back). Root cause: arena.gd skips creating BOTH wave-director
+	# nodes entirely on the Atlantic map (`if _map_id != "atlantic":`, a deliberate 2026-08-08 debug guard,
+	# unrelated to this feature) — and `apply_overrides()`/`apply_chain_overrides()` were ONLY ever called from
+	# a wave director's own `_ready()`. No wave director on Atlantic → nothing ever applies the saved
+	# HP/Move/Shoot or CHAIN overrides to `WaveDir.ENEMY_DEFS` (a static var, reset to its literal hardcoded
+	# values on every fresh process launch) → Quick Spawn (this file reads `WaveDir.ENEMY_DEFS` directly, line
+	# ~549/604/687) silently used the un-overridden defaults all game. Within the SAME session it looked fixed
+	# because Creep Edit's own live-apply mutates that same static dict directly, in memory — the override file
+	# itself was always correct, it just never got loaded back in on a real restart. This debug-spawn panel is
+	# instantiated unconditionally on every map (unlike either wave director), so applying both override kinds
+	# here too guarantees they're loaded regardless of which map/wave-director setup is active — redundant
+	# (and harmless) wherever a wave director already does it, load-bearing where none exists.
+	CreepInfoPanelScript.apply_overrides(WaveDir.ENEMY_DEFS)
+	CreepEditModeScript.apply_chain_overrides(WaveDir.ENEMY_DEFS)
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	layer = 60   # all Dev:on panels above the mortar/fatboy blast distortion (shockwave layer 8) + the HUD; below modals (settings 100)
 	add_to_group("arena_debug_spawn")
@@ -252,6 +286,69 @@ func _build_fire_rate_ui() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 	_dev_ui_root = root
+	_build_sweep_delay_slider(root)
+
+## Bottom-left dev slider for Yari Jeager's sweep delay (2026-08-24, on request: "làm 1 slider chỉnh mức độ
+## delay, chạy từ 0-2 giây, ngay ở góc trái phía dưới màn chơi, tôi sẽ spawn jeager và tự kéo để điều chỉnh cho
+## khớp animation"). Lining the arc up with the frames where Slash actually swings is a by-eye call, so it
+## wants a live control rather than a constant and a restart.
+##
+## Lives on `_dev_ui_root`, so it appears and disappears with dev mode like every other panel here. Writes
+## straight into the live weapon through `set_yari_sweep_delay()`; nothing is saved, since this is a tuning
+## aid — once a value looks right, put it in `YARI_SWEEP_DELAY`.
+func _build_sweep_delay_slider(root: Control) -> void:
+	var panel := Panel.new()
+	var ps := StyleBoxFlat.new()
+	ps.bg_color = Color(0.04, 0.05, 0.08, 0.88)
+	ps.set_corner_radius_all(4)
+	ps.border_width_left = 1; ps.border_width_right  = 1
+	ps.border_width_top  = 1; ps.border_width_bottom = 1
+	ps.border_color = Color(0.30, 0.40, 0.60, 0.65)
+	panel.add_theme_stylebox_override("panel", ps)
+	panel.anchor_left = 0.0; panel.anchor_right  = 0.0
+	panel.anchor_top  = 1.0; panel.anchor_bottom = 1.0
+	panel.offset_left = 8.0
+	panel.offset_right = 8.0 + 210.0
+	panel.offset_top = -46.0
+	panel.offset_bottom = -8.0
+	root.add_child(panel)
+
+	var vb := VBoxContainer.new()
+	vb.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vb.offset_left = 6.0; vb.offset_right = -6.0
+	vb.offset_top = 3.0;  vb.offset_bottom = -3.0
+	vb.add_theme_constant_override("separation", 1)
+	panel.add_child(vb)
+
+	_sweep_delay_lbl = Label.new()
+	_sweep_delay_lbl.add_theme_font_size_override("font_size", 10)
+	_sweep_delay_lbl.add_theme_color_override("font_color", Color(0.75, 0.87, 1.0))
+	vb.add_child(_sweep_delay_lbl)
+
+	_sweep_delay_slider = HSlider.new()
+	_sweep_delay_slider.min_value = 0.0
+	_sweep_delay_slider.max_value = 2.0
+	_sweep_delay_slider.step = 0.01
+	_sweep_delay_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_sweep_delay_slider.value_changed.connect(_on_sweep_delay_changed)
+	vb.add_child(_sweep_delay_slider)
+	# Seed from whatever the weapon currently holds, so the handle starts where the game actually is.
+	var w := get_tree().get_first_node_in_group("arena_weapons")
+	var cur := 0.4
+	if w != null and w.has_method("get_yari_sweep_delay"):
+		cur = float(w.call("get_yari_sweep_delay"))
+	_sweep_delay_slider.set_value_no_signal(cur)
+	_refresh_sweep_delay_label(cur)
+
+func _on_sweep_delay_changed(v: float) -> void:
+	var w := get_tree().get_first_node_in_group("arena_weapons")
+	if w != null and w.has_method("set_yari_sweep_delay"):
+		w.call("set_yari_sweep_delay", v)
+	_refresh_sweep_delay_label(v)
+
+func _refresh_sweep_delay_label(v: float) -> void:
+	if _sweep_delay_lbl != null:
+		_sweep_delay_lbl.text = "Jeager sweep delay: %.2fs" % v
 
 func _input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
@@ -303,7 +400,7 @@ func _skip_run(victory: bool = false) -> void:
 ## boss spawns almost immediately for testing the fight + the BOSS ELIMINATED / RUN OVER screens. No-op if
 ## the currently loaded map's timeline doesn't end in a solo is_boss entry (2026-08-06: checked — the
 ## "default"/Space and "volcanic"/Volcanic map timelines currently have NO is_boss entry at all, so the
-## button correctly does nothing there; "rubicon"/Electric's elecforest.json does, at t=1800s, and jumping
+## button correctly does nothing there; "electric"/Electric's elecforest.json does, at t=1800s, and jumping
 ## to it works). Used to only `print()` this (console-only — invisible in a built/played game, which is
 ## exactly why a no-op here read as "the button is broken"); now also surfaces via ArenaToast so the result
 ## is visible on screen either way.
@@ -729,7 +826,7 @@ func _clear_quick_spawn() -> void:
 func _build_weapon_spawn_panel() -> void:
 	if _dev_ui_root == null:
 		return
-	const CELL  := 48
+	const CELL  := WEAPON_CELL
 	const COLS  := 4
 	const HDR_H := 40
 	const TAB_H := 26
@@ -848,7 +945,7 @@ func _rebuild_weapon_grid() -> void:
 	for c in _weapon_grid.get_children():
 		c.queue_free()
 	for w: Dictionary in _weapon_tab_entries(_weapon_tab):
-		_weapon_grid.add_child(_make_weapon_cell(w, 48))
+		_weapon_grid.add_child(_make_weapon_cell(w, WEAPON_CELL))
 
 ## The weapon's Code Name (short nickname, e.g. "Gatling"). Implemented weapons resolve it from the live
 ## registry via their kind; placeholders carry an explicit "code"; everything else falls back to the full name.
@@ -901,6 +998,7 @@ func _make_weapon_cell(w: Dictionary, cell_size: int) -> Control:
 		tex = load(icon_path) as Texture2D
 	else:
 		tex = InventoryManager.get_icon(String(w["def_id"]))
+	const NAME_H := 15.0   # bottom strip reserved for the name label below
 	if tex != null:
 		var tr := TextureRect.new()
 		tr.texture = tex
@@ -909,9 +1007,27 @@ func _make_weapon_cell(w: Dictionary, cell_size: int) -> Control:
 		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		tr.set_anchors_preset(Control.PRESET_FULL_RECT)
 		tr.offset_left = 3; tr.offset_right  = -3
-		tr.offset_top  = 3; tr.offset_bottom = -3
+		tr.offset_top  = 3; tr.offset_bottom = -NAME_H
 		tr.modulate = Color(1, 1, 1, 0.35) if is_ph else Color(1, 1, 1, 1)   # dim placeholder icons
 		btn.add_child(tr)
+
+	# Name strip (2026-08-23) — the cell's own label, so the grid can be scanned by NAME instead of by
+	# recognising art. Same text as the tooltip's first line; the full name stays in the tooltip.
+	var name_lbl := Label.new()
+	name_lbl.text = code
+	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
+	name_lbl.add_theme_font_size_override("font_size", 7)
+	name_lbl.add_theme_color_override("font_color",
+		Color(0.55, 0.60, 0.70) if is_ph else Color(0.82, 0.88, 1.00))
+	name_lbl.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
+	name_lbl.add_theme_constant_override("shadow_outline_size", 2)
+	name_lbl.clip_text = true
+	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	name_lbl.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	name_lbl.offset_left = 1; name_lbl.offset_right = -1
+	name_lbl.offset_top = -NAME_H; name_lbl.offset_bottom = -1
+	btn.add_child(name_lbl)
 
 	if not is_ph:
 		var cap := String(w.get("capstone", ""))

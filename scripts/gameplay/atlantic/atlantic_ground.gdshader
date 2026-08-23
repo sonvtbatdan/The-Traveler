@@ -20,7 +20,7 @@ uniform sampler2D tex_ground_a_normal : repeat_enable, filter_linear_mipmap;   /
 uniform sampler2D tex_ground_b_normal : repeat_enable, filter_linear_mipmap;   // per ground_a/b/c (tools/
 uniform sampler2D tex_ground_c_normal : repeat_enable, filter_linear_mipmap;   // generate_canopy_normal.py)
 uniform sampler2D tex_water_wave : repeat_enable, filter_linear_mipmap;   // genuinely seamless wave-crest photo
-                                                                            // (reused from Rubicon/Volcanic),
+                                                                            // (reused from Electric/Volcanic),
                                                                             // recolored below into a current shimmer
 
 uniform vec2 world_offset = vec2(0.0, 0.0);
@@ -101,7 +101,7 @@ void fragment() {
 	river_dist -= (river_detail - 0.5) * river_width * river_detail_strength;
 	float river_mask = 1.0 - smoothstep(river_width * 0.78, river_width, river_dist);
 
-	// Real (genuinely seamless) wave-crest photo — reused from Rubicon/Volcanic's watertile set, recolored
+	// Real (genuinely seamless) wave-crest photo — reused from Electric/Volcanic's watertile set, recolored
 	// via river_color_light/dark into a current shimmer.
 	vec2 wave_dir_a = vec2(0.85, 0.53);
 	vec2 wave_dir_b = vec2(-0.40, 0.92);

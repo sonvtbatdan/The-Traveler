@@ -13,21 +13,153 @@ extends CanvasLayer
 ## — this editor expands each row's filled slots into one flat entry per slot on Apply/Save, and re-groups flat
 ## entries (snapped to the 5s grid) back into rows on open. So old saved files + DEFAULT_TIMELINE keep working
 ## unchanged (both new fields are absent = random direction / no rotation, identical to today's behavior).
+##
+## "Generate Base on HP" (2026-08-17): the row list's "Total HP" column is a user-editable TARGET field,
+## "Actual HP" next to it is a read-only live readout of the row's REAL current slot-content total (same
+## math as the Type popup's own "Total HP" header), paired with a per-row "Gen" button and a top "Gen All
+## (HP)" button. Gen clears the row and fills it with a random creep/fleet mix whose combined HP lands
+## within GEN_HP_TOLERANCE (±10%) of the target; rows left at 0 are skipped. See
+## _generate_row_hp()/_on_gen_row()/_on_gen_all(). The Type column's button is TYPE_BTN_W (50% of its
+## original width).
+##
+## Per-map file lock (2026-08-17): electric/volcanic/atlantic are each pinned to exactly ONE file
+## (MAP_FIXED_FILES) — Name becomes read-only and the file dropdown shows only that map's own file, no
+## free Save-as-any-name. "default"/Space (not one of those 3) keeps the original free-form behavior.
+## The Unit/Fleet pickers + Gen's candidate pool are also scoped to the current map's own roster
+## (_map_enemy_ids()/_map_fleets()) — own assets/map/<name>/enemies/ folder + the shared legacy
+## enemiesHD/bosses pools (some already-used ids, e.g. Electric's "shooter", still live there).
 
 const FONT_PATH := "res://assets/fonts/mandalore/mandalore.ttf"
 const LEVELS_DIR := "res://levels/arena"
 const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")   # for enemy_draw_width()'s canonical size lookup
+func _current_map_id() -> String:
+	return String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
+
 ## Per-map "last-Loaded wave file" pointer — MUST match arena_wave_director_v2.gd's copy of this logic
 ## (that script is the reader; this one is the writer, via _remember_last_wave below).
 func _last_wave_cfg_path() -> String:
-	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
+	var map_id := _current_map_id()
 	if map_id != "default" and map_id != "":
 		return "res://spawn_mode_2_wave_%s.cfg" % map_id
 	return "res://spawn_mode_2_wave.cfg"
+
+## Per-map fixed wave-file lock (2026-08-17, on request: "không cho tự lưu file json nữa, mặc định
+## chỉ có dropdown các file json theo tên map"). electric/volcanic/atlantic are pinned to exactly ONE
+## file each — matches what spawn_mode_2_wave_<map>.cfg already remembers as "last_file" (the file
+## arena_wave_director_v2.gd auto-loads at run start), so Save here can never drift from what the
+## live game actually uses, and free Save-as-any-name is gone for these 3. Any OTHER map id (only
+## "default"/Space today) keeps the original free Name + Save-as-any-name + Load-any-.json behavior
+## — it was never tied to one map-specific roster in the first place.
+const MAP_FIXED_FILES := {
+	"electric": "elecforest.json",
+	"volcanic": "vocalnic.json",
+	"atlantic": "atlantic.json",
+}
+
+func _fixed_file_for_map() -> String:
+	return String(MAP_FIXED_FILES.get(_current_map_id(), ""))
+
+## Per-map enemy-icon folder (mirrors creep_edit_mode.gd's own MAP_REGISTRY — duplicated here as 3
+## plain strings rather than preloading that whole editor). Used to scope the Unit/Fleet pickers and
+## "Generate Base on HP" to "creep nội bộ của map đang chọn" — see _map_enemy_ids()/_map_fleets().
+const MAP_ENEMY_FOLDERS := {
+	"electric": "res://assets/map/electric/enemies/",
+	"volcanic": "res://assets/map/volcanic/enemies/",
+	"atlantic": "res://assets/map/atlantic/enemies/",
+}
+## Folders shared by EVERY map, layered on top of a map's own folder above — some ids already used by
+## a map's real saved timeline still live here, not yet migrated to their own map/<name>/ folder (e.g.
+## "shooter" for Electric, "magma2"/"magma5"/"magma7" for Volcanic's own V.Mag2 fleet family), and
+## bosses are deliberately reusable as any map's finale. Excluding this pool would silently break
+## content that already works, per explicit request to keep it merged in.
+const SHARED_ENEMY_FOLDERS := [
+	"res://assets/enemiesHD/",
+	"res://assets/bosses/",
+]
+
+## Enemy ids "belonging" to the current map (own folder + SHARED_ENEMY_FOLDERS). Falls back to the
+## full roster for any map with no MAP_ENEMY_FOLDERS entry (today: "default"/Space).
+func _map_enemy_ids() -> Array:
+	var own_folder := String(MAP_ENEMY_FOLDERS.get(_current_map_id(), ""))
+	if own_folder == "" or _director == null:
+		return _types.duplicate()
+	var allowed: Array = [own_folder] + SHARED_ENEMY_FOLDERS
+	var out: Array = []
+	for id in _types:
+		var ids := String(id)
+		var icon := String((_director.ENEMY_DEFS.get(ids, {}) as Dictionary).get("icon", ""))
+		for prefix in allowed:
+			if icon.begins_with(String(prefix)):
+				out.append(ids)
+				break
+	return out
+
+## Fleet-NAME prefix → map id — the authoritative convention (2026-08-17 request: "V." fleets are
+## Volcanic's, "AT." fleets are Atlantic's — and by the same convention, "A." fleets are Electric's).
+## Checked longest-prefix-first so "AT.WhalePod.Guard.10" is never misread against "A." — though in
+## practice a real "AT." name can never match begins_with("A.") anyway (its 2nd char is "T", not "."),
+## order is kept defensive/explicit regardless.
+const FLEET_PREFIX_MAP := [
+	{"prefix": "AT.", "map": "atlantic"},
+	{"prefix": "V.", "map": "volcanic"},
+	{"prefix": "A.", "map": "electric"},
+]
+
+## Fleets "belonging" to the current map: a recognized FLEET_PREFIX_MAP prefix decides outright
+## (authoritative — per request). Legacy fleets with no recognized prefix (Kingdom1/2, NebulaFleet1,
+## Prosmothership — pre-dating the naming convention) fall back to the same folder rule
+## _map_enemy_ids() uses: eligible if ANY of its slots' member enemy ids resolves to an allowed folder
+## (so e.g. Kingdom1/2, sentinel-based, still count as Electric). Falls back to every fleet for
+## "default"/unmapped maps. Only for the PICKER (Fleet tab) and Gen's candidate pool —
+## _fleet_total_hp()/_refresh_pad_for_active_slot() must keep resolving ANY fleet by name regardless
+## of the current map, so they still use the raw _load_fleets() unfiltered.
+func _map_fleets() -> Array:
+	var all_fleets := _load_fleets()
+	var map_id := _current_map_id()
+	if not MAP_ENEMY_FOLDERS.has(map_id):
+		return all_fleets
+	var allowed: Array = [String(MAP_ENEMY_FOLDERS[map_id])] + SHARED_ENEMY_FOLDERS
+	var out: Array = []
+	for fl in all_fleets:
+		var fld: Dictionary = fl
+		var nm := String(fld.get("name", ""))
+		var prefix_map := ""
+		for pm: Dictionary in FLEET_PREFIX_MAP:
+			if nm.begins_with(String(pm["prefix"])):
+				prefix_map = String(pm["map"])
+				break
+		if prefix_map != "":
+			if prefix_map == map_id:
+				out.append(fl)
+			continue   # recognized prefix but for a DIFFERENT map — never falls through to the folder guess
+		if _director == null:
+			continue   # no recognized prefix and can't run the folder fallback — exclude, don't guess
+		var eligible := false
+		for s: Dictionary in (fld.get("slots", []) as Array):
+			for en in (s.get("enemies", []) as Array):
+				var icon := String((_director.ENEMY_DEFS.get(String(en), {}) as Dictionary).get("icon", ""))
+				for prefix in allowed:
+					if icon.begins_with(String(prefix)):
+						eligible = true
+						break
+				if eligible:
+					break
+			if eligible:
+				break
+		if eligible:
+			out.append(fl)
+	return out
 const TEST_WAVES := 20   # how many repeating time points a Quick-test builds (each spawns COUNT enemies)
 const GRID_STEP := 5.0   # seconds between template rows
 const GRID_ROWS := 360   # 5, 10, … , 1800
 const SLOTS_PER_ROW := 10 # 2×5 spawn slots per row
+const GEN_HP_TOLERANCE := 0.10   # "Generate Base on HP" aims within ±10% of the row's target field
+const SHOOT_TYPE_CAP := 10   # 2026-08-17 request: ranged/"shoot"-behavior creeps capped at this many
+							  # PER GENERATED WAVE (row), regardless of HP-derived count — a swarm of
+							  # ranged attackers is a much bigger threat than the same HP total in
+							  # melee/contact-only creeps. See _is_shoot_type().
+const TYPE_BTN_FULL_W := 220   # original Type-column button width
+const TYPE_BTN_W := TYPE_BTN_FULL_W / 2   # 2026-08-17 request: shorten the Type column buttons to 50%
 
 var _director: Node = null
 var _root: Control = null
@@ -79,6 +211,10 @@ func _input(event: InputEvent) -> void:
 func toggle() -> void:   # public entry for the Wave_edit HUD button (same as F7)
 	_toggle()
 
+## Public — read by arena_hud_buttons.gd's centralized Esc-closes-whichever-dev-panel-is-open handler.
+func is_open() -> bool:
+	return _open
+
 func _toggle() -> void:
 	_open = not _open
 	_root.visible = _open
@@ -108,7 +244,7 @@ func _sync_active_file() -> void:
 	var fname := String(cfg.get_value("wave", "last_file", ""))
 	if fname == "":
 		return
-	_name_edit.text = MandaloreText.a(fname.get_basename())
+	_name_edit.text = _txt(fname.get_basename())
 	for i in _file_opt.item_count:
 		if _file_opt.get_item_text(i) == fname:
 			_file_opt.selected = i
@@ -116,7 +252,7 @@ func _sync_active_file() -> void:
 
 func _process(_delta: float) -> void:
 	if _open and _director != null and _director.has_method("elapsed"):
-		_title.text = MandaloreText.a("ARENA WAVE EDITOR   (F7 to close)    —    t = %.1fs" % _director.elapsed())
+		_title.text = _txt("ARENA WAVE EDITOR   (F7 to close)    —    t = %.1fs" % _director.elapsed())
 
 # ── UI ──────────────────────────────────────────────────────────────────────────
 func _build_ui() -> void:
@@ -151,7 +287,7 @@ func _build_ui() -> void:
 	lib.add_theme_constant_override("separation", 8)
 	lib.add_child(_mk_label("Name", 12))
 	_name_edit = LineEdit.new()
-	_name_edit.text = MandaloreText.a("my_timeline")
+	_name_edit.text = _txt("my_timeline")
 	_name_edit.custom_minimum_size = Vector2(180, 0)
 	if _font: _name_edit.add_theme_font_override("font", _font)
 	lib.add_child(_name_edit)
@@ -191,11 +327,14 @@ func _build_ui() -> void:
 	vb.add_child(HSeparator.new())
 
 	# Column header. Count / Pattern / Dur / Boss now live PER-SLOT inside the Type popup, so the table is just
-	# Min + Time + Type(Blank/Set) + Total HP + delete. "Min" is a minute-mark ruler alongside Time(s) — see
-	# _add_row()'s minute label — not an independent editable value.
+	# Min + Time + Type(Blank/Set) + Total HP + Actual HP + Generate Base on HP + delete. "Min" is a minute-mark
+	# ruler alongside Time(s) — see _add_row()'s minute label — not an independent editable value. "Total HP" is
+	# a user-editable TARGET field (see _add_row()'s hp_spin comment); "Actual HP" is a read-only live readout
+	# of the row's real current slot-content total (see _add_row()'s actual_hp_lbl); "Generate Base on HP"
+	# holds this row's own Gen button. Type button width is 50% of TYPE_BTN_FULL_W (2026-08-17 request).
 	var hdr := HBoxContainer.new()
 	hdr.add_theme_constant_override("separation", 8)
-	for h: Array in [["Min", 36], ["Time(s)", 90], ["Type (Blank / Set)", 220], ["Total HP", 130], ["", 36]]:
+	for h: Array in [["Min", 36], ["Time(s)", 90], ["Type (Blank / Set)", TYPE_BTN_W], ["Total HP", 130], ["Actual HP", 130], ["Generate Base on HP", 110], ["", 36]]:
 		var l := _mk_label(String(h[0]), 11)
 		l.custom_minimum_size = Vector2(float(h[1]), 0)
 		hdr.add_child(l)
@@ -215,6 +354,10 @@ func _build_ui() -> void:
 	vb.add_child(btns)
 	btns.add_child(_mk_button("+ Add Wave", _on_add))
 	btns.add_child(_mk_button("Sort by time", _on_sort))
+	var gen_all_btn := _mk_button("Gen All (HP)", _on_gen_all)
+	gen_all_btn.tooltip_text = "Generate every row whose 'Total HP' field is > 0 (skips rows left at 0)"
+	gen_all_btn.add_theme_color_override("font_color", Color(0.4, 0.75, 1.0))
+	btns.add_child(gen_all_btn)
 	var apply_btn := _mk_button("Apply & Restart", _on_apply)
 	apply_btn.add_theme_color_override("font_color", Color(0.95, 0.85, 0.2))
 	btns.add_child(apply_btn)
@@ -305,18 +448,36 @@ func _add_row(time: float, preset_slots: Array = []) -> void:
 
 	# Type — a fixed-width button showing Blank / Set; opens the picker + 2×5 slot popup.
 	var type_btn := Button.new()
-	type_btn.custom_minimum_size = Vector2(220, 0)
+	type_btn.custom_minimum_size = Vector2(TYPE_BTN_W, 0)
 	type_btn.clip_text = true
 	if _font: type_btn.add_theme_font_override("font", _font)
 	hb.add_child(type_btn)
 
-	# Total HP — sum of (base hp × count) across this row's filled, non-fleet slots. See _row_total_hp().
-	var hp_lbl := _mk_label("HP 0", 12)
-	hp_lbl.custom_minimum_size = Vector2(130, 0)
-	hb.add_child(hp_lbl)
+	# Total HP — was a read-only live sum of this row's slots; now a user-editable TARGET field instead
+	# ("Generate Base on HP" fills the row so its real total lands within GEN_HP_TOLERANCE of this value).
+	# The row's actual live slot-content total is still shown in the Type popup's own "Total HP" header
+	# (_row_total_hp(), unchanged) whenever that popup is open — this field is only ever the Gen target.
+	var hp_spin := _mk_spin(0.0, 100000000.0, 100.0, 0.0, 130)
+	hp_spin.tooltip_text = "Target HP for 'Generate Base on HP' — 0 = don't generate this row"
+	hb.add_child(hp_spin)
+
+	# Actual HP — read-only, display only: the row's REAL current slot-content total (same value/math
+	# as the Type popup's own "Total HP" header — _row_total_hp()). Kept live by _update_row_hp().
+	var actual_hp_lbl := _mk_label(_fmt_hp(0.0), 12)
+	actual_hp_lbl.custom_minimum_size = Vector2(130, 0)
+	actual_hp_lbl.add_theme_color_override("font_color", Color(0.6, 0.85, 1.0))
+	hb.add_child(actual_hp_lbl)
+
+	# Generate Base on HP — per-row Gen button; fills this row's slots with a random creep/fleet mix
+	# whose combined HP lands within GEN_HP_TOLERANCE of the field above. No-op while that field is 0.
+	var gen_btn := Button.new()
+	gen_btn.text = _txt("Gen")
+	gen_btn.custom_minimum_size = Vector2(110, 0)
+	if _font: gen_btn.add_theme_font_override("font", _font)
+	hb.add_child(gen_btn)
 
 	var clr := Button.new()
-	clr.text = MandaloreText.a("X")
+	clr.text = _txt("X")
 	clr.tooltip_text = "Clear this row's units/fleets (back to Blank)"
 	clr.custom_minimum_size = Vector2(36, 0)
 	if _font: clr.add_theme_font_override("font", _font)
@@ -326,9 +487,11 @@ func _add_row(time: float, preset_slots: Array = []) -> void:
 	var slots: Array = []
 	for i in SLOTS_PER_ROW:
 		slots.append(preset_slots[i] if i < preset_slots.size() else _slot_default())
-	var row := {"hbox": hb, "time_val": time, "type_btn": type_btn, "hp_lbl": hp_lbl, "slots": slots}
+	var row := {"hbox": hb, "time_val": time, "type_btn": type_btn, "hp_spin": hp_spin, "target_hp": 0.0, "actual_hp_lbl": actual_hp_lbl, "slots": slots}
 	type_btn.pressed.connect(func() -> void: _open_type_dropdown(row))
 	clr.pressed.connect(func() -> void: _clear_row(row))
+	hp_spin.value_changed.connect(func(v: float) -> void: row["target_hp"] = v)
+	gen_btn.pressed.connect(func() -> void: _on_gen_row(row))
 	_update_type_btn(row)
 	_update_row_hp(row)
 	_rows.append(row)
@@ -396,6 +559,159 @@ func _fleet_total_hp(fleet_name: String) -> float:
 			total += float(d.get("hp", 0.0))
 	return total
 
+# ── Generate Base on HP ──────────────────────────────────────────────────────────
+## True for any enemy def with a ranged attack — the 4 classic behaviors that fire projectiles
+## ("shooter"/"beamer"/"bomber"/"missile"), the "gauss_shooter" flag (pros5 — ranged bolted onto a
+## "chase" behavior), or an explicit Creep Info "shoot" override (the composed move/shoot system —
+## anything other than "none"). Contact-only/melee creeps (the vast majority of the roster) are false.
+func _is_shoot_type(d: Dictionary) -> bool:
+	if String(d.get("behavior", "")) in ["shooter", "beamer", "bomber", "missile"]:
+		return true
+	if bool(d.get("gauss_shooter", false)):
+		return true
+	if d.has("shoot") and String(d.get("shoot", "none")) != "none":
+		return true
+	return false
+
+## Auto-fills `row`'s slots with a random creep/fleet mix whose combined HP lands within
+## GEN_HP_TOLERANCE of `target` — clears the row first, so every Gen press is a fresh composition,
+## not a patch on top of whatever was there. Returns the actually-achieved total (via the same
+## _row_total_hp() every other HP readout in this file already uses, so it's always the same truth
+## the Type popup's own "Total HP" header would show). No-op (row left blank) for target <= 0.
+func _generate_row_hp(row: Dictionary, target: float) -> float:
+	var slots: Array = row["slots"]
+	for i in slots.size():
+		slots[i] = _slot_default()
+	if _director == null or target <= 0.0:
+		_update_type_btn(row)
+		_update_row_hp(row)
+		return 0.0
+
+	# Candidate pools — every enemy type / fleet BELONGING TO THE CURRENT MAP (_map_enemy_ids()/
+	# _map_fleets()), minus one-off bosses (behavior "boss_stub", or "gate_waves" like the Scorpion)
+	# which don't belong in a randomly-generated filler wave. Unit hp already folds in "blob" (matches
+	# _row_total_hp()).
+	var unit_pool: Array = []   # [{id, hp}]
+	for id in _map_enemy_ids():
+		var ids := String(id)
+		var d: Dictionary = _director.ENEMY_DEFS.get(ids, {})
+		if String(d.get("behavior", "")) == "boss_stub" or bool(d.get("gate_waves", false)):
+			continue
+		var hp := float(d.get("hp", 0.0)) * float(maxi(1, int(d.get("blob", 1))))
+		if hp > 0.0:
+			unit_pool.append({"id": ids, "hp": hp})
+	var fleet_pool: Array = []   # [{name, hp}]
+	for fl in _map_fleets():
+		var nm := String((fl as Dictionary).get("name", ""))
+		var fhp := _fleet_total_hp(nm)
+		if fhp > 0.0:
+			fleet_pool.append({"name": nm, "hp": fhp})
+	if unit_pool.is_empty() and fleet_pool.is_empty():
+		_update_type_btn(row)
+		_update_row_hp(row)
+		return 0.0
+
+	var patterns: Array = _director.PATTERNS
+	var slot_i := 0
+	var shoot_used: Dictionary = {}   # unit id -> total count already placed in THIS row (SHOOT_TYPE_CAP applies per row, not per slot — a wave could otherwise reach the cap in slot 1 and again in slot 2)
+	var iterations := 0
+	# Phase 1 — greedy fill: drop picks (unit or fleet, ~35% fleet chance when both are available)
+	# into empty slots, each sized to roughly absorb whatever's left of the target, until either the
+	# 10 slots run out or the remainder is already small enough for Phase 2 to close exactly. Capped
+	# retry budget (iterations) so an all-maxed-out-shoot-type pool can't spin forever without ever
+	# advancing slot_i — see the "cap <= 0" skip below.
+	while slot_i < slots.size() and iterations < slots.size() * 4:
+		iterations += 1
+		var achieved := _row_total_hp(row)
+		var remaining := target - achieved
+		if remaining <= target * 0.02:
+			break
+		var use_fleet := not fleet_pool.is_empty() and (unit_pool.is_empty() or randf() < 0.35)
+		if use_fleet:
+			var f: Dictionary = fleet_pool[randi() % fleet_pool.size()]
+			var fhp: float = f["hp"]
+			var n := clampi(int(round(remaining / fhp)), 1, 20)   # sane cap on how many copies of one fleet
+			slots[slot_i] = {"type": "fleet:" + String(f["name"]), "count": n, "pattern": "ring", "is_boss": false, "duration": 0.0}
+		else:
+			var u: Dictionary = unit_pool[randi() % unit_pool.size()]
+			var uhp: float = u["hp"]
+			var uid: String = u["id"]
+			# HP-scaled per-slot cap (cheap fry can swarm higher, pricey types stay small) — mirrors the
+			# same "12000 budget" idea used to author the map wave JSONs, so a Gen'd row doesn't dump an
+			# absurd single count of an expensive creep into one slot.
+			var cap := clampi(int(round(12000.0 / uhp)), 5, 500)
+			# Ranged/"shoot" creeps get a hard SHOOT_TYPE_CAP-per-row ceiling on top of the above,
+			# regardless of HP — a swarm of shooters/beamers/missiles is far more dangerous than the
+			# same HP total in melee creeps (2026-08-17 request).
+			if _is_shoot_type(_director.ENEMY_DEFS.get(uid, {})):
+				cap = mini(cap, SHOOT_TYPE_CAP - int(shoot_used.get(uid, 0)))
+				if cap <= 0:
+					continue   # this shoot type is already at cap for the row — retry with a fresh pick, don't consume a slot
+			var count := clampi(int(round(remaining / uhp)), 1, cap)
+			if _is_shoot_type(_director.ENEMY_DEFS.get(uid, {})):
+				shoot_used[uid] = int(shoot_used.get(uid, 0)) + count
+			slots[slot_i] = {"type": uid, "count": count, "pattern": String(patterns[randi() % patterns.size()]), "is_boss": false, "duration": 0.0}
+		slot_i += 1
+
+	# Phase 2 — fine-tune: solve the LAST filled slot's count exactly so the total lands as close to
+	# target as its own per-slot cap allows, instead of leaving whatever Phase 1's rounding produced.
+	if slot_i > 0:
+		var last: Dictionary = slots[slot_i - 1]
+		var lt := String(last.get("type", ""))
+		var lhp := 0.0
+		if lt.begins_with("fleet:"):
+			lhp = _fleet_total_hp(lt.substr(6))
+		elif lt != "":
+			var ld: Dictionary = _director.ENEMY_DEFS.get(lt, {})
+			lhp = float(ld.get("hp", 0.0)) * float(maxi(1, int(ld.get("blob", 1))))
+		if lhp > 0.0:
+			var others := _row_total_hp(row) - lhp * float(int(last.get("count", 1)))
+			var need := target - others
+			var new_count := maxi(1, int(round(need / lhp)))
+			if not lt.begins_with("fleet:") and _is_shoot_type(_director.ENEMY_DEFS.get(lt, {})):
+				# Cap against SHOOT_TYPE_CAP minus whatever OTHER slots of this same type already used
+				# (shoot_used still includes this slot's own Phase-1 count — subtract it back out first).
+				var other_shoot_use := int(shoot_used.get(lt, 0)) - int(last.get("count", 1))
+				new_count = clampi(new_count, 1, maxi(1, SHOOT_TYPE_CAP - other_shoot_use))
+			last["count"] = new_count
+
+	_update_type_btn(row)
+	_update_row_hp(row)
+	return _row_total_hp(row)
+
+## Per-row "Gen" button — see column "Generate Base on HP". Skips (with a status message) if the
+## row's target field is 0.
+func _on_gen_row(row: Dictionary) -> void:
+	var target := float(row.get("target_hp", 0.0))
+	if target <= 0.0:
+		_set_status("t=%ds — HP is 0, skipped" % int(round(float(row["time_val"]))))
+		return
+	var achieved := _generate_row_hp(row, target)
+	_refresh_readout()
+	var pct := (achieved / target - 1.0) * 100.0
+	var flag := "" if absf(pct) <= GEN_HP_TOLERANCE * 100.0 else "  (outside ±10%)"
+	_set_status("Generated t=%ds — target %s, got %s (%+.1f%%)%s" % [int(round(float(row["time_val"]))), _fmt_hp(target), _fmt_hp(achieved), pct, flag])
+
+## Top "Gen All (HP)" button — generates every row whose target field is > 0; rows left at 0 are
+## skipped entirely, per request.
+func _on_gen_all() -> void:
+	var n := 0
+	var total_target := 0.0
+	var total_achieved := 0.0
+	for row: Dictionary in _rows:
+		var target := float(row.get("target_hp", 0.0))
+		if target <= 0.0:
+			continue
+		total_achieved += _generate_row_hp(row, target)
+		total_target += target
+		n += 1
+	_refresh_readout()
+	if n == 0:
+		_set_status("Gen All — no rows have HP set (every 'Total HP' field is 0)")
+		return
+	var pct := (total_achieved / total_target - 1.0) * 100.0 if total_target > 0.0 else 0.0
+	_set_status("Gen All — %d row(s) generated, target %s, got %s (%+.1f%%)" % [n, _fmt_hp(total_target), _fmt_hp(total_achieved), pct])
+
 ## Exact integer HP with thousands separators (e.g. "1,234,500") — no K/M abbreviation, no precision lost.
 ## round() here only cancels float-multiplication noise (hp × count × blob are all whole numbers in
 ## practice); it is not a display-rounding of the actual total.
@@ -411,13 +727,18 @@ func _fmt_hp(v: float) -> String:
 			out = "," + out
 	return ("-" if n < 0 else "") + out
 
+## Refreshes the row-list's read-only "Actual HP" column, and the Type popup's own "Total HP" header
+## (if open for this row) — both show the row's real, current slot-content total (_row_total_hp()).
+## The row-list's "Total HP" column is a separate, user-editable TARGET field (see _add_row()'s
+## hp_spin) — nothing to write there; it never reflects live slot content.
 func _update_row_hp(row: Dictionary) -> void:
-	var txt := _fmt_hp(_row_total_hp(row))
-	(row["hp_lbl"] as Label).text = MandaloreText.a("HP " + txt)
-	# Also refresh the Type popup's own "Total HP" header, if it's currently open for this row.
+	var real := _row_total_hp(row)
+	var actual_lbl: Variant = row.get("actual_hp_lbl")
+	if actual_lbl != null and is_instance_valid(actual_lbl):
+		(actual_lbl as Label).text = _txt(_fmt_hp(real))
 	var popup_lbl: Variant = row.get("popup_hp_lbl")
 	if popup_lbl != null and is_instance_valid(popup_lbl):
-		(popup_lbl as Label).text = MandaloreText.a("Total HP " + txt)
+		(popup_lbl as Label).text = _txt("Total HP " + _fmt_hp(real))
 
 ## Type button label: "Set (N)" when any slot is filled (N = filled count), else "Blank".
 func _update_type_btn(row: Dictionary) -> void:
@@ -426,7 +747,7 @@ func _update_type_btn(row: Dictionary) -> void:
 		if String(s.get("type", "")) != "":
 			n += 1
 	var btn := row["type_btn"] as Button
-	btn.text = MandaloreText.a(("Set (%d)" % n) if n > 0 else "Blank")
+	btn.text = _txt(("Set (%d)" % n) if n > 0 else "Blank")
 	btn.add_theme_color_override("font_color", Color(0.35, 0.9, 0.35) if n > 0 else Color(1.0, 1.0, 1.0))
 
 ## Expand every row's filled slots into FLAT timeline entries (one entry per slot, all sharing the row's time).
@@ -489,7 +810,8 @@ func _on_build_test() -> void:
 		entries.append({"time": float(i) * iv, "type": t, "count": per_wave, "pattern": "scatter"})
 	if _director != null:
 		_director.set_timeline(entries)
-	_name_edit.text = "test_" + t   # so Save names it sensibly in the library
+	if _fixed_file_for_map() == "":   # locked maps always save under their own fixed name — leave it alone
+		_name_edit.text = "test_" + t   # so Save names it sensibly in the library
 	_rebuild_rows()
 	_refresh_readout()
 	_set_status("Built %d waves × %d %s, every %.1fs" % [TEST_WAVES, per_wave, t, iv])
@@ -497,20 +819,24 @@ func _on_build_test() -> void:
 # ── Save / Load library (JSON in res://levels/arena/) ───────────────────────────
 func _on_save() -> void:
 	DirAccess.make_dir_recursive_absolute(LEVELS_DIR)
-	var fname := _sanitize(_name_edit.text) + ".json"
+	# Locked maps (see MAP_FIXED_FILES) always save to their own ONE file, ignoring whatever's in the
+	# (now read-only, for these maps) Name field — no more free Save-as-any-name for electric/volcanic/atlantic.
+	var fixed := _fixed_file_for_map()
+	var fname := fixed if fixed != "" else (_sanitize(_name_edit.text) + ".json")
+	var display_name := fixed.get_basename() if fixed != "" else _name_edit.text
 	var tl := _collect()
 	var f := FileAccess.open(LEVELS_DIR + "/" + fname, FileAccess.WRITE)
 	if f == null:
 		_set_status("Save FAILED")
 		return
-	f.store_string(JSON.stringify({"name": _name_edit.text, "timeline": tl}, "  "))
+	f.store_string(JSON.stringify({"name": display_name, "timeline": tl}, "  "))
 	f.close()
 	# Live-apply + remember, same as _on_load() does — otherwise the disk write succeeds but (a) THIS
 	# panel keeps showing the director's now-stale live timeline on reopen (_rebuild_rows() reads
 	# _director.get_timeline(), never the file — see its own comment) and (b) the next run's auto-load
 	# (_last_wave_cfg_path()) keeps pointing at whatever was last Loaded, not this Save — together making
 	# a Save-only edit look like it silently reverted (2026-08-02 bug report: reproduces on any map, not
-	# just Rubicon — Save alone never touched the live director before this fix).
+	# just Electric — Save alone never touched the live director before this fix).
 	if _director != null:
 		_director.set_timeline(tl)
 	_remember_last_wave(fname)
@@ -535,7 +861,7 @@ func _on_load() -> void:
 	if typeof(parsed) != TYPE_DICTIONARY or not (parsed as Dictionary).has("timeline"):
 		_set_status("Bad JSON")
 		return
-	_name_edit.text = MandaloreText.a(String((parsed as Dictionary).get("name", fname.get_basename())))
+	_name_edit.text = _txt(String((parsed as Dictionary).get("name", fname.get_basename())))
 	if _director != null:
 		_director.set_timeline((parsed as Dictionary)["timeline"])
 	_remember_last_wave(fname)
@@ -554,6 +880,16 @@ func _remember_last_wave(fname: String) -> void:
 func _refresh_files() -> void:
 	if _file_opt == null:
 		return
+	# Locked maps: dropdown/Name show exactly that map's own file — no directory scan, no free rename.
+	var fixed := _fixed_file_for_map()
+	if fixed != "":
+		_name_edit.editable = false
+		_name_edit.text = _txt(fixed.get_basename())
+		_file_opt.clear()
+		_file_opt.add_item(fixed)
+		_file_opt.selected = 0
+		return
+	_name_edit.editable = true
 	var sel := _file_opt.get_item_text(_file_opt.selected) if _file_opt.item_count > 0 else ""
 	_file_opt.clear()
 	var d := DirAccess.open(LEVELS_DIR)
@@ -576,11 +912,11 @@ func _refresh_files() -> void:
 
 func _refresh_readout() -> void:
 	if _readout != null and _director != null:
-		_readout.text = MandaloreText.a(JSON.stringify(_director.get_timeline(), "  "))
+		_readout.text = _txt(JSON.stringify(_director.get_timeline(), "  "))
 
 func _set_status(t: String) -> void:
 	if _status != null:
-		_status.text = MandaloreText.a(t)
+		_status.text = _txt(t)
 
 func _sanitize(s: String) -> String:
 	var r := s.strip_edges().to_lower()
@@ -727,9 +1063,11 @@ func _open_type_dropdown(row: Dictionary) -> void:
 	var slots_hdr_lbl := _mk_label("Spawn slots (2 × 5)", 12)
 	slots_hdr_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right_hdr.add_child(slots_hdr_lbl)
-	# Total HP — same row as "Spawn slots", right-aligned. Kept live by _update_row_hp() (stashes this Label
-	# on row["popup_hp_lbl"] below; every existing call site that refreshes the table's Total HP column
-	# — count edits, drag-drop assign/clear, the OK button — refreshes this one too, no separate wiring).
+	# Total HP — same row as "Spawn slots", right-aligned; this is the row's REAL current slot-content
+	# total (the row-list's own "Total HP" column is a separate, user-editable Gen-target field — see
+	# _add_row()'s hp_spin). Kept live by _update_row_hp() (stashes this Label on row["popup_hp_lbl"]
+	# below; every existing call site that refreshes HP — count edits, drag-drop assign/clear, the OK
+	# button, Gen — refreshes this one too, no separate wiring).
 	var total_hp_hdr_lbl := _mk_label("Total HP " + _fmt_hp(_row_total_hp(row)), 12)
 	total_hp_hdr_lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
 	right_hdr.add_child(total_hp_hdr_lbl)
@@ -758,7 +1096,7 @@ func _build_unit_tab() -> Control:
 	grid.add_theme_constant_override("h_separation", 4)
 	grid.add_theme_constant_override("v_separation", 4)
 	scroll.add_child(grid)
-	for id in _types:
+	for id in _map_enemy_ids():   # scoped to the current map's own roster — see _map_enemy_ids()
 		var ids := String(id)
 		var b := _DragSrc.new()
 		b.custom_minimum_size = Vector2(50.0, 50.0)
@@ -776,7 +1114,7 @@ func _build_unit_tab() -> Control:
 			tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			b.add_child(tr)
 		else:
-			b.text = MandaloreText.a(ids.substr(0, 4))
+			b.text = _txt(ids.substr(0, 4))
 			if _font: b.add_theme_font_override("font", _font)
 		grid.add_child(b)
 	return c
@@ -796,11 +1134,11 @@ func _build_fleet_tab() -> Control:
 	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vb.add_theme_constant_override("separation", 2)
 	scroll.add_child(vb)
-	for fl in _load_fleets():
+	for fl in _map_fleets():   # scoped to the current map's own roster — see _map_fleets()
 		var fld: Dictionary = fl
 		var nm := String(fld.get("name", "Fleet"))
 		var lbl := _DragSrc.new()
-		lbl.text = MandaloreText.a(nm)
+		lbl.text = _txt(nm)
 		lbl.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		lbl.custom_minimum_size = Vector2(0.0, 24.0)
 		lbl.tooltip_text = nm + "  (drag → slot)"
@@ -923,7 +1261,7 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 		fleet_hp_lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
 		fcsb.value_changed.connect(func(v: float) -> void:
 			slot["count"] = int(v)
-			fleet_hp_lbl.text = MandaloreText.a("HP " + _fmt_hp(one_fleet_hp * v))
+			fleet_hp_lbl.text = _txt("HP " + _fmt_hp(one_fleet_hp * v))
 			_update_row_hp(row))
 		fcfg.add_child(fleet_hp_lbl)
 		vb.add_child(fcfg)
@@ -954,7 +1292,7 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 	slot_hp_lbl.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
 	csb.value_changed.connect(func(v: float) -> void:
 		slot["count"] = int(v)
-		slot_hp_lbl.text = MandaloreText.a("HP " + _fmt_hp(hp_per_unit * v))
+		slot_hp_lbl.text = _txt("HP " + _fmt_hp(hp_per_unit * v))
 		_update_row_hp(row))
 	cfg.add_child(csb)
 	cfg.add_child(slot_hp_lbl)
@@ -988,7 +1326,7 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 	boss_row.mouse_filter = Control.MOUSE_FILTER_STOP
 	var boss_cb := CheckBox.new()
 	boss_cb.button_pressed = bool(slot.get("is_boss", false))
-	boss_cb.text = MandaloreText.a("Boss")
+	boss_cb.text = _txt("Boss")
 	if _font: boss_cb.add_theme_font_override("font", _font)
 	boss_cb.add_theme_font_size_override("font_size", 10)
 	boss_cb.toggled.connect(func(v: bool) -> void: slot["is_boss"] = v)
@@ -1030,7 +1368,9 @@ class _DragSrc extends Button:
 			prev.add_child(tr)
 		else:
 			var l := Label.new()
-			l.text = MandaloreText.a(ptext)
+			l.text = ptext   # _DragSrc is a standalone nested class (no outer-editor ref) — but this drag
+			# preview never gets a Mandalore font override applied either, so no transform is needed here;
+			# see the outer class's _txt() for the actual rule.
 			prev.add_child(l)
 		set_drag_preview(prev)
 		return payload
@@ -1103,9 +1443,22 @@ class _FleetPreview extends Control:
 				draw_rect(rect, Color(0.4, 0.5, 0.7, 0.6))
 
 # ── Widget helpers ──────────────────────────────────────────────────────────────
+## MandaloreText.a() substitutes lowercase "a" for every uppercase "A" — a workaround for the
+## Mandalore font's broken uppercase-A glyph (see mandalore_text.gd), only correct for text actually
+## RENDERED in that font. This editor's own `_font` is intentionally always null (see its comment
+## below) — every label/button here falls back to Godot's default font, which has no such glyph bug —
+## so route every text assignment through this instead of calling MandaloreText.a() directly: the
+## substitution only fires if `_font` (Mandalore) is ever actually in use, never for the default font.
+## 2026-08-17 fix: this file used to call MandaloreText.a() unconditionally everywhere, which silently
+## corrupted any "A" in real content shown here even though the default font renders it fine — e.g.
+## fleet names in the Fleet-tab picker/drag-preview ("AT.WhalePod.Guard.10" → "aT.WhalePod.Guard.10")
+## and the live JSON readout (any "A" in a fleet: entry) were visibly wrong.
+func _txt(s: String) -> String:
+	return MandaloreText.a(s) if _font else s
+
 func _mk_label(text: String, sz: int) -> Label:
 	var l := Label.new()
-	l.text = MandaloreText.a(text)
+	l.text = _txt(text)
 	if _font:
 		l.add_theme_font_override("font", _font)
 	l.add_theme_font_size_override("font_size", sz)
@@ -1125,7 +1478,7 @@ func _mk_spin(lo: float, hi: float, step: float, val: float, w: int) -> SpinBox:
 
 func _mk_button(text: String, cb: Callable) -> Button:
 	var b := Button.new()
-	b.text = MandaloreText.a(text)
+	b.text = _txt(text)
 	if _font:
 		b.add_theme_font_override("font", _font)
 	b.pressed.connect(cb)

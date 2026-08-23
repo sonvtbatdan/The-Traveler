@@ -24,7 +24,7 @@ class_name VolcanicLandmarkMark
 
 const VolcanicTerrainSettings := preload("res://scripts/gameplay/volcanic/volcanic_terrain_settings.gd")
 
-const REF_IMAGE_PATH := "res://assets/map/volcanic/temple_mark_ref.png"
+const REF_IMAGE_PATH := "res://assets/map/volcanic/landmark/temple_mark_ref.png"
 const PANEL_W := 900.0
 const IMAGE_SIZE := 860.0
 const MARK_DOT_SIZE := 12.0

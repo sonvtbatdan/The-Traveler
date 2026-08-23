@@ -1,5 +1,5 @@
 extends SceneTree
-## One-shot DEV TOOL: boots scenes/arena.tscn under map_id="rubicon", turns dev mode on, opens the new
+## One-shot DEV TOOL: boots scenes/arena.tscn under map_id="electric", turns dev mode on, opens the new
 ## TERRAIN EDIT panel, and screenshots it — verifies the button placement (above Simplified) and the panel
 ## layout without needing to click through the real UI by hand.
 ## Run non-headless:  godot --path . --script tools/screenshot_terrain_edit.gd
@@ -9,7 +9,7 @@ var _f := 0
 func _initialize() -> void:
 	var meta := get_root().get_node_or_null("MetaManager")
 	if meta != null:
-		meta.set("selected_map_id", "rubicon")
+		meta.set("selected_map_id", "electric")
 	var packed := load("res://scenes/arena.tscn") as PackedScene
 	get_root().add_child(packed.instantiate())
 	RenderingServer.frame_post_draw.connect(_on_post_draw)
@@ -27,7 +27,7 @@ func _on_post_draw() -> void:
 			hud.call("_on_terrain_edit")
 	if _f == 110:
 		_save("user://terrain_edit_panel.png")
-		var tem := get_root().get_tree().get_first_node_in_group("rubicon_terrain_edit")
+		var tem := get_root().get_tree().get_first_node_in_group("electric_terrain_edit")
 		if tem != null:
 			tem.call("_select_asset", "temple")
 			tem.call("_on_asset_density_changed", 0.05)

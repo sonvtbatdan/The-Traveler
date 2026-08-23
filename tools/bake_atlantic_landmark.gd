@@ -1,10 +1,10 @@
 extends SceneTree
-## One-shot BAKE: renders the REUSED Rubicon/Electric temple.glb from a true top-down ORTHOGONAL camera into a
+## One-shot BAKE: renders the REUSED Electric/Electric temple.glb from a true top-down ORTHOGONAL camera into a
 ## reference PNG that scripts/ui/hud/atlantic_landmark_mark.gd shows for clicking bubble/whirlpool attachment
 ## points. Verbatim port of tools/bake_volcanic_landmark.gd — see that file's header for the full rationale on
-## the explicit camera basis / local-space math. Atlantic reuses Rubicon's temple.glb directly (2026-08-06, on
+## the explicit camera basis / local-space math. Atlantic reuses Electric's temple.glb directly (2026-08-06, on
 ## request: "sử dụng temple của electric") rather than shipping its own copy, so this bakes straight from
-## assets/map/rubicon/temple.glb into assets/map/atlantic/temple_mark_ref.png — the ONE Atlantic-local asset
+## assets/map/electric/temple.glb into assets/map/atlantic/temple_mark_ref.png — the ONE Atlantic-local asset
 ## this reuse still needs (a reference image for the mark-editor UI, not a new 3D model).
 ##
 ## Run non-headless (3D rendering needs a real GPU context):
@@ -13,8 +13,8 @@ extends SceneTree
 
 const AtlanticAssetScan := preload("res://scripts/gameplay/atlantic/atlantic_asset_scan.gd")
 
-const TEMPLE_GLB_PATH := "res://assets/map/rubicon/temple.glb"   # reused directly, not copied
-const OUT_PATH := "res://assets/map/atlantic/temple_mark_ref.png"
+const TEMPLE_GLB_PATH := "res://assets/map/electric/landmark/temple.glb"   # reused directly, not copied
+const OUT_PATH := "res://assets/map/atlantic/landmark/temple_mark_ref.png"
 const VP_SIZE := 768
 const SETTLE_FRAMES := 5
 

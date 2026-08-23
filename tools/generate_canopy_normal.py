@@ -1,6 +1,6 @@
-"""Generates a REAL tangent-space normal map for every canopy color photo under assets/map/rubicon/maptile/*/
+"""Generates a REAL tangent-space normal map for every canopy color photo under assets/map/electric/maptile/*/
 — replaces the old flat "bump" (fake-depth multiply, tools/generate_canopy_bump.py) approach. This normal map
-is sampled in rubicon_ground.gdshader and lit with an actual per-pixel N.L (+ specular) computation against a
+is sampled in electric_ground.gdshader and lit with an actual per-pixel N.L (+ specular) computation against a
 tunable light direction (Terrain Edit panel), instead of a single baked EMBOSS direction hard-multiplied into
 the color — a real normal + light gives consistent, tunable directional highlights/shadows across the whole
 tile, and lets the "sun angle" be changed live without re-baking.
@@ -17,7 +17,7 @@ Re-run whenever a maptile set's color photos change. Skips any file that's alrea
 Also deletes any leftover "*_bump.png" from the old technique in the same folder (superseded).
 
 Usage: python tools/generate_canopy_normal.py [maptile_root]
-  maptile_root defaults to assets/map/rubicon/maptile — pass another map's maptile folder (e.g.
+  maptile_root defaults to assets/map/electric/maptile — pass another map's maptile folder (e.g.
   assets/map/volcanic/maptile) to bake that map's normals instead.
 """
 
@@ -28,7 +28,7 @@ from PIL import Image, ImageFilter, ImageMath
 BLUR_RADIUS = 1.0       # denoise pass before taking the gradient (same as the old bump script)
 GRADIENT_SCALE = 6.0    # divisor on the raw Sobel sum before the +128 offset — lower = more sensitive/steeper
 FLATNESS = 1.5          # "nz" before normalizing — lower = more dramatic relief, higher = subtler/flatter
-DEFAULT_MAPTILE_ROOT = Path(__file__).resolve().parent.parent / "assets" / "map" / "rubicon" / "maptile"
+DEFAULT_MAPTILE_ROOT = Path(__file__).resolve().parent.parent / "assets" / "map" / "electric" / "maptile"
 
 SOBEL_X = (-1, 0, 1, -2, 0, 2, -1, 0, 1)
 SOBEL_Y = (-1, -2, -1, 0, 0, 0, 1, 2, 1)

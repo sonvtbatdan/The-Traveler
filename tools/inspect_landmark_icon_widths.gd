@@ -4,12 +4,12 @@ extends SceneTree
 ## Run headless: godot --headless --path . --script tools/inspect_landmark_icon_widths.gd
 
 const PATHS := [
-	"res://assets/map/rubicon/temple.png",
-	"res://assets/map/volcanic/temple.png",
-	"res://assets/map/rubicon/constructor.png",
-	"res://assets/map/rubicon/mechanic.png",
-	"res://assets/map/volcanic/engineer.png",
-	"res://assets/map/volcanic/psyker.png",
+	"res://assets/map/electric/landmark/temple.png",
+	"res://assets/map/volcanic/landmark/temple.png",
+	"res://assets/map/electric/landmark/constructor.png",
+	"res://assets/map/electric/landmark/mechanic.png",
+	"res://assets/map/volcanic/landmark/engineer.png",
+	"res://assets/map/volcanic/landmark/psyker.png",
 	"res://assets/ruin/Scholar.png",
 ]
 

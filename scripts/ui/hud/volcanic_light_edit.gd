@@ -2,9 +2,9 @@ extends CanvasLayer
 class_name VolcanicLightEdit
 ## Dev-mode-only Volcanic ground LIGHTING tuning — group "volcanic_light_edit", toggled from
 ## arena_hud_buttons.gd's LIGHT EDIT button (Volcanic map only). Mirrors
-## scripts/ui/hud/rubicon_light_edit.gd (same focused small panel split out from Terrain Edit — see that
+## scripts/ui/hud/electric_light_edit.gd (same focused small panel split out from Terrain Edit — see that
 ## file's header for the full rationale). Deltas: reads/writes VolcanicTerrainSettings/volcanic_terrain.cfg
-## and the ground_* setting keys (renamed from Rubicon's canopy_*) instead.
+## and the ground_* setting keys (renamed from Electric's canopy_*) instead.
 
 const VolcanicTerrainSettings := preload("res://scripts/gameplay/volcanic/volcanic_terrain_settings.gd")
 

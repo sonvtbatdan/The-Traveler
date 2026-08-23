@@ -3,6 +3,1254 @@
 > Module of [`CLAUDE.md`](../CLAUDE.md). Read this when working on enemy behavior, bosses, waves, arena enemies, ruins, enemy panel.
 > Always-on core rules (conventions, coordinate system, image/render rules, LOCKED MODULES) live in CLAUDE.md — read that too.
 
+## Changelog — 2026-08-15 (38th pass) — Shift-click range-select for TP/Vortex/LED; LED points now arrow-key movable
+
+Two requests: (1) holding Shift and clicking 2 points should select everything IN BETWEEN too (standard
+file-explorer/IDE range-select), not just toggle those 2 individually; (2) LED points should move with the
+arrow keys like TP already does.
+
+1. **Range-select**: `_select_tp_add()`/`_select_vortex_add()`/`_select_led_add()` (Shift-click handlers) used
+   to toggle only the ONE clicked index in/out of the multi-selection. Now select the full contiguous range
+   between a fixed anchor and the clicked index, inclusive — the anchor is set by every plain (non-Shift)
+   click (`_select_tp()`/`_select_vortex()`/`_select_led()`) and stays put across a run of Shift-clicks, so
+   repeated Shift-clicks keep re-extending/shrinking the SAME range instead of drifting from wherever the
+   last Shift-click landed (new `_tp_range_anchor`/`_vortex_range_anchor`/`_led_range_anchor`). FP and Tentacle
+   Points are unaffected — they only ever had a single-index selection, no multi-select to range over.
+2. **LED arrow-key move**: `_input()`'s arrow-key handler gained a `_selected_led_indices` branch (mirroring
+   the existing Vortex one exactly) — moves every selected LED's `pos` by the arrow direction (×10 with Shift
+   held), same as FP/TP/TenP/Vortex already do.
+
+Verified via `godot --headless --check-only` (clean).
+
+## Changelog — 2026-08-15 (37th pass) — "Apply Wave" button: mistake-proof way to stagger Phase across a row of LEDs
+
+User: set a batch of LEDs with Phase 5° apart, but they still all blinked in sync in Creep Edit. Re-checked the
+whole Phase pipeline (`_on_led_changed()` write, `_get_led_style()` per-`led_id` dict, `_refresh_led_preview()`
+read, `led_light.gd`'s `_blink_factor()` sine math) end to end — all correct in isolation. The real trap is the
+WORKFLOW: setting Phase one LED at a time means re-selecting a row each time, and if more than one LED is
+selected at once (multi-select, e.g. an accidental shift-click carried over), every field — Phase included —
+applies the SAME value to ALL currently-selected LEDs simultaneously (by design, identical to how Vortex's own
+multi-select-apply already works) — so "select a few, drag Phase" can only ever make them identical, never
+staggered, reading as "still all in sync" exactly as reported. Also: 5° is a small step — spread across only a
+few LEDs at a typical Blink Hz, the resulting time offset can be near-imperceptible even done correctly.
+
+Rather than a fix for a bug that isn't really there, added a workflow that can't hit the trap: a new **Wave
+step (°) + "Apply Wave"** control in the LED panel — one click assigns `phase_deg = index × step` to EVERY LED
+of the active creep in placement order, completely independent of the current selection. Directly delivers "1
+dải sóng tín hiệu chạy từ đầu về đuôi" without any per-LED manual selection at all.
+
+Verified via `godot --headless --check-only` (clean — caught and fixed a real variable-name collision,
+`ledw_lbl`, along the way; already used by the W/H row above).
+
+## Changelog — 2026-08-15 (36th pass) — LEDs on auto-generated (duplicate) body segments still collapsed onto one of the 3 real parts
+
+User: "tôi đặt nhiều segment body nhưng led chỉ tách thành 2 phần" — placed several LEDs along a body raised
+to many Segments, but they only ever split into ~2 groups instead of one per segment.
+
+Root cause: the 35th-pass fix only matched a LED against the **3 REAL named boxes** (Head/Body-template/Tail —
+the only ones with an actual entry in `creep_layout.cfg`). Every AUTO-GENERATED duplicate segment (whenever
+Segments > the template count) has no box of its own on disk, so any LED placed near one just collapsed onto
+whichever of the 3 real boxes happened to be nearest — at most 3 possible groups, matching "only ~2" for a
+typical Head+Body+Tail set where none matched Head.
+
+Fix (`_setup_leds_centipede()`): now builds a full VIRTUAL center+size for **every** slot k=0..n-1 — not just
+the 3 real ones — by walking the exact same `_centi_joint_spacing()` / `_centi_seg_size_for()` /
+`_centi_seg_scale()` formulas the live chain itself uses (the identical cumulative-distance construction
+`_update_centipede_chain()`'s own straight-line init already does, just scalar/OC-space here). Verified with
+real "cent" numbers (8 segments, Spacing 0.65, Taper 3%) — the 8 slots come out properly spread and shrinking
+(y from 422 to 723, size 84.9 down to 30.0), not collapsed. A LED now matches its nearest slot among ALL of
+them, so it correctly lands on the specific duplicate segment it was actually placed near, and
+`_update_led_xform_centipede()` (unchanged from the 35th pass) glues it to that exact slot's live position
+every frame.
+
+Verified via `godot --headless --check-only` (clean) plus the numeric slot-spread check above. Ask the user to
+re-spawn "cent" with several LEDs spread across a high-Segments body and confirm each now rides its own
+distinct segment instead of collapsing into 2-3 clumps.
+
+## Changelog — 2026-08-15 (35th pass) — LEDs on a centipede (cent/hammerhead/…) now ride their own body segment; added Phase (wave stagger) + Rotate to the LED panel
+
+Three-part request: (1) bug — LEDs placed on "cent" stayed lined up in one rigid straight column instead of
+following the body's live bend as it moves; (2) a per-LED time offset so a row of LEDs reads as a wave/chase
+signal running head→tail; (3) a Rotate control per LED.
+
+**Bug root cause**: `_setup_leds()` anchors every LED against ONE rigid box — `_icon`'s own `creeps` entry,
+which for a centipede-behavior creep is always the HEAD's box (`_icon` = the head icon). A LED actually placed
+near Body or Tail in Creep Edit got its `frac` computed against the tiny HEAD box instead, producing one large,
+FIXED local offset that only ever rotated rigidly with the head's own `_spin` — never independently following
+the body chain's own live bend. Reads exactly as "stays lined up in a straight column" (which is literally what
+a fixed offset from a single rotating point looks like), confirmed against the user's own actual saved LED data
+(nearest-nesting check: LEDs stored under the "cent head" key at y≈469/492 sit far closer to "cent body"'s own
+box center than head's or tail's — correctly re-matched to Body by the fix below).
+
+**Fix** (`arena_enemy.gd`): centipede-behavior creeps now route through a new dedicated path instead of the
+generic single-box one:
+- `_setup_leds_centipede()` — matches each LED to whichever REAL template box (Head / each distinct Body icon /
+  Tail — by nearest box-CENTER, not literal containment, so it doesn't matter which key they were stored under)
+  it actually sits closest to, and remembers that as a chain slot `k` (Tail stored as `k=-1`, resolved live to
+  `n-1` every frame since Segments could in principle change after spawn).
+- `_update_led_xform_centipede()` — every frame, glues the LED to THAT segment's own LIVE `_centi_pts[k]`
+  position and own angle. New shared helper `_centi_seg_ang(k)` (factored out of `_draw_centipede()`'s inline
+  per-k angle formula, now used by BOTH — one source of truth, not a second copy that can drift like the
+  neck-shift saga earlier this session) supplies the exact same angle the segment's own sprite draws at, so a
+  LED on Body/Tail now turns and follows precisely as the chain bends.
+- Regular (non-chain) enemies are untouched — `_setup_leds()`'s original single-box path still handles them.
+
+**Phase** (0-360°, per-LED, new `phase_deg` style field) — shifts that LED's own blink sine cycle
+(`led_light.gd`'s `_blink_factor()`: `sin(TAU·blink_hz·t − phase_deg)`). Set increasing Phase across a row of
+LEDs (Led1=0°, Led2=+some step, …) to make them blink in sequence — a running "wave" signal strip head→tail,
+per request. No automatic order-based default — it's a plain per-point control like every other LED property,
+consistent with how W/H/Color/Intensity/Blink already work.
+
+**Rotate** (0-360°, per-LED, new `rotate_deg` style field) — an extra rotation added ON TOP of whatever the
+anchor already applies (segment angle for centipede, overall body `_facing` for regular enemies; a bare
+user-only value in Creep Edit's own static preview, which has no body/segment to auto-orient to). Mainly
+useful once W≠H (an elongated light) — a pure circle doesn't visibly change under rotation.
+
+Both new fields added end-to-end: `_default_led_style()`, the LED panel UI (new Phase/Rotate spin row), 
+`_refresh_led_editor()`/`_on_led_changed()`/`_copy_led_style()`/`_paste_led_style()`, `_refresh_led_preview()`
+(editor), and both `_setup_leds()` paths + `_update_led_xform()` (arena).
+
+Verified via `godot --headless --check-only` (clean). Ask the user to re-spawn "cent" (or any chain creep with
+LEDs) and confirm the LEDs now bend/turn with their own body segment instead of staying in a rigid column, then
+try staggering Phase across a few LEDs to check the wave effect, and Rotate on a non-square (W≠H) LED.
+
+## Changelog — 2026-08-15 (34th pass) — New "Add Led" point type; FP/TP/Vortex/Led panels now dynamic (hidden until the creep has one)
+
+Two-part request: (1) a new "Add Led" point type (W/H, color, intensity, 0-60Hz blink slider), same group as
+Add FP/TP/Vortex; (2) the properties panel below LAYERS becomes dynamic — a section only shows once the active
+creep actually has at least one point of that type.
+
+**New LED point type** — mirrors the existing Vortex Points system exactly (a directionless point + a separate
+per-point style dict), swapping vortex's radius/spin/arms/colors for LED's own fields:
+- New `scripts/gameplay/fx/led_light.gd` (`LedLight`, no `class_name` — same reasoning as `EnergyVortex`/
+  ZSlash) — additive-blend glow, a procedurally generated radial-falloff dot (same technique
+  `_make_preview_plume()` already uses) stretched to W×H. `blink_hz` (0-60, "0 = không nhấp nháy, 60 = nháy
+  60Hz") drives a smooth sine brightness pulse between a dim floor and full intensity — reads as a flicker,
+  never a jarring hard on/off strobe, well-defined at every Hz including 60.
+- `creep_edit_mode.gd`: `_add_led_btn` in the same `mode_row` as FP/TP/TenP/Vortex, full mutual-exclusion
+  wiring (activating any one cancels the other four, matches the existing FP/TP/TenP/Vortex pattern
+  exactly). New LED POINTS section (list + W/H spins + color picker + Intensity spin + Blink slider) with
+  Copy/Paste, mirroring the Vortex Points section's own layout. Data model: `_led_points` (pos+id, saved to
+  `creep_layout.cfg [ledpoints]`) + `_led_styles` (w/h/color/intensity/blink_hz, saved to `plume_styles.cfg`'s
+  new `[led_styles]` section — same file Vortex/Plume styles already share). Live canvas preview via
+  `_refresh_led_preview()` (spawns real `LedLight` nodes on the EO, exactly like `_refresh_vortex_preview()`).
+  Wired into every cross-cutting system Vortex already had: ESC/right-click cancel, Delete key, ESC/ARENA-focus
+  cleanup on close, ratio-preserving `_rescale_points_for_resize()` on sprite resize, ADD/select mutual-
+  exclusion with FP/TP/TenP/Vortex.
+- `arena_enemy.gd`: `_setup_leds()` / `_update_led_xform()`, byte-for-byte the same anchoring approach as
+  `_setup_vortexes()` / `_update_vortex_xform()` (body-relative fraction, scaled to `_draw_size`, re-glued
+  every frame to the live rotating/breathing sprite transform) — reads `creep_layout.cfg [ledpoints]` +
+  `plume_styles.cfg [led_styles]`.
+
+**Dynamic panels** — new `_refresh_dynamic_panels()`, called after every add/delete for FP/TP/Vortex/Led and on
+every creep switch: FIRE POINTS / THRUST POINTS / VORTEX POINTS / LED POINTS section now `.visible`s only
+when `_fire_points`/`_thrust_points`/`_vortex_points`/`_led_points` for the ACTIVE creep is non-empty — an
+empty/unused section no longer takes up panel space. (TENTACLE POINTS stays permanently hidden regardless,
+already hidden by design since the CHAIN rewrite — unaffected.) Each section's leading separator + header +
+list are captured into `_fp_section_nodes`/`_tp_section_nodes`/`_vortex_section_nodes`/`_led_section_nodes` at
+build time; the FP/TP angle rows are deliberately excluded — they already have their own dedicated show/hide
+tied to whether a point is currently SELECTED, a separate concern from "does this creep have any at all".
+
+Verified via `godot --headless --check-only` (clean) plus a runtime smoke test instantiating `LedLight`
+directly (`setup()`, multiple `_process()` ticks, confirmed the blink factor varies smoothly and correctly
+across a 10Hz cycle — not just a static value).
+
+## Changelog — 2026-08-15 (33rd pass) — Bend Lock had no effect on the Head→Body1 joint
+
+User's suspicion confirmed by inspection: `_update_centipede_chain()`'s bend clamp required `k >= 2` (a real
+`k-2` point to derive "the previous joint's own direction" from) to have anything to compare against — so the
+very first joint (k=1, Head→first Body point) was silently exempt, letting Body1 swing to any angle relative
+to where the Head actually points, no matter what Bend Lock was set to. Every other joint (k>=2) — which
+already includes Tail, an ordinary joint like any other — was already correctly clamped; nothing tail-specific
+was ever skipped.
+
+Fix: `k=1` now gets its own reference direction — the Head's actual facing (`_centi_dir`) — playing the same
+role a real `k-2` point plays for every later joint, instead of being skipped outright. Editor-side unaffected
+(Creep Edit's CHAIN preview is a static straight-line layout, no bend simulation to fix there — Bend Lock is
+purely a live-movement arena behavior).
+
+Verified via `godot --headless --check-only` (clean). Ask the user to set a tight Bend Lock and confirm Body1
+no longer snaps independently of Head's turning.
+
+## Changelog — 2026-08-15 (32nd pass) — LAYERS panel: synthetic "whole creep" group row that resizes every part together; child rows shortened to head/body1/body2/tail
+
+Two-part request: (1) a top-level layer named after the creep, above all its parts, that resizes the WHOLE
+creep when selected instead of one part; (2) shorten the part rows below it to just "head"/"body"/"body1"/
+"body2"/"tail" instead of the full "<prefix> head" etc.
+
+- **New `_group_selected: bool`** state — true when the synthetic group row is active instead of any one part.
+  `_set_active_creep()` always clears it (picking a specific part always exits group mode).
+- **`_refresh_layer_list()`**: for any multi-part creep, now emits `_make_group_layer_row(root_name)` first —
+  the LAYERS panel's collapse caret moved here from the old un-indented Head "root row". Every real part
+  (Head included) is now an indented child row. Standalone (no-parts) creeps are unaffected — still a single,
+  full-name row.
+- **`_group_display_name()`** — the group row's label is the shared prefix `_parse_chain_name()` already
+  extracts from Head/Body/Tail filenames (e.g. "hammerhead"), trimmed. **`_short_layer_label()`** — same parse,
+  returns just "head"/"tail"/"body" (or "body1"/"body2"/… for multi-texture sets) for child rows. Both fall
+  back to the raw name for parts that don't fit the Head/Body\<N\>/Tail convention (e.g. squid's tentacles).
+- **`_creep_group_bbox()`** / **`_apply_group_scale()`** / **`_apply_group_move()`** — ported from
+  `hud_edit_mode.gd`'s own proven group-resize pattern (`_group_bbox()`/`_scale_group()`): bbox from every
+  live member's position+size; scale multiplies every member's position (relative to the bbox's own top-left)
+  and size by the same factor; move adds the same delta to every member. Also rescales each member's own fire/
+  thrust/tentacle/vortex points via the existing `_rescale_points_for_resize()`, same as a normal single-part
+  resize.
+- **Transform panel + spin handlers** (`_refresh_transform_panel()`, `_on_w_spin_changed()`/`_on_h_spin_changed()`/
+  `_apply_spin_to_selected()`/`_on_pos_spin_changed()`) each gained a `_group_selected` branch at the top: W/H/X/Y
+  show and drive the group's bbox instead of one EO's transform; Z is hidden/disabled (no single meaningful
+  value for a group).
+
+Known minor limitation: each member's resize/move pushes its own undo entry, so Ctrl+Z after a group resize
+reverts one part at a time rather than the whole group in one step — acceptable for now, flagging in case it's
+worth a dedicated multi-part undo entry later.
+
+Verified via `godot --headless --check-only` (clean). Applies to `weapon_edit_mode.gd` too (subclasses this
+file, doesn't override any of the touched functions) — untouched: `boss_edit_mode.gd`, which has its own
+completely separate, unrelated `_make_layer_row()`/`_refresh_layer_list()`.
+
+## Changelog — 2026-08-15 (31st pass) — "Bend lock (deg)" SpinBox couldn't go below 10°
+
+User request: couldn't set Bend Lock under 10. Was a hardcoded `min_value = 10.0` on the SpinBox
+(`creep_edit_mode.gd`'s `_build_chain_controls()`), no functional reason for the floor — the bend-clamp math
+(`arena_enemy.gd`'s `_update_centipede_chain()`, `clampf(diff, -_centi_max_bend, _centi_max_bend)`) is well-
+defined all the way to 0° (a fully rigid, non-bending chain — every joint forced to extend in a dead-straight
+line from the one before it, no crash/NaN risk). Lowered the SpinBox floor to 0.0.
+
+Verified via `godot --headless --check-only` (clean).
+
+## Changelog — 2026-08-15 (30th pass) — Removed the Head's separate "neck shift" hack entirely — one source of truth, no more drift-prone second formula
+
+The 29th-pass fix (sync `_centi_spacing` to the real authored joint-1 distance) wasn't enough — user confirmed
+arena still overlapped noticeably more than Creep Edit. Root cause: `_draw_centipede()`'s Head draw call has
+ALWAYS applied a second, separate adjustment on top of the chain point — `shift = (_centi_head_len -
+_centi_spacing) * 0.5 - CENTI_HEAD_OVERLAP` (a magic-number `20.0px` pull-in) — pulling the drawn Head sprite
+even closer to Body than the joint-1 distance alone already places it. Creep Edit's own canvas has no
+equivalent second adjustment anywhere — it just draws Head at its authored box, period. Two formulas
+computing "the same thing" independently is exactly the kind of drift this whole investigation kept re-
+finding in different forms (expand_mode clamp, z-order, the neck shift itself going stale in the 29th pass) —
+per explicit user request ("sử dụng 1 nguồn dữ liệu cho cả 2... để creep giống y hệt nhau ở cả hai nơi"),
+collapsed it to one source of truth instead of patching the second formula again.
+
+Fix: deleted the shift entirely. Head now draws directly at `_centi_pts[0]`, exactly like every Body/Tail
+segment — the ONLY thing determining the Head↔Body gap is `_centi_joint_spacing(1, n)` (which itself reads
+Creep Edit's authored positions when available, or the Spacing-mult formula otherwise) — the exact same value
+both the point-placement AND the draw call now use, with no second adjustment layered on top anywhere. Removed
+the now-fully-dead `CENTI_HEAD_OVERLAP` const and `_centi_spacing`/`_centi_head_len` vars along with it (no
+other callers).
+
+Verified via `godot --headless --check-only` (clean). Ask the user to re-spawn "cent"/"hammerhead" and confirm
+the Head↔Body gap now matches Creep Edit exactly (not just closer) — if it still doesn't, the discrepancy is
+no longer in this code path at all (both places now read from the literal same numbers), so the next place to
+look would be a rendering-level difference (rotation, pivot, or texture native-size handling) rather than
+another spacing formula.
+
+## Changelog — 2026-08-15 (29th pass) — Head↔Body gap on arena was noticeably closer than Creep Edit — the head's own cosmetic "neck shift" went stale after the 23rd-pass authored-gap override
+
+User caught it via direct A/B comparison: Head-to-Body gap visibly smaller on a real arena spawn than what
+Creep Edit shows for the same creep.
+
+Root cause: `_load_centipede()` sets `_centi_spacing` — used ONLY by `_draw_centipede()`'s head-specific "shift
+forward so its neck meets the first body segment, pull back `CENTI_HEAD_OVERLAP`" cosmetic offset — from the
+OLD formula (`_centi_body_sizes[0].y * _centi_spacing_mult`). The 23rd pass changed what joint 1 (head↔first-
+body) ACTUALLY uses for point placement to `_centi_joint_spacing(1, n)` (the authored gap from Creep Edit's
+saved positions, when set), but never updated this second, separate copy the head-shift math reads — so the
+two drifted apart: the BODY's chain point moved to the new authored distance, but the HEAD sprite's forward
+shift stayed calibrated to the old formula value, over- or under-pulling the head toward the body depending on
+how the authored gap compared to the formula guess. Flagged as a known gap in the 23rd-pass changelog entry at
+the time ("cosmetic only... flagging in case a large authored gap ever looks slightly off") — this is that gap
+actually manifesting.
+
+Fix: `_centi_spacing` now reads `_centi_joint_spacing(1, _centi_segments)` directly (the exact same value
+`_update_centipede_chain()` uses for that joint), falling back to the old formula only in the degenerate
+`_centi_segments <= 1` case. Head's neck shift is now always calibrated against whatever gap is actually in
+effect, authored or formula-derived.
+
+Verified via `godot --headless --check-only` (clean — one unrelated pre-existing resource-not-found warning for
+`hammerhead.png`, a main-menu preview-spawner asset gap untouched by this change).
+
+## Changelog — 2026-08-15 (28th pass) — Tail independent position restored; CHAIN panel description label removed
+
+Two requests testing on "hammerhead": (1) couldn't move Tail independently — adjusting Body2's position dragged
+Tail along with it; (2) remove the CHAIN section's explainer paragraph to keep the panel shorter (also now
+stale — it claimed only Segments/Spacing/Bend/Taper affect spawn, no longer true since the 23rd pass).
+
+1. **Tail independence**: reverted the 18th-pass "Tail position always auto-follows the chain end" behavior in
+   `creep_edit_mode.gd`'s `_rebuild_chain_preview()` — Tail is a real node again, treated exactly like Head and
+   every Body-template (this rebuild never writes its position; only true DUPLICATES, which have none of their
+   own, get repositioned here). The 18th-pass concern this originally fixed ("tail nằm ở vị trí khác lạ" after
+   raising Segments) doesn't regress: `_auto_arrange_chain_templates()` already includes Tail in its one-time
+   stacked-default layout (same as Head/Body), and more importantly the REAL spawn was changed in this same
+   pass to read Tail's AUTHORED GAP from its saved position (extended `arena_enemy.gd`'s `_centi_joint_spacing()`
+   — previously Head↔Body-template(s) only — to also cover the last-Body-template↔Tail boundary, using
+   `_centi_icon_for()` so it still resolves correctly even when the actual preceding runtime slot is a
+   duplicate/tapered repeat of that template). So whatever gap you set between Tail and its neighbor now
+   actually shows up in-game regardless of Segments/Spacing, instead of a formula guess.
+2. **CHAIN panel description removed** (`_build_chain_controls()`) — the `Label` explaining the pos/size
+   caveat is gone per request; the (now more accurate) explanation lives only as a code comment.
+
+Verified via `godot --headless --check-only` (clean) plus a manual trace against "hammerhead"'s actual saved
+`creep_layout.cfg` data (head/body1/body2/tail real pos+size) confirming the authored gap resolves sensibly at
+every template↔template boundary including the new Tail one, and correctly falls back to the formula once
+Segments pushes a duplicate in front of Tail (no real position to read there, by design).
+
+## Changelog — 2026-08-15 (27th pass) — FOUND THE REAL "tail size / body position resets on restart" bug: switching the Map dropdown never re-loads that map's saved layout
+
+User's own precise before/after test nailed it: Tail W was 60 → resized to 30 → Save (toast confirmed) → full
+restart → Creep Edit shows W=60 again. Body Y (relative to Head) was 85 → set to 60 → Save → restart → shows 85
+again. **Only in Creep Edit — arena always spawned with the correct, just-saved values**, which was the key
+clue: the disk file was never the problem (confirmed correct/updated both times via direct read).
+
+Root cause: `_selected_map_id` (which `MAP_REGISTRY` entry the "Map:" dropdown is on) is a plain in-memory var
+defaulting to `"default"` — never persisted, so every fresh session starts on the default map regardless of
+what was selected last time. `_ensure_built()` (first Creep Edit open each session) calls `_scan_creeps()` (map-
+filtered sprite list) then `_load_layout()` (reads `creep_layout.cfg` pos/size into `_placed`, but only for
+whatever's in `_all_creep_names` AT THAT MOMENT — the default map's sprites; "cent"/Atlantic isn't there yet).
+Switching the dropdown to Atlantic (`_on_map_selected()`) re-ran `_scan_creeps()` (now "cent body"/"cent tail"
+appear in `_all_creep_names`) but **never called `_load_layout()` again** — so the first time an Atlantic creep
+got selected, it fell through to `_load_or_create_creep()`'s hardcoded-default fallback (`size =
+Vector2(60.0, 60.0*aspect)`, `pos = Vector2(480.0, 380.0)`) instead of what was actually saved on disk — exactly
+the "W=60 / position back at Head's spot" values reported. `arena_enemy.gd` reads `creep_layout.cfg` directly
+through its own independent static cache, untouched by any of this editor-only state, which is why it always
+showed the correct, freshly-saved values while the editor kept showing stale defaults.
+
+Fix: `_on_map_selected()` now also calls `_load_layout()` right after `_scan_creeps()`/`_build_creep_buttons()`
+— safe to call repeatedly, it's a no-op for any name already present in `_placed`. Any creep newly revealed by
+a map switch now gets its real saved pos/size/firepoints/etc. loaded immediately, matching what already happens
+for the first (default) map at editor-open time.
+
+Verified via `godot --headless --check-only` (clean). Ask the user to fully restart, open Creep Edit, switch
+Map to Atlantic, and confirm "cent tail"/"cent body" now show their actual last-saved values immediately —
+no need to have touched them this session first.
+
+## Changelog — 2026-08-15 (26th pass) — Taper "far nodes stretched/skewed toward the tail" — the z_index fix was a red herring; real cause was a TextureRect minimum-size clamp
+
+User correctly pushed back that it wasn't z_index — sent a screenshot (Segments=15, Spacing=0.65, Taper=4.8%)
+showing the body chain visibly skewed/flattened toward the tail, confirmed it does NOT happen on a real arena
+spawn with identical settings. Built an actual runtime probe (`EditableObjectScene.instantiate()` +
+`template.duplicate()`, mirroring `_make_chain_dup_eo()`'s exact code path, printing real property values
+instead of re-deriving math) and found it immediately: `dup.size.x` (the Control) correctly shrinks with taper
+every step, but `texture_rect.size.x` (the CHILD node that actually renders the sprite) stayed pinned near
+60px — the template's original, un-tapered width — no matter how small `.size` was assigned. Only the height
+tracked correctly. That's a horizontally-stretched, off-center silhouette by construction: the Control's own
+box (used for centering) shrinks correctly, but the visible texture inside it stays wide and anchored to the
+box's top-left, increasingly overhanging to the right as the box narrows around it — reading exactly as
+"skewed/flattened, drifting right" the further it tapered. Confirmed why arena never shows this: it draws with
+`draw_texture_rect()` (immediate-mode), never touching a `TextureRect` node or its layout/minimum-size system
+at all.
+
+Mechanism: `editable_object.tscn`'s `TextureRect` has `expand_mode = EXPAND_FIT_WIDTH_PROPORTIONAL` (3), which
+makes Godot compute a texture-derived minimum size that any `.size =` assignment gets silently clamped to —
+verified by literally printing `texture_rect.expand_mode`/`.size` before and after the assignment.
+
+First fix attempt changed `expand_mode` directly in the shared `.tscn` — **caused a real regression**: that
+scene is instantiated by main menu, boss edit, and HUD edit too (not just creep/weapon edit), and main menu's
+logo/buttons visibly shrank. Reverted the `.tscn` back to its original `expand_mode = 3`. Real fix scoped
+instead to `creep_edit_mode.gd`'s `_place_creep_eo()` — the single choke point for every node either creep edit
+or weapon edit (a subclass) ever creates — setting `eo.texture_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE`
+there only. Chain DUPLICATES (`_make_chain_dup_eo()`) are created via `template_eo.duplicate()`, which correctly
+carries this property over from the now-fixed template — no separate fix needed for them. Main menu
+(`"mainmenu"`), boss edit (`"boss_*"`), and HUD edit (`"hud_item"`) build their `EditableObject` instances
+through their own code, never through this function, so they're untouched — reverified with a runtime probe
+showing an object built the same way main menu does still clamps exactly like before (unchanged behavior).
+
+Verified via `godot --headless --check-only` (clean) plus the two runtime probes (numbers pasted in the reply).
+Also un-did the previous (25th-pass) z_index hack back to the harmless `move_child()`-based reorder from the
+24th pass, since it's no longer load-bearing for this bug and the z_index approach had a real side effect
+(permanently changing what `_save_layout()` persists for Head/Body-template/Tail's z_index).
+
+## Changelog — 2026-08-15 (25th pass) — Taper flatten/shift in Creep Edit survived the sibling-reorder fix; switched to explicit distinct z_index
+
+User sent an actual screenshot (Segments=15, Spacing=0.65, Taper=4.8%) confirming the 24th-pass `move_child()`
+reorder did not fix it — still flattened/shifted toward the tail. Isolated it further: **Taper=0% with the
+same Segments/Spacing shows no distortion at all**; only reappears once Taper > 0%, i.e. once neighboring
+segments actually differ in size. Re-ran the headless math-proof script a 3rd time with these exact live values
+— `center_x` still locked at 510.000000 (±1e-5 float noise) through all 13 duplicates — box math is, for the
+third time, proven correct. Confirms the underlying cause is still paint-order/occlusion, not position — the
+24th-pass fix's *diagnosis* was right, but relying on `_objects_container.move_child()` (same-z-index sibling
+tie-break) apparently isn't a reliable enough paint-priority signal in practice.
+
+Fix: replaced the sibling-reorder with explicit, mutually **distinct** `z_index` values on every node in the
+active chain (`_chain_z_order`) — `head = 130`, decreasing by 1 per slot down to the tail — which Godot sorts
+by unconditionally, no tie-break involved. Only ever applied to the currently-active/visible chain's own nodes.
+Side effect (acceptable, arguably an improvement): `z_index` for the 3 real nodes (head/body-template(s)/tail
+— duplicates are never saved) now persists via `_save_layout()` as "head above body above tail" instead of the
+old uniform 115 — a sensible default matching the arena's own draw order, not an arbitrary value.
+
+Verified via `godot --headless --check-only` (clean). **Ask the user to fully restart Godot** (not just
+reopen the Creep Edit panel) before retesting, since the previous fix attempt's code may not have been the one
+actually running when the screenshot was taken — then re-drag Taper on "cent" with Segments=15/Spacing=0.65 and
+confirm the far segments now render as clean, centered boxes with head on top, tail on bottom, no flatten/shift.
+
+## Changelog — 2026-08-15 (24th pass) — Taper slider "far nodes get flattened + shifted right" in Creep Edit's own canvas: paint-order bug, not a math bug
+
+User report was specific: reproduces on the **static Creep Edit canvas** while dragging Taper (not a moving
+arena spawn), keeping `centi_spacing_mult` intentionally low (0.75 — segments meant to overlap).
+
+Proved with an actual headless script run (same method as the 15th-pass entry) that the size-ratio and X-
+centering formulas in `_rebuild_chain_preview()` are exactly correct at every taper step: aspect ratio constant
+at 1.6730 through 10 compounding steps, `center_x` identical to 6 decimal places from the template all the way
+to the last duplicate. So the box math was never the bug — confirmed by real numbers, not just re-reading code.
+
+Real cause: `EditableObjectNode`s don't clip against each other — with `Spacing < 1.0` (deliberate overlap),
+whichever node is LATER in `_objects_container`'s child list simply paints on top in the overlap region
+(Godot's default same-z-index paint order). Duplicates get `add_child()`ed farthest-first (i=2, then 3, then
+4…), so the smaller/farther duplicate always ends up painting OVER the larger one just ahead of it — backwards
+from the real arena's own convention (`arena_enemy.gd`'s `_draw_centipede()`: draws tail→head, head last =
+head always on top). That backwards paint order is what read as "far nodes chewed into a flattened, off-center
+sliver" — only part of each far segment's box survived the overlap, and which part survives depends on paint
+order, not the box's own (perfectly centered, correctly sized) position.
+
+Fix (`creep_edit_mode.gd`'s `_rebuild_chain_preview()`): collect every real/dup node for the active chain in
+head→tail order (`_chain_z_order`), then re-sibling them (`move_child`, walked tail→head so head lands last)
+so paint order always matches the arena's head-on-top convention — regardless of how tight `Spacing` is set.
+Deliberately does NOT touch any node's saved `z_index` (would otherwise leak an editor-internal paint-order
+concern into `creep_layout.cfg` on the next Save) — purely a sibling-order change, live every rebuild.
+
+Verified via `godot --headless --check-only` (clean) and the throwaway headless math-proof script (numbers in
+the reply, not just claimed). Ask the user to re-drag Taper up on "cent" with Spacing still at 0.75 and confirm
+the far segments now render as clean, centered, progressively-smaller boxes with head always on top — the
+overlap itself will still be visible (that's the deliberate 0.75 Spacing choice), just no longer reading as
+distorted/shifted.
+
+## Changelog — 2026-08-15 (23rd pass) — Head/Body-template X/Y position now actually affects the real chain spacing (not just size)
+
+Follow-up to the 21st-pass explanation: "cent" (and every chain-type creep)'s spawn NEVER read `pos` from
+`creep_layout.cfg` — only `size` (16th pass). All joint spacing came from a single global formula (preceding
+segment's own size × `centi_spacing_mult`), so dragging Body up to overlap Head in the Transform panel visibly
+changed nothing at spawn/on restart — it was "reset" every time because nothing was ever wired to read it.
+
+Wired it up for the one case where a saved `pos` is genuinely, freely user-authored — the boundary between two
+**real templates** (Head↔first-Body-template, or Body-template(i)↔Body-template(i+1) for the 2-body-texture
+sets like hammerhead) — since those are the only nodes `creep_edit_mode.gd`'s CHAIN rebuild never auto-
+repositions (deliberately excluded: chain DUPLICATES, which have no position of their own — always formula-
+placed — and the Tail boundary, whose own saved `pos` is itself chain-derived every rebuild in the editor, not
+a free choice, so reading it back would just be circular).
+
+- New `_authored_joint_dist()` (`arena_enemy.gd`) — same case-insensitive `creep_layout.cfg` lookup pattern as
+  `_authored_seg_size()`, returns the authored CENTER-TO-CENTER distance between two named parts' saved
+  pos+size, or a fallback if either was never placed.
+- New `_centi_joint_spacing(k, n)` — single source of truth for both `_update_centipede_chain()` call sites
+  (one-time straight-line init + the live per-frame follow loop): the existing size×Spacing-mult×taper formula
+  as the default, overridden by `_authored_joint_dist()` only at a real template↔template boundary.
+- Takes effect the moment Creep Edit's Save button runs (already calls `ArenaEnemyScript.reload_layout_cfgs()`
+  → drops the static `creep_layout.cfg` cache) for any enemy spawned AFTER that Save, same as size already did
+  — does not retroactively reposition an already-alive enemy (same documented limitation size resize has).
+  Persists to disk via the existing `creep_layout.cfg` "pos" field — no new save-side changes needed, only the
+  read side was missing.
+- Known minor gap, not addressed here: the Head sprite's own small neck-overlap draw shift
+  (`CENTI_HEAD_OVERLAP` in `_draw_centipede()`) is still calibrated off the OLD formula-based spacing, not the
+  new authored one — cosmetic only, unrelated to what was reported, flagging in case a large authored gap ever
+  looks slightly off right at the neck.
+
+Verified via `godot --headless --check-only` (clean). Ask the user to drag "cent body" to overlap Head, Save,
+then Quick Spawn a fresh "cent" (same session AND after a restart) to confirm the gap now matches what they set.
+
+## Changelog — 2026-08-15 (22nd pass) — FOUND THE REAL BUG: `_load_tentacle()` misread CHAIN's "parent" field as squid tentacle segments on every centipede-type creep
+
+The 21st pass's theory (stuck static editor ghost) was wrong — user confirmed the stray body/tail **moves**,
+tracking the real creep but on its own trajectory, with no head of its own, reproduced with a single plain
+Quick Spawn click (ruled out bulk-spawn / a second full instance, since only 1 head was ever visible).
+
+Root cause: `_load_tentacle()` (built for `"squid"` — forward-kinematics wave/drag tentacle segments,
+`squid-1`..`squid-8` parented to `Squid-body` in `creep_layout.cfg`) runs **unconditionally for every enemy**
+in `_ready()`, and identifies "tentacle segments" purely by scanning `creep_layout.cfg` for entries whose
+`"parent"` field matches the enemy's icon basename — with no `behavior` check at all. Creep Edit's CHAIN
+auto-grouping (2026-08-13) uses that exact same `"parent"` field, for an unrelated reason (organizing
+Head/Body/Tail under the Head in the Layers panel): `"cent body"` and `"cent tail"` both have
+`"parent": "cent head"`. Every centipede-type creep therefore had its own Body/Tail template misread as
+"my tentacle segments", building a second, bogus tentacle chain — headless (the template only ever includes
+whatever's parented, never the head itself), animated by tentacle physics (wave+drag+taper, nothing like
+`_update_centipede_chain()`'s follow-the-preceding-joint formula) — drawn every frame right alongside the real
+one. Reads exactly as "an extra body and an extra tail, no head, trailing on their own path."
+
+Fix: `_load_tentacle()` now returns immediately unless `behavior == "squid"` — the only real consumer
+(`arena_wave_director.gd`'s `"squid"` def; the similarly-named `"atlantic_squid"` is `behavior: "chase"`, not
+affected either way). No other creep type ever legitimately needs this system.
+
+Verified via `godot --headless --check-only` (clean). Ask the user to Quick Spawn a fresh "cent" and confirm
+only 1 body + 1 tail now, tracking correctly.
+
+## Changelog — 2026-08-15 (21st pass) — "cent có 2 tail, 1 đúng vị trí 1 sai vị trí": Creep Edit could be left permanently "open" (EOs never hidden) if something else unpaused the tree
+
+User confirmed, precisely, that the 2 stray "cent" pieces from the 19th-pass report were **1 body + 1 tail**
+(not a Segments-related duplicate — ruled that theory out: they'd raised Segments for "cent", but Tail is
+never duplicated by the CHAIN system, only Body is, so a stray tail can't come from that path), and that the
+stray tail sits at a **fixed position** while the real one is correctly attached to the moving enemy.
+
+Root cause, confirmed by tracing coordinates: Creep Edit's placed EOs (`"cent body"`/`"cent tail"`/…) live on
+their **own dedicated CanvasLayer (layer 9, screen-space, added directly under `arena`)** — see
+`arena.gd._setup_creep_edit()` — completely independent of the world/camera. `creep_layout.cfg`'s saved
+`"cent tail"` position (`Vector2(493.5, 607.39)`) is a fixed SCREEN coordinate, not a world one. The 19th-pass
+fix made `_close()` → `_update_gameplay_visibility()` a hard guarantee *whenever `_close()` actually runs* —
+but `_close()` only ever runs from this editor's own Close button or its `toggle()` off-path. Nothing stopped
+the tree's pause from being lifted by some OTHER path (e.g. dismissing an unrelated overlay that
+unconditionally does `get_tree().paused = false`) while Creep Edit still believed itself open
+(`_is_open == true`, EOs still `visible = true` + interactive from when it was the active/companion creep) —
+gameplay would then resume around it, and the stuck EO reads exactly as "a second tail sitting at some random
+unmoving spot" next to the real, live, chain-animated one.
+
+Fix (`creep_edit_mode.gd`): added a `_process()` — the node already runs `PROCESS_MODE_ALWAYS` (works while
+paused) — that checks every frame for the one state combination that should be impossible under normal
+operation: `_is_open == true` while `get_tree().paused == false` (this editor is the only thing that's
+supposed to set `paused = true` for as long as `_is_open` holds). The instant that combination is observed, it
+self-heals by running the normal `_close()` path — same cleanup Close already does (hide/un-interact every
+placed EO, clear chain dups, restore focus), just triggered defensively instead of only on an explicit click.
+Applies to `weapon_edit_mode.gd` too (subclasses this file, no `_process()` override of its own).
+
+Verified via `godot --headless --check-only` (clean). Couldn't reproduce the exact external-unpause trigger
+without a live session — ask the user to confirm the stray tail no longer appears after this change, and if it
+still does, get the precise repro steps (what they clicked/pressed right before returning to gameplay) so the
+actual external unpause path can be identified and named here.
+
+## Changelog — 2026-08-14 (20th pass) — Found the REAL reason Segments kept resetting on restart: no wave director ever runs on the Atlantic map
+
+The 17th/18th-pass "unconditional write" fix was correct but incomplete — it fixed a real bug in the WRITE
+path, but the user kept seeing `centi_segments` reset to 3 after a full game restart regardless. Checked the
+actual file this time instead of just re-reasoning about the write side: `creep_chain_overrides.cfg` DID
+correctly have `"centi_segments": 8` on disk. The bug was entirely on the READ side.
+
+Root cause: `apply_overrides()` (creep_info_panel.gd, HP/Move/Shoot) and `apply_chain_overrides()`
+(creep_edit_mode.gd, this feature) were ONLY ever called from a wave director's own `_ready()`
+(`arena_wave_director.gd` / `_v2.gd`). But `arena.gd` has a **`if _map_id != "atlantic":` guard around BOTH
+wave-director options** — a deliberate, unrelated 2026-08-08 debug change ("Ngăn chặn spawn trong map atlantic
+để tôi test map") that skips ambient wave spawning entirely on Atlantic so terrain could be tested without
+combat. Since NEITHER wave director is ever instantiated on that map, NOTHING ever calls
+`apply_overrides()`/`apply_chain_overrides()` there — `WaveDir.ENEMY_DEFS` (a `static var`, so it resets to
+its literal hardcoded values on every fresh process launch) stays at its raw un-overridden defaults for the
+whole session. `arena_debug_spawn.gd` (Quick Spawn — what's actually used to test enemies on Atlantic, since
+the ambient spawner is off) reads `WaveDir.ENEMY_DEFS` directly, so it silently spawned with `centi_segments:
+3` all session. It LOOKED fixed within the same session because Creep Edit's own live-apply
+(`_apply_chain_fields()`) mutates that same static dict directly, in memory, immediately — masking that the
+override was never actually being loaded back in from disk on a real restart.
+
+Fix: `arena_debug_spawn.gd` is instantiated unconditionally on every map (unlike either wave director) — added
+both `CreepInfoPanelScript.apply_overrides(WaveDir.ENEMY_DEFS)` and
+`CreepEditModeScript.apply_chain_overrides(WaveDir.ENEMY_DEFS)` calls to its own `_ready()`. Redundant (and
+harmless — both are idempotent, absolute-value applies) wherever a wave director already does it; load-bearing
+on Atlantic where none exists.
+
+Verified via `godot --headless --check-only` (clean).
+
+## Changelog — 2026-08-14 (19th pass) — Editor preview sprites hardened to ALWAYS hide on close, no list indirection to fall out of sync with
+
+User confirmed the "1 miếng tail và 1 miếng body của cent bay lòng vòng" report was NOT a stale old enemy
+instance — it was the EDITOR's own template EOs ("cent body"/"cent tail") stuck `visible = true`, floating at
+their EDITOR CANVAS coordinate (a totally different coordinate space than where a real enemy actually spawns
+in the arena, hence looking like a random/stray spot).
+
+`_update_gameplay_visibility()` (the function `_close()` calls to guarantee nothing's left showing) only ever
+walked `_all_creep_names` — so any placed EO that fell out of that list, for ANY reason (the already-fixed
+map-switch case, or some other path not yet identified), was silently skipped and left visible forever. Fixed
+by making it iterate every EO in `_placed` DIRECTLY instead of going through the name-list indirection —
+closing Creep Edit is now a hard, unconditional guarantee that nothing it ever placed is still visible, with
+no list-membership gap possible. (Deliberately did NOT extend `_update_all_creep_interactivity()` the same
+way — that one's OPEN-time selective show/hide logic actively depends on chain-duplicate EOs NOT being in
+`_all_creep_names`/`visible_set`, so blindly iterating `_placed` there would hide every CHAIN duplicate the
+instant it's created.)
+
+Verified via `godot --headless --check-only` (clean).
+
+## Changelog — 2026-08-14 (18th pass) — Taper re-spec'd to 0-10% per-step compounding; fixed a real disk-erase bug; creep_layout.cfg gets an extra autosave point
+
+1. **Taper redefined** (explicit request): slider is now **0-10%** (was 0-80%, step 0.1 not 1.0) and the
+   formula is **per-step compounding**, not "spread linearly across the whole chain" — each body slot is
+   exactly `(1 - taper%)` smaller than the ONE RIGHT BEFORE IT in its own texture's run (`steps` = slots since
+   that texture's own template/first-use). Changed in both `creep_edit_mode.gd`'s `_rebuild_chain_preview()`
+   (`steps = i - idx - 1`) and `arena_enemy.gd`'s `_centi_seg_scale()` (`steps = k - idx - 1`, same formula,
+   `k`↔`i` are the same absolute slot index) — still pixel/shape-identical between editor and spawn.
+2. **Real bug, found by inspecting the actual override file**: `centi_segments` was straight-up MISSING from
+   `creep_chain_overrides.cfg` after the user set it to 8 and it read back as 3 on restart — confirms the
+   17th-pass "moving target" bug (comparing a new value against `ENEMY_DEFS`, which `apply_chain_overrides()`
+   itself had just mutated) really was silently erasing overrides, not just a theoretical risk. That fix
+   (unconditional write, no more comparison) already covers this.
+3. **"vẫn thấy có cái đuôi nằm ở vị trí khác lạ" lingering + "1 tail và 1 node body bay lòng vòng" on the
+   arena** — the tail-position fix from the 17th pass covers the EDITOR preview; a SEPARATE, already-alive
+   enemy instance from BEFORE the Segments change won't retroactively adopt the new segment count (documented,
+   intentional — `_load_centipede()` only runs once per instance, at spawn). If an old (segments=3) instance
+   was still alive when testing the new (segments=8) config, you'd see BOTH on the arena at once: the old one
+   showing as just 1 body + 1 tail, the new one correct — reading as "a stray tail and body floating around"
+   next to the correct one. Not a bug; let old enemies die (or restart the wave) before checking a config
+   change. (The 17th pass' `_on_map_selected()` fix already covers the OTHER way a stray EDITOR sprite could
+   get stuck visible, in case that's what was actually seen instead.)
+4. **creep_layout.cfg (pos/size) extra autosave point**: previously only flushed when the editor closed
+   cleanly — alt-F4, a crash, or forgetting to close the panel before quitting meant every resize/move since
+   the last close was gone, with no visible warning. Now also flushes on every plain creep switch (`if _dirty
+   and creep_name != _active_creep: _save_layout()` in `_set_active_creep()`), so there's no longer one single
+   "did I close it right" moment the whole session hinges on.
+
+Verified via `godot --headless --check-only` (clean).
+
+## Changelog — 2026-08-14 (17th pass) — CHAIN fields now apply live (no Save button); fixed a real "Segments resets" bug + a stuck-visible ghost creep on map switch
+
+Three separate reports:
+
+1. **"chỉnh segment lên 8, bấm layer tail, segment tự động về 3"** — real bug, root cause: `_refresh_chain_controls()`
+   re-reads the 4 CHAIN spinbox values from `ENEMY_DEFS` on EVERY active-creep change, including just clicking
+   a different LAYERS row within the SAME already-open chain group — and under the old "Save Chain" model,
+   `ENEMY_DEFS` still held whatever was last explicitly saved, not the in-progress edit, so switching rows
+   silently snapped the UI (and, on the next rebuild, the preview) back to the last-saved value.
+2. **Explicit request: "Bỏ nút save chains đi, mọi thay đổi có hiệu lực ngay tức thì"** — removed the "Save
+   Chain" button entirely. `_on_chain_field_changed()` now calls `_apply_chain_fields()` (renamed from
+   `_on_chain_save()`) on every keystroke/drag-tick — applies to `ENEMY_DEFS` (both v1's shared dict and v2's
+   own copy if running) AND writes `creep_chain_overrides.cfg` to disk immediately, every time. "Reset" stays
+   (still a distinct action: revert to hardcoded defaults). This directly fixes bug 1 above too, as a side
+   effect — `ENEMY_DEFS` is never stale anymore, so re-reading it on every LAYERS click is now always safe.
+3. **"Khi tôi mở creep edit, có 1 cái máy bay pirate1 xuất hiện... sau khi tắt creep edit, nó vẫn tồn tại trên
+   arena"** — real bug in `_on_map_selected()` (the "Map:" dropdown). Switching maps rebuilds
+   `_all_creep_names` down to ONLY the new map's sprites (`_scan_creeps()`), but never hid the previously-
+   active creep first. The only 2 places anything ever gets hidden — `_update_all_creep_interactivity()` and
+   `_update_gameplay_visibility()` — both walk `_all_creep_names`, so a creep that's no longer in that list
+   (e.g. "pirate1", a Space/default-map sprite, after switching to Atlantic) is never visited again, EVER,
+   including on close — a permanently stuck-`visible=true` ghost overlay for the rest of the session. Fixed by
+   hiding every currently-placed EO unconditionally before the swap, then re-selecting the new map's first
+   creep the same way the initial editor-open flow already does.
+
+Also reaffirmed/verified the 16th pass' "edit matches spawn" work still holds for all 3 parts (head/body/tail)
+after these changes — nothing in this pass touches `arena_enemy.gd`.
+
+Verified via `godot --headless --check-only` (clean).
+
+## Changelog — 2026-08-14 (16th pass) — Centipede arena spawn now reads its size from creep_layout.cfg — the same source Creep Edit's CHAIN preview uses
+
+Per explicit request ("tôi muốn edit như thế nào thì spawn ra sẽ y hệt như thế"): until now, "centipede"-
+behavior enemies computed their OWN geometry at spawn from scratch — width from `_radius * CENTI_WIDTH_MUL`
+(the `size` stat), height from each texture's native pixel aspect at that width — completely ignoring
+whatever the user actually resized Head/Body/Tail to in Creep Edit's canvas (`creep_layout.cfg`'s "size" was
+gameplay-inert for this behavior type, mentioned as a known gap in the 14th-pass reply). That's WHY the editor
+and the spawn could look different even with identical Segments/Spacing/Bend/Taper.
+
+Fixed by making the arena spawn read the exact same per-part "size" Creep Edit saves, instead of deriving its
+own:
+- New `_authored_seg_size(icon_path, tex)` — looks up `creep_layout.cfg`'s `[creeps]` entry for that sprite's
+  basename (identical lookup `ArenaEnemyScript.base_draw_width()` already uses for every OTHER enemy type,
+  generalized to both W and H here). Falls back to the old radius-derived guess only if that sprite has never
+  been placed/sized in Creep Edit at all (a brand-new def wired in by hand).
+- `_load_centipede()` now populates `_centi_head_size`/`_centi_body_sizes[]`/`_centi_tail_size` from that
+  lookup once per spawn, replacing the old shared `_centi_width` (kept only as a rough hit-radius fallback for
+  `_check_contact()`).
+- `_centi_seg_scale(k, n)` gained the same "first occurrence of a texture keeps its own authored size
+  untouched" rule creep_edit_mode.gd's `_rebuild_chain_preview()` already used for its templates (`k <=
+  _centi_body_texs.size()` → scale 1.0) — previously only the single-body-texture case (e.g. "cent") matched
+  by coincidence; 2-texture reskins (hammerhead/killerwhale/shark_elite) now match too.
+- `_update_centipede_chain()`'s per-joint follow distance now uses `_centi_seg_size_for(k-1, n).y ×
+  spacing_mult` — the PRECEDING joint's own (tapered) size, matching the editor's own duplicate-spacing
+  formula (`prev_eo.size.y × spacing_mult`) exactly, instead of the joint's own size.
+- `_draw_centi_seg()` now takes an explicit `base_size: Vector2` param (the authored size for that slot) and
+  draws `base_size × scale_mul` — same formula shape as before, just no longer forced to share one width
+  across every segment.
+
+Net effect: resize Head/Body/Tail (or the taper/spacing/segments) in Creep Edit → the next spawn of that enemy
+looks the same, size- and spacing-wise. What still CAN'T match: absolute X/Y position while the enemy is
+actually moving — the editor shows a static straight line, the arena's chain is live physics trailing behind
+the head as it turns (that's inherent to a moving chain, not something a static preview can replicate frame-
+by-frame) — but a fresh, stationary spawn's straight initial layout now uses the identical size/spacing math.
+
+Verified via `godot --headless --check-only` (clean). Ask the user to resize/reposition a "cent" part in Creep
+Edit, save, and spawn fresh to confirm the sizes now visually match.
+
+## Changelog — 2026-08-14 (15th pass) — "cent" looked flattened toward the tail: proved it's not a ratio bug, fixed the real cause (zero-gap overlap)
+
+Another round of "rõ ràng bị dẹp lép" with a screenshot. Rather than re-derive the math on paper again, actually
+RAN it: a throwaway headless GDScript reproducing both the editor's `taper_ratio` formula and the runtime's
+`_centi_seg_scale`/`_draw_centi_seg` formula against `cent body.png`'s real authored size (60×35.86, from
+creep_layout.cfg). Printed width/height for every body slot at 70% taper — **every single one came back
+1.6730**, bit-for-bit identical, in both formulas. So the per-segment box is not being distorted; that number
+IS `cent body.png`'s own native aspect (532×318 px) — it's just a wide/flat sprite by design.
+
+The actual cause: `centi_spacing_mult` defaulted to 1.0 for `atlantic_centipede`, and spacing is derived as
+`segment's own height × spacing_mult` — so at 1.0, consecutive segments' CENTERS sit exactly one segment-height
+apart, i.e. they touch edge-to-edge with ZERO gap. Segments closer to the head draw ON TOP of the ones behind
+them (`_draw_centipede()` paints tail→head, head last). With zero gap, that top-drawn segment covers most of
+the visible top of the one behind it — you only ever see the thin sliver below the segment in front, which
+reads as "flattened", and the sliver is a bigger fraction of a SMALLER (more-tapered) segment, so it looks
+progressively worse toward the tail even though every segment's own box is identically proportioned.
+
+Fix: gave `atlantic_centipede` its own `"centi_spacing_mult": 1.3` in `ENEMY_DEFS` (was implicitly 1.0, the
+shared fallback every other centipede-type def still uses) — a real ~30% gap between segments so each one's
+actual silhouette is visible instead of hidden behind the one in front. User can still override via the CHAIN
+section's "Spacing x" slider + Save Chain same as before; this just moves the *default* to something that
+doesn't self-occlude.
+
+Verified via `godot --headless --check-only` (clean) plus the actual headless GDScript run above (numbers
+pasted in the reply, not just claimed).
+
+## Changelog — 2026-08-14 (14th pass) — Stray chain-dup sweep on editor open (belt-and-suspenders for the 13th pass' ghost-node fix)
+
+Re-verified the math after another "vẫn méo/lệch, giữ ratio + align center" report:
+- Size: `dup_eo.size = template_eo.size * taper_ratio.call(i)` is a `Vector2 × float` — GDScript multiplies
+  both components by the identical scalar, so the width:height ratio is mathematically unable to change.
+- Position: `dup.x = prev.x + (prev.w - dup.w)/2` centers `dup`'s box exactly on `prev`'s own center
+  (`center(dup) = dup.x + dup.w/2 = prev.x + prev.w/2 = center(prev)`, algebraically, for ANY prev/dup width)
+  — and since every node centers on its immediate predecessor, the whole chain is transitively centered on the
+  root template's own centerline no matter how many segments or how much taper. Independently re-checked the
+  actual arena draw path too (`arena_enemy.gd`'s `_draw_centi_seg()`): `Rect2(Vector2(-dw*0.5,-dh*0.5), Vector2(dw,dh))`
+  drawn at the joint's own position — also exactly centered, also `dw`/`dh` both scaled by the same `scale_mul`.
+  Both the editor preview and the real spawn are already provably ratio-preserving and centered.
+
+So the visible distortion isn't a math bug — it's almost certainly the 13th-pass "ghost duplicate" issue
+(`queue_free()` racing a same-named `add_child()`) leaving orphaned stale-sized nodes behind BEFORE that fix
+landed. Those orphans were created under the old code and were never cleaned up by anything — restarting just
+the editor panel doesn't touch them, since they live under `_objects_container` (outside `_all_creep_names`,
+outside `_placed`/`_chain_dup_names` tracking) and persist for the rest of that game session regardless of
+code changes. Added `_sweep_stray_chain_dups()`, run once every time the editor is opened (`toggle()`): walks
+`_objects_container`'s children, and any node whose name matches the `"<template> #<n>"` duplicate pattern but
+isn't a currently-tracked value in `_placed` gets removed outright. This guarantees a clean slate on open
+regardless of what a previous (possibly pre-13th-pass) session left behind — belt-and-suspenders on top of the
+13th pass' actual fix, which already stops any NEW orphans from being created going forward.
+
+Verified via `godot --headless --check-only` (clean). **Ask the user to fully restart the game** (not just
+toggle the editor closed/open) before retesting — a hot-reloaded / still-running session from before this fix
+could have accumulated exactly this kind of leftover.
+
+## Changelog — 2026-08-14 (13th pass) — 3 bug fixes: taper "ghost duplicate" distortion, CHAIN edits lost on close, spawn not matching editor
+
+Three reports after the 12th-pass rewrite:
+
+1. **"spawn thì không giống như đã edit"** — CHAIN's Segments/Spacing/Bend/Taper fields only ever reached
+   `ENEMY_DEFS` (and therefore an actual spawn) via the separate "Save Chain" button; the canvas preview
+   already reflected the live slider values, but a spawn tested before clicking that button still used
+   whatever was last saved. (Reminder for the user: Head/Body/Tail's own size/position in the editor canvas
+   is a pure visual aid for "centipede"-behavior enemies — it's never read at spawn time at all; only the 4
+   CHAIN fields + each sprite's own pixel aspect ratio affect the real in-game look.)
+2. **"Taper khi kéo vẫn làm méo và lệch các node"** — root cause was a classic Godot race, not a math bug:
+   `_clear_chain_dups()` used `queue_free()`, which only actually removes a node at end-of-frame, while
+   `_rebuild_chain_preview()` immediately re-`add_child()`s a FRESH duplicate under the SAME name right after.
+   A fast slider drag fires several `value_changed` ticks per rendered frame, so the new node kept colliding
+   with the old (not-yet-freed) one — Godot silently auto-renamed the new one, and the orphaned old one (no
+   longer tracked anywhere) stayed fully visible, overlapping the new one at its stale size, until its
+   deferred free finally landed. That overlap is what read as "méo/lệch". Fixed by freeing synchronously
+   (`remove_child()` + `free()`) instead of `queue_free()`. (The scaling math itself was already correct — a
+   uniform `Vector2 × float` multiply can't change the width:height ratio — and duplicate positions were
+   already exactly centered under their predecessor's center transitively back to the root template, so no
+   separate "align center" fix was needed once the ghosting stopped.)
+3. **"khi tắt game mở lại, toàn bộ edit bị mất"** — closing Creep Edit already auto-saves `creep_layout.cfg`
+   when position/size edits are pending (`_dirty`), but the CHAIN fields live in a separate file
+   (`creep_chain_overrides.cfg`) behind their own explicit "Save Chain" button, and closing never flushed
+   THAT — so any Segments/Spacing/Bend/Taper edit made without remembering to click Save Chain first was
+   silently gone on next open or game restart. Fixed with a new `_chain_dirty` flag: `_on_chain_field_changed()`
+   sets it, `_on_chain_save()`/`_on_chain_reset()` clear it, and both `_request_close()` (closing the editor)
+   and `_refresh_chain_controls()` (switching to a DIFFERENT chain group — the 4 fields are one shared widget
+   set reused for every group, so leaving one dirty would otherwise be silently overwritten by the next
+   group's own values) now auto-`_on_chain_save()` whenever it's set.
+
+Verified via `godot --headless --check-only` (clean). Please re-test taper dragging + close/reopen and report back.
+
+## Changelog — 2026-08-14 (12th pass) — Full CHAIN rewrite: 3 fully independent parts, linear taper, no more disappearing/snap-back nodes
+
+User report: "càng làm càng hỏng" (kept getting worse) — after move+taper, segment nodes vanished; the 8-11th
+pass "sticky template" design (`_chain_dup_offset`/`_chain_dup_taper_steps`/`_chain_templates_initialized`/
+`_chain_preview_root`, the head-vs-template two-case split in `_follow_chain_on_move/resize`) was too fragile.
+Threw all of that out and rebuilt from 4 explicit rules the user gave:
+
+1. Enemy has 3 parts — Head, Body (+ segments), Tail.
+2. The 3 parts adjust independently in size AND position (moving/resizing one never touches another).
+3. Editing the body template's size affects every one of its segment duplicates.
+4. Taper scales the LAST body segment by the taper %, distributed evenly back to the root (first) body
+   segment, which never changes — i.e. **linear**, not the old per-step-compounding `pow()`.
+
+New model (`creep_edit_mode.gd`'s `_rebuild_chain_preview()` and friends):
+- HEAD, every BODY TEMPLATE (one per distinct body texture — plain chains have 1, hammerhead-style reskins
+  have 2), and TAIL are real, independent nodes. The rebuild function **never** writes their `.position`/
+  `.size` — the only exception is a true one-time-per-session `_auto_arrange_chain_templates()`, gated by
+  `_chain_all_stacked()` (only fires if every part is still literally piled on the head's spot, i.e. never
+  touched) — so a manual drag/resize can never be discarded, by anything, ever.
+- DUPLICATES (extra segments beyond what real sprites cover) are the only thing ever created/moved/resized:
+  fully derived, thrown away and rebuilt from scratch every call. Each hangs directly below whichever
+  real/duplicate node precedes it in the chain, at that node's CURRENT position + size — so moving/resizing
+  any earlier node drags every duplicate after it along live, with no stored offsets to go stale.
+- Taper (0-80%, unchanged range) now scales only duplicates via `1.0 - taper% × (slot-1)/(body_count-1)` —
+  linear from the root (slot 1, always 1.0) to the last body slot (slot body_count, exactly `1-taper%`).
+  Head, every template's own authored size, and Tail are never scaled by taper.
+- `_follow_chain_on_move()`/`_follow_chain_on_resize()` collapsed to one line each (`_rebuild_chain_preview()`
+  unconditionally) — the old head-vs-template branching is gone since the rebuild itself is now always safe
+  to call from anywhere.
+- Runtime formula changed to match: `arena_enemy.gd`'s `_centi_seg_scale(k, n)` (now takes `n` too) uses the
+  same linear formula instead of the old `pow(1-taper%, k)` compounding, so the editor's taper shape and the
+  arena's actual taper shape are conceptually the same rule (editor node *sizes* were already established
+  earlier this session as a pure visualization aid, not synced to runtime pixel-for-pixel — only the 4
+  Segments/Spacing/Bend/Taper fields are; see the "no more pixel-matching" note in the 8th-pass entry).
+
+Verified via `godot --headless --check-only` and `--headless --import` (both clean, no script errors) — not
+visually tested in the running editor since this environment can't drive the UI; ask the user to re-check
+move/resize/taper on a chain creep (e.g. `cent`/`hammerhead`) and report back if anything's still off.
+
+## Changelog — 2026-08-13 (11th pass) — Bug fix: `duplicate(0)` silently dropped the script; templates made fully sticky
+
+Two more regressions from the 10th pass, same session:
+
+- **"Tăng segment không thấy tăng node" (Segments no longer creates any nodes)** — root cause:
+  `template_eo.duplicate(0)` (flags=0) does NOT guarantee the clone keeps the template's own GDScript
+  attached — `Node.DuplicateFlags.DUPLICATE_SCRIPTS` specifically controls that, and passing 0 excludes it.
+  The clone likely came back as a bare `Control` (no `EditableObjectNode` script), so `as EditableObjectNode`
+  silently returned `null` for every single duplicate, and the `continue` on a null result meant NOTHING got
+  created — no error, just an empty result. **Fix**: use `template_eo.duplicate()` with Godot's own default
+  flags (guarantees the script/class comes along) instead of guessing a flags value. Default flags also
+  include `DUPLICATE_SIGNALS`, so the template's own `object_clicked`/`transform_ended`/`transform_motion`
+  connections may already be cloned along with everything else — the explicit (re)connect calls are now
+  wrapped in `is_connected()` guards so they're a safe no-op either way, instead of risking a double-fired
+  handler if signals did come along automatically.
+- **"Chỉnh vị trí node rồi tăng/giảm segment, vị trí bị giật ngược về vị trí cũ" (reposition a node, then
+  change Segments, and it snaps back)** — the 9th pass only stopped templates from re-snapping on a pure
+  LAYERS selection click; a genuine Segments/Spacing/Taper edit still unconditionally repositioned every
+  template every time (by design, at that point). Per this follow-up report, that's ALSO unwanted — the user
+  wants a manually-positioned template to stay put through *any* interaction short of explicitly moving the
+  head. Redesigned: templates are now auto-arranged from the head formula **only the first time a given chain
+  root is ever built** (new `_chain_templates_initialized: Dictionary`, `root_name -> bool`) — every
+  subsequent Segments/Spacing/Taper edit or plain creep-switch only regenerates/repositions DUPLICATES, never
+  touching template position again. The one deliberate exception: dragging the HEAD still forces a full
+  re-arrange (`_rebuild_chain_preview(true)` from `_follow_chain_on_move()`'s head branch) — moving the
+  anchor is still meant to cascade, per the earlier explicit request that motivated that function.
+  Duplicates' positions are now computed relative to their OWN template's CURRENT position (a local
+  cumulative offset, geometric partial sum of `template.size.y × spacing_mult × taper_ratio(step)`) rather
+  than the head's shared cursor — so a duplicate tracks correctly whether its template was auto-arranged or
+  manually dragged, consistent with the "duplicates follow their template" behavior added in an earlier pass.
+
+## Changelog — 2026-08-13 (10th pass) — Bug fix, take 2: duplicates now cloned via `Node.duplicate()`, not hand-reconstructed
+
+The 9th pass's aspect-ratio fix (deriving a duplicate's height from its own `_aspect_ratio` instead of a
+flat `Vector2 × float`) didn't fully fix it — follow-up report: further-down duplicates got progressively
+"ép dẹp ngang và méo sang bên phải" (squashed horizontally, skewed rightward) as Taper increased.
+
+- **Root-caused**: duplicates were being built from scratch every rebuild — a fresh
+  `EditableObject.instantiate()` + `init(tex, pos, sz)` — rather than actually being copies of the template.
+  `editable_object.tscn`'s `TextureRect` child uses `expand_mode = EXPAND_FIT_WIDTH_PROPORTIONAL`, which
+  derives its own rendered height from its CURRENT width + the texture's native aspect on Godot's own layout
+  pass — any subtle difference between what a hand-called `init()` sets up vs. what the TEMPLATE's own
+  (already-`_ready()`'d, already-through-at-least-one-resize) internal state actually is could diverge and
+  compound as the duplicate got resized smaller each taper step.
+- **Fix**: duplicates are now created via Godot's own `template_eo.duplicate(0)` — an exact, guaranteed
+  pixel-identical clone of the template's ENTIRE state (`.size`, `_aspect_ratio`, the child `TextureRect`'s
+  own internal layout state, …) at the moment of cloning. `duplicate(0)` (no flags) deliberately does NOT
+  carry over the template's own signal connections/group membership — those are reconnected explicitly
+  (`object_clicked`/`transform_ended`/`transform_motion`), matching how every other placed part in this file
+  wires up (`_place_creep_eo()`'s own pattern). New `_make_chain_dup_eo()` replaces the old
+  `_place_creep_eo()`-based construction; the custom `_chain_dup_size()` aspect-derivation helper from the
+  9th pass is removed — no longer needed, since a duplicate now STARTS as an exact copy of a correctly-
+  rendering template, so a plain uniform `eo.size = template.size × ratio` can't introduce any distortion the
+  template didn't already have.
+
+## Changelog — 2026-08-13 (9th pass) — Bug fix: LAYERS click re-snapped manual body position; duplicate taper size made aspect-safe
+
+Two more user-reported bugs, same session:
+
+- **Bug fix — clicking a different LAYERS row erased a manual template reposition**: "chỉnh xong [body], bấm
+  sang tail thì body lại tự nhảy về vị trí lúc đầu". Root cause: `_refresh_chain_controls()` ran on EVERY
+  `_active_creep` change — including a pure SELECTION click between rows already in the SAME open chain group
+  (head → tail, tail → body, …) — and unconditionally called `_rebuild_chain_preview()`, which repositions
+  every TEMPLATE from the head formula regardless of any manual drag the user had just done. New
+  `_chain_preview_root` remembers which root the canvas currently reflects; `_refresh_chain_controls()` now
+  only rebuilds when `_active_creep`'s root actually CHANGES (a genuine switch to a different chain group) —
+  merely selecting a different member of the group you're already viewing no longer touches anyone's
+  position. Segments/Spacing/Taper edits (`_on_chain_field_changed()`) and a head drag
+  (`_follow_chain_on_move()`) still always rebuild — both call `_rebuild_chain_preview()` directly, unaffected
+  by this gate. Also fixed a related leak: switching to a *non*-chain creep previously left the last chain
+  group's duplicates sitting on the canvas forever (the early-return before this point never reached the
+  cleanup call) — now explicitly clears them and resets `_chain_preview_root` too.
+- **Duplicate taper sizing made aspect-ratio-safe**: report of duplicates looking "méo sang một bên" (skewed
+  to one side, losing their original aspect) while dragging Taper. The `eo.size = template_eo.size * ratio`
+  multiply itself is uniform (Vector2 × float scales both axes by the same factor) so couldn't distort a
+  duplicate on its own, but it inherits whatever aspect the TEMPLATE's own authored size happens to have —
+  if that's ever slightly off from the texture's true native ratio, the mismatch would carry through, and
+  compound visually as duplicates shrink. New `_chain_dup_size(eo, template_eo, ratio)` derives HEIGHT from
+  the duplicate's own `_aspect_ratio` (computed from its actual texture dimensions in `EditableObjectNode.
+  init()`, same texture as the template) instead of blindly scaling the template's `.size.y` — guarantees a
+  duplicate always renders at its texture's true aspect regardless of what the template's own W/H says.
+  Applied at both call sites (the full rebuild's duplicate-creation loop and
+  `_resize_chain_dups_from_templates()`).
+
+## Changelog — 2026-08-13 (8th pass) — Bug fix: `.scale` broke LAYERS resize/selection; taper/size now real `.size`, not a transform trick
+
+User report: "phần layer đang bị ko hoạt động khớp với chain" — clicking a LAYERS row could no longer resize
+that part, and body-segment duplicates seemed to vanish when selecting head or tail specifically.
+
+- **Root cause**: the 7th pass's runtime-size-matching applied `eo.scale`/`eo.pivot_offset` directly to the
+  REAL template nodes (head + each texture role's first use) to visually shrink them toward the true in-game
+  size. `EditableObjectNode`'s drag-resize handles and click hit-testing were never built with a `.scale`
+  transform in mind — they compute against the node's plain `.size`/`.position`, so once a template had
+  `.scale != 1` applied, its handles/hit-box stopped lining up with what was actually rendered on screen,
+  reading as "can't resize" and, apparently, parts becoming unselectable/appearing to vanish.
+- **Fix — `.scale` removed from the CHAIN feature entirely**, on both templates and duplicates:
+  - **Templates** (head + each role's first real use) are now **never** resized/rescaled by this feature —
+    only repositioned, exactly like before any of the taper/size work started. Full normal resize/drag/select
+    behavior restored, unconditionally.
+  - **Duplicates** now get a REAL `.size` (`eo.size = template.size * taper_ratio`, `eo._sync_rect_size()`)
+    instead of a `.scale` trick — safe because duplicates are never saved (`_save_layout()` only ever
+    iterates `_all_creep_names`, which duplicates are deliberately excluded from) and never individually
+    resized by a user, so there's no "authored value vs. cosmetic override" conflict to protect against for
+    them the way there was for templates.
+  - Net effect, matching the explicit spec ("click vào body thì chỉnh node đầu tiên, các nốt khác trong
+    segment sẽ scale theo node đó và taper"): clicking/resizing a template (the "first node" for its texture
+    role) is a completely normal, unrestricted edit; every one of ITS duplicates re-derives its own size as
+    `template.size × (1 − taper%)^steps` (`steps` = how many chain positions behind the template that
+    specific copy sits), automatically, the moment the template's W/H changes (new `_follow_chain_on_resize()`
+    hook on `_apply_spin_to_selected()`) or the CHAIN section's own fields change.
+  - The 7th pass's "pixel-accurate to a real spawn" width/size matching (`ENEMY_DEFS["size"]`-derived
+    `centi_width`) is **dropped** — it's what required scaling the head, which is exactly what broke
+    resizing. Editor sizes are back to being purely author-controlled again, same as every other placed part.
+- **`_follow_chain_on_resize()`** mirrors the existing `_follow_chain_on_move()`'s 2-case split: resizing the
+  HEAD triggers a full `_rebuild_chain_preview()` (repositions + resizes the whole chain against the head's
+  new size); resizing a body/tail TEMPLATE only resizes its own duplicates (`_resize_chain_dups_from_templates()`)
+  — position for those isn't live-recomputed on every resize keystroke (stays at its last full-rebuild
+  position until the next Segments/Spacing/Taper edit or creep switch) — a disclosed, purely cosmetic gap,
+  not worth the extra complexity for how rarely it'd be visible mid-drag.
+
+## Changelog — 2026-08-13 (7th pass) — CHAIN preview: real taper shrink, drag-follow, pixel-accurate runtime size
+
+Three follow-up requests on the CHAIN feature, same session:
+
+- **Taper actually shrinks bodies now** (was position-only before this pass — the gap between nodes grew but
+  every node stayed the SAME size, contradicting the whole point of "taper"). Slider range changed **0–90 →
+  0–80** (per spec: 0 = 0% shrink, 80 = 80% per-step shrink). Applied as a pure **visual** transform —
+  `eo.scale` (centered via `eo.pivot_offset = eo.size * 0.5`, per this project's own Pivot Point Rule) —
+  deliberately NOT via `eo.size` itself, since `.size` IS what `_save_layout()` persists into
+  `creep_layout.cfg` (and feeds `tools/downscale_enemies.gd`'s bake); `.scale`/`.pivot_offset` aren't part of
+  that saved schema, so this stays purely cosmetic no matter how many times Save Layout is clicked. New
+  `_chain_scaled_names` + `_reset_chain_scale()` (called at the top of every rebuild) put every touched node
+  back to `scale=1, pivot=0` first, so a part doesn't stay stuck visually shrunk after switching creeps or
+  dialing Taper back to 0.
+- **Duplicates now follow when you reposition a chain part** — previously the whole layout only recomputed on
+  a Segments/Spacing/Taper edit or a creep switch; dragging/spinning a part's X/Y did nothing until the next
+  unrelated CHAIN edit. New `_follow_chain_on_move()`, hooked into `_on_pos_spin_changed()` /
+  `_on_transform_motion()` / `_on_transform_ended()`, no-ops outside an active CHAIN section. Two cases,
+  handled differently on purpose:
+  - **Head dragged** → full `_rebuild_chain_preview()` (the whole chain is anchored on the head, so this is
+    the correct "everything follows" response).
+  - **A body/tail TEMPLATE dragged/spun** → does **NOT** run a full rebuild (that would instantly recompute
+    the template's own position from the head formula and erase the edit the user just made). Instead only
+    its own duplicate copies move, by the SAME offset it captured at creation time (new `_chain_dup_offset`,
+    consumed by new `_reposition_chain_dups_from_templates()`) — the template's manual position is respected,
+    its clones just tag along.
+- **Editor preview now matches a real spawn pixel-for-pixel** (previously it used each part's own
+  `creep_layout.cfg`-authored W/H, which for the new Atlantic sets is a flat 60px-wide convention chosen for
+  editor legibility — the REAL runtime chain (`_load_centipede()`/`_centi_width` in `arena_enemy.gd`) never
+  reads that field at all for `"centipede"`-behavior parts; it derives width from `ENEMY_DEFS["size"]` (the
+  hit-radius stat) × 1.05 × `CENTI_WIDTH_MUL`, often 25–45% smaller than the authored editor size).
+  Confirmed with the user this should scale the WHOLE chain including the head (previously untouched) to
+  match, accepting that parts now look visibly smaller in Creep Edit than before — an accurate reflection of
+  their small in-game footprint, not a bug. Every part (head, templates, duplicates, tail) now gets an
+  additional `centi_width / eo.size.x` normalization factor multiplied into its taper scale, and the
+  spacing/cursor-advance math switched from `eo.size.y` to a locally-computed `runtime_along_len()` (mirrors
+  `arena_enemy.gd`'s `_seg_along_len()` exactly: `centi_width × texture_h/texture_w`). One disclosed
+  simplification: the real runtime's head neck-overlap adjustment (`CENTI_HEAD_OVERLAP`, ~20px pulled into
+  the first body segment) isn't replicated — the editor starts body1 flush at the head's own along-length,
+  a minor, purely cosmetic difference at the neck join only.
+- The `_position_chain_members()` fallback (used only when a chain group's parts can't be classified into
+  body/tail roles — a hand-added `CHAIN_PARTS` entry that doesn't follow Head/Body`<N>`/Tail naming) was NOT
+  extended with runtime-size matching — out of scope, no real def hits that path today.
+
+## Changelog — 2026-08-13 (6th pass) — CHAIN "Segments" now spawns REAL duplicate body nodes, not just repositioning
+
+Follow-up to the 5th pass (per request: "khi tăng segment thì tăng node body lên, như lúc bạn làm với
+preview ấy, nhưng làm trên node body thật" — raising Segments should actually add more body nodes, the way
+the earlier ghost-preview version did, but using real nodes this time). The 5th pass's "just reposition
+whatever real parts already exist" was a disclosed simplification that under-delivered for exactly this case
+— e.g. `atlantic_centipede`/`spermwhale2`/the original centipede only ever have 1 real "body" `EditableObjectNode`
+no matter how high Segments goes.
+
+- **New**: when a chain's `mid_count` (`Segments − 2` if a tail exists, else `− 1`) exceeds the number of
+  distinct real body textures, `_rebuild_chain_preview()` now instantiates real DUPLICATE
+  `EditableObjectNode`s via the exact same `_place_creep_eo()` helper every normal placed part uses — same
+  texture, same size, same interactivity — named `"<template> #2"`, `"<template> #3"`, … Each middle slot's
+  texture assignment mirrors `arena_enemy.gd`'s own `_centi_tex_for()` exactly (body1, body2, …, clamping to
+  the LAST body texture once the def runs out of distinct ones — same rule the real runtime chain uses), so
+  a def like `hammerhead` (2 body textures) fills slots 1-2 from its own real body1/body2, then repeats body2
+  for every slot beyond that.
+- Duplicates are fully torn down and rebuilt from scratch on every call (segment-count change, spacing/taper
+  edit, or creep switch) — always exactly matches the CURRENT `Segments` value, no incremental add/remove
+  bookkeeping. New `_chain_dup_names` tracks the live set for cleanup; new `_clear_chain_dups()` destroys them
+  (called at the top of every rebuild, and from `_close()` — they're deliberately excluded from
+  `_all_creep_names`, so `_update_gameplay_visibility()`'s "hide every known creep for gameplay" pass doesn't
+  know about them and would otherwise leave them visible outside the editor).
+- **Deliberately excluded from `_all_creep_names`** (and therefore from `_save_layout()`, `_scan_creeps()`,
+  and the ENEMIES palette) — they're pure derived output of `centi_segments`, not their own authored data;
+  persisting them would just create stale orphaned entries the next time Segments changes. `creep_layout.cfg`
+  gains no new keys from this feature at all.
+- `_position_chain_members()` split out as the plain "reposition, no duplication" fallback — still used when
+  a chain group's parts can't be classified into body/tail roles (e.g. a hand-added `CHAIN_PARTS` entry that
+  doesn't follow the Head/Body`<N>`/Tail naming convention).
+
+## Changelog — 2026-08-13 (5th pass) — CHAIN preview simplified: reposition the REAL nodes, no ghost copies at all
+
+The 4th pass's ghost-copy preview (translucent duplicate `TextureRect`s drawn alongside the real parts) was
+pushback-flagged as needlessly complicated — an intermediate offset-lane variant was tried and discarded same
+session before landing here. Final approach, much simpler: **no extra preview nodes exist at all.**
+`_rebuild_chain_preview()` just REPOSITIONS the REAL body/tail `EditableObjectNode`s (already resizable/
+draggable/selectable — completely untouched otherwise, no hide/restore bookkeeping, no `Array[Control]`
+tracking) to sit where they'd actually line up below the head, in head → body1 → body2 → … → tail order
+(`_chain_group_order`, from the 2026-08-12 naming-convention auto-grouping). This is safe to do
+unconditionally, not just "while a preview is active": `creep_layout.cfg`'s `"pos"` for a `"centipede"`-
+behavior part has **zero gameplay effect** — the real runtime chain (`_update_centipede_chain()` in
+`arena_enemy.gd`) computes every segment's position procedurally from the enemy's own transform each frame,
+never reads `creep_layout.cfg` position for centipede-type enemies at all — so the auto-aligned position IS
+just the part's real, permanent, normally-savable position now; there's no "preview vs. real" state to
+reconcile. One disclosed approximation: this lines up whatever DISTINCT real parts actually exist, in
+sequence — it does NOT synthesize `Segments`-many synthetic copies of a single reused body texture (e.g. the
+original 10-segment centipede has only 1 real "body" EO to move, not 8) — good enough to sanity-check order/
+spacing/taper direction at a glance, not a segments-accurate node count.
+
+## Changelog — 2026-08-13 (4th pass) — Bug fix: CHAIN preview doubled body/tail; Creep Info gets per-map tabs
+
+- **Bug fix — "2 tail, 1 mờ 1 rõ" in Creep Edit** (`creep_edit_mode.gd`): the 3rd pass's new ghost CHAIN
+  preview (built to fix the PREVIOUS bug — Segments/Spacing/Bend/Taper having no visible effect) drew ghost
+  copies of EVERY non-head segment, including body/tail slots that ALREADY have their own real, separately-
+  placed `EditableObjectNode` sitting at its own fixed `creep_layout.cfg` position — so any chain creep at
+  its default segment count showed both at once (the real one at full opacity, the ghost at 50%, stacked
+  almost exactly on top of each other since both start near the same default placement). Fix: new
+  `_set_chain_real_parts_visible(root_name, vis)` hides every REAL body/tail part belonging to the active
+  chain root the moment `_rebuild_chain_preview()` is about to draw ghosts for it, restored the moment the
+  preview clears (creep switch, CHAIN section hidden, or editor close — new `_chain_preview_root` remembers
+  which root to restore, mirroring how `_preview_vortexes` already gets torn down in `_close()`). Only
+  rendering is affected — the real parts are still fully there in `creep_layout.cfg` and still selectable via
+  the LAYERS panel for their own transform/firepoint editing, just not drawn on canvas while their ghost
+  stand-in is showing. (Root-caused via careful re-read of `arena_enemy.gd`'s actual runtime draw code —
+  `_centi_tex_for()`/`_draw_centipede()` only ever draw exactly ONE tail per chain; the duplicate was 100%
+  a Creep Edit canvas artifact, never present in real gameplay.)
+- **Creep Info panel gets per-map tabs** (`creep_info_panel.gd`), on request — a row of tabs (**All / Space /
+  Electric / Volcanic / Atlantic**) added directly below the Save/Close row, filtering the (previously single
+  flat ~70-row) list down to one map's own roster. `_map_id_for(id, def)` infers ownership from the def's
+  `"icon"` path prefix, reusing `creep_edit_mode.gd`'s own `MAP_REGISTRY` as the single source of truth (the
+  SAME list the Creep Edit "Map:" dropdown already uses) — so this stays correct automatically as creeps get
+  moved between per-map folders, no separate id→map table to maintain in sync. The 3 bosses are the one
+  exception: their icons stay under `assets/bosses/<name>/` (deliberately excluded from the 2026-08-12 per-map
+  asset reorg), so ownership can't be inferred from icon path for them — hardcoded `BOSS_MAP_OVERRIDE`
+  (`metalfly`→Electric, `elephant`→Volcanic, `chromeleon`→Space) instead, from that reorg's own wave-timeline
+  audit. Tab click = `_populate()` re-run with the filter applied; active tab highlighted via font color, same
+  convention as the existing Save (green) / Close (red) buttons — no new StyleBox machinery for a strip this
+  small. Scroll area's reserved height bumped (`psize.y - 150` → `-182`) to make room for the new row.
+- Verified: `godot --headless --check-only`/`--import` clean. Runtime smoke-testing `_map_id_for()` against
+  the real `ENEMY_DEFS` hit the same bare-`--script`-can't-see-autoloads wall as prior passes (any script
+  touching `arena_wave_director.gd`/`arena_enemy.gd` fails to even compile outside a full project boot) —
+  relied on the full-boot `--check-only --path .` pass plus manual verification of the icon-prefix logic
+  (identical pattern to Creep Edit's already-verified-working `_folders()` map filter) instead.
+
+## Changelog — 2026-08-13 (3rd pass) — Bug fix: "Save Chain" crashed (const ENEMY_DEFS is read-only since Godot 4.4); CHAIN section gets a live canvas preview
+
+User-reported bug: Creep Edit's CHAIN "Save Chain" button threw `Invalid assignment on read-only value (on
+base: 'Dictionary')`, and separately, raising "Segments" to 6 for `atlantic_centipede` ("cent") never showed
+more than 1 body sprite anywhere.
+
+- **Root cause of the crash**: `arena_wave_director.gd`'s `ENEMY_DEFS` was declared `const`. As of Godot 4.4,
+  a `const` Dictionary/Array literal — and everything nested inside it — is automatically frozen read-only.
+  `apply_chain_overrides()`'s `entry["centi_segments"] = ...` (mutating a per-id sub-dict pulled straight out
+  of that const) hit the freeze and threw. **This silently also broke the pre-existing Creep Info dev panel's
+  Save button** (`creep_info_panel.gd`'s `apply_overrides()`, same "mutate a nested dict pulled from ENEMY_DEFS
+  in place" pattern) whenever v1 (`arena_wave_director.gd`, not v2) was the active director — v2
+  (`arena_wave_director_v2.gd`) never hit this because its OWN `ENEMY_DEFS` is a plain instance `var` populated
+  via `v1_defs.duplicate(true)`, and `duplicate()` doesn't carry over the read-only flag. **Fix**: `const
+  ENEMY_DEFS` → `static var ENEMY_DEFS` (same file-scope "one shared dict, same `WaveDir.ENEMY_DEFS` access
+  syntax" semantics, just no longer frozen) — a one-line declaration change, every read-site untouched.
+- **Root cause of "Segments=6 still shows 1 body"**: not a data bug at all — the value WAS saving correctly
+  (once the crash above is fixed) and DOES apply at the next real spawn (verified: default `atlantic_centipede`
+  has `centi_segments: 3`, i.e. exactly 1 middle "body" slot, which is precisely what "still only 1 body"
+  describes). The actual gap: Creep Edit's canvas only ever renders the handful of individually PLACED sprites
+  (head/body/tail as separate `EditableObjectNode`s) — the real N-segment chain is assembled procedurally at
+  RUNTIME inside the arena (`arena_enemy.gd`'s `_update_centipede_chain()`/`_draw_centipede()`), which Creep
+  Edit's canvas has never simulated. Changing Segments/Spacing/Bend/Taper always had a real effect — just
+  invisible in the editor itself, only checkable via an actual spawn (Quick Spawn).
+- **Fix (on request): live CHAIN preview in the canvas** — new `_rebuild_chain_preview()`, called on every
+  Segments/Spacing/Bend/Taper edit (`_on_chain_field_changed()`) and whenever the active creep changes
+  (`_refresh_chain_controls()`). Draws a translucent (50% alpha) "ghost" stack of `TextureRect`s directly below
+  the placed head sprite — reuses the CURRENT (possibly still-unsaved) spinbox/slider values and the exact
+  same along-length/taper/spacing formulas as the real runtime chain (`_seg_along_len`/`_centi_seg_scale` in
+  `arena_enemy.gd`, duplicated here as local lambdas since there's no live enemy instance to call them on), so
+  it's an accurate preview, not a rough sketch. **Deliberately a static vertical stack, no bend simulation** —
+  bend only matters mid-turn, which doesn't exist in a stationary editor preview; Bend Lock still has zero
+  visible effect on this preview specifically (by design, not a gap — it only ever affects a live chain that's
+  actually turning). Ghost nodes are cleaned up on creep switch, section hide, and editor close (`_close()`,
+  same lifecycle as the existing vortex-preview nodes it's modeled on) — they live on `_objects_container`,
+  which persists past close, so leaving them unmanaged would leak stale ghosts into the next open.
+- Verified: `godot --headless --check-only`/`--import` clean. Direct-mutation runtime verification (bare
+  `--script` smoke tests) is blocked by a pre-existing tooling limitation — `--script` mode never registers
+  autoload singletons, so any script referencing `GameManager` (nearly all gameplay scripts) fails to compile
+  under it regardless of correctness — relied on the full project boot (`--check-only --path .`, which DOES
+  register autoloads) plus the well-documented, standard nature of the const→static-var fix instead.
+
+## Changelog — 2026-08-13 (2nd pass) — Atlantic's first enemy roster wired in: 12 sea creatures, chain runtime generalized beyond centipede
+
+User dropped 27 sprites into `assets/map/atlantic/enemies/` (7 simple + 5 multi-node "Head/Body1/Body2/Tail"
+sets, per the naming convention the same day's earlier Creep Edit auto-grouping pass added). Wired end-to-end
+(`ENEMY_DEFS`, `creep_layout.cfg`, Creep Edit's `CHAIN_PARTS`, Quick Spawn) — **not** into `atlantic.json`'s
+wave timeline, per explicit request ("chỉ wire dữ liệu, để bạn tự dàn wave"; still empty, unchanged).
+
+- **Chain runtime generalized off "electric centipede only"** (`arena_enemy.gd`) — `_load_centipede()` used
+  to hardcode exactly 3 `res://assets/map/electric/enemies/...` paths; now reads `"centi_head_icon"` /
+  `"centi_body_icons"` (**Array**, new) / `"centi_tail_icon"` from the def, defaulting to those same 3 paths
+  (`CENTI_HEAD_ICON_DEFAULT`/etc.) so the original `"centipede"` entry needed zero changes. `_centi_body_tex`
+  (single Texture2D) → `_centi_body_texs: Array[Texture2D]` + new `_centi_tex_for(k, n)` picks the right
+  texture per middle-segment index (body1 for k=1, body2 for k=2, …, clamping to the last one if a def
+  supplies fewer body textures than it has middle slots — the original centipede's 1-texture-for-8-slots
+  case). Per-joint follow SPACING (`_update_centipede_chain()`) is now derived live from whichever texture
+  that specific joint draws (`_seg_along_len(_centi_tex_for(k,n))`) instead of one precomputed scalar — needed
+  because hammerhead/killerwhale/shark_elite's body1 and body2 are genuinely different-sized sprites, unlike
+  the original centipede's one repeated body texture. `_centi_spacing` is now used ONLY for the head's own
+  neck-shift formula (still needs a single reference value); everything else reads per-joint.
+- **12 new `ENEMY_DEFS` entries** (`arena_wave_director.gd`), stats estimated by analogy to existing
+  similar-role creeps (no design doc for these yet — flagged, retune via Creep Info panel):
+  - Simple (`"behavior": "chase"`): `shark`, `killer_whale`, `whale`, `spermwhale`, `atlantic_squid`
+    (deliberately a NEW id — the existing tentacle `"squid"` on Electric was left untouched, per explicit
+    correction), `stingray`, `stingray_elite`.
+  - Chain (`"behavior": "centipede"`, `"lvl": true` matching the original): `atlantic_centipede` (files:
+    `cent head/body/tail.png`, 3 segments), `hammerhead` (`hammerhead head/body1/body2/tail.png` + its own
+    dedicated `hammerhead.png` icon, 4 segments), `killerwhale` (`killerwhale head/body1/body2/tail.png`, no
+    separate icon — reuses the head sprite like the original centipede does, 4 segments; distinct from the
+    SIMPLE `killer_whale` id above — the artist supplied both a plain "killer whale.png" AND a segmented
+    "killerwhale …" set as two different creatures), `shark_elite` (`shark elite head/body1/body2/tail.png`,
+    no separate icon, 4 segments; distinct from the simple `shark` id — NOT wired into the game's Elite/
+    Champion creep auto-promotion mechanic, just a literal stronger reskin), `spermwhale2` (`spermwhale2
+    head/body/tail.png` + its own `spermwhale2.png` icon, 3 segments; distinct from the simple `spermwhale`
+    id — same "two versions of one animal" pattern as killer whale).
+- **`creep_layout.cfg`**: 27 new `[creeps]` entries (one per sprite file), `"parent"` set to each chain set's
+  head for the body/tail parts (matching `CHAIN_PARTS` below), default `pos`/`z_index` matching every other
+  entry's convention, `size` width fixed at 60 (project convention) with height computed from each PNG's own
+  aspect ratio. **Gotcha hit while authoring this programmatically**: `ConfigFile` requires any key containing
+  a space to be `"quoted"` (`"killer whale"={`, `"cent head"={`, …) — an unquoted multi-word key silently
+  fails to parse as that key at all (first attempt wrote all 27 unquoted; a `ConfigFile` load+read-back smoke
+  test caught every space-containing key coming back empty before this was saved for real).
+- **`creep_edit_mode.gd`'s `CHAIN_PARTS`** extended with all 20 new chain part names → their `ENEMY_DEFS` id,
+  so the CHAIN section (segments/spacing/bend/taper) recognizes and edits these 5 new sets too, same as
+  centipede.
+- **`arena_debug_spawn.gd`'s `QUICK_SPAWN_ORDER`**: all 12 new ids added — with no wave timeline yet, Quick
+  Spawn is the only in-game way to summon them for now.
+- Verified: `godot --headless --check-only` (clean) + `--import` (all 27 new textures — none had `.import`
+  sidecars yet since the user added them outside the editor — reimported clean) + a standalone `ConfigFile`
+  load/read-back smoke test confirming every one of the 27 `creep_layout.cfg` keys resolves with the correct
+  `parent` chain and size.
+
+## Changelog — 2026-08-13 — electric→electric asset folder rename; Creep Edit map dropdown, taper slider, auto-grouping
+
+Follow-up to the 2026-08-12 entry below, same session's feature set extended per explicit request:
+
+- **`assets/map/electric/` renamed to `assets/map/electric/`** — "to match the code": `meta_manager.gd`'s
+  `MAP_DEFS`/`hub_screen.gd`'s `MAP_LIST` have always displayed the `"electric"` map_id as **"Electric"**
+  (`elecforest.json`'s own name is the same theme), so the on-disk asset folder being literally named
+  "electric" was the odd one out. Scope was explicitly limited to the **`assets/map/` asset tree only** — the
+  `map_id` string `"electric"` itself (meta_manager/arena.gd/hub_screen/dock_binder/…) and the **script**
+  folder `scripts/gameplay/electric/*.gd` are UNCHANGED, on request; only the asset directory moved. `git mv
+  assets/map/electric assets/map/electric` (whole tree in one shot, ~209 tracked files: enemies/, landmark/,
+  maptile/, SeaWaterMaterial/, watertile/) + repo-wide `res://assets/map/electric/` → `.../electric/` string
+  replace across every `.gd`/`.cfg`/`.import` that referenced it (~20 files, ~90 occurrences — `creep_layout.
+  cfg`, `arena_wave_director.gd`'s `ENEMY_DEFS`, `meta_manager.gd`'s `RESCUE_CHARACTER_DEFS`, every
+  `electric_*.gd`/`atlantic_*.gd` script that reuses Electric's temple/trees/ground assets, `.import` sidecars'
+  `source_file=`). Verified clean with a repo-wide `git grep -F "assets/map/electric"` sweep (zero hits) +
+  `godot --headless --check-only`/`--import` (no errors).
+- **Creep Edit "Map:" dropdown** (`creep_edit_mode.gd`) — new `MAP_REGISTRY` (id/display-name/folder, mirrors
+  `meta_manager.gd`'s own map list) drives a dropdown above the ENEMIES grid: **Space / Electric / Volcanic /
+  Atlantic**. Selecting one now shows **only that map's own enemy folder** — supersedes the 2026-08-12 fix's
+  "merge every map's folder into one palette" behavior (`_folders()` now returns exactly ONE folder, picked
+  from `MAP_REGISTRY` by `_selected_map_id`, not a merged array), per explicit correction: "mỗi map sẽ hiện
+  đúng enemy set của map đó". `weapon_edit_mode.gd` (the other `_folders()`/`_folder()` override, for
+  `assets/weaponry/`) gets a new `_show_map_selector() -> false` override so its palette has no dropdown at
+  all — the per-map split is a creep-only concept.
+- **CHAIN section: Taper slider** — new 4th control (an `HSlider`, not a SpinBox like the other 3 — explicitly
+  requested as a literal drag slider, mirrors the existing Zoom slider's label+slider+"NN%" row layout), 0–90%.
+  Progressively shrinks each body node relative to the one before it toward the tail (`arena_enemy.gd`'s new
+  `_centi_seg_scale(k) := pow(1 - taper/100, k)` — k=0 is the head, always scale 1.0 by construction; body1
+  is the first node that CAN shrink, matching the request's own example "body 1 gần head, body 2 sẽ nhỏ hơn
+  body 1"). Applied to both the DRAW size (`_draw_centi_seg()`'s `dw`/`dh` × `scale_mul`) and the FOLLOW
+  SPACING per joint (`_update_centipede_chain()`'s `sp` is now computed per-`k`, `_centi_spacing ×
+  _centi_seg_scale(k)`, cumulative for the initial-fill branch too) — without the spacing scaling down in
+  lockstep, a tapered tail would visually detach with growing gaps between its now-smaller segments.
+  `taper_pct = 0` (the default, and every existing def's implicit value) reproduces the exact pre-taper
+  behavior bit-for-bit (`pow(x, k)` with the guard `if _centi_taper_pct <= 0.0: return 1.0`). New def field
+  `"centi_taper_pct"`, same sparse-override/live-apply plumbing as the other 3 CHAIN fields
+  (`creep_chain_overrides.cfg` / `apply_chain_overrides()`).
+- **Naming-convention auto-grouping** — sprite files named `<Prefix>Head` / `<Prefix>Body<N>` / `<Prefix>Tail`
+  (case-insensitive suffix — e.g. `ViperHead.png`/`Viperbody1.png`/`VIPERBODY2.png`/`vipertail.png`) are now
+  automatically grouped into ONE enemy, ordered head → body1 → body2 → … → tail, with **no manual parenting
+  step** (there wasn't actually a UI for that before this — parenting could previously only ever come from a
+  value already sitting in `creep_layout.cfg`'s `"parent"` field, hand-edited or never set; centipede's own 3
+  parts, discovered while building this, had `"parent": ""` for all three — i.e. were NEVER actually grouped
+  in the editor UI up to this point, despite `CHAIN_PARTS` already existing). New `_parse_chain_name()`
+  (`RegEx` `(?i)^(.+?)(head|tail|body(\d*))$`) + `_auto_group_chain_names()` (called after every
+  `_scan_creeps()` — initial open AND every "Map:" dropdown change) populate `_creep_parents` (skips any name
+  that already has an explicit parent from a previous save — auto-detection only fills in gaps, never
+  overrides saved data) and a new `_chain_group_order` dict used by `_refresh_layer_list()` to order the
+  LAYERS panel's children correctly (previously plain alphabetical via `_all_creep_names.sort()`, which would
+  NOT put "Body2" after "Body1" the way a human reads it once names hit double digits or mixed casing).
+  `_build_creep_buttons()` also now skips any parented name — a detected (or pre-existing, e.g. squid's
+  manually-parented squid-1..8 tentacles) group shows as **1 palette cell** (the root), not N — its
+  head/body/tail parts are reached via the LAYERS panel once the root is active, matching "sắp xếp chung vào
+  1 enemy" literally. **Scope note, disclosed**: this is an EDITOR-ONLY convenience (palette + LAYERS
+  grouping/ordering) — it does not give a newly-detected group any actual in-game chain BEHAVIOR. Only
+  `"centipede"` (`CHAIN_PARTS`) has that runtime wiring (the segmented-body draw/collision/movement code in
+  `arena_enemy.gd`); a brand-new `<Prefix>Head/Body/Tail` set would organize correctly in Creep Edit but
+  still needs its own `behavior` case wired up to actually crawl/chain in the arena.
+
+## Changelog — 2026-08-12 — Per-map enemy/landmark asset split; Creep Edit CHAIN section (centipede segments/spacing/bend-lock)
+
+- **Per-map enemy sprite reorg** — `assets/enemiesHD/` was one shared pool for every map; enemies exclusive to
+  one map's own wave timeline now live under `assets/map/<map>/enemies/`, physically separated per map (per
+  explicit request: "map mặc định dùng được hết enemies của các map khác, các map khác dùng set enemies độc
+  lập" — the default/space map still reads whatever path a def's icon points at, so it transparently keeps
+  using every other map's roster; electric/volcanic/atlantic each own only what THEIR OWN wave JSON actually
+  spawns). Cross-referenced every enemy `"type"` in `levels/arena/elecforest.json` (electric), `vocalnic.json`
+  (volcanic), `atlantic.json` (empty — no roster authored yet, folders created but empty) and expanded every
+  `"fleet:X"` entry against `fleet_layout.cfg` to resolve real enemy ids before deciding ownership:
+  - **Electric** (`assets/map/electric/enemies/`, 27 files): animalhornet, beamer, bee/bee_dive (animalbee.png),
+    bug, centipede (head/body/tail), diver (kingfisher.png), dragonfly, fly (flie1/flie2 flap frames),
+    missile, spider, squid (Squid-body + squid-1/2/3/5/7/8), swarm, and the whole Kingdom1/Kingdom2-fleet
+    sentinel family (sentinel, sentinel 1/2/3/4, sentinelleader).
+  - **Volcanic** (`assets/map/volcanic/enemies/`, 4 files): magma1, magma3, magma4, magma6 — note magma1 is
+    ALSO pulled into one electric fleet slot (`A.Hornet.Row.10`) as a mixed-formation guest; kept volcanic-owned
+    (its thematic home) rather than duplicated — electric's fleet just references the volcanic path directly,
+    which works fine, it's only "independent ownership" that's map-scoped, not "no cross-map references ever".
+  - **Bosses untouched, on request**: `assets/bosses/<name>/` (elephant/chromeleon/metalfly/nautilus/scorpion)
+    was explicitly EXCLUDED from this move — too many per-boss hardcoded `.sheet.json`/shader paths for the
+    risk to be worth it here; only regular creep sprites in enemiesHD moved.
+  - Every reference updated in lockstep: `ENEMY_DEFS` icon paths (`arena_wave_director.gd`), `boss_scorpion.gd`'s
+    own separate minion table (fly/bug/bee — a v1/legacy roster, unrelated to the map split but pointing at the
+    same physical files), `creep_layout.cfg`'s per-part `"path"` fields (31 entries — this file is the
+    authoritative source Creep Edit/`_load_icon()` sub-parts actually load from, independent of ENEMY_DEFS'
+    own icon field), `arena_enemy.gd`'s hardcoded centipede texture `load()` calls (bypass `_resolve_sprite()`
+    entirely, so these needed a direct edit), `arena_enemy_manager.gd`'s debug `spawn_bee()` fallback def, and
+    `game_manager.gd`'s custom-cursor `CURSOR_OPTIONS` (sentinel/magma3/squid_body entries reused these sprites
+    as cursor icons). Verified with a repo-wide `git grep -F` sweep for every moved filename's old path (clean)
+    plus `godot --headless --check-only` and `--headless --import` (all 31 textures reimported clean, `.import`
+    sidecars' `source_file=` fields updated to match).
+  - **Landmark assets** also split into a new `assets/map/<map>/landmark/` subfolder (previously loose files
+    directly in `assets/map/<map>/`): electric's `temple.*`/`mechanic.*`/`constructor.*` (+ unused `_0/_1/_2.jpg`
+    thumbnail variants — confirmed unreferenced anywhere, moved along for tidiness only), volcanic's
+    `temple.*`/`temple_mark_ref.png`/`engineer.*`/`psyker.*`, atlantic's `temple_mark_ref.png` (atlantic has no
+    rescue-character ruin — reuses ELECTRIC's `temple.glb`/`.png` directly for its temple boss, per the
+    2026-08-06 Atlantic map changelog — nothing to move for that half). 43 files updated across
+    `meta_manager.gd` (`RESCUE_CHARACTER_DEFS`), each map's own `*_temple_layer.gd`/`*_landmark_mark.gd`, and 5
+    one-off `tools/bake_*`/`tools/inspect_*`/`tools/normalize_*` scripts. `res://assets/ruin/Scholar.glb/.png`
+    (the rescue-fallback character) was deliberately left alone — it's a shared/generic fallback, not owned by
+    any one map.
+  - **Creep Edit's asset palette regressed by this move, then fixed**: `creep_edit_mode.gd`'s `_scan_creeps()`
+    only ever scanned the single `ENEMIES_FOLDER` const — any sprite moved out of it would silently vanish
+    from the palette. New overridable `_folders() -> Array[String]` hook (default: `[_folder()]` +
+    `MAP_ENEMY_FOLDERS`) — `_scan_creeps()`/`_creep_icon_tex()`/`_load_or_create_creep()` all now try every
+    folder in priority order, deduped by name. `weapon_edit_mode.gd` (the other subclass of creep_edit_mode.gd,
+    reusing the same editor for `assets/weaponry/`) overrides `_folders()` back down to `[_folder()]` — the
+    per-map split is a creep-only concept, weapons still have one shared folder.
+- **Creep Edit "CHAIN" section** (new, `creep_edit_mode.gd`) — requested control for multi-node/segmented
+  enemies (centipede today; architecture is generic for any future chain-type enemy, not centipede-specific).
+  Centipede's body was previously 3 hardcoded consts in `arena_enemy.gd`: `CENTI_SEGMENTS` (10, fixed node
+  count), `CENTI_MAX_BEND` (PI×0.5 = 90°, the joint rotation lock the request called out specifically), and an
+  implicit 1:1 sprite-derived spacing (no "offset between nodes" knob at all). All 3 are now per-def
+  overridable fields read in `configure()` (`_centi_segments`, `_centi_max_bend`, `_centi_spacing_mult` —
+  defaults unchanged: `CENTI_SEGMENTS_DEFAULT`/`CENTI_MAX_BEND_DEFAULT`/`1.0`), consumed by
+  `_load_centipede()`/`_update_centipede_chain()` exactly where the old consts were.
+  - **UI**: opening Creep Edit and selecting any of centipedehead/centipedebody/centipedetail (`CHAIN_PARTS`
+    dict, mirrors `_load_centipede()`'s 3 hardcoded filenames) now shows a "CHAIN (multi-node)" section below
+    TRANSFORM — **Segments** (3–40), **Spacing ×** (0.3–3.0, the "offset between nodes" — >1 opens a gap, <1
+    overlaps tighter), **Bend lock (deg)** (10–180, the rotation-lock request — was fixed at 90°). Save Chain /
+    Reset buttons, same shape as the existing HP/XP/Move/Shoot Creep Info workflow.
+  - **Persistence**: sparse-override cfg `res://creep_chain_overrides.cfg`, new `id → {centi_segments,
+    centi_bend_deg, centi_spacing_mult}` dict, applied to `ENEMY_DEFS` via static `apply_chain_overrides()`
+    (mirrors `creep_info_panel.gd`'s `apply_overrides()` pattern exactly) called from both wave directors'
+    `_ready()`. **Deliberately a SEPARATE file from `creep_info_overrides.cfg`**, not reusing Creep Info's
+    existing one — Creep Info's own Save rebuilds its whole "overrides" dict from only ITS OWN visible
+    rows/fields on every save, which would silently drop these 3 new keys the next time someone saves an
+    unrelated HP/XP edit in that other panel if they shared a file.
+  - Takes effect on the next spawn of that type (both the live running director's `ENEMY_DEFS` and the
+    class-level default are updated immediately on Save; already-alive enemies keep whatever chain they were
+    built with — `_load_centipede()` only runs once per instance, not re-read per frame).
+  - **"vũ khí Viper" scope note**: the request cited "vũ khí viper" (the Viper player weapon) alongside
+    centipede as an example of "nhiều node" — confirmed with the user this was illustrative only (centipede's
+    chain logic literally is a Viper-port, per the existing `arena_enemy.gd` header comment), not a request to
+    add editing for the Viper weapon itself. Viper (`arena_weapons.gd`) is untouched.
+
 ## Changelog — 2026-08-05 — Creep XP drop ×10 (real pacing buff, not the 2026-07-28 units-only rescale)
 
 - On request: every creep's `"xp"` value in `ENEMY_DEFS` (`arena_wave_director.gd`, `boss_scorpion.gd`'s own
@@ -63,7 +1311,7 @@
 
 - **Bug fix**: `arena_enemy.gd`'s `LIFETIME_MAX` (120s) safety net — silently `queue_free()`s any enemy alive
   too long, bypassing `_die()` entirely (no loot, no XP, no death FX) — only excluded `behavior=="boss_stub"`,
-  not `no_collide` landmarks. The rubicon temple (spawns 10,000-15,000px away, 2000 HP) could hit 120s from
+  not `no_collide` landmarks. The electric temple (spawns 10,000-15,000px away, 2000 HP) could hit 120s from
   travel+fight time alone and vanish mid-fight with no `orb_of_light` drop. Fixed: also exempt `_no_collide`
   (`arena_enemy.gd:1856-1861`) — covers the temple and dead-ship wrecks (`arena_ruin_layer.gd`), the only
   other `no_collide` landmark type; `no_collide` "bomb"/"thrown_bomb" projectiles are unaffected in practice

@@ -17,6 +17,13 @@ const BoardEditScript := preload("res://scripts/ui/boss_edit/hud_edit_mode.gd")
 # Settings' saved [game] language — used to pick a `<base>_<lang_id>` field over the English default
 # wherever card text has a translated variant (see _localized).
 const SettingsScript := preload("res://scripts/ui/settings/settings_panel.gd")
+# 2026-08-19, on request: a batch of test weapon glbs was dropped alongside the existing PNGs under
+# assets/inventory/ — wherever a weapon icon shows, swap in a live-rendered Item3DIcon instead of a flat
+# TextureRect when one exists (see _make_weapon_icon()/_weapon_icon_glb() below), falling back to the PNG
+# otherwise. Only the big WeaponDisplay preview (_board_render_selected) is interactive (grab-drag to
+# orbit) — the small pick-1-of-3 / Upgrade1-3 cards sit under their own click-to-select Button, so they get
+# passive auto-spin only (see item_3d_icon.gd's own doc comment on the interactive flag).
+const Item3DIconScript := preload("res://scripts/ui/hud/item_3d_icon.gd")
 
 const CHOICES := 3
 # Chance a given card slot rolls from the owned-upgrade pool (vs the full new+owned pool). Higher = the player
@@ -140,9 +147,15 @@ var _perk_icon_cache: Dictionary = {} # "aux_id/perk_id" → Texture2D (or null 
 const WEAPON_PERK_ICON_DIR := "res://assets/hud/weapon perks/"
 const WEAPON_PERK_FOLDER := {
 	"gatling_gun": "Gatling", "death_beam": "Death Beam", "arc": "Arc Lightning", "gauss": "Gauss Pulser",
-	"defensive_orbitals": "Orbital Defender", "dragons_breath": "red X", "chemtrail": "Chemtrail", "z_sword": "Z-Sword", "ultrasonicator": "ultrasonicator",
-	"shooter": "shooter", "viper": "viper", "ionizing_field": "blackhole", "player_2": "player 2",
-	"aliwa": "aliwa", "mortar": "mortar",
+	# "ultrasonicator" and "aliwa" below had the same drift as "viper": the folders are "sonic" and
+	# "boomerang". Every entry in this map is now checked against the folders that actually exist on disk.
+	"defensive_orbitals": "Orbital Defender", "dragons_breath": "red X", "chemtrail": "Chemtrail", "z_sword": "Z-Sword", "ultrasonicator": "sonic",
+	# 2026-08-23: the folder on disk is "snake" (the weapon was renamed to VIPER, the art folder was not).
+	# With the wrong name every VIPER perk icon missed, which used to just fall back to the parent weapon PNG
+	# and, once weapon icons became live 3D renders, showed a spinning VIPER head on every perk card instead.
+	# weapon_info_panel.gd has always had this mapping right — the two maps had simply drifted apart.
+	"shooter": "shooter", "viper": "snake", "ionizing_field": "blackhole", "player_2": "player 2",
+	"aliwa": "boomerang", "mortar": "mortar",
 	# NOTE: the "swarm" folder's files (aoe/damage/duration/metal_eater/armor_mastery/stolen_fortitude) are
 	# actually PARA_POOL's ids (Parasite Cloud / Venomancer) — mismatched folder name, kept as authored. The
 	# "swarm" KIND (Offensive Orbitals bats) has no skill-point pool in code at all, so it needs no folder.
@@ -328,6 +341,7 @@ func _board_make_choice(frame: Control, spec: Dictionary, idx: int) -> Control:
 	var box := (frame.size - Vector2(WEAPON_SPRITE_MARGIN, WEAPON_SPRITE_MARGIN)) * CHOICE_SPRITE_SCALE
 	var def_id := String(spec.get("def", ""))
 	var aux_id := String(spec.get("aux_id", ""))
+	var icon_path := String(spec.get("icon", ""))
 	var tex: Texture2D = null
 	# get_icon() always returns SOMETHING (a placeholder swatch for an unregistered def_id — see
 	# _option_icon_tex()'s comment), so only trust it when def_id is a real ITEM_DEFS key.
@@ -337,21 +351,26 @@ func _board_make_choice(frame: Control, spec: Dictionary, idx: int) -> Control:
 		# Weapons with no inventory def_id (e.g. Swarm, Striker, Shooter, Vampire Host) carry a direct art
 		# path in WEAPON_INFO["icon"] (threaded into spec's "icon" field by _render_left(), same fallback
 		# _sprite_or_swatch()/_option_icon_tex() use) — try that before falling to aux art.
-		var icon_path := String(spec.get("icon", ""))
 		if icon_path != "":
 			tex = load(icon_path) as Texture2D
 		if tex == null:
 			tex = _aux_icon_tex(aux_id)
+	if aux_id != "" and tex != null:
+		box = _contain_box(tex.get_size(), box.x, box.y)   # aux: CONTAIN both axes (weapon keeps its own margin box)
 	var content: Control
-	if tex != null:
-		if aux_id != "":
-			box = _contain_box(tex.get_size(), box.x, box.y)   # aux: CONTAIN both axes (weapon keeps its own margin box)
+	if aux_id == "":
+		# aux items have no glb art — only try the 3D swap for the weapon path.
+		var fit := _make_weapon_icon(def_id, icon_path, tex, box.x, box.y)
+		content = fit["control"]
+		if content != null:
+			box = fit["box"]
+	if content == null and tex != null:
 		var tr := TextureRect.new()
 		tr.texture = tex
 		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		content = tr
-	else:
+	if content == null:
 		var sw := ColorRect.new()
 		sw.color = spec.get("color", Color.GRAY)
 		content = sw
@@ -430,7 +449,19 @@ func _board_render_selected() -> void:
 		var icon_def_id := String(icon_c.get("def_id", ""))
 		var box := fc.size - Vector2(WEAPON_SPRITE_MARGIN, WEAPON_SPRITE_MARGIN)
 		var tex := _option_icon_tex(icon_c)
-		if tex != null:
+		# Same "own perk icon has no glb" guard as _board_make_option_icon — see that call site's comment.
+		var is_own_perk_icon := String(icon_c.get("cat", "")) == "pool" and _weapon_perk_icon_tex(String(icon_c.get("weapon", "")), String(icon_c.get("key", ""))) != null
+		var fit3d := {"control": null, "box": box}
+		if not is_own_perk_icon:
+			fit3d = _make_weapon_icon(icon_def_id, String(icon_c.get("icon", "")), tex, box.x, box.y, true)   # interactive: the one grab-to-orbit spot
+		if fit3d["control"] != null:
+			var icon3d: Control = fit3d["control"]
+			box = fit3d["box"]
+			icon3d.position = fc.position + (fc.size - box) * 0.5
+			icon3d.z_index = (frame as CanvasItem).z_index + 5
+			_board_add(icon3d)
+			_rt_display.append(icon3d)
+		elif tex != null:
 			if icon_def_id == "":
 				box = _contain_box(tex.get_size(), box.x, box.y)   # aux: CONTAIN both axes (weapon keeps its own margin box)
 			var tr := TextureRect.new()
@@ -586,7 +617,17 @@ func _board_make_option_icon(frame: Control, c: Dictionary) -> Control:
 	if def_id != "" or String(c.get("icon", "")) != "":   # weapon-with-art path (def_id OR a direct icon override)
 		box = frame.size - Vector2(WEAPON_SPRITE_MARGIN, WEAPON_SPRITE_MARGIN)
 		var wtex := _option_icon_tex(c)   # weapon-perk icon for "pool" cards, else the weapon's own icon
-		if wtex != null:
+		# A "pool" card showing its OWN dedicated perk icon (not the parent weapon's) has no glb of its own
+		# — only try the 3D swap when the icon actually IS the weapon's own art (mirrors _option_icon_tex's
+		# own pool-perk-first-then-weapon-icon priority, see that function's doc comment).
+		var is_own_perk_icon := String(c.get("cat", "")) == "pool" and _weapon_perk_icon_tex(String(c.get("weapon", "")), String(c.get("key", ""))) != null
+		var fit := {"control": null, "box": box}
+		if not is_own_perk_icon:
+			fit = _make_weapon_icon(def_id, String(c.get("icon", "")), wtex, box.x, box.y)
+		if fit["control"] != null:
+			content = fit["control"]
+			box = fit["box"]
+		elif wtex != null:
 			var wtr := TextureRect.new()
 			wtr.texture = wtex
 			wtr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -1007,7 +1048,7 @@ func grant_reward() -> void:
 		_begin()
 
 ## Grant ONE pick-1-of-3 of BRAND-NEW items only, guaranteed to mix weapons and passives (never all
-## weapons, never all passives). Dropped by a temple boss's orb of light (arena_loot.gd) — rubicon_temple_
+## weapons, never all passives). Dropped by a temple boss's orb of light (arena_loot.gd) — electric_temple_
 ## layer.gd / volcanic_temple_layer.gd.
 func grant_new_item_choice() -> void:
 	_pending += 1
@@ -1189,6 +1230,39 @@ func _contain_box(native: Vector2, max_w: float, max_h: float) -> Vector2:
 	var s := minf(max_w / native.x, max_h / native.y)
 	return native * s
 
+## Path to a live 3D model backing this card's icon, or "" if it only has flat PNG art — mirrors
+## _option_icon_tex()'s def_id-then-icon_path priority (see that function's own doc comment), but only the
+## two ART paths that can plausibly own a glb (an ITEM_DEFS def_id, or a direct WEAPON_INFO/FUSION_DEFS
+## "icon" override); aux/perk art has no glb and is deliberately not checked here.
+func _weapon_icon_glb(def_id: String, icon_path: String) -> String:
+	if def_id != "" and InventoryManager.ITEM_DEFS.has(def_id):
+		var g := InventoryManager.get_glb(def_id)
+		if g != "":
+			return g
+	if icon_path != "" and icon_path.get_extension().to_lower() == "png":
+		var candidate := icon_path.get_basename() + ".glb"
+		if ResourceLoader.exists(candidate):
+			return candidate
+	return ""
+
+## Build a CONTAIN-fit weapon/item icon control within (max_w × max_h) — a live-rendered, rotating
+## Item3DIcon when `def_id`/`icon_path` has a sibling .glb, else the flat TextureRect showing `tex` (same
+## fallback `_fit_texture_rect` already provides). `interactive` should only ever be true for the one
+## stand-alone WeaponDisplay preview — see Item3DIconScript's own doc comment for why the small clickable
+## cards must stay passive. Returns {control, box}, box = the actual on-screen size, same contract as
+## `_fit_texture_rect()` (control may be null if there's neither a glb nor a texture — caller falls back to
+## a colour swatch, as before).
+func _make_weapon_icon(def_id: String, icon_path: String, tex: Texture2D, max_w: float, max_h: float, interactive: bool = false) -> Dictionary:
+	var glb_path := _weapon_icon_glb(def_id, icon_path)
+	if glb_path != "":
+		var icon := Item3DIconScript.new()
+		if bool(icon.call("setup", glb_path, max_w, max_h, interactive)):
+			return {"control": icon, "box": icon.size}
+		icon.queue_free()
+	if tex == null:
+		return {"control": null, "box": Vector2.ZERO}
+	return _fit_texture_rect(tex, max_w, max_h)
+
 ## A GPU-stretched TextureRect showing `tex` CONTAIN-fit within (max_w × max_h) — identical setup to the
 ## weapon-icon TextureRects elsewhere in this file. Returns {control, box} (box = the actual on-screen size,
 ## for the caller's centring math).
@@ -1203,8 +1277,13 @@ func _fit_texture_rect(tex: Texture2D, max_w: float, max_h: float) -> Dictionary
 	return {"control": tr, "box": box}
 
 ## A centered sprite for a weapon/fusion def_id or an aux id, or a colour swatch fallback (missing art).
-## The TextureRect keeps the texture's aspect (never stretched).
-func _sprite_or_swatch(def_id: String, color: Color, aux_id: String = "", icon_path: String = "") -> Control:
+## The TextureRect keeps the texture's aspect (never stretched). Caller sizes the result via anchors (not a
+## fixed box) — this is the no-authored-board fallback layout's counterpart to _board_make_choice/
+## _board_render_selected, so `interactive` follows the same rule: true ONLY for the one big "look closely"
+## display (_set_selected_display, both its callers), false for every small chip. The (max_w, max_h) passed
+## only seeds Item3DIcon's initial size hint before the caller's anchors take over — the live 3D render
+## itself doesn't depend on it (framing is purely the model's own AABB — see item_3d_icon.gd).
+func _sprite_or_swatch(def_id: String, color: Color, aux_id: String = "", icon_path: String = "", interactive: bool = false, max_w: float = 128.0, max_h: float = 128.0) -> Control:
 	# See _option_icon_tex()'s comment: get_icon() always returns SOMETHING (a placeholder swatch for an
 	# unregistered def_id), so it must only be trusted when def_id is a real ITEM_DEFS key — otherwise a
 	# valid icon_path override below would never get a chance to run.
@@ -1213,6 +1292,10 @@ func _sprite_or_swatch(def_id: String, color: Color, aux_id: String = "", icon_p
 		tex = load(icon_path) as Texture2D
 	if tex == null:
 		tex = _aux_icon_tex(aux_id)
+	if aux_id == "":   # aux items have no glb art — only try the 3D swap for the weapon path
+		var fit := _make_weapon_icon(def_id, icon_path, tex, max_w, max_h, interactive)
+		if fit["control"] != null:
+			return fit["control"]
 	if tex != null:
 		var tr := TextureRect.new()
 		tr.texture = tex
@@ -1319,7 +1402,7 @@ func _select_item(idx: int) -> void:
 func _set_selected_display(def_id: String, item_name: String, color: Color, aux_id: String = "", icon_path: String = "") -> void:
 	for ch in _selected_box.get_children():
 		ch.free()
-	var spr := _sprite_or_swatch(def_id, color, aux_id, icon_path)
+	var spr := _sprite_or_swatch(def_id, color, aux_id, icon_path, true, _selected_box.size.x, _selected_box.size.y)   # the one big grab-to-orbit preview
 	spr.anchor_left = 0.2; spr.anchor_right = 0.8
 	spr.anchor_top = 0.06; spr.anchor_bottom = 0.78
 	_selected_box.add_child(spr)

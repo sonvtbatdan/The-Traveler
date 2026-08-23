@@ -3,7 +3,7 @@ class_name AtlanticLandmarkMark
 ## Dev-mode-only Atlantic LANDMARK plume marking tool — group "atlantic_landmark_mark", toggled from
 ## arena_hud_buttons.gd's LANDMARK MARK button (Atlantic map only). Port of
 ## scripts/ui/hud/volcanic_landmark_mark.gd (see that file's header for the full rationale). Shows the true
-## top-down reference render of the REUSED Rubicon/Electric temple.glb (tools/bake_atlantic_landmark.gd's
+## top-down reference render of the REUSED Electric/Electric temple.glb (tools/bake_atlantic_landmark.gd's
 ## output, assets/map/atlantic/temple_mark_ref.png — see atlantic_temple_layer.gd's header for why Atlantic
 ## reuses that model directly instead of shipping its own) so the user can click points ON THE MODEL ITSELF —
 ## local fx/fz coordinates (-0.5..0.5 each axis), NOT a world position, since atlantic_temple_layer.gd
@@ -22,7 +22,7 @@ class_name AtlanticLandmarkMark
 
 const AtlanticTerrainSettings := preload("res://scripts/gameplay/atlantic/atlantic_terrain_settings.gd")
 
-const REF_IMAGE_PATH := "res://assets/map/atlantic/temple_mark_ref.png"
+const REF_IMAGE_PATH := "res://assets/map/atlantic/landmark/temple_mark_ref.png"
 const PANEL_W := 900.0
 const IMAGE_SIZE := 860.0
 const MARK_DOT_SIZE := 12.0

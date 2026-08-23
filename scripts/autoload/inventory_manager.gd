@@ -537,6 +537,10 @@ const ITEM_DEFS: Dictionary = {
 	"yari_jaeger": {
 		"name": "Yari Jeager",
 		"icon": "res://assets/inventory/Yari-Jeager-idle.png",
+		# The level-up board renders this instead of the flat icon (2026-08-23, on request). It is the same
+		# merged model the arena draws, and Item3DIcon never touches its AnimationPlayer — so it shows the
+		# rest pose, i.e. exactly `stand`.
+		"glb": "res://assets/weaponry/Jeager/Jeager.glb",
 		"size": Vector2i(2, 2),
 		"tags": ["weapon"],
 		"fire_mode": "familiar",
@@ -670,6 +674,7 @@ var _next_uid: int = 1
 # existing save exactly once, and trashed items aren't restored on the next load.
 var _granted: Array = []
 var _icon_cache: Dictionary = {}
+var _glb_cache: Dictionary = {}   # def_id -> res:// glb path, or "" if none — see get_glb()
 
 func _ready() -> void:
 	load_game()
@@ -939,6 +944,31 @@ func get_icon(def_id: String) -> Texture2D:
 		tex = _make_placeholder(d)
 	_icon_cache[def_id] = tex
 	return tex
+
+## Path to a live 3D model for `def_id`'s art, or "" if it only has flat PNG art. Derived from ITEM_DEFS'
+## "icon" path by swapping the extension (e.g. "assets/inventory/Annihilator.png" → "…Annihilator.glb") —
+## 2026-08-19, on request: a batch of test weapon glbs was dropped in alongside their existing PNGs under
+## the same basename, no separate data field needed. Callers (arena_levelup_ui.gd) use this to swap a
+## TextureRect for a live-rendered Item3DIcon when one exists, falling back to get_icon()'s PNG otherwise.
+func get_glb(def_id: String) -> String:
+	if _glb_cache.has(def_id):
+		return String(_glb_cache[def_id])
+	var d: Dictionary = ITEM_DEFS.get(def_id, {})
+	var glb_path := ""
+	# An explicit "glb" on the def wins over the sibling-of-the-icon guess below (2026-08-23). The guess only
+	# works when the model happens to sit next to the PNG under the same basename; Yari Jeager's lives in
+	# assets/weaponry/Jeager/ and is shared with the arena, so it has to be named outright.
+	var explicit := String(d.get("glb", ""))
+	if explicit != "" and ResourceLoader.exists(explicit):
+		_glb_cache[def_id] = explicit
+		return explicit
+	var icon_path := String(d.get("icon", ""))
+	if icon_path != "" and icon_path.get_extension().to_lower() == "png":
+		var candidate := icon_path.get_basename() + ".glb"
+		if ResourceLoader.exists(candidate):
+			glb_path = candidate
+	_glb_cache[def_id] = glb_path
+	return glb_path
 
 func _make_placeholder(d: Dictionary) -> Texture2D:
 	# Sized to the item's grid footprint so multi-cell items (3×2, 2×2, …) fill

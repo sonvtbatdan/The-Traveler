@@ -1,9 +1,9 @@
 extends Node2D
 class_name VolcanicSparks
-## Small glowing ember particles rising through the Volcanic air — verbatim port of rubicon/rubicon_sparks.gd
+## Small glowing ember particles rising through the Volcanic air — verbatim port of electric/electric_sparks.gd
 ## (see that file's header for the full rationale — single world-space CPUParticles2D, independently tunable
 ## via the Light Edit panel). Only the default tint/direction (VolcanicTerrainSettings' DEFAULT_SPARK_* —
-## warm ember orange/red, rising) differ from Rubicon's dust-mote defaults.
+## warm ember orange/red, rising) differ from Electric's dust-mote defaults.
 
 const VolcanicTerrainSettings := preload("res://scripts/gameplay/volcanic/volcanic_terrain_settings.gd")
 const MARGIN := 200.0
@@ -48,7 +48,7 @@ func set_world_offset(world_pos: Vector2) -> void:
 	global_position = world_pos
 
 ## Public: called by the Light Edit panel (live) and by this node's own _ready() (persisted settings) — see
-## rubicon_sparks.gd's apply_spark_settings for full parameter semantics.
+## electric_sparks.gd's apply_spark_settings for full parameter semantics.
 func apply_spark_settings(amount: float, color: Color, speed: float, size_px: float, direction_deg: float, brightness: float, opacity: float) -> void:
 	var n := maxi(0, int(round(amount)))
 	_particles.emitting = n > 0

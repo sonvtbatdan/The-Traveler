@@ -2,9 +2,9 @@ shader_type canvas_item;
 
 // Dark-basalt / ash blotchy ground for the Volcanic map — real top-down cracked-lava-rock PHOTOS
 // (assets/map/volcanic/maptile/<set>/), tinted per-zone and tiled at world-scale. Mirrors
-// rubicon_ground.gdshader's overall technique (baked seamless NoiseTexture2D level-sets, sampled + tiled via
+// electric_ground.gdshader's overall technique (baked seamless NoiseTexture2D level-sets, sampled + tiled via
 // repeat wrap) with one deliberate difference: the lava contour is built from TWO fields instead of one —
-//   1. tex_river: smooth SIMPLEX noise (same technique as Rubicon's river) — an organic, naturally meandering
+//   1. tex_river: smooth SIMPLEX noise (same technique as Electric's river) — an organic, naturally meandering
 //      macro flow path, not a mathematical shape.
 //   2. tex_river_detail: CELLULAR/Manhattan noise, much higher frequency — added to the macro distance below
 //      (domain-warping the threshold, not the shape) to roughen the BOUNDARY into jagged cracked-rock nicks
@@ -14,7 +14,7 @@ shader_type canvas_item;
 // flow (user feedback: "như những đường thẳng gấp khúc"). See VolcanicNoise's header for the full rationale;
 // RIVER_DETAIL_FREQ_MULT/RIVER_DETAIL_STRENGTH there must match river_detail_uv_scale/river_detail_strength
 // here so CPU river-avoidance and GPU paint agree on roughly where the lava is.
-// No landmark system yet (see rubicon_ground.gdshader's landmark_* block for the pattern to port once a
+// No landmark system yet (see electric_ground.gdshader's landmark_* block for the pattern to port once a
 // landmark asset exists) — this shader is otherwise a straight port.
 
 uniform sampler2D tex_zone : repeat_enable, filter_linear;     // dark-basalt-vs-ash split (low frequency, big blotches)
@@ -28,7 +28,7 @@ uniform sampler2D tex_ground_a_normal : repeat_enable, filter_linear_mipmap;   /
 uniform sampler2D tex_ground_b_normal : repeat_enable, filter_linear_mipmap;   // per ground_a/b/c (tools/
 uniform sampler2D tex_ground_c_normal : repeat_enable, filter_linear_mipmap;   // generate_canopy_normal.py)
 uniform sampler2D tex_water_wave : repeat_enable, filter_linear_mipmap;   // genuinely seamless wave-crest photo
-                                                                            // (reused from Rubicon, recolored
+                                                                            // (reused from Electric, recolored
                                                                             // below into a lava flow shimmer)
 
 uniform vec2 world_offset = vec2(0.0, 0.0);
@@ -43,7 +43,7 @@ uniform float ground_tint_strength = 0.5;   // 0 = photo colors as-is, 1 = fully
 uniform float blend_softness = 0.06;
 
 // Real per-pixel directional lighting against tex_ground_*_normal — same manual Lambert + Blinn-Phong term as
-// rubicon_ground.gdshader (see its header for why this isn't a real Light2D), tunable live via the Light Edit
+// electric_ground.gdshader (see its header for why this isn't a real Light2D), tunable live via the Light Edit
 // panel (volcanic_ground.gd's apply_ground_lighting).
 uniform vec3 ground_light_dir = vec3(0.6, 0.6, 0.6);
 uniform vec4 ground_light_color : source_color = vec4(1.0, 0.75, 0.55, 1.0);   // warm ember-tinted "sun"
@@ -61,7 +61,7 @@ uniform vec4 river_color_dark : source_color = vec4(0.35, 0.05, 0.02, 1.0);
 uniform vec4 river_color_light : source_color = vec4(0.95, 0.45, 0.05, 1.0);
 uniform vec4 river_bank_color : source_color = vec4(0.16, 0.05, 0.03, 1.0);   // dark obsidian crust rim
 uniform float river_bank_width = 0.012;   // extra noise-value half-width beyond river_width the rim extends —
-                                            // narrower than Rubicon's sand fringe so it reads as a thin cracked
+                                            // narrower than Electric's sand fringe so it reads as a thin cracked
                                             // edge, not a beach
 uniform float water_wave_uv_scale = 0.00385;
 uniform float water_wave_speed = 26.0;
@@ -102,10 +102,10 @@ void fragment() {
 	ground_col.rgb = ground_col.rgb * diffuse * light_tint + ground_light_color.rgb * spec;
 
 	// Lava: extract the near-river_level contour of tex_river (smooth simplex — organic macro flow, same
-	// technique as Rubicon's river) then PERTURB that distance with tex_river_detail (cellular/Manhattan, much
+	// technique as Electric's river) then PERTURB that distance with tex_river_detail (cellular/Manhattan, much
 	// higher frequency) so the boundary itself roughens into jagged cracked-rock nicks without turning the
 	// overall flow into a straight polyline — see this shader's header for why a cellular-only macro field was
-	// wrong. The 0.78 factor (vs Rubicon's 0.6) is a narrower transition band relative to river_width, so the
+	// wrong. The 0.78 factor (vs Electric's 0.6) is a narrower transition band relative to river_width, so the
 	// smoothstep blend doesn't blur the detail term's jaggedness back into a soft curve.
 	float rv = texture(tex_river, world_pos * river_uv_scale).r;
 	float river_dist = abs(rv - river_level);
@@ -113,7 +113,7 @@ void fragment() {
 	river_dist -= (river_detail - 0.5) * river_width * river_detail_strength;
 	float river_mask = 1.0 - smoothstep(river_width * 0.78, river_width, river_dist);
 
-	// Real (genuinely seamless) wave-crest photo — reused from Rubicon's watertile set, recolored via
+	// Real (genuinely seamless) wave-crest photo — reused from Electric's watertile set, recolored via
 	// river_color_light/dark into a lava flow shimmer instead of water.
 	vec2 wave_dir_a = vec2(0.85, 0.53);
 	vec2 wave_dir_b = vec2(-0.40, 0.92);

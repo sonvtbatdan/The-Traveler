@@ -56,7 +56,7 @@ const BAR_LIFT_ROOM  := 15.0   # the 9 rooms: nudge the docked bar up 15px
 # — see _wire_hover below). 2026-08-05, on request: "Mechanic" room renamed to "Merchant" for the PLAYER-FACING
 # hover-bar/panel label only — the underlying asset stays assets/hud/dock/mechanic.png (and config/boards/
 # dock.cfg's group is still literally named "Mechanic") on purpose, same "keep internal id, override display
-# only" precedent as MetaManager.MAP_DEFS's rubicon/default → Electric/Space rename (see its own doc comment).
+# only" precedent as MetaManager.MAP_DEFS's electric/default → Electric/Space rename (see its own doc comment).
 const ROOM_NAME_OVERRIDE := {"mechanic": "Merchant"}
 
 # ── Hover-bar move OFFSET (2026-08-06, on request) ──────────────────────────────────────────────────────

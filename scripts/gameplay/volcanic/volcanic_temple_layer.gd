@@ -1,15 +1,15 @@
 extends Node2D
 ## Spawner for the temple boss landmark — exactly TEMPLE_COUNT (2) per run, each appearing at its own random
-## TIME within SPAWN_WINDOW (30min of GameManager.run_time), mirroring rubicon_temple_layer.gd's own schedule
+## TIME within SPAWN_WINDOW (30min of GameManager.run_time), mirroring electric_temple_layer.gd's own schedule
 ## (2026-08-06, on request: "Mỗi map chỉ có 2 temple random spawn vào những thời điểm ngẫu nhiên trong vòng 30
 ## phút run time. Bắn temple drop orb of light."). Each spawns DIST_MIN-DIST_MAX from the player's CURRENT
 ## position at ITS OWN scheduled moment, avoiding the lava river (VolcanicNoise.is_river position retry — no
-## RubiconGround-style ground-ring system exists here to guarantee dry land after the fact).
+## ElectricGround-style ground-ring system exists here to guarantee dry land after the fact).
 ##
 ## 2026-08-06: promoted from a purely visual landmark (no HP, never dies) to a full boss fight — ported the
-## combat/pointer machinery from rubicon_temple_layer.gd verbatim (arena_enemy.gd 2D combat vehicle,
+## combat/pointer machinery from electric_temple_layer.gd verbatim (arena_enemy.gd 2D combat vehicle,
 ## arena_ruin_pointer.gd edge-of-screen arrow, "drop_loot": "orb_of_light" on death), exactly as this file's
-## own prior header anticipated ("Port the combat machinery back from rubicon_temple_layer.gd if a boss fight
+## own prior header anticipated ("Port the combat machinery back from electric_temple_layer.gd if a boss fight
 ## is ever wanted here too — nothing here precludes it"). temple.glb is excluded from the regular
 ## density-scatter pool (VolcanicAssetScan.SCATTER_EXCLUDED) — this spawner, via VolcanicTrees.
 ## spawn_landmark(), is its only spawn path. Still stationary (no spin) — only the rescue-character ruins spin.
@@ -33,21 +33,21 @@ const VolcanicAssetLayerScript := preload("res://scripts/gameplay/volcanic/volca
 const RuinPointerScript := preload("res://scripts/ui/hud/arena_ruin_pointer.gd")
 const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 
-const TEMPLE_GLB_PATH := "res://assets/map/volcanic/temple.glb"
-const TEMPLE_ICON_PATH := "res://assets/map/volcanic/temple.png"
+const TEMPLE_GLB_PATH := "res://assets/map/volcanic/landmark/temple.glb"
+const TEMPLE_ICON_PATH := "res://assets/map/volcanic/landmark/temple.png"
 const TEMPLE_COUNT := 2       # total temples for the whole run — "mỗi map chỉ có 2 temple"
-const SPAWN_WINDOW := 1800.0  # 30 minutes, in seconds — matches rubicon_temple_layer.gd's own window
-const TEMPLE_SCALE_MULT := 3.0     # matches rubicon_temple_layer.gd's TEMPLE_SCALE_MULT — a landmark should
-                                    # read as much bigger than ordinary scatter decoration
-const DIST_MIN := 10000.0          # matches rubicon_temple_layer.gd's own range (was 2500-6000, visual-only era)
+const SPAWN_WINDOW := 1800.0  # 30 minutes, in seconds — matches electric_temple_layer.gd's own window
+const TEMPLE_SCALE_MULT := 3.0     # matches electric_temple_layer.gd's TEMPLE_SCALE_MULT — a landmark should
+									# read as much bigger than ordinary scatter decoration
+const DIST_MIN := 10000.0          # matches electric_temple_layer.gd's own range (was 2500-6000, visual-only era)
 const DIST_MAX := 15000.0
-const TEMPLE_HP := 2000.0          # matches rubicon_temple_layer.gd's TEMPLE_HP
+const TEMPLE_HP := 2000.0          # matches electric_temple_layer.gd's TEMPLE_HP
 const ENEMY_HP_TUNE := 2.0         # arena_enemy.gd's global ×2 HP tune for every non-"boss_stub" enemy —
-                                    # divide it back out so TEMPLE_HP is the actual effective HP
+									# divide it back out so TEMPLE_HP is the actual effective HP
 const RIVER_AVOID_MARGIN := 1.3    # multiplies the live river_width so a temple never spawns RIGHT at the
-                                    # lava's edge either, not just literally inside it
+									# lava's edge either, not just literally inside it
 const MAX_POSITION_TRIES := 40     # give up and accept a lava-adjacent spot rather than looping forever if
-                                    # river_width is turned up very high in the Terrain Edit panel
+									# river_width is turned up very high in the Terrain Edit panel
 
 ## Must match tools/bake_volcanic_landmark.gd's own copy — the world-unit span (both axes, square frame) the
 ## bake camera's orthogonal view covers, as a multiple of the model's own half_extent. See this file's header.
@@ -140,15 +140,23 @@ func _spawn_one(pos: Vector2) -> void:
 ## Freed on the enemy's own tree_exited (fires once its death-pop animation finishes and arena_enemy.gd
 ## queue_free()s itself, or if it's ever removed any other way) — frees the companion 3D visual, clears this
 ## temple's plumes, and drops it out of _active. Also fires GameManager.boss_defeated on a GENUINE kill
-## (gated on the enemy's own `_dead` flag, same convention as rubicon_temple_layer.gd's own _on_temple_gone)
+## (gated on the enemy's own `_dead` flag, same convention as electric_temple_layer.gd's own _on_temple_gone)
 ## so temples feed the same salvage-screen/blueprint pipeline as every other boss.
+##
+## 2026-08-18 crash fix: at end-of-run (RETURN TO DOCK -> get_tree().change_scene_to_file(), arena.gd) the whole
+## scene tree tears down, which fires the enemy's tree_exited (and this callback) WHILE this very node may
+## already be outside the tree itself — get_tree() on a node not currently in the tree returns null, so calling
+## .get_first_node_in_group() on it crashed the game ("Cannot call method 'get_first_node_in_group' on a null
+## value"). Guard it like atlantic_temple_layer.gd's own _on_temple_gone already does.
 func _on_temple_gone(entry: Dictionary) -> void:
 	var e: Node2D = entry["enemy"]
 	if is_instance_valid(e) and bool(e.get("_dead")) and GameManager.has_signal("boss_defeated"):
 		GameManager.boss_defeated.emit()
-	var clouds := get_tree().get_first_node_in_group("volcanic_clouds")
-	if clouds != null and clouds.has_method("clear_landmark_plumes"):
-		clouds.call("clear_landmark_plumes", entry["id"])
+	var tree := get_tree()
+	if tree != null:
+		var clouds := tree.get_first_node_in_group("volcanic_clouds")
+		if clouds != null and clouds.has_method("clear_landmark_plumes"):
+			clouds.call("clear_landmark_plumes", entry["id"])
 	if is_instance_valid(entry["node"]):
 		entry["node"].queue_free()
 	_active.erase(entry)
@@ -160,7 +168,10 @@ func refresh_landmark_marks() -> void:
 		_push_plumes_for(entry)
 
 func _push_plumes_for(entry: Dictionary) -> void:
-	var clouds := get_tree().get_first_node_in_group("volcanic_clouds")
+	var tree := get_tree()
+	if tree == null:
+		return
+	var clouds := tree.get_first_node_in_group("volcanic_clouds")
 	if clouds == null or not clouds.has_method("set_landmark_plumes"):
 		return
 	var s := VolcanicTerrainSettings.load_settings()
@@ -181,7 +192,7 @@ func _mark_to_world(entry: Dictionary, fx: float, fz: float) -> Vector2:
 	var pos: Vector2 = entry["pos"]
 	return pos + Vector2(rotated.x, rotated.z / _z_comp)
 
-## Edge-of-screen arrow + live distance guiding the player to one temple (mirrors rubicon_temple_layer.gd's
+## Edge-of-screen arrow + live distance guiding the player to one temple (mirrors electric_temple_layer.gd's
 ## own _spawn_pointer exactly — arena_ruin_pointer.gd is generic, takes any Node2D target).
 func _spawn_pointer(target: Node2D) -> void:
 	var ptr_layer := CanvasLayer.new()

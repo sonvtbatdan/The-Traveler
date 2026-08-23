@@ -113,7 +113,13 @@ func xp_for_asteroid(width: float) -> float:
 
 ## THE single entry point for gaining XP. Handles multiple level-ups from one big gain (e.g. a
 ## boss), caps at MAX_LEVEL, emits signals for UI/effects, and saves.
+##
+## god_mode guard (2026-08-18, on request): skips XP gain — and therefore leveling — entirely while God Mode
+## is on, same "skip entirely" shape as the ship_take_damage guard above. Lets a God Mode run be used to
+## inspect a map/enemies at a fixed level instead of auto-fire + invincibility snowballing to MAX_LEVEL.
 func add_xp(amount: float) -> void:
+	if god_mode:
+		return
 	if amount > 0.0:
 		_pickup_buff_t = 5.0   # Magnet: collecting anything refreshes the 5s on-pickup buffs
 	if amount <= 0.0 or player_level >= MAX_LEVEL:
@@ -318,7 +324,9 @@ var _god_mode_prev_damage_mult: float = 1.0
 ## _shield_immune above which this is deliberately separate from, so a run reset / shield-loot expiry never
 ## silently cancels it), a massive weapon-damage multiplier, and auto-fire (arena_hud_buttons.gd sets
 ## _auto_fire alongside this call). Turning OFF restores the damage multiplier that was active before God Mode
-## was turned on, not a hardcoded 1.0 — so it doesn't clobber real damage upgrades earned this run.
+## was turned on, not a hardcoded 1.0 — so it doesn't clobber real damage upgrades earned this run. Also
+## blocks XP gain/leveling entirely while on (see the god_mode guard at the top of add_xp) — not toggled here,
+## add_xp reads the `god_mode` flag directly.
 func set_god_mode(on: bool) -> void:
 	god_mode = on
 	if on:
@@ -679,16 +687,16 @@ const CURSOR_WIDTH          := 30.0    # final cursor width, px (30 → 10 → 2
 const CURSOR_ROTATE_CCW_DEG := 30.0
 const CURSOR_OPTIONS := [
 	{"id": "default",      "label": "Default", "icon": ""},
-	{"id": "pros2",        "icon": "res://assets/enemiesHD/pros2.png"},
-	{"id": "sentinel",     "icon": "res://assets/enemiesHD/sentinel.png"},
-	{"id": "alien8",       "icon": "res://assets/enemiesHD/alien8.png"},
-	{"id": "alienfighter", "icon": "res://assets/enemiesHD/alienfighter.png"},
-	{"id": "fleet2",       "icon": "res://assets/enemiesHD/fleet2.png"},
-	{"id": "bismuth4",     "icon": "res://assets/enemiesHD/bismuth4.png"},
-	{"id": "jetfighter",   "icon": "res://assets/enemiesHD/jetfighter.png"},
-	{"id": "magma3",       "icon": "res://assets/enemiesHD/magma3.png"},
-	{"id": "pirate2",      "icon": "res://assets/enemiesHD/pirate2.png"},
-	{"id": "squid_body",   "icon": "res://assets/enemiesHD/Squid-body.png"},
+	{"id": "pros2",        "icon": "res://assets/map/mechanic/enemies/pros2.png"},
+	{"id": "sentinel",     "icon": "res://assets/map/electric/enemies/sentinel.png"},
+	{"id": "alien8",       "icon": "res://assets/map/mystic/enemies/alien8.png"},
+	{"id": "alienfighter", "icon": "res://assets/map/cosmic/enemies/alienfighter.png"},
+	{"id": "fleet2",       "icon": "res://assets/map/arctic/enemies/fleet2.png"},
+	{"id": "bismuth4",     "icon": "res://assets/map/mystic/enemies/bismuth4.png"},
+	{"id": "jetfighter",   "icon": "res://assets/map/cosmic/enemies/jetfighter.png"},
+	{"id": "magma3",       "icon": "res://assets/map/volcanic/enemies/magma3.png"},
+	{"id": "pirate2",      "icon": "res://assets/map/cosmic/enemies/pirate2.png"},
+	{"id": "squid_body",   "icon": "res://assets/map/electric/enemies/Squid-body.png"},
 	{"id": "yarimouse",    "icon": "res://assets/inventory/YariMouse.png"},
 	{"id": "newship",      "icon": "res://assets/hud/aux perk/newship.png"},
 	{"id": "shooter",      "icon": "res://assets/weaponry/shooter.png"},
@@ -1005,7 +1013,7 @@ var pending_room_unlock_notices: Array[String] = []
 ## Run-scoped (reset in reset_run()) — this run's assigned rescue-landmark character (MetaManager.
 ## RESCUE_CHARACTER_DEFS key, "" = no landmark spawned this run — either the map has none, e.g. "default",
 ## or everyone reachable from it is already rescued) and whether its landmark was destroyed yet. Set by
-## rubicon_ruin_layer.gd / volcanic_ruin_layer.gd; read by arena.gd's _show_run_over for the rescue result
+## electric_ruin_layer.gd / volcanic_ruin_layer.gd; read by arena.gd's _show_run_over for the rescue result
 ## line ("successfully rescued" / "failed rescued" / "not found") and the MetaManager.unlock_room() call.
 var run_rescue_char_id: String = ""
 var run_rescue_collected: bool = false

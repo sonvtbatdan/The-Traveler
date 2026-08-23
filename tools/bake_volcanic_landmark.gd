@@ -1,6 +1,6 @@
 extends SceneTree
 ## One-shot BAKE: renders temple.glb from a true top-down ORTHOGONAL camera (not the tilted-perspective
-## convention tools/bake_rubicon_trees.gd uses for thumbnails) into a reference PNG that
+## convention tools/bake_electric_trees.gd uses for thumbnails) into a reference PNG that
 ## scripts/ui/hud/volcanic_landmark_mark.gd shows for clicking smoke/flame attachment points. A true top-down
 ## ortho shot (not tilted, not perspective) is what makes clicked pixels convert to local model-space offsets
 ## with plain linear math (see volcanic_temple_layer.gd's header) — no perspective distortion to account for.
@@ -11,14 +11,14 @@ extends SceneTree
 ## everywhere else in this map's code), so the reference image reads the same "north-up" way the in-game 2D
 ## top-down view does.
 ##
-## Run non-headless (mirrors tools/bake_rubicon_trees.gd — 3D rendering needs a real GPU context):
+## Run non-headless (mirrors tools/bake_electric_trees.gd — 3D rendering needs a real GPU context):
 ##   godot --path . --script tools/bake_volcanic_landmark.gd
 ## Output: assets/map/volcanic/temple_mark_ref.png
 
 const VolcanicAssetScan := preload("res://scripts/gameplay/volcanic/volcanic_asset_scan.gd")
 
-const TEMPLE_GLB_PATH := "res://assets/map/volcanic/temple.glb"
-const OUT_PATH := "res://assets/map/volcanic/temple_mark_ref.png"
+const TEMPLE_GLB_PATH := "res://assets/map/volcanic/landmark/temple.glb"
+const OUT_PATH := "res://assets/map/volcanic/landmark/temple_mark_ref.png"
 const VP_SIZE := 768
 const SETTLE_FRAMES := 5
 

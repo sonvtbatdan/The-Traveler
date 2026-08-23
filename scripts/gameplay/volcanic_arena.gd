@@ -1,17 +1,17 @@
 extends Node2D
 ## DEV-ONLY ISOLATED PREVIEW — NOT the real Volcanic map. The actual Volcanic map (reachable from Hub →
-## Launch) is scenes/arena.tscn + arena.gd, same as Default/Rubicon: full ship/weapons/HUD/dev-mode/
+## Launch) is scenes/arena.tscn + arena.gd, same as Default/Electric: full ship/weapons/HUD/dev-mode/
 ## enemy-waves, branching on MetaManager.selected_map_id == "volcanic" to swap in the background built here
 ## (see arena.gd's _build_volcanic_background()). This standalone scene exists ONLY to preview/tune the
 ## terrain (ground/clouds/trees) in isolation, fast — see tools/screenshot_volcanic.gd, which runs THIS scene.
-## Mirrors scripts/gameplay/rubicon_arena.gd exactly, except it reuses RubiconPlayer directly for the preview
-## flight controller (an 8-directional placeholder triangle ship with nothing Rubicon-specific in it — not
+## Mirrors scripts/gameplay/electric_arena.gd exactly, except it reuses ElectricPlayer directly for the preview
+## flight controller (an 8-directional placeholder triangle ship with nothing Electric-specific in it — not
 ## worth duplicating just to rename).
 
 const GroundScript := preload("res://scripts/gameplay/volcanic/volcanic_ground.gd")
 const CloudsScript := preload("res://scripts/gameplay/volcanic/volcanic_clouds.gd")
 const TreesScript := preload("res://scripts/gameplay/volcanic/volcanic_trees.gd")
-const PlayerScript := preload("res://scripts/gameplay/rubicon/rubicon_player.gd")
+const PlayerScript := preload("res://scripts/gameplay/electric/electric_player.gd")
 
 var _player: CharacterBody2D
 var _camera: Camera2D

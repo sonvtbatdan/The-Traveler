@@ -15,6 +15,12 @@ var tentacle_points:   Array  = []   # Array[Dictionary {pos:Vector2, id:int, di
 var selected_tenp_idx: int    = -1
 var vortex_points:     Array  = []   # Array[Dictionary {pos:Vector2, id:int}] (directionless)
 var selected_vortex_idx: int  = -1
+var led_points:        Array  = []   # Array[Dictionary {pos:Vector2, id:int}] (directionless)
+var selected_led_idx:  int    = -1
+## Front-facing markers (2026-08-23): [{pos: Vector2 (screen space, like every other point here),
+## angle: float (canvas radians), len: float}]. See arena_weapons.gd::front_angle_for() for where the angle
+## comes from and why it is not the same for every weapon.
+var front_markers:    Array   = []
 var zoom:             float   = 1.0
 var canvas_offset:    Vector2 = Vector2.ZERO
 
@@ -27,10 +33,12 @@ func _draw() -> void:
 	if show_grid:
 		_draw_grid()
 		_draw_mouse_coords()
+	_draw_front_markers()
 	_draw_fire_points()
 	_draw_thrust_points()
 	_draw_tentacle_points()
 	_draw_vortex_points()
+	_draw_led_points()
 
 # ── Grid ──────────────────────────────────────────────────────────────────────
 
@@ -106,6 +114,30 @@ func _draw_mouse_coords() -> void:
 
 # ── Fire point markers ────────────────────────────────────────────────────────
 
+## An arrow out of each 3D part's centre along the direction that will be its TRAVEL direction in play, so
+## a model can be rotated to face down it instead of flying backwards. Drawn UNDER the fire/thrust points so
+## it never covers a marker being placed.
+func _draw_front_markers() -> void:
+	const COL := Color(0.35, 0.95, 1.0, 0.9)
+	for m: Dictionary in front_markers:
+		var c := _to_vp(m["pos"] as Vector2)
+		var a := float(m["angle"])
+		var d := Vector2(cos(a), sin(a))
+		var l: float = maxf(float(m.get("len", 40.0)) * zoom, 18.0)
+		var tip := c + d * l
+		draw_line(c, tip, COL, maxf(2.0 * zoom, 1.5), true)
+		# Head: two barbs back off the tip.
+		var barb: float = maxf(9.0 * zoom, 6.0)
+		draw_line(tip, tip - d.rotated(0.42) * barb, COL, maxf(2.0 * zoom, 1.5), true)
+		draw_line(tip, tip - d.rotated(-0.42) * barb, COL, maxf(2.0 * zoom, 1.5), true)
+		draw_circle(c, maxf(3.0 * zoom, 2.0), COL)
+		var f := ThemeDB.fallback_font
+		var fs := int(maxf(10.0 * zoom, 8.0))
+		var txt := "FRONT"
+		var tw := f.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		draw_string(f, tip + d * (6.0 * zoom) - Vector2(tw * 0.5, -float(fs) * 0.35),
+			txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, COL)
+
 func _draw_fire_points() -> void:
 	for i: int in fire_points.size():
 		var fp:     Dictionary = fire_points[i]
@@ -141,8 +173,27 @@ func _draw_fire_points() -> void:
 # ── Thrust point markers ──────────────────────────────────────────────────────
 
 func _draw_thrust_points() -> void:
+	# 2026-08-21 bug fix ("TP vẫn giống y chang plume 2D" — the on-canvas arrow never visibly moved while
+	# dragging the Rotate X/Y/Z sliders): shared with glb_topdown_rig.gd so this arrow reads the exact same
+	# direction every other consumer (live gameplay plume, the 3D-preview particles composited into the
+	# weapon's own texture) already agreed on — see that file's tp_direction(). Built as a local, not a
+	# member-level default (`var x = preload(...).new()`) — the latter broke this script's own compilation
+	# (circular-preload-style resolution failure at class-body eval time; every other caller in this repo
+	# already instantiates this same helper as a local inside a function, never as a member default).
 	for i: int in thrust_points.size():
 		var tp:     Dictionary = thrust_points[i]
+		# 2026-08-22 ("Plume 2D không được spawn tại các object 3D"): the flat diamond+arrow+label marker
+		# below is a genuinely 2D thing — drawn in flat screen space at the raw click position, completely
+		# disconnected from the object's own bounding box / the 3D model's local space. For a 3D TP
+		# (`dir_rot` present) the REAL representation is the 3D plume baked into the object's own texture
+		# (see glb_topdown_rig.gd/creep_edit_mode.gd's `_glb_refresh_tp_gizmos`) — showing BOTH at once is
+		# what read as "2 TPs, one 2D at my click point and one tiny 3D one stuck at the object's center" even
+		# though it was always ONE saved TP shown two disconnected ways. Skip the whole flat marker for a 3D
+		# TP now — selection stays available via the TP list panel (creep_edit_mode.gd), which never depended
+		# on this canvas marker. A plain 2D TP (no `dir_rot`, no real 3D representation to fall back to) keeps
+		# the full marker exactly as before — it's still the only visual it has.
+		if tp.has("dir_rot"):
+			continue
 		var vp_pos: Vector2    = _to_vp(tp["pos"] as Vector2)
 		var is_sel: bool       = (i == selected_tp_idx)
 		var col := Color(0.20, 1.0, 0.80, 0.95) if is_sel \
@@ -152,17 +203,19 @@ func _draw_thrust_points() -> void:
 		draw_line(vp_pos + Vector2(0, -8),  vp_pos + Vector2(8, 0),   col, 2.0)
 		draw_line(vp_pos + Vector2(8, 0),   vp_pos + Vector2(0, 8),   col, 2.0)
 		draw_line(vp_pos + Vector2(0, 8),   vp_pos + Vector2(-8, 0),  col, 2.0)
-		# Direction arrow
-		var dir_angle: float = float(tp.get("dir_angle", 0.0))
-		var dir_vec   := Vector2.RIGHT.rotated(dir_angle) * 32.0
+		# Direction arrow (2D TP only — see the header above for why a 3D TP never reaches this line)
+		var dir_rig := preload("res://scripts/gameplay/fx/glb_topdown_rig.gd").new()
+		var dir3: Vector3 = dir_rig.tp_direction(tp)
+		var dir_vec := Vector2(dir3.x, dir3.z) * 32.0
 		var tip       := vp_pos + dir_vec
 		var arr_col   := Color(0.20, 1.0, 0.80, 0.95) if is_sel else Color(0.10, 0.90, 0.65, 0.80)
 		draw_line(vp_pos, tip, arr_col, 2.0)
-		var back := -dir_vec.normalized() * 7.0
+		var back := -dir_vec.normalized() * 7.0 if dir_vec.length_squared() > 0.0001 else Vector2.ZERO
 		draw_line(tip, tip + back.rotated(0.5),  arr_col, 2.0)
 		draw_line(tip, tip + back.rotated(-0.5), arr_col, 2.0)
+		var disp_deg := int(round(rad_to_deg(atan2(dir3.z, dir3.x))))
 		draw_string(ThemeDB.fallback_font, tip + Vector2(4.0, -2.0),
-			"%d°" % int(round(rad_to_deg(dir_angle))),
+			"%d°" % disp_deg,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 10, arr_col)
 		# Label with shadow
 		var tp_id: int  = tp.get("id", i + 1)
@@ -225,3 +278,25 @@ func _draw_vortex_points() -> void:
 			"Vx%d" % vx_id, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0, 0, 0, 0.7))
 		draw_string(ThemeDB.fallback_font, lbl_pos,
 			"Vx%d" % vx_id, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)
+
+# ── Led point markers (directionless — a small sunburst/bulb glyph) ──────────────
+
+func _draw_led_points() -> void:
+	for i: int in led_points.size():
+		var led:    Dictionary = led_points[i]
+		var vp_pos: Vector2    = _to_vp(led["pos"] as Vector2)
+		var is_sel: bool       = (i == selected_led_idx)
+		var col := Color(1.0, 0.95, 0.55, 0.98) if is_sel else Color(0.90, 0.75, 0.30, 0.90)
+		# Bulb: filled core + a sunburst of short rays (reads as "light", distinct from every other marker).
+		draw_circle(vp_pos, 4.0, col)
+		draw_arc(vp_pos, 6.0, 0.0, TAU, 16, col, 1.5)
+		for r in 8:
+			var ang := TAU * float(r) / 8.0
+			var dir := Vector2(cos(ang), sin(ang))
+			draw_line(vp_pos + dir * 8.0, vp_pos + dir * 12.0, col, 1.5)
+		var led_id: int = led.get("id", i + 1)
+		var lbl_pos := vp_pos + Vector2(14.0, -3.0)
+		draw_string(ThemeDB.fallback_font, lbl_pos + Vector2(1, 1),
+			"Led%d" % led_id, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(0, 0, 0, 0.7))
+		draw_string(ThemeDB.fallback_font, lbl_pos,
+			"Led%d" % led_id, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, col)

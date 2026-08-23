@@ -1,11 +1,11 @@
 extends RefCounted
 class_name VolcanicTerrainSettings
-## Persisted "Terrain Edit" tuning — res://volcanic_terrain.cfg, mirrors rubicon/rubicon_terrain_settings.gd
+## Persisted "Terrain Edit" tuning — res://volcanic_terrain.cfg, mirrors electric/electric_terrain_settings.gd
 ## (same static load()/save() shape, same per-asset density/scale-range/blur/enabled convention). Loaded by
 ## volcanic_ground.gd / volcanic_clouds.gd / volcanic_trees.gd / volcanic_temple_layer.gd at their own _ready()
 ## and re-applied LIVE while the relevant dev panel is open.
 ##
-## Deltas from Rubicon's defaults: a volcanic palette (dark basalt/ash zone tint, lava colors, obsidian bank).
+## Deltas from Electric's defaults: a volcanic palette (dark basalt/ash zone tint, lava colors, obsidian bank).
 ##
 ## TWO plume KINDS — "smoke" and "flame" (user feedback: "thêm 1 loại plume nữa là flame plume... chia bảng
 ## plume thành 2 tab") — every plume-related setting exists once per kind, with a `smoke_`/`flame_` prefix.
@@ -33,7 +33,7 @@ const DEFAULT_COLOR_B := Color(0.30, 0.24, 0.20)               # "ash/dust" zone
 const DEFAULT_RIVER_WIDTH := 0.035      # half-width of the lava band, noise-value space (0 = no lava)
 const DEFAULT_RIVER_BANK_WIDTH := 0.012 # noise-value half-width the obsidian rim extends beyond river_width —
                                          # user feedback: "thanh slider chỉnh viền river giống như của
-                                         # rubicon" — Rubicon's own equivalent (RIVER_BANK_WIDTH) is actually
+                                         # electric" — Electric's own equivalent (RIVER_BANK_WIDTH) is actually
                                          # a hardcoded constant too, not a slider; exposing it here as one.
 const DEFAULT_RIVER_EDGE_JAGGEDNESS := 0.55   # cracked-edge perturbation strength, as a fraction of
                                                # river_width — see volcanic_ground.gdshader's
@@ -42,7 +42,7 @@ const DEFAULT_RIVER_EDGE_JAGGEDNESS := 0.55   # cracked-edge perturbation streng
                                                # lava boundary reads, not just how wide its bank rim is.
 const DEFAULT_JITTER := 0.8
 const DEFAULT_CANOPY_SIZE := 1600.0     # world-px spanned by one ground-photo tile
-const DEFAULT_RIVER_BANK_COLOR := Color(0.16, 0.05, 0.03)      # dark obsidian crust rim (replaces Rubicon's
+const DEFAULT_RIVER_BANK_COLOR := Color(0.16, 0.05, 0.03)      # dark obsidian crust rim (replaces Electric's
                                                                  # golden sand fringe — a thin cracked edge,
                                                                  # not a beach)
 const DEFAULT_WATER_COLOR := Color(0.95, 0.45, 0.05)            # base lava tone (bright orange)
@@ -58,14 +58,14 @@ const DEFAULT_WATER_TILE_SET := "crust" # subfolder of assets/map/volcanic/water
                                          # the Terrain Edit panel's "Lava Pattern" dropdown.
 const DEFAULT_GROUND_LIGHT_ANGLE_DEG := 55.0   # ground normal-map lighting — compass direction of the "sun"
 const DEFAULT_GROUND_LIGHT_HEIGHT := 0.6       # 0 = fully grazing (dramatic long shadows), 1 = fully overhead
-const DEFAULT_GROUND_AMBIENT := 0.35           # floor brightness on the shadow side — lower than Rubicon's
+const DEFAULT_GROUND_AMBIENT := 0.35           # floor brightness on the shadow side — lower than Electric's
                                                 # 0.45 so the cracked rock reads darker/harsher
-const DEFAULT_GROUND_SPECULAR := 0.35          # slightly glossier than Rubicon (wet-looking cooled rock)
-const DEFAULT_GROUND_CONTRAST := 1.15          # a bit punchier than Rubicon — sharper highlight/shadow split
+const DEFAULT_GROUND_SPECULAR := 0.35          # slightly glossier than Electric (wet-looking cooled rock)
+const DEFAULT_GROUND_CONTRAST := 1.15          # a bit punchier than Electric — sharper highlight/shadow split
                                                 # on the rock relief
 const DEFAULT_GROUND_LIGHT_COLOR := Color(1.0, 0.75, 0.55)     # warm ember-tinted "sun", not neutral daylight
 const DEFAULT_SPARK_AMOUNT := 40.0             # rising ember particle count (volcanic_sparks.gd) — 0 = off
-const DEFAULT_SPARK_COLOR := Color(1.0, 0.5, 0.15)             # ember orange/red (Rubicon's default nudged redder)
+const DEFAULT_SPARK_COLOR := Color(1.0, 0.5, 0.15)             # ember orange/red (Electric's default nudged redder)
 const DEFAULT_SPARK_SPEED := 14.0
 const DEFAULT_SPARK_SIZE := 55.0
 const DEFAULT_SPARK_DIRECTION_DEG := 270.0     # rising embers (270 = straight up — already correct as-is)

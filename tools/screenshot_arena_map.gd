@@ -2,13 +2,13 @@ extends SceneTree
 ## One-shot DEV TOOL: boots the REAL scenes/arena.tscn (full ship/weapons/HUD/dev-mode/enemy-waves) under a
 ## given MetaManager.selected_map_id, so "does map X actually integrate cleanly" can be checked without
 ## going through Hub → Launch by hand. Pass the map id as the script's cmdline arg (after `--`), e.g.:
-##   godot --path . --script tools/screenshot_arena_map.gd -- rubicon
-## Defaults to "rubicon" if no arg given. Output: user://arena_map_<id>.png
+##   godot --path . --script tools/screenshot_arena_map.gd -- electric
+## Defaults to "electric" if no arg given. Output: user://arena_map_<id>.png
 
 const SETTLE_FRAMES := 120   # full arena has a LOT more to spin up than the isolated terrain preview
 
 var _f := 0
-var _map_id := "rubicon"
+var _map_id := "electric"
 
 func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()

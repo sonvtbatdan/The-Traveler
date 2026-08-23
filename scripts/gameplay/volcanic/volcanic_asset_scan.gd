@@ -1,6 +1,6 @@
 extends RefCounted
 class_name VolcanicAssetScan
-## Scans assets/map/volcanic/ for rock/obsidian .glb models — mirrors rubicon/rubicon_asset_scan.gd exactly
+## Scans assets/map/volcanic/ for rock/obsidian .glb models — mirrors electric/electric_asset_scan.gd exactly
 ## (see that file for the full rationale on scanning by .glb stem, not by .png). Dropping a new .glb in this
 ## folder is the whole "add a rock/obsidian variant" workflow — no code edits.
 
@@ -8,7 +8,7 @@ const FOLDER := "res://assets/map/volcanic/"
 const SCATTER_EXCLUDED := ["temple", "engineer", "psyker"]   # landmark/rescue objects spawned via their own
                                         # dedicated system (volcanic_temple_layer.gd / volcanic_ruin_layer.gd),
                                         # NOT the regular density-scatter or the Terrain Edit panel's Assets
-                                        # list — filename stem, case-sensitive (mirrors rubicon_asset_scan.gd's
+                                        # list — filename stem, case-sensitive (mirrors electric_asset_scan.gd's
                                         # own SCATTER_EXCLUDED). engineer.glb/psyker.glb moved into this folder
                                         # 2026-08-06 (from assets/ruin/) — MUST stay excluded or they'd get
                                         # randomly ambient-scattered as decoration.
@@ -98,7 +98,7 @@ static func watertile_wave_path(set_name: String) -> String:
 	return String(paths[0]) if not paths.is_empty() else ""
 
 ## Where a future bake tool would write a baked top-down PNG for a given .glb — same folder, same filename
-## stem, .png extension. Mirrors RubiconAssetScan.baked_png_path (no bake tool exists for Volcanic yet).
+## stem, .png extension. Mirrors ElectricAssetScan.baked_png_path (no bake tool exists for Volcanic yet).
 static func baked_png_path(glb_path: String) -> String:
 	return glb_path.get_basename() + ".png"
 
@@ -107,7 +107,7 @@ static func baked_png_path(glb_path: String) -> String:
 static func type_name(glb_path: String) -> String:
 	return glb_path.get_file().get_basename()
 
-## Recursively sets `.layers` on every VisualInstance3D under `root` — see RubiconAssetScan.set_visual_layers.
+## Recursively sets `.layers` on every VisualInstance3D under `root` — see ElectricAssetScan.set_visual_layers.
 static func set_visual_layers(root: Node, mask: int) -> void:
 	if root is VisualInstance3D:
 		(root as VisualInstance3D).layers = mask
@@ -115,7 +115,7 @@ static func set_visual_layers(root: Node, mask: int) -> void:
 		set_visual_layers(c, mask)
 
 ## Recursively forces every GeometryInstance3D under `root` to render with `mat` — see
-## RubiconAssetScan.set_flat_material.
+## ElectricAssetScan.set_flat_material.
 static func set_flat_material(root: Node, mat: Material) -> void:
 	if root is GeometryInstance3D:
 		(root as GeometryInstance3D).material_override = mat
@@ -123,7 +123,7 @@ static func set_flat_material(root: Node, mat: Material) -> void:
 		set_flat_material(c, mat)
 
 ## Recursively sets the "blur_amount" instance-uniform on every GeometryInstance3D under `root` — see
-## RubiconAssetScan.set_instance_blur_param.
+## ElectricAssetScan.set_instance_blur_param.
 static func set_instance_blur_param(root: Node, value: float) -> void:
 	if root is GeometryInstance3D:
 		(root as GeometryInstance3D).set_instance_shader_parameter("blur_amount", value)
@@ -131,7 +131,7 @@ static func set_instance_blur_param(root: Node, value: float) -> void:
 		set_instance_blur_param(c, value)
 
 ## Combined AABB of every MeshInstance3D under `root`, in root's own local space — see
-## RubiconAssetScan.combined_aabb (same "must already be inside the SceneTree for a frame" caveat applies).
+## ElectricAssetScan.combined_aabb (same "must already be inside the SceneTree for a frame" caveat applies).
 static func combined_aabb(root: Node3D) -> AABB:
 	var acc := AABB()
 	var has := false

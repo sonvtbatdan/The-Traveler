@@ -120,9 +120,9 @@ const M3_SPAWN_MUZZLE := 4
 const SPAWNING_CLIP  := "Spawning stuff"
 const M3_ENEMY_IDS := ["fly", "bug", "bee"]   # rotation 1 / 2 / 3
 const M3_ENEMY_DEFS := {
-	"fly": {"behavior": "chase", "hp": 20.0,   "speed": 120.0, "size": 7.2,  "contact": 2, "explodes": true, "xp": 100.0,  "icon": "res://assets/enemiesHD/flie1.png"},
-	"bug": {"behavior": "chase", "hp": 200.0,  "speed": 100.0, "size": 15.4, "contact": 3, "explodes": true, "xp": 500.0,  "icon": "res://assets/enemiesHD/animalbug.png"},
-	"bee": {"behavior": "chase", "hp": 1000.0, "speed": 110.0, "size": 12.0, "contact": 3, "explodes": true, "xp": 1000.0, "icon": "res://assets/enemiesHD/animalbee.png"},
+	"fly": {"behavior": "chase", "hp": 20.0,   "speed": 120.0, "size": 7.2,  "contact": 2, "explodes": true, "xp": 100.0,  "icon": "res://assets/map/electric/enemies/flie1.png"},
+	"bug": {"behavior": "chase", "hp": 200.0,  "speed": 100.0, "size": 15.4, "contact": 3, "explodes": true, "xp": 500.0,  "icon": "res://assets/map/electric/enemies/animalbug.png"},
+	"bee": {"behavior": "chase", "hp": 1000.0, "speed": 110.0, "size": 12.0, "contact": 3, "explodes": true, "xp": 1000.0, "icon": "res://assets/map/electric/enemies/animalbee.png"},
 }
 
 # ── Move 4 ──

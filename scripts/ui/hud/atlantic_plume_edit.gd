@@ -356,7 +356,7 @@ func _on_reroll_wind() -> void:
 ## snapshot (taken once, back when the panel was opened). 2026-08-08 bug fix: with the old blanket save, opening
 ## this panel and clicking SAVE at any later point silently reverted every OTHER panel's changes since — e.g.
 ## Crater Mark's vent marks — back to whatever they were when THIS panel was first opened (recurrence of a bug
-## already hit once on the Electric/Rubicon map's own Terrain/Light Edit pair). Mirrors atlantic_crater_mark.gd's
+## already hit once on the Electric/Electric map's own Terrain/Light Edit pair). Mirrors atlantic_crater_mark.gd's
 ## _save_marks_only()/atlantic_landmark_mark.gd's own scoped save.
 func _on_save() -> void:
 	var fresh := AtlanticTerrainSettings.load_settings()

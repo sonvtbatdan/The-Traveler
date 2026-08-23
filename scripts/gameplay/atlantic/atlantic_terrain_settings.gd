@@ -15,7 +15,7 @@ class_name AtlanticTerrainSettings
 ## stays a SINGLE shared setting — one current direction/strength affects both kinds' plumes together.
 ##
 ## LANDMARK marks (landmark_marks_bubble/whirlpool) are a SEPARATE concept from crater marks — see
-## atlantic_temple_layer.gd's header: a point in the (reused Rubicon) TEMPLE MODEL's own local space (fraction
+## atlantic_temple_layer.gd's header: a point in the (reused Electric) TEMPLE MODEL's own local space (fraction
 ## of its bake-reference frame), placed by atlantic_landmark_mark.gd.
 
 const CFG_PATH := "res://atlantic_terrain.cfg"
@@ -127,7 +127,7 @@ const DEFAULT_WHIRLPOOL_CRATER_MARKS: Array = []
 ## for the full mechanic. `bubble_crater_marks`/`whirlpool_crater_marks` are independent lists.
 
 ## Marked landmark plume points — see atlantic_landmark_mark.gd / atlantic_temple_layer.gd. Each entry:
-## {"fx": float, "fz": float} — normalized position within the (reused Rubicon) temple model's own
+## {"fx": float, "fz": float} — normalized position within the (reused Electric) temple model's own
 ## bake-reference frame, NOT a world position.
 const DEFAULT_LANDMARK_MARKS: Array = []
 

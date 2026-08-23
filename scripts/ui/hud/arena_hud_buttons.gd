@@ -13,6 +13,13 @@ const BTN_SEP         :=  6.0
 const MARGIN          :=  8.0
 const SIMPLIFIED_X    := -2.0    # MARGIN(8) − 10px left
 const SIMPLIFIED_Y    := 183.0  # moved down 100px (was 83) to clear room below the HP bar
+# 2026-08-18 request: every dev-mode-cluster button (Map Edit/Creep Edit triggers + both flyouts +
+# the standalone column below) is now a uniform-size TEXT button — no more icon art, sized to match
+# End Run (was the reference "small button" size already used by End Run/Boss Fight/Auto-Fire/God
+# Mode/+Level). Promoted from a local const inside _build_ui() since the whole cluster needs it now,
+# not just the bottom small-button row.
+const SMALL_BTN_W := BTN_SIZE * 0.9    # 54px
+const SMALL_BTN_H := BTN_SIZE * 0.5    # 30px
 
 const ArenaEnemy := preload("res://scripts/gameplay/arena_enemy.gd")
 const SettingsScript := preload("res://scripts/ui/settings/settings_panel.gd")
@@ -33,22 +40,32 @@ var _dev_toggle_btn: TextureButton = null   # 2026-08-06, on request: always-vis
                                               # 6-button column that only SHOWS once dev mode is already on, so
                                               # it can't turn dev mode ON by itself; see set_dev_mode()'s doc).
 var _pause_btn:      TextureButton = null
+# 2026-08-18 grouping (request: "gom nhóm lại"): the individual buttons below are unchanged in behavior/
+# handler — they're now parented into one of the two flyouts below instead of sitting directly in the
+# always-visible column. See _map_edit_btn/_map_edit_flyout and _creep_edit_group_btn/_creep_edit_flyout.
 var _terrain_edit_btn: Button = null
 var _light_edit_btn: Button = null
 var _plume_edit_btn: Button = null
 var _crater_mark_btn: Button = null
 var _landmark_mark_btn: Button = null
-var _boss_edit_btn:  TextureButton = null
+var _boss_edit_btn:  Button = null
 var _creep_info_btn: Button = null
 var _weapon_info_btn: Button = null
-var _creep_edit_btn: TextureButton = null
-var _simplified_btn: TextureButton = null
-var _creep_btn:      TextureButton = null
-var _weapon_btn:     TextureButton = null
-var _hotkey_btn:     TextureButton = null
-var _fleet_edit_btn: TextureButton = null
-var _wave_edit_btn:  TextureButton = null
-var _hud_edit_btn:   TextureButton = null
+var _creep_edit_btn: Button = null   # the individual "Creep Edit" tool (creep_edit_mode.gd) — lives INSIDE the Creep Edit flyout, distinct from _creep_edit_group_btn (the flyout's own trigger)
+var _simplified_btn: Button = null
+# Group triggers + flyouts (2026-08-18) — MAP EDIT groups Landmark Mark/Crater Mark/Plume Edit/Light
+# Edit/Terrain Edit/Simplified; CREEP EDIT groups Boss Edit/Creep Info/Creep Edit/Fleet Edit/Wave Edit.
+# Each flyout opens to the RIGHT of its trigger so it never collides with the standalone column below.
+var _map_edit_btn:      Button = null
+var _map_edit_flyout:   VBoxContainer = null
+var _creep_edit_group_btn: Button = null
+var _creep_edit_flyout: VBoxContainer = null
+var _creep_btn:      Button = null
+var _weapon_btn:     Button = null
+var _hotkey_btn:     Button = null
+var _fleet_edit_btn: Button = null
+var _wave_edit_btn:  Button = null
+var _hud_edit_btn:   Button = null
 var _end_run_btn:    Button = null
 var _end_run_popup:  CanvasLayer = null   # WIN/LOSE choice popup — built lazily on first END RUN click
 var _boss_fight_btn: Button = null
@@ -58,20 +75,11 @@ var _level_btn:      Button = null
 var _inv_btn:        Button = null
 var _vb:             VBoxContainer = null
 
-# Textures
+# Textures (Devon/dev-toggle + Pause only — every other dev-cluster button lost its icon 2026-08-18,
+# see _make_label_btn()'s dev-cluster callers below; those texture vars are gone)
 var _tex_devon:         Texture2D = null
 var _tex_devoff:        Texture2D = null
 var _tex_pause:         Texture2D = null
-var _tex_boss_edit:     Texture2D = null
-var _tex_creep_edit:    Texture2D = null
-var _tex_simplified:    Texture2D = null
-var _tex_simplifiedon:  Texture2D = null
-var _tex_creep:         Texture2D = null
-var _tex_weapon:        Texture2D = null
-var _tex_hotkey:        Texture2D = null
-var _tex_fleet_edit:    Texture2D = null
-var _tex_wave_edit:     Texture2D = null
-var _tex_hud_edit:      Texture2D = null
 
 # Total height without dev-edit buttons (for VBox repositioning)
 var _base_total_h: float = 0.0
@@ -83,16 +91,6 @@ func _ready() -> void:
 	_tex_devon         = _load_img("res://assets/hud/Devon.png")
 	_tex_devoff        = _load_img("res://assets/hud/devoff.png")
 	_tex_pause         = _load_img("res://assets/hud/Pause.png")
-	_tex_boss_edit     = _load_img("res://assets/hud/Boss_edit.png")
-	_tex_creep_edit    = _load_img("res://assets/hud/Creep_edit.png")
-	_tex_simplified    = _load_img("res://assets/hud/Simplified.png")
-	_tex_simplifiedon  = _load_img("res://assets/hud/Simplifiedon.png")
-	_tex_creep         = _load_img("res://assets/hud/creep.png")
-	_tex_weapon        = _load_img("res://assets/hud/weapon.png")
-	_tex_hotkey        = _load_img("res://assets/hud/hotkey.png")
-	_tex_fleet_edit    = _load_img("res://assets/hud/Fleet_edit.png")
-	_tex_wave_edit     = _load_img("res://assets/hud/Wave_edit.png")
-	_tex_hud_edit      = _load_img("res://assets/hud/Asset 41.png")
 	_build_ui()
 	SettingsScript.apply_saved()       # apply saved SFX volume + window mode (covers arena-direct launch)
 	if bool(SettingsScript.load_cfg().get("dev_mode", false)):
@@ -131,8 +129,6 @@ func _build_ui() -> void:
 
 	var pause_h      := _btn_h(_tex_pause)
 	var codex_h      := _btn_h(tex_codex)
-	var boss_edit_h  := _btn_h(_tex_boss_edit)
-	var creep_edit_h := _btn_h(_tex_creep_edit)
 
 	# VBox: Pause + Codex + Inventory + Setting + Devon + Quit (6 buttons, 5 gaps) — no dev buttons here
 	_base_total_h = pause_h + codex_h + BTN_SIZE * 4.0 + BTN_SEP * 5.0
@@ -198,155 +194,170 @@ func _build_ui() -> void:
 	_dev_toggle_btn.pressed.connect(_on_devon)
 	root.add_child(_dev_toggle_btn)
 
-	# Dev buttons at top-left (below HP bar): Terrain Edit → Simplified → Boss_edit → Creep_edit
-	# Only visible when dev mode is on; spacing = BTN_SEP (same as right column)
+	# Dev buttons at top-left (below HP bar). Only visible when dev mode is on; spacing = BTN_SEP (same
+	# as right column). 2026-08-18 regroup (request: "các nút dev mode giờ gom nhóm lại"): the 6
+	# map-terrain-family buttons and the 5 creep/boss/fleet/wave-family buttons each collapsed into ONE
+	# trigger button ("MAP EDIT" / "CREEP EDIT") that expands a flyout to the right when clicked. Every
+	# sub-button below keeps its EXACT original texture/handler/behavior — only where it's shown changed.
 
-	# Terrain Edit — terrain-map-only (Rubicon/Volcanic/Atlantic; density/scale/blur/cloud opacity+brightness/2
-	# terrain colors — see rubicon_terrain_edit.gd / volcanic_terrain_edit.gd / atlantic_terrain_edit.gd). No
-	# dedicated icon art, so a compact label button; ALSO gated on the current map (set_dev_mode() below only
-	# reveals it when MetaManager.selected_map_id is "rubicon"/"volcanic"/"atlantic" — Default has no
-	# terrain/cloud/asset system to edit).
-	var terrain_edit_h := BTN_SIZE * 0.5
-	_terrain_edit_btn = _make_label_btn("TERRAIN EDIT", BTN_SIZE * 1.8, terrain_edit_h, 9)
-	_terrain_edit_btn.position = Vector2(SIMPLIFIED_X, SIMPLIFIED_Y)
-	_terrain_edit_btn.visible = false
-	_terrain_edit_btn.pressed.connect(_on_terrain_edit)
-	root.add_child(_terrain_edit_btn)
-	var simplified_y := SIMPLIFIED_Y + terrain_edit_h + BTN_SEP
+	# ── MAP EDIT — Landmark Mark / Crater Mark / Plume Edit / Light Edit / Terrain Edit / Simplified ──
+	# 2026-08-18: every button in this cluster is now a uniform SMALL_BTN_W × SMALL_BTN_H TEXT button
+	# (no icon art, default font) — see _make_label_btn()'s own header comment.
+	_map_edit_btn = _make_label_btn("MAP EDIT", SMALL_BTN_W, SMALL_BTN_H, 8)
+	_map_edit_btn.position = Vector2(SIMPLIFIED_X, SIMPLIFIED_Y)
+	_map_edit_btn.visible = false
+	_map_edit_btn.pressed.connect(_on_map_edit_trigger)
+	root.add_child(_map_edit_btn)
 
-	# Light Edit — canopy normal-map lighting knobs (angle/height/ambient/specular, see rubicon_light_edit.gd),
-	# split out of the big Terrain Edit panel into its own small focused one. Sits directly ABOVE Terrain
-	# Edit, going upward from SIMPLIFIED_Y so it never disturbs the existing cascade below Terrain Edit.
-	var light_edit_h := BTN_SIZE * 0.5
-	_light_edit_btn = _make_label_btn("LIGHT EDIT", BTN_SIZE * 1.8, light_edit_h, 9)
-	_light_edit_btn.position = Vector2(SIMPLIFIED_X, SIMPLIFIED_Y - light_edit_h - BTN_SEP)
-	_light_edit_btn.visible = false
-	_light_edit_btn.pressed.connect(_on_light_edit)
-	root.add_child(_light_edit_btn)
-
-	# Plume Edit — Volcanic/Atlantic-only (ash/bubble-plume speed/height/density/color, see
-	# volcanic_plume_edit.gd / atlantic_plume_edit.gd), split out of Terrain Edit into its own dedicated
-	# panel/button (user feedback: "cột khói bốc lên có nút chỉnh riêng"). Sits directly ABOVE Light Edit,
-	# continuing the same upward cascade.
-	var plume_edit_h := BTN_SIZE * 0.5
-	_plume_edit_btn = _make_label_btn("PLUME EDIT", BTN_SIZE * 1.8, plume_edit_h, 9)
-	_plume_edit_btn.position = Vector2(SIMPLIFIED_X, _light_edit_btn.position.y - plume_edit_h - BTN_SEP)
-	_plume_edit_btn.visible = false
-	_plume_edit_btn.pressed.connect(_on_plume_edit)
-	root.add_child(_plume_edit_btn)
-
-	# Crater Mark — Volcanic/Atlantic-only (click the maptile reference photo to mark craters/vents, see
-	# volcanic_crater_mark.gd / atlantic_crater_mark.gd). Sits directly ABOVE Plume Edit.
-	var crater_mark_h := BTN_SIZE * 0.5
-	_crater_mark_btn = _make_label_btn("CRATER MARK", BTN_SIZE * 1.8, crater_mark_h, 9)
-	_crater_mark_btn.position = Vector2(SIMPLIFIED_X, _plume_edit_btn.position.y - crater_mark_h - BTN_SEP)
-	_crater_mark_btn.visible = false
-	_crater_mark_btn.pressed.connect(_on_crater_mark)
-	root.add_child(_crater_mark_btn)
+	_map_edit_flyout = VBoxContainer.new()
+	_map_edit_flyout.add_theme_constant_override("separation", BTN_SEP)
+	_map_edit_flyout.position = Vector2(SIMPLIFIED_X + SMALL_BTN_W + BTN_SEP, SIMPLIFIED_Y)
+	_map_edit_flyout.visible = false
+	root.add_child(_map_edit_flyout)
 
 	# Landmark Mark — Volcanic/Atlantic-only (click the temple's top-down reference render to mark plume
-	# points, see volcanic_landmark_mark.gd / atlantic_landmark_mark.gd). Sits directly ABOVE Crater Mark.
-	var landmark_mark_h := BTN_SIZE * 0.5
-	_landmark_mark_btn = _make_label_btn("LANDMARK MARK", BTN_SIZE * 1.8, landmark_mark_h, 9)
-	_landmark_mark_btn.position = Vector2(SIMPLIFIED_X, _crater_mark_btn.position.y - landmark_mark_h - BTN_SEP)
+	# points, see volcanic_landmark_mark.gd / atlantic_landmark_mark.gd).
+	_landmark_mark_btn = _make_label_btn("LANDMARK", SMALL_BTN_W, SMALL_BTN_H, 7)
 	_landmark_mark_btn.visible = false
 	_landmark_mark_btn.pressed.connect(_on_landmark_mark)
-	root.add_child(_landmark_mark_btn)
+	_map_edit_flyout.add_child(_landmark_mark_btn)
 
-	var s_h := _btn_h(_tex_simplified)
-	_simplified_btn = _make_btn(_tex_simplified, s_h)
-	_simplified_btn.position = Vector2(SIMPLIFIED_X, simplified_y)
+	# Crater Mark — Volcanic/Atlantic-only (click the maptile reference photo to mark craters/vents, see
+	# volcanic_crater_mark.gd / atlantic_crater_mark.gd).
+	_crater_mark_btn = _make_label_btn("CRATER", SMALL_BTN_W, SMALL_BTN_H, 7)
+	_crater_mark_btn.visible = false
+	_crater_mark_btn.pressed.connect(_on_crater_mark)
+	_map_edit_flyout.add_child(_crater_mark_btn)
+
+	# Plume Edit — Volcanic/Atlantic-only (ash/bubble-plume speed/height/density/color, see
+	# volcanic_plume_edit.gd / atlantic_plume_edit.gd).
+	_plume_edit_btn = _make_label_btn("PLUME", SMALL_BTN_W, SMALL_BTN_H, 7)
+	_plume_edit_btn.visible = false
+	_plume_edit_btn.pressed.connect(_on_plume_edit)
+	_map_edit_flyout.add_child(_plume_edit_btn)
+
+	# Light Edit — canopy normal-map lighting knobs (angle/height/ambient/specular, see
+	# electric_light_edit.gd / volcanic_light_edit.gd / atlantic_light_edit.gd).
+	_light_edit_btn = _make_label_btn("LIGHT", SMALL_BTN_W, SMALL_BTN_H, 7)
+	_light_edit_btn.visible = false
+	_light_edit_btn.pressed.connect(_on_light_edit)
+	_map_edit_flyout.add_child(_light_edit_btn)
+
+	# Terrain Edit — terrain-map-only (Electric/Volcanic/Atlantic; density/scale/blur/cloud
+	# opacity+brightness/2 terrain colors — see electric_terrain_edit.gd / volcanic_terrain_edit.gd /
+	# atlantic_terrain_edit.gd). ALSO gated on the current map (set_dev_mode() below only reveals it when
+	# MetaManager.selected_map_id is "electric"/"volcanic"/"atlantic" — Default has no terrain/cloud/asset
+	# system to edit).
+	_terrain_edit_btn = _make_label_btn("TERRAIN", SMALL_BTN_W, SMALL_BTN_H, 7)
+	_terrain_edit_btn.visible = false
+	_terrain_edit_btn.pressed.connect(_on_terrain_edit)
+	_map_edit_flyout.add_child(_terrain_edit_btn)
+
+	# Simplified — was an icon that swapped Simplified.png/Simplifiedon.png to show ON/OFF; now a text
+	# toggle (_on_simplified() sets .text/.color instead), same convention as Auto-Fire/God Mode below.
+	_simplified_btn = _make_label_btn("SIMPLE:OFF", SMALL_BTN_W, SMALL_BTN_H, 7)
 	_simplified_btn.visible = false
 	_simplified_btn.pressed.connect(_on_simplified)
-	root.add_child(_simplified_btn)
+	_map_edit_flyout.add_child(_simplified_btn)
 
-	_boss_edit_btn = _make_btn(_tex_boss_edit, boss_edit_h)
-	_boss_edit_btn.position = Vector2(SIMPLIFIED_X, simplified_y + s_h + BTN_SEP)
+	# Picking any sub-tool collapses the flyout back (submenu convention) — a 2nd listener per button,
+	# added after its own real handler above, so it doesn't disturb that handler's own signature/binding.
+	for c: Node in _map_edit_flyout.get_children():
+		(c as BaseButton).pressed.connect(func() -> void: _map_edit_flyout.visible = false)
+
+	# ── CREEP EDIT — Boss Edit / Creep Info / Creep Edit / Fleet Edit / Wave Edit ──────────────────────
+	# None of these 5 are map-gated (always shown once the flyout is open, dev:on).
+	_creep_edit_group_btn = _make_label_btn("CREEP EDIT", SMALL_BTN_W, SMALL_BTN_H, 8)
+	_creep_edit_group_btn.position = Vector2(SIMPLIFIED_X, SIMPLIFIED_Y + SMALL_BTN_H + BTN_SEP)
+	_creep_edit_group_btn.visible = false
+	_creep_edit_group_btn.pressed.connect(_on_creep_edit_trigger)
+	root.add_child(_creep_edit_group_btn)
+
+	_creep_edit_flyout = VBoxContainer.new()
+	_creep_edit_flyout.add_theme_constant_override("separation", BTN_SEP)
+	_creep_edit_flyout.position = Vector2(SIMPLIFIED_X + SMALL_BTN_W + BTN_SEP, SIMPLIFIED_Y + SMALL_BTN_H + BTN_SEP)
+	_creep_edit_flyout.visible = false
+	root.add_child(_creep_edit_flyout)
+
+	_boss_edit_btn = _make_label_btn("BOSS EDIT", SMALL_BTN_W, SMALL_BTN_H, 7)
 	_boss_edit_btn.visible = false
 	_boss_edit_btn.pressed.connect(_on_boss_edit)
-	root.add_child(_boss_edit_btn)
+	_creep_edit_flyout.add_child(_boss_edit_btn)
 
-	# Creep Info — between Boss Edit and Creep Edit (dev:on only). Opens a table (icon/name/HP/Move/Shoot)
-	# for every enemy type — see creep_info_panel.gd. No dedicated icon art yet, so a compact label button
-	# (same small-button style as END RUN/AUTO-FIRE/+LEVEL below).
-	var creep_info_h := BTN_SIZE * 0.5
-	_creep_info_btn = _make_label_btn("CREEP INFO", BTN_SIZE * 1.8, creep_info_h, 9)
-	_creep_info_btn.position = Vector2(SIMPLIFIED_X, simplified_y + s_h + BTN_SEP + boss_edit_h + BTN_SEP)
+	# Creep Info — opens a table (icon/name/HP/Move/Shoot) for every enemy type — see creep_info_panel.gd.
+	_creep_info_btn = _make_label_btn("CREEP INFO", SMALL_BTN_W, SMALL_BTN_H, 7)
 	_creep_info_btn.visible = false
 	_creep_info_btn.pressed.connect(_on_creep_info)
-	root.add_child(_creep_info_btn)
+	_creep_edit_flyout.add_child(_creep_info_btn)
 
-	# Weapon Info — right under Creep Info (same small-label-button style, dev:on only). Opens the item
-	# catalog table (icon/name/code/category/mfr/damage/speed/lore + expandable perk pools, Drop/Evolve/
-	# Fusion/Unique sub-tabs on the Weapon tab) across Weapon/Aux/Shield/Hull/Thruster — see
-	# weapon_info_panel.gd. NOT the same as the icon "weapon" button below (_weapon_btn) — that one opens
-	# the older Spawn Weapon debug grid (arena_debug_spawn.gd); this text button is the new one.
-	var weapon_info_h := BTN_SIZE * 0.5
-	_weapon_info_btn = _make_label_btn("WEAPON INFO", BTN_SIZE * 1.8, weapon_info_h, 9)
-	_weapon_info_btn.position = Vector2(SIMPLIFIED_X, simplified_y + s_h + BTN_SEP + boss_edit_h + BTN_SEP + creep_info_h + BTN_SEP)
+	# Creep Edit — the individual sprite/layout tool (creep_edit_mode.gd), distinct from the "CREEP EDIT"
+	# group trigger above even though they share a name.
+	_creep_edit_btn = _make_label_btn("CREEP EDIT", SMALL_BTN_W, SMALL_BTN_H, 7)
+	_creep_edit_btn.visible = false
+	_creep_edit_btn.pressed.connect(_on_creep_edit)
+	_creep_edit_flyout.add_child(_creep_edit_btn)
+
+	_fleet_edit_btn = _make_label_btn("FLEET EDIT", SMALL_BTN_W, SMALL_BTN_H, 7)
+	_fleet_edit_btn.visible = false
+	_fleet_edit_btn.pressed.connect(_on_fleet_edit)
+	_creep_edit_flyout.add_child(_fleet_edit_btn)
+
+	_wave_edit_btn = _make_label_btn("WAVE EDIT", SMALL_BTN_W, SMALL_BTN_H, 7)
+	_wave_edit_btn.visible = false
+	_wave_edit_btn.pressed.connect(_on_wave_edit)
+	_creep_edit_flyout.add_child(_wave_edit_btn)
+
+	for c: Node in _creep_edit_flyout.get_children():
+		(c as BaseButton).pressed.connect(func() -> void: _creep_edit_flyout.visible = false)
+
+	# ── Standalone buttons below the 2 group triggers — unchanged behavior, "giữ nguyên" ───────────────
+	var y_next := SIMPLIFIED_Y + SMALL_BTN_H + BTN_SEP + SMALL_BTN_H + BTN_SEP
+
+	# Weapon Info — opens the item catalog table (icon/name/code/category/mfr/damage/speed/lore +
+	# expandable perk pools, Drop/Evolve/Fusion/Unique sub-tabs on the Weapon tab) across
+	# Weapon/Aux/Shield/Hull/Thruster — see weapon_info_panel.gd. NOT the same as the "Weapon" button
+	# below (_weapon_btn) — that one opens the older Spawn Weapon debug grid (arena_debug_spawn.gd).
+	_weapon_info_btn = _make_label_btn("WEAPON INFO", SMALL_BTN_W, SMALL_BTN_H, 7)
+	_weapon_info_btn.position = Vector2(SIMPLIFIED_X, y_next)
 	_weapon_info_btn.visible = false
 	_weapon_info_btn.pressed.connect(_on_weapon_info)
 	root.add_child(_weapon_info_btn)
+	y_next += SMALL_BTN_H + BTN_SEP
 
-	_creep_edit_btn = _make_btn(_tex_creep_edit, creep_edit_h)
-	_creep_edit_btn.position = Vector2(SIMPLIFIED_X, simplified_y + s_h + BTN_SEP + boss_edit_h + BTN_SEP + creep_info_h + BTN_SEP + weapon_info_h + BTN_SEP)
-	_creep_edit_btn.visible = false
-	_creep_edit_btn.pressed.connect(_on_creep_edit)
-	root.add_child(_creep_edit_btn)
-
-	# Panel-toggle buttons below the edit cluster: creep / weapon / hotkey (dev:on only).
-	var y_panels := simplified_y + s_h + BTN_SEP + boss_edit_h + BTN_SEP + creep_info_h + BTN_SEP + weapon_info_h + BTN_SEP + creep_edit_h + BTN_SEP
-	var creep_h := _btn_h(_tex_creep)
-	_creep_btn = _make_btn(_tex_creep, creep_h)
-	_creep_btn.position = Vector2(SIMPLIFIED_X, y_panels)
+	# Creep (Quick Spawn debug grid) — unchanged.
+	_creep_btn = _make_label_btn("CREEP", SMALL_BTN_W, SMALL_BTN_H, 8)
+	_creep_btn.position = Vector2(SIMPLIFIED_X, y_next)
 	_creep_btn.visible = false
 	_creep_btn.pressed.connect(_on_creep_panel)
 	root.add_child(_creep_btn)
+	y_next += SMALL_BTN_H + BTN_SEP
 
-	var weapon_h := _btn_h(_tex_weapon)
-	_weapon_btn = _make_btn(_tex_weapon, weapon_h)
-	_weapon_btn.position = Vector2(SIMPLIFIED_X, y_panels + creep_h + BTN_SEP)
+	# Weapon (Quick Spawn debug grid) — unchanged.
+	_weapon_btn = _make_label_btn("WEAPON", SMALL_BTN_W, SMALL_BTN_H, 8)
+	_weapon_btn.position = Vector2(SIMPLIFIED_X, y_next)
 	_weapon_btn.visible = false
 	_weapon_btn.pressed.connect(_on_weapon_panel)
 	root.add_child(_weapon_btn)
+	y_next += SMALL_BTN_H + BTN_SEP
 
-	var hotkey_h := _btn_h(_tex_hotkey)
-	_hotkey_btn = _make_btn(_tex_hotkey, hotkey_h)
-	_hotkey_btn.position = Vector2(SIMPLIFIED_X, y_panels + creep_h + BTN_SEP + weapon_h + BTN_SEP)
+	_hotkey_btn = _make_label_btn("HOTKEY", SMALL_BTN_W, SMALL_BTN_H, 8)
+	_hotkey_btn.position = Vector2(SIMPLIFIED_X, y_next)
 	_hotkey_btn.visible = false
 	_hotkey_btn.pressed.connect(_on_hotkey_panel)
 	root.add_child(_hotkey_btn)
+	y_next += SMALL_BTN_H + BTN_SEP
 
-	# Fleet Edit — below the hotkey button (dev:on only)
-	var fleet_h := _btn_h(_tex_fleet_edit)
-	var y_fleet := y_panels + creep_h + BTN_SEP + weapon_h + BTN_SEP + hotkey_h + BTN_SEP
-	_fleet_edit_btn = _make_btn(_tex_fleet_edit, fleet_h)
-	_fleet_edit_btn.position = Vector2(SIMPLIFIED_X, y_fleet)
-	_fleet_edit_btn.visible = false
-	_fleet_edit_btn.pressed.connect(_on_fleet_edit)
-	root.add_child(_fleet_edit_btn)
-
-	# Wave Edit (F7) — below the Fleet button (dev:on only)
-	var wave_h := _btn_h(_tex_wave_edit)
-	_wave_edit_btn = _make_btn(_tex_wave_edit, wave_h)
-	_wave_edit_btn.position = Vector2(SIMPLIFIED_X, y_fleet + fleet_h + BTN_SEP)
-	_wave_edit_btn.visible = false
-	_wave_edit_btn.pressed.connect(_on_wave_edit)
-	root.add_child(_wave_edit_btn)
-
-	# HUD Edit — below the Wave button (dev:on only)
-	var hud_h := _btn_h(_tex_hud_edit)
-	_hud_edit_btn = _make_btn(_tex_hud_edit, hud_h)
-	_hud_edit_btn.position = Vector2(SIMPLIFIED_X, y_fleet + fleet_h + BTN_SEP + wave_h + BTN_SEP)
+	# HUD Edit — unchanged.
+	_hud_edit_btn = _make_label_btn("HUD EDIT", SMALL_BTN_W, SMALL_BTN_H, 8)
+	_hud_edit_btn.position = Vector2(SIMPLIFIED_X, y_next)
 	_hud_edit_btn.visible = false
 	_hud_edit_btn.pressed.connect(_on_hud_edit)
 	root.add_child(_hud_edit_btn)
+	y_next += SMALL_BTN_H + BTN_SEP
 
-	# Small dev-cluster buttons (End Run / Auto-Fire / +Level) — half the size of the icon buttons above,
-	# so this stack of 3 fits without pushing the column further off-screen.
-	const SMALL_BTN_W := BTN_SIZE * 0.9    # 54px  (was BTN_SIZE * 1.8 = 108px)
-	const SMALL_BTN_H := BTN_SIZE * 0.5    # 30px  (was BTN_SIZE = 60px)
-	var y_small := y_fleet + fleet_h + BTN_SEP + wave_h + BTN_SEP + hud_h + BTN_SEP
+	# Small dev-cluster buttons (End Run / Auto-Fire / +Level) — SMALL_BTN_W/H (top of file), the same
+	# uniform size now shared by the whole cluster above.
+	var y_small := y_next
 
 	# End Run — below HUD Edit, top of the small-button stack (dev:on only). Same effect as F4 (_skip_run
 	# in arena_debug_spawn.gd): simulated rewards + jump straight to the RUN OVER screen.
@@ -393,9 +404,14 @@ func _build_ui() -> void:
 	_level_btn.pressed.connect(_on_add_level)
 	root.add_child(_level_btn)
 
+## 2026-08-18 request: dev-mode buttons use the engine's DEFAULT font now, not Mandalore — Mandalore's
+## uppercase-A glyph is broken (see mandalore_text.gd) and MandaloreText.a() is only correct for text
+## actually rendered in that font; this file's buttons never should have loaded it unconditionally like
+## this (same class of bug already fixed in arena_wave_editor.gd — see that file's _txt() and the
+## traveler_mandaloretext_rule memory note). No font override + no MandaloreText.a() wrapping here.
 func _make_label_btn(label: String, width: float = BTN_SIZE, height: float = BTN_SIZE, font_size: int = 11) -> Button:
 	var btn := Button.new()
-	btn.text = MandaloreText.a(label)
+	btn.text = label
 	btn.custom_minimum_size = Vector2(width, height)
 	var s := StyleBoxFlat.new()
 	s.bg_color = Color(0.10, 0.12, 0.16, 0.85)
@@ -410,11 +426,9 @@ func _make_label_btn(label: String, width: float = BTN_SIZE, height: float = BTN
 	var sp := s.duplicate() as StyleBoxFlat
 	sp.bg_color = Color(0.25, 0.35, 0.55, 1.0)
 	btn.add_theme_stylebox_override("pressed", sp)
-	var font := load("res://assets/fonts/mandalore/mandalore.ttf") as Font
-	if font:
-		btn.add_theme_font_override("font", font)
 	btn.add_theme_font_size_override("font_size", font_size)
 	btn.add_theme_color_override("font_color", Color(0.85, 0.90, 1.0))
+	btn.clip_text = true   # uniform SMALL_BTN_W (54px) is narrower than some labels (e.g. "WEAPON INFO") — clip instead of overflow
 	return btn
 
 func _make_btn(tex: Texture2D, h: float) -> TextureButton:
@@ -428,8 +442,9 @@ func _make_btn(tex: Texture2D, h: float) -> TextureButton:
 # ── Button handlers ────────────────────────────────────────────────────────────
 
 ## Esc: open the Settings panel (pause menu), same panel/behavior as the Setting button. Pressing Esc
-## again while it's open closes it without saving (same as the Cancel button). Dev-mode editors (Boss/
-## Creep/Fleet/Wave/HUD Edit) own Escape while dev mode is on, so this backs off in that case; likewise if
+## again while it's open closes it without saving (same as the Cancel button). While dev mode is on, Esc
+## instead closes whichever dev-mode panel is currently open (2026-08-18 request — see
+## _close_open_dev_panel(); none of those editors had their own Escape handling before this). Likewise if
 ## Inventory is open, its own Escape handler closes it first instead of also popping Settings on top.
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
@@ -443,12 +458,95 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if _dev_mode:
+		if _close_open_dev_panel():
+			get_viewport().set_input_as_handled()
 		return
 	var inv := get_tree().get_first_node_in_group("inventory_ui")
 	if inv != null and inv.has_method("is_open") and inv.is_open():
 		return
 	_settings.open()
 	get_viewport().set_input_as_handled()
+
+## 2026-08-18 request: "bấm phím Esc tự động tắt các bảng khi đang mở" — closes EVERY currently-open
+## dev-mode panel (checked via each one's own is_open(), same convention creep_edit_mode.gd /
+## boss_edit_mode.gd / fleet_edit_mode.gd / creep_info_panel.gd / weapon_info_panel.gd / hud_edit_mode.gd /
+## arena_wave_editor.gd / the 11 map-terrain-family editors all already expose). Falls back to just
+## collapsing an expanded-but-empty Map Edit / Creep Edit flyout if nothing underneath is actually open.
+## Returns true if it did anything (so the caller knows to consume the keypress), false otherwise —
+## letting Esc fall through to Settings when dev mode is on but nothing dev-specific is open would be
+## surprising (dev mode already blocks that path unconditionally, unchanged from before this request).
+## Picks the TERRAIN EDIT / LIGHT EDIT node-group name for whichever themed map is currently selected —
+## atlantic/volcanic/mechanic each get their own explicit branch, Electric is the (only) implicit fallback for
+## every id NOT in that list (matches _has_terrain_editor's own explicit id check below, so an id outside all
+## 4 — e.g. "default" — never reaches these groups in the first place). Explicit per-id branches (rather than
+## a single chained ternary) so adding a 5th themed map later is a one-line addition here, not a 5-way ternary
+## rewrite, and so an unhandled id can never silently fall through to Electric's panels the way it used to
+## before Mechanic was added (that implicit-fallback shape is exactly how a 4th themed map would have gone
+## unnoticed).
+func _terrain_edit_group(map_id: String) -> String:
+	match map_id:
+		"atlantic": return "atlantic_terrain_edit"
+		"volcanic": return "volcanic_terrain_edit"
+		"mechanic": return "mechanic_terrain_edit"
+		"arctic": return "arctic_terrain_edit"
+		_: return "electric_terrain_edit"
+
+func _light_edit_group(map_id: String) -> String:
+	match map_id:
+		"atlantic": return "atlantic_light_edit"
+		"volcanic": return "volcanic_light_edit"
+		"mechanic": return "mechanic_light_edit"
+		"arctic": return "arctic_light_edit"
+		_: return "electric_light_edit"
+
+## Picks the PLUME EDIT node-group name — unlike terrain/light edit, this only covers the 3 maps that
+## actually HAVE a plume/wind system (atlantic/volcanic/mechanic); Electric has none, so there's no meaningful
+## fallback group here the way "electric_terrain_edit" works above — callers gate on _has_plume_system first
+## (see set_dev_mode) and never call this for an id outside those 3.
+func _plume_edit_group(map_id: String) -> String:
+	match map_id:
+		"atlantic": return "atlantic_plume_edit"
+		"mechanic": return "mechanic_plume_edit"
+		"arctic": return "arctic_plume_edit"
+		_: return "volcanic_plume_edit"
+
+## Picks the CRATER MARK node-group name — covers the same 3 maps as _plume_edit_group (mechanic_vent_mark.gd,
+## 2026-08-19: the marking tool a plume system needs to place vents at deliberate spots, not just random
+## ambient scatter — see mechanic_plumes.gd's header). Callers gate on _has_vent_marking first (see
+## set_dev_mode) and never call this for an id outside those 3. Mechanic has no LANDMARK marking though (no
+## landmark .glb yet) — that stays volcanic/atlantic-only, see _has_landmark_marking.
+func _crater_mark_group(map_id: String) -> String:
+	match map_id:
+		"atlantic": return "atlantic_crater_mark"
+		"mechanic": return "mechanic_vent_mark"
+		"arctic": return "arctic_vent_mark"
+		_: return "volcanic_crater_mark"
+
+func _close_open_dev_panel() -> bool:
+	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
+	var groups: Array[String] = [
+		"boss_edit", "creep_edit", "creep_info", "fleet_edit", "wave_editor", "hud_edit", "weapon_info",
+		_terrain_edit_group(map_id),
+		_light_edit_group(map_id),
+		_plume_edit_group(map_id),
+		_crater_mark_group(map_id),
+		("atlantic_landmark_mark" if map_id == "atlantic" else "volcanic_landmark_mark"),
+	]
+	var closed_any := false
+	for g: String in groups:
+		var n := get_tree().get_first_node_in_group(g)
+		if n != null and n.has_method("is_open") and n.has_method("toggle") and bool(n.call("is_open")):
+			n.call("toggle")
+			closed_any = true
+	if closed_any:
+		return true
+	if _map_edit_flyout != null and _map_edit_flyout.visible:
+		_map_edit_flyout.visible = false
+		return true
+	if _creep_edit_flyout != null and _creep_edit_flyout.visible:
+		_creep_edit_flyout.visible = false
+		return true
+	return false
 
 ## Derives the new state from the tree's ACTUAL live paused flag, not _game_paused's own remembered value —
 ## several other panels (weapon palette F12, planet menu F6, drop UI, weapon chest UI, level-up UI) force
@@ -502,13 +600,25 @@ func set_dev_mode(v: bool) -> void:
 	# Show / hide the bottom-right column (Pause/Codex/Inv/Setting/Devon/Quit) + dev buttons at top-left
 	_vb.visible = _dev_mode
 	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
-	var _has_terrain_editor := map_id == "rubicon" or map_id == "volcanic" or map_id == "atlantic"
-	var _has_plume_system := map_id == "volcanic" or map_id == "atlantic"
+	var _has_terrain_editor := map_id == "electric" or map_id == "volcanic" or map_id == "atlantic" or map_id == "mechanic" or map_id == "arctic"
+	var _has_plume_system := map_id == "volcanic" or map_id == "atlantic" or map_id == "mechanic" or map_id == "arctic"
+	# Vent/crater MARKING is now on all 4 (mechanic_vent_mark.gd/arctic_vent_mark.gd, 2026-08-19 — the
+	# ambient-only first pass was missing this). LANDMARK marking stays narrower — Mechanic/Arctic have no
+	# landmark .glb SCATTERED on the ground yet, unlike Volcanic/Atlantic, so there's nothing to attach a
+	# landmark-scoped plume mark to.
+	var _has_vent_marking := map_id == "volcanic" or map_id == "atlantic" or map_id == "mechanic" or map_id == "arctic"
+	var _has_landmark_marking := map_id == "volcanic" or map_id == "atlantic"
+	_map_edit_btn.visible = _dev_mode
+	_creep_edit_group_btn.visible = _dev_mode
+	# Every toggle collapses both flyouts back to closed — a clean, deterministic starting state instead
+	# of "remembering" whichever was expanded across a dev-mode off/on cycle.
+	_map_edit_flyout.visible = false
+	_creep_edit_flyout.visible = false
 	_terrain_edit_btn.visible = _dev_mode and _has_terrain_editor   # Default has no terrain/cloud/asset system to edit
 	_light_edit_btn.visible = _dev_mode and _has_terrain_editor     # same gating — ground lighting is terrain-map-only too
-	_plume_edit_btn.visible = _dev_mode and _has_plume_system    # ash/bubble plumes — no clouds system on Rubicon
-	_crater_mark_btn.visible = _dev_mode and _has_plume_system   # crater/vent marking — same gating as Plume Edit
-	_landmark_mark_btn.visible = _dev_mode and _has_plume_system # landmark marking — same gating as Plume Edit
+	_plume_edit_btn.visible = _dev_mode and _has_plume_system    # ash/bubble/steam plumes — no clouds system on Electric
+	_crater_mark_btn.visible = _dev_mode and _has_vent_marking     # crater/vent marking — see _has_vent_marking
+	_landmark_mark_btn.visible = _dev_mode and _has_landmark_marking # landmark marking — Volcanic/Atlantic only
 	_simplified_btn.visible = _dev_mode
 	_boss_edit_btn.visible  = _dev_mode
 	_creep_info_btn.visible = _dev_mode
@@ -551,37 +661,48 @@ func _on_hotkey_panel() -> void:
 	_click_sfx()
 	_toggle_ds_panel("toggle_hotkey_panel")
 
+## MAP EDIT trigger — expands/collapses the flyout listing Landmark Mark/Crater Mark/Plume Edit/Light
+## Edit/Terrain Edit/Simplified. Also collapses the OTHER flyout (Creep Edit) if it happened to be open,
+## so at most one flyout is ever expanded at a time.
+func _on_map_edit_trigger() -> void:
+	_click_sfx()
+	_map_edit_flyout.visible = not _map_edit_flyout.visible
+	if _map_edit_flyout.visible:
+		_creep_edit_flyout.visible = false
+
+## CREEP EDIT trigger — expands/collapses the flyout listing Boss Edit/Creep Info/Creep Edit/Fleet
+## Edit/Wave Edit. Mirrors _on_map_edit_trigger()'s single-flyout-open-at-a-time behavior.
+func _on_creep_edit_trigger() -> void:
+	_click_sfx()
+	_creep_edit_flyout.visible = not _creep_edit_flyout.visible
+	if _creep_edit_flyout.visible:
+		_map_edit_flyout.visible = false
+
 func _on_terrain_edit() -> void:
 	_click_sfx()
 	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
-	var group := ("atlantic_terrain_edit" if map_id == "atlantic"
-		else ("volcanic_terrain_edit" if map_id == "volcanic" else "rubicon_terrain_edit"))
-	var tem := get_tree().get_first_node_in_group(group)
+	var tem := get_tree().get_first_node_in_group(_terrain_edit_group(map_id))
 	if tem != null and tem.has_method("toggle"):
 		tem.toggle()
 
 func _on_light_edit() -> void:
 	_click_sfx()
 	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
-	var group := ("atlantic_light_edit" if map_id == "atlantic"
-		else ("volcanic_light_edit" if map_id == "volcanic" else "rubicon_light_edit"))
-	var lem := get_tree().get_first_node_in_group(group)
+	var lem := get_tree().get_first_node_in_group(_light_edit_group(map_id))
 	if lem != null and lem.has_method("toggle"):
 		lem.toggle()
 
 func _on_plume_edit() -> void:
 	_click_sfx()
 	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
-	var group := "atlantic_plume_edit" if map_id == "atlantic" else "volcanic_plume_edit"
-	var pem := get_tree().get_first_node_in_group(group)
+	var pem := get_tree().get_first_node_in_group(_plume_edit_group(map_id))
 	if pem != null and pem.has_method("toggle"):
 		pem.toggle()
 
 func _on_crater_mark() -> void:
 	_click_sfx()
 	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
-	var group := "atlantic_crater_mark" if map_id == "atlantic" else "volcanic_crater_mark"
-	var cmm := get_tree().get_first_node_in_group(group)
+	var cmm := get_tree().get_first_node_in_group(_crater_mark_group(map_id))
 	if cmm != null and cmm.has_method("toggle"):
 		cmm.toggle()
 
@@ -632,7 +753,7 @@ func _on_auto_fire() -> void:
 func set_auto_aim(v: bool) -> void:
 	_auto_fire = v
 	if _auto_fire_btn != null:
-		_auto_fire_btn.text = MandaloreText.a("AUTO:ON" if _auto_fire else "AUTO:OFF")
+		_auto_fire_btn.text = "AUTO:ON" if _auto_fire else "AUTO:OFF"
 		_auto_fire_btn.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5) if _auto_fire else Color(0.85, 0.90, 1.0))
 
 ## Combined dev cheat: forces Auto-Fire on (and keeps that button's own label/color in sync) + GameManager's
@@ -641,10 +762,10 @@ func set_auto_aim(v: bool) -> void:
 func _on_god_mode() -> void:
 	_click_sfx()
 	_god_mode = not _god_mode
-	_god_mode_btn.text = MandaloreText.a("GOD:ON" if _god_mode else "GOD:OFF")
+	_god_mode_btn.text = "GOD:ON" if _god_mode else "GOD:OFF"
 	_god_mode_btn.add_theme_color_override("font_color", Color(1.0, 0.85, 0.2) if _god_mode else Color(0.85, 0.90, 1.0))
 	_auto_fire = _god_mode
-	_auto_fire_btn.text = MandaloreText.a("AUTO:ON" if _auto_fire else "AUTO:OFF")
+	_auto_fire_btn.text = "AUTO:ON" if _auto_fire else "AUTO:OFF"
 	_auto_fire_btn.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5) if _auto_fire else Color(0.85, 0.90, 1.0))
 	if GameManager.has_method("set_god_mode"):
 		GameManager.set_god_mode(_god_mode)
@@ -699,7 +820,7 @@ func _build_end_run_popup() -> void:
 	panel.add_child(vb)
 
 	var title := Label.new()
-	title.text = MandaloreText.a("End Run — pick an outcome")
+	title.text = "End Run — pick an outcome"
 	title.add_theme_font_size_override("font_size", 14)
 	title.add_theme_color_override("font_color", Color(0.9, 0.95, 1.0))
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -759,7 +880,10 @@ func _on_hud_edit() -> void:
 func _on_simplified() -> void:
 	_click_sfx()
 	ArenaEnemy.simplified_mode = !ArenaEnemy.simplified_mode
-	_simplified_btn.texture_normal = _tex_simplifiedon if ArenaEnemy.simplified_mode else _tex_simplified
+	# 2026-08-18: was an icon swap (Simplified.png/Simplifiedon.png); now a text/color toggle, same
+	# convention as Auto-Fire/God Mode.
+	_simplified_btn.text = "SIMPLE:ON" if ArenaEnemy.simplified_mode else "SIMPLE:OFF"
+	_simplified_btn.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5) if ArenaEnemy.simplified_mode else Color(0.85, 0.90, 1.0))
 
 	# Scan simplified folder → build filename→path dict
 	var simplified_files: Dictionary = {}

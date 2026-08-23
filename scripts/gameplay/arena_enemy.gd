@@ -18,6 +18,7 @@ const GifLoader        := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const ArenaExplosion   := preload("res://scripts/gameplay/arena_explosion.gd")
 const DeathFX          := preload("res://scripts/gameplay/arena_death_fx.gd")
 const EnergyVortex     := preload("res://scripts/gameplay/fx/energy_vortex.gd")
+const LedLight         := preload("res://scripts/gameplay/fx/led_light.gd")
 const LaserBeamScript  := preload("res://scripts/gameplay/lasgun_ani_5.gd")   # beamer's beam VFX — same procedural shader beam as the player's death_beam weapon, recolored blue (see _ready()'s "beamer" setup)
 # Per-enemy attack SFX (one-shot; played from a lazily-created AudioStreamPlayer on bus "SFX").
 const SFX_SPIDER_JUMP  := preload("res://assets/audio/sfx/dash.wav")      # spider (jump_diag) leap
@@ -86,15 +87,19 @@ const BEE_TURN       := 1.2     # rad/s cap on steering the dive toward the play
 # ── Centipede: a segmented body that crawls toward the player using the Viper weapon's chain logic
 # (ported from arena_weapons.gd SNAKE_*). The node IS the head (collision + damage target); the body
 # segments TRAIL it at a fixed spacing. Segment pixel sizes scale with the enemy _radius. ──
-const CENTI_SEGMENTS    := 10       # 1 head + 8 body + 1 tail
+const CENTI_SEGMENTS_DEFAULT := 10  # 1 head + 8 body + 1 tail — def-overridable, see "centi_segments" below
 const CENTI_VIPER_SPEED := 300.0    # arena_weapons.gd SNAKE_SPEED — the Viper's move speed
 const CENTI_TURN        := 3.0      # head max turn rad/s (mirrors SNAKE_TURN)
 # All 3 sprites are drawn upright (spine vertical: head face / segment connection at TOP, tail stinger at
 # bottom), so every segment shares one ACROSS width and rotates by ang+PI/2. Follow-spacing = the body
 # segment's along-spine length (height), so body segments sit flush.
 const CENTI_WIDTH_MUL   := 1.95     # across width of every segment = _radius × this (75% of ICON_DRAW_SCALE 2.6)
-const CENTI_HEAD_OVERLAP := 20.0    # px the head is pulled back into the first body segment (smaller neck gap)
-const CENTI_MAX_BEND := PI * 0.5    # max joint bend (rad) between two consecutive segments — a segment can
+# Default sprite set — the ORIGINAL (electric map) centipede; any def without its own "centi_head_icon"/
+# "centi_body_icons"/"centi_tail_icon" falls back to these, so the "centipede" entry itself is untouched.
+const CENTI_HEAD_ICON_DEFAULT := "res://assets/map/electric/enemies/centipedehead.png"
+const CENTI_BODY_ICON_DEFAULT := "res://assets/map/electric/enemies/centipedebody.png"
+const CENTI_TAIL_ICON_DEFAULT := "res://assets/map/electric/enemies/centipedetail.png"
+const CENTI_MAX_BEND_DEFAULT := PI * 0.5    # max joint bend (rad) between two consecutive segments — a segment can
 									 # swing up to 90° off the previous one's own direction but no further, so
 									 # the body can't fold back on itself (e.g. the tail whipping around to
 									 # point back at the head) when the head reverses/turns sharply.
@@ -256,7 +261,7 @@ const CHARGE_DASH_T         := 0.5
 const FALLBACK := {
 	"chase": {"behavior": "chase", "hp": 30.0, "speed": 95.0, "size": 16.0, "contact": 6, "xp": 30.0, "shape": "diamond", "tint": Color(0.95, 0.35, 0.30)},
 	"bomb":  {"behavior": "bomb",  "hp": 50.0, "speed": 120.0, "size": 18.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(0.9, 0.5, 0.2), "no_collide": true},
-	"thrown_bomb": {"behavior": "thrown_bomb", "hp": 12.0, "speed": THROWN_BOMB_SPEED, "size": 13.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(1.0, 0.55, 0.2), "icon": "res://assets/enemiesHD/bomb.png", "no_collide": true},
+	"thrown_bomb": {"behavior": "thrown_bomb", "hp": 12.0, "speed": THROWN_BOMB_SPEED, "size": 13.0, "contact": 0, "explodes": true, "xp": 0, "shape": "circle", "tint": Color(1.0, 0.55, 0.2), "icon": "res://assets/map/electric/enemies/bomb.png", "no_collide": true},
 }
 
 # ── Layout config cache ───────────────────────────────────────────────────────
@@ -324,6 +329,7 @@ var _fp_fracs: Array = []   # Array[{frac:Vector2, dir_angle:float, id:int}]
 static var _tp_fracs_cache: Dictionary = {}
 var _plumes: Array[CPUParticles2D] = []
 var _vortexes: Array = []   # EnergyVortex children (creep_layout.cfg [vortexpoints] + plume_styles.cfg [vortex_styles])
+var _leds: Array = []       # LedLight children (creep_layout.cfg [ledpoints] + plume_styles.cfg [led_styles])
 var _plume_vrot_applied: float = 0.0   # last rotation pushed to plume emitters; skip the re-rotate when unchanged
 var _plume_vrot_init: bool = false
 const LOD_MARGIN := 180.0   # grow the camera-visible rect by this before the off-screen LOD test (sprite/plume slack)
@@ -424,16 +430,35 @@ var _timer: float = 0.0
 var _fire_t: float = 0.0
 var _aim: Vector2 = Vector2.ZERO
 var _spin: float = 0.0
-# ── Centipede chain (Viper-ported) ──
+# ── Centipede chain (Viper-ported; generalized 2026-08-13 to any "centipede"-behavior def, not just the
+# original electric one — see CENTI_HEAD_ICON_DEFAULT/etc. below and _load_centipede()) ──
 var _centi_pts: Array = []          # head-first world positions (Vector2), one per segment
 var _centi_dir: float = 0.0         # head heading (rad)
 var _centi_init: bool = false
 var _centi_head_tex: Texture2D = null
-var _centi_body_tex: Texture2D = null
+var _centi_body_texs: Array[Texture2D] = []   # 1+ textures for the MIDDLE segments, indexed by _centi_tex_for()
 var _centi_tail_tex: Texture2D = null
-var _centi_width: float = 0.0       # across width shared by every segment (set in _load_centipede)
-var _centi_spacing: float = 0.0     # body along-spine length = follow spacing (segments flush)
-var _centi_head_len: float = 0.0    # head along-spine length (for the forward neck shift)
+var _centi_width: float = 0.0       # rough across-width, kept only for _check_contact()'s hit radius — see _load_centipede()
+# 2026-08-14 — per-part AUTHORED size (creep_layout.cfg's "size" for "<name> head"/"<name> body<N>"/
+# "<name> tail", i.e. the exact box the user resizes in Creep Edit), one per texture. Base (untapered) draw
+# size at spawn now comes from HERE instead of a shared _centi_width×native-aspect guess, so the arena spawn
+# is pixel-identical to Creep Edit's own CHAIN preview — see _centi_seg_size_for()/user request "tôi muốn edit
+# như thế nào thì spawn ra sẽ y hệt như thế".
+var _centi_head_size: Vector2 = Vector2.ZERO
+var _centi_body_sizes: Array[Vector2] = []    # parallel to _centi_body_texs
+var _centi_tail_size: Vector2 = Vector2.ZERO
+# ── Chain tuning (Creep Edit "CHAIN" section, res://creep_chain_overrides.cfg — see creep_edit_mode.gd) ──
+# Per-def overridable copies of the CENTI_* defaults above; read from ENEMY_DEFS in configure(), consumed by
+# _load_centipede()/_update_centipede_chain(). Any future multi-node/chain enemy reuses the SAME 4 fields.
+var _centi_segments: int = CENTI_SEGMENTS_DEFAULT       # "centi_segments" — number of body nodes (head+body+tail)
+var _centi_max_bend: float = CENTI_MAX_BEND_DEFAULT     # "centi_bend_deg" (deg in the def) — joint rotation lock
+var _centi_spacing_mult: float = 1.0                    # "centi_spacing_mult" — offset/gap between nodes, 1.0 = touching
+var _centi_taper_pct: float = 0.0                       # "centi_taper_pct" (0-100) — per-node progressive shrink toward the tail, see _centi_seg_scale()
+# ── Chain sprite paths (2026-08-13) — "centi_head_icon"/"centi_body_icons"(Array)/"centi_tail_icon" in the
+# def; default to the original electric centipede's 3 files so the "centipede" entry itself needs no changes.
+var _centi_head_icon: String = CENTI_HEAD_ICON_DEFAULT
+var _centi_body_icons: Array = [CENTI_BODY_ICON_DEFAULT]
+var _centi_tail_icon: String = CENTI_TAIL_ICON_DEFAULT
 var _tele_anchor: Vector2 = Vector2.ZERO   # teleport: idle-jigger anchor (last landing spot)
 # ── Per-def special modifiers (enemies.pdf "Move" column) ──
 var _sprite_alpha: float = 1.0      # ghost: <1 → permanently see-through
@@ -630,6 +655,15 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_flap_icons      = d.get("flap_icons", [])   # 2+ filenames (same folder as "icon") to alternate — wing-flap effect
 	_no_downscale    = bool(d.get("no_downscale", false))
 	_force_draw_w    = float(d.get("draw_w", 0.0))
+	# Chain tuning (centipede-type only; harmless no-op for every other behavior) — see the CENTI_* fields' own comment.
+	_centi_segments      = int(d.get("centi_segments", CENTI_SEGMENTS_DEFAULT))
+	_centi_max_bend      = deg_to_rad(float(d.get("centi_bend_deg", rad_to_deg(CENTI_MAX_BEND_DEFAULT))))
+	_centi_spacing_mult  = float(d.get("centi_spacing_mult", 1.0))
+	_centi_taper_pct     = clampf(float(d.get("centi_taper_pct", 0.0)), 0.0, 100.0)
+	_centi_head_icon     = String(d.get("centi_head_icon", CENTI_HEAD_ICON_DEFAULT))
+	var body_icons_raw: Array = d.get("centi_body_icons", [CENTI_BODY_ICON_DEFAULT])
+	_centi_body_icons    = body_icons_raw if not body_icons_raw.is_empty() else [CENTI_BODY_ICON_DEFAULT]
+	_centi_tail_icon     = String(d.get("centi_tail_icon", CENTI_TAIL_ICON_DEFAULT))
 	if _force_draw_w > 0.0:
 		_radius = _force_draw_w * 0.42   # hit radius scales with the authored (carrier-honored) draw size
 	var eye_cfg: Dictionary = d.get("eye", {})
@@ -669,6 +703,7 @@ func _ready() -> void:
 	_load_tentacle()
 	_setup_plumes()
 	_setup_vortexes()
+	_setup_leds()
 	_setup_fire_points()
 	if behavior == "beamer":
 		_setup_laser_beam()
@@ -939,6 +974,143 @@ static func _load_vortex_styles_for(cname: String) -> Dictionary:
 		return {}
 	return cfg.get_value("vortex_styles", _resolve_cfg_key(cfg, "vortex_styles", cname), {})
 
+## Spawn LedLight VFX children from creep_layout.cfg [ledpoints] (styled by plume_styles.cfg [led_styles]) —
+## same anchoring approach as _setup_vortexes() (body-relative fraction, scaled to the in-game draw size).
+## 2026-08-15: centipede-behavior creeps (multiple independently-moving/bending body segments, not one rigid
+## sprite box) route to _setup_leds_centipede() instead — see that function's own comment.
+func _setup_leds() -> void:
+	if behavior == "centipede":
+		_setup_leds_centipede()
+		return
+	if _icon.is_empty() or _draw_size == Vector2.ZERO:
+		return
+	var cname := _icon.get_file().get_basename().to_lower()
+	var cfg := _creep_layout()
+	if cfg == null:
+		return
+	var key := _resolve_cfg_key(cfg, "creeps", cname)
+	var eo: Dictionary = cfg.get_value("creeps", key, {})
+	if eo.is_empty():
+		return
+	var eo_pos: Vector2  = eo.get("pos",  Vector2(480.0, 380.0))
+	var eo_size: Vector2 = eo.get("size", Vector2(60.0, 60.0))
+	if eo_size.x <= 0.0:
+		return
+	var leds: Array = cfg.get_value("ledpoints", _resolve_cfg_key(cfg, "ledpoints", cname), [])
+	if leds.is_empty():
+		return
+	var styles := _load_led_styles_for(cname)
+	var s := _draw_size.x / eo_size.x   # config-space → in-game scale
+	const SS_ORIGIN := Vector2(15.0, 8.0)
+	for i: int in leds.size():
+		var led: Dictionary = leds[i]
+		var led_id: int = int(led.get("id", i + 1))
+		var led_oc: Vector2 = (led["pos"] as Vector2) + SS_ORIGIN
+		var frac := (led_oc - eo_pos) / eo_size
+		var node: Node2D = LedLight.new()
+		node.position = (frac - Vector2(0.5, 0.5)) * _draw_size   # origin is CENTER → shift by -0.5
+		node.scale = Vector2(s, s)
+		node.z_index = 1
+		# Stash the anchor data so _update_led_xform() can re-glue the LED to the (rotating, breathing)
+		# sprite each frame — same approach as the vortexes/plumes.
+		node.set_meta("frac_centered", frac - Vector2(0.5, 0.5))
+		node.set_meta("base_scale", s)
+		var style: Dictionary = styles.get("led_%d" % led_id, {})
+		node.set_meta("rotate_deg", float(style.get("rotate_deg", 0.0)))
+		add_child(node)
+		node.call("setup", style)
+		_leds.append(node)
+
+## 2026-08-15 bug fix ("cent di chuyển có bend, LED không dính theo node mà vẫn xếp thành 1 hàng dọc"): the
+## regular _setup_leds() above anchors every LED against ONE rigid box (`_icon`'s own creeps entry — for a
+## centipede-behavior creep that's just the HEAD's box, since `_icon` is always the head icon). A LED actually
+## placed near Body or Tail in Creep Edit got a `frac` computed against the HEAD's tiny box instead, producing
+## a huge, fixed local offset that only ever rotated rigidly with the head — never with the body chain's own
+## live bend — reading as "stays lined up in one straight column" exactly as reported.
+##
+## Fix: match each LED to whichever REAL template box (Head / each distinct Body icon / Tail) it's actually
+## closest to in creep_layout.cfg, remember that as a chain slot `k` (0=head, tail resolves live to n-1 since
+## Segments can change), and glue it every frame to THAT segment's own live `_centi_pts[k]` position + own
+## angle (_centi_seg_ang(k), the exact formula _draw_centipede() itself draws with) — see _update_led_xform().
+## 2026-08-15, 2nd fix ("tôi đặt nhiều segment body nhưng led chỉ tách thành 2 phần"): the first version only
+## matched against the 3 REAL named boxes (Head/Body-template/Tail) — every auto-generated DUPLICATE segment
+## (Segments > template count) has no box of its own in creep_layout.cfg, so any LED placed on one collapsed
+## onto whichever of the 3 real boxes happened to be nearest, instead of its own segment. Fixed by building a
+## full virtual center+size for EVERY slot k=0..n-1 — head, EVERY body slot (real template AND duplicate
+## alike, via the exact same _centi_joint_spacing()/_centi_seg_size_for()/_centi_seg_scale() formulas the live
+## chain itself walks), and tail — mirroring the same cumulative-distance construction
+## _update_centipede_chain()'s own straight-line init uses, just scalar (OC-space Y only; X stays pinned to
+## Head's own center, matching the proven fact — see the 24th-pass reply's math — that a centered chain never
+## drifts in X regardless of taper/spacing). A LED now finds its own nearest slot among ALL of them, not just
+## the 3 named ones, so it correctly lands on the specific duplicate segment it was actually placed near.
+func _setup_leds_centipede() -> void:
+	var cfg := _creep_layout()
+	if cfg == null:
+		return
+	var cname := _icon.get_file().get_basename().to_lower()
+	var leds: Array = cfg.get_value("ledpoints", _resolve_cfg_key(cfg, "ledpoints", cname), [])
+	if leds.is_empty():
+		return
+	var head_eo := _creep_layout_entry(cfg, _centi_head_icon)
+	if head_eo.is_empty():
+		return
+	var head_pos: Vector2 = head_eo.get("pos", Vector2.ZERO)
+	var head_size: Vector2 = head_eo.get("size", Vector2(60.0, 60.0))
+	var head_center := head_pos + head_size * 0.5
+	var n := _centi_segments
+	if n < 1:
+		return
+	var k_centers: Array[Vector2] = [head_center]
+	var k_sizes: Array[Vector2] = [head_size]
+	var cum := 0.0
+	for k in range(1, n - 1):   # every body slot, real template or duplicate alike
+		cum += _centi_joint_spacing(k, n)
+		k_centers.append(Vector2(head_center.x, head_center.y + cum))
+		k_sizes.append(_centi_seg_size_for(k, n) * _centi_seg_scale(k, n))
+	var tail_eo := _creep_layout_entry(cfg, _centi_tail_icon)
+	if not tail_eo.is_empty():
+		var tail_pos: Vector2 = tail_eo.get("pos", Vector2.ZERO)
+		var tail_size: Vector2 = tail_eo.get("size", Vector2(60.0, 60.0))
+		k_centers.append(tail_pos + tail_size * 0.5)
+		k_sizes.append(tail_size)
+	else:
+		# No real Tail entry at all (unusual) — fall back to extending the body cumulative one more step.
+		cum += _centi_joint_spacing(n - 1, n)
+		k_centers.append(Vector2(head_center.x, head_center.y + cum))
+		k_sizes.append(_centi_tail_size if _centi_tail_size != Vector2.ZERO else head_size)
+	var styles := _load_led_styles_for(cname)
+	const SS_ORIGIN := Vector2(15.0, 8.0)
+	for i: int in leds.size():
+		var led: Dictionary = leds[i]
+		var led_id: int = int(led.get("id", i + 1))
+		var led_oc: Vector2 = (led["pos"] as Vector2) + SS_ORIGIN
+		var best_k := 0
+		var best_d := INF
+		for k in k_centers.size():
+			var d := led_oc.distance_squared_to(k_centers[k])
+			if d < best_d:
+				best_d = d
+				best_k = k
+		var seg_size: Vector2 = k_sizes[best_k]
+		if seg_size.x <= 0.0 or seg_size.y <= 0.0:
+			continue
+		var frac := (led_oc - k_centers[best_k]) / seg_size
+		var node: Node2D = LedLight.new()
+		node.z_index = 1
+		node.set_meta("centi_k", best_k)
+		node.set_meta("frac_centered", frac)
+		var style: Dictionary = styles.get("led_%d" % led_id, {})
+		node.set_meta("rotate_deg", float(style.get("rotate_deg", 0.0)))
+		add_child(node)
+		node.call("setup", style)
+		_leds.append(node)
+
+static func _load_led_styles_for(cname: String) -> Dictionary:
+	var cfg := _plume_styles_cfg()
+	if cfg == null:
+		return {}
+	return cfg.get_value("led_styles", _resolve_cfg_key(cfg, "led_styles", cname), {})
+
 func _setup_fire_points() -> void:
 	if _icon.is_empty() or _draw_size == Vector2.ZERO:
 		return
@@ -1110,6 +1282,52 @@ func _update_vortex_xform() -> void:
 		node.position = off.rotated(rot)
 		node.scale    = Vector2(bs * uni, bs * uni)
 		node.rotation = rot   # the swirl orients with the body so it follows the enemy's rotation
+
+## Re-anchor every LED to the sprite each frame — identical glue to _update_vortex_xform().
+func _update_led_xform() -> void:
+	if _leds.is_empty():
+		return
+	if behavior == "centipede":
+		_update_led_xform_centipede()
+		return
+	var rot := _facing
+	var vx := _visual_xform()
+	var svec: Vector2 = vx["scale"]
+	var uni: float = vx["uniform"]
+	for node: Node2D in _leds:
+		if not is_instance_valid(node):
+			continue
+		var fc: Vector2 = node.get_meta("frac_centered")
+		var bs: float = node.get_meta("base_scale")
+		var off := Vector2(fc.x * _draw_size.x * svec.x, fc.y * _draw_size.y * svec.y)
+		node.position = off.rotated(rot)
+		node.scale    = Vector2(bs * uni, bs * uni)
+		node.rotation = rot + deg_to_rad(float(node.get_meta("rotate_deg", 0.0)))
+
+## Per-segment LED glue for centipede-behavior creeps (2026-08-15) — each LED rides the LIVE `_centi_pts[k]`
+## position + `_centi_seg_ang(k)` angle of whichever real segment it was matched to in
+## _setup_leds_centipede(), instead of one rigid whole-body transform. `k=-1` (stored for Tail) resolves to
+## the true last index every frame since Segments can change after spawn (shouldn't in practice, but costs
+## nothing to stay correct). Taper is honored via _centi_seg_size_for()×_centi_seg_scale() for the offset math,
+## so a LED anchored on a tapered-down duplicate slot isn't a concern — it always rides a TEMPLATE's own first-
+## use slot (see _setup_leds_centipede()), which is never tapered.
+func _update_led_xform_centipede() -> void:
+	var n := _centi_pts.size()
+	if n == 0:
+		return
+	for node: Node2D in _leds:
+		if not is_instance_valid(node):
+			continue
+		var k: int = int(node.get_meta("centi_k", 0))
+		if k < 0:
+			k = n - 1
+		k = clampi(k, 0, n - 1)
+		var seg_size := _centi_seg_size_for(k, n) * _centi_seg_scale(k, n)
+		var ang := _centi_seg_ang(k)
+		var fc: Vector2 = node.get_meta("frac_centered")
+		var local_off := Vector2(fc.x * seg_size.x, fc.y * seg_size.y).rotated(ang + PI * 0.5)
+		node.position = ((_centi_pts[k] as Vector2) - global_position) + local_off
+		node.rotation = ang + PI * 0.5 + deg_to_rad(float(node.get_meta("rotate_deg", 0.0)))
 
 # ── Universal damage contract ──────────────────────────────────────────────────
 func is_anti_magnetic() -> bool:
@@ -1444,9 +1662,9 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore
 	# "elite" is set — a big, heavy "mini-boss" enemy shouldn't go skating across the screen on every hit);
 	# milestone elites and spawn_mode_2 Champions get that default, while arena_wave_director_v2.gd's
 	# periodic Elite Creep explicitly overrides it to 0.5 via def["knockback_mult"] — pushed at half a
-	# normal enemy's strength instead of full immunity. `no_collide` landmarks (dead-ship wrecks, rubicon
+	# normal enemy's strength instead of full immunity. `no_collide` landmarks (dead-ship wrecks, electric
 	# temple boss) are exempt outright — deliberately stationary, and for the temple specifically, knockback
-	# would desync its 2D hit-box from the separate live 3D model rubicon_trees.gd renders at a fixed world
+	# would desync its 2D hit-box from the separate live 3D model electric_trees.gd renders at a fixed world
 	# position (that model has no way to follow a knockback push).
 	if knock > 0.0 and not _no_collide and _knockback_mult > 0.0:
 		var away := global_position - _player_pos()
@@ -1599,7 +1817,7 @@ func _burst_small_magma() -> void:
 			"contact":  contact_damage,
 			"xp":       xp * 0.25,
 			"armor":    armor,
-			"icon":     "res://assets/enemiesHD/magmafrag (%d).png" % randi_range(1, 16),
+			"icon":     "res://assets/map/volcanic/enemies/magmafrag (%d).png" % randi_range(1, 16),
 		}
 		var e: Node = get_script().new()
 		e.call("configure", "magma_small", _mgr, def)
@@ -1943,7 +2161,7 @@ func _process(delta: float) -> void:
 	var _run_full_tick := _stagger_exempt or on_screen \
 		or (int(Engine.get_physics_frames()) + get_instance_id()) % LOD_STAGGER_N == 0
 	_t += delta
-	# `no_collide` landmarks (rubicon temple boss, dead-ship wrecks) are deliberately permanent fixtures, not
+	# `no_collide` landmarks (electric temple boss, dead-ship wrecks) are deliberately permanent fixtures, not
 	# ordinary mobile creeps that got stuck/never engaged — exempt them, or a landmark boss spawned far away
 	# (e.g. the temple, 10,000-15,000px out) can hit this 120s timeout mid-fight from travel+fight time alone,
 	# vanishing via _despawn_stale() (a plain queue_free(), never _die()) with no death FX and no loot drop.
@@ -2092,6 +2310,7 @@ func _process(delta: float) -> void:
 						p.position  = (p.get_meta("base_pos") as Vector2).rotated(vrot)
 						p.direction = (p.get_meta("base_dir") as Vector2).rotated(vrot)
 		_update_vortex_xform()   # glue vortexes to the sprite (position + scale + rotation)
+		_update_led_xform()     # glue LEDs to the sprite (position + scale + rotation)
 	if _has_eye:
 		_update_eye(delta)
 	if not _tent_template.is_empty():
@@ -2119,6 +2338,18 @@ func _load_tentacle() -> void:
 	_tent_template.clear()
 	_tents.clear()
 	_tent_init = false
+	# 2026-08-15 bug fix ("cent có 2 tail, 1 node body thừa, không đầu, di chuyển quỹ đạo khác"): this used to
+	# run for EVERY enemy and infer tentacle segments purely from creep_layout.cfg's "parent" field matching
+	# this enemy's icon basename — but "parent" is ALSO how Creep Edit's CHAIN feature (centipede-behavior
+	# Head/Body/Tail) organizes its own Layers panel hierarchy (e.g. "cent body"/"cent tail" both have
+	# "parent": "cent head"), a completely different, unrelated use of the same field. Any chain-type creep
+	# therefore had its own Body/Tail misread as "tentacle segments" of its Head and got a SECOND, bogus
+	# tentacle chain built + drawn every frame (own forward-kinematics wave/drag motion, headless — hence
+	# looking like a stray body+tail with no head, drifting on its own trajectory next to the real chain).
+	# Tentacles are only ever real for `behavior == "squid"` (see arena_wave_director.gd's "squid" def,
+	# icon "Squid-body.png", children "squid-1".."squid-8") — gate on that instead of inferring from "parent".
+	if behavior != "squid":
+		return
 	if _icon.is_empty() or _draw_size == Vector2.ZERO:
 		return
 	var cfg := _creep_layout()
@@ -3139,23 +3370,150 @@ func _on_contact_death() -> void:
 	_die()
 
 # ── Centipede chain (Viper-ported) ───────────────────────────────────────────────
-## Load the 3 HD segment sprites + derive pixel sizes from the enemy radius.
+## Load the 3 HD segment sprites + look up each one's AUTHORED size from creep_layout.cfg (the exact box the
+## user resizes in Creep Edit — "<icon-basename>", e.g. "cent head"/"cent body"/"cent tail") so the spawn
+## matches the editor pixel-for-pixel. Falls back to the old radius-derived guess only for a sprite that's
+## never been placed/sized in Creep Edit yet (no "size" entry on file).
 func _load_centipede() -> void:
-	_centi_head_tex = load("res://assets/enemiesHD/centipedehead.png") as Texture2D
-	_centi_body_tex = load("res://assets/enemiesHD/centipedebody.png") as Texture2D
-	_centi_tail_tex = load("res://assets/enemiesHD/centipedetail.png") as Texture2D
-	_centi_width = _radius * CENTI_WIDTH_MUL
-	# along-spine length of each sprite at the shared across width (preserves the source aspect)
-	_centi_spacing  = _seg_along_len(_centi_body_tex)
-	_centi_head_len = _seg_along_len(_centi_head_tex)
+	_centi_head_tex = load(_centi_head_icon) as Texture2D
+	_centi_body_texs.clear()
+	for p in _centi_body_icons:
+		var t := load(String(p)) as Texture2D
+		if t != null:
+			_centi_body_texs.append(t)
+	_centi_tail_tex = load(_centi_tail_icon) as Texture2D
+	if _centi_body_texs.is_empty():
+		_centi_body_texs.append(_centi_head_tex)   # defensive — every def is expected to supply at least 1
+	_centi_head_size = _authored_seg_size(_centi_head_icon, _centi_head_tex)
+	_centi_body_sizes.clear()
+	for i in _centi_body_icons.size():
+		var tex: Texture2D = _centi_body_texs[i] if i < _centi_body_texs.size() else null
+		_centi_body_sizes.append(_authored_seg_size(String(_centi_body_icons[i]), tex))
+	if _centi_body_sizes.is_empty():
+		_centi_body_sizes.append(_centi_head_size)   # mirrors the _centi_body_texs defensive fallback above
+	_centi_tail_size = _authored_seg_size(_centi_tail_icon, _centi_tail_tex)
+	_centi_width = _centi_body_sizes[0].x   # rough width, only for _check_contact()'s hit radius now
 
-## Along-spine (height) length of a segment sprite drawn at the shared across width _centi_width.
-func _seg_along_len(tex: Texture2D) -> float:
+## The AUTHORED (pos-independent) "size" Creep Edit saved for this sprite in creep_layout.cfg — same lookup
+## ArenaEnemyScript.base_draw_width() uses for every other enemy type, generalized to both dimensions here.
+## Falls back to the old radius×native-aspect guess if the sprite has never been placed/sized in the editor
+## (e.g. a brand new def wired in by hand, not yet opened in Creep Edit).
+func _authored_seg_size(icon_path: String, tex: Texture2D) -> Vector2:
+	var raw_name := icon_path.get_file().get_basename()
+	var cname := raw_name.to_lower()
+	var eo_cfg := _creep_layout()
+	if eo_cfg != null:
+		var eo: Dictionary = eo_cfg.get_value("creeps", raw_name, eo_cfg.get_value("creeps", cname, {}))
+		var sz: Vector2 = eo.get("size", Vector2.ZERO)
+		if sz.x > 0.0 and sz.y > 0.0:
+			return sz
+	var w := _radius * CENTI_WIDTH_MUL
 	if tex == null:
-		return _centi_width
+		return Vector2(w, w)
 	var tw := float(tex.get_width())
 	var th := float(tex.get_height())
-	return _centi_width * th / maxf(tw, 1.0)
+	return Vector2(w, w * th / maxf(tw, 1.0))
+
+## The BASE (untapered) authored size for segment index k (0=head, n-1=tail, else a middle "body" slot) —
+## mirrors _centi_tex_for()'s own texture selection exactly, one Vector2 per Texture2D.
+func _centi_seg_size_for(k: int, n: int) -> Vector2:
+	if k == 0:
+		return _centi_head_size
+	if k == n - 1:
+		return _centi_tail_size
+	var idx: int = clampi(k - 1, 0, _centi_body_sizes.size() - 1)
+	return _centi_body_sizes[idx]
+
+## Which texture segment index k (0=head, n-1=tail, else a middle "body" slot) draws with. Middle slots are
+## assigned _centi_body_texs in order (body1, body2, …) and clamp to the LAST one if there are more middle
+## slots than provided body textures (e.g. the original centipede's single body sprite reused for all 8).
+func _centi_tex_for(k: int, n: int) -> Texture2D:
+	if k == 0:
+		return _centi_head_tex
+	if k == n - 1:
+		return _centi_tail_tex
+	var idx: int = clampi(k - 1, 0, _centi_body_texs.size() - 1)
+	return _centi_body_texs[idx]
+
+## Icon PATH for segment index k — same slot selection as _centi_tex_for(), but the string path (for
+## creep_layout.cfg lookups instead of the loaded texture).
+func _centi_icon_for(k: int, n: int) -> String:
+	if k == 0:
+		return _centi_head_icon
+	if k == n - 1:
+		return _centi_tail_icon
+	var idx: int = clampi(k - 1, 0, _centi_body_icons.size() - 1)
+	return String(_centi_body_icons[idx])
+
+## The creep_layout.cfg [creeps] entry for `icon_path`'s basename (same case-insensitive lookup
+## _authored_seg_size()/base_draw_width() use), or {} if this sprite was never placed in Creep Edit.
+func _creep_layout_entry(cfg: ConfigFile, icon_path: String) -> Dictionary:
+	var raw_name := icon_path.get_file().get_basename()
+	var cname := raw_name.to_lower()
+	return cfg.get_value("creeps", raw_name, cfg.get_value("creeps", cname, {}))
+
+## 2026-08-15: X/Y position edits in Creep Edit's Transform panel had NO effect on a real spawn — every
+## joint's spacing came purely from size×Spacing-mult (see _centi_joint_spacing() below), so e.g. dragging
+## Body up to overlap Head (closing the neck gap) looked "reset" the instant you spawned/reloaded, because
+## nothing ever read the saved "pos". Fixes that for every boundary where a saved "pos" is a genuine, free
+## user choice: Head↔first-Body-template, Body-template(i)↔Body-template(i+1) for multi-texture sets
+## (hammerhead/killerwhale/shark_elite/spermwhale2), and the last-Body-template↔Tail boundary. Returns the
+## authored CENTER-TO-CENTER distance between `a_icon` and `b_icon`'s saved boxes, or `fallback` if either
+## was never placed in Creep Edit. Chain DUPLICATES (extra segments beyond the template count) deliberately
+## do NOT use this — they have no position of their own — see _centi_joint_spacing()'s own comment for why.
+func _authored_joint_dist(a_icon: String, b_icon: String, fallback: float) -> float:
+	var eo_cfg := _creep_layout()
+	if eo_cfg == null:
+		return fallback
+	var a := _creep_layout_entry(eo_cfg, a_icon)
+	var b := _creep_layout_entry(eo_cfg, b_icon)
+	var a_sz: Vector2 = a.get("size", Vector2.ZERO)
+	var b_sz: Vector2 = b.get("size", Vector2.ZERO)
+	if a_sz.y <= 0.0 or b_sz.y <= 0.0 or not a.has("pos") or not b.has("pos"):
+		return fallback
+	var a_pos: Vector2 = a.get("pos", Vector2.ZERO)
+	var b_pos: Vector2 = b.get("pos", Vector2.ZERO)
+	var dist := (b_pos.y + b_sz.y * 0.5) - (a_pos.y + a_sz.y * 0.5)
+	return dist if dist > 0.0 else fallback
+
+## The center-to-center follow distance for joint k (distance from chain point k-1 to point k) — the single
+## source of truth _update_centipede_chain() uses for both its one-time straight-line init and its per-frame
+## live follow. Defaults to the existing formula (preceding segment's own size × Spacing-mult × taper), then
+## overrides it with the AUTHORED position gap (_authored_joint_dist()) when this boundary sits between two
+## real, freely-user-positioned nodes: Head↔first-Body-template, Body-template(i)↔Body-template(i+1), or
+## (2026-08-15, reverted creep_edit_mode.gd's old "Tail always auto-follows" behavior — see that file's
+## comment) the last-Body-template↔Tail boundary too, now that Tail is independently draggable again just
+## like Head/Body. `_centi_icon_for(k-1,n)` resolves to the correct PRECEDING TEMPLATE's icon even when the
+## actual runtime slot k-1 is a duplicate/tapered repeat of it, so the authored gap still applies correctly
+## regardless of Segments. Chain DUPLICATES (extra segments beyond the template count) still always use the
+## formula — they have no position of their own, matching creep_edit_mode.gd's own duplicate placement.
+func _centi_joint_spacing(k: int, n: int) -> float:
+	var base := _centi_seg_size_for(k - 1, n).y * _centi_spacing_mult * _centi_seg_scale(k - 1, n)
+	var template_count := _centi_body_texs.size()
+	var prev_is_template: bool = (k - 1 == 0) or (k - 1 <= template_count)
+	var cur_is_tail: bool = (k == n - 1)
+	var cur_is_template: bool = (not cur_is_tail) and (k <= template_count)
+	if prev_is_template and (cur_is_template or cur_is_tail):
+		return _authored_joint_dist(_centi_icon_for(k - 1, n), _centi_icon_for(k, n), base)
+	return base
+
+## Per-segment draw/spacing shrink toward the tail (Creep Edit CHAIN "Taper %" slider, def:
+## "centi_taper_pct", 0-10). 2026-08-14 re-spec — PER-STEP COMPOUNDING, not a fraction of the whole chain:
+## each body slot is exactly (1 - taper%) smaller than the ONE RIGHT BEFORE IT in its own texture's run. A
+## body slot that's the FIRST occurrence of its own texture (`k <= _centi_body_texs.size()`) is `steps=0` —
+## always its own AUTHORED size (see _centi_seg_size_for()), the "template" every later repeat of that same
+## texture compounds down from. Head (k=0) and tail (k=n-1) are never scaled. Mirrors creep_edit_mode.gd's
+## own `_rebuild_chain_preview()` formula exactly (same `steps = k - idx - 1`) so the arena matches the
+## editor's CHAIN preview pixel-for-pixel.
+func _centi_seg_scale(k: int, n: int) -> float:
+	if _centi_taper_pct <= 0.0 or k <= 0 or k >= n - 1:
+		return 1.0
+	var template_count := _centi_body_texs.size()
+	if k <= template_count:
+		return 1.0
+	var idx: int = clampi(k - 1, 0, template_count - 1)   # mirrors _centi_tex_for()
+	var steps: int = k - idx - 1
+	return pow(1.0 - _centi_taper_pct * 0.01, float(steps))
 
 ## Max turn toward a target angle, capped per call (ported from arena_weapons._approach_angle).
 func _approach_angle(cur: float, target: float, max_step: float) -> float:
@@ -3165,16 +3523,27 @@ func _approach_angle(cur: float, target: float, max_step: float) -> float:
 ## Trail the body behind the head: head = node position; each segment is pulled to a fixed spacing
 ## behind the one ahead (identical to the Viper's _run_snake follow loop).
 func _update_centipede_chain() -> void:
-	var sp := _centi_spacing
-	if not _centi_init or _centi_pts.size() != CENTI_SEGMENTS:
+	var n := _centi_segments
+	if not _centi_init or _centi_pts.size() != n:
 		_centi_pts.clear()
 		var back := Vector2(cos(_centi_dir), sin(_centi_dir))
-		for k in CENTI_SEGMENTS:
-			_centi_pts.append(global_position - back * (sp * float(k)))
+		# Cumulative distance, not a flat sp*k — each joint's own gap is tapered (see _centi_seg_scale()) AND
+		# derived from the PRECEDING joint's own authored size (_centi_seg_size_for), so a multi-body set
+		# (different-size body1/body2/…) or a shrunk taper doesn't spawn with mismatched gaps. Using the
+		# preceding segment's size (not this one's) matches creep_edit_mode.gd's own CHAIN preview spacing
+		# formula exactly (`prev_eo.size.y × spacing_mult`) — see _rebuild_chain_preview(). Template↔template
+		# boundaries (Head↔Body, Body↔Body) override this with the authored position gap when one was placed
+		# in Creep Edit — see _centi_joint_spacing().
+		var cum := 0.0
+		for k in n:
+			if k > 0:
+				cum += _centi_joint_spacing(k, n)
+			_centi_pts.append(global_position - back * cum)
 		_centi_init = true
 		return
 	_centi_pts[0] = global_position
 	for k in range(1, _centi_pts.size()):
+		var sp := _centi_joint_spacing(k, n)   # tapered/authored per-joint follow distance — see _centi_joint_spacing()
 		var prev: Vector2 = _centi_pts[k - 1]
 		var cur: Vector2 = _centi_pts[k]
 		var d := prev - cur
@@ -3183,22 +3552,31 @@ func _update_centipede_chain() -> void:
 			d = d.normalized() * sp
 			dlen = sp
 			cur = prev - d
-		# Cap the bend at this joint to CENTI_MAX_BEND relative to the PREVIOUS joint's own direction (the
-		# segment closer to the head) — without this, the naive "just stay within sp of prev" rule lets a
-		# segment swing to ANY angle (including folding back over the segment ahead of it) when the head
-		# reverses/turns sharply, reading as the body snapping backward unnaturally.
-		if k >= 2 and dlen > 0.01:
-			var prev_dir: Vector2 = (_centi_pts[k - 2] as Vector2) - prev
+		# Cap the bend at this joint to _centi_max_bend (Creep Edit "Bend Lock", def: "centi_bend_deg", default
+		# 90°) relative to the PREVIOUS joint's own direction (the segment closer to the head) — without this,
+		# the naive "just stay within sp of prev" rule lets a segment swing to ANY angle (including folding back
+		# over the segment ahead of it) when the head reverses/turns sharply, reading as the body snapping
+		# backward unnaturally.
+		# 2026-08-15 bug fix ("bend lock chỉ có tác dụng với body, không có tác dụng với head"): this used to
+		# require `k >= 2` (a real k-2 point to derive "the previous joint's own direction" from) — meaning
+		# the VERY FIRST joint (k=1, Head→first Body point) had no `prev_dir` to compare against and was
+		# silently skipped, letting Body1 swing to any angle relative to where the Head is actually facing.
+		# Every other joint (k>=2, which covers Tail too — it's just a normal joint like any other) was
+		# already correctly clamped. Fixed by giving k=1 a `prev_dir` of its own: the Head's actual facing
+		# direction (`_centi_dir`) plays the same role a real k-2 point would for any later joint.
+		if dlen > 0.01:
+			var prev_dir: Vector2 = ((_centi_pts[k - 2] as Vector2) - prev) if k >= 2 \
+				else Vector2(cos(_centi_dir), sin(_centi_dir))
 			if prev_dir.length() > 0.01:
 				var diff := wrapf(d.angle() - prev_dir.angle(), -PI, PI)
-				if absf(diff) > CENTI_MAX_BEND:
-					var clamped_ang := prev_dir.angle() + clampf(diff, -CENTI_MAX_BEND, CENTI_MAX_BEND)
+				if absf(diff) > _centi_max_bend:
+					var clamped_ang := prev_dir.angle() + clampf(diff, -_centi_max_bend, _centi_max_bend)
 					d = Vector2(cos(clamped_ang), sin(clamped_ang)) * dlen
 					cur = prev - d
 		_centi_pts[k] = cur
 
 ## Nearest point on this enemy's actual hittable body to `from` — for most enemies that's simply
-## global_position (a single point), but Centipede's body is drawn along CENTI_SEGMENTS visual points
+## global_position (a single point), but Centipede's body is drawn along _centi_segments visual points
 ## while only the head (global_position) has ever been a real collision target: a shot landing on the
 ## visually-present body/tail wouldn't register at all. Weapons call this instead of reading
 ## global_position directly so every segment counts as a hittable point. Returns global_position
@@ -3223,6 +3601,19 @@ func hit_points() -> Array:
 		return _centi_pts
 	return [global_position]
 
+## The facing angle segment k draws at — single source of truth for `_draw_centipede()` AND
+## `_update_led_xform()`'s per-segment LED glue (2026-08-15), so a light anchored on a body/tail segment
+## rotates with the EXACT same angle the segment's own sprite does, no separate/duplicate formula to drift.
+func _centi_seg_ang(k: int) -> float:
+	var n := _centi_pts.size()
+	if n == 0:
+		return _centi_dir
+	if k <= 0:
+		return _centi_dir
+	if k >= n - 1:
+		return ((_centi_pts[n - 2] as Vector2) - (_centi_pts[n - 1] as Vector2)).angle()
+	return ((_centi_pts[k - 1] as Vector2) - (_centi_pts[k + 1] as Vector2)).angle()
+
 ## Draw the chain tail → head (head paints on top), each segment oriented along the body curve.
 ## Mirrors arena_weapons._draw_snake but in node-local space (pos − global_position) with a flash tint.
 func _draw_centipede(alpha: float, flash_s: float) -> void:
@@ -3234,31 +3625,34 @@ func _draw_centipede(alpha: float, flash_s: float) -> void:
 		col = col.lerp(Color(_flash_color.r, _flash_color.g, _flash_color.b, alpha), flash_s)
 	for k in range(n - 1, -1, -1):
 		var pos: Vector2 = _centi_pts[k]
-		var ang: float
+		var ang: float = _centi_seg_ang(k)
+		var seg_scale := _centi_seg_scale(k, n)   # CHAIN "Taper %" — always 1.0 for the head (k=0)
+		var seg_size := _centi_seg_size_for(k, n)   # AUTHORED (untapered) size for this slot — see _load_centipede()
 		if k == 0:
-			ang = _centi_dir
+			# 2026-08-15 ("arena vẫn overlap mạnh hơn creep edit dù đã đồng bộ khoảng cách"): this used to
+			# shift the drawn head forward by a magic-number-derived offset (`CENTI_HEAD_OVERLAP`) ON TOP OF
+			# the joint-1 distance — a SECOND, separate adjustment Creep Edit's own box layout has no
+			# equivalent for (it just draws Head at its authored position, period). That extra shift is what
+			# kept making arena look more overlapped than the editor even after `_centi_spacing` itself got
+			# synced to the same authored gap in the 29th pass — two sources of truth stacking, not one.
+			# Removed: Head now draws directly at its own chain point, exactly like every Body/Tail segment —
+			# single source of truth (`_centi_pts[0]` + `_centi_joint_spacing(1,n)`) for the gap, period.
+			_draw_centi_seg(pos, ang, _centi_head_tex, seg_size, col, seg_scale)
 		elif k == n - 1:
-			ang = ((_centi_pts[k - 1] as Vector2) - pos).angle()
+			_draw_centi_seg(pos, ang, _centi_tail_tex, seg_size, col, seg_scale)
 		else:
-			ang = ((_centi_pts[k - 1] as Vector2) - (_centi_pts[k + 1] as Vector2)).angle()
-		if k == 0:
-			# Head: shift forward so its neck meets the first body segment, then pull back CENTI_HEAD_OVERLAP
-			# px so the head overlaps the body a little (smaller neck gap).
-			var shift := (_centi_head_len - _centi_spacing) * 0.5 - CENTI_HEAD_OVERLAP
-			_draw_centi_seg(pos + Vector2(cos(ang), sin(ang)) * shift, ang, _centi_head_tex, col)
-		elif k == n - 1:
-			_draw_centi_seg(pos, ang, _centi_tail_tex, col)
-		else:
-			_draw_centi_seg(pos, ang, _centi_body_tex, col)
+			_draw_centi_seg(pos, ang, _centi_tex_for(k, n), seg_size, col, seg_scale)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-## One segment (head/body/tail), all drawn upright at the shared across width: local +Y (image bottom)
-## points backward, local −Y (image top = face/connection) points along travel → rotation = ang + PI/2.
-func _draw_centi_seg(pos: Vector2, ang: float, tex: Texture2D, col: Color) -> void:
+## One segment (head/body/tail), drawn at its own AUTHORED `base_size` (× scale_mul, CHAIN "Taper %") — the
+## exact box Creep Edit saved for this sprite, so the arena spawn matches the editor's own CHAIN preview.
+## local +Y (image bottom) points backward, local −Y (image top = face/connection) points along travel →
+## rotation = ang + PI/2.
+func _draw_centi_seg(pos: Vector2, ang: float, tex: Texture2D, base_size: Vector2, col: Color, scale_mul: float = 1.0) -> void:
 	if tex == null:
 		return
-	var dw := _centi_width
-	var dh := _seg_along_len(tex)
+	var dw := base_size.x * scale_mul
+	var dh := base_size.y * scale_mul
 	draw_set_transform(pos - global_position, ang + PI * 0.5, Vector2.ONE)
 	draw_texture_rect(tex, Rect2(Vector2(-dw * 0.5, -dh * 0.5), Vector2(dw, dh)), false, col)
 

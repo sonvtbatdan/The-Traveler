@@ -1,15 +1,15 @@
 extends Node2D
-## Spawner for the Volcanic map's rescue-character ruin landmark — engineer.glb/psyker.glb (assets/map/
-## volcanic/, moved there 2026-08-06 from assets/ruin/). Mirrors rubicon_ruin_layer.gd's combat/pointer/spin
-## plumbing (VolcanicTrees.spawn_landmark() for the live .glb, arena_enemy.gd as the 2D combat/hit-detection
-## vehicle, arena_ruin_pointer.gd for the edge-of-screen arrow) — see that file's header for the full rundown
-## — but placement avoids the lava river the way volcanic_temple_layer.gd's temples do (VolcanicNoise.
-## is_river position retry) instead of rubicon's ground-ring carving, since volcanic_ground.gd has no
+## Spawner for the Volcanic map's rescue-character ruin landmark — mechanic.glb (assets/map/volcanic/
+## landmark/). Mirrors electric_ruin_layer.gd's combat/pointer/spin plumbing (VolcanicTrees.
+## spawn_landmark() for the live .glb, arena_enemy.gd as the 2D combat/hit-detection vehicle,
+## arena_ruin_pointer.gd for the edge-of-screen arrow) — see that file's header for the full rundown —
+## but placement avoids the lava river the way volcanic_temple_layer.gd's temples do (VolcanicNoise.
+## is_river position retry) instead of electric's ground-ring carving, since volcanic_ground.gd has no
 ## apply_landmarks equivalent.
 ##
-##   - AT MOST ONE spawns per run — MetaManager.rescue_candidate_for_map("volcanic") decides WHICH character
-##     (engineer until rescued, then psyker, then Scholar once every map's own pair is rescued) is this run's
-##     target, or "" if nothing is left to offer.
+##   - spawns only if Mechanic isn't rescued yet — MetaManager.rescue_candidate_for_map("volcanic")
+##     returns "mechanic" or "" (2026-08-19: Volcanic owns exactly one rescue character now, no
+##     queue/fallback — see RESCUE_MAP_QUEUE's own doc comment; engineer/psyker moved to Arctic/Cosmic).
 ##   - spawns within DIST_MAX (15000px) of the player at run start — no periodic extra spawns; one shot.
 ##   - spins continuously in place at ROT_RPM (volcanic's temples stay still — this is what visually marks a
 ##     ruin as a rescue target instead of a static landmark).
@@ -25,7 +25,7 @@ const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 const VolcanicNoise := preload("res://scripts/gameplay/volcanic/volcanic_noise.gd")
 const VolcanicTerrainSettings := preload("res://scripts/gameplay/volcanic/volcanic_terrain_settings.gd")
 
-const DIST_MIN := 10000.0   # minimum spawn distance from player (px) — matches the rubicon ruin's own range
+const DIST_MIN := 10000.0   # minimum spawn distance from player (px) — matches the electric ruin's own range
 const DIST_MAX := 15000.0   # maximum spawn distance from player (px) — "trong khoảng tối đa 15000" per request
 const RIVER_AVOID_MARGIN := 1.3    # mirrors volcanic_temple_layer.gd's own margin — never spawn right at the
                                     # lava's edge either, not just literally inside it
@@ -33,7 +33,7 @@ const MAX_POSITION_TRIES := 40     # give up and accept a lava-adjacent spot rat
 const RUIN_HP := 400.0
 const ENEMY_HP_TUNE := 2.0   # arena_enemy.gd's global ×2 HP tune for every non-"boss_stub" enemy — divide it
                               # back out here so RUIN_HP is the actual effective HP, not RUIN_HP*2
-const RUIN_SCALE_MULT := 1.5   # matches rubicon_ruin_layer.gd's own — a personal-scale wreck, not a giant landmark
+const RUIN_SCALE_MULT := 1.5   # matches electric_ruin_layer.gd's own — a personal-scale wreck, not a giant landmark
 const ROT_RPM := 12.0
 const ROT_SPEED := deg_to_rad(ROT_RPM * 360.0 / 60.0)   # rad/s — temples stay still, ruins spin in place
 
@@ -52,7 +52,7 @@ func _ready() -> void:
 	_river_width = float(s["river_width"])
 	var char_id := MetaManager.rescue_candidate_for_map("volcanic")
 	if char_id == "":
-		return   # both engineer+psyker already rescued, and Scholar not eligible here yet (or done too)
+		return   # Mechanic already rescued
 	var pos := _pick_dry_position(_player.global_position)
 	_spawn_ruin(char_id, pos)
 
@@ -107,7 +107,7 @@ func _spawn_ruin(key: String, pos: Vector2) -> void:
 	e.tree_exited.connect(_on_ruin_gone.bind(entry))
 
 ## Freed on the enemy's own tree_exited — frees the companion 3D visual. On a GENUINE kill (gated on the
-## enemy's own `_dead` flag, same convention rubicon_ruin_layer.gd's _on_ruin_gone uses), flags the run as
+## enemy's own `_dead` flag, same convention electric_ruin_layer.gd's _on_ruin_gone uses), flags the run as
 ## having collected this rescue and fires the immediate "taken aboard" toast — the actual rescue OUTCOME
 ## and the MetaManager.unlock_room() call are decided later, at run-end, by arena.gd's _show_run_over.
 func _on_ruin_gone(entry: Dictionary) -> void:
@@ -120,7 +120,7 @@ func _on_ruin_gone(entry: Dictionary) -> void:
 		entry["node3d"].queue_free()
 	_active.erase(entry)
 
-## Edge-of-screen arrow + live distance guiding the player to the ruin (mirrors rubicon_ruin_layer.gd's own
+## Edge-of-screen arrow + live distance guiding the player to the ruin (mirrors electric_ruin_layer.gd's own
 ## _spawn_pointer, minus the glb_path arg — see arena_ruin_pointer.gd's header on why only rescue ruins get
 ## the spinning-GLB icon).
 func _spawn_pointer(target: Node2D, glb_path: String) -> void:

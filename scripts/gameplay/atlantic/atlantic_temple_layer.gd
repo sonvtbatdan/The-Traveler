@@ -1,11 +1,11 @@
 extends Node2D
 ## Spawner for the Atlantic temple boss landmark — exactly TEMPLE_COUNT (2) per run, each appearing at its own
-## random TIME within SPAWN_WINDOW (30min of GameManager.run_time), mirroring rubicon_temple_layer.gd's /
+## random TIME within SPAWN_WINDOW (30min of GameManager.run_time), mirroring electric_temple_layer.gd's /
 ## volcanic_temple_layer.gd's own schedule. Each spawns DIST_MIN-DIST_MAX from the player's CURRENT position
 ## at ITS OWN scheduled moment, avoiding the current channel (AtlanticNoise.is_river position retry).
 ##
-## 2026-08-06, on request ("sử dụng temple của electric và làm đầy đủ"): REUSES Rubicon/Electric's own
-## temple.glb + temple.png directly (TEMPLE_GLB_PATH/TEMPLE_ICON_PATH point straight at assets/map/rubicon/) —
+## 2026-08-06, on request ("sử dụng temple của electric và làm đầy đủ"): REUSES Electric/Electric's own
+## temple.glb + temple.png directly (TEMPLE_GLB_PATH/TEMPLE_ICON_PATH point straight at assets/map/electric/) —
 ## no separate Atlantic temple model exists or is needed. The one Atlantic-local asset this reuse still needs
 ## is a top-down reference render for the Landmark Mark panel (assets/map/atlantic/temple_mark_ref.png, baked
 ## from that same reused .glb by tools/bake_atlantic_landmark.gd) since a mark position is inherently tied to
@@ -14,7 +14,8 @@ extends Node2D
 ## Full combat + plume-attachment port from volcanic_temple_layer.gd (arena_enemy.gd 2D combat vehicle,
 ## arena_ruin_pointer.gd edge-of-screen arrow, "drop_loot": "orb_of_light" on death, bubble/whirlpool marks via
 ## atlantic_landmark_mark.gd) — see that file's header for the full rationale on _mark_to_world()'s math.
-## Still stationary (no spin) — only the rescue-character ruins spin, and Atlantic has none yet.
+## Still stationary (no spin) — only the rescue-character ruin spins (see atlantic_ruin_layer.gd, added
+## 2026-08-19 once Scholar became Atlantic-exclusive).
 
 const AtlanticNoise := preload("res://scripts/gameplay/atlantic/atlantic_noise.gd")
 const AtlanticTerrainSettings := preload("res://scripts/gameplay/atlantic/atlantic_terrain_settings.gd")
@@ -22,14 +23,14 @@ const AtlanticAssetLayerScript := preload("res://scripts/gameplay/atlantic/atlan
 const RuinPointerScript := preload("res://scripts/ui/hud/arena_ruin_pointer.gd")
 const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 
-const TEMPLE_GLB_PATH := "res://assets/map/rubicon/temple.glb"    # reused from Electric — see this file's header
-const TEMPLE_ICON_PATH := "res://assets/map/rubicon/temple.png"   # reused from Electric — see this file's header
+const TEMPLE_GLB_PATH := "res://assets/map/electric/landmark/temple.glb"    # reused from Electric — see this file's header
+const TEMPLE_ICON_PATH := "res://assets/map/electric/landmark/temple.png"   # reused from Electric — see this file's header
 const TEMPLE_COUNT := 2       # total temples for the whole run
-const SPAWN_WINDOW := 1800.0  # 30 minutes, in seconds — matches Rubicon/Volcanic's own window
-const TEMPLE_SCALE_MULT := 3.0     # matches Rubicon/Volcanic's own TEMPLE_SCALE_MULT
+const SPAWN_WINDOW := 1800.0  # 30 minutes, in seconds — matches Electric/Volcanic's own window
+const TEMPLE_SCALE_MULT := 3.0     # matches Electric/Volcanic's own TEMPLE_SCALE_MULT
 const DIST_MIN := 10000.0
 const DIST_MAX := 15000.0
-const TEMPLE_HP := 2000.0          # matches Rubicon/Volcanic's own TEMPLE_HP
+const TEMPLE_HP := 2000.0          # matches Electric/Volcanic's own TEMPLE_HP
 const ENEMY_HP_TUNE := 2.0         # arena_enemy.gd's global ×2 HP tune for every non-"boss_stub" enemy —
 									# divide it back out so TEMPLE_HP is the actual effective HP
 const RIVER_AVOID_MARGIN := 1.3    # multiplies the live river_width so a temple never spawns RIGHT at the
@@ -126,7 +127,7 @@ func _spawn_one(pos: Vector2) -> void:
 
 ## Freed on the enemy's own tree_exited — frees the companion 3D visual, clears this temple's plumes, and
 ## drops it out of _active. Also fires GameManager.boss_defeated on a GENUINE kill (gated on the enemy's own
-## `_dead` flag, same convention as Rubicon/Volcanic's own _on_temple_gone) so temples feed the same
+## `_dead` flag, same convention as Electric/Volcanic's own _on_temple_gone) so temples feed the same
 ## salvage-screen/blueprint pipeline as every other boss.
 ##
 ## 2026-08-08 crash fix: at end-of-run (RETURN TO DOCK -> get_tree().change_scene_to_file(), arena.gd) the whole
@@ -175,7 +176,7 @@ func _mark_to_world(entry: Dictionary, fx: float, fz: float) -> Vector2:
 	var pos: Vector2 = entry["pos"]
 	return pos + Vector2(rotated.x, rotated.z / _z_comp)
 
-## Edge-of-screen arrow + live distance guiding the player to one temple (mirrors Rubicon/Volcanic's own
+## Edge-of-screen arrow + live distance guiding the player to one temple (mirrors Electric/Volcanic's own
 ## _spawn_pointer exactly — arena_ruin_pointer.gd is generic, takes any Node2D target).
 func _spawn_pointer(target: Node2D) -> void:
 	var ptr_layer := CanvasLayer.new()

@@ -8,7 +8,7 @@ extends Node2D
 ## rendered into a small SubViewport (own Camera3D + 2 DirectionalLight3D) exactly like arena.gd's own ship
 ## viewport (_build_ship_viewport/_frame_ship_cam) — same fit-to-fov framing math, same fixed ISO_DEG tilt — and
 ## shown on a Sprite2D. The model spins continuously about its own vertical axis at ROT_RPM, matching the spin
-## rate rubicon_ruin_layer.gd/volcanic_ruin_layer.gd use for their rescue-character landmarks ("xoay giống như
+## rate electric_ruin_layer.gd/volcanic_ruin_layer.gd use for their rescue-character landmarks ("xoay giống như
 ## các landmark rescue xoay").
 ##
 ## This is a SELF-CONTAINED SubViewport (not one of the per-map *_trees shared-World3D scatter systems) because
@@ -25,7 +25,7 @@ const VP_SIZE        := 128           # SubViewport render resolution — small 
 const DISPLAY_PX     := 46.0          # on-screen width/height of the in-world sprite
 const ISO_DEG         := 30.0         # camera tilt off top-down — matches arena.gd's SHIP_ISO_DEG / the
                                        # project's other iso-rendered 3D-in-2D elements
-const ROT_RPM         := 12.0         # matches rubicon_ruin_layer.gd/volcanic_ruin_layer.gd's ROT_RPM exactly
+const ROT_RPM         := 12.0         # matches electric_ruin_layer.gd/volcanic_ruin_layer.gd's ROT_RPM exactly
 const ROT_SPEED       := deg_to_rad(ROT_RPM * 360.0 / 60.0)   # rad/s
 const GOLD           := Color(1.0, 0.85, 0.35)
 const AURA_SIZE      := DISPLAY_PX * 1.9

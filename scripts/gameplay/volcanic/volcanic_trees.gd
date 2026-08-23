@@ -1,11 +1,11 @@
 extends Node2D
 class_name VolcanicTrees
 ## Manages the Volcanic map's scattered 3D assets (obsidian rocks/formations, one per .glb in
-## assets/map/volcanic/ — see VolcanicAssetScan). Port of rubicon/rubicon_trees.gd's fully generic
+## assets/map/volcanic/ — see VolcanicAssetScan). Port of electric/electric_trees.gd's fully generic
 ## scatter/compositor system (see that file's header for the complete rationale — shared World3D "host"
 ## viewport, two-pass color+blur-mask render, orthogonal tilted camera), INCLUDING spawn_landmark() (used by
 ## volcanic_temple_layer.gd — temple.glb is excluded from the regular density-scatter pool, see
-## VolcanicAssetScan.SCATTER_EXCLUDED). One omission from the Rubicon original: the real 3D cloud-occluder
+## VolcanicAssetScan.SCATTER_EXCLUDED). One omission from the Electric original: the real 3D cloud-occluder
 ## plane (a flat translucent band at a fixed sky altitude, for depth-clipping tall assets against an overhead
 ## cloud layer) — Volcanic's clouds are ground-anchored ash/smoke plumes (volcanic_clouds.gd), not a
 ## horizontal sky band, so there's no altitude for a tall rock to poke through/under any more; port a fresh
@@ -13,7 +13,7 @@ class_name VolcanicTrees
 ##
 ## assets/map/volcanic/ currently has no rock/obsidian .glb files (only temple.glb, excluded from this pool),
 ## so _types stays empty and the regular density-scatter places nothing — the same "drop a .glb, no code
-## changes" convention Rubicon documents, just with an empty pool for now.
+## changes" convention Electric documents, just with an empty pool for now.
 
 const VolcanicNoise := preload("res://scripts/gameplay/volcanic/volcanic_noise.gd")
 const VolcanicConfig := preload("res://scripts/gameplay/volcanic/volcanic_config.gd")
@@ -149,7 +149,7 @@ func _measure_one(glb_path: String) -> Dictionary:
 ## Upright (no random tilt, unlike wild scatter) since a landmark should look deliberately placed. `scale_mult`
 ## (default 1.0 = the same DESIRED_HEIGHT_PX auto-scale every scattered type gets) lets a landmark be
 ## deliberately bigger/smaller. Returns {} if `glb_path` fails to load. Verbatim port of
-## rubicon_trees.gd's spawn_landmark() — see that file for the full rationale on half_extent/yaw semantics
+## electric_trees.gd's spawn_landmark() — see that file for the full rationale on half_extent/yaw semantics
 ## (used by volcanic_temple_layer.gd to place local-space marked plume points on the spawned instance).
 func spawn_landmark(glb_path: String, world_pos: Vector2, scale_mult: float = 1.0) -> Dictionary:
 	var def: Dictionary = await _measure_one(glb_path)
@@ -175,7 +175,7 @@ func spawn_landmark(glb_path: String, world_pos: Vector2, scale_mult: float = 1.
 	}
 
 ## Public: called by the Terrain Edit panel (live) and effectively by this node's own _ready() (persisted
-## settings, via _settings_by_type directly). See rubicon_trees.gd's apply_asset_setting for full semantics.
+## settings, via _settings_by_type directly). See electric_trees.gd's apply_asset_setting for full semantics.
 func apply_asset_setting(type_name: String, density: float, scale_min: float, scale_max: float, scale_bias: float, blur: float, enabled: bool = true) -> void:
 	_settings_by_type[type_name] = {"density": density, "scale_min": scale_min, "scale_max": scale_max, "scale_bias": scale_bias, "blur": blur, "enabled": enabled}
 	if _types_ready:

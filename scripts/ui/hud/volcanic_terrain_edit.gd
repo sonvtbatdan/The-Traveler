@@ -2,7 +2,7 @@ extends CanvasLayer
 class_name VolcanicTerrainEdit
 ## Dev-mode-only Volcanic terrain tuning — group "volcanic_terrain_edit", toggled from
 ## arena_hud_buttons.gd's TERRAIN EDIT button (Volcanic map only). Mirrors
-## scripts/ui/hud/rubicon_terrain_edit.gd (same two-panel ASSETS + TERRAIN EDIT layout, same drag/multi-select
+## scripts/ui/hud/electric_terrain_edit.gd (same two-panel ASSETS + TERRAIN EDIT layout, same drag/multi-select
 ## asset-editing behavior — see that file's header for the full rationale). Deltas: reads/writes
 ## VolcanicAssetScan/VolcanicTerrainSettings/volcanic_terrain.cfg instead, labels reworded for the volcanic
 ## palette (basalt/ash/obsidian/lava instead of grass/sand/water), and no Landmark Ring Width row — Volcanic
@@ -50,7 +50,7 @@ var _height_lbl: Label = null
 var _status: Label = null
 
 func _ready() -> void:
-	layer = 61   # same tier as rubicon_terrain_edit.gd / creep_info_panel.gd
+	layer = 61   # same tier as electric_terrain_edit.gd / creep_info_panel.gd
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group("volcanic_terrain_edit")
 
@@ -108,7 +108,7 @@ func _new_panel_shell(pos: Vector2, w: float, max_h: float, title_text: String) 
 	sb.bg_color = Color(0.10, 0.05, 0.04, 0.98)
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(2)
-	sb.border_color = Color(0.75, 0.35, 0.15)   # warm ember border — visually distinct from Rubicon's blue
+	sb.border_color = Color(0.75, 0.35, 0.15)   # warm ember border — visually distinct from Electric's blue
 	sb.set_content_margin_all(8.0)
 	panel.add_theme_stylebox_override("panel", sb)
 	add_child(panel)
@@ -206,7 +206,7 @@ func _build_terrain_panel() -> void:
 
 ## Returns the first discovered type_name (auto-selected once both panels exist), or "" if none found —
 ## assets/map/volcanic/ currently has no .glb files, so this returns "" and _build_asset_panel() itself
-## returns without creating a panel (mirrors rubicon_terrain_edit.gd's empty-folder handling).
+## returns without creating a panel (mirrors electric_terrain_edit.gd's empty-folder handling).
 func _build_asset_panel() -> String:
 	var glb_paths: Array = VolcanicAssetScan.glb_paths()
 	if glb_paths.is_empty():

@@ -4,11 +4,14 @@
 ##   godot --headless --script tools/downscale_enemies.gd
 ##   godot --headless --import --path .      ← then import so the game loads the .ctex
 ##
-## The HD source art in assets/enemiesHD/ is 500–1500 px wide but each creep is only DRAWN at ~25–80 px on the
-## arena, so every frame the GPU downsamples a huge texture. This bakes a small copy of each sprite at its real
-## display size into  assets/Enemies Downscale/  (same filename). At runtime arena_enemy.gd._resolve_sprite()
-## prefers that folder, so spawns use the light texture. If a downscaled file is missing the game falls back to
-## the HD sprite automatically — so it is always safe to skip / re-run.
+## The HD source art (500–1500 px wide — was all under assets/enemiesHD/ before the 2026-08-17 per-map
+## reorg moved most of it into assets/map/<name>/enemies/; this script reads the actual source path straight
+## from creep_layout.cfg's own "path" field per creep, so it doesn't care which folder a sprite lives in) is
+## only DRAWN at ~25–80 px on the arena, so every frame the GPU downsamples a huge texture. This bakes a small
+## copy of each sprite at its real display size into  assets/Enemies Downscale/  (same filename, flat — the
+## downscale cache is NOT split per-map). At runtime arena_enemy.gd._resolve_sprite() prefers that folder (by
+## filename only, regardless of source folder), so spawns use the light texture. If a downscaled file is
+## missing the game falls back to the HD sprite automatically — so it is always safe to skip / re-run.
 ##
 ## Display width per sprite = max( creep_layout size, every fleet_layout slot size that uses it ) × HEADROOM.
 ## HEADROOM covers the ±SCALE_VAR (0.15) per-enemy size variance + spawn-pop overshoot so it stays crisp.

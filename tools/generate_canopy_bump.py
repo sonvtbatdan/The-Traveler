@@ -1,6 +1,6 @@
-"""Generates a fake-depth "bump" overlay for every canopy color photo under assets/map/rubicon/maptile/*/ —
+"""Generates a fake-depth "bump" overlay for every canopy color photo under assets/map/electric/maptile/*/ —
 a grayscale PNG (128 = neutral, darker = shadow side, lighter = highlight side) meant to be MULTIPLIED into
-the color in rubicon_ground.gdshader, not a real normal map (no Light2D / dynamic lighting involved — see the
+the color in electric_ground.gdshader, not a real normal map (no Light2D / dynamic lighting involved — see the
 "fake AO overlay" approach chosen over true normal-mapped lighting).
 
 Technique: grayscale the photo (luminance as a height proxy) -> light Gaussian blur (denoise so per-pixel
@@ -8,7 +8,7 @@ photo grain doesn't become visual static) -> PIL's built-in EMBOSS filter (singl
 diagonal upper-left light, offset 128) -> blend toward flat 128 by `strength` so the effect stays subtle.
 
 Re-run whenever a maptile set's color photos change (canopy1.png/canopy1a.png/etc). Skips any file that's
-already itself a "_bump" output. Keep this tool — new tile sets (see rubicon_asset_scan.gd's
+already itself a "_bump" output. Keep this tool — new tile sets (see electric_asset_scan.gd's
 maptile_set_names()) will need it run again.
 
 Usage: python tools/generate_canopy_bump.py
@@ -19,7 +19,7 @@ from PIL import Image, ImageFilter
 
 STRENGTH = 0.45
 BLUR_RADIUS = 1.0
-MAPTILE_ROOT = Path(__file__).resolve().parent.parent / "assets" / "map" / "rubicon" / "maptile"
+MAPTILE_ROOT = Path(__file__).resolve().parent.parent / "assets" / "map" / "electric" / "maptile"
 
 
 def make_bump(src_path: Path, dst_path: Path) -> None:

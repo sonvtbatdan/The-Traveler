@@ -3,6 +3,38 @@
 > Module of [`CLAUDE.md`](../CLAUDE.md). Read this when working on autoloads, main scene, GameManager, persistence, main menu, settings, music player.
 > Always-on core rules (conventions, coordinate system, image/render rules, LOCKED MODULES) live in CLAUDE.md — read that too.
 
+## Changelog — 2026-08-18 — rubicon→electric code rename finished; new "mechanic" map added
+
+- **Code rename completed**: the Electric map's display name changed from "Rubicon" to "Electric" back on
+  2026-08-13, but that pass only renamed the asset folder (`assets/map/electric/`) — every script, class
+  name, node group, `map_id` string, and cfg filename still said `rubicon`/`Rubicon`. On explicit request
+  ("đừng để sót lại rubicon nào"), finished it: `scripts/gameplay/rubicon/` → `scripts/gameplay/electric/`
+  (all 16 files renamed, `class_name Rubicon*` → `Electric*`), `rubicon_arena.gd` → `electric_arena.gd`,
+  `scripts/ui/hud/rubicon_terrain_edit.gd`/`rubicon_light_edit.gd` → `electric_terrain_edit.gd`/
+  `electric_light_edit.gd`, `tools/bake_rubicon_trees.gd`/`screenshot_rubicon.gd` → `bake_electric_trees.gd`/
+  `screenshot_electric.gd`, `scenes/rubicon.tscn` → `electric.tscn`, `rubicon_terrain.cfg` →
+  `electric_terrain.cfg`, `spawn_mode_2_wave_rubicon.cfg` → `spawn_mode_2_wave_electric.cfg`. Every
+  `MetaManager.MAP_DEFS`/`RESCUE_MAP_QUEUE`/`arena.gd` `_map_id` comparison, every `add_to_group("rubicon_*")`
+  node group, and every cross-file comment updated to match. Also fixed 3 Python bake tools
+  (`generate_canopy_bump.py`/`generate_canopy_normal.py`/`generate_map_thumbnails.py`) that still hardcoded
+  the now-nonexistent `assets/map/rubicon/...` path (stale since the folder-only rename, never caught before).
+  Verified zero case-insensitive "rubicon" hits remain anywhere outside `.git/` history.
+- **New playable map: Mechanic** (`assets/map/mechanic/`) — same background structure as Electric (real
+  canopy-photo ground tiled + tinted by baked noise zones, a procedural river band, 3-layer parallax clouds,
+  procedural spark motes, a generic `.glb` scatter/landmark engine currently empty pending future assets), new
+  `scripts/gameplay/mechanic/` pipeline. One deliberate difference: Electric picks between 3 canopy photos per
+  tile-set (`green`/`grey`); Mechanic uses all 7 of its supplied canopy photos together in one set
+  (`electric_ground.gdshader`'s existing mottle-noise region-split technique extended from a 3-way to a 7-way
+  blend — `mechanic_ground.gdshader`). No landmark-ring system yet (no landmark `.glb` exists for this map) and
+  the tree-scatter pool is empty (no `.glb` models exist under `assets/map/mechanic/` yet) — both wired and
+  ready, will activate automatically once such assets are dropped in, same bootstrap state Volcanic's trees
+  were once in. Wired into `MetaManager.MAP_DEFS`/`hub_screen.gd`'s `LAUNCH_CARDS` (flips the existing
+  "Mechanic — coming soon" placeholder into a real launch card) and `arena.gd`/`arena_hud_buttons.gd`'s
+  per-map Terrain Edit / Light Edit dev panels. Explicitly NOT done this pass: a dedicated enemy wave timeline
+  (`levels/arena/mechanic.json` + `arena_wave_editor.gd`'s `MAP_FIXED_FILES`/`MAP_ENEMY_FOLDERS`) — the
+  `pros1-8`/`prosmotherblank` roster is already fully defined in `ENEMY_DEFS` but not yet scoped to this map,
+  so it currently spawns the same generic `TEST_ROSTER` placeholder creeps any other un-timelined map does.
+
 ## Changelog — 2026-08-06 (7th pass) — Hover-bar slide animation contained within its own room's icon bounds
 
 - Bug report: the popup's rise-up/slide-down animation visibly bled into the room BELOW it, worst on Launch/
@@ -229,7 +261,7 @@
   dict (`{"mechanic": "Merchant"}`) rather than renaming the actual asset (`assets/hud/dock/mechanic.png`) or
   `config/boards/dock.cfg`'s group name (which turned out to be UNUSED for the label — only the child item's
   `file` field feeds it), matching the existing "keep internal id, override display only" precedent
-  (`MetaManager.MAP_DEFS`'s rubicon/default → Electric/Space rename). `hub_screen.gd`'s `ROOM_PANELS` key
+  (`MetaManager.MAP_DEFS`'s electric/default → Electric/Space rename). `hub_screen.gd`'s `ROOM_PANELS` key
   updated to match (`room_clicked` now emits "Merchant"). NOT touched: `hub_screen.gd`'s `LAUNCH_CARDS` also
   has an unrelated `{"name": "Mechanic"}` entry — that's a "coming soon" MAP-name placeholder (alongside
   "Atlantic"/"Arctic"), coincidentally the same word, nothing to do with the shop room.

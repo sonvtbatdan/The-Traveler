@@ -1,9 +1,9 @@
 extends RefCounted
 class_name VolcanicNoise
-## CPU-side noise for Volcanic. Mirrors rubicon/rubicon_noise.gd (same FastNoiseLite-based approach, not a
+## CPU-side noise for Volcanic. Mirrors electric/electric_noise.gd (same FastNoiseLite-based approach, not a
 ## hand-rolled hash/fbm — see that file for the full rationale). The lava-flow field is TWO noises combined,
 ## not one:
-##   1. A macro path from smooth SIMPLEX noise (river_value) — same technique/frequency as Rubicon's river,
+##   1. A macro path from smooth SIMPLEX noise (river_value) — same technique/frequency as Electric's river,
 ##      giving an organic, naturally meandering flow instead of a mathematically straight shape.
 ##   2. A small perturbation from CELLULAR/Manhattan-distance noise, much higher frequency (river_detail_value)
 ##      — added to the macro distance in is_river()/the shader to roughen the BOUNDARY into jagged cracked-rock
@@ -13,14 +13,14 @@ class_name VolcanicNoise
 ## of a natural lava flow (user feedback: "như những đường thẳng gấp khúc"). Domain-warping a smooth macro
 ## curve with a small high-frequency detail term is the standard fix: natural large-scale flow, jagged
 ## small-scale edge — see volcanic_ground.gdshader's fragment() for the GPU-side mirror of this same math.
-## biome_value() (the zone-tint split, unrelated to the lava border) stays simplex/soft, same as Rubicon.
+## biome_value() (the zone-tint split, unrelated to the lava border) stays simplex/soft, same as Electric.
 
 const VolcanicConfig := preload("res://scripts/gameplay/volcanic/volcanic_config.gd")
 
 ## Detail field frequency = macro field frequency * this — high enough to read as small jagged nicks along
 ## the bank, low enough to still look like cracked rock rather than uniform static. Must match
 ## volcanic_ground.gd's RIVER_DETAIL_FREQ_MULT (GPU bake uses the same multiplier so CPU avoidance and GPU
-## paint agree on roughly where the lava is — "roughly," not pixel-exact, same tolerance Rubicon documents
+## paint agree on roughly where the lava is — "roughly," not pixel-exact, same tolerance Electric documents
 ## for its own baked-vs-raw noise mismatch).
 const RIVER_DETAIL_FREQ_MULT := 7.0
 ## Detail perturbation amplitude, as a fraction of river_width. Must match volcanic_ground.gdshader's
@@ -41,7 +41,7 @@ static func _ensure() -> FastNoiseLite:
 		_fnl.seed = 21
 	return _fnl
 
-## 0..1 output — see RubiconNoise.biome_value(); same convention so VolcanicConfig.BLUE_THRESHOLD/
+## 0..1 output — see ElectricNoise.biome_value(); same convention so VolcanicConfig.BLUE_THRESHOLD/
 ## BLEND_SOFTNESS apply unchanged.
 static func biome_value(world_pos: Vector2) -> float:
 	return _ensure().get_noise_2d(world_pos.x, world_pos.y) * 0.5 + 0.5
@@ -77,13 +77,13 @@ static func river_detail_value(world_pos: Vector2) -> float:
 
 ## True if world_pos falls inside the lava band (within half_width of RIVER_LEVEL, after the same
 ## detail-jag perturbation volcanic_ground.gdshader applies) — used to keep scattered assets off the lava,
-## same convention as RubiconNoise.is_river.
+## same convention as ElectricNoise.is_river.
 static func is_river(world_pos: Vector2, half_width: float) -> bool:
 	var dist := absf(river_value(world_pos) - VolcanicConfig.RIVER_LEVEL)
 	dist -= (river_detail_value(world_pos) - 0.5) * half_width * RIVER_DETAIL_STRENGTH
 	return dist < half_width
 
-## Cheap decorrelated hash for placement dice-rolls — identical to RubiconNoise.hash21.
+## Cheap decorrelated hash for placement dice-rolls — identical to ElectricNoise.hash21.
 static func hash21(p: Vector2) -> float:
 	var s: float = sin(p.dot(Vector2(127.1, 311.7))) * 43758.5453123
 	return s - floor(s)

@@ -2,7 +2,7 @@ extends RefCounted
 class_name ArenaToast
 ## Shared in-arena pop-up toast (2026-08-06, on request) — fades in/out top-center of the gameplay view.
 ## Two current callers:
-##   - rubicon_ruin_layer.gd / volcanic_ruin_layer.gd: "<name> has been taken on your ship" the instant a
+##   - electric_ruin_layer.gd / volcanic_ruin_layer.gd: "<name> has been taken on your ship" the instant a
 ##     rescue-character landmark is destroyed, independent of how the run eventually ends (that separate
 ##     outcome shows on the RUN OVER/BOSS ELIMINATED screen, see arena.gd's _show_run_over).
 ##   - arena_levelup_ui.gd: "<weapon name> Blueprint Acquired" the instant a brand-new weapon is picked from

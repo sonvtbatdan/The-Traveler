@@ -48,7 +48,7 @@ var _height_lbl: Label = null
 var _status: Label = null
 
 func _ready() -> void:
-	layer = 61   # same tier as volcanic_terrain_edit.gd / rubicon_terrain_edit.gd / creep_info_panel.gd
+	layer = 61   # same tier as volcanic_terrain_edit.gd / electric_terrain_edit.gd / creep_info_panel.gd
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	add_to_group("atlantic_terrain_edit")
 
@@ -106,7 +106,7 @@ func _new_panel_shell(pos: Vector2, w: float, max_h: float, title_text: String) 
 	sb.bg_color = Color(0.04, 0.07, 0.09, 0.98)
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(2)
-	sb.border_color = Color(0.15, 0.55, 0.65)   # cool teal border — visually distinct from Volcanic's ember/Rubicon's blue
+	sb.border_color = Color(0.15, 0.55, 0.65)   # cool teal border — visually distinct from Volcanic's ember/Electric's blue
 	sb.set_content_margin_all(8.0)
 	panel.add_theme_stylebox_override("panel", sb)
 	add_child(panel)
@@ -590,7 +590,7 @@ func _apply_live_global() -> void:
 ## own possibly-stale `_values` snapshot (taken once, back when the panel was opened). 2026-08-08 bug fix: with
 ## the old blanket save, opening this panel and clicking SAVE at any later point silently reverted every OTHER
 ## panel's changes since — e.g. Crater Mark's vent marks — back to whatever they were when THIS panel was first
-## opened (recurrence of a bug already hit once on the Electric/Rubicon map's own Terrain/Light Edit pair).
+## opened (recurrence of a bug already hit once on the Electric/Electric map's own Terrain/Light Edit pair).
 ## Mirrors atlantic_crater_mark.gd's _save_marks_only()/atlantic_landmark_mark.gd's own scoped save.
 func _on_save() -> void:
 	var fresh := AtlanticTerrainSettings.load_settings()

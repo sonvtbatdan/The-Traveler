@@ -1,13 +1,13 @@
 extends SceneTree
 ## One-shot DEV TOOL (not shipped/imported into gameplay): boots scenes/volcanic.tscn standalone — mirrors
-## tools/screenshot_rubicon.gd exactly (see that file's header for the full rationale).
+## tools/screenshot_electric.gd exactly (see that file's header for the full rationale).
 ##
 ## Run non-headless (needs a real render, like the bake tools):
 ##   godot --path . --script tools/screenshot_volcanic.gd
 ## Output: user://volcanic_shot_1_initial.png, user://volcanic_shot_2_moved.png
 
-const SETTLE_FRAMES := 300   # longer than Rubicon's 90 — ash plumes (CPUParticles2D) take a couple seconds
-                              # to reach steady-state population after a vent first appears, unlike Rubicon's
+const SETTLE_FRAMES := 300   # longer than Electric's 90 — ash plumes (CPUParticles2D) take a couple seconds
+                              # to reach steady-state population after a vent first appears, unlike Electric's
                               # instant tree/ground scatter
 const MOVE_FRAMES := 90
 

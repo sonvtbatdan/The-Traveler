@@ -20,7 +20,15 @@ extends CanvasLayer
 
 const WaveDir := preload("res://scripts/gameplay/arena_wave_director.gd")
 const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
+const CreepEditModeScript := preload("res://scripts/ui/boss_edit/creep_edit_mode.gd")   # MAP_REGISTRY, reused for the map tabs below
 const CFG_PATH := "res://creep_info_overrides.cfg"
+
+## The 3 boss ("boss_stub") ids' icons live in assets/bosses/<name>/, not a per-map assets/map/<id>/enemies/
+## folder like every other creep (the 2026-08-12 per-map reorg deliberately left bosses alone) — so map
+## ownership can't be inferred from icon path for these 3 and is hardcoded here instead, from that reorg's
+## own wave-timeline audit (elecforest.json→electric/Electric spawns metalfly; vocalnic.json→volcanic spawns
+## elephant; chromeleon isn't spawned by any non-default map's wave yet, stays "default"/Space).
+const BOSS_MAP_OVERRIDE := {"metalfly": "electric", "elephant": "volcanic", "chromeleon": "default"}
 
 var _is_open: bool = false
 var _root: Control = null
@@ -28,6 +36,10 @@ var _rows_box: VBoxContainer = null
 var _rows: Array = []   # {id, hbox, hp_spin, xp_spin, move_opt, shoot_opt}
 var _icon_cache: Dictionary = {}
 var _status: Label = null
+
+# ── Map tabs (2026-08-13) — filters the list to one map's own roster; "All" (default) shows everything ──
+var _map_tab_id: String = "all"
+var _map_tab_buttons: Dictionary = {}   # map_id ("all" + each MAP_REGISTRY id) -> Button, for highlight styling
 
 # ── Sortable headers (Unit/HP) ── _sort_key picks which one actually orders the rows; each button
 # remembers its OWN arrow/direction independently, so switching columns doesn't lose the other's state.
@@ -138,6 +150,15 @@ func _build_ui() -> void:
 	_status.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
 	btn_row.add_child(_status)
 
+	var tab_row := HBoxContainer.new()
+	tab_row.add_theme_constant_override("separation", 4)
+	vb.add_child(tab_row)
+	_map_tab_buttons.clear()
+	_add_map_tab(tab_row, "all", "All")
+	for m: Dictionary in CreepEditModeScript.MAP_REGISTRY:
+		_add_map_tab(tab_row, String(m["id"]), String(m["name"]))
+	_update_map_tab_styles()
+
 	var hdr := HBoxContainer.new()
 	hdr.add_theme_constant_override("separation", 8)
 	var icon_hdr := _mk_label("", 11)
@@ -164,7 +185,7 @@ func _build_ui() -> void:
 	_update_sort_headers()
 
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(psize.x - 16.0, psize.y - 150.0)
+	scroll.custom_minimum_size = Vector2(psize.x - 16.0, psize.y - 182.0)   # -32 vs. before the map-tabs row
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	vb.add_child(scroll)
 	_rows_box = VBoxContainer.new()
@@ -181,9 +202,49 @@ func _populate() -> void:
 	var ids := WaveDir.ENEMY_DEFS.keys()
 	ids.sort()
 	for id: String in ids:
-		_rows_box.add_child(_make_row(String(id), WaveDir.ENEMY_DEFS[id], overrides.get(id, {})))
+		var def: Dictionary = WaveDir.ENEMY_DEFS[id]
+		if _map_tab_id != "all" and _map_id_for(String(id), def) != _map_tab_id:
+			continue
+		_rows_box.add_child(_make_row(String(id), def, overrides.get(id, {})))
 	_apply_sort()
 	_status.text = ""
+
+# ── Map tabs ─────────────────────────────────────────────────────────────────────────────────────────
+## Which MAP_REGISTRY id a def belongs to, inferred from its icon path — reuses creep_edit_mode.gd's own
+## MAP_REGISTRY (single source of truth, same list the Creep Edit "Map:" dropdown uses): whichever map's
+## enemy folder the icon lives under. Falls back to "default" (Space) for anything under the shared/legacy
+## assets/enemiesHD/ roster, or that doesn't match any known folder.
+static func _map_id_for(id: String, def: Dictionary) -> String:
+	if BOSS_MAP_OVERRIDE.has(id):
+		return String(BOSS_MAP_OVERRIDE[id])
+	var icon := String(def.get("icon", ""))
+	for m: Dictionary in CreepEditModeScript.MAP_REGISTRY:
+		if icon.begins_with(String(m["folder"])):
+			return String(m["id"])
+	return "default"
+
+func _add_map_tab(parent: HBoxContainer, map_id: String, label: String) -> void:
+	var btn := _mk_button(label, _on_map_tab_pressed.bind(map_id))
+	btn.add_theme_font_size_override("font_size", 11)
+	parent.add_child(btn)
+	_map_tab_buttons[map_id] = btn
+
+func _on_map_tab_pressed(map_id: String) -> void:
+	if _map_tab_id == map_id:
+		return
+	_map_tab_id = map_id
+	_update_map_tab_styles()
+	_populate()
+
+## Highlights the active tab — same "colored text = active" convention as Save/Close, no separate StyleBox
+## machinery needed for a hand-rolled tab strip this small.
+func _update_map_tab_styles() -> void:
+	for map_id: String in _map_tab_buttons:
+		var btn := _map_tab_buttons[map_id] as Button
+		if map_id == _map_tab_id:
+			btn.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+		else:
+			btn.remove_theme_color_override("font_color")
 
 func _make_row(id: String, def: Dictionary, ov: Dictionary) -> Control:
 	var hb := HBoxContainer.new()

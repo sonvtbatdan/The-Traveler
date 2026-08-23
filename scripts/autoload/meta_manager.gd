@@ -112,47 +112,42 @@ func unlock_room(room_id: String) -> bool:
 		GameManager.pending_room_unlock_notices.append(String(ROOM_UNLOCK_DEFS[room_id]["name"]))
 	return true
 
-# ── Rescue landmarks (2026-08-06, on request) ──────────────────────────────────────
-# The 5 rescue-character ruin landmarks (Electric/Volcanic maps — rubicon_ruin_layer.gd / volcanic_ruin_
-# layer.gd render+fight them). Each maps to the Dock room it unlocks (ROOM_UNLOCK_DEFS key above) and the
-# display name used in the "has been taken on your ship" pickup toast + the run-end rescue result line.
+# ── Rescue landmarks (2026-08-06, on request; redistributed 2026-08-19) ────────────
+# The 5 rescue-character ruin landmarks, one per map. Each maps to the Dock room it unlocks
+# (ROOM_UNLOCK_DEFS key above) and the display name used in the "has been taken on your ship" pickup
+# toast + the run-end rescue result line. NOTE (2026-08-19): icon PNGs below don't exist yet — the glb
+# models were swapped to new art and the old baked icons were deleted with them; the "icon" paths here
+# are the intended location for the NEXT bake (tools/bake_*_landmark.gd) but will fail to load until
+# then. Only electric_ruin_layer.gd / volcanic_ruin_layer.gd actually spawn a landmark today — arctic
+# and cosmic have no ruin_layer script yet, so their entries below are wired but inert until one is
+# built (same TODO status atlantic was already in before this pass).
 const RESCUE_CHARACTER_DEFS := {
-	"constructor": {"room": "constructor", "name": "Constructor", "glb": "res://assets/map/rubicon/constructor.glb",  "icon": "res://assets/map/rubicon/constructor.png"},
-	"mechanic":    {"room": "mechanic",    "name": "Mechanic",    "glb": "res://assets/map/rubicon/mechanic.glb",     "icon": "res://assets/map/rubicon/mechanic.png"},
-	"engineer":    {"room": "engineer",    "name": "Engineer",    "glb": "res://assets/map/volcanic/engineer.glb",    "icon": "res://assets/map/volcanic/engineer.png"},
-	"psyker":      {"room": "beacon",      "name": "Psyker",      "glb": "res://assets/map/volcanic/psyker.glb",      "icon": "res://assets/map/volcanic/psyker.png"},
-	"scholar":     {"room": "instructor",  "name": "Scholar",     "glb": "res://assets/ruin/Scholar.glb",             "icon": "res://assets/ruin/Scholar.png"},
+	"constructor": {"room": "constructor", "name": "Constructor", "glb": "res://assets/map/electric/landmark/constructor.glb", "icon": "res://assets/map/electric/landmark/constructor.png"},
+	"mechanic":    {"room": "mechanic",    "name": "Mechanic",    "glb": "res://assets/map/volcanic/landmark/mechanic.glb",    "icon": "res://assets/map/volcanic/landmark/mechanic.png"},
+	"engineer":    {"room": "engineer",    "name": "Engineer",    "glb": "res://assets/map/arctic/landmark/engineer.glb",      "icon": "res://assets/map/arctic/landmark/engineer.png"},
+	"psyker":      {"room": "beacon",      "name": "Psyker",      "glb": "res://assets/map/cosmic/landmark/psyker.glb",        "icon": "res://assets/map/cosmic/landmark/psyker.png"},
+	"scholar":     {"room": "instructor",  "name": "Scholar",     "glb": "res://assets/map/atlantic/landmark/Scholar.glb",     "icon": "res://assets/map/atlantic/landmark/Scholar.png"},
 }
-# Per-map priority order — the FIRST not-yet-rescued character in a map's own list is that map's landmark
-# for the run (e.g. Electric: constructor until rescued, then mechanic). Scholar isn't map-owned — she's the
-# shared fallback (see rescue_candidate_for_map()) once EVERY map's own list is fully rescued. Default/space
-# never gets a rescue landmark at all (no 3D landmark rendering pipeline exists for it — 2026-08-06, on
-# request, scoped out).
+# One character per map (2026-08-19: was a 2-per-map queue + a shared "Scholar fallback" before the
+# redistribution; now every character — Scholar included — belongs to exactly one map, so the fallback
+# tier is gone). Default/space never gets a rescue landmark (no 3D landmark rendering pipeline for it).
 const RESCUE_MAP_QUEUE := {
-	"rubicon":  ["constructor", "mechanic"],
-	"volcanic": ["engineer", "psyker"],
+	"electric": ["constructor"],
+	"volcanic": ["mechanic"],
+	"arctic":   ["engineer"],
+	"cosmic":   ["psyker"],
+	"atlantic": ["scholar"],
 }
 
-## Which rescue character (if any) should spawn as this run's landmark for `map_id` ("rubicon"/"volcanic" —
-## any other id, e.g. "default", always returns ""). "" means there's truly nothing left to offer here: this
-## map's own pair are both already rescued, AND Scholar isn't available either — either some OTHER map's pair
-## isn't fully rescued yet (she's not eligible anywhere until every map's own pair is done), or she herself is
-## already rescued too. Called once per run at spawn time; rubicon_ruin_layer.gd / volcanic_ruin_layer.gd own
-## the actual spawning mechanics.
+## Which rescue character (if any) should spawn as this run's landmark for `map_id`. "" means this map
+## has no rescue landmark at all (e.g. "default"/"space") or its character is already rescued. Called
+## once per run at spawn time; each map's *_ruin_layer.gd owns the actual spawning mechanics.
 func rescue_candidate_for_map(map_id: String) -> String:
 	var queue: Array = RESCUE_MAP_QUEUE.get(map_id, [])
 	for char_id: String in queue:
 		if not is_room_unlocked(String(RESCUE_CHARACTER_DEFS[char_id]["room"])):
 			return char_id
-	if queue.is_empty():
-		return ""   # not a map with its own rescue queue (e.g. "default") — Scholar doesn't spawn here either
-	if is_room_unlocked(String(RESCUE_CHARACTER_DEFS["scholar"]["room"])):
-		return ""   # Scholar already rescued — nothing left to spawn anywhere
-	for m: String in RESCUE_MAP_QUEUE:
-		for char_id: String in (RESCUE_MAP_QUEUE[m] as Array):
-			if not is_room_unlocked(String(RESCUE_CHARACTER_DEFS[char_id]["room"])):
-				return ""   # some OTHER map's character isn't rescued yet — Scholar not eligible here yet
-	return "scholar"
+	return ""
 
 var blueprints: Array = []           # known def_ids (buyable in the shop)
 var fragments_owned: Dictionary = {} # unique_id -> Array[int] of owned fragment indices
@@ -179,15 +174,17 @@ var run_weapon_drop_seen: bool = false   # true once ANY boss-salvage weapon car
 # (see arena.gd's map_id branch in _ready(), and arena_wave_director_v2.gd's _last_wave_cfg_path()). Add a
 # new theme by dropping one more entry here + a matching background-builder branch in arena.gd.
 ## `name` is the player-facing display name (shown on the Hub Launch thumbnails, hub_screen.gd
-## _build_mapselect) — NOT necessarily the map_id key. "rubicon"/"default" keep their original internal
-## id (folder names, class names, group names, cfg filenames all still say "rubicon"/"default" — renaming
-## THOSE would be a large, purely-cosmetic-value refactor) even though the display name changed to
-## "Electric"/"Space" per user request.
+## _build_mapselect) — NOT necessarily the map_id key. "default" keeps "Space" as its internal id (the
+## original map, no rename history). The map once internally called "rubicon" was fully renamed to
+## "electric" (folder, class names, group names, cfg filenames, map_id — everything) on request; no
+## "rubicon" should remain anywhere in this codebase.
 const MAP_DEFS := {
 	"default": {"name": "Space", "desc": "The original space arena — asteroids, waves, weapons, bosses.", "scene": "res://scenes/arena.tscn"},
-	"rubicon": {"name": "Electric", "desc": "Procedural blue-grass / dark-sand terrain under drifting parallax clouds, scattered trees — same ship/weapons/HUD/waves as Default, different spawn timeline.", "scene": "res://scenes/arena.tscn"},
+	"electric": {"name": "Electric", "desc": "Procedural blue-grass / dark-sand terrain under drifting parallax clouds, scattered trees — same ship/weapons/HUD/waves as Default, different spawn timeline.", "scene": "res://scenes/arena.tscn"},
 	"volcanic": {"name": "Volcanic", "desc": "Procedural basalt-rock / ash terrain scarred by jagged cracks of flowing lava, under drifting ash clouds and rising embers — same ship/weapons/HUD/waves as Default, different spawn timeline.", "scene": "res://scenes/arena.tscn"},
 	"atlantic": {"name": "Atlantic", "desc": "Deep-sea sunken-ruin seabed terrain scarred by a winding current channel, under rising bubble columns and spiraling whirlpools — same ship/weapons/HUD/waves as Default, different spawn timeline.", "scene": "res://scenes/arena.tscn"},
+	"mechanic": {"name": "Mechanic", "desc": "Procedural blue-grass / dark-sand terrain woven from 7 canopy photos under drifting parallax clouds — same ship/weapons/HUD/waves as Default, different spawn timeline.", "scene": "res://scenes/arena.tscn"},
+	"arctic": {"name": "Arctic", "desc": "Icy blue-white / frost terrain woven from canopy photos (auto-blended, however many are on hand) under drifting parallax clouds and rising energy-beam vents — same ship/weapons/HUD/waves as Default, different spawn timeline.", "scene": "res://scenes/arena.tscn"},
 }
 var selected_map_id: String = "default"   # last map picked in the Launch panel (not persisted — resets each session)
 
@@ -206,7 +203,7 @@ func _on_boss_defeated() -> void:
 ## Grant ONLY gatling_gun as a starting blueprint (user feedback: "trong kho (equipment) chỉ có vũ khí cơ bản
 ## là gatling gun... Mechanic cũng reset, chưa có vũ khí gì để mua" — a fresh profile's shop should be
 ## effectively empty, not pre-stocked with every common/uncommon weapon). Every other blueprint is earned by
-## disassembling boss drops (Phase 3) — see arena_drop_ui.gd, now including Rubicon's temple landmark boss.
+## disassembling boss drops (Phase 3) — see arena_drop_ui.gd, now including Electric's temple landmark boss.
 func _seed_starter_blueprints() -> void:
 	if not blueprints.has(InventoryManager.STARTER_WEAPON_ID):
 		blueprints.append(InventoryManager.STARTER_WEAPON_ID)

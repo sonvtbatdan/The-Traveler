@@ -1,8 +1,8 @@
 extends SceneTree
 ## One-shot bake: render each rescue-character .glb in assets/ruin/ (Scholar/constructor/engineer/mechanic/
-## psyker — the Electric-map ruin landmarks, see rubicon_ruin_layer.gd) into a top-down reference PNG with
-## real alpha, same idiom as tools/bake_rubicon_trees.gd's temple bake. Unlike that tool, these ARE actually
-## used at runtime: rubicon_ruin_layer.gd renders the live .glb via RubiconTrees.spawn_landmark() same as the
+## psyker — the Electric-map ruin landmarks, see electric_ruin_layer.gd) into a top-down reference PNG with
+## real alpha, same idiom as tools/bake_electric_trees.gd's temple bake. Unlike that tool, these ARE actually
+## used at runtime: electric_ruin_layer.gd renders the live .glb via ElectricTrees.spawn_landmark() same as the
 ## temple, but arena_ruin_pointer.gd's edge-of-screen arrow needs a flat 2D icon to borrow — that's what this
 ## produces (mirrors temple.png's role exactly).
 ##
@@ -14,12 +14,12 @@ extends SceneTree
 ##   godot --path . --script tools/bake_ruin_landmarks.gd
 ## Output: assets/ruin/<name>.png, alongside each source .glb.
 
-const RubiconAssetScan := preload("res://scripts/gameplay/rubicon/rubicon_asset_scan.gd")
+const ElectricAssetScan := preload("res://scripts/gameplay/electric/electric_asset_scan.gd")
 
 const FOLDER := "res://assets/ruin/"
 const RUIN_GLB := ["Scholar", "constructor", "engineer", "mechanic", "psyker"]   # filename stems, case-sensitive
 
-const ISO_DEG := 30.0   # same convention as bake_rubicon_trees.gd's TREE_ISO_DEG / arena.gd's SHIP_ISO_DEG
+const ISO_DEG := 30.0   # same convention as bake_electric_trees.gd's TREE_ISO_DEG / arena.gd's SHIP_ISO_DEG
 const VP_SIZE := 512
 const SETTLE_FRAMES := 5
 
@@ -101,7 +101,7 @@ func _on_post_draw() -> void:
 	if _rf == SETTLE_FRAMES:
 		var img := _sv.get_texture().get_image()
 		img.convert(Image.FORMAT_RGBA8)
-		var out_path := RubiconAssetScan.baked_png_path(_pending_path)
+		var out_path := ElectricAssetScan.baked_png_path(_pending_path)
 		var err := img.save_png(out_path)
 		if err == OK:
 			print("bake_ruin_landmarks: saved ", out_path)
@@ -110,7 +110,7 @@ func _on_post_draw() -> void:
 		call_deferred("_start_next")
 
 func _frame_top_down(model: Node3D) -> void:
-	var aabb := RubiconAssetScan.combined_aabb(model)
+	var aabb := ElectricAssetScan.combined_aabb(model)
 	var center := aabb.position + aabb.size * 0.5
 	model.position -= Vector3(center.x, aabb.position.y, center.z)
 	var radius: float = maxf(Vector2(aabb.size.x, aabb.size.z).length() * 0.5, aabb.size.y * 0.5)

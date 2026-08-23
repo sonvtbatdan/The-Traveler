@@ -6,8 +6,8 @@ class_name AtlanticAssetScan
 ## .glb shipped yet), same as Volcanic's own initial state.
 
 const FOLDER := "res://assets/map/atlantic/"
-const SCATTER_EXCLUDED := ["temple"]   # the boss landmark is reused from Rubicon/Electric directly (its own
-                                        # .glb lives in assets/map/rubicon/, never copied here) — this list is
+const SCATTER_EXCLUDED := ["temple"]   # the boss landmark is reused from Electric/Electric directly (its own
+                                        # .glb lives in assets/map/electric/, never copied here) — this list is
                                         # a defensive placeholder in case a local "temple"-named .glb is ever
                                         # dropped in this folder by mistake; mirrors volcanic_asset_scan.gd's
                                         # own SCATTER_EXCLUDED convention.

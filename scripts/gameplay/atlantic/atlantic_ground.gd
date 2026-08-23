@@ -7,7 +7,7 @@ class_name AtlanticGround
 ## CURRENT channel instead of a lava flow — see AtlanticNoise's header for the full rationale.
 ##
 ## Sits on a negative CanvasLayer (screen-space, always covers the viewport) — set_world_offset() shifts the
-## CONTENT via a shader uniform each frame, same trick as volcanic_ground.gd/rubicon_ground.gd.
+## CONTENT via a shader uniform each frame, same trick as volcanic_ground.gd/electric_ground.gd.
 
 const GROUND_SHADER := preload("res://scripts/gameplay/atlantic/atlantic_ground.gdshader")
 const AtlanticConfig := preload("res://scripts/gameplay/atlantic/atlantic_config.gd")

@@ -1379,10 +1379,77 @@ const BOOM_BLADE      := 58.5       # blade visual half-length (+150% of the old
 const BOOM_DAMAGE     := 28.0
 const BOOM_HIT_RADIUS := 62.4       # enlarged to match the bigger blade
 const BOOM_HIT_CD     := 0.25       # per-enemy re-hit interval (a blade sweeps the same enemy repeatedly)
-const BOOM_SPIN       := 50.265     # visual self-spin rad/s (120 RPM = 4π)
+const BOOM_SPIN       := 12.566     # visual self-spin rad/s about the play-plane normal (flat, on screen).
+								   # 120 RPM = 4π. Was 50.265 (16π, 480 RPM) until 2026-08-23 — the value had
+								   # drifted 4x away from its own comment and the tunables table; at 480 RPM
+								   # the blade turned ~48°/frame at 60fps and read as a strobe, not a spin.
+# ── Aliwa tumble (2026-08-23, "cho boomerang tự xoay cho sinh động, vì giờ đã là object 3D") ──
+# BOOM_SPIN alone is a flat, in-screen-plane spin — it was the whole story while the blade was a 2D sprite,
+# and it still reads as a flat cut-out now that the blade is a real model. The tumble below is the part that
+# only a 3D object can do: the blade also rolls about the DIRECTION IT IS FLYING, so it turns edge-on and
+# back once per revolution and you see its thickness and both faces, the way a thrown boomerang does.
+# Deliberately much slower than BOOM_SPIN: the fast spin is the "blade is whirling" read, this is the
+# "and it is a solid object" read, and at anything near the spin rate the two just fight each other.
+const BOOM_ROLL_RPM   := 45.0
+const BOOM_ROLL_OMEGA := BOOM_ROLL_RPM / 60.0 * TAU   # rad/s
+## Phase offset per blade index, so a flock (Split Blade / Chaos) doesn't tumble in lockstep like one rigid
+## object. Irrational-ish on purpose — a neat fraction of TAU would re-sync the blades every few revolutions.
+const BOOM_ROLL_PHASE := 1.05
 const BOOM_COL        := Color(0.95, 0.85, 0.5)
 const BOOM_DRAW       := 25.35       # on-screen boomerang sprite width (px); height aspect-locked per texture
 const BOOM_TEX: Texture2D = preload("res://assets/weaponry/ND-Aliwa-Bmr.png")
+# ── Aliwa 3D (2026-08-21) — replaces the flat sprite blade with a live-rendered .glb, same MultiMesh-in-a-
+# shared-SubViewport technique as VIPER's body segments (all blades are identical, no head/tail asymmetry —
+# simpler than VIPER). Only blade _booms[0] gets a plume anchor, matching the existing 2D _register_plume
+# registration's own scope (count=1, "_booms[0]" only) — not a new limit introduced here.
+const ALIWA3D_GLB      := "res://assets/weaponry/ND-Aliwa-Bmr.glb"
+const ALIWA3D_DISPLAY_PX := BOOM_DRAW   # same on-screen scale as the old sprite
+const ALIWA3D_CAP      := 16             # generous vs. realistic max blade count (BOOM_COUNT + Bodies + picks + Chaos +3)
+const ALIWA3D_REGION   := 700.0          # half-extent of the tracked window — clears BOOM_SIZE(330) + Death Roll's 1.6x snap-back margin
+# ── Generic single-mesh 3D weapons (2026-08-23) — Swarmball / Swarmbot / shooter ────────────────────────
+# Per user request ("Swarm ball, Swarm bot, missile, shooter cần có panel 3D view với các slider tương tự
+# như viper, aliwa (vì chúng là object 3D)"). Those three ship as .glb models but were still drawn as flat
+# `draw_texture_rect` sprites, which is exactly why creep_edit_mode.gd's WIRED_3D_CREEPS allowlist withheld
+# the Rotate X/Y/Z + TP-XYZ panel from them: the sliders would have written a mount angle nothing read.
+# This is that missing runtime half, so the panel becomes real rather than decorative.
+#
+# ONE code path for all three, instead of a fourth/fifth/sixth copy of `_setup_aliwa_3d` — they are all the
+# same shape of problem: N identical instances, each a position + a facing, no head/body/tail split. That is
+# precisely Aliwa's MultiMesh-in-a-SubViewport rig, so `_build_glb3d_rig`/`_update_glb3d` below are that
+# pattern generalised over a name. VIPER/Jaeger/Aliwa keep their own bespoke rigs untouched: each has extra
+# machinery (chain geometry, an AnimationPlayer, a per-blade taper) this generic one deliberately has no
+# concept of, and rewriting working weapons was not what was asked for.
+#
+# `missile` is deliberately NOT here: assets/weaponry has missile.png only — there is no missile.glb to
+# render, so it stays on the 2D path and keeps the flat TP editor (see the reply to the user).
+#
+# `region` = half-extent of the tracked window (the layer re-centres on the player every frame, same as
+# every other rig in this file), so it must clear how far that weapon's instances can get from the ship —
+# but no further than the screen, since each region costs a `(2*region)²` render target that is redrawn
+# every frame. The viewport is 1440x780, so ~820 is the half-diagonal and anything past that is off-screen
+# anyway: 900 covers the swarm wherever it can be seen, and the shooter's turrets are pinned to
+# SHOOTER_BACK_DIST (54px) from the ship, so its window only has to clear the sprite around that.
+# `cap` = MultiMesh instance count; upgrades raise the live count well past the base, so these are generous.
+const GLB3D_WEAPONS := {
+	"Swarmball":   {"glb": "res://assets/weaponry/Swarmball.glb",   "px": SBALL_DRAW,     "region": 900.0, "cap": 64},
+	"Swarmbot":    {"glb": "res://assets/weaponry/Swarmbot.glb",    "px": SBALL_BOT_DRAW, "region": 900.0, "cap": 64},
+	"shooter":     {"glb": "res://assets/weaponry/shooter.glb",     "px": SHOOTER_DRAW,   "region": 160.0, "cap": 32},
+	# 2026-08-23: BC-SL-Spore MOVED here from its own `_setup_spore_3d`/`_update_spore_3d` pair. That rig was
+	# already this exact shape (one MultiMesh, slot = the cloud's current index in `_para_clouds`) but predated
+	# the generic one and was missing everything WIRED_3D_CREEPS needs before it will show the Rotate X/Y/Z
+	# panel: no `z` lift, no `display_px_for` entry (so the editor converted its TP fractions against the
+	# generic 32px fallback while the game drew at 18), no 3D TP plumes, and neither `set_live_mount_cal()` nor
+	# `reload_3d_weapon_layout()` knew about it. Moving it here supplies all five at once rather than
+	# re-implementing them beside a near-duplicate rig. Region 900 kept from SPORE3D_REGION: PARA_SPEED(520)/
+	# PARA_DRAG(2.2) bounds non-auto travel to ~236px from the muzzle, with margin for the Full Automation
+	# capstone's looser cluster-seeking drift. Cap 8 kept: 2.6s cooldown against a 3.2s lifetime.
+	"BC-SL-Spore": {"glb": "res://assets/weaponry/BC-SL-Spore.glb", "px": PARA_DRAW,      "region": 900.0, "cap": 8},
+}
+## How many live instances get their own 3D plume anchor. A plume is a CPUParticles3D per TP per anchor, so
+## this is capped well below `cap` — the trail reads the same on a swarm whether 8 or 64 units stream it, and
+## none of these three has a saved TP yet anyway (the pool costs nothing until one is placed in Weapon Edit).
+const GLB3D_PLUME_CAP := 8
+
 # ── Boomerang (kinetic + contact) skill-point pool + evolves ──
 const BOOM_POOL := {
 	"damage":     {"name": "Sharpened Edge",     "max": 10, "per": "+10% damage",         "desc": "A keener blade."},
@@ -1430,13 +1497,47 @@ const MORO_DAMAGE      := 40.0
 const MORO_STAGGER     := 0.3
 const MORO_COL         := Color(0.8, 0.7, 1.0)
 # Yari Jaeger (Energy) — blade familiar: seeks nearest enemy like Moroboshi, then arc-sweeps like Z-Sword mini.
-const YARI_ORBIT_R     := 200.0     # idle orbit radius around player (no targets)
-const YARI_ORBIT_SPEED := 1.0       # rad/s — tangential speed = 200 px/s < YARI_MOVE_SPEED
-const YARI_MOVE_SPEED  := 260.0     # flight speed toward enemy
+const YARI_ORBIT_R     := 200.0     # (legacy) idle orbit radius — superseded by the wander below
+const YARI_ORBIT_SPEED := 1.0       # (legacy) rad/s
+const YARI_MOVE_SPEED  := 260.0     # (legacy) flight speed — superseded by YARI_CHASE_SPEED
+# ── Behaviour (2026-08-23, per spec) ─────────────────────────────────────────────────────────────
+# "Khi không có enemies thì dùng model walk, tốc độ di chuyển 100px/s, đi loanh quanh người chơi.
+#  max distance = 300 pixel / Khi xuất hiện enemies thì dùng model run, tốc độ 200px/s về hướng enemies"
+const YARI_IDLE_SPEED  := 100.0     # px/s while wandering with no enemy in range
+const YARI_IDLE_LEASH  := 300.0     # px — never wanders further than this from the player
+const YARI_CHASE_SPEED := 200.0     # px/s closing on an enemy
+const YARI_WANDER_HOLD := 2.5       # s before picking a new wander point even if the current one isn't reached
+const YARI_WANDER_REACH := 24.0     # px — "arrived", pick the next point
+## Hysteresis on target acquisition. Without it, an enemy hovering right at YARI_AGGRO is in range one frame
+## and out the next, so the state flips idle<->chase EVERY FRAME and the clip flips Walk/Run with it —
+## measured as an unbroken run of alternating transitions, which on screen is a model that never finishes an
+## animation. A target is picked inside YARI_AGGRO and only released past this larger radius.
+const YARI_DROP_RANGE  := 676.0     # YARI_AGGRO * 1.3
+## Longest an attack pose is held after its damage arc closes, so the move is actually SEEN. Uncapped it
+## would be the clip's own length, and Slash runs 3.2s — measured at 823 frames of standing still, which
+## reads as the weapon freezing rather than attacking. ~1.2s shows the move and keeps it responsive.
+const YARI_ATTACK_HOLD_MAX := 1.2
 const YARI_AGGRO       := 520.0     # engage enemies within this range of Yari
 const YARI_ATTACK_RANGE:= 80.0      # trigger slash when this close to target
 const YARI_ATTACK_CD   := 1.5       # seconds between slashes
 const YARI_SWEEP_TIME  := 0.4       # full arc completes in this many seconds (5 frames × 0.08 s)
+## Dead time between the attack STARTING and the light beginning to sweep, so the arc lands on the frames
+## where Slash actually swings instead of firing on the wind-up (2026-08-23, "delay luồng sáng quét lại 0.2
+## giây để khớp với animation"). The damage window is unchanged in LENGTH — it is the same YARI_SWEEP_TIME,
+## just moved later — so this re-times the move without re-tuning its damage.
+const YARI_SWEEP_DELAY := 0.4
+## Live value behind that default. Exposed so the dev slider (arena_debug_spawn.gd, bottom-left) can dial it
+## against a spawned Jeager instead of guessing a constant and restarting — matching the arc to the frames of
+## Slash where the blade actually comes round is a by-eye judgement, not a number anyone can derive.
+var _yari_sweep_delay: float = YARI_SWEEP_DELAY
+
+## Public — the dev slider writes here. Clamped to the slider's own range so a stray value can't wedge an
+## attack that never reaches its damage window.
+func set_yari_sweep_delay(v: float) -> void:
+	_yari_sweep_delay = clampf(v, 0.0, 2.0)
+
+func get_yari_sweep_delay() -> float:
+	return _yari_sweep_delay
 const YARI_LENGTH      := 110.0     # slash arc radius centred on Yari
 const YARI_ARC_HALF    := 0.314159  # hit half-arc (~18°) — same tolerance as Z-Sword
 const YARI_DAMAGE      := 55.0
@@ -1444,6 +1545,73 @@ const YARI_STAGGER     := 0.25
 const YARI_FRAME_DELAY := 0.08      # seconds per GIF frame during the slash animation
 const YARI_TURN_RATE   := 120.0 / 60.0 * TAU      # 120 RPM → rad/s (≈ 12.57 rad/s)
 const YARI_COL         := Color(0.9, 0.65, 1.0)   # light violet glow
+# ── Yari Jaeger 3D (2026-08-20) — 8 Mixamo-style exports of ONE character (same mesh+skeleton, 174,381
+# verts, 26 bones — verified identical across all 8 files), each with exactly 1 baked animation clip (except
+# "Fly punch.glb", which had 2 — the merge tool takes the longest, so the 0.07s stub is gone, a
+# guess). "Walk.glb" is loaded as the visual host (mesh+skeleton+its own AnimationPlayer); the other 7 are
+# instantiated once at setup purely to lift their Animation resource into that same AnimationPlayer, then
+# freed — see _setup_jaeger_3d. NOT verified: "Fly.glb"'s own embedded clip is actually
+# named "Bar_Hang_Idle" (a hanging-idle pose), not obviously a flight animation — flagged to the user already;
+# left as-is here since no replacement was given.
+## 2026-08-23: ONE file with every clip already in it, built by `tools/merge_jaeger_glb.gd` off the user's
+## clean `stand.glb`. The eight source glbs each carried a byte-identical copy of the same 174k-vertex mesh
+## and 7.9 MB texture just to deliver one animation, and this file used to re-merge them at every startup
+## (loading ~155 MB of glb only to free the meshes again). Same mesh, same clips, one load.
+##
+## The merge also fixed a silent breakage: `Fly punch.glb` names its armature node `target_character` where
+## every other glb uses `Armature`, and Godot binds an animation track BY PATH — so Fly Punch's tracks
+## resolved to nothing and the clip played without moving a single bone. (That is the
+## "AnimationMixer … couldn't resolve track: 'target_character/Skeleton3D:Hips'" warning at boot.) The merge
+## re-addresses every track by BONE NAME, so the lunge actually animates now. Verified: Hips travels
+## z 10.7 -> 755 -> 1061 across the clip.
+const JAEGER3D_BASE_GLB := "res://assets/weaponry/Jeager/Jeager.glb"
+const JAEGER3D_IDLE_CLIP  := "Fly"
+## Per-clip mount angle (2026-08-23, "Hiện tại jeager đang bị bay ngược"). Jeager is ONE model with every
+## clip merged onto its skeleton, so it had ONE mount angle for all of them — and the clips were authored
+## facing different ways, which is exactly what "flying backwards" is. Each clip glb is its own layer in
+## Weapon Edit now (see weapon_edit_mode.gd's JAEGER_CLIPS), with its own Rotate X/Y/Z, and whichever clip is
+## playing supplies the angle. A clip with no saved entry falls back to the weapon's own, so this changes
+## nothing until a clip is actually dialled in.
+const JAEGER3D_CLIP_LAYERS: Array[String] = ["Fly", "Walk", "Run", "Dive", "Kick", "Low Kick", "Slash", "Fly punch"]
+## One of these is picked at random for each attack swing (2026-08-23, "Khi jeager thực hiện tấn công thì
+## dùng random các glb kick, slash, low kick để thể hiện animation") — chosen once when the sweep STARTS
+## (`_yari_attack_clip`, set in _tick_yari) rather than per frame, or the clip would be re-rolled 60 times a
+## second and never actually play. Every name here must exist as a clip in JAEGER3D_BASE_GLB, and
+## `_draw_yari` still falls back to JAEGER3D_SWEEP_CLIP if a clip failed to merge.
+## 2026-08-23, on request ("bỏ luôn cả animation kick và low kick đi, để lại slash thôi"). Kept as an
+## ARRAY rather than collapsed to a single constant: the roll below reads the same either way, and putting a
+## clip back is one word here instead of restoring a mechanism.
+const JAEGER3D_ATTACK_CLIPS: Array[String] = ["Slash"]
+const JAEGER3D_SWEEP_CLIP := "Slash"
+const JAEGER3D_WALK_CLIP  := "Walk"
+const JAEGER3D_RUN_CLIP   := "Run"
+## Rolled fresh every time Jeager starts closing on a target (2026-08-24, "mỗi lần sau khi tấn công, sẽ
+## The approach clip is chosen by DISTANCE, not rolled (2026-08-24: "khoảng cách <300 pixel đến enemy thì dùng
+## run, lớn hơn 300px thì dùng fly"). Same clip name as the idle one — they are the same animation, used for
+## two different reasons, so both constants exist rather than one doing double duty at the call sites.
+const JAEGER3D_FLY_CLIP   := "Fly"
+const YARI_FLY_DIST       := 300.0
+## Half-width of the band around YARI_FLY_DIST where the current clip is KEPT. Without it a target sitting on
+## the line is inside one frame and outside the next, and the clip flips Run/Fly every frame — the identical
+## failure the 48th pass measured on YARI_AGGRO's own edge, where it showed up as hundreds of state changes
+## and an animation that never finished.
+const YARI_FLY_HYST       := 30.0
+# JAEGER3D_PUNCH_CLIP removed 2026-08-23, on request ("bỏ animation lấy đà đánh đi, nó quá phức tạp và dễ
+# tạo lỗi"): the Fly Punch lunge needed a launch standoff measured off the clip's own root motion, a run-up
+# state to reach it and a landing impact — three moving parts that between them produced the "runs in
+# circles instead of attacking" bug. The clip is still IN the merged glb, just not used. Jeager now does one
+# thing: approach, then Kick / Low Kick / Slash with the sweep arc.
+## LAYER name (the glb basename = its weapon_layout.cfg key = its row in Weapon Edit) -> the clip name it was
+## merged under. Only "Fly punch" differs, and it differs by ONE letter's case, which is exactly the kind of
+## thing that silently half-works — hence one explicit table both sides read.
+const JAEGER3D_LAYER_CLIP := {
+	"Fly": "Fly", "Walk": "Walk", "Run": "Run", "Dive": "Dive",
+	"Kick": "Kick", "Low Kick": "Low Kick", "Slash": "Slash", "Fly punch": "Fly Punch",
+}
+const JAEGER3D_DISPLAY_PX := 32.0    # on-screen diameter — matches the old sprite's DISPLAY_W in _draw_yari
+const JAEGER3D_REGION     := 1080.0  # same leash cap as VIPER's SNAKE3D_REGION (_yari_dp clamped to 1000px too)
+# JAEGER3D_YAW_OFFSET — same 2026-08-20 change as SNAKE3D_*_YAW_OFFSET above: no longer a hardcoded const,
+# read once at setup from weapon_layout.cfg's "Yari-Jeager" "rot" field (see _read_creep_rot / _jaeger3d_cal).
 # Swarm Host (Biochemical) — familiars that dart to enemies, deal damage, return and heal the player.
 const SWARM_COUNT      := 2         # familiar count (body)
 const SWARM_SPEED      := 420.0
@@ -1458,11 +1626,209 @@ const SNAKE_SEGMENTS   := 5        # 1 head + 3 body + 1 tail (short at first; g
 const SNAKE_SPACING    := 25.2     # px between centres = body segment size (zero gap)
 const SNAKE_SPEED      := 300.0
 const SNAKE_TURN       := 3.0       # max turn rad/s (head minimises turn angle)
+# ── VIPER chain overrides (2026-08-22, "áp dụng bảng segment/spacing của enemy thân đốt cho vũ khí viper") ──
+# Authored in the weapon editor's CHAIN (multi-node) panel — the SAME panel and the SAME file
+# (`creep_chain_overrides.cfg`) the centipede-style chain ENEMIES use, keyed "viper"; see
+# weapon_edit_mode.gd's own CHAIN section for how it points that panel here. Each mirrors one const above,
+# and stays at exactly that const until an override exists, so an untouched install behaves identically.
+var _snake_cfg_segments: int   = SNAKE_SEGMENTS   # base length before the Elongate/Primordial/Body bonuses
+var _snake_cfg_spacing:  float = SNAKE_SPACING    # px between segment centres (panel stores a MULTIPLIER)
+var _snake_cfg_turn:     float = SNAKE_TURN       # head turn clamp, rad/s (panel stores DEGREES)
+var _snake_cfg_taper:    float = 0.0              # per-segment shrink %, same meaning as the enemy panel's
+
+## Public — re-reads the VIPER row of `creep_chain_overrides.cfg`. Called at `_ready()` and by
+## weapon_edit_mode.gd on every CHAIN field edit / Reset (via the `"arena_weapons"` group), so authoring is
+## live. Segments/spacing/turn take effect on the next chain rebuild or immediately for spacing/turn (both
+## are read per-frame by `_snake_move`); taper is read per-frame by the 3D body renderer.
+func reload_chain_overrides() -> void:
+	_snake_cfg_segments = SNAKE_SEGMENTS
+	_snake_cfg_spacing  = SNAKE_SPACING
+	_snake_cfg_turn     = SNAKE_TURN
+	_snake_cfg_taper    = 0.0
+	var cfg := ConfigFile.new()
+	if cfg.load("res://creep_chain_overrides.cfg") != OK:
+		return
+	var all: Dictionary = cfg.get_value("overrides", "data", {})
+	var e: Dictionary = all.get("viper", {})
+	if e.is_empty():
+		return
+	_snake_cfg_segments = maxi(2, int(e.get("centi_segments", SNAKE_SEGMENTS)))
+	_snake_cfg_spacing  = SNAKE_SPACING * maxf(0.05, float(e.get("centi_spacing_mult", 1.0)))
+	_snake_cfg_turn     = deg_to_rad(maxf(0.0, float(e.get("centi_bend_deg", rad_to_deg(SNAKE_TURN)))))
+	_snake_cfg_taper    = clampf(float(e.get("centi_taper_pct", 0.0)), 0.0, 10.0)
+	_snake_init = false   # length/spacing changed -> rebuild the chain from scratch on the next tick
+
+## Per-segment shrink factor for the VIPER body, index 0 = first body segment. Same compounding per-step
+## model as the chain enemies' own taper (arena_enemy.gd's `_centi_seg_scale()`): a 2% taper means each
+## successive segment is 98% of the one before it, so the tail end thins out smoothly.
+func _snake_seg_scale(k: int) -> float:
+	return chain_seg_scale(_snake_cfg_taper, k)
+
+# ── PUBLIC: the one authority on how a 3D weapon appears (2026-08-22, "trên arena và trong weapon edit lấy
+# nguồn dữ liệu hiển thị từ cùng 1 nguồn để đảm bảo đồng nhất") ─────────────────────────────────────────────
+# The weapon editor used to carry its own copies of these numbers — a hardcoded 44 / 25.2 lookup table for
+# model scale, and two DIFFERENT hand-rolled step formulas for the chain layout (one for the head/body/tail
+# templates, another for the generated duplicates), neither of which matched the arena's own uniform
+# `pts[k] = base - spacing*k`. That is why the editor could show the head buried inside the body run while
+# the arena drew it correctly. These statics are now the single definition; `creep_edit_mode.gd` reads them
+# through `weapon_edit_mode.gd`'s `_chain_geometry()` / `_arena_display_px()` hooks and holds no numbers of
+# its own. Static so the editor can call them without an arena_weapons instance existing (the panel opens
+# from the dev menu, where no weapon may be equipped yet).
+
+## Per-segment shrink factor, index 0 = the first body segment. A 2% taper means each successive segment is
+## 98% of the one before it. Same compounding per-step model as the chain enemies (arena_enemy.gd's
+## `_centi_seg_scale()`).
+static func chain_seg_scale(taper_pct: float, k: int) -> float:
+	if taper_pct <= 0.001:
+		return 1.0
+	return pow(1.0 - taper_pct * 0.01, float(maxi(k, 0)))
+
+## VIPER's on-screen chain geometry for a given Spacing multiplier. `step_px` is the CENTRE-TO-CENTRE
+## distance between EVERY consecutive point — head→body, body→body and body→tail alike, exactly as
+## `_run_snake()` seeds the chain (`pts[k] = base - spacing*k`) and `_snake3d_update_chain()` then renders it.
+## The uniformity matters: the editor previously stepped by each part's own rect height, which made the
+## head→body gap nearly twice the arena's at Spacing 1.0 and inverted at low Spacing.
+static func snake_chain_geometry(spacing_mult: float) -> Dictionary:
+	return {
+		"step_px": SNAKE_SPACING * maxf(0.05, spacing_mult),
+		"head_px": SNAKE3D_HEAD_PX,
+		"body_px": SNAKE3D_BODY_PX,
+		"tail_px": SNAKE3D_TAIL_PX,
+	}
+
+## Which way "forward" points ON THE WEAPON EDIT CANVAS, in radians (0 = right, -PI/2 = up), or NAN for a
+## weapon that has no travel facing at all. 2026-08-23, on request ("Có điểm đánh dấu mặt trước (để tôi quay
+## model cho đúng khi di chuyển, tránh di chuyển ngược)") — the editor draws an arrow along this so a model
+## can be rotated to face the way it will actually fly.
+##
+## Where the number comes from. Every 3D weapon reaches the screen through `_snake3d_world_xform(pos, ang,
+## ...)`, whose basis rotates the model by `ang` in the canvas plane; each draw path passes `ang = facing +
+## OFFSET`, and that offset is the only thing that differs between them. A canvas direction `d` therefore
+## renders in-game at `d + facing + offset`, so the direction that ends up along `facing` is `d = -offset`.
+## Anything mounted at `facing + PI/2` (VIPER's head and tail, Jeager, the shooter pods) wants -PI/2, i.e.
+## UP; anything passed a raw bearing (VIPER's body, the swarm, the spore) wants 0, i.e. RIGHT.
+##
+## ND-Aliwa-Bmr is deliberately absent: it is handed a SPIN, not a heading, so no direction on the canvas is
+## "its front" and drawing an arrow would be inventing a rule the renderer does not have.
+static func front_angle_for(weapon_name: String) -> float:
+	match weapon_name:
+		"VIPER head top", "VIPER Tail", "Yari-Jeager", "shooter", "stand":
+			return -PI * 0.5
+		"VIPER body", "Swarmball", "Swarmbot", "BC-SL-Spore":
+			return 0.0
+	# Jeager's animation-clip layers ride the same carrier as the weapon itself.
+	if JAEGER3D_LAYER_CLIP.has(weapon_name):
+		return -PI * 0.5
+	return NAN
+
+## The real on-screen diameter this file renders `weapon_name` at, or 0.0 if it isn't one of the 3D weapons.
+## Every consumer of a TP position (here AND in the editor) converts through this exact number — a TP is
+## stored as a FRACTION of it — so a mismatch silently places the same saved TP at two different points.
+##
+## 2026-08-23 ("Jeager tôi set Width trong edit là 200 nhưng sao ở ngoài vẫn rất nhỏ"): the W/H in Weapon
+## Edit's TRANSFORM panel is that number now. It used to be nothing of the sort — the rect was documented as
+## a pure editor ZOOM and the arena size was a hardcoded const with no UI at all, so setting W did exactly
+## what the user saw: nothing. The saved rect wins whenever there is one; the consts below are the fallback
+## for a weapon that has never been placed in the editor.
+##
+## Read once per session and cached — this is called per part per equip AND on every editor refresh.
+## `reload_3d_weapon_layout()` clears the cache so a Save is picked up. NOTE: a size change still needs the
+## weapon re-equipped (or the run restarted) to show up, because `center_and_fit()` bakes the fit into the
+## model/MultiMesh once at setup; only the TP conversions re-read it live.
+static var _display_px_cache: Dictionary = {}
+static func _saved_display_px(weapon_name: String) -> float:
+	if _display_px_cache.is_empty():
+		var cfg := ConfigFile.new()
+		if cfg.load("res://weapon_layout.cfg") == OK and cfg.has_section("creeps"):
+			for k: String in cfg.get_section_keys("creeps"):
+				var sz: Vector2 = (cfg.get_value("creeps", k, {}) as Dictionary).get("size", Vector2.ZERO)
+				_display_px_cache[k] = maxf(sz.x, sz.y)
+		_display_px_cache["__loaded"] = 1.0   # so a cfg with no [creeps] doesn't re-read every call
+	return float(_display_px_cache.get(weapon_name, 0.0))
+
+static func display_px_for(weapon_name: String) -> float:
+	var base := 0.0
+	match weapon_name:
+		"VIPER head top": base = SNAKE3D_HEAD_PX
+		"VIPER Tail":     base = SNAKE3D_TAIL_PX
+		"VIPER body":     base = SNAKE3D_BODY_PX
+		"Yari-Jeager":    base = JAEGER3D_DISPLAY_PX
+		"ND-Aliwa-Bmr":   base = ALIWA3D_DISPLAY_PX
+	# The generic 3D weapons (2026-08-23) declare their own size in GLB3D_WEAPONS — one table, read by both
+	# the renderer and the editor, so a TP fraction can't be converted against two different numbers.
+	if base <= 0.0 and GLB3D_WEAPONS.has(weapon_name):
+		base = float((GLB3D_WEAPONS[weapon_name] as Dictionary)["px"])
+	if base <= 0.0:
+		return 0.0   # not a weapon this file renders in 3D — the editor keeps its hand-authored W/H
+	# The saved rect wins over the const (see this function's header). Gated on `base` above ON PURPOSE: a 2D
+	# weapon's rect is nothing but an editor thumbnail size (missile's is 60x255), and letting that escape
+	# here would feed the editor's own W/H sync a number that means nothing to the game.
+	var saved := _saved_display_px(weapon_name)
+	return saved if saved > 0.001 else base
 const PREDATOR_TURN    := 2.0       # The Predator's head turns slower → its beam must be aimed by turning the head
 const SNAKE_TICK       := 0.2
 const SNAKE_DAMAGE     := 8.0       # per tick per enemy in contact with any segment
 const SNAKE_HIT_RADIUS := 22.0
+# ── VIPER target selection (2026-08-23, "ưu tiên bảo vệ player, tấn công các mục tiêu ở gần player trước") ──
+# VIPER used to steer at whatever was nearest ITS OWN HEAD, which made it a hunter: it would happily chase a
+# lone straggler out to the end of its leash while something closed on the ship behind it. It is a guard now.
+# The score below is minimised, and its FIRST term is the enemy's distance to the PLAYER — how dangerous it
+# is — with the head's own travel distance only as a weighted tie-break so the snake doesn't cross the whole
+# screen past an equally threatening target.
+const SNAKE_GUARD_RADIUS  := 900.0   # ignore anything further than this from the ship (the leash is 1000)
+const SNAKE_REACH_WEIGHT  := 0.35    # travel distance counts this much against threat distance
+# A ruin is destructible scenery, not something closing on the ship, so under a guard doctrine it is a strict
+# LAST RESORT: VIPER clears every live enemy inside the guard radius before it chews on one. The value is
+# what makes that strict rather than a lean — the largest score anything in radius can reach is
+# GUARD_RADIUS + REACH_WEIGHT * (leash + GUARD_RADIUS) = 900 + 0.35*1900 = 1565, so any penalty above that
+# puts ruins wholly behind live enemies. (At 600 it was only a nudge: a ruin 200px from the ship still beat
+# an enemy at 700px.)
+const SNAKE_RUIN_PENALTY  := 2000.0
+# Hysteresis: a rival must beat the current target by this margin to steal it. Without it two enemies at
+# similar scores swap the lock every frame and the head jitters between them instead of committing.
+const SNAKE_TARGET_STICKY := 0.75
 const SNAKE_COL        := Color(1.0, 0.6, 0.3)
+# ── VIPER 3D swap (2026-08-20) ── replaces the flat PNG chain with a live-rendered .glb chain, composited
+# over the 2D arena from one shared SubViewport (see scripts/gameplay/fx/glb_topdown_rig.gd for the framing
+# convention: 1 world unit = 1 screen px, world X = screen X, world Z = screen Y).
+const SNAKE3D_HEAD_GLB  := "res://assets/weaponry/VIPER head top.glb"
+const SNAKE3D_BODY_GLB  := "res://assets/weaponry/VIPER body.glb"
+const SNAKE3D_TAIL_GLB  := "res://assets/weaponry/VIPER Tail.glb"
+const SNAKE3D_HEAD_PX   := 44.0      # on-screen diameter — matches the old sprite's HEAD_PX
+const SNAKE3D_BODY_PX   := 25.2      # matches SNAKE_SPACING / the old sprite's BODY_SEG_PX
+const SNAKE3D_TAIL_PX   := 44.0      # matches the old sprite's tail seg_px
+# ── VIPER body roll (2026-08-23, "các node body sẽ xoay tròn quanh trục dài, delay nhẹ giữa các node,
+# tốc độ bằng nhau và = 12rpm") ────────────────────────────────────────────────────────────────────────────
+# Every BODY segment spins about the chain's own long axis — the line running head → tail — at one shared
+# rate, each starting slightly after the one in front of it so the roll travels down the body as a wave
+# instead of the whole snake turning as a rigid tube. Head and tail do not roll.
+const SNAKE3D_ROLL_RPM   := 12.0     # revolutions per minute, identical for every segment
+# Seconds each segment trails the one ahead of it (2026-08-23, "node đầu xoay lúc 0 giây thì node thứ 2 lúc
+# 0.2 giây, node thứ 3 lúc 0.4 giây"): body 1 starts at t=0, body 2 at 0.2s, body 3 at 0.4s, and so on.
+const SNAKE3D_ROLL_LAG   := 0.2
+# 12 rpm = 12/60 rev/s; TAU rad per rev.
+const SNAKE3D_ROLL_OMEGA := SNAKE3D_ROLL_RPM / 60.0 * TAU   # rad/s
+
+# ── Head bank (2026-08-23, "khi viper rẽ, áp dụng góc bend của viper cho góc xoay của head") ───────────────
+# The head banks into a turn, rolling about the SAME axis the body segments roll about — the chain's long
+# axis — instead of spinning continuously. At the full turn rate it leans by the CHAIN panel's own Bend
+# value read as an angle (30 deg today), scaling linearly down to 0 when travelling straight, so the one
+# slider drives both how sharply VIPER can turn and how hard it leans doing it.
+const SNAKE3D_BANK_SMOOTH := 6.0     # how quickly the lean chases the turn rate (per second); higher = snappier
+const SNAKE3D_CHAIN_CAP := 80        # max instances per chain in the shared body MultiMesh — generous vs. the
+									  # real max (~67: SNAKE_SEGMENTS 5 + Elongate 8 + Primordial God 50 + Body%)
+# The 3D layer is a WORLD-SPACE CanvasItem (plain child of this Node2D, no CanvasLayer) so Godot's normal
+# Camera2D projection pans/composites it exactly like the old immediate-mode sprite draws — no manual
+# canvas_transform math needed. It covers a FIXED-SIZE window re-centered on the player every frame (segments
+# are expressed relative to the player's own position before being fed to the 3D scene) rather than the whole
+# world, since the snake chain itself is hard-leashed to ≤1000px from the player (see _snake_move).
+const SNAKE3D_REGION := 1080.0       # half-extent (world units = px) of the tracked window — must clear the
+									  # 1000px hard leash + head/tail model half-size margin
+# Mount-angle calibration applied on top of each segment's 2D travel angle to orient the model correctly —
+# 2026-08-20: no longer a hardcoded const, and no longer Y-only. Read once at setup from weapon_layout.cfg's
+# "creeps" "rot" field (Vector3 — see _read_creep_rot) — the SAME calibration the "3D VIEW / MOUNT ANGLE"
+# Rotate X/Y/Z sliders in creep_edit_mode.gd write when you spin the model to face the right way and hit
+# Save. Default Vector3.ZERO if never calibrated.
 # ── Space Snake (VIPER, kinetic + contact + automation) skill-point pool + evolves ──
 const SNAKE_POOL := {
 	"damage":         {"name": "Venom Glands",       "max": 10, "per": "+10% damage",              "desc": "A more toxic bite."},
@@ -1535,6 +1901,12 @@ const ORBITAL_SPRITE       := "res://assets/weaponry/ND-OID-F.png"
 const SWARM_DRAW           := 24.0
 const PARA_SPRITE          := "res://assets/weaponry/BC-SL-Spore.png"
 const PARA_DRAW            := 18.0
+# ── Spore 3D (2026-08-21, moved into GLB3D_WEAPONS 2026-08-23) — ONLY the spore pellet itself is a live 3D
+# model; the gas-cloud/AoE VFX on expiry (_para_gas_puffs, DynamicFire), the per-cloud 2D trail plume
+# (`c["plume"]`) and the invisible hit-radius circle/arc in _draw_para_cloud all stay exactly as they are.
+# Clouds are created/destroyed dynamically (_para_clouds.append/remove_at) rather than being a fixed count,
+# which the generic rig handles the same way this one always did: the instance slot is re-derived from the
+# array's CURRENT index every frame, so _tick_para needs no slot bookkeeping at all.
 const ORBITAL_DRAW         := 22.5    # on-screen orb reference size (px) — 50% of original 45
 const ORBITAL_KEY_THR      := 240     # white-key threshold (0-255): border-connected pixels ≥ this → transparent
 const ORBITAL_HIT_FRAC     := 0.45    # collision radius = ORBITAL_DRAW * 0.5 * this (matches the sprite body)
@@ -1571,7 +1943,9 @@ const STRIKER_DRAW         := 22.5     # on-screen size, matches ORBITAL_DRAW
 const SHOOTER_BASE_ORBS   := 2        # base turrets (anchor at 8 & 4 o'clock behind the ship)
 const SHOOTER_BACK_DIST   := 54.0     # px the turrets hover from the ship centre (~1cm back)
 const SHOOTER_MOVE_LERP   := 12.0     # how fast a turret eases to its slot as the ship turns / count changes
-const SHOOTER_TURN_RATE   := 120.0 / 60.0 * TAU   # 120 RPM → rad/s, how fast the sprite turns to face a target
+# SHOOTER_TURN_RATE removed 2026-08-23: the turrets hold the SHIP's heading now ("Shooter sẽ quay cùng
+# hướng với player") instead of each easing toward its own nearest enemy, so there is nothing left to ease.
+# See `_tick_shooter`. Bring it back if per-turret target tracking is ever wanted again.
 const SHOOTER_BURST       := 3        # bolts per burst
 const SHOOTER_BURST_GAP   := 0.09     # s between bolts within one burst
 const SHOOTER_COOLDOWN    := 1.0      # s between bursts per turret (before fire-rate)
@@ -2234,6 +2608,30 @@ var _boom_active: bool = false
 var _boom_init: bool = false
 var _boom_center: Vector2 = Vector2.ZERO   # trailing centre of the rose pattern (lags the ship)
 var _booms: Array = []                 # perpetual blades: {theta, spin, age, pos, hits:{}}
+# ── Aliwa 3D (2026-08-21) — see ALIWA3D_* consts' header ──
+var _aliwa3d_rig: RefCounted = null
+var _aliwa3d_vp: SubViewport = null
+var _aliwa3d_cam: Camera3D = null
+var _aliwa3d_layer: TextureRect = null
+var _aliwa3d_mm: MultiMeshInstance3D = null
+var _aliwa3d_base: Transform3D = Transform3D.IDENTITY   # blade mesh's own fit transform (MultiMesh — no real child nodes possible)
+var _aliwa3d_cal: Vector3 = Vector3.ZERO                # mount-angle calibration — see _read_creep_rot
+var _aliwa3d_ready: bool = false
+var _aliwa3d_plume_anchor: Node3D = null                # tracks _booms[0] only — matches the 2D registration's own scope
+# ── Generic 3D weapons (2026-08-23) — see GLB3D_WEAPONS' header. weapon name -> rig Dictionary
+# {rig, vp, cam, mm, layer, base, px, region, cap, cal, z, anchors}. Empty entry = that weapon's .glb
+# failed to load, and its 2D sprite path stays in charge.
+var _glb3d: Dictionary = {}
+
+# Live TP plume pivots, keyed `"<weapon_name>|<tp_id>"` -> Array[Node3D] — every rotation PIVOT currently
+# spraying for that TP, across every 3D weapon (VIPER head/body/tail, Jaeger, Aliwa share this ONE dict).
+# It holds the PIVOT wrapping each particle, not the particle itself: rotating a pivot re-orients particles
+# already in flight, whereas writing `CPUParticles3D.direction` only affects ones spawned afterwards (see
+# `_add_tp_plume_pivot()` / glb_topdown_rig.gd's `tp_rotation()`). An Array per key because VIPER's body TP
+# set is duplicated across every live body-segment anchor, so one tp_id can own many pivots that all need
+# the same write. Populated by `_add_tp_plume_pivot()` and cleared at the top of `reload_3d_weapon_layout()`.
+var _live_tp_particles: Dictionary = {}
+
 var _boom_upg: Dictionary = {"damage": 0, "speed": 0, "size": 0, "count": 0, "bleed": 0, "hemorrhage": 0}
 var _boom_capstone: String = ""        # "" | "bleed_more" | "chaos" | "death_roll"
 var _para_active: bool = false
@@ -2261,6 +2659,39 @@ var _yari_init: bool = false
 var _yari_pos: Vector2 = Vector2.ZERO
 var _yari_cd: float = 0.0
 var _yari_sweeping: bool = false
+var _yari_attack_clip: String = JAEGER3D_SWEEP_CLIP   # re-rolled from JAEGER3D_ATTACK_CLIPS per swing
+## "idle" | "chase" | "attack" | "attack_hold" — see _tick_yari. `_yari_sweeping` stays the flag
+## for "a stand-and-swing attack is mid-arc" (the VFX + damage window), which is what every other reader of
+## it means; the state machine is the thing that decides when that starts.
+var _yari_state: String = "idle"
+var _yari_target: Node = null   # held between frames — see YARI_DROP_RANGE
+var _yari_chase_clip: String = JAEGER3D_RUN_CLIP   # re-rolled on every fresh approach
+var _yari_wander_pt: Vector2 = Vector2.ZERO
+var _yari_wander_t: float = 0.0
+var _yari_hold_t: float = 0.0   # how long the current attack pose has been held past its damage arc
+## Fly Punch's forward root motion, measured off the merged clip: distance in SKELETON units, and the factor
+## from skeleton units to model-local ones. Multiplied by the model's current fit scale on use, so resizing
+## the weapon in Weapon Edit moves the launch standoff with it.
+## LAYER name -> its own plume anchor under the carrier. Only the anchor of the clip currently PLAYING is
+## visible, so a plume authored on the Kick layer only burns during a Kick. "" is the weapon's own
+## ("Yari-Jeager") anchor, shown whenever the playing clip's layer has no plumes of its own.
+var _jaeger3d_clip_anchor: Dictionary = {}
+## Bone-attached plumes (2026-08-23): [{pivot: Node3D, att: BoneAttachment3D, offset: Transform3D}]. A TP
+## with a `"bone"` rides that bone through every animation instead of holding a fixed offset from the model
+## centre, which is what makes an exhaust stay on the jetpack while Jeager kicks or lunges.
+##
+## The pivot is NOT parented to the attachment. Doing that would make it inherit the skeleton's own scale
+## (the glTF armature carries a 0.01, and `center_and_fit` multiplies another ~57 on top), so the particle
+## size would be at the mercy of the rig. It stays a child of the plume anchor and is re-placed each frame
+## from the attachment's transform instead — `att.global_transform * offset`, where `offset` was captured
+## once at build time as exactly the transform that puts it where the TP was authored.
+var _jaeger3d_bone_plumes: Array = []
+## The layer whose plumes are showing right now, "" when the weapon's own set is. Written by
+## `_sync_jaeger_clip_plumes()` and read by `_update_jaeger_plume_3d()`, which runs later in the same frame
+## and would otherwise switch the weapon's own anchor straight back on.
+var _jaeger3d_active_plume_layer: String = ""
+## clip name -> {"cal": Vector3, "z": float}; only clips with their own weapon_layout.cfg entry appear here.
+var _jaeger3d_clip_cal: Dictionary = {}
 var _yari_sweep_t: float = 0.0
 var _yari_sweep_start: float = 0.0
 var _yari_hit: Array = []
@@ -2270,6 +2701,19 @@ var _yari_frame_acc: float = 0.0
 var _yari_frame_idx: int = 0
 var _yari_facing: float = -PI * 0.5   # world angle the sprite faces; default = up (sprite's natural axis)
 var _yari_orbit_ang: float = 0.0      # current orbit angle when idling (no targets)
+# ── Yari Jaeger 3D swap (2026-08-20) — replaces the GIF-frame sprite with a live-rendered .glb, same
+# world-space-TextureRect-tracks-the-player technique as the VIPER swap above, but a single instance (no
+# MultiMesh needed) with a merged AnimationPlayer holding all 8 Jeager/*.glb clips under friendly names.
+var _jaeger3d_rig: RefCounted = null
+var _jaeger3d_vp: SubViewport = null
+var _jaeger3d_cam: Camera3D = null
+var _jaeger3d_layer: TextureRect = null
+var _jaeger3d_model: Node3D = null
+var _jaeger3d_anim: AnimationPlayer = null
+var _jaeger3d_ready: bool = false
+var _jaeger3d_plume_anchor: Node3D = null   # 2026-08-20, 3D plume swap — see _load_jaeger_plume_3d
+var _jaeger3d_cal: Vector3 = Vector3.ZERO   # mount-angle calibration (X/Y/Z) — see _read_creep_rot
+var _jaeger3d_carrier: Node3D = null        # 2026-08-20, 3rd pass — real parent of model + plume anchor
 var _swarm_active: bool = false
 var _swarm_capstone: String = ""       # "" | "dart"
 var _swarm_units: Array = []           # {pos, off, dir, state, t, life, target, bot, ang, chip_cd, dmg}
@@ -2321,6 +2765,68 @@ var _snake_tail_tex:      Texture2D = null
 var _snake_head_plume_anchor:  Node2D = null
 var _snake_tail_plume_anchor:  Node2D = null
 var _snake_body_plume_anchors: Array  = []   # one Node2D per body segment (k=1..n-2)
+# ── VIPER 3D swap (2026-08-20) — live glb render replaces the old draw_texture_rect sprite chain ──
+# Plume anchors above are UNTOUCHED: they're driven by weapon_layout.cfg TP fractions against the placed
+# EO's pos/size (creep_edit_mode.gd), which never depended on the visual being a flat PNG — see this file's
+# _load_snake_plume(). Only the DRAW path (_draw_snake* below) changes.
+var _snake3d_rig: RefCounted = null            # GlbTopdownRig instance (see that file's header)
+var _snake3d_vp: SubViewport = null
+var _snake3d_cam: Camera3D = null
+var _snake3d_layer: TextureRect = null         # world-space child (see SNAKE3D_REGION comment) — recentred on
+												# the player every frame instead of the whole world
+var _snake3d_head: Array = []                  # MeshInstance3D, index by chain — child of _snake3d_head_carrier[i]
+var _snake3d_tail: Array = []                  # MeshInstance3D, index by chain — child of _snake3d_tail_carrier[i]
+var _snake3d_body_base: Transform3D = Transform3D.IDENTITY  # body's fit transform — MultiMesh can't have real
+															 # child nodes, so this still gets applied manually
+															 # per-instance each frame (see _snake3d_world_xform)
+var _snake3d_body_mm: MultiMeshInstance3D = null
+var _snake3d_ready: bool = false
+# ── VIPER 3D plume (2026-08-20) — real CPUParticles3D living inside _snake3d_vp, parallel to the original
+# 2D _snake_head_plume_anchor/_snake_tail_plume_anchor/_snake_body_plume_anchors (untouched, still used as
+# the 2D fallback — see _load_snake_tex's branch). Mirrors that system's exact anchor count/mapping
+# (3 body anchors, k=1..SNAKE_SEGMENTS-2 — a pre-existing scope limit, not something new here).
+var _snake3d_head_plume_anchor:  Node3D = null
+var _snake3d_tail_plume_anchor:  Node3D = null
+var _snake3d_body_plume_anchors: Array  = []
+# Mount-angle calibration (X/Y/Z, 2026-08-20 3rd pass) — read once at setup from weapon_layout.cfg via
+# _read_creep_rot(), replacing the old hardcoded SNAKE3D_*_YAW_OFFSET consts (then the Y-only "yaw" float
+# from the 2nd pass). See _snake3d_world_xform's header.
+# Authored vertical (editor-space Z) offsets, set with PgUp/PgDn — see _snake3d_world_xform /
+# _read_creep_z. Named `_*_z` since the axis-space pass; all of them are 0 in the shipped layout.
+# 2026-08-22 (axis-space pass): one shared instance of the framing/axis helper. `_snake3d_world_xform()` now
+# calls into it for EVERY 3D part EVERY frame (dozens of calls per frame), so `preload(...).new()` per call —
+# what the setup functions here still do, since they run once — would allocate a RefCounted per segment per
+# frame for nothing. The helper holds no state of its own (see its file header), so one instance is safe.
+const GlbRigScript := preload("res://scripts/gameplay/fx/glb_topdown_rig.gd")
+var _glb_rig: RefCounted = GlbRigScript.new()
+
+# Roll clock for the body segments (see SNAKE3D_ROLL_*). Accumulated from `delta` rather than read off a
+# wall clock so it freezes with the game — a paused arena shows a still snake, not one that jumped ahead.
+var _snake3d_roll_t: float = 0.0
+# Per-chain head bank state (chain 0 = main, chain 1 = the More Snakes evolve). `prev_dir` starts at INF to
+# mean "no previous heading yet", so the first frame after a spawn can't read a bogus turn rate off it.
+# Current target per chain (0 = main, 1 = the More Snakes evolve) — see _snake_pick_target's hysteresis.
+# INSTANCE IDS, not object references (0 = none). 2026-08-23 freeze fix: holding the Node across frames meant
+# that the moment the target died, reading it back into a typed `Node` variable threw "Trying to assign
+# invalid previously freed instance" — and a targeted enemy dying is the NORMAL case here, so it fired every
+# few seconds and hung the frame. `is_instance_valid()` cannot help: the throw happens on the assignment
+# itself, before any check could run. An id is a plain int, so it can never be a freed instance; it is
+# resolved fresh each frame through is_instance_id_valid() below.
+var _snake_targets: Array[int] = [0, 0]
+var _snake3d_prev_dir: Array[float] = [INF, INF]
+var _snake3d_bank: Array[float] = [0.0, 0.0]
+var _snake3d_head_z: float = 0.0
+var _snake3d_body_z: float = 0.0
+var _snake3d_tail_z: float = 0.0
+var _jaeger3d_z: float = 0.0
+var _aliwa3d_z: float = 0.0
+var _snake3d_head_cal: Vector3 = Vector3.ZERO
+var _snake3d_body_cal: Vector3 = Vector3.ZERO
+var _snake3d_tail_cal: Vector3 = Vector3.ZERO
+# Carriers (2026-08-20, 3rd pass — real parent-child attachment): the mesh + plume anchor (chain 0 only for
+# plume, see _load_snake_plume_3d) are real children of these, one per chain slot — see _setup_snake_3d.
+var _snake3d_head_carrier: Array = []
+var _snake3d_tail_carrier: Array = []
 var _death_beam_active: bool = false   # turned on by the Lasgun pickup (auto-equip, accumulates with the Gatling)
 var _beam_cd: float = 0.0          # Lasgun damage-tick cooldown
 var _db_prev_from: Vector2 = Vector2.ZERO   # muzzle position at the last damage tick (swept hit-test)
@@ -2341,6 +2847,19 @@ var _crit_layer: CanvasLayer = null
 var _crit_host: Control = null
 
 func _ready() -> void:
+	# 2026-08-21 bug fix ("hoàn toàn ko có LiveTPKeys dù đã nhấn numpad" — the actual root cause under all the
+	# prior debugging): `creep_edit_mode.gd::toggle()` sets `get_tree().paused = true` while the weapon editor
+	# is open. This node's `process_mode` was never set (default `PROCESS_MODE_INHERIT` → effectively
+	# PAUSABLE), so its `_process()` — where every Numpad poll AND the whole `set_live_tp_direction()`/
+	# TEST PLUME chain lives — simply never ran at all while the editor was open, explaining why not even ONE
+	# `[LiveTPKeys]` line printed (the call site itself was unreachable, not "reached but read false keys").
+	# `_make_orbital_plume()`'s own `p.process_mode = Node.PROCESS_MODE_ALWAYS` (2D plume particles, elsewhere
+	# in this file) is existing precedent for "plume visuals should keep running through a pause" — extending
+	# the SAME idea to this whole node. Real gameplay logic must NOT silently keep simulating while paused
+	# though (combat/movement should stay frozen, exactly as before) — see the `get_tree().paused` early-out
+	# added near the top of `_process()`, which now runs the Numpad/live-edit calls first, THEN returns before
+	# any of the old logic if paused, functionally identical to "didn't process at all" for everything else.
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	if not _companion:
 		add_to_group("arena_weapons")   # arena_dust queries get_lights() each frame — only the MAIN instance
 	_player = _player_ref if (_companion and _player_ref != null) else get_tree().get_first_node_in_group("player")
@@ -2366,7 +2885,13 @@ func _ready() -> void:
 	_yari_slash.use_orange_palette()   # Yari Jaeger's blade reads distinct from the (blue) Z-Sword crescent
 	_load_yari_frames()
 	_load_moro_frames()
+	# 3D rigs built BEFORE their texture/plume loaders (2026-08-20, 3D plume swap) — _load_snake_tex()/
+	# _setup_jaeger_3d()'s own plume loading needs to know _snake3d_ready/_jaeger3d_ready to pick 2D vs 3D.
+	reload_chain_overrides()   # 2026-08-22 — VIPER's CHAIN panel values, before the chain is first built
+	_setup_snake_3d()
 	_load_snake_tex()
+	_setup_jaeger_3d()
+	_setup_aliwa_3d()
 	if GAUSS_USE_SPRITE_VFX:
 		_load_gauss_frames()
 		_load_gauss_explosion_frames()
@@ -2374,14 +2899,21 @@ func _ready() -> void:
 	_striker_tex = load(STRIKER_SPRITE) as Texture2D
 	_shooter_tex = load(SHOOTER_SPRITE) as Texture2D
 	_load_swarm_tex()
+	# Before the plume registry below: each _register_plume call for one of these weapons is skipped when its
+	# 3D rig came up, so the rigs have to exist by then.
+	_setup_glb3d_weapons()
 	_load_para_tex()
 	_load_para_plume_data()
 	# ── Generic plume registry ────────────────────────────────────────────────────
-	_register_plume("Yari-Jeager", 1,
-		Vector2(32.0, 32.0 * 500.0 / 282.0),
-		func():
-			if not _yari_active or not _yari_init: return []
-			return [{"pos": _yari_pos, "rot": _yari_facing + PI * 0.5}])
+	# "Yari-Jeager" pulled OUT of the generic (2D) registry once its 3D rig is up (2026-08-20, 3D plume
+	# swap) — see _setup_jaeger_3d's own call to _load_jaeger_plume_3d for the 3D version, and this repeats
+	# the exact same "detect 3D rig, else fall back to 2D" pattern as _load_snake_tex()'s own branch below.
+	if not _jaeger3d_ready:
+		_register_plume("Yari-Jeager", 1,
+			Vector2(32.0, 32.0 * 500.0 / 282.0),
+			func():
+				if not _yari_active or not _yari_init: return []
+				return [{"pos": _yari_pos, "rot": _yari_facing + PI * 0.5}])
 	var _mo_dw := 32.0
 	var _mo_dh := _mo_dw
 	if not _moro_frames.is_empty():
@@ -2390,11 +2922,15 @@ func _ready() -> void:
 		func():
 			if not _moro_active: return []
 			return [{"pos": _moro_pos, "rot": _moro_facing + PI * 0.5}])
-	_register_plume("ND-Aliwa-Bmr", 1,
-		Vector2(BOOM_DRAW, BOOM_DRAW * float(BOOM_TEX.get_height()) / maxf(float(BOOM_TEX.get_width()), 1.0)),
-		func():
-			if not _boom_active or _booms.is_empty(): return []
-			return [{"pos": _booms[0]["pos"], "rot": _booms[0]["spin"]}])
+	# "ND-Aliwa-Bmr" pulled OUT of the generic (2D) registry once its 3D rig is up (2026-08-21) — same
+	# "detect 3D rig, else fall back to 2D" pattern as Yari-Jeager's own branch above; _load_aliwa_plume_3d
+	# (called from _setup_aliwa_3d) is the 3D version.
+	if not _aliwa3d_ready:
+		_register_plume("ND-Aliwa-Bmr", 1,
+			Vector2(BOOM_DRAW, BOOM_DRAW * float(BOOM_TEX.get_height()) / maxf(float(BOOM_TEX.get_width()), 1.0)),
+			func():
+				if not _boom_active or _booms.is_empty(): return []
+				return [{"pos": _booms[0]["pos"], "rot": _booms[0]["spin"]}])
 	_register_plume("ND-OID-F", ORBITAL_BALLS, _orbital_draw_size(),
 		func():
 			if not _orbital_active or _player == null or not is_instance_valid(_player): return []
@@ -2403,10 +2939,13 @@ func _ready() -> void:
 	var _shooter_sz := Vector2(SHOOTER_DRAW, SHOOTER_DRAW)
 	if _shooter_tex != null and _shooter_tex.get_size().x > 0.0:
 		_shooter_sz.y = SHOOTER_DRAW * _shooter_tex.get_size().y / _shooter_tex.get_size().x
-	_register_plume("shooter", SHOOTER_BASE_ORBS, _shooter_sz,
-		func():
-			if not _shooter_active: return []
-			return _shooter_orbs.map(func(o): return {"pos": o["pos"], "rot": float(o.get("rot", 0.0)) + PI * 0.5}))
+	# Pulled out of the generic (2D) registry once its own 3D rig is up — same "detect 3D rig, else fall back
+	# to 2D" branch Yari-Jeager and ND-Aliwa-Bmr already use above; the 3D version is _build_glb3d_plumes().
+	if not _glb3d.has("shooter"):
+		_register_plume("shooter", SHOOTER_BASE_ORBS, _shooter_sz,
+			func():
+				if not _shooter_active: return []
+				return _shooter_orbs.map(func(o): return {"pos": o["pos"], "rot": float(o.get("rot", 0.0)) + PI * 0.5}))
 	# (Swarm uses no plume here — ND-OIF-F is legacy art, unrelated to the swarmball weapon. The
 	# swarmball/swarmbot trails will come from TPs placed on Swarmball.png / Swarmbot.png in Weapon Edit.)
 	# Projectile trails: variable count → register a pool of PROJ_PLUME_MAX anchors; the provider returns only the
@@ -2425,20 +2964,22 @@ func _ready() -> void:
 	var _sbot_sz := Vector2(SBALL_BOT_DRAW, SBALL_BOT_DRAW)
 	if _swarmbot_tex != null and _swarmbot_tex.get_size().x > 0.0:
 		_sbot_sz.y = SBALL_BOT_DRAW * _swarmbot_tex.get_size().y / _swarmbot_tex.get_size().x
-	_register_plume("Swarmball", SBALL_COUNT, _sball_sz,
-		func():
-			if not _swarm_active: return []
-			var out: Array = []
-			for b: Dictionary in _swarm_units:
-				if not bool(b.get("bot", false)): out.append({"pos": b["pos"], "rot": float(b["ang"])})
-			return out)
-	_register_plume("Swarmbot", SBALL_COUNT, _sbot_sz,
-		func():
-			if not _swarm_active: return []
-			var out: Array = []
-			for b: Dictionary in _swarm_units:
-				if bool(b.get("bot", false)): out.append({"pos": b["pos"], "rot": float(b["ang"])})
-			return out)
+	if not _glb3d.has("Swarmball"):
+		_register_plume("Swarmball", SBALL_COUNT, _sball_sz,
+			func():
+				if not _swarm_active: return []
+				var out: Array = []
+				for b: Dictionary in _swarm_units:
+					if not bool(b.get("bot", false)): out.append({"pos": b["pos"], "rot": float(b["ang"])})
+				return out)
+	if not _glb3d.has("Swarmbot"):
+		_register_plume("Swarmbot", SBALL_COUNT, _sbot_sz,
+			func():
+				if not _swarm_active: return []
+				var out: Array = []
+				for b: Dictionary in _swarm_units:
+					if bool(b.get("bot", false)): out.append({"pos": b["pos"], "rot": float(b["ang"])})
+				return out)
 	_load_all_plumes()
 	_bolt_hit_player = AudioStreamPlayer.new()
 	_bolt_hit_player.bus = "SFX"
@@ -2722,6 +3263,26 @@ func _process(delta: float) -> void:
 			_player = get_tree().get_first_node_in_group("player")
 		if _player == null:
 			return
+	# 2026-08-21 (see _ready()'s process_mode comment): this node runs `_process()` even while
+	# `get_tree().paused`, so the weapon editor's live-rotation writes still repaint while it holds the
+	# pause — everything BELOW this point is real gameplay simulation (combat, movement, firing) that must
+	# stay frozen during a pause exactly like before. Bail out here so it does.
+	if get_tree().paused:
+		# 2026-08-21 bug fix ("Debug báo có xoay. Nhưng hiển thị trên màn hình vẫn đứng yên"): the pivot DOES
+		# rotate correctly (set_live_tp_direction writes it directly, unconditionally) — the screen just never
+		# repaints to show it, because `queue_redraw()` (which triggers `_draw()`, and inside it `_update_
+		# aliwa_3d()` / `_draw_yari()` / `_draw_snake()` — every WIRED_3D_CREEPS weapon's own visual transform
+		# refresh) normally only gets called at the very END of this function, long past this early return.
+		# `_update_snake_plumes_3d()` is the one exception NOT reached via `_draw()` at all (called from
+		# `_tick_snake()`, itself skipped by this same return) — it's pure visual (reapplies the ALREADY-
+		# simulated `_snake_pts` to VIPER's body/head/tail plume anchors' transform + visibility, no movement,
+		# no combat, safe during pause same as everything else called here). Both calls are read/paint-only —
+		# they don't advance simulation, just repaint the CURRENT (frozen) state, which is exactly what a
+		# paused editing view should keep doing on every live-rotation edit.
+		queue_redraw()
+		_update_snake_plumes_3d()
+		return
+	_snake3d_roll_t += delta   # VIPER body roll (see SNAKE3D_ROLL_*); frozen while paused, like everything below
 	# Project Phoenix: count down the 10-minute Player-2 shutdown, then bring the companions back.
 	if not _companion and _player2_phoenix_cd > 0.0:
 		_player2_phoenix_cd = maxf(0.0, _player2_phoenix_cd - delta)
@@ -2960,8 +3521,8 @@ func _orbital_n() -> int:
 
 ## Snake segment count: base + Elongate pool + Primordial God kill-growth + 25% length per Nanobots Body.
 func _snake_len() -> int:
-	var n := SNAKE_SEGMENTS + int(_snake_upg["length"]) + _snake_primordial_segs()
-	n += int(round(float(SNAKE_SEGMENTS) * BODY_SNAKE_LEN * float(_body_count())))
+	var n := _snake_cfg_segments + int(_snake_upg["length"]) + _snake_primordial_segs()
+	n += int(round(float(_snake_cfg_segments) * BODY_SNAKE_LEN * float(_body_count())))
 	return n
 
 ## Primordial God: +1 body segment per SNAKE_KILLS_PER_SEG snake-kills, capped at SNAKE_PRIMORDIAL_CAP.
@@ -4945,6 +5506,33 @@ func _make_orbital_plume(frac: Vector2, dir_angle: float, style: Dictionary, ds:
 	p.material = cm
 	return p
 
+## Toggle a 3D plume anchor's visibility AND its CPUParticles3D children's emission — 3D counterpart of
+## _set_plume_anchor_visible above (2026-08-20, 3D plume swap).
+func _set_plume_anchor3d_visible(anchor: Node3D, vis: bool) -> void:
+	if anchor.visible == vis:
+		return
+	anchor.visible = vis
+	# RECURSIVE since 2026-08-24. This walked DIRECT children only, but no anchor has had a CPUParticles3D as
+	# a direct child since the 2026-08-21 pivot refactor — every particle hangs off its TP's pivot node, one
+	# level down. So the emission half of this function has been dead ever since: hiding an anchor hid it
+	# (visibility propagates) while every particle under it kept simulating. Caught by measuring Jeager's
+	# master plume during Walk, when the Walk layer's own set is the one showing: `emitting=2` on the hidden
+	# anchor, `visible_in_tree=0`.
+	_set_particles_emitting(anchor, vis)
+
+func _set_particles_emitting(node: Node, vis: bool) -> void:
+	for ch: Node in node.get_children():
+		if ch is CPUParticles3D:
+			(ch as CPUParticles3D).emitting = vis
+		else:
+			_set_particles_emitting(ch, vis)
+
+# _make_orbital_plume3d moved to glb_topdown_rig.gd's make_plume() (2026-08-20) — shared with
+# creep_edit_mode.gd's own TP preview so the editor stays WYSIWYG with the real in-game plume instead of two
+# copies drifting apart (see that function's own header for why this is the one deliberate exception to this
+# file's "duplicate cross-file framing math" convention). Call sites below now go through _snake3d_rig/
+# _jaeger3d_rig.make_plume(...) instead.
+
 # ── Striker — orbits like Defensive Orbitals; dashes out to ram a target in range, then returns ──
 func activate_striker() -> void:
 	_striker_active = true
@@ -5117,11 +5705,13 @@ func _tick_shooter(delta: float, enemy_on_screen: bool) -> void:
 	for i in _shooter_orbs.size():
 		var orb: Dictionary = _shooter_orbs[i]
 		orb["pos"] = _shooter_slot_pos(i, n)   # locked to the ship — no trailing/lag
-		var facing_tgt := _nearest_enemy(orb["pos"] as Vector2, SHOOTER_RANGE, [])
-		if facing_tgt != null and is_instance_valid(facing_tgt):   # turn toward the target at SHOOTER_TURN_RATE (120 RPM) — no instant snap
-			var desired := ((facing_tgt as Node2D).global_position - (orb["pos"] as Vector2)).angle()
-			var diff := angle_difference(float(orb["rot"]), desired)
-			orb["rot"] = float(orb["rot"]) + clampf(diff, -SHOOTER_TURN_RATE * delta, SHOOTER_TURN_RATE * delta)
+		# 2026-08-23 ("Shooter sẽ quay cùng hướng với player"): the turrets are hull-mounted, so they hold the
+		# ship's heading instead of each tracking its own nearest enemy. Rigid, not eased — they are bolted on,
+		# and the ship's own aim is already smoothed, so easing here would only make them lag the hull they are
+		# attached to. `_player.rotation` is the ship's 2D aim with UP as its forward; `- PI/2` puts it in the
+		# same "0 = +X" frame `rot` has always been in, and the draw/3D paths add it straight back.
+		# Aiming is unaffected: `_shooter_fire_bolt()` picks and leads its own target, it never reads `rot`.
+		orb["rot"] = _player.rotation - PI * 0.5
 		if int(orb["burst_left"]) > 0:                       # continue an in-progress burst
 			orb["gap"] = float(orb["gap"]) - delta
 			if float(orb["gap"]) <= 0.0:
@@ -5213,21 +5803,27 @@ func _shooter_avatar_strike(en, orb_idx: int) -> void:
 				en.apply_stun(AVATAR_STUN_DUR * (1.0 + dur_b))
 
 func _draw_shooter() -> void:
-	# Turrets: the shooter.png UAV sprite (aspect-locked), turning toward its target at SHOOTER_TURN_RATE.
-	var sz := Vector2(SHOOTER_DRAW, SHOOTER_DRAW)
-	if _shooter_tex != null:
-		var ts := _shooter_tex.get_size()
-		if ts.x > 0.0:
-			sz = Vector2(SHOOTER_DRAW, SHOOTER_DRAW * ts.y / ts.x)
-	for orb: Dictionary in _shooter_orbs:
-		var p: Vector2 = orb["pos"]
+	# Turrets: the shooter.glb model (2026-08-23 3D swap, see GLB3D_WEAPONS), or the flat shooter.png sprite
+	# if that rig never came up. `rot + PI/2` is carried over verbatim from the sprite path so the model
+	# points the same way the sprite did. Bolts stay 2D either way — they are pure VFX, not a 3D object.
+	if _glb3d.has("shooter"):
+		_update_glb3d("shooter", _shooter_orbs.map(
+			func(o): return {"pos": o["pos"], "ang": float(o.get("rot", 0.0)) + PI * 0.5}))
+	else:
+		var sz := Vector2(SHOOTER_DRAW, SHOOTER_DRAW)
 		if _shooter_tex != null:
-			draw_set_transform(p, float(orb.get("rot", 0.0)) + PI * 0.5, Vector2.ONE)
-			draw_texture_rect(_shooter_tex, Rect2(-sz * 0.5, sz), false)
-			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-		else:
-			draw_circle(p, 5.5, Color(SHOOTER_COL.r, SHOOTER_COL.g, SHOOTER_COL.b, 0.5))
-			draw_circle(p, 2.6, Color(1.0, 0.92, 0.9, 0.95))
+			var ts := _shooter_tex.get_size()
+			if ts.x > 0.0:
+				sz = Vector2(SHOOTER_DRAW, SHOOTER_DRAW * ts.y / ts.x)
+		for orb: Dictionary in _shooter_orbs:
+			var p: Vector2 = orb["pos"]
+			if _shooter_tex != null:
+				draw_set_transform(p, float(orb.get("rot", 0.0)) + PI * 0.5, Vector2.ONE)
+				draw_texture_rect(_shooter_tex, Rect2(-sz * 0.5, sz), false)
+				draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			else:
+				draw_circle(p, 5.5, Color(SHOOTER_COL.r, SHOOTER_COL.g, SHOOTER_COL.b, 0.5))
+				draw_circle(p, 2.6, Color(1.0, 0.92, 0.9, 0.95))
 	# Bolts: elongated red laser with a hot white core (rounded head, tapered tail).
 	for b: Dictionary in _shooter_bolts:
 		_draw_shooter_bolt(b["pos"] as Vector2, (b["vel"] as Vector2).angle())
@@ -5523,9 +6119,9 @@ func clear_all_weapons() -> void:
 	_yari_active     = false;  _yari_init = false
 	_swarm_active    = false;  _swarm_cd = 0.0;  _swarm_units.clear()
 	for entry: Dictionary in _plume_registry:
-		for anchor: Node2D in (entry.get("anchors", []) as Array):
+		for anchor in (entry.get("anchors", []) as Array):   # untyped — see set_live_tp_direction's note
 			if is_instance_valid(anchor):
-				anchor.visible = false
+				(anchor as Node2D).visible = false
 	_snake_active    = false;  _snake_init = false;  _snake_pts.clear()
 	_snake2_init = false;  _snake2_pts.clear();  _snake_kills = 0
 
@@ -7151,6 +7747,275 @@ func _approach_angle(cur: float, target: float, max_step: float) -> float:
 	return cur + clampf(diff, -max_step, max_step)
 
 # ── Boomerang ──────────────────────────────────────────────────────────────────────
+## Builds the live 3D Aliwa layer (2026-08-21): one SubViewport + ONE shared MultiMeshInstance3D for every
+## blade (all blades are the same mesh — no head/tail split like VIPER, so this only needs the "body" half
+## of that pattern) + a single Node3D plume anchor tracking `_booms[0]` only (matching the existing 2D
+## _register_plume("ND-Aliwa-Bmr", 1, ...) registration's own scope). See _snake3d_world_xform's header for
+## the shared coordinate convention this reuses (world-space TextureRect tracks the player every frame).
+func _setup_aliwa_3d() -> void:
+	var rig := preload("res://scripts/gameplay/fx/glb_topdown_rig.gd").new()
+	_aliwa3d_rig = rig
+
+	_aliwa3d_vp = SubViewport.new()
+	var side := int(round(ALIWA3D_REGION * 2.0))
+	_aliwa3d_vp.size = Vector2i(side, side)
+	_aliwa3d_vp.transparent_bg = true
+	_aliwa3d_vp.own_world_3d = true
+	_aliwa3d_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(_aliwa3d_vp)
+	rig.build_lighting(_aliwa3d_vp)
+	_aliwa3d_cam = rig.make_camera(_aliwa3d_vp, ALIWA3D_REGION)
+	_aliwa3d_cal = _read_creep_rot("ND-Aliwa-Bmr")
+	_aliwa3d_z = _read_creep_z("ND-Aliwa-Bmr")
+
+	var model: Node3D = rig.load_model(ALIWA3D_GLB)
+	if model != null:
+		rig.center_and_fit(model, display_px_for("ND-Aliwa-Bmr"))
+		var info: Dictionary = rig.mesh_and_base_xform(model)
+		var mesh: Mesh = info.get("mesh")
+		_aliwa3d_base = info.get("xform", Transform3D.IDENTITY)
+		model.free()
+		if mesh != null:
+			var mm := MultiMesh.new()
+			mm.transform_format = MultiMesh.TRANSFORM_3D
+			mm.mesh = mesh
+			mm.instance_count = ALIWA3D_CAP
+			mm.visible_instance_count = ALIWA3D_CAP   # fixed forever — unused slots parked zero-scale below,
+													   # same reasoning as VIPER's SNAKE3D_CHAIN_CAP
+			var zero_x := Transform3D(Basis().scaled(Vector3.ZERO), Vector3.ZERO)
+			for i in range(mm.instance_count):
+				mm.set_instance_transform(i, zero_x)
+			_aliwa3d_mm = MultiMeshInstance3D.new()
+			_aliwa3d_mm.multimesh = mm
+			_aliwa3d_vp.add_child(_aliwa3d_mm)
+
+	_aliwa3d_layer = TextureRect.new()
+	_aliwa3d_layer.texture = _aliwa3d_vp.get_texture()
+	_aliwa3d_layer.size = Vector2(side, side)
+	_aliwa3d_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_aliwa3d_layer)
+
+	_aliwa3d_ready = true
+	_load_aliwa_plume_3d()
+
+## 3D plume for blade _booms[0] — same weapon_layout.cfg/weapon_plume_styles.cfg "ND-Aliwa-Bmr" entry the old
+## 2D generic-registry registration used (see _ready()'s branch pulling it out of _register_plume once this
+## rig is up). A plain Node3D, independently updated each frame (_update_aliwa_plume_3d) rather than a real
+## child — unlike VIPER/Jaeger's carriers, there's no single dedicated "blade 0" carrier node here since all
+## blades share one MultiMesh; this is the same class of exception VIPER's own body plume anchors already are.
+func _load_aliwa_plume_3d() -> void:
+	if not _aliwa3d_ready or _aliwa3d_vp == null:
+		return
+	var cfg := ConfigFile.new()
+	if cfg.load("res://weapon_layout.cfg") != OK:
+		return
+	var eo: Dictionary = cfg.get_value("creeps", "ND-Aliwa-Bmr", {})
+	var tps: Array = cfg.get_value("thrustpoints", "ND-Aliwa-Bmr", [])
+	if eo.is_empty() or tps.is_empty():
+		return
+	var eo_pos: Vector2 = eo.get("pos", Vector2(480.0, 380.0))
+	var eo_size: Vector2 = eo.get("size", Vector2(60.0, 60.0))
+	if eo_size.x <= 0.0 or eo_size.y <= 0.0:
+		return
+	var scfg := ConfigFile.new()
+	scfg.load("res://weapon_plume_styles.cfg")
+	var styles: Dictionary = scfg.get_value("styles", "ND-Aliwa-Bmr", {})
+	_aliwa3d_plume_anchor = Node3D.new()
+	_aliwa3d_plume_anchor.visible = false
+	_aliwa3d_vp.add_child(_aliwa3d_plume_anchor)
+	for tp: Dictionary in tps:
+		var style: Dictionary = styles.get("tp_%d" % int(tp.get("id", 1)), {})
+		var apx := display_px_for("ND-Aliwa-Bmr")
+		var local_pos := _tp_local_pos(tp, eo_pos, eo_size, apx)
+		_add_tp_plume_pivot(_aliwa3d_plume_anchor, _aliwa3d_rig, "ND-Aliwa-Bmr", tp, local_pos, _tp_arena_style(style, _tp_scale(eo_size, apx)), apx)
+
+## One blade's full world transform: its flat self-spin (BOOM_SPIN, about the play-plane normal) plus the
+## 3D tumble about its own travel direction (BOOM_ROLL_*). `_snake3d_roll_xform` already composes exactly
+## this pair — it is what gives VIPER's body its roll about the chain axis — so the two weapons share one
+## definition of "spin about the world vertical, then roll about a bearing in the play plane" rather than
+## Aliwa growing a second, subtly different one. `age` drives the roll instead of a shared clock so each
+## blade keeps its own phase from the moment it spawned.
+func _boom3d_xform(b: Dictionary, idx: int) -> Transform3D:
+	var roll: float = float(b["age"]) * BOOM_ROLL_OMEGA + float(idx) * BOOM_ROLL_PHASE
+	return _snake3d_roll_xform(b["pos"], float(b["spin"]), float(b.get("travel", 0.0)),
+		_aliwa3d_cal, _aliwa3d_z, roll)
+
+## Called every frame from the boomerang draw path (replaces _draw_boomerang's per-blade loop) — updates
+## every blade's MultiMesh instance transform, the plume anchor (blade 0 only), and re-centres the composite
+## window on the player.
+func _update_aliwa_3d() -> void:
+	if not _aliwa3d_ready:
+		return
+	if _aliwa3d_mm != null:
+		var mm := _aliwa3d_mm.multimesh
+		var zero_x := Transform3D(Basis().scaled(Vector3.ZERO), Vector3.ZERO)
+		for i in range(_booms.size()):
+			if i >= mm.instance_count:
+				break   # more blades than ALIWA3D_CAP — silently drops the excess rather than error
+			var b: Dictionary = _booms[i]
+			mm.set_instance_transform(i, _boom3d_xform(b, i) * _aliwa3d_base)
+		for i in range(_booms.size(), mm.instance_count):
+			mm.set_instance_transform(i, zero_x)
+	if _aliwa3d_plume_anchor != null:
+		if _boom_active and not _booms.is_empty():
+			# Same transform as blade 0's own instance — the anchor is attached TO the blade, so it has to
+			# tumble with it or the plume would trail off a blade that is no longer where the plume thinks.
+			_aliwa3d_plume_anchor.transform = _boom3d_xform(_booms[0], 0)
+			_set_plume_anchor3d_visible(_aliwa3d_plume_anchor, true)
+		else:
+			_set_plume_anchor3d_visible(_aliwa3d_plume_anchor, false)
+	if _aliwa3d_layer != null and _player != null:
+		_aliwa3d_layer.position = _player.global_position - Vector2(ALIWA3D_REGION, ALIWA3D_REGION)
+
+
+
+# ── Generic single-mesh 3D weapon rigs (2026-08-23) — see GLB3D_WEAPONS' header ─────────────────────────
+
+## Builds a rig for every entry in GLB3D_WEAPONS. A weapon whose .glb fails to load simply gets no entry,
+## and every consumer (the draw paths, the plume-registry gating in `_ready`) falls back to its 2D sprite.
+func _setup_glb3d_weapons() -> void:
+	for wname: String in GLB3D_WEAPONS:
+		var d: Dictionary = GLB3D_WEAPONS[wname]
+		# `display_px_for()` — the Weapon Edit rect when there is one, GLB3D_WEAPONS' own "px" otherwise.
+		var rd := _build_glb3d_rig(wname, String(d["glb"]), display_px_for(wname), float(d["region"]), int(d["cap"]))
+		if not rd.is_empty():
+			_glb3d[wname] = rd
+
+## One SubViewport + one shared MultiMeshInstance3D + a world-space TextureRect that re-centres on the
+## player each frame. Structurally `_setup_aliwa_3d()` with the weapon's numbers passed in rather than
+## hardcoded — see `_snake3d_world_xform`'s header for the coordinate convention all of these share.
+func _build_glb3d_rig(wname: String, glb: String, px: float, region: float, cap: int) -> Dictionary:
+	var rig := preload("res://scripts/gameplay/fx/glb_topdown_rig.gd").new()
+	var model: Node3D = rig.load_model(glb)
+	if model == null:
+		return {}
+	rig.center_and_fit(model, px)
+	var info: Dictionary = rig.mesh_and_base_xform(model)
+	var mesh: Mesh = info.get("mesh")
+	var base: Transform3D = info.get("xform", Transform3D.IDENTITY)
+	model.free()
+	if mesh == null:
+		return {}
+
+	var vp := SubViewport.new()
+	var side := int(round(region * 2.0))
+	vp.size = Vector2i(side, side)
+	vp.transparent_bg = true
+	vp.own_world_3d = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(vp)
+	rig.build_lighting(vp)
+	var cam: Camera3D = rig.make_camera(vp, region)
+
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = mesh
+	mm.instance_count = cap
+	mm.visible_instance_count = cap   # fixed forever — unused slots are parked at zero scale, same as VIPER's
+	var zero_x := Transform3D(Basis().scaled(Vector3.ZERO), Vector3.ZERO)
+	for i in range(cap):
+		mm.set_instance_transform(i, zero_x)
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	vp.add_child(mmi)
+
+	var layer := TextureRect.new()
+	layer.texture = vp.get_texture()
+	layer.size = Vector2(side, side)
+	layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(layer)
+
+	var rd: Dictionary = {
+		"name": wname, "rig": rig, "vp": vp, "cam": cam, "mm": mmi, "layer": layer,
+		"base": base, "px": px, "region": region, "cap": cap,
+		"cal": _read_creep_rot(wname), "z": _read_creep_z(wname), "anchors": [],
+	}
+	_build_glb3d_plumes(rd)
+	return rd
+
+## The weapon's saved thrust points as real 3D plumes — one anchor per tracked instance (up to
+## GLB3D_PLUME_CAP), each carrying every TP's own pivot. Same cfg reading and the same
+## `(frac - 0.5) * display_px` conversion `_load_aliwa_plume_3d()` uses, so a TP placed in Weapon Edit lands
+## on the same spot of the model in the editor preview and in play. No-op while the weapon has no TPs.
+func _build_glb3d_plumes(rd: Dictionary) -> void:
+	var wname: String = rd["name"]
+	var vp: SubViewport = rd["vp"]
+	if vp == null or not is_instance_valid(vp):
+		return
+	var cfg := ConfigFile.new()
+	if cfg.load("res://weapon_layout.cfg") != OK:
+		return
+	var eo: Dictionary = cfg.get_value("creeps", wname, {})
+	var tps: Array = cfg.get_value("thrustpoints", wname, [])
+	if eo.is_empty() or tps.is_empty():
+		return
+	var eo_pos: Vector2 = eo.get("pos", Vector2(480.0, 380.0))
+	var eo_size: Vector2 = eo.get("size", Vector2(60.0, 60.0))
+	if eo_size.x <= 0.0 or eo_size.y <= 0.0:
+		return
+	var scfg := ConfigFile.new()
+	scfg.load("res://weapon_plume_styles.cfg")
+	var styles: Dictionary = scfg.get_value("styles", wname, {})
+	var px: float = float(rd["px"])
+	var anchors: Array = rd["anchors"]
+	for _i in range(mini(int(rd["cap"]), GLB3D_PLUME_CAP)):
+		var anchor := Node3D.new()
+		anchor.visible = false
+		vp.add_child(anchor)
+		for tp: Dictionary in tps:
+			var style: Dictionary = styles.get("tp_%d" % int(tp.get("id", 1)), {})
+			var local_pos := _tp_local_pos(tp, eo_pos, eo_size, px)
+			_add_tp_plume_pivot(anchor, rd["rig"], wname, tp, local_pos, _tp_arena_style(style, _tp_scale(eo_size, px)), px)
+		anchors.append(anchor)
+
+## Frees and rebuilds one generic rig's plume anchors from the cfg as it stands right now — the generic
+## half of `reload_3d_weapon_layout()`. Frees SYNCHRONOUSLY (`.free()`, not `queue_free()`) for the reason
+## spelled out in that function: several editor drag ticks can land inside one frame.
+func _reload_glb3d_plumes(rd: Dictionary) -> void:
+	var anchors: Array = rd["anchors"]
+	for anchor in anchors:   # untyped — see set_live_tp_direction's note
+		if is_instance_valid(anchor):
+			(anchor as Node3D).free()
+	anchors.clear()
+	_build_glb3d_plumes(rd)
+
+## Pushes this frame's live instances into `wname`'s rig. `items` is an Array of {pos: Vector2, ang: float}
+## in world (canvas) coordinates — exactly what the 2D draw loop it replaces was iterating. Returns false
+## when that weapon has no rig, which is the caller's cue to draw its flat sprite instead.
+func _update_glb3d(wname: String, items: Array) -> bool:
+	var rd: Dictionary = _glb3d.get(wname, {})
+	if rd.is_empty():
+		return false
+	var mmi: MultiMeshInstance3D = rd["mm"]
+	var cal: Vector3 = rd["cal"]
+	var z: float = float(rd["z"])
+	var shown := 0
+	if mmi != null and is_instance_valid(mmi):
+		var mm := mmi.multimesh
+		var zero_x := Transform3D(Basis().scaled(Vector3.ZERO), Vector3.ZERO)
+		shown = mini(items.size(), mm.instance_count)   # more instances than `cap` silently drop, like Aliwa
+		var base: Transform3D = rd["base"]
+		for i in range(shown):
+			var it: Dictionary = items[i]
+			mm.set_instance_transform(i, _snake3d_world_xform(it["pos"], float(it.get("ang", 0.0)), cal, z) * base)
+		for i in range(shown, mm.instance_count):
+			mm.set_instance_transform(i, zero_x)
+	var anchors: Array = rd["anchors"]
+	for i in anchors.size():
+		var anchor: Node3D = anchors[i]
+		if not is_instance_valid(anchor):
+			continue
+		if i < shown:
+			var it2: Dictionary = items[i]
+			anchor.transform = _snake3d_world_xform(it2["pos"], float(it2.get("ang", 0.0)), cal, z)
+			_set_plume_anchor3d_visible(anchor, true)
+		else:
+			_set_plume_anchor3d_visible(anchor, false)
+	var layer: TextureRect = rd["layer"]
+	if layer != null and is_instance_valid(layer) and _player != null and is_instance_valid(_player):
+		layer.position = _player.global_position - Vector2(float(rd["region"]), float(rd["region"]))
+	return true
+
 func activate_boomerang() -> void:
 	_boom_active = true
 
@@ -7237,6 +8102,12 @@ func _tick_boom(delta: float, _enemy_on_screen: bool) -> void:
 		if death_roll and pos.distance_to(_player.global_position) > BOOM_SIZE * 1.6:
 			_boom_center = _player.global_position
 			pos = _boom_center + Vector2(cos(th), sin(th)) * rr
+		# Bearing of travel along the rose curve — the axis the blade tumbles about (see BOOM_ROLL_RPM).
+		# Taken from the step actually walked this frame rather than differentiating the curve, so it stays
+		# correct through the Death Roll snap-back below and any future change to the flight path.
+		var prev_pos: Vector2 = b.get("pos", pos)
+		if pos.distance_squared_to(prev_pos) > 0.0001:
+			b["travel"] = (pos - prev_pos).angle()
 		b["pos"] = pos
 		var hits: Dictionary = b["hits"]
 		for en in _enemies() + _ruins():
@@ -7273,7 +8144,6 @@ func _tick_boom(delta: float, _enemy_on_screen: bool) -> void:
 				if float(hits[key]) < cutoff:
 					hits.erase(key)
 
-# ── Parasite Cloud ──────────────────────────────────────────────────────────────────
 func activate_parasite() -> void:
 	_para_active = true
 	_para_cd = 0.0
@@ -7512,6 +8382,261 @@ func activate_yari() -> void:
 	_yari_active = true
 	_yari_cd = 0.0
 
+## Builds the live 3D Yari Jaeger (2026-08-20): one SubViewport + ONE MeshInstance3D/AnimationPlayer (single
+## instance, unlike VIPER's MultiMesh chain), composited via the same world-space-TextureRect-tracks-the-
+## player technique as _setup_snake_3d — see that function's header for why it's a plain child (no
+## CanvasLayer) and glb_topdown_rig.gd for the shared framing convention. See JAEGER3D_* consts above for the
+## clip list / placeholder state mapping.
+func _setup_jaeger_3d() -> void:
+	var rig := preload("res://scripts/gameplay/fx/glb_topdown_rig.gd").new()
+	_jaeger3d_rig = rig
+
+	_jaeger3d_vp = SubViewport.new()
+	var side := int(round(JAEGER3D_REGION * 2.0))
+	_jaeger3d_vp.size = Vector2i(side, side)
+	_jaeger3d_vp.transparent_bg = true
+	_jaeger3d_vp.own_world_3d = true
+	_jaeger3d_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(_jaeger3d_vp)
+	rig.build_lighting(_jaeger3d_vp)
+	_jaeger3d_cam = rig.make_camera(_jaeger3d_vp, JAEGER3D_REGION)
+	_jaeger3d_cal = _read_creep_rot("Yari-Jeager")
+	_jaeger3d_z = _read_creep_z("Yari-Jeager")
+	_load_jaeger_clip_cals()
+
+	# Carrier (2026-08-20, 3rd pass: real parent-child attachment — see _snake3d_world_xform's header). The
+	# model's own LOCAL transform is JUST the fit (centering+scale, no rotation) — ALL rotation (dynamic
+	# facing + static X/Y/Z calibration) lives on the carrier, set once per frame in _draw_yari(). The plume
+	# anchor (_load_jaeger_plume_3d) becomes a child of this SAME carrier, so one transform write moves both.
+	_jaeger3d_carrier = Node3D.new()
+	_jaeger3d_vp.add_child(_jaeger3d_carrier)
+
+	_jaeger3d_model = rig.load_model(JAEGER3D_BASE_GLB)
+	if _jaeger3d_model == null:
+		return   # _jaeger3d_ready stays false — _draw_yari() falls back to the old placeholder circle
+	_jaeger3d_carrier.add_child(_jaeger3d_model)
+	_jaeger3d_anim = _find_anim_player(_jaeger3d_model)
+	# No per-clip merge any more — they all live in JAEGER3D_BASE_GLB. Attack clips still must not loop, or
+	# a looping clip would restart an attack halfway through it.
+	if _jaeger3d_anim != null:
+		for cn: String in JAEGER3D_ATTACK_CLIPS:
+			if _jaeger3d_anim.has_animation(cn):
+				_jaeger3d_anim.get_animation(cn).loop_mode = Animation.LOOP_NONE
+	rig.center_and_fit(_jaeger3d_model, display_px_for("Yari-Jeager"))
+
+	_jaeger3d_layer = TextureRect.new()
+	_jaeger3d_layer.texture = _jaeger3d_vp.get_texture()
+	_jaeger3d_layer.size = Vector2(side, side)
+	_jaeger3d_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_jaeger3d_layer)
+
+	if _jaeger3d_anim != null and _jaeger3d_anim.has_animation(JAEGER3D_WALK_CLIP):
+		_jaeger3d_anim.play(JAEGER3D_WALK_CLIP)
+
+	_jaeger3d_ready = true
+	_load_jaeger_plume_3d()
+
+## Reads each animation clip's own mount angle from weapon_layout.cfg — see JAEGER3D_CLIP_LAYERS' header.
+## Only clips that have actually been placed in Weapon Edit get an entry; everything else keeps falling back
+## to `_jaeger3d_cal`, so an untouched project renders exactly as before.
+func _load_jaeger_clip_cals() -> void:
+	_jaeger3d_clip_cal.clear()
+	var cfg := ConfigFile.new()
+	if cfg.load("res://weapon_layout.cfg") != OK:
+		return
+	for clip: String in JAEGER3D_CLIP_LAYERS:
+		if (cfg.get_value("creeps", clip, {}) as Dictionary).is_empty():
+			continue
+		_jaeger3d_clip_cal[clip] = {"cal": _read_creep_rot(clip), "z": _read_creep_z(clip)}
+
+## The mount angle + lift to render Jeager at while `clip` is playing, falling back to the weapon's own.
+func _jaeger_clip_pose(clip: String) -> Dictionary:
+	# Keyed by LAYER name, looked up by CLIP name — and those differ for exactly one of them ("Fly punch"
+	# the layer, "Fly Punch" the clip), so a straight lookup silently dropped that layer's mount angle and
+	# fell back to the weapon's. Same one-letter trap JAEGER3D_LAYER_CLIP exists to guard.
+	for layer: String in JAEGER3D_LAYER_CLIP:
+		if String(JAEGER3D_LAYER_CLIP[layer]) == clip:
+			return _jaeger3d_clip_cal.get(layer, {"cal": _jaeger3d_cal, "z": _jaeger3d_z})
+	return _jaeger3d_clip_cal.get(clip, {"cal": _jaeger3d_cal, "z": _jaeger3d_z})
+
+## One plume anchor per ANIMATION LAYER, from that layer's own thrust points (2026-08-23, "khi tôi bấm vào
+## mỗi layer của jeager thì sẽ hiện các plume đang đính kèm với glb của layer đó"). Each layer is its own
+## creep in Weapon Edit, so its TPs and plume styles already store separately with no new format — this is
+## the runtime half that reads them back and shows the right set.
+##
+## A TP is a FRACTION OF ITS OWN LAYER'S rect, but it has to land on the model at the size the ARENA draws
+## the weapon (`display_px_for("Yari-Jeager")`), which is why the two arguments differ here. Same conversion
+## every other weapon uses — see `_tp_scale`'s header for what goes wrong when they are mixed up.
+func _load_jaeger_clip_plumes() -> void:
+	if not _jaeger3d_ready or _jaeger3d_carrier == null:
+		return
+	var jpx := display_px_for("Yari-Jeager")
+	if jpx <= 0.001:
+		return
+	var cfg := ConfigFile.new()
+	if cfg.load("res://weapon_layout.cfg") != OK:
+		return
+	var scfg := ConfigFile.new()
+	scfg.load("res://weapon_plume_styles.cfg")
+	for layer: String in JAEGER3D_LAYER_CLIP:
+		var eo: Dictionary = cfg.get_value("creeps", layer, {})
+		var tps: Array = cfg.get_value("thrustpoints", layer, [])
+		if eo.is_empty() or tps.is_empty():
+			continue
+		var eo_pos: Vector2 = eo.get("pos", Vector2(480.0, 380.0))
+		var eo_size: Vector2 = eo.get("size", Vector2(150.0, 150.0))
+		if eo_size.x <= 0.0 or eo_size.y <= 0.0:
+			continue
+		var styles: Dictionary = scfg.get_value("styles", layer, {})
+		var anchor := Node3D.new()
+		anchor.visible = false
+		_jaeger3d_carrier.add_child(anchor)
+		for tp: Dictionary in tps:
+			var style: Dictionary = styles.get("tp_%d" % int(tp.get("id", 1)), {})
+			_add_tp_plume_pivot(anchor, _jaeger3d_rig, layer, tp,
+				_tp_local_pos(tp, eo_pos, eo_size, jpx),
+				_tp_arena_style(style, _tp_scale(eo_size, jpx)), jpx)
+			_bind_tp_to_bone(tp, anchor)
+		_jaeger3d_clip_anchor[layer] = anchor
+
+## Shows exactly one plume set: the playing clip's own layer if it has any, otherwise the weapon's. Called
+## every frame from `_draw_yari` — `_set_plume_anchor3d_visible` early-outs when nothing changed, so the
+## steady state costs one dictionary lookup per anchor.
+func _sync_jaeger_clip_plumes(clip: String) -> void:
+	var active := ""
+	for layer: String in _jaeger3d_clip_anchor:
+		if String(JAEGER3D_LAYER_CLIP.get(layer, layer)) == clip:
+			active = layer
+			break
+	for layer: String in _jaeger3d_clip_anchor:
+		var a: Node3D = _jaeger3d_clip_anchor[layer]
+		if is_instance_valid(a):
+			_set_plume_anchor3d_visible(a, layer == active)
+	_jaeger3d_active_plume_layer = active
+
+func _find_anim_player(node: Node) -> AnimationPlayer:
+	if node is AnimationPlayer:
+		return node as AnimationPlayer
+	for c: Node in node.get_children():
+		var found := _find_anim_player(c)
+		if found != null:
+			return found
+	return null
+
+func _load_jaeger_plume_3d() -> void:
+	if not _jaeger3d_ready or _jaeger3d_vp == null:
+		return
+	var cfg := ConfigFile.new()
+	if cfg.load("res://weapon_layout.cfg") != OK:
+		return
+	# 2026-08-23: the MASTER layer is "stand" now ("Dùng layer này làm layer tổng. Tôi sẽ gắn plume vào layer
+	# này"), with the weapon's own entry kept as the fallback so plumes authored before this keep burning
+	# until they are moved across. Whichever wins is the set every clip without its own plumes falls back to
+	# (see _sync_jaeger_clip_plumes).
+	var master := "stand"
+	var eo: Dictionary = cfg.get_value("creeps", master, {})
+	var tps: Array = cfg.get_value("thrustpoints", master, [])
+	if eo.is_empty() or tps.is_empty():
+		master = "Yari-Jeager"
+		eo = cfg.get_value("creeps", master, {})
+		tps = cfg.get_value("thrustpoints", master, [])
+	if eo.is_empty() or tps.is_empty():
+		return
+	var eo_pos: Vector2 = eo.get("pos", Vector2(480.0, 380.0))
+	var eo_size: Vector2 = eo.get("size", Vector2(60.0, 60.0))
+	if eo_size.x <= 0.0 or eo_size.y <= 0.0:
+		return
+	var scfg := ConfigFile.new()
+	scfg.load("res://weapon_plume_styles.cfg")
+	var styles: Dictionary = scfg.get_value("styles", master, {})
+	_jaeger3d_plume_anchor = Node3D.new()
+	_jaeger3d_plume_anchor.visible = false
+	# Real child of the SAME carrier the model sits under (2026-08-20, 3rd pass) — position set ONCE below,
+	# never touched per-frame again; see _snake3d_world_xform's header for why this is "reliable, rotates
+	# with the object" instead of two independently-computed transforms.
+	_jaeger3d_carrier.add_child(_jaeger3d_plume_anchor)
+	var jpx := display_px_for("Yari-Jeager")
+	# The MASTER layer's own mount rotation has to be baked into its TPs here (2026-08-23). Every other
+	# layer's rotation reaches the plume for free, because the runtime puts that layer's angle on the CARRIER
+	# and the model and its plumes turn together. The master's does not: the carrier carries the PLAYING
+	# clip's angle, never the master's. So a master rotated to look right in the editor — `stand` is at Rot Z
+	# 180 — had its plumes land 180 degrees away from where the editor drew them: authored on the leg
+	# thrusters, rendered up by the arms. Rotating the offset (and composing the angle into the TP's own
+	# spray direction) puts them back on the same part of the model the editor shows.
+	var master_rot: Vector3 = _glb_rig.compose_rot(
+		_editor_axis(eo.get("rot_base", Vector3.ZERO)), _editor_axis(eo.get("rot", Vector3.ZERO)))
+	var master_basis: Basis = _glb_rig.view_basis(master_rot)
+	for tp: Dictionary in tps:
+		var style: Dictionary = styles.get("tp_%d" % int(tp.get("id", 1)), {})
+		var local_pos: Vector3 = master_basis * _tp_local_pos(tp, eo_pos, eo_size, jpx)
+		var mtp := tp.duplicate()
+		mtp["dir_rot_base"] = _glb_rig.compose_rot(master_rot, tp.get("dir_rot_base", Vector3.ZERO))
+		_add_tp_plume_pivot(_jaeger3d_plume_anchor, _jaeger3d_rig, master, mtp, local_pos,
+			_tp_arena_style(style, _tp_scale(eo_size, jpx)), jpx)
+		_bind_tp_to_bone(mtp, _jaeger3d_plume_anchor)
+	_load_jaeger_clip_plumes()
+
+## Hands the plume that `_add_tp_plume_pivot()` just built over to a bone, if the TP names one. The pivot is
+## always the anchor's LAST child, which is what lets this stay a plain post-step instead of threading a bone
+## through that shared helper's signature (VIPER, Aliwa and the generic rigs have no skeleton to bind to).
+##
+## The offset is captured NOW, while the skeleton is still at its rest pose — `_setup_jaeger_3d` has not
+## advanced a frame yet — so it is the offset from the bone AS AUTHORED, which is exactly what "put the
+## exhaust on the jetpack" means. From here the plume simply rides whatever that bone does.
+func _bind_tp_to_bone(tp: Dictionary, anchor: Node3D) -> void:
+	var bone := String(tp.get("bone", ""))
+	if bone.is_empty() or anchor.get_child_count() == 0:
+		return
+	var skel := _jaeger_skeleton()
+	if skel == null or skel.find_bone(bone) < 0:
+		return
+	var pivot := anchor.get_child(anchor.get_child_count() - 1) as Node3D
+	if pivot == null:
+		return
+	var att := BoneAttachment3D.new()
+	att.bone_name = bone
+	skel.add_child(att)
+	_jaeger3d_bone_plumes.append({
+		"pivot": pivot,
+		"att": att,
+		"offset": att.global_transform.affine_inverse() * pivot.global_transform,
+	})
+
+func _jaeger_skeleton() -> Skeleton3D:
+	if _jaeger3d_model == null or not is_instance_valid(_jaeger3d_model):
+		return null
+	return _find_skeleton(_jaeger3d_model)
+
+func _find_skeleton(n: Node) -> Skeleton3D:
+	if n is Skeleton3D:
+		return n as Skeleton3D
+	for c: Node in n.get_children():
+		var r := _find_skeleton(c)
+		if r != null:
+			return r
+	return null
+
+## Re-places every bone-attached plume from its bone. One transform write each, per frame.
+func _update_jaeger_bone_plumes() -> void:
+	for e: Dictionary in _jaeger3d_bone_plumes:
+		var pivot: Node3D = e["pivot"]
+		var att: BoneAttachment3D = e["att"]
+		if is_instance_valid(pivot) and is_instance_valid(att):
+			pivot.global_transform = att.global_transform * (e["offset"] as Transform3D)
+
+## Called every frame from _draw_yari() — 2026-08-20, 3rd pass: no longer sets a `.transform` here at all,
+## the plume anchor is a real child of `_jaeger3d_carrier` (see _load_jaeger_plume_3d), which _draw_yari()
+## already moves once per frame. Only visibility/emission is this function's job now, matching the old 2D
+## provider Callable's own gate (`_yari_active and _yari_init`).
+func _update_jaeger_plume_3d() -> void:
+	if _jaeger3d_plume_anchor == null:
+		return
+	# ...and not while an animation layer's own plumes are the ones showing (2026-08-23) — this function runs
+	# after `_sync_jaeger_clip_plumes()` in the same frame and used to switch the weapon's set straight back on.
+	_set_plume_anchor3d_visible(_jaeger3d_plume_anchor,
+		_yari_active and _yari_init and _jaeger3d_active_plume_layer.is_empty())
+	_update_jaeger_bone_plumes()
+
 func _load_yari_frames() -> void:
 	# GifLoader: tries sheet.png+sheet.json first (fast), falls back to LZW decode + auto-converts for next run.
 	var tex := GifLoader.load_gif("res://assets/weaponry/Yari-Jeager.gif")
@@ -7606,18 +8731,53 @@ func _tick_yari(delta: float) -> void:
 		_yari_frame_idx = 0
 		_yari_frame_acc = 0.0
 		var center := _player.global_position
-		var tgt := _nearest_enemy(_yari_pos, YARI_AGGRO, [])
-		var dest: Vector2
-		if tgt != null:
-			dest = (tgt as Node2D).global_position
+		# Hold the engaged target until it leaves the larger release radius; only look for a new one when
+		# there is nothing held. See YARI_DROP_RANGE for what this stops.
+		var tgt: Node = null
+		if _yari_target != null and is_instance_valid(_yari_target) 				and _yari_pos.distance_to((_yari_target as Node2D).global_position) <= YARI_DROP_RANGE:
+			tgt = _yari_target
 		else:
-			# Advance orbit point and chase it — Yari spirals naturally into the orbit circle.
-			_yari_orbit_ang += YARI_ORBIT_SPEED * _weapon_speed_mult() * delta
-			dest = center + Vector2(cos(_yari_orbit_ang), sin(_yari_orbit_ang)) * YARI_ORBIT_R
-		# Only fly toward enemy; stop when within attack range
+			tgt = _nearest_enemy(_yari_pos, YARI_AGGRO, [])
+			_yari_target = tgt
 		var old_pos := _yari_pos
-		if tgt == null or _yari_pos.distance_to((tgt as Node2D).global_position) > YARI_ATTACK_RANGE:
-			_yari_pos = _yari_pos.move_toward(dest, YARI_MOVE_SPEED * _weapon_speed_mult() * delta)
+
+		# Playing out an attack animation whose damage window has already closed. Holds position — a kick
+		# that slid across the screen would read as a glitch — and ends when the clip does (capped by
+		# YARI_ATTACK_HOLD_MAX). The damage arc itself already ended; this is purely so the move is SEEN.
+		if _yari_state == "attack_hold":
+			_yari_hold_t += delta
+			var alen := 0.6
+			if _jaeger3d_anim != null and _jaeger3d_anim.has_animation(_yari_attack_clip):
+				alen = maxf(_jaeger3d_anim.get_animation(_yari_attack_clip).length, YARI_SWEEP_TIME)
+			alen = minf(alen, YARI_ATTACK_HOLD_MAX)
+			if _yari_hold_t >= alen - (_yari_sweep_delay + YARI_SWEEP_TIME):
+				_yari_state = "chase"
+			queue_redraw()
+			return
+
+		if tgt == null:
+			# ── Idle: walk a wander circuit around the player, never past the leash ──────────────
+			_yari_state = "idle"
+			_yari_wander_t -= delta
+			if _yari_wander_t <= 0.0 or _yari_pos.distance_to(_yari_wander_pt) <= YARI_WANDER_REACH \
+					or _yari_wander_pt.distance_to(center) > YARI_IDLE_LEASH:
+				_yari_wander_pt = center + Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)).normalized() \
+					* randf_range(YARI_IDLE_LEASH * 0.35, YARI_IDLE_LEASH)
+				_yari_wander_t = YARI_WANDER_HOLD
+			_yari_pos = _yari_pos.move_toward(_yari_wander_pt, YARI_IDLE_SPEED * _weapon_speed_mult() * delta)
+		else:
+			var tpos: Vector2 = (tgt as Node2D).global_position
+			# ── Chase: close on it, flying in from far out and running once near ────────────────
+			_yari_state = "chase"
+			var to_tgt := _yari_pos.distance_to(tpos)
+			if to_tgt > YARI_FLY_DIST + YARI_FLY_HYST:
+				_yari_chase_clip = JAEGER3D_FLY_CLIP
+			elif to_tgt < YARI_FLY_DIST - YARI_FLY_HYST:
+				_yari_chase_clip = JAEGER3D_RUN_CLIP
+			# inside the band: keep whatever is already playing (see YARI_FLY_HYST)
+			if _yari_pos.distance_to(tpos) > YARI_ATTACK_RANGE:
+				_yari_pos = _yari_pos.move_toward(tpos, YARI_CHASE_SPEED * _weapon_speed_mult() * delta)
+
 		var _yari_dp := _yari_pos - center
 		if _yari_dp.length() > 1000.0:
 			_yari_pos = center + _yari_dp.normalized() * 1000.0
@@ -7631,10 +8791,15 @@ func _tick_yari(delta: float) -> void:
 			desired_facing = _yari_facing
 		var diff := wrapf(desired_facing - _yari_facing, -PI, PI)
 		_yari_facing += clampf(diff, -YARI_TURN_RATE * delta, YARI_TURN_RATE * delta)
-		if tgt != null and _yari_cd <= 0.0 and _yari_pos.distance_to((tgt as Node2D).global_position) <= YARI_ATTACK_RANGE:
+
+		if tgt != null and _yari_cd <= 0.0 and _yari_state == "chase" \
+				and _yari_pos.distance_to((tgt as Node2D).global_position) <= YARI_ATTACK_RANGE:
 			_yari_cd = YARI_ATTACK_CD / _rate_mult / _automation_rate("yari_jaeger") / _fam_rate("yari_jaeger")
 			_yari_sweeping = true
+			_yari_state = "attack"
 			_yari_sweep_t = 0.0
+			_yari_hold_t = 0.0
+			_yari_attack_clip = JAEGER3D_ATTACK_CLIPS[randi() % JAEGER3D_ATTACK_CLIPS.size()]
 			# CCW sweep: start +90° ahead of target direction, blade_ang decreases each frame
 			_yari_facing = ((tgt as Node2D).global_position - _yari_pos).angle()
 			_yari_sweep_start = _yari_facing + PI * 0.5
@@ -7646,8 +8811,17 @@ func _tick_yari(delta: float) -> void:
 		if _yari_frame_acc >= YARI_FRAME_DELAY and not _yari_frames.is_empty():
 			_yari_frame_acc -= YARI_FRAME_DELAY
 			_yari_frame_idx = mini(_yari_frame_idx + 1, _yari_frames.size() - 1)
-		if _yari_sweep_t >= YARI_SWEEP_TIME:
+		if _yari_sweep_t < _yari_sweep_delay:
+			# Wind-up: the pose is playing but the blade has not come round yet. No arc, no hits.
+			queue_redraw()
+			return
+		if _yari_sweep_t >= _yari_sweep_delay + YARI_SWEEP_TIME:
 			_yari_sweeping = false
+			# Stay in "attack" until the CLIP finishes, not just the damage arc. The arc is 0.4s while Kick
+			# runs 1.47s and Slash 3.2s, so the move used to be a 0.4s flash before snapping back to Run —
+			# measured at 67 frames per attack. Damage timing is untouched: `_yari_sweeping` (the arc + the
+			# hit test) still ends here exactly as before; only the pose lingers.
+			_yari_state = "attack_hold"
 			if _yari_slash != null:
 				_yari_slash.fade_out()
 			# Sync orbit angle to current bearing so idle orbit continues smoothly.
@@ -7657,7 +8831,7 @@ func _tick_yari(delta: float) -> void:
 		# CCW: blade_ang decreases. ZSlash requires lead > start (swept>0), so pass:
 		#   lead = blade_ang, start = blade_ang - swept_so_far
 		# → swept = TAU*t_frac > 0; ZSlash clamps to its internal SPAN.
-		var t_frac  := _yari_sweep_t / YARI_SWEEP_TIME
+		var t_frac  := (_yari_sweep_t - _yari_sweep_delay) / YARI_SWEEP_TIME
 		var blade_ang := _yari_sweep_start - TAU * t_frac
 		var reach := _aoe_radius(YARI_LENGTH)
 		if _yari_slash != null:
@@ -7680,11 +8854,6 @@ func _tick_yari(delta: float) -> void:
 				_yari_hit.append(en)
 	queue_redraw()
 
-# ── Swarm (Chakra) — volley of swarmballs: launch out → loiter (chip dmg) → lock + ram as a swarmbot → explode.
-# A fresh volley of SBALL_COUNT balls fires every SBALL_COOLDOWN on a fixed cadence, regardless of whether the
-# previous volley's balls are still in flight. Dart evolve adds a return-to-ship leg that heals on arrival
-# (the old dart+heal familiar mechanic lives on unchanged in the Vampire Host fusion, which has its own
-# separate _vampire_units loop — untouched by this). ──
 func activate_swarm() -> void:
 	_swarm_active = true
 	_swarm_cd = 0.0          # fire the first volley as soon as the player exists
@@ -7849,7 +9018,15 @@ func _load_snake_tex() -> void:
 	_snake_head_top_tex = load_img.call("res://assets/weaponry/VIPER head top.png")
 	_snake_body_tex     = load_img.call("res://assets/weaponry/VIPER body.png")
 	_snake_tail_tex      = load_img.call("res://assets/weaponry/VIPER Tail.png")
-	_load_snake_plume()
+	# 2026-08-20, 3D plume swap — detect via _snake3d_ready (set by _setup_snake_3d, which now runs BEFORE
+	# this in _ready()): use real 3D CPUParticles3D living inside the model's own SubViewport when the 3D
+	# rig is up, else fall back to the original flat CPUParticles2D system unchanged. Same PNG textures above
+	# are still loaded regardless — _load_snake_plume() (2D) still reads their width/height for its own `ds`
+	# sizing even though they're no longer drawn.
+	if _snake3d_ready:
+		_load_snake_plume_3d()
+	else:
+		_load_snake_plume()
 
 func _load_snake_plume() -> void:
 	const SCREEN_ORIGIN := Vector2(15.0, 8.0)
@@ -7931,17 +9108,698 @@ func _load_snake_plume() -> void:
 					p.z_index = -1
 					anchor.add_child(p)
 
+## Builds the live 3D VIPER layer (2026-08-20): one SubViewport (own_world_3d) holding 2 head + 2 tail
+## MeshInstance3D (one pair per chain — main + the "more_snakes" evolve's 2nd chain) and ONE shared
+## MultiMeshInstance3D for every body segment across both chains (index ranges [0,CAP) / [CAP,2*CAP) —
+## see SNAKE3D_CHAIN_CAP), composited onto a world-space TextureRect that _snake3d_update_chain() re-centers
+## on the player every frame. Runs for BOTH the main instance and a companion (`_companion`) — like every
+## other weapon in this file, a companion can equip its own VIPER independently (`_player` is already set to
+## the right ship per-instance above), so it needs its own copy of this rig, not a shared/skipped one. See
+## scripts/gameplay/fx/glb_topdown_rig.gd for the shared framing/coordinate convention this relies on.
+## Reads `creep_name`'s saved mount-angle calibration from weapon_layout.cfg's "creeps" "rot" field (2026-08-20,
+## 3rd pass — a full Vector3 now, was a Y-only "yaw" float in the 2nd pass; set by creep_edit_mode.gd's
+## "3D VIEW / MOUNT ANGLE" Rotate X/Y/Z sliders, see that file's _load_glb_topdown_tex header). Returns
+## Vector3.ZERO if the creep was never calibrated (field absent) or the cfg/entry doesn't exist.
+func _read_creep_rot(creep_name: String) -> Vector3:
+	var cfg := ConfigFile.new()
+	if cfg.load("res://weapon_layout.cfg") != OK:
+		return Vector3.ZERO
+	var entry: Dictionary = cfg.get_value("creeps", creep_name, {})
+	# base ∘ rot (2026-08-22) — the editor's "Set 0° here" button banks the dialled-in orientation into
+	# `rot_base` and zeroes `rot`; reading `rot` alone would silently drop that half and render the weapon
+	# at the wrong mount angle. See glb_topdown_rig.gd's compose_rot().
+	return _glb_rig.compose_rot(_editor_axis(entry.get("rot_base", Vector3.ZERO)),
+		_editor_axis(entry.get("rot", Vector3.ZERO)))
+
+## True when weapon_layout.cfg still holds pre-2026-08-22 (Godot Y-up / YXZ) angles instead of the editor's
+## Z-up / ZXY ones. The editor migrates the file the first time it loads it, so this is normally false — it
+## exists so that restoring an old backup of the cfg degrades into "the same picture as before" rather than
+## into every part silently tilted onto the wrong axis. Cached: this is read per part per equip.
+var _layout_legacy_axis: int = -1   # -1 = not checked yet, 0 = z_up, 1 = legacy
+func _layout_axis_is_legacy() -> bool:
+	if _layout_legacy_axis < 0:
+		var c := ConfigFile.new()
+		var ok := c.load("res://weapon_layout.cfg") == OK
+		_layout_legacy_axis = 1 if (ok and String(c.get_value("meta", "axis_space", "y_up")) != "z_up") else 0
+	return _layout_legacy_axis == 1
+
+## One stored angle, guaranteed to be in EDITOR space — see _layout_axis_is_legacy().
+func _editor_axis(rot: Vector3) -> Vector3:
+	if rot.is_zero_approx() or not _layout_axis_is_legacy():
+		return rot
+	return _glb_rig.editor_rot(Basis.from_euler(rot))
+
+## Companion to _read_creep_rot — the part's authored VERTICAL (editor-space Z) offset, set with PgUp/PgDn.
+## See _snake3d_world_xform's own header for what it actually does under these top-down rigs.
+## 2026-08-22: the cfg key is `z` now ("Trục Z là trục thẳng đứng"); `height` is still read as a fallback so
+## a layout file written before the axis-space pass — or restored from a backup — keeps its authored lifts.
+func _read_creep_z(creep_name: String) -> float:
+	var cfg := ConfigFile.new()
+	if cfg.load("res://weapon_layout.cfg") != OK:
+		return 0.0
+	var entry: Dictionary = cfg.get_value("creeps", creep_name, {})
+	return float(entry.get("z", entry.get("height", 0.0)))
+
+# ── TP: editor rect -> arena display size (2026-08-23) ───────────────────────────────────────────────────
+# A TP is authored against the weapon's EO RECT in Weapon Edit (60x60 for most of them) and consumed against
+# the size the arena actually draws that weapon at (`display_px_for()` — 30 for the shooter, 25.35 for Aliwa,
+# 18 for the spore...). Its X/Y always handled that: they are stored as a FRACTION of the rect and multiplied
+# by `display_px` on the way out, so they shrink with the model.
+#
+# Nothing ELSE did. 2026-08-23 bug report ("Tôi set plume ở rất sát object, nhưng khi hiển thị trên arena,
+# plume bị cách ra 1 khoảng... có phải do model size nhỏ quá?") — yes, exactly that. Measured on the shooter,
+# same 120px world window in both: the editor drew the model at 60px with the plume sitting on its nozzles;
+# the arena drew it at 30px with the plume a full model-width away. The offset had not changed at all — 15px
+# in the editor, 15px in the arena — because it came almost entirely from the TP's `z` (the PgUp/PgDn lift),
+# which was read RAW. 15px is a quarter of a 60px model and half of a 30px one, and because the shooter is
+# mounted at Rot X -90 that lift is tipped into the screen plane, where it reads as a plain gap.
+#
+# `vel_min`/`vel_max` are absolute lengths for the same reason and had the same problem — a plume tuned to
+# lick the hull in the editor threw its particles twice as far, relative to the model, in the arena.
+#
+# So: one scale factor, applied to every LENGTH a TP carries. Fractions (X/Y) and pure multipliers (`sc_*`)
+# are already size-independent and are left alone.
+const TP_SCREEN_ORIGIN := Vector2(15.0, 8.0)
+
+## Ratio between what the arena draws and what the editor was drawn against. 1.0 when the EO rect already
+## equals the display size (VIPER's parts), so those weapons are untouched by this.
+func _tp_scale(eo_size: Vector2, display_px: float) -> float:
+	return display_px / maxf(maxf(eo_size.x, eo_size.y), 0.001)
+
+## One TP's position in the weapon's own model space, at arena scale.
+func _tp_local_pos(tp: Dictionary, eo_pos: Vector2, eo_size: Vector2, display_px: float) -> Vector3:
+	var frac := (((tp["pos"] as Vector2) + TP_SCREEN_ORIGIN) - eo_pos) / eo_size
+	return Vector3((frac.x - 0.5) * display_px,
+		float(tp.get("z", 0.0)) * _tp_scale(eo_size, display_px),
+		(frac.y - 0.5) * display_px)
+
+## The same style with its absolute LENGTHS carried to arena scale. Returns the original dict untouched at
+## k == 1 so nothing is copied for the weapons that don't need it.
+func _tp_arena_style(style: Dictionary, k: float) -> Dictionary:
+	if is_equal_approx(k, 1.0):
+		return style
+	var out := style.duplicate()
+	out["vel_min"] = float(style.get("vel_min", 60.0)) * k
+	out["vel_max"] = float(style.get("vel_max", 100.0)) * k
+	return out
+
+## Builds one TP's plume as a rotation PIVOT (Node3D) wrapping a FIXED-direction particle, instead of baking
+## the rotation into the particle's own `direction` — 2026-08-21 ("nghiên cứu sự khác biệt giữa cách xoay
+## plume test (hoạt động tốt) và plume weapon edit (hỏng)"). See glb_topdown_rig.gd's `tp_rotation()` header
+## for the full mechanism gap this closes: `direction` is only consulted at each particle's own SPAWN
+## moment, so a live update to it only ever affected particles born AFTER the change — anything already in
+## flight (up to a full `lifetime` old) kept drifting on its stale trajectory, unlike the TEST PLUME, which
+## rotates a PARENT and therefore re-orients EVERY particle, old or new, every single frame. `pivot.rotation
+## = tp_rotation(tp)` here is what actually makes a live rotation edit visible on particles already in flight.
+func _add_tp_plume_pivot(parent: Node3D, rig: RefCounted, weapon_name: String, tp: Dictionary,
+		local_pos: Vector3, style: Dictionary, target_px: float) -> void:
+	var pivot := Node3D.new()
+	pivot.position = local_pos
+	# Editor-space angle carried into view space. `_editor_axis` is a no-op unless the cfg is a pre-axis-pass
+	# backup, in which case it converts the TP's own calibration the same way the object's is converted; a TP
+	# with no `dir_rot` at all (a flat 2D one) has nothing to convert and goes straight through the helper.
+	if tp.has("dir_rot"):
+		pivot.rotation = rig.view_rotation(rig.compose_rot(
+			_editor_axis(tp.get("dir_rot_base", Vector3.ZERO)),
+			_editor_axis(tp.get("dir_rot", Vector3.ZERO))))
+	else:
+		pivot.rotation = rig.tp_view_rotation(tp)
+	parent.add_child(pivot)
+	var p: CPUParticles3D = rig.make_plume(Vector3.ZERO, Vector3(0.0, 0.0, 1.0), style, target_px)
+	# Start in step with the anchor. Anchors are built hidden and `make_plume()` builds particles emitting, and
+	# `_set_plume_anchor3d_visible()` early-returns when the visibility it is asked for is the one already set
+	# — so the FIRST hide was always a no-op and a never-yet-shown anchor simulated particles forever behind a
+	# hidden node. Syncing here fixes it at the source without paying for a walk every frame.
+	p.emitting = parent.visible
+	pivot.add_child(p)
+	var key := "%s|%d" % [weapon_name, int(tp.get("id", 1))]
+	if not _live_tp_particles.has(key):
+		_live_tp_particles[key] = []
+	_live_tp_particles[key].append(pivot)   # despite the dict's name, holds PIVOTS now — see its own header
+
+## Public — LIVE preview API for the weapon editor (2026-08-21, "áp dụng cơ chế xoay của plume test... nhưng
+## thay vì bấm numpad thì kéo slider"): `creep_edit_mode.gd::_on_glb_rotation_changed()` calls this directly
+## (via the `"arena_weapons"` group) on every slider tick — no save-to-disk, no `reload_3d_weapon_layout()`
+## round trip, no anchor rebuild. Writes straight into the pivot's `.rotation` (see `_add_tp_plume_pivot()`'s
+## header for why a pivot rotation, not `CPUParticles3D.direction`, is what makes an in-flight particle
+## actually re-orient live). `_save_layout(true)` still runs alongside this (unchanged) purely so the value
+## SURVIVES a restart — it's no longer what makes the drag visible. Returns false if no live pivot exists yet
+## for this TP (weapon not equipped/active this run, or the id doesn't match anything built).
+## 2026-08-22 (axis-space pass): `dir_rot` arrives as an EDITOR-space (Z-up) angle — the same thing the cfg
+## stores and the sliders show — and is converted here, so this path lands on exactly the same orientation
+## `_add_tp_plume_pivot()` builds from `tp_view_rotation()`. The caller must pass the COMPOSED angle
+## (`dir_rot_base ∘ dir_rot`); passing the raw half would drop a banked "Set 0° here" baseline and make the
+## live plume jump away from the editor preview the first time a slider moved.
+func set_live_tp_direction(weapon_name: String, tp_id: int, dir_rot: Vector3) -> bool:
+	var pivots: Array = _live_tp_particles.get("%s|%d" % [weapon_name, tp_id], [])
+	if pivots.is_empty():
+		return false
+	var view_rot: Vector3 = _glb_rig.view_rotation(dir_rot)
+	var touched := false
+	# UNTYPED loop var on purpose (2026-08-23). A typed one (`for x: Node3D in ...`) assigns each element
+	# BEFORE the loop body runs, and assigning a freed instance throws "Trying to assign invalid
+	# previously freed instance" — the `is_instance_valid()` below never gets the chance to reject it.
+	# Same defect that froze the frame in _snake_pick_target; these arrays hold nodes this file owns, so a
+	# stale entry is far less likely, but the cost of being safe is one keyword.
+	for pivot in pivots:
+		if is_instance_valid(pivot):
+			(pivot as Node3D).rotation = view_rot
+			touched = true
+	return touched
+
+
+
+## Public — LIVE preview API for the OBJECT's own mount-angle rotation (the "no TP selected" branch of the
+## Rotate X/Y/Z sliders), same philosophy as `set_live_tp_direction()` above. Unlike a TP's `direction`
+## (baked into a particle at creation), `_aliwa3d_cal`/etc. are already re-read EVERY FRAME by `_update_
+## aliwa_3d()`/`_run_snake()`/etc. via `_snake3d_world_xform(pos, ang, cal)` — so simply writing the var
+## takes effect on the very next frame with no further plumbing needed here.
+func set_live_mount_cal(weapon_name: String, cal: Vector3) -> bool:
+	# A Jeager clip layer (2026-08-23) — its angle only applies while that clip is the one playing.
+	if weapon_name in JAEGER3D_CLIP_LAYERS:
+		_jaeger3d_clip_cal[weapon_name] = {"cal": cal, "z": _read_creep_z(weapon_name)}
+		return true
+	# The generic 3D weapons (2026-08-23) keep both values in their own rig dict — one lookup covers them.
+	if _glb3d.has(weapon_name):
+		var rd: Dictionary = _glb3d[weapon_name]
+		rd["cal"] = cal
+		rd["z"] = _read_creep_z(weapon_name)
+		return true
+	# Height rides along on the same editor action (both live in the creeps entry) — re-read it here so a
+	# PgUp/PgDn lift shows up in-game without waiting for a re-equip.
+	match weapon_name:
+		"ND-Aliwa-Bmr":
+			_aliwa3d_z = _read_creep_z(weapon_name)
+		"Yari-Jeager":
+			_jaeger3d_z = _read_creep_z(weapon_name)
+		"VIPER head top":
+			_snake3d_head_z = _read_creep_z(weapon_name)
+		"VIPER body":
+			_snake3d_body_z = _read_creep_z(weapon_name)
+		"VIPER Tail":
+			_snake3d_tail_z = _read_creep_z(weapon_name)
+	match weapon_name:
+		"ND-Aliwa-Bmr":
+			_aliwa3d_cal = cal
+		"Yari-Jeager":
+			_jaeger3d_cal = cal
+		"VIPER head top":
+			_snake3d_head_cal = cal
+		"VIPER body":
+			_snake3d_body_cal = cal
+		"VIPER Tail":
+			_snake3d_tail_cal = cal
+		_:
+			return false
+	return true
+
+## Re-fits every live 3D weapon to whatever `display_px_for()` now says (2026-08-23). Without this a W/H
+## edit in Weapon Edit only reached the TP maths, and the MODEL kept the size it was fitted to at setup —
+## you had to re-equip the weapon or restart the run to see it. Called from `reload_3d_weapon_layout()`, i.e.
+## on every editor Save.
+##
+## Two shapes to handle. A real model node (Jeager, VIPER's heads/tails) is simply re-fitted in place, which
+## `center_and_fit()` now supports. A MultiMesh weapon has no node — its fit lives in the `base` transform
+## that every per-instance write is multiplied by — so the glb is reloaded, fitted at the new size, and its
+## base transform lifted out again; the Mesh resource itself is unchanged, so nothing else has to be rebuilt.
+## weapon name -> the size its live model was last fitted to. `_refit_3d_sizes()` skips anything that hasn't
+## actually changed: it is called on EVERY editor Save, and a rotation-slider drag saves many times a second
+## (`_save_layout(true)`), so re-instantiating a glb per weapon per tick would be a real cost for nothing.
+var _fitted_px: Dictionary = {}
+
+## True (and records the new value) only when `weapon_name`'s size has actually moved since the last fit.
+func _size_changed(weapon_name: String, px: float) -> bool:
+	if px <= 0.001 or is_equal_approx(float(_fitted_px.get(weapon_name, -1.0)), px):
+		return false
+	_fitted_px[weapon_name] = px
+	return true
+
+func _refit_3d_sizes() -> void:
+	var jpx := display_px_for("Yari-Jeager")
+	if _jaeger3d_model != null and is_instance_valid(_jaeger3d_model) and _jaeger3d_rig != null \
+			and _size_changed("Yari-Jeager", jpx):
+		_jaeger3d_rig.center_and_fit(_jaeger3d_model, jpx)
+	if _snake3d_rig != null:
+		var hpx := display_px_for("VIPER head top")
+		if _size_changed("VIPER head top", hpx):
+			for h in _snake3d_head:   # untyped — see set_live_tp_direction's note
+				if h != null and is_instance_valid(h):
+					_snake3d_rig.center_and_fit(h, hpx)
+		var tpx := display_px_for("VIPER Tail")
+		if _size_changed("VIPER Tail", tpx):
+			for t in _snake3d_tail:
+				if t != null and is_instance_valid(t):
+					_snake3d_rig.center_and_fit(t, tpx)
+		var bpx := display_px_for("VIPER body")
+		if _size_changed("VIPER body", bpx):
+			_snake3d_body_base = _refit_base(_snake3d_rig, SNAKE3D_BODY_GLB, bpx, _snake3d_body_base)
+	if _aliwa3d_ready and _aliwa3d_rig != null:
+		var apx := display_px_for("ND-Aliwa-Bmr")
+		if _size_changed("ND-Aliwa-Bmr", apx):
+			_aliwa3d_base = _refit_base(_aliwa3d_rig, ALIWA3D_GLB, apx, _aliwa3d_base)
+	for wname: String in _glb3d:
+		var px := display_px_for(wname)
+		if not _size_changed(wname, px):
+			continue
+		var rd: Dictionary = _glb3d[wname]
+		rd["px"] = px
+		rd["base"] = _refit_base(rd["rig"], String((GLB3D_WEAPONS[wname] as Dictionary)["glb"]),
+			px, rd["base"])
+
+## One MultiMesh weapon's base transform, re-derived at `px`. Returns `fallback` untouched if the glb can no
+## longer be loaded, so a missing asset degrades to "stays the size it was" rather than collapsing to zero.
+func _refit_base(rig: RefCounted, glb: String, px: float, fallback: Transform3D) -> Transform3D:
+	if px <= 0.001:
+		return fallback
+	var model: Node3D = rig.load_model(glb)
+	if model == null:
+		return fallback
+	rig.center_and_fit(model, px)
+	var info: Dictionary = rig.mesh_and_base_xform(model)
+	model.free()
+	return info.get("xform", fallback)
+
+## Public — called by weapon_edit_mode.gd (`creep_edit_mode.gd::_save_layout`, `get_tree().get_first_node_in_
+## group("weapon_system")`, same lookup pattern every boss already uses) right after Save, so tweaking a 3D
+## weapon's TPs/Rotate-X/Y/Z sliders is testable live without restarting the run. 2026-08-21
+## ("Plume vẫn chưa xoay theo hướng mũi tên" / "Plume vẫn chưa xoay cùng với object khi tôi xoay object"):
+## every `_aliwa3d_cal`/`_jaeger3d_cal`/`_snake3d_*_cal` is read ONCE in its own `_setup_*_3d()` (equip/boot
+## time only, see `_read_creep_rot`'s own callers) and every plume TP's spray `direction` is baked into its
+## `CPUParticles3D` ONCE in its own `_load_*_plume_3d()` (see `glb_topdown_rig.gd::make_plume`) — neither
+## re-reads `weapon_layout.cfg` again afterward, so editor changes silently had zero live effect until the
+## weapon was re-equipped. This re-reads every calibration AND rebuilds every plume anchor from the file as
+## it stands right now. Each plume anchor is explicitly freed (not just reassigned) first — `_load_*_plume_
+## 3d()` never frees its own previous anchor (it's normally only ever called once, at setup), so skipping
+## this would leak the old anchor as a dangling extra copy of the plume, doubling it up rather than replacing
+## it. No-op per-weapon if that weapon's `_ready` flag is false (e.g. VIPER never equipped this run) — each
+## `_load_*_plume_3d()` already re-checks its own `_*_ready`/`_*_vp` guard.
+func reload_3d_weapon_layout() -> void:
+	# Clear FIRST — every `_load_*_plume_3d()` below re-populates via `_add_tp_plume_pivot()` (append-
+	# only, see that dict's header), so without this, every reload call (this runs on every Save, i.e.
+	# potentially every rotation-slider tick — see `_save_layout`) would pile up an ever-growing list of dead
+	# pivot references from every anchor freed below. (2026-08-23 correction: this used to claim a stale ref
+	# was harmless because `set_live_tp_direction()` guards each entry with `is_instance_valid()`. It is not —
+	# that loop USED to bind each element to a typed `Node3D`, which throws on a freed instance before the
+	# guard can run. Both the loop and this clear are now needed; see that function.)
+	_live_tp_particles.clear()
+	_display_px_cache.clear()   # the Save may have changed a W/H — see display_px_for()
+	_refit_3d_sizes()           # ...and if it did, resize the live models to match
+	# Generic 3D weapons (2026-08-23) — same re-read + rebuild the bespoke rigs below get, one loop.
+	for wname: String in _glb3d:
+		var rd: Dictionary = _glb3d[wname]
+		rd["cal"] = _read_creep_rot(wname)
+		rd["z"] = _read_creep_z(wname)
+		_reload_glb3d_plumes(rd)
+	# 2026-08-21 bug fix ("BẠN TỰ NHÌN XEM, HƯỚNG VECTOR VÀ HƯỚNG PLUME ĐÃ TRÙNG NHAU CHƯA?" — arrow showed the
+	# correct new direction, live particle still visibly pointed the OLD way): this function is called on
+	# EVERY rotation-slider drag tick (`_on_glb_rotation_changed` → `_save_layout(true)`), i.e. potentially
+	# many times per frame while dragging. `queue_free()` only actually removes the node at the END of the
+	# current frame — so several drag ticks landing in the same frame each built a BRAND NEW anchor (with
+	# THAT tick's direction) while every previous tick's anchor was still alive and still emitting, stacked on
+	# top of each other. Whichever anchor happened to still be running/visible when you stopped dragging could
+	## easily be an early, stale one — not the final value — which is exactly "looks stuck on the old
+	# direction" from the outside. `creep_edit_mode.gd::_glb_refresh_tp_gizmos()` already hit this SAME class
+	# of bug for the editor-preview gizmos (see its own 2026-08-21 comment, "xoay TP1 nhưng TP2 lại xoay") and
+	# fixed it with `.free()` instead of `queue_free()` — `.free()` deletes SYNCHRONOUSLY, so by the time this
+	# function returns there is exactly one anchor per weapon, guaranteed. Applying the same fix here.
+	_aliwa3d_cal = _read_creep_rot("ND-Aliwa-Bmr")
+	_aliwa3d_z = _read_creep_z("ND-Aliwa-Bmr")
+	if _aliwa3d_plume_anchor != null and is_instance_valid(_aliwa3d_plume_anchor):
+		_aliwa3d_plume_anchor.free()
+	_aliwa3d_plume_anchor = null
+	_load_aliwa_plume_3d()
+
+	_jaeger3d_cal = _read_creep_rot("Yari-Jeager")
+	_jaeger3d_z = _read_creep_z("Yari-Jeager")
+	_load_jaeger_clip_cals()
+	if _jaeger3d_plume_anchor != null and is_instance_valid(_jaeger3d_plume_anchor):
+		_jaeger3d_plume_anchor.free()
+	_jaeger3d_plume_anchor = null
+	for a in _jaeger3d_clip_anchor.values():   # untyped — see set_live_tp_direction's note
+		if is_instance_valid(a):
+			(a as Node3D).free()               # .free(), not queue_free() — see this function's header
+	_jaeger3d_clip_anchor.clear()
+	for e: Dictionary in _jaeger3d_bone_plumes:
+		if is_instance_valid(e["att"]):
+			(e["att"] as Node3D).free()
+	_jaeger3d_bone_plumes.clear()
+	_load_jaeger_plume_3d()
+
+	_snake3d_head_cal = _read_creep_rot("VIPER head top")
+	_snake3d_head_z = _read_creep_z("VIPER head top")
+	_snake3d_body_cal = _read_creep_rot("VIPER body")
+	_snake3d_body_z = _read_creep_z("VIPER body")
+	_snake3d_tail_cal = _read_creep_rot("VIPER Tail")
+	_snake3d_tail_z = _read_creep_z("VIPER Tail")
+	if _snake3d_head_plume_anchor != null and is_instance_valid(_snake3d_head_plume_anchor):
+		_snake3d_head_plume_anchor.free()
+	_snake3d_head_plume_anchor = null
+	if _snake3d_tail_plume_anchor != null and is_instance_valid(_snake3d_tail_plume_anchor):
+		_snake3d_tail_plume_anchor.free()
+	_snake3d_tail_plume_anchor = null
+	for anchor in _snake3d_body_plume_anchors:   # untyped — see set_live_tp_direction's note
+		if is_instance_valid(anchor):
+			(anchor as Node3D).free()
+	_snake3d_body_plume_anchors.clear()
+	_load_snake_plume_3d()
+
+func _setup_snake_3d() -> void:
+	var rig := preload("res://scripts/gameplay/fx/glb_topdown_rig.gd").new()
+	_snake3d_rig = rig
+
+	_snake3d_vp = SubViewport.new()
+	var side := int(round(SNAKE3D_REGION * 2.0))
+	_snake3d_vp.size = Vector2i(side, side)
+	_snake3d_vp.transparent_bg = true
+	_snake3d_vp.own_world_3d = true
+	_snake3d_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(_snake3d_vp)
+	rig.build_lighting(_snake3d_vp)
+	_snake3d_cam = rig.make_camera(_snake3d_vp, SNAKE3D_REGION)
+
+	_snake3d_head_cal = _read_creep_rot("VIPER head top")
+	_snake3d_head_z = _read_creep_z("VIPER head top")
+	_snake3d_body_cal = _read_creep_rot("VIPER body")
+	_snake3d_body_z = _read_creep_z("VIPER body")
+	_snake3d_tail_cal = _read_creep_rot("VIPER Tail")
+	_snake3d_tail_z = _read_creep_z("VIPER Tail")
+
+	# Head/tail — 1 carrier per chain slot (2026-08-20, 3rd pass: real parent-child attachment — see
+	# _snake3d_world_xform's header). The mesh's own LOCAL transform is JUST the fit (centering+scale, no
+	# rotation) — ALL rotation (dynamic travel angle + static X/Y/Z calibration) lives on the carrier, set
+	# once per frame in _snake3d_update_chain. Hidden (via the carrier) until that function turns them on.
+	for _i in range(2):
+		var head_carrier := Node3D.new()
+		_snake3d_vp.add_child(head_carrier)
+		_snake3d_head_carrier.append(head_carrier)
+		var head: Node3D = rig.load_model(SNAKE3D_HEAD_GLB)
+		if head != null:
+			head_carrier.add_child(head)
+			rig.center_and_fit(head, display_px_for("VIPER head top"))
+		_snake3d_head.append(head)
+		var tail_carrier := Node3D.new()
+		_snake3d_vp.add_child(tail_carrier)
+		_snake3d_tail_carrier.append(tail_carrier)
+		var tail: Node3D = rig.load_model(SNAKE3D_TAIL_GLB)
+		if tail != null:
+			tail_carrier.add_child(tail)
+			rig.center_and_fit(tail, display_px_for("VIPER Tail"))
+		_snake3d_tail.append(tail)
+
+	# Body — ONE shared mesh via MultiMesh; body_model itself is never added to the tree (center_and_fit /
+	# mesh_and_base_xform only ever read LOCAL transforms, safe fully detached — see glb_topdown_rig.gd).
+	var body_model: Node3D = rig.load_model(SNAKE3D_BODY_GLB)
+	if body_model != null:
+		rig.center_and_fit(body_model, display_px_for("VIPER body"))
+		var info: Dictionary = rig.mesh_and_base_xform(body_model)
+		var mesh: Mesh = info.get("mesh")
+		_snake3d_body_base = info.get("xform", Transform3D.IDENTITY)
+		body_model.free()
+		if mesh != null:
+			var mm := MultiMesh.new()
+			mm.transform_format = MultiMesh.TRANSFORM_3D
+			mm.mesh = mesh
+			mm.instance_count = SNAKE3D_CHAIN_CAP * 2
+			mm.visible_instance_count = SNAKE3D_CHAIN_CAP * 2   # fixed forever — unused slots are parked
+																 # zero-scale (see _snake3d_park_body_range),
+																 # not hidden via this count (2 disjoint chain
+																 # ranges can't both be a single visible prefix)
+			var zero_x := Transform3D(Basis().scaled(Vector3.ZERO), Vector3.ZERO)
+			for i in range(mm.instance_count):
+				mm.set_instance_transform(i, zero_x)
+			_snake3d_body_mm = MultiMeshInstance3D.new()
+			_snake3d_body_mm.multimesh = mm
+			_snake3d_vp.add_child(_snake3d_body_mm)
+
+	# World-space composite: a plain child of this Node2D (NOT a CanvasLayer) so Godot's normal Camera2D
+	# projection pans/scales it exactly like the old immediate-mode sprite draws did — no manual
+	# canvas_transform math. Known caveat (same class as the Gatling MultiMesh one elsewhere in this file):
+	# being a real child node instead of an immediate _draw() call, it can't interleave with this node's OWN
+	# other immediate draws by call-order the way _draw_snake() used to — it renders as one unit at its own
+	# z_index (0, matching this node's default) instead. Not fixed; flagged in case it reads as a stacking
+	# regression against enemies/other VFX.
+	_snake3d_layer = TextureRect.new()
+	_snake3d_layer.texture = _snake3d_vp.get_texture()
+	_snake3d_layer.size = Vector2(side, side)
+	_snake3d_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_snake3d_layer)
+
+	_snake3d_ready = true
+
+## Converts a 2D world point + travel angle into a segment's CARRIER transform (2026-08-20, 3rd pass — real
+## parent-child attachment): position is expressed RELATIVE TO THE PLAYER (not raw world coords) because
+## _snake3d_layer/_jaeger3d_layer are re-centered on the player every frame instead of covering the whole
+## world — see SNAKE3D_REGION's comment. `cal` is the part's saved mount-angle calibration (Vector3, radians
+## — read once at setup via _read_creep_rot, see e.g. _snake3d_head_cal) — composed as a STATIC tilt
+## (cal.x/cal.z) applied before the DYNAMIC travel rotation (cal.y adds onto the travel angle around the
+## vertical axis, same as the old single-float yaw offset did). The mesh + plume anchor are real children of
+## whatever node gets this transform (see _setup_snake_3d/_setup_jaeger_3d) — one write here moves both,
+## which is what makes rotation "reliable" now instead of two independently-computed transforms that could
+## drift apart. Body segments (MultiMesh — no per-instance child nodes possible) are the one exception: they
+## call this directly per-instance instead of going through a carrier, same formula, not true parenting.
+## `z` (2026-08-22) = the part's authored VERTICAL offset in the editor's Z-up authoring space, from the
+## editor's PgUp/PgDn ("chiều cao thực của object 3D"; the cfg key was `height` before the axis-space pass).
+## Under this file's top-down orthographic rigs a vertical offset doesn't move the part on screen — it
+## changes DEPTH, i.e. which part draws in front of which. Read once per part via `_read_creep_z()`.
+##
+## 2026-08-22 (axis-space pass) — `cal` is now an EDITOR-space (Z-up) angle and is carried across whole by
+## `view_basis()`, replacing the old hand-split `Basis(UP, -cal.y) * Basis.from_euler(cal.x, 0, cal.z)`.
+## Two things that fixes:
+##   1. The old split silently NEGATED cal.y relative to what the editor preview applied to the very same
+##      value (`_glb_apply_rotation` fed the composed angle straight to `Node3D.rotation`), so the editor and
+##      the running game disagreed about any part whose yaw wasn't ~0 or ~±180°. VIPER's Tail was off by
+##      ~44° in-game versus what the editor showed. The editor is the thing being tuned against, so the
+##      game now matches IT rather than the other way round.
+##   2. `view_basis()` uses EDITOR_EULER_ORDER (ZXY), which puts the vertical spin outermost — so `cal.z`
+##      composes with the travel angle on the same axis, exactly as the old `cal.y` term intended, with no
+##      special-casing needed here.
+## `-ang` (unchanged): the 2D travel angle grows CLOCKWISE on screen, a positive Godot rotation about UP
+## reads counter-clockwise from this camera, hence the flip.
+## Body-segment roll about the chain's LONG AXIS (2026-08-23) — the head→tail line, not the segment's own
+## model axis and not the world vertical.
+##
+## Why this composes where it does. `_snake3d_world_xform` builds `Basis(UP, -ang) * view_basis(cal)`, and
+## `Basis(UP, -ang) * Vector3.RIGHT` is exactly the chain's direction at that segment: `Basis(UP, θ) * X =
+## (cos θ, 0, -sin θ)`, so with θ = -ang it comes out as canvas `(cos ang, sin ang)`, the 2D bearing `ang`
+## itself. A rotation by φ about a world axis `M·RIGHT` is `M · R_RIGHT(φ) · M⁻¹`, so applying it to
+## `M · view_basis(cal)` collapses to `M · R_RIGHT(φ) · view_basis(cal)` — i.e. slot the roll BETWEEN the
+## chain yaw and the mount calibration and it is a true spin about the long axis, whatever direction the
+## chain happens to be pointing and whatever mount angle was authored in the editor.
+##
+## `seg` is the body index (1 = the segment right behind the head): each one trails the one ahead of it by
+## SNAKE3D_ROLL_LAG seconds, which is what makes the roll read as a wave travelling down the body rather than
+## the whole snake turning as one rigid tube. All segments share one rate, SNAKE3D_ROLL_RPM.
+## `_snake3d_world_xform` plus a roll about the chain's long axis.
+##
+## `ang` is the yaw the MODEL is mounted at and `axis_ang` is the bearing of the chain's LONG AXIS there.
+## They are the same for a body segment, but NOT for the head: the head is mounted at `dir + PI/2` (see
+## `_snake3d_update_chain`), so rolling about its own post-yaw RIGHT would spin it about an axis at right
+## angles to the snake — visibly wrong, and not "trục xoay giống như body". Passing the long axis separately
+## keeps one definition of "the axis" for every part.
+##
+## The roll is applied in WORLD space (pre-multiplied) about `Basis(UP, -axis_ang) * RIGHT`, which is exactly
+## the chain's direction at that point: `Basis(UP, θ) * X = (cos θ, 0, -sin θ)`, so at θ = -axis_ang it comes
+## out as canvas `(cos axis_ang, sin axis_ang)` — the 2D bearing itself. Pre-multiplying means the mount
+## calibration `cal` cannot tilt the axis, so the editor's mount angle stays free to tune.
+func _snake3d_roll_xform(pos2d: Vector2, ang: float, axis_ang: float, cal: Vector3, z: float,
+		roll: float) -> Transform3D:
+	var rel := pos2d - (_player.global_position if _player != null else Vector2.ZERO)
+	var basis: Basis = Basis(Vector3.UP, -ang) * _glb_rig.view_basis(cal)
+	if absf(roll) > 0.0001:
+		var axis: Vector3 = (Basis(Vector3.UP, -axis_ang) * Vector3.RIGHT).normalized()
+		basis = Basis(axis, roll) * basis
+	return Transform3D(basis, Vector3(rel.x, z, rel.y))
+
+## Body segments: the model yaw and the long axis are the same bearing.
+func _snake3d_body_xform(pos2d: Vector2, ang: float, cal: Vector3, z: float, seg: int) -> Transform3D:
+	return _snake3d_roll_xform(pos2d, ang, ang, cal, z, _snake3d_body_roll_angle(seg))
+
+## How far body segment `seg` has rolled by now (1 = the segment right behind the head). Each trails the one
+## ahead of it by SNAKE3D_ROLL_LAG seconds, which is what makes the roll read as a wave travelling down the
+## body rather than the whole snake turning as one rigid tube. All segments share one rate.
+func _snake3d_body_roll_angle(seg: int) -> float:
+	return (_snake3d_roll_t - float(seg) * SNAKE3D_ROLL_LAG) * SNAKE3D_ROLL_OMEGA
+
+## The head's lean for chain `chain_idx`, updated from how fast its heading is changing. Returns the angle to
+## roll about the chain's long axis: full Bend at the full turn rate, 0 travelling straight, eased toward the
+## target so a twitchy heading doesn't make the head snap about. See SNAKE3D_BANK_SMOOTH.
+func _snake3d_head_bank(chain_idx: int, dir: float) -> float:
+	if chain_idx < 0 or chain_idx >= _snake3d_bank.size():
+		return 0.0
+	var dt: float = maxf(get_process_delta_time(), 0.0001)
+	var prev: float = _snake3d_prev_dir[chain_idx]
+	var rate := 0.0
+	if prev < INF:
+		rate = angle_difference(prev, dir) / dt      # rad/s, signed: + turning one way, - the other
+	_snake3d_prev_dir[chain_idx] = dir
+	# The CHAIN panel's Bend is a turn-rate CLAMP in rad/s; used here as the lean angle at that same rate, so
+	# one slider sets both "how sharply it can turn" and "how hard it leans doing it".
+	var lim: float = maxf(_snake_cfg_turn, 0.0001)
+	var target: float = clampf(rate / lim, -1.0, 1.0) * _snake_cfg_turn
+	_snake3d_bank[chain_idx] = lerpf(_snake3d_bank[chain_idx], target,
+		clampf(dt * SNAKE3D_BANK_SMOOTH, 0.0, 1.0))
+	return _snake3d_bank[chain_idx]
+
+func _snake3d_world_xform(pos2d: Vector2, ang: float, cal: Vector3, z: float = 0.0) -> Transform3D:
+	var rel := pos2d - (_player.global_position if _player != null else Vector2.ZERO)
+	return Transform3D(Basis(Vector3.UP, -ang) * _glb_rig.view_basis(cal), Vector3(rel.x, z, rel.y))
+
+## Parks every unused body-segment slot for `chain_idx` (from `active_n` up to SNAKE3D_CHAIN_CAP) at a
+## zero-scale transform — see mm.visible_instance_count's comment in _setup_snake_3d for why this (not that
+## count) is how unused slots are hidden.
+func _snake3d_park_body_range(chain_idx: int, active_n: int) -> void:
+	if _snake3d_body_mm == null:
+		return
+	var mm := _snake3d_body_mm.multimesh
+	var base_i := chain_idx * SNAKE3D_CHAIN_CAP
+	var zero_x := Transform3D(Basis().scaled(Vector3.ZERO), Vector3.ZERO)
+	for k in range(maxi(active_n, 0), SNAKE3D_CHAIN_CAP):
+		var idx := base_i + k
+		if idx < mm.instance_count:
+			mm.set_instance_transform(idx, zero_x)
+
+## Hides chain `chain_idx`'s head/tail and parks its whole body range — used when that chain isn't active
+## (chain 1 = More Snakes, whenever the evolve isn't picked; either chain briefly, before _snake_init).
+func _snake3d_hide_chain(chain_idx: int) -> void:
+	if chain_idx < _snake3d_head_carrier.size():
+		(_snake3d_head_carrier[chain_idx] as Node3D).visible = false
+	if chain_idx < _snake3d_tail_carrier.size():
+		(_snake3d_tail_carrier[chain_idx] as Node3D).visible = false
+	_snake3d_park_body_range(chain_idx, 0)
+
+## Pushes one chain's current `pts`/`dir` into the live 3D layer — replaces the old _draw_snake_chain's
+## draw_texture_rect calls 1:1 (same head/body/tail split, same "smoothed bisector" body angle). Called from
+## _draw_snake() every frame (queue_redraw() at the end of _process drives this file's whole _draw() path).
+func _snake3d_update_chain(chain_idx: int, pts: Array, dir: float) -> void:
+	var n := pts.size()
+	if n < 2:
+		_snake3d_hide_chain(chain_idx)
+		return
+	if chain_idx < _snake3d_head_carrier.size():
+		var head_carrier := _snake3d_head_carrier[chain_idx] as Node3D
+		head_carrier.visible = true
+		# The head banks into its turn (2026-08-23). Model yaw stays `dir + PI/2` as before; the roll axis is
+		# `dir` — the chain's long axis at the head, the same line the body segments roll about. `dir` is the
+		# headward bearing there, matching the body's own `(pts[k-1] - pts[k+1])` convention, so a positive
+		# lean means the same visual direction on every part.
+		head_carrier.transform = _snake3d_roll_xform(pts[0], dir + PI * 0.5, dir,
+			_snake3d_head_cal, _snake3d_head_z, _snake3d_head_bank(chain_idx, dir))
+	var tail_pos: Vector2 = pts[n - 1]
+	var tail_ang: float = ((pts[n - 2] as Vector2) - tail_pos).angle()
+	if chain_idx < _snake3d_tail_carrier.size():
+		var tail_carrier := _snake3d_tail_carrier[chain_idx] as Node3D
+		tail_carrier.visible = true
+		tail_carrier.transform = _snake3d_world_xform(tail_pos, tail_ang + PI * 0.5, _snake3d_tail_cal, _snake3d_tail_z)
+	var body_n := maxi(0, n - 2)
+	if _snake3d_body_mm != null:
+		var mm := _snake3d_body_mm.multimesh
+		var base_i := chain_idx * SNAKE3D_CHAIN_CAP
+		for k in range(1, n - 1):
+			var idx := base_i + (k - 1)
+			if idx >= mm.instance_count:
+				break   # more segments than SNAKE3D_CHAIN_CAP — silently drops the excess rather than error
+			var pos: Vector2 = pts[k]
+			var ang: float = ((pts[k - 1] as Vector2) - (pts[k + 1] as Vector2)).angle()
+			# Body (MultiMesh) can't have real child nodes — this stays independently computed, same formula
+			# as the carriers above, not true parenting. See _snake3d_world_xform's header.
+			var world := _snake3d_body_xform(pos, ang, _snake3d_body_cal, _snake3d_body_z, k)
+			# Taper (2026-08-22) — scale only the BASIS, not the whole transform: `Transform3D.scaled()` would
+			# scale the origin too and drag the segment toward the chain's own origin.
+			var seg_s := _snake_seg_scale(k - 1)
+			var seg_base := _snake3d_body_base
+			if seg_s < 0.999:
+				seg_base = Transform3D(seg_base.basis.scaled(Vector3.ONE * seg_s), seg_base.origin)
+			mm.set_instance_transform(idx, world * seg_base)
+	_snake3d_park_body_range(chain_idx, mini(body_n, SNAKE3D_CHAIN_CAP))
+	# Recentre the composite window on the player (world-space child — see _setup_snake_3d's comment).
+	if _snake3d_layer != null and _player != null:
+		_snake3d_layer.position = _player.global_position - Vector2(SNAKE3D_REGION, SNAKE3D_REGION)
+
+## 3D counterpart of _load_snake_plume() — same weapon_layout.cfg/weapon_plume_styles.cfg entries (VIPER head
+## top/body/Tail), same fraction math, but builds Node3D anchors + CPUParticles3D (_snake3d_rig.make_plume)
+## inside `_snake3d_vp` instead of Node2D + CPUParticles2D under `self`. Only called when _snake3d_ready
+## (see _load_snake_tex's branch) — reads each TP's "z" field (added 2026-08-20 in creep_edit_mode.gd) for
+## height above the ground plane; older TPs without it default to 0 via `.get("z", 0.0)`, unaffected.
+## Mirrors the 2D version's exact body-anchor COUNT limit (SNAKE_SEGMENTS - 2 = 3, not one per possible
+## segment) — a pre-existing scope limit in the 2D system, not something new here.
+func _load_snake_plume_3d() -> void:
+	if not _snake3d_ready or _snake3d_vp == null:
+		return
+	var cfg := ConfigFile.new()
+	if cfg.load("res://weapon_layout.cfg") != OK:
+		return
+	var scfg := ConfigFile.new()
+	scfg.load("res://weapon_plume_styles.cfg")
+
+	# --- Head ---
+	var eh: Dictionary  = cfg.get_value("creeps",       "VIPER head top", {})
+	var head_tps: Array = cfg.get_value("thrustpoints", "VIPER head top", [])
+	if not eh.is_empty() and not head_tps.is_empty():
+		var eh_pos:  Vector2 = eh.get("pos",  Vector2(480.0, 380.0))
+		var eh_size: Vector2 = eh.get("size", Vector2(60.0,  101.5))
+		if eh_size.x > 0.0 and eh_size.y > 0.0:
+			var styles: Dictionary = scfg.get_value("styles", "VIPER head top", {})
+			_snake3d_head_plume_anchor = Node3D.new()
+			_snake3d_head_plume_anchor.visible = false
+			# Real child of chain 0's head carrier (2026-08-20, 3rd pass) — position set ONCE below, never
+			# touched per-frame again; rotation/position both inherited automatically when the carrier moves,
+			# see _snake3d_world_xform's header for why this is what "reliable, rotates with the object" means.
+			_snake3d_head_carrier[0].add_child(_snake3d_head_plume_anchor)
+			for tp: Dictionary in head_tps:
+				var style: Dictionary = styles.get("tp_%d" % int(tp.get("id", 1)), {})
+				var hpx := display_px_for("VIPER head top")
+				var local_pos := _tp_local_pos(tp, eh_pos, eh_size, hpx)
+				_add_tp_plume_pivot(_snake3d_head_plume_anchor, _snake3d_rig, "VIPER head top", tp, local_pos, _tp_arena_style(style, _tp_scale(eh_size, hpx)), hpx)
+
+	# --- Tail ---
+	var et: Dictionary  = cfg.get_value("creeps",       "VIPER Tail", {})
+	var tail_tps: Array = cfg.get_value("thrustpoints", "VIPER Tail", [])
+	if not et.is_empty() and not tail_tps.is_empty():
+		var et_pos:  Vector2 = et.get("pos",  Vector2(480.0, 380.0))
+		var et_size: Vector2 = et.get("size", Vector2(60.0,  59.5))
+		if et_size.x > 0.0 and et_size.y > 0.0:
+			var styles: Dictionary = scfg.get_value("styles", "VIPER Tail", {})
+			_snake3d_tail_plume_anchor = Node3D.new()
+			_snake3d_tail_plume_anchor.visible = false
+			_snake3d_tail_carrier[0].add_child(_snake3d_tail_plume_anchor)   # see head's own comment above
+			for tp: Dictionary in tail_tps:
+				var style: Dictionary = styles.get("tp_%d" % int(tp.get("id", 1)), {})
+				var tpx := display_px_for("VIPER Tail")
+				var local_pos := _tp_local_pos(tp, et_pos, et_size, tpx)
+				_add_tp_plume_pivot(_snake3d_tail_plume_anchor, _snake3d_rig, "VIPER Tail", tp, local_pos, _tp_arena_style(style, _tp_scale(et_size, tpx)), tpx)
+
+	# --- Body (one anchor per segment, k = 1..SNAKE_SEGMENTS-2 — same limit as the 2D system) ---
+	var eb: Dictionary  = cfg.get_value("creeps",       "VIPER body", {})
+	var body_tps: Array = cfg.get_value("thrustpoints", "VIPER body", [])
+	if not eb.is_empty() and not body_tps.is_empty():
+		var eb_pos:  Vector2 = eb.get("pos",  Vector2(480.0, 380.0))
+		var eb_size: Vector2 = eb.get("size", Vector2(60.0,  50.0))
+		if eb_size.x > 0.0 and eb_size.y > 0.0:
+			var styles: Dictionary = scfg.get_value("styles", "VIPER body", {})
+			for _k in range(SNAKE_SEGMENTS - 2):
+				var anchor := Node3D.new()
+				anchor.visible = false
+				_snake3d_vp.add_child(anchor)
+				_snake3d_body_plume_anchors.append(anchor)
+				for tp: Dictionary in body_tps:
+					var style: Dictionary = styles.get("tp_%d" % int(tp.get("id", 1)), {})
+					var bpx := display_px_for("VIPER body")
+					var local_pos := _tp_local_pos(tp, eb_pos, eb_size, bpx)
+					_add_tp_plume_pivot(anchor, _snake3d_rig, "VIPER body", tp, local_pos, _tp_arena_style(style, _tp_scale(eb_size, bpx)), bpx)
+
 func _tick_snake(delta: float) -> void:
 	_run_snake(delta, "viper")
 
 ## The primary Space Snake (chain 0). `kind` selects the damage scaling (the Predator fusion reuses this with
 ## kind "predator"). Movement + bite are shared with the 2nd snake (More Snakes evolve) via helpers.
-func _run_snake(delta: float, kind: String, turn_rate := SNAKE_TURN, aim_angle := INF) -> void:
+func _run_snake(delta: float, kind: String, turn_rate := -1.0, aim_angle := INF) -> void:
+	if turn_rate < 0.0:
+		turn_rate = _snake_cfg_turn   # 2026-08-22 — was the SNAKE_TURN const; now the CHAIN panel's Bend lock
 	if not _snake_init:
 		_snake_pts.clear()
 		var base := _mz(6) if _has_anchors() else _player.global_position   # spawn from point 6
 		for k in _snake_len():
-			_snake_pts.append(base - Vector2(SNAKE_SPACING * float(k), 0.0))
+			_snake_pts.append(base - Vector2(_snake_cfg_spacing * float(k), 0.0))
 		_snake_dir = 0.0
 		_snake_init = true
 	# Grow the tail if the snake got longer after spawning (Elongate pick, Primordial God, +Bodies).
@@ -7954,7 +9812,10 @@ func _run_snake(delta: float, kind: String, turn_rate := SNAKE_TURN, aim_angle :
 	while _snake_tick >= SNAKE_TICK:
 		_snake_tick -= SNAKE_TICK
 		_snake_bite(_snake_pts, kind)
-	_update_snake_plumes()
+	if _snake3d_ready:
+		_update_snake_plumes_3d()
+	else:
+		_update_snake_plumes()
 	# More Snakes evolve: a 2nd identical serpent (own chain; no plume VFX).
 	if _snake_capstone == "more_snakes":
 		_run_snake2(delta)
@@ -7965,27 +9826,80 @@ func _run_snake2(delta: float) -> void:
 		_snake2_pts.clear()
 		var base := _player.global_position + Vector2(0.0, 48.0)
 		for k in _snake_len():
-			_snake2_pts.append(base - Vector2(SNAKE_SPACING * float(k), 0.0))
+			_snake2_pts.append(base - Vector2(_snake_cfg_spacing * float(k), 0.0))
 		_snake2_dir = PI
 		_snake2_init = true
 	while _snake2_pts.size() < _snake_len():
 		_snake2_pts.append(_snake2_pts[_snake2_pts.size() - 1])
 	if _snake2_pts.is_empty():
 		return
-	_snake2_dir = _snake_move(_snake2_pts, _snake2_dir, SNAKE_TURN, INF, delta)
+	_snake2_dir = _snake_move(_snake2_pts, _snake2_dir, SNAKE_TURN, INF, delta, 1)
 	_snake2_tick += delta
 	while _snake2_tick >= SNAKE_TICK:
 		_snake2_tick -= SNAKE_TICK
 		_snake_bite(_snake2_pts, "viper")
 
-## Move a snake chain one frame: head steers toward the nearest enemy (or a given aim), body follows. Returns dir.
-func _snake_move(pts: Array, dir_in: float, turn_rate: float, aim_angle: float, delta: float) -> float:
+## Picks what chain `chain_idx` should go for, as a GUARD rather than a hunter (2026-08-23, "ưu tiên bảo vệ
+## player, tấn công các mục tiêu ở gần player trước"). Lowest score wins:
+##
+##     score = distance(enemy, PLAYER) + SNAKE_REACH_WEIGHT * distance(enemy, head) [+ ruin penalty]
+##
+## The leading term is how close the thing is to the ship — i.e. how dangerous — so VIPER commits to whatever
+## is closing on the player rather than to whatever happens to be nearest its own head. The head-distance
+## term is only there to settle near-ties in favour of the one it can reach soonest; at the default weight a
+## target has to be roughly three times further away from the head to lose to an equally threatening one.
+## Anything beyond SNAKE_GUARD_RADIUS of the ship is ignored outright: the chain is leashed to 1000px of the
+## player anyway, so chasing further out just abandons the ship for something it cannot reach.
+##
+## Returns null when nothing qualifies, which puts the head back on its idle orbit around the ship — the
+## right resting behaviour for a guard, and the same fallback as before.
+func _snake_pick_target(chain_idx: int, head: Vector2) -> Node:
+	if _player == null or not is_instance_valid(_player):
+		return null
+	var pp: Vector2 = _player.global_position
+	var best: Node = null
+	var best_score := INF
+	# Resolve last frame's target from its id — never held as a reference, see _snake_targets.
+	var cur: Node = null
+	if chain_idx < _snake_targets.size():
+		var cur_id: int = _snake_targets[chain_idx]
+		if cur_id != 0 and is_instance_id_valid(cur_id):
+			cur = instance_from_id(cur_id) as Node
+		elif cur_id != 0:
+			_snake_targets[chain_idx] = 0   # it died; drop the lock
+	var cur_score := INF
+	for en in _enemies() + _ruins():
+		if not is_instance_valid(en):
+			continue
+		var ep: Vector2 = (en as Node2D).global_position
+		var threat := ep.distance_to(pp)
+		if threat > SNAKE_GUARD_RADIUS:
+			continue
+		var score: float = threat + SNAKE_REACH_WEIGHT * ep.distance_to(head)
+		if en.is_in_group("arena_ruin"):
+			score += SNAKE_RUIN_PENALTY
+		if en == cur:
+			cur_score = score
+		if score < best_score:
+			best_score = score
+			best = en
+	# Stay locked on unless the challenger is clearly better — see SNAKE_TARGET_STICKY.
+	if cur != null and is_instance_valid(cur) and cur_score < INF and best_score >= cur_score * SNAKE_TARGET_STICKY:
+		return cur
+	if chain_idx < _snake_targets.size():
+		_snake_targets[chain_idx] = best.get_instance_id() if best != null else 0
+	return best
+
+## Move a snake chain one frame: head steers toward its chosen target (or a given aim), body follows.
+## Returns dir.
+func _snake_move(pts: Array, dir_in: float, turn_rate: float, aim_angle: float, delta: float,
+		chain_idx: int = 0) -> float:
 	var head: Vector2 = pts[0]
 	var desired := dir_in
 	if is_finite(aim_angle):
 		desired = aim_angle
 	else:
-		var tgt := _nearest_enemy(head, INF, [])
+		var tgt := _snake_pick_target(chain_idx, head)
 		if tgt != null:
 			desired = ((tgt as Node2D).global_position - head).angle()
 		else:
@@ -8000,8 +9914,8 @@ func _snake_move(pts: Array, dir_in: float, turn_rate: float, aim_angle: float, 
 		var prev: Vector2 = pts[k - 1]
 		var cur: Vector2 = pts[k]
 		var d := prev - cur
-		if d.length() > SNAKE_SPACING:
-			cur = prev - d.normalized() * SNAKE_SPACING
+		if d.length() > _snake_cfg_spacing:
+			cur = prev - d.normalized() * _snake_cfg_spacing
 		# The head-only leash above bounds pts[0], but a long chain (Elongate/Primordial God/+Bodies can push
 		# this past 60 segments × SNAKE_SPACING ≈ 1500px) can still trail its BODY/TAIL far past the leash even
 		# with a perfectly-contained head — e.g. fully extended behind a head hugging the 1000px boundary, the
@@ -8053,7 +9967,7 @@ func _update_snake_plumes() -> void:
 	if _snake_head_plume_anchor != null:
 		var head_pos: Vector2 = _snake_pts[0]
 		var fwd := Vector2(cos(_snake_dir), sin(_snake_dir))
-		_snake_head_plume_anchor.global_position = head_pos + fwd * ((44.0 + 36.0) * 0.5 - SNAKE_SPACING)
+		_snake_head_plume_anchor.global_position = head_pos + fwd * ((44.0 + 36.0) * 0.5 - _snake_cfg_spacing)
 		_snake_head_plume_anchor.rotation = _snake_dir + PI * 0.5
 		var near := _nearest_enemy(head_pos, INF, [])
 		var touching := false
@@ -8079,6 +9993,42 @@ func _update_snake_plumes() -> void:
 		anchor.global_position = seg_pos
 		anchor.rotation = ang   # body uses ang directly, no +PI/2
 		anchor.visible  = _snake_init
+
+## 3D counterpart of _update_snake_plumes() above — identical per-segment position/angle math (including
+## the head's forward-offset-to-nose-tip and the body's k=bi+1 mapping), just via _snake3d_world_xform +
+## Transform3D instead of global_position/rotation, and _set_plume_anchor3d_visible instead of the 2D one.
+## 2026-08-20, 3rd pass: head/tail plume anchors no longer get a per-frame `.transform` write here — they're
+## real children of the head/tail CARRIER (see _load_snake_plume_3d), which already gets its own transform
+## updated once in _snake3d_update_chain; Godot's own parent-child inheritance does the rest. Only visibility/
+## emission is still this function's job (head's "touching an enemy" gate is genuinely per-frame gameplay
+## state, not something the carrier can express). Body stays independently computed — MultiMesh instances
+## can't have real child nodes — but now correctly uses _snake3d_body_cal (was hardcoded 0.0, a real bug:
+## the body plume ignored its own part's calibration entirely, only the mesh itself honoured it).
+func _update_snake_plumes_3d() -> void:
+	if _snake_pts.is_empty():
+		return
+	if _snake3d_head_plume_anchor != null:
+		var head_pos: Vector2 = _snake_pts[0]
+		var near := _nearest_enemy(head_pos, INF, [])
+		var touching := false
+		if near != null:
+			var er: float = SNAKE_HIT_RADIUS + (float(near.get("hit_radius")) if near.get("hit_radius") != null else 0.0)
+			touching = head_pos.distance_to((near as Node2D).global_position) <= er
+		_set_plume_anchor3d_visible(_snake3d_head_plume_anchor, _snake_init and touching)
+	var n := _snake_pts.size()
+	if _snake3d_tail_plume_anchor != null:
+		_set_plume_anchor3d_visible(_snake3d_tail_plume_anchor, _snake_init)
+	for bi in _snake3d_body_plume_anchors.size():
+		var anchor: Node3D = _snake3d_body_plume_anchors[bi]
+		var k := bi + 1   # body segments are _snake_pts[1..n-2]
+		if k >= n - 1:
+			_set_plume_anchor3d_visible(anchor, false)
+			continue
+		var seg_pos: Vector2 = _snake_pts[k]
+		var ang := ((_snake_pts[k - 1] as Vector2) - (_snake_pts[k + 1] as Vector2)).angle()
+		# body: ang directly, no +PI/2 — and the segment's own roll, so the plumes turn with it.
+		anchor.transform = _snake3d_body_xform(seg_pos, ang, _snake3d_body_cal, _snake3d_body_z, k)
+		_set_plume_anchor3d_visible(anchor, _snake_init)
 
 # ── Batch-2 draw helpers ────────────────────────────────────────────────────────────
 ## The Predator fusion (lasgun + snake): the Space Snake also fires a Lasgun beam from its head, re-aimed each
@@ -8397,6 +10347,11 @@ func _draw_para_cloud(c: Dictionary) -> void:
 	var reach := _aoe_radius(PARA_RADIUS)
 	draw_circle(p, reach, Color(PARA_COL.r, PARA_COL.g, PARA_COL.b, 0.0))
 	draw_arc(p, reach, 0.0, TAU, 48, Color(PARA_COL.r, PARA_COL.g, PARA_COL.b, 0.0), 2.0, true)
+	# 2026-08-21 — the visible pellet sprite is replaced by the live 3D MultiMesh (see GLB3D_WEAPONS) once
+	# that rig is up; skip the 2D draw then (everything else in this function — the invisible circle/arc
+	# above — stays, unrelated to the pellet's own visual). Falls back to the sprite if 3D never came up.
+	if _glb3d.has("BC-SL-Spore"):
+		return
 	if _para_tex != null:
 		var ts := _para_tex.get_size()
 		var pw := PARA_DRAW
@@ -8423,30 +10378,73 @@ func _draw_moro() -> void:
 		var pf := _moro_punch_t / 0.18
 		draw_arc(_moro_punch_pos, _aoe_radius(MORO_AOE) * (1.0 - pf), 0.0, TAU, 32, Color(1, 1, 1, 0.6 * pf), 3.0, true)
 
+## 2026-08-20 — the character itself is no longer an immediate _draw() texture: pushes _yari_pos/_yari_facing
+## into the live 3D layer (_setup_jaeger_3d) and switches the merged AnimationPlayer's clip by state. The
+## sweep VFX ring stays a plain immediate draw (cheap, not texture-based, unaffected by the 3D swap).
 func _draw_yari() -> void:
-	const DISPLAY_W := 32.0
-	# Sprite's natural axis is UP (-PI/2). Add PI/2 to align "up" → "facing direction".
-	draw_set_transform(_yari_pos, _yari_facing + PI * 0.5, Vector2.ONE)
-	if not _yari_frames.is_empty():
-		var tex := _yari_frames[_yari_frame_idx]
-		var tw := float(tex.get_width())
-		var th := float(tex.get_height())
-		# Height derived from actual texture ratio — never independent X/Y scaling.
-		var dh := DISPLAY_W * (th / maxf(tw, 1.0))
-		draw_texture_rect(tex, Rect2(Vector2(-DISPLAY_W * 0.5, -dh * 0.5), Vector2(DISPLAY_W, dh)), false)
+	if _jaeger3d_ready and _jaeger3d_carrier != null:
+		# Reuses _snake3d_world_xform: despite the name it's generic (2D pos/angle + calibration, relative to
+		# the player, → Transform3D) — not snake-specific, see that function's own header comment. Only the
+		# CARRIER gets this — the model + plume anchor are real children (see _setup_jaeger_3d/
+		# _load_jaeger_plume_3d), so this one write moves both, no separate model transform needed anymore.
+		# Which clip is playing decides the mount angle (see JAEGER3D_CLIP_LAYERS) — so pick the clip FIRST,
+		# then build the carrier transform from that clip's own calibration.
+		# One clip per state — Walk while wandering, Run while closing, the rolled attack, or the punch.
+		var desired := JAEGER3D_WALK_CLIP
+		match _yari_state:
+			"chase":                 desired = _yari_chase_clip
+			"attack", "attack_hold": desired = _yari_attack_clip
+		if _jaeger3d_anim != null:
+			if not _jaeger3d_anim.has_animation(desired):
+				desired = JAEGER3D_IDLE_CLIP   # that clip's glb failed to merge — fall back to the idle one
+			if _jaeger3d_anim.has_animation(desired) and _jaeger3d_anim.current_animation != desired:
+				_jaeger3d_anim.play(desired)
+		_sync_jaeger_clip_plumes(desired)
+		var pose := _jaeger_clip_pose(desired)
+		_jaeger3d_carrier.transform = _snake3d_world_xform(
+			_yari_pos, _yari_facing + PI * 0.5, pose["cal"], float(pose["z"]))
+		if _jaeger3d_layer != null and _player != null:
+			_jaeger3d_layer.position = _player.global_position - Vector2(JAEGER3D_REGION, JAEGER3D_REGION)
+		_update_jaeger_plume_3d()
 	else:
+		# Fallback if the 3D rig failed to build (e.g. glb not imported yet) — same placeholder the old
+		# empty-GIF-frames path used, kept so a load failure reads as "smaller/duller" not "gone".
+		draw_set_transform(_yari_pos, _yari_facing + PI * 0.5, Vector2.ONE)
 		draw_circle(Vector2.ZERO, 18.0, Color(YARI_COL.r, YARI_COL.g, YARI_COL.b, 0.25))
 		draw_circle(Vector2.ZERO, 13.0, Color(YARI_COL.r, YARI_COL.g, YARI_COL.b, 0.95))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if _yari_sweeping:
+		draw_set_transform(_yari_pos, 0.0, Vector2.ONE)
 		var t := _yari_sweep_t / YARI_SWEEP_TIME
 		draw_arc(Vector2.ZERO, 22.0 * (1.0 + 0.4 * t), 0.0, TAU, 24,
 				Color(YARI_COL.r, YARI_COL.g, YARI_COL.b, 0.45 * (1.0 - t)), 2.0, true)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # restore transform for subsequent draws
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
+## 2026-08-23 — 3D swap: Swarmball/Swarmbot are two live MultiMesh rigs (see GLB3D_WEAPONS), fed the same
+## per-unit position + facing the sprite loop below used. A unit belongs to exactly one of the two rigs at a
+## time and switches over when it arms, which is why the split is rebuilt each frame rather than cached.
+## Each rig falls back to its own flat sprite independently if its .glb never loaded.
 func _draw_swarm() -> void:
+	var balls3d: Array = []
+	var bots3d: Array = []
+	var has_ball3d: bool = _glb3d.has("Swarmball")
+	var has_bot3d: bool = _glb3d.has("Swarmbot")
+	if has_ball3d or has_bot3d:
+		for b: Dictionary in _swarm_units:
+			var item := {"pos": b["pos"], "ang": float(b["ang"])}
+			if bool(b.get("bot", false)):
+				bots3d.append(item)
+			else:
+				balls3d.append(item)
+		if has_ball3d:
+			_update_glb3d("Swarmball", balls3d)
+		if has_bot3d:
+			_update_glb3d("Swarmbot", bots3d)
 	for b: Dictionary in _swarm_units:
 		var p: Vector2 = b["pos"]
 		var is_bot: bool = bool(b.get("bot", false))
+		if (has_bot3d if is_bot else has_ball3d):
+			continue   # drawn by its 3D rig above
 		var tex: Texture2D = _swarmbot_tex if is_bot else _swarmball_tex
 		var w: float = SBALL_BOT_DRAW if is_bot else SBALL_DRAW
 		if tex != null:
@@ -8458,70 +10456,27 @@ func _draw_swarm() -> void:
 		else:
 			draw_circle(p, w * 0.5, Color(SBALL_COL.r, SBALL_COL.g, SBALL_COL.b, 0.9))
 
+## 2026-08-20 — no longer an immediate _draw(): pushes both chains' positions into the live 3D layer
+## (_snake3d_update_chain) instead of the old draw_texture_rect calls. See _setup_snake_3d for the layer
+## itself and this file's "VIPER 3D swap" comments near the snake consts/vars for the overall design.
 func _draw_snake() -> void:
-	_draw_snake_chain(_snake_pts, _snake_dir)
+	if not _snake3d_ready:
+		_draw_snake_fallback(_snake_pts)
+		if _snake_capstone == "more_snakes":
+			_draw_snake_fallback(_snake2_pts)
+		return
+	_snake3d_update_chain(0, _snake_pts, _snake_dir)
 	if _snake_capstone == "more_snakes" and not _snake2_pts.is_empty():
-		_draw_snake_chain(_snake2_pts, _snake2_dir)
-
-func _draw_snake_chain(pts: Array, dir: float) -> void:
-	var n := pts.size()
-	if n < 2:
-		return
-	# Draw tail → head so head renders on top.
-	for k in range(n - 1, -1, -1):
-		var pos: Vector2 = pts[k]
-		# Angle = direction from this segment toward the one closer to head (travel direction).
-		var ang: float
-		if k == 0:
-			ang = dir
-		elif k == n - 1:
-			ang = ((pts[k - 1] as Vector2) - pos).angle()
-		else:
-			ang = ((pts[k - 1] as Vector2) - (pts[k + 1] as Vector2)).angle()  # smoothed bisector
-		if k == 0:
-			_draw_snake_head(pos, ang)
-		elif k == n - 1:
-			_draw_snake_seg(pos, ang, _snake_tail_tex, 44.0, true)
-		else:
-			_draw_snake_seg(pos, ang, _snake_body_tex, 25.2, false)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-
-func _draw_snake_head(pos: Vector2, ang: float) -> void:
-	const HEAD_PX     := 44.0
-	const BODY_SEG_PX := 25.2  # must match body seg_px in _draw_snake
-	var tex := _snake_head_top_tex
-	if tex == null:
-		draw_circle(pos, 9.0, Color(1.0, 0.85, 0.5, 0.95))
-		return
-	# Shift centre forward so neck is flush with body-segment front (eliminates 4 px overlap).
-	var fwd      := Vector2(cos(ang), sin(ang))
-	var draw_pos := pos + fwd * ((HEAD_PX + BODY_SEG_PX) * 0.5 - SNAKE_SPACING)
-	var tw := float(tex.get_width())   # 390
-	var th := float(tex.get_height())  # 660 = travel axis (portrait, front at top)
-	var dh := HEAD_PX
-	var dw := dh * tw / maxf(th, 1.0)
-	draw_set_transform(draw_pos, ang + PI * 0.5, Vector2.ONE)
-	draw_texture_rect(tex, Rect2(Vector2(-dw * 0.5, -dh * 0.5), Vector2(dw, dh)), false)
-
-# Draws one body OR tail segment.  is_tail = true → portrait-UP sprite (rotation + PI/2).
-func _draw_snake_seg(pos: Vector2, ang: float, tex: Texture2D, seg_px: float, is_tail: bool) -> void:
-	if tex == null:
-		return
-	var tw := float(tex.get_width())
-	var th := float(tex.get_height())
-	var dw: float
-	var dh: float
-	if is_tail:
-		# Tail (498×494, nearly square, connection at TOP = travel axis = HEIGHT).
-		dh = seg_px
-		dw = dh * tw / maxf(th, 1.0)
-		draw_set_transform(pos, ang + PI * 0.5, Vector2.ONE)
+		_snake3d_update_chain(1, _snake2_pts, _snake2_dir)
 	else:
-		# Body (449×376, landscape, travel axis = WIDTH).
-		dw = seg_px
-		dh = dw * th / maxf(tw, 1.0)
-		draw_set_transform(pos, ang, Vector2.ONE)
-	draw_texture_rect(tex, Rect2(Vector2(-dw * 0.5, -dh * 0.5), Vector2(dw, dh)), false)
+		_snake3d_hide_chain(1)
+
+## Minimal dot-chain fallback if the 3D rig failed to build (e.g. glb not imported yet) — keeps the weapon
+## at least VISIBLE, same intent as the old _draw_snake_head's draw_circle fallback, instead of going fully
+## invisible with no signal that something's wrong.
+func _draw_snake_fallback(pts: Array) -> void:
+	for p: Vector2 in pts:
+		draw_circle(p, 9.0, Color(SNAKE_COL.r, SNAKE_COL.g, SNAKE_COL.b, 0.85))
 
 # ── Carnage fusion (gatling + red_x): constant Red X fire + Gatling firing in 4 directions ─────────
 # NOTE: const values reconstructed (missing from the merged commit).
@@ -8742,10 +10697,19 @@ func _draw() -> void:
 	# Z-Sword slash is rendered by the additive ZSlash crescent node (driven in _tick_zsword) — no draw here.
 	# Ionize's accretion rings are drawn by _ionize_ring_layer's own "draw" signal (see _ensure_ionize_vfx) —
 	# it needs to sit ABOVE the lens (z 8 > 7), which this node's own _draw() (z 0) can't do.
-	for boom: Dictionary in _booms:
-		_draw_boomerang(boom)
+	# 2026-08-21 — 3D swap: _update_aliwa_3d() drives the live MultiMesh instead of the old per-blade
+	# draw_texture_rect loop. Falls back to the 2D sprite loop if the 3D rig never came up.
+	if _aliwa3d_ready:
+		_update_aliwa_3d()
+	else:
+		for boom: Dictionary in _booms:
+			_draw_boomerang(boom)
 	for pc: Dictionary in _para_clouds:
-		_draw_para_cloud(pc)
+		_draw_para_cloud(pc)   # still called even in 3D mode — draws the (invisible) circle/arc; see its own header
+	# Spore pellets (2026-08-23): the generic 3D rig, fed the clouds' own position + facing. No-op returning
+	# false when the .glb never loaded, which is what _draw_para_cloud checks before drawing its flat sprite.
+	_update_glb3d("BC-SL-Spore", _para_clouds.map(
+		func(c): return {"pos": c["pos"], "ang": float(c.get("ang", 0.0))}))
 	if _moro_active and _moro_init:
 		_draw_moro()
 	if _yari_active and _yari_init:

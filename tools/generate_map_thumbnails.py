@@ -18,9 +18,11 @@ THUMB_H = 640   # 3:4 portrait
 # photos already have plenty of contrast/color and don't need one)
 SOURCES = [
     ("space_thumb.png", ROOT / "assets" / "screen" / "background.png", 2.6),
-    ("electric_thumb.png", ROOT / "assets" / "map" / "rubicon" / "maptile" / "green" / "canopy1.png", 1.0),
+    ("electric_thumb.png", ROOT / "assets" / "map" / "electric" / "maptile" / "green" / "canopy1.png", 1.0),
     ("volcanic_thumb.png", ROOT / "assets" / "map" / "volcanic" / "maptile" / "lava" / "lava1.png", 1.0),
     ("atlantic_thumb.png", ROOT / "assets" / "map" / "atlantic" / "maptile" / "ruins" / "canopy1.png", 1.0),
+    ("mechanic_thumb.png", ROOT / "assets" / "map" / "mechanic" / "maptile" / "default" / "canopy1.png", 1.0),
+    ("arctic_thumb.png", ROOT / "assets" / "map" / "arctic" / "maptile" / "default" / "canopy1.png", 1.0),
 ]
 
 

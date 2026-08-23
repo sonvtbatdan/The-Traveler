@@ -3,7 +3,7 @@ class_name AtlanticNoise
 ## CPU-side noise for Atlantic. Mirrors volcanic/volcanic_noise.gd (same FastNoiseLite-based approach, same
 ## "smooth macro path + high-frequency detail perturbation" trick for the current's edge) — see that file for
 ## the full rationale. Renamed lava-flow -> current throughout; biome_value() (the zone-tint split) stays
-## simplex/soft, same as Volcanic/Rubicon.
+## simplex/soft, same as Volcanic/Electric.
 
 const AtlanticConfig := preload("res://scripts/gameplay/atlantic/atlantic_config.gd")
 
@@ -26,10 +26,10 @@ static func _ensure() -> FastNoiseLite:
 		_fnl.fractal_type = FastNoiseLite.FRACTAL_FBM
 		_fnl.fractal_octaves = 4
 		_fnl.frequency = AtlanticConfig.NOISE_FREQ
-		_fnl.seed = 41   # distinct from Rubicon(?)/Volcanic(21)'s own seeds
+		_fnl.seed = 41   # distinct from Electric(?)/Volcanic(21)'s own seeds
 	return _fnl
 
-## 0..1 output — see RubiconNoise/VolcanicNoise.biome_value(); same convention so AtlanticConfig.BLUE_THRESHOLD/
+## 0..1 output — see ElectricNoise/VolcanicNoise.biome_value(); same convention so AtlanticConfig.BLUE_THRESHOLD/
 ## BLEND_SOFTNESS apply unchanged.
 static func biome_value(world_pos: Vector2) -> float:
 	return _ensure().get_noise_2d(world_pos.x, world_pos.y) * 0.5 + 0.5
@@ -71,7 +71,7 @@ static func is_river(world_pos: Vector2, half_width: float) -> bool:
 	dist -= (river_detail_value(world_pos) - 0.5) * half_width * RIVER_DETAIL_STRENGTH
 	return dist < half_width
 
-## Cheap decorrelated hash for placement dice-rolls — identical to RubiconNoise/VolcanicNoise.hash21.
+## Cheap decorrelated hash for placement dice-rolls — identical to ElectricNoise/VolcanicNoise.hash21.
 static func hash21(p: Vector2) -> float:
 	var s: float = sin(p.dot(Vector2(127.1, 311.7))) * 43758.5453123
 	return s - floor(s)

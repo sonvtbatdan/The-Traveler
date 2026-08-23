@@ -1,7 +1,7 @@
 extends Node2D
 class_name VolcanicAssetLayer
 ## THE single 3D render pass for the Volcanic map's scattered assets — verbatim port of
-## rubicon/rubicon_asset_layer.gd (fully generic, no jungle-specific logic; see that file's header for the
+## electric/electric_asset_layer.gd (fully generic, no jungle-specific logic; see that file's header for the
 ## full rationale on the two-pass color+blur-mask composite and the orthogonal-tilted camera math).
 
 const COLOR_BIT := 1 << 0   # real scattered instances + the cloud occluder mesh
