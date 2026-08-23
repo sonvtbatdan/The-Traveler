@@ -17,8 +17,14 @@ extends Node2D
 ## precedent (SubViewport + 2 DirectionalLight3D + Camera3D fixed at ISO_DEG, model centered/spun about its
 ## own AABB) — instead of the flat draw_texture_rect() PNG path. VP_SIZE is deliberately smaller than the
 ## chest's (and MSAA is off): the chest is one per run, but several of these can be alive at once (loot never
-## despawns until collected) so each instance stays cheap. Any type with no glb (coin today) keeps the old
-## PNG path unchanged; orb_of_light has neither and stays fully procedural.
+## despawns until collected) so each instance stays cheap. Any type with no glb keeps the old PNG path
+## unchanged; orb_of_light has neither and stays fully procedural.
+##
+## coin stays on that 2D path on purpose (2026-08-24, "tạm thời ko dùng coin.glb. Vẫn sử dụng coin.png để
+## drop coin"). A coin.glb exists but is 82 MB un-optimised and is deliberately NOT committed, so the
+## fallback above is what actually runs — and coin is by far the most frequently dropped type, the one
+## where a SubViewport per live instance would cost the most. Dropping a coin.glb into assets/screen/ is
+## all it would take to flip it, which is exactly why this note is here: the absence is a decision.
 
 const LOOT_WIDTH      := 20.0
 const DIVINITY_WIDTH  := 50.0
