@@ -42,10 +42,10 @@ const GAT_MUZZLE_DECAY  := 0.08     # s the muzzle-fire flash decays over (refre
 ## _gat_bullet_base/_gat_fire_bonus/_gat_multishot_chance/_gat_bounces/_gat_pierce_budget for the per-perk math.
 const GATLING_POOL := {
 	"hardened":  {"name": "Hardened Round",  "max": 0, "per": "+20% damage",           "desc": "Bullets hit 20% harder per rank (multiplicative on base damage)."},
-	"piercing":  {"name": "Piercing Round",  "max": 0, "per": "+20% damage",           "desc": "Bullets pierce straight through for a chance at an extra hit on the next foe in their path (20%/rank, guaranteed every 5th rank)."},
+	"piercing":  {"name": "Piercing Round",  "max": 0, "per": "+20% pierce chance",    "desc": "Bullets pierce straight through for a chance at an extra hit on the next foe in their path (20%/rank, guaranteed every 5th rank). Worth ~+20% damage per rank."},
 	"quick":     {"name": "Quick Round",     "max": 0, "per": "+20% fire rate",        "desc": "Shoot faster."},
-	"bouncing":  {"name": "Bouncing Round",  "max": 0, "per": "+20% damage",           "desc": "Bullets have a chance to ricochet for an extra hit on a nearby foe (20%/rank, guaranteed every 5th rank)."},
-	"multishot": {"name": "Multishot",       "max": 0, "per": "+20% damage",           "desc": "Chance at an extra bullet in the twin-barrel volley (20%/rank, guaranteed every 5th rank)."},
+	"bouncing":  {"name": "Bouncing Round",  "max": 0, "per": "+20% ricochet chance",  "desc": "Bullets have a chance to ricochet for an extra hit on a nearby foe (20%/rank, guaranteed every 5th rank). Worth ~+20% damage per rank."},
+	"multishot": {"name": "Multishot",       "max": 0, "per": "+40% extra-bullet chance", "desc": "Chance at an extra bullet in the twin-barrel volley (40%/rank; a guaranteed extra bullet from rank 3, a second from rank 5). On a 2-bullet volley that averages ~+20% damage per rank."},
 	"advance_ballistic": {"name": "Advance Ballistic", "max": 0, "per": "+10% multishot (all shots weapons)", "desc": "Global: every weapon with the 'shots' tag gains multishot chance."},
 }
 const GAT_BOUNCE_RANGE := 280.0    # search radius for a bounce target
@@ -79,22 +79,22 @@ const GAUSS_CULL_DIST   := 1800.0   # cull the orb once it gets this far from th
 const GAUSS_LIFETIME    := 8.0      # s before despawn (generous backstop; damage/distance are the real culls)
 # ── Gauss skill-point pool. Burn/stun are SEPARATE per-weapon stats (own names) but share the enemy status. ──
 const GAUSS_POOL := {
-	"aoe_mastery": {"name": "AoE Mastery",  "max": 5,  "per": "+5% area (global)",  "desc": "Bigger blasts for ALL area weapons."},
-	"damage":      {"name": "Amplify",      "max": 10, "per": "+10% damage",        "desc": "Heavier orbs + DoT."},
-	"cooldown":    {"name": "Rapid Charge", "max": 10, "per": "+8% fire rate",      "desc": "Charge faster."},
-	"meltdown":    {"name": "Meltdown",     "max": 5,  "per": "+5% burn chance",    "desc": "Orbs ignite enemies (Gauss burn)."},
-	"emp":         {"name": "EMP Burst",    "max": 5,  "per": "+5% stun chance",    "desc": "Orbs stun enemies (Gauss electrocute)."},
+	"aoe_mastery": {"name": "AoE Mastery",  "max": 5,  "per": "+10% area (global)",  "desc": "Bigger blasts for ALL area weapons."},
+	"damage":      {"name": "Amplify",      "max": 10, "per": "+20% damage",        "desc": "Heavier orbs + DoT."},
+	"cooldown":    {"name": "Rapid Charge", "max": 10, "per": "+20% fire rate",      "desc": "Charge faster."},
+	"meltdown":    {"name": "Meltdown",     "max": 5,  "per": "+10% burn chance",    "desc": "Orbs ignite enemies (Gauss burn)."},
+	"emp":         {"name": "EMP Burst",    "max": 5,  "per": "+10% stun chance",    "desc": "Orbs stun enemies (Gauss electrocute)."},
 	"fission":     {"name": "Fission",      "max": 10, "per": "+10% extra orb",     "desc": "Chance for an extra orb, spread to max angle (2→180°, 3→120°)."},
 }
 # ── Orbital skill-point pool. Contact Mastery is a GLOBAL contact-damage bonus (all contact weapons + the ship). ──
 const ORBITAL_POOL := {
-	"contact": {"name": "Contact Mastery", "max": 5,  "per": "+5% contact damage (global)", "desc": "Boosts ALL contact damage — orbitals, swarm, snake, boomerang, yari, and the ship hull."},
-	"size":    {"name": "Bigger Orbs",     "max": 5,  "per": "+10% ball size",              "desc": "Larger balls (also scaled by AoE)."},
-	"damage":  {"name": "Heavy Orbs",      "max": 10, "per": "+10% damage",                 "desc": "Each ball hits harder."},
+	"contact": {"name": "Contact Mastery", "max": 5,  "per": "+10% contact damage (global)", "desc": "Boosts ALL contact damage — orbitals, swarm, snake, boomerang, yari, and the ship hull."},
+	"size":    {"name": "Bigger Orbs",     "max": 5,  "per": "+20% ball size",              "desc": "Larger balls (also scaled by AoE)."},
+	"damage":  {"name": "Heavy Orbs",      "max": 10, "per": "+20% damage",                 "desc": "Each ball hits harder."},
 	"tighten": {"name": "Tight Orbit",     "max": 5,  "per": "-10% orbit distance",         "desc": "Balls hug the ship — faster sweeps, closer guard."},
-	"spin":    {"name": "Overspin",        "max": 5,  "per": "+15% spin speed",             "desc": "Orbit faster."},
-	"spin2":   {"name": "Flywheel",        "max": 10, "per": "+7% spin speed",              "desc": "Orbit a little faster."},
-	"widen":   {"name": "Widen",           "max": 5,  "per": "+5% orbit distance, +7.5% damage", "desc": "Wider swings hit harder."},
+	"spin":    {"name": "Overspin",        "max": 5,  "per": "+20% spin speed",             "desc": "Orbit faster."},
+	"spin2":   {"name": "Flywheel",        "max": 10, "per": "+20% spin speed",              "desc": "Orbit a little faster."},
+	"widen":   {"name": "Widen",           "max": 5,  "per": "+20% orbit distance, +20% damage", "desc": "Wider swings hit harder."},
 }
 
 const MUZZLE_OFFSET     := 22.0     # how far ahead of the ship centre shots spawn (px)
@@ -105,6 +105,18 @@ const MAX_WEAPON_LEVEL := 18                            # weapon levels 1→18; 
 const FUSION_MIN_LEVEL := 15                            # both components must be ≥ this (and un-evolved) to fuse
 const WEAPON_DMG_PER_LEVEL := 0.30                      # FUSIONS ONLY: +30%/bonus-level (base weapons get no per-level damage)
 const CHEST_POOL  := ["gatling_gun", "death_beam", "arc", "gauss"]   # the 4 "F12" weapons the start-of-run chest rolls from
+
+# ── Arena pickup 3D art — MANUALLY curated, kind -> glb path ──────────────────────────────────────
+# NOT auto-derived from InventoryManager.glb_for() (what the level-up board/inventory use). 2026-08-24
+# correction: for several weapons (laser/death_beam, aliwa/boomerang, …) the .glb sitting next to the
+# weapon's ICON is the AMMO/PROJECTILE model — its in-flight shot — not the gun itself; that model reads as
+# alien/wrong sitting in a "grab me" pickup crate on the arena floor. So arena-pickup art is picked one
+# weapon at a time by hand instead. Add an entry here only once you've confirmed the file is actually a
+# depiction of the WEAPON (not its ammo) — see _pickup_glb().
+const ARENA_PICKUP_GLB := {
+	"defensive_orbitals": "res://assets/weaponry/ND-OID-F.glb",   # NOT assets/inventory/"defense orbital.glb" — that one is the level-up/inventory model; this is the arena-specific asset
+	"striker":            "res://assets/weaponry/ND-OIO-F.glb",   # NOT assets/inventory/"offense orbital.glb" — same split as above
+}
 # Canonical weapon registry shared by the chest + slot HUD + F12 palette. Per kind:
 #   def_id = inventory icon source · name = full official name (matches ITEM_DEFS.name) ·
 #   label = short in-game / spawn display name · mfr = manufacturer (lore "group").
@@ -148,10 +160,10 @@ const WEAPON_INFO := {
 }
 # ── Player 2 companion skill-point pool + evolves ──
 const PLAYER2_POOL := {
-	"damage":      {"name": "Overclock",              "max": 10, "per": "+5% damage",          "desc": "Player 2 hits harder (on top of its 25% copy)."},
-	"kinetic":     {"name": "Kinetic Coat",           "max": 5,  "per": "+10% kinetic damage",  "desc": "Player 2 does +10%/rank when the copied weapon is kinetic."},
-	"energy":      {"name": "Energy Coat",            "max": 5,  "per": "+10% energy damage",   "desc": "Player 2 does +10%/rank when the copied weapon is energy."},
-	"biochemical": {"name": "Biochemical Coat",       "max": 5,  "per": "+10% bio damage",      "desc": "Player 2 does +10%/rank when the copied weapon is biochemical."},
+	"damage":      {"name": "Overclock",              "max": 10, "per": "+20% damage",          "desc": "Player 2 hits harder (on top of its 25% copy)."},
+	"kinetic":     {"name": "Kinetic Coat",           "max": 5,  "per": "+20% kinetic damage",  "desc": "Player 2 does +10%/rank when the copied weapon is kinetic."},
+	"energy":      {"name": "Energy Coat",            "max": 5,  "per": "+20% energy damage",   "desc": "Player 2 does +10%/rank when the copied weapon is energy."},
+	"biochemical": {"name": "Biochemical Coat",       "max": 5,  "per": "+20% bio damage",      "desc": "Player 2 does +10%/rank when the copied weapon is biochemical."},
 	"proactive":   {"name": "Proactive Intelligence", "max": 3,  "per": "copy 1 more weapon",   "desc": "Player 2 also copies your next-highest weapon. Unlocks at weapon level 6 / 11 / 16.", "gate": [6, 11, 16]},
 	"diversify":   {"name": "Diversification Mastery","max": 10, "per": "+1.25% dmg / weapon owned", "desc": "Player 2 gains +1.25%/rank overall damage for EACH different weapon you own."},
 }
@@ -227,10 +239,10 @@ const THUNDER_PULSE_FRAC     := 0.5     # pulse damage = this fraction of a chai
 const THUNDER_BOLT_LIFE      := 0.25
 const THUNDER_COL            := Color(0.55, 0.85, 1.0)
 const THUNDER_POOL := {
-	"damage": {"name": "Overcurrent",      "max": 10, "per": "+10% damage",       "desc": "Each link hits harder."},
-	"cd":     {"name": "Storm Front",      "max": 10, "per": "+8% fire rate",     "desc": "Discharge more often."},
+	"damage": {"name": "Overcurrent",      "max": 10, "per": "+20% damage",       "desc": "Each link hits harder."},
+	"cd":     {"name": "Storm Front",      "max": 10, "per": "+20% fire rate",     "desc": "Discharge more often."},
 	"jumps":  {"name": "Forked Lightning", "max": 5,  "per": "+1 chain jump",     "desc": "The bolt reaches one more target."},
-	"pulse":  {"name": "Shock Pulse",      "max": 5,  "per": "+15% pulse radius", "desc": "Bigger discharge around the ship."},
+	"pulse":  {"name": "Shock Pulse",      "max": 5,  "per": "+20% pulse radius", "desc": "Bigger discharge around the ship."},
 }
 
 # ── Graviton Well (a gravity well that ramps up, pulls enemies in, and grinds them) ──
@@ -257,10 +269,10 @@ const GRAVWELL_SPIRAL_TANGENT_FRAC := 0.85   # fraction of pull speed spent swir
 # The screen-space suction shader (gravwell_suction.gdshader) is retired in favor of the world-space spiral
 # line draw below (_draw_gravwell()) — replaced outright, per request, not layered on top of it.
 const GRAVWELL_POOL := {
-	"damage": {"name": "Crush Depth",        "max": 10, "per": "+10% damage",        "desc": "The well digests faster."},
-	"radius": {"name": "Event Radius",       "max": 5,  "per": "+10% max radius",    "desc": "A wider well at full growth."},
-	"pull":   {"name": "Tidal Lock",         "max": 5,  "per": "+15% pull strength", "desc": "Drags enemies in harder."},
-	"uptime": {"name": "Sustained Collapse", "max": 5,  "per": "+15% open duration", "desc": "The well stays open longer before closing."},
+	"damage": {"name": "Crush Depth",        "max": 10, "per": "+20% damage",        "desc": "The well digests faster."},
+	"radius": {"name": "Event Radius",       "max": 5,  "per": "+20% max radius",    "desc": "A wider well at full growth."},
+	"pull":   {"name": "Tidal Lock",         "max": 5,  "per": "+20% pull strength", "desc": "Drags enemies in harder."},
+	"uptime": {"name": "Sustained Collapse", "max": 5,  "per": "+20% open duration", "desc": "The well stays open longer before closing."},
 }
 
 # ── Omega Swarm (heavy contact orbs storming around the ship) ──
@@ -273,9 +285,9 @@ const OMEGA_SPIN_SPEED    := 2.2
 const OMEGA_HIT_COOLDOWN  := 0.4
 const OMEGA_COL           := Color(0.85, 0.85, 0.95)
 const OMEGA_POOL := {
-	"damage": {"name": "Heavy Plating", "max": 10, "per": "+10% damage",       "desc": "Each orb hits harder."},
-	"size":   {"name": "Mass Driver",   "max": 5,  "per": "+10% orbit radius", "desc": "Orbs sweep a wider ring."},
-	"spin":   {"name": "Overspin",      "max": 5,  "per": "+15% spin speed",   "desc": "Orbs whip around faster."},
+	"damage": {"name": "Heavy Plating", "max": 10, "per": "+20% damage",       "desc": "Each orb hits harder."},
+	"size":   {"name": "Mass Driver",   "max": 5,  "per": "+20% orbit radius", "desc": "Orbs sweep a wider ring."},
+	"spin":   {"name": "Overspin",      "max": 5,  "per": "+20% spin speed",   "desc": "Orbs whip around faster."},
 	"count":  {"name": "Swarm Growth",  "max": 4,  "per": "+1 orb",            "desc": "One more orb joins the ring."},
 }
 
@@ -317,16 +329,16 @@ func activate_thunderhead() -> void:
 	_thunder_cd = 0.0
 
 func _thunder_dmg() -> float:
-	return THUNDER_DAMAGE * (1.0 + 0.10 * float(_thunder_upg["damage"]))
+	return THUNDER_DAMAGE * (1.0 + 0.20 * float(_thunder_upg["damage"]))
 
 func _thunder_pulse_radius() -> float:
-	return THUNDER_PULSE_RADIUS * (1.0 + 0.15 * float(_thunder_upg["pulse"]))
+	return THUNDER_PULSE_RADIUS * (1.0 + 0.20 * float(_thunder_upg["pulse"]))
 
 func _fire_thunderhead(delta: float) -> void:
 	_thunder_cd -= delta
 	if _thunder_cd > 0.0:
 		return
-	_thunder_cd = THUNDER_COOLDOWN * _cd_scale("thunderhead") * (1.0 - 0.08 * float(_thunder_upg["cd"])) / _rate_mult
+	_thunder_cd = THUNDER_COOLDOWN * _cd_scale("thunderhead") / (1.0 + 0.20 * float(_thunder_upg["cd"])) / _rate_mult
 	var muzzle := _muzzle()
 	var hit_set: Array = []
 	var cur := _nearest_enemy(_player.global_position, THUNDER_ACQUIRE_RANGE, hit_set)
@@ -396,16 +408,16 @@ func activate_graviton_well() -> void:
 	_gravwell_cd = 0.0
 
 func _gravwell_open_duration() -> float:
-	return GRAVWELL_RAMP * 2.0 * (1.0 + 0.15 * float(_gravwell_upg["uptime"]))
+	return GRAVWELL_RAMP * 2.0 * (1.0 + 0.20 * float(_gravwell_upg["uptime"]))
 
 func _gravwell_max_radius() -> float:
-	return GRAVWELL_RADIUS_MAX * (1.0 + 0.10 * float(_gravwell_upg["radius"]))
+	return GRAVWELL_RADIUS_MAX * (1.0 + 0.20 * float(_gravwell_upg["radius"]))
 
 func _gravwell_max_dmg_per_sec() -> float:
-	return GRAVWELL_DAMAGE_MAX * (1.0 + 0.10 * float(_gravwell_upg["damage"]))
+	return GRAVWELL_DAMAGE_MAX * (1.0 + 0.20 * float(_gravwell_upg["damage"]))
 
 func _gravwell_pull_speed() -> float:
-	return GRAVWELL_PULL * (1.0 + 0.15 * float(_gravwell_upg["pull"]))
+	return GRAVWELL_PULL * (1.0 + 0.20 * float(_gravwell_upg["pull"]))
 
 func _tick_gravwell(delta: float, enemy_on_screen: bool) -> void:
 	if not _gravwell_on:
@@ -507,13 +519,13 @@ func activate_omega_swarm() -> void:
 	_omega_cd.fill(0.0)
 
 func _omega_radius() -> float:
-	return OMEGA_RADIUS * (1.0 + 0.10 * float(_omega_upg["size"]))
+	return OMEGA_RADIUS * (1.0 + 0.20 * float(_omega_upg["size"]))
 
 func _tick_omega(delta: float) -> void:
 	var n := _omega_orb_count()
 	if _omega_cd.size() != n:
 		_omega_cd.resize(n)
-	_omega_angle = fmod(_omega_angle + delta * OMEGA_SPIN_SPEED * (1.0 + 0.15 * float(_omega_upg["spin"])), TAU)
+	_omega_angle = fmod(_omega_angle + delta * OMEGA_SPIN_SPEED * (1.0 + 0.20 * float(_omega_upg["spin"])), TAU)
 	var center := _player.global_position
 	var radius := _omega_radius()
 	for i in n:
@@ -526,7 +538,7 @@ func _tick_omega(delta: float) -> void:
 			if not is_instance_valid(en) or not en.has_method("take_damage"):
 				continue
 			if pos.distance_to((en as Node2D).global_position) <= OMEGA_BALL_R + OMEGA_HIT_PAD:
-				var dmg := OMEGA_DAMAGE * (1.0 + 0.10 * float(_omega_upg["damage"]))
+				var dmg := OMEGA_DAMAGE * (1.0 + 0.20 * float(_omega_upg["damage"]))
 				var r := _roll_damage(dmg, "omega_swarm")
 				en.take_damage(float(r["dmg"]), 0.1, 0.0, false, false, bool(r["is_crit"]))
 				_omega_cd[i] = OMEGA_HIT_COOLDOWN
@@ -551,10 +563,10 @@ const SLANCE_SPLASH_RADIUS := 60.0
 const SLANCE_SPLASH_FRAC   := 0.4
 const SLANCE_COL           := Color(0.75, 0.4, 1.0)
 const SLANCE_POOL := {
-	"damage": {"name": "Collapse Intensity", "max": 10, "per": "+10% damage",      "desc": "The lance burns hotter."},
-	"width":  {"name": "Wide Aperture",      "max": 5,  "per": "+10% beam width",  "desc": "A thicker beam."},
-	"splash": {"name": "Event Bloom",        "max": 5,  "per": "+15% splash radius", "desc": "Bigger singularity detonation."},
-	"rate":   {"name": "Rapid Collapse",     "max": 5,  "per": "+8% tick rate",    "desc": "Ticks land more often."},
+	"damage": {"name": "Collapse Intensity", "max": 10, "per": "+20% damage",      "desc": "The lance burns hotter."},
+	"width":  {"name": "Wide Aperture",      "max": 5,  "per": "+20% beam width",  "desc": "A thicker beam."},
+	"splash": {"name": "Event Bloom",        "max": 5,  "per": "+20% splash radius", "desc": "Bigger singularity detonation."},
+	"rate":   {"name": "Rapid Collapse",     "max": 5,  "per": "+20% tick rate",    "desc": "Ticks land more often."},
 }
 
 const PRISM_DAMAGE     := 35.0
@@ -565,10 +577,10 @@ const PRISM_BEAMS      := 3
 const PRISM_SPREAD_DEG := 16.0
 const PRISM_COL        := Color(1.0, 0.55, 0.85)
 const PRISM_POOL := {
-	"damage": {"name": "Coherence",  "max": 10, "per": "+10% damage",      "desc": "Each lance hits harder."},
-	"width":  {"name": "Focus Lens", "max": 5,  "per": "+10% beam width",  "desc": "Thicker lances."},
-	"spread": {"name": "Fan Angle",  "max": 5,  "per": "+10% fan spread",  "desc": "Wider spread between lances."},
-	"rate":   {"name": "Rapid Split","max": 5,  "per": "+8% tick rate",    "desc": "Ticks land more often."},
+	"damage": {"name": "Coherence",  "max": 10, "per": "+20% damage",      "desc": "Each lance hits harder."},
+	"width":  {"name": "Focus Lens", "max": 5,  "per": "+20% beam width",  "desc": "Thicker lances."},
+	"spread": {"name": "Fan Angle",  "max": 5,  "per": "+20% fan spread",  "desc": "Wider spread between lances."},
+	"rate":   {"name": "Rapid Split","max": 5,  "per": "+20% tick rate",    "desc": "Ticks land more often."},
 }
 
 const HAIL_DAMAGE     := 22.0
@@ -582,10 +594,10 @@ const HAIL_SLOW_PCT   := 0.30
 const HAIL_SLOW_DUR   := 1.0
 const HAIL_COL        := Color(0.65, 0.9, 1.0)
 const HAIL_POOL := {
-	"damage":  {"name": "Sharpened Shards", "max": 10, "per": "+10% damage",       "desc": "Each shard cuts deeper."},
+	"damage":  {"name": "Sharpened Shards", "max": 10, "per": "+20% damage",       "desc": "Each shard cuts deeper."},
 	"pellets": {"name": "Blizzard",         "max": 5,  "per": "+2 shards",         "desc": "A denser storm of shards."},
-	"cd":      {"name": "Squall Line",      "max": 10, "per": "+8% fire rate",     "desc": "Fire the volley more often."},
-	"slow":    {"name": "Deep Freeze",      "max": 5,  "per": "+10% slow strength","desc": "Chilled enemies move even slower."},
+	"cd":      {"name": "Squall Line",      "max": 10, "per": "+20% fire rate",     "desc": "Fire the volley more often."},
+	"slow":    {"name": "Deep Freeze",      "max": 5,  "per": "+20% slow strength","desc": "Chilled enemies move even slower."},
 }
 
 var _slance_active: bool = false
@@ -642,13 +654,13 @@ func activate_singularity_lance() -> void:
 	_slance_tick = 0.0
 
 func _slance_dmg() -> float:
-	return SLANCE_DAMAGE * (1.0 + 0.10 * float(_slance_upg["damage"]))
+	return SLANCE_DAMAGE * (1.0 + 0.20 * float(_slance_upg["damage"]))
 
 func _slance_width() -> float:
-	return SLANCE_WIDTH * (1.0 + 0.10 * float(_slance_upg["width"]))
+	return SLANCE_WIDTH * (1.0 + 0.20 * float(_slance_upg["width"]))
 
 func _slance_splash_radius() -> float:
-	return SLANCE_SPLASH_RADIUS * (1.0 + 0.15 * float(_slance_upg["splash"]))
+	return SLANCE_SPLASH_RADIUS * (1.0 + 0.20 * float(_slance_upg["splash"]))
 
 func _fire_slance(delta: float) -> void:
 	var from := _muzzle()
@@ -657,7 +669,7 @@ func _fire_slance(delta: float) -> void:
 	_slance_tick -= delta
 	if _slance_tick > 0.0:
 		return
-	_slance_tick = SLANCE_TICK * (1.0 - 0.08 * float(_slance_upg["rate"])) / _rate_mult
+	_slance_tick = SLANCE_TICK / (1.0 + 0.20 * float(_slance_upg["rate"])) / _rate_mult
 	var hits := _beam_hits(from, dir, SLANCE_RANGE, _slance_width() * 0.5)
 	var impact := _slance_to
 	var nearest_dist := SLANCE_RANGE
@@ -702,13 +714,13 @@ func activate_prism_array() -> void:
 	_prism_tick = 0.0
 
 func _prism_dmg() -> float:
-	return PRISM_DAMAGE * (1.0 + 0.10 * float(_prism_upg["damage"]))
+	return PRISM_DAMAGE * (1.0 + 0.20 * float(_prism_upg["damage"]))
 
 func _prism_width() -> float:
-	return PRISM_WIDTH * (1.0 + 0.10 * float(_prism_upg["width"]))
+	return PRISM_WIDTH * (1.0 + 0.20 * float(_prism_upg["width"]))
 
 func _prism_spread() -> float:
-	return PRISM_SPREAD_DEG * (1.0 + 0.10 * float(_prism_upg["spread"]))
+	return PRISM_SPREAD_DEG * (1.0 + 0.20 * float(_prism_upg["spread"]))
 
 func _fire_prism(delta: float) -> void:
 	var from := _muzzle()
@@ -721,7 +733,7 @@ func _fire_prism(delta: float) -> void:
 	_prism_tick -= delta
 	if _prism_tick > 0.0:
 		return
-	_prism_tick = PRISM_TICK * (1.0 - 0.08 * float(_prism_upg["rate"])) / _rate_mult
+	_prism_tick = PRISM_TICK / (1.0 + 0.20 * float(_prism_upg["rate"])) / _rate_mult
 	var half_w := _prism_width() * 0.5
 	var hit: Array = []
 	for dir: Vector2 in _prism_dirs:
@@ -759,13 +771,13 @@ func activate_hailstorm() -> void:
 	_hail_cd = 0.0
 
 func _hail_dmg() -> float:
-	return HAIL_DAMAGE * (1.0 + 0.10 * float(_hail_upg["damage"]))
+	return HAIL_DAMAGE * (1.0 + 0.20 * float(_hail_upg["damage"]))
 
 func _fire_hailstorm(delta: float) -> void:
 	_hail_cd -= delta
 	if _hail_cd > 0.0:
 		return
-	_hail_cd = HAIL_COOLDOWN * (1.0 - 0.08 * float(_hail_upg["cd"])) / _rate_mult
+	_hail_cd = HAIL_COOLDOWN / (1.0 + 0.20 * float(_hail_upg["cd"])) / _rate_mult
 	var fwd := _forward()
 	var start := _muzzle()
 	var n := HAIL_PELLETS + int(_hail_upg["pellets"]) * 2
@@ -791,7 +803,7 @@ func _tick_hail_pellets(delta: float) -> void:
 				if bool(r["is_crit"]):
 					_spawn_crit_number(p, float(r["dmg"]))
 				if en.has_method("apply_slow"):
-					en.call("apply_slow", HAIL_SLOW_PCT * (1.0 + 0.10 * float(_hail_upg["slow"])), HAIL_SLOW_DUR)
+					en.call("apply_slow", HAIL_SLOW_PCT * (1.0 + 0.20 * float(_hail_upg["slow"])), HAIL_SLOW_DUR)
 				dead = true
 				break
 		if dead:
@@ -816,10 +828,10 @@ const WRAITH_BURN_DUR      := 3.0
 const WRAITH_HIT_R         := 20.0
 const WRAITH_COL           := Color(1.0, 0.5, 0.2)
 const WRAITH_POOL := {
-	"damage": {"name": "Hellfire",       "max": 10, "per": "+10% damage",        "desc": "Bigger fireballs."},
-	"splash": {"name": "Wide Blaze",     "max": 5,  "per": "+15% splash radius", "desc": "The burst reaches further."},
-	"burn":   {"name": "Clinging Flame", "max": 5,  "per": "+15% burn damage",   "desc": "The lingering blaze burns hotter."},
-	"cd":     {"name": "Rapid Casting",  "max": 10, "per": "+8% fire rate",      "desc": "Hurl fireballs more often."},
+	"damage": {"name": "Hellfire",       "max": 10, "per": "+20% damage",        "desc": "Bigger fireballs."},
+	"splash": {"name": "Wide Blaze",     "max": 5,  "per": "+20% splash radius", "desc": "The burst reaches further."},
+	"burn":   {"name": "Clinging Flame", "max": 5,  "per": "+20% burn damage",   "desc": "The lingering blaze burns hotter."},
+	"cd":     {"name": "Rapid Casting",  "max": 10, "per": "+20% fire rate",      "desc": "Hurl fireballs more often."},
 }
 
 const HIVE_BATS        := 8
@@ -833,9 +845,9 @@ const HIVE_CHAIN_RANGE := 140.0
 const HIVE_CHAIN_FRAC  := 0.5
 const HIVE_COL         := Color(0.55, 0.9, 0.5)
 const HIVE_POOL := {
-	"damage": {"name": "Feral Growth",     "max": 10, "per": "+10% damage",    "desc": "Each bat bites harder."},
+	"damage": {"name": "Feral Growth",     "max": 10, "per": "+20% damage",    "desc": "Each bat bites harder."},
 	"count":  {"name": "Broodswell",       "max": 4,  "per": "+1 bat",         "desc": "One more bat joins the swarm."},
-	"speed":  {"name": "Hunting Instinct", "max": 5,  "per": "+10% bat speed", "desc": "Bats close in faster."},
+	"speed":  {"name": "Hunting Instinct", "max": 5,  "per": "+20% bat speed", "desc": "Bats close in faster."},
 	"chain":  {"name": "Neural Arc",       "max": 5,  "per": "+1 chain jump",  "desc": "The neural jolt reaches one more victim."},
 }
 
@@ -863,8 +875,8 @@ const ANNI_BURN_CHANCE_PER_RANK := 0.20
 const ANNI_FLASH_LIFE    := 0.2
 const ANNI_COL           := Color(1.0, 0.3, 0.2)
 const ANNI_POOL := {
-	"damage": {"name": "Reactor Overload", "max": 10, "per": "+10% damage",        "desc": "Vent more of the reactor per shot."},
-	"cd":     {"name": "Coolant Flush",    "max": 10, "per": "+8% fire rate",      "desc": "Recharge faster."},
+	"damage": {"name": "Reactor Overload", "max": 10, "per": "+20% damage",        "desc": "Vent more of the reactor per shot."},
+	"cd":     {"name": "Coolant Flush",    "max": 10, "per": "+20% fire rate",      "desc": "Recharge faster."},
 	"chain":  {"name": "Chain Lightning",  "max": 5,  "per": "+1 chain hop",       "desc": "Struck targets arc to one more nearby creep (50% of that target's damage, 200px reach)."},
 	"burn":   {"name": "Ignition Charge",  "max": 5,  "per": "+20% burn chance",   "desc": "A struck target (not a chain hop) may ignite on hit."},
 }
@@ -890,10 +902,10 @@ const EVENTH_RING_PERIOD   := 1.1    # s for one ring's full rim→centre collap
 # game_manager.gd's ship_take_damage() guard (queries this instance's event_horizon_field()).
 const EVENTH_PLAYER_DIM_COL := Color(0.35, 0.32, 0.4, 1.0)
 const EVENTH_POOL := {
-	"damage": {"name": "Singularity Mass",   "max": 10, "per": "+10% damage",        "desc": "The void devours faster."},
-	"radius": {"name": "Horizon Expansion",  "max": 5,  "per": "+10% max radius",    "desc": "A wider event horizon at full growth."},
-	"pull":   {"name": "Infinite Gravity",   "max": 5,  "per": "+15% pull strength", "desc": "Drags enemies in harder."},
-	"uptime": {"name": "Stable Orbit",       "max": 5,  "per": "+15% open duration", "desc": "The horizon stays open longer before collapsing."},
+	"damage": {"name": "Singularity Mass",   "max": 10, "per": "+20% damage",        "desc": "The void devours faster."},
+	"radius": {"name": "Horizon Expansion",  "max": 5,  "per": "+20% max radius",    "desc": "A wider event horizon at full growth."},
+	"pull":   {"name": "Infinite Gravity",   "max": 5,  "per": "+20% pull strength", "desc": "Drags enemies in harder."},
+	"uptime": {"name": "Stable Orbit",       "max": 5,  "per": "+20% open duration", "desc": "The horizon stays open longer before collapsing."},
 }
 
 var _wraith_active: bool = false
@@ -938,19 +950,19 @@ func activate_wraithfire() -> void:
 	_wraith_cd = 0.0
 
 func _wraith_dmg() -> float:
-	return WRAITH_DAMAGE * (1.0 + 0.10 * float(_wraith_upg["damage"]))
+	return WRAITH_DAMAGE * (1.0 + 0.20 * float(_wraith_upg["damage"]))
 
 func _wraith_splash_radius() -> float:
-	return WRAITH_SPLASH_RADIUS * (1.0 + 0.15 * float(_wraith_upg["splash"]))
+	return WRAITH_SPLASH_RADIUS * (1.0 + 0.20 * float(_wraith_upg["splash"]))
 
 func _wraith_burn_dps() -> float:
-	return WRAITH_BURN_DPS * (1.0 + 0.15 * float(_wraith_upg["burn"]))
+	return WRAITH_BURN_DPS * (1.0 + 0.20 * float(_wraith_upg["burn"]))
 
 func _fire_wraithfire(delta: float) -> void:
 	_wraith_cd -= delta
 	if _wraith_cd > 0.0:
 		return
-	_wraith_cd = WRAITH_COOLDOWN * (1.0 - 0.08 * float(_wraith_upg["cd"])) / _rate_mult
+	_wraith_cd = WRAITH_COOLDOWN / (1.0 + 0.20 * float(_wraith_upg["cd"])) / _rate_mult
 	_wraith_bolts.append({"pos": _muzzle(), "vel": _forward() * WRAITH_SPEED, "life": 0.0})
 
 func _tick_wraith_bolts(delta: float) -> void:
@@ -1010,7 +1022,7 @@ func activate_hivemind() -> void:
 		_hive_bats.append({"pos": _player.global_position, "target": null, "cd": 0.0})
 
 func _hive_dmg() -> float:
-	return HIVE_DAMAGE * (1.0 + 0.10 * float(_hive_upg["damage"]))
+	return HIVE_DAMAGE * (1.0 + 0.20 * float(_hive_upg["damage"]))
 
 func _tick_hivemind(delta: float) -> void:
 	var n := _hive_bat_count()
@@ -1018,7 +1030,7 @@ func _tick_hivemind(delta: float) -> void:
 		_hive_bats.append({"pos": _player.global_position, "target": null, "cd": 0.0})
 	while _hive_bats.size() > n:
 		_hive_bats.pop_back()
-	var speed := HIVE_SPEED * (1.0 + 0.10 * float(_hive_upg["speed"]))
+	var speed := HIVE_SPEED * (1.0 + 0.20 * float(_hive_upg["speed"]))
 	for bd: Dictionary in _hive_bats:
 		var target = bd["target"]
 		if target == null or not is_instance_valid(target):
@@ -1069,10 +1081,10 @@ func activate_annihilator() -> void:
 	_anni_charge = 0.0
 
 func _anni_dmg() -> float:
-	return ANNI_DAMAGE * (1.0 + 0.10 * float(_anni_upg["damage"]))
+	return ANNI_DAMAGE * (1.0 + 0.20 * float(_anni_upg["damage"]))
 
 func _anni_cooldown() -> float:
-	return ANNI_COOLDOWN * (1.0 - 0.08 * float(_anni_upg["cd"]))
+	return ANNI_COOLDOWN / (1.0 + 0.20 * float(_anni_upg["cd"]))
 
 ## No aim/facing involved at all — picks up to ANNI_MAX_TARGETS of the nearest live enemies within
 ## ANNI_RANGE (all of them if there are fewer) and strikes every one simultaneously, splitting one shared
@@ -1169,16 +1181,16 @@ func activate_event_horizon() -> void:
 	_eventh_cd = 0.0
 
 func _eventh_open_duration() -> float:
-	return EVENTH_RAMP * 2.0 * (1.0 + 0.15 * float(_eventh_upg["uptime"]))
+	return EVENTH_RAMP * 2.0 * (1.0 + 0.20 * float(_eventh_upg["uptime"]))
 
 func _eventh_max_radius() -> float:
-	return EVENTH_RADIUS_MAX * (1.0 + 0.10 * float(_eventh_upg["radius"]))
+	return EVENTH_RADIUS_MAX * (1.0 + 0.20 * float(_eventh_upg["radius"]))
 
 func _eventh_max_dmg_per_sec() -> float:
-	return EVENTH_DAMAGE_MAX * (1.0 + 0.10 * float(_eventh_upg["damage"]))
+	return EVENTH_DAMAGE_MAX * (1.0 + 0.20 * float(_eventh_upg["damage"]))
 
 func _eventh_pull_speed() -> float:
-	return EVENTH_PULL * (1.0 + 0.15 * float(_eventh_upg["pull"]))
+	return EVENTH_PULL * (1.0 + 0.20 * float(_eventh_upg["pull"]))
 
 func _tick_event_horizon(delta: float, enemy_on_screen: bool) -> void:
 	if not _eventh_on:
@@ -1279,11 +1291,11 @@ const MORTAR_AOE           := 90.0    # Mortar blast radius (small)
 const MORTAR_VFX_SCALE     := 0.01    # Mortar explosion = 1% of the full (Fat Boy) explosion (lite mode, 1.5× faster)
 # ── Mortar skill-point pool ──
 const MORTAR_POOL := {
-	"damage":       {"name": "Bigger Payload",   "max": 10, "per": "+10% damage",                "desc": "Each shell hits harder."},
-	"firerate":     {"name": "Rapid Reload",      "max": 10, "per": "+8% fire rate",              "desc": "Lob shells more often."},
-	"aoe":          {"name": "Wider Blast",       "max": 10, "per": "+10% blast radius",          "desc": "A bigger explosion footprint."},
-	"concentrated": {"name": "Concentrated Fire", "max": 5,  "per": "-10% AoE, +15% damage",      "desc": "Focus the blast: smaller radius, harder hit."},
-	"kinetic":      {"name": "Kinetic Mastery",   "max": 5,  "per": "+5% kinetic damage (global)","desc": "Boosts all kinetic weapons."},
+	"damage":       {"name": "Bigger Payload",   "max": 10, "per": "+20% damage",                "desc": "Each shell hits harder."},
+	"firerate":     {"name": "Rapid Reload",      "max": 10, "per": "+20% fire rate",              "desc": "Lob shells more often."},
+	"aoe":          {"name": "Wider Blast",       "max": 10, "per": "+20% blast radius",          "desc": "A bigger explosion footprint."},
+	"concentrated": {"name": "Concentrated Fire", "max": 5,  "per": "-20% AoE, +20% damage",      "desc": "Focus the blast: smaller radius, harder hit."},
+	"kinetic":      {"name": "Kinetic Mastery",   "max": 5,  "per": "+10% kinetic damage (global)","desc": "Boosts all kinetic weapons."},
 	"wasteland":    {"name": "Waste Land",        "max": 10, "per": "damaging + slowing crater",  "desc": "Each blast leaves a 3s crater: 20%/rank of the shot's damage over 3s + 25% slow. Craters stack."},
 }
 # Evolve capstones = multipliers on the base Mortar shot (Fusion Reactor instead deactivates it → passive core).
@@ -1310,10 +1322,10 @@ const SONIC_BAND         := 24.0     # ring-front thickness for the hit test
 const SONIC_CONE_HALF    := 1.05     # half-angle of the forward cone the arcs fan into (~120° total)
 const SONIC_COL          := Color(0.55, 0.85, 1.0)
 const SONIC_POOL := {
-	"damage": {"name": "Resonance",  "max": 10, "per": "+10% damage",      "desc": "Louder, harder-hitting waves."},
-	"range":  {"name": "Far Cry",    "max": 5,  "per": "+15% range",       "desc": "Waves travel further."},
-	"cd":     {"name": "Rapid Pulse", "max": 10, "per": "+8% fire rate",   "desc": "Pulse more often."},
-	"cold":   {"name": "Cold Wave",  "max": 5,  "per": "+5% freeze chance", "desc": "Waves chill what they hit."},
+	"damage": {"name": "Resonance",  "max": 10, "per": "+20% damage",      "desc": "Louder, harder-hitting waves."},
+	"range":  {"name": "Far Cry",    "max": 5,  "per": "+20% range",       "desc": "Waves travel further."},
+	"cd":     {"name": "Rapid Pulse", "max": 10, "per": "+20% fire rate",   "desc": "Pulse more often."},
+	"cold":   {"name": "Cold Wave",  "max": 5,  "per": "+10% freeze chance", "desc": "Waves chill what they hit."},
 	"cone":   {"name": "Wide Arc",   "max": 6,  "per": "+15° cone (×AoE)", "desc": "Fan the wave across a wider arc."},
 }
 # Z-Sword (Energy) — energy blade extends from the ship and sweeps a full circle.
@@ -1324,12 +1336,12 @@ const ZSWORD_ARC_HALF    := 0.314159 # ~18° half-arc hit tolerance
 const ZSWORD_DAMAGE      := 45.0
 const ZSWORD_STAGGER     := 0.1
 const ZSWORD_POOL := {
-	"damage":   {"name": "Honed Edge",     "max": 10, "per": "+10% damage",        "desc": "Sharper swings."},
-	"size":     {"name": "Long Blade",     "max": 5,  "per": "+15% blade length",   "desc": "Reach further around the ship."},
-	"cd":       {"name": "Quick Draw",     "max": 10, "per": "+8% swing rate",      "desc": "Swing more often."},
-	"crit":     {"name": "Keen Point",     "max": 5,  "per": "+5% crit chance",     "desc": "Z-Sword crits more (this weapon only)."},
+	"damage":   {"name": "Honed Edge",     "max": 10, "per": "+20% damage",        "desc": "Sharper swings."},
+	"size":     {"name": "Long Blade",     "max": 5,  "per": "+20% blade length",   "desc": "Reach further around the ship."},
+	"cd":       {"name": "Quick Draw",     "max": 10, "per": "+20% swing rate",      "desc": "Swing more often."},
+	"crit":     {"name": "Keen Point",     "max": 5,  "per": "+10% crit chance",     "desc": "Z-Sword crits more (this weapon only)."},
 	"martial":  {"name": "Martial Mastery", "max": 10, "per": "+10% crit damage (global)", "desc": "Every weapon's crits hit harder."},
-	"divergence": {"name": "Divergence Sword", "max": 6, "per": "+5% extra-swipe chance", "desc": "Each swing may trigger another (and those can chain too)."},
+	"divergence": {"name": "Divergence Sword", "max": 6, "per": "+10% extra-swipe chance", "desc": "Each swing may trigger another (and those can chain too)."},
 }
 # (slash visuals live in scripts/gameplay/fx/z_slash.gd; colours are ZSlash.LEAD_COL/LEAD_HOT there)
 # Ionizing Field — always-on aura DoT around the ship; visual = 2 EnergyVortex swirls
@@ -1355,12 +1367,12 @@ const IONIZE_RING_OPACITY  := 0.20   # flat opacity per disc
 const IONIZE_STUN_DUR := 0.5         # Shocking Field electrocute duration (s)
 # ── Ionizing Field (Black Hole) skill-point pool + evolves ──
 const IONIZE_POOL := {
-	"damage":    {"name": "Field Density",     "max": 10, "per": "+10% damage",            "desc": "A more punishing field."},
-	"aoe":       {"name": "Event Horizon",     "max": 10, "per": "+10% radius",            "desc": "A wider field."},
+	"damage":    {"name": "Field Density",     "max": 10, "per": "+20% damage",            "desc": "A more punishing field."},
+	"aoe":       {"name": "Event Horizon",     "max": 10, "per": "+20% radius",            "desc": "A wider field."},
 	"proximity": {"name": "Proximity Mastery", "max": 5,  "per": "+10% close-range damage (global)", "desc": "GLOBAL: ALL weapons deal up to +10%/rank more damage to targets near you (max at 50px, none past 400px)."},
-	"freezing":  {"name": "Freezing Field",    "max": 5,  "per": "+1%/tick freeze chance",  "desc": "The field chills enemies inside it."},
-	"burning":   {"name": "Burning Field",     "max": 5,  "per": "+1%/tick burn chance",    "desc": "The field ignites enemies inside it."},
-	"shocking":  {"name": "Shocking Field",     "max": 5,  "per": "+1%/tick stun chance",    "desc": "The field electrocutes enemies inside it (~3.3 ticks/s)."},
+	"freezing":  {"name": "Freezing Field",    "max": 5,  "per": "+10%/tick freeze chance",  "desc": "The field chills enemies inside it."},
+	"burning":   {"name": "Burning Field",     "max": 5,  "per": "+10%/tick burn chance",    "desc": "The field ignites enemies inside it."},
+	"shocking":  {"name": "Shocking Field",     "max": 5,  "per": "+10%/tick stun chance",    "desc": "The field electrocutes enemies inside it (~3.3 ticks/s)."},
 }
 const IONIZE_ABSOLUTION_DMG := 4.0    # Zone of Absolution: +300% damage
 const IONIZE_ABSOLUTION_AOE := 0.30   # Zone of Absolution: -70% AoE
@@ -1452,9 +1464,9 @@ const GLB3D_PLUME_CAP := 8
 
 # ── Boomerang (kinetic + contact) skill-point pool + evolves ──
 const BOOM_POOL := {
-	"damage":     {"name": "Sharpened Edge",     "max": 10, "per": "+10% damage",         "desc": "A keener blade."},
-	"speed":      {"name": "Aerofoil",           "max": 10, "per": "+10% throw speed",     "desc": "The blade travels its arc faster."},
-	"size":       {"name": "Heavy Blade",        "max": 10, "per": "+10% blade size",      "desc": "A bigger blade with a wider hit."},
+	"damage":     {"name": "Sharpened Edge",     "max": 10, "per": "+20% damage",         "desc": "A keener blade."},
+	"speed":      {"name": "Aerofoil",           "max": 10, "per": "+20% throw speed",     "desc": "The blade travels its arc faster."},
+	"size":       {"name": "Heavy Blade",        "max": 10, "per": "+20% blade size",      "desc": "A bigger blade with a wider hit."},
 	"count":      {"name": "Split Blade",        "max": 3,  "per": "+1 boomerang",         "desc": "Another blade joins the flock. Unlocks at weapon level 6 / 11 / 16.", "gate": [6, 11, 16]},
 	"bleed":      {"name": "Laceration",         "max": 10, "per": "+2 bleed stacks/hit",  "desc": "Every hit rends: 2 guaranteed bleed stacks per rank."},
 	"hemorrhage": {"name": "Hemorrhage Mastery", "max": 10, "per": "+20% bleed dmg (global)", "desc": "All bleed effects bleed harder."},
@@ -1473,8 +1485,8 @@ const PARA_GAS_LIFETIME := 4.0   # seconds gas cloud lingers after spore expires
 const PARA_GAS_PUFF_N   := 7     # puffs per expired spore (1 centre + 6 ring)
 # ── Parasite Cloud (Venomancer, biochemical) skill-point pool + evolves ──
 const PARA_POOL := {
-	"aoe":              {"name": "Contagion Radius",         "max": 10, "per": "+10% cloud radius",         "desc": "The infection spreads wider."},
-	"damage":           {"name": "Virulence",                "max": 10, "per": "+10% damage",               "desc": "A deadlier strain."},
+	"aoe":              {"name": "Contagion Radius",         "max": 10, "per": "+20% cloud radius",         "desc": "The infection spreads wider."},
+	"damage":           {"name": "Virulence",                "max": 10, "per": "+20% damage",               "desc": "A deadlier strain."},
 	"duration":         {"name": "Persistence",              "max": 5,  "per": "+20% cloud lifetime",       "desc": "Clouds linger longer."},
 	"metal_eater":      {"name": "Metal Eater",              "max": 5,  "per": "-1 armor/s in cloud",       "desc": "Affected enemies corrode: -1/s per rank for 5s (cap -5×rank)."},
 	"armor_mastery":    {"name": "Armor Stripping Mastery",  "max": 5,  "per": "-10 min armor (global)",    "desc": "Unlocks the armor floor so stripping drives armor NEGATIVE — all armor-strip sources."},
@@ -1831,9 +1843,9 @@ const SNAKE3D_REGION := 1080.0       # half-extent (world units = px) of the tra
 # Save. Default Vector3.ZERO if never calibrated.
 # ── Space Snake (VIPER, kinetic + contact + automation) skill-point pool + evolves ──
 const SNAKE_POOL := {
-	"damage":         {"name": "Venom Glands",       "max": 10, "per": "+10% damage",              "desc": "A more toxic bite."},
+	"damage":         {"name": "Venom Glands",       "max": 10, "per": "+20% damage",              "desc": "A more toxic bite."},
 	"length":         {"name": "Elongate",           "max": 8,  "per": "+1 segment",               "desc": "A longer serpent covers more ground."},
-	"speed":          {"name": "Slither",            "max": 10, "per": "+10% move speed",          "desc": "The snake hunts faster."},
+	"speed":          {"name": "Slither",            "max": 10, "per": "+20% move speed",          "desc": "The snake hunts faster."},
 	"serrated_fang":  {"name": "Serrated Fang",       "max": 10, "per": "+10 bleed stacks (head)",  "desc": "Head bites rend: 10 bleed stacks/rank when the HEAD hits (guaranteed)."},
 	"serrated_scale": {"name": "Serrated Scale",      "max": 10, "per": "+2 bleed stacks/body seg", "desc": "The scaled body rends: 2 bleed stacks/rank per body/tail segment touching (each counts separately)."},
 	"hemophilia":     {"name": "Hemophilia Mastery",  "max": 5,  "per": "+20% bleed duration (global)", "desc": "Bleeds last longer everywhere."},
@@ -1966,11 +1978,11 @@ const SHOOTER_DRAW        := 30.0     # turret sprite width on screen (px; heigh
 # ── Shooter skill-point pool + evolves ──
 const SHOOTER_POOL := {
 	"morebital":  {"name": "More-bital",         "max": 10, "per": "+1 orbital",              "desc": "Another turret. Extra turrets fan up over the top between the 8 & 4 o'clock anchors."},
-	"damage":     {"name": "Focused Lens",        "max": 10, "per": "+10% damage",             "desc": "Hotter bolts."},
-	"firerate":   {"name": "Rapid Cycling",       "max": 10, "per": "+8% fire rate",           "desc": "Burst more often."},
-	"multishot":  {"name": "Scatter Volley",      "max": 10, "per": "+8% extra-burst chance",  "desc": "Chance to fire a bonus burst."},
-	"automation": {"name": "Automation Mastery",  "max": 5,  "per": "+5% automation damage",   "desc": "Boosts ALL automation weapons (Defender, Yari, Snake, Shooter, Parasite)."},
-	"crit":       {"name": "Critical Shot",       "max": 10, "per": "+5% crit (this weapon)",  "desc": "Shooter bolts crit more often."},
+	"damage":     {"name": "Focused Lens",        "max": 10, "per": "+20% damage",             "desc": "Hotter bolts."},
+	"firerate":   {"name": "Rapid Cycling",       "max": 10, "per": "+20% fire rate",           "desc": "Burst more often."},
+	"multishot":  {"name": "Scatter Volley",      "max": 10, "per": "+10% extra-burst chance",  "desc": "Chance to fire a bonus burst."},
+	"automation": {"name": "Automation Mastery",  "max": 5,  "per": "+10% automation damage",   "desc": "Boosts ALL automation weapons (Defender, Yari, Snake, Shooter, Parasite)."},
+	"crit":       {"name": "Critical Shot",       "max": 10, "per": "+10% crit (this weapon)",  "desc": "Shooter bolts crit more often."},
 }
 
 # ── TUNABLES: Void gun (Rift Maker — auto-casts a growing void on the nearest enemy; ported from weapon_system.gd) ──
@@ -2103,11 +2115,11 @@ const DEATHBEAM_CHARGE   := 1.5     # charge telegraph (s) before each burst —
 # ── Lasgun skill-point upgrade pool (incinerate/freeze need the status system — Stage 2, not wired yet) ──
 const DEATHBEAM_POOL := {
 	"energy":     {"name": "Energy Mastery", "max": 0,  "per": "+10% energy damage",  "desc": "Boosts all energy weapons (global)."},
-	"damage":     {"name": "Overcharge",     "max": 10, "per": "+10% damage",         "desc": "The beam hits harder."},
+	"damage":     {"name": "Overcharge",     "max": 10, "per": "+20% damage",         "desc": "The beam hits harder."},
 	"duration":   {"name": "Capacitor",      "max": 10, "per": "+10% duration",       "desc": "Longer Lasgun beam, Red X fire, Sonic, Gauss, Chemtrail + burn/freeze/stun."},
-	"cooldown":   {"name": "Heat Sink",      "max": 10, "per": "-5% cooldown",        "desc": "Fire more often."},
-	"incinerate": {"name": "Incinerate",     "max": 0,  "per": "+5%/s burn chance",   "desc": "Burn: 0.1% current HP/s per stack for 5s."},
-	"freeze":     {"name": "Freeze",         "max": 0,  "per": "+5%/s freeze chance", "desc": "Chill: -15% speed per stack (max -90%, boss -30%)."},
+	"cooldown":   {"name": "Heat Sink",      "max": 10, "per": "+20% fire rate",        "desc": "Fire more often."},
+	"incinerate": {"name": "Incinerate",     "max": 0,  "per": "+10%/s burn chance",  "desc": "Burn: 0.1% current HP/s per stack for 5s."},
+	"freeze":     {"name": "Freeze",         "max": 0,  "per": "+10%/s freeze chance","desc": "Chill: -15% speed per stack (max -90%, boss -30%)."},
 }
 
 # ── Level-6 EVOLVE capstones (choose 1 of 3 when a weapon hits max level) ──
@@ -2217,10 +2229,10 @@ const DRAGON_RANGE       := 300.0  # base cone reach (px)
 const DRAGON_CONE_DEG    := 30.0   # base full cone angle (degrees)
 const DRAGON_BURN_CHANCE := 0.30   # base per-tick burn chance (+ Fire Mastery + Stroke of Luck)
 const DRAGON_POOL := {
-	"damage":  {"name": "Hotter Flame",   "max": 10, "per": "+10% damage",            "desc": "More DPS in the cone."},
-	"fire":    {"name": "Fire Mastery",    "max": 5,  "per": "+5% burn chance (global)", "desc": "All fire effects ignite more often."},
+	"damage":  {"name": "Hotter Flame",   "max": 10, "per": "+20% damage",            "desc": "More DPS in the cone."},
+	"fire":    {"name": "Fire Mastery",    "max": 5,  "per": "+10% burn chance (global)", "desc": "All fire effects ignite more often."},
 	"prolong": {"name": "Prolonged Flame", "max": 5,  "per": "+0.2s burn duration (global)", "desc": "Burns linger longer."},
-	"range":   {"name": "Long Reach",      "max": 5,  "per": "+10% range",             "desc": "Reach further."},
+	"range":   {"name": "Long Reach",      "max": 5,  "per": "+20% range",             "desc": "Reach further."},
 	"cone":    {"name": "Wide Spray",      "max": 5,  "per": "+15% cone angle (×AoE)",  "desc": "Wider fan of fire."},
 	# NOTE: data + icon only — no gameplay effect wired yet (needs an enemy-armor-reduction hook keyed off
 	# _burn_stacks; not implemented). Picking/ranking this currently does nothing mechanically.
@@ -2244,23 +2256,23 @@ const CHEMTRAIL_COL_END   := Color(0.42, 0.15, 0.50)   # sickly purple
 const CHEMTRAIL_INTENSITY := 0.2                        # -80% brightness/intensity → murky, dim
 const CHEMTRAIL_PARTICLES := 280                        # -80% density → thin, sparse haze
 const CHEMTRAIL_POOL := {
-	"intensity": {"name": "Intensity Mastery", "max": 5,  "per": "-5% tick cooldown (global)", "desc": "All DoT/tick weapons tick faster (shared skill)."},
-	"damage":    {"name": "Concentrate",       "max": 10, "per": "+10% damage",                "desc": "Stronger toxin."},
+	"intensity": {"name": "Intensity Mastery", "max": 5,  "per": "-10% tick cooldown (global)", "desc": "All DoT/tick weapons tick faster (shared skill)."},
+	"damage":    {"name": "Concentrate",       "max": 10, "per": "+20% damage",                "desc": "Stronger toxin."},
 	"duration":  {"name": "Lingering Haze",    "max": 5,  "per": "+20% trail duration",        "desc": "The cloud lasts longer."},
-	"burn":      {"name": "Chemical Burn",     "max": 5,  "per": "+5%/s burn chance",          "desc": "Toxin ignites enemies."},
-	"ms":        {"name": "Aerosol Boosters",  "max": 5,  "per": "+4% Move Speed",             "desc": "Lay trail while zipping around."},
+	"burn":      {"name": "Chemical Burn",     "max": 5,  "per": "+10%/s burn chance",          "desc": "Toxin ignites enemies."},
+	"ms":        {"name": "Aerosol Boosters",  "max": 5,  "per": "+10% Move Speed",             "desc": "Lay trail while zipping around."},
 	"sedative":  {"name": "Sedative Scent",    "max": 5,  "per": "-2.5% enemy dmg & speed",     "desc": "Affected enemies hit softer and move slower."},
 }
 const ARC_JUMPS    := 4        # extra targets the bolt chains to after the first
 const ARC_BASE_BOUNCE := 3     # Arc pool: base chain count (Chain Reaction ranks + Lv1 add to this)
 # ── Arc skill-point pool. Stroke of Luck adds to a GLOBAL proc bonus that EVERY chance roll reads (see _proc). ──
 const ARC_POOL := {
-	"luck":        {"name": "Stroke of Luck",  "max": 5,  "per": "+1% to ALL proc chances", "desc": "Crit, burn, freeze, stun… every chance, retroactively."},
-	"damage":      {"name": "Overvolt",        "max": 10, "per": "+10% damage",             "desc": "Stronger bolts."},
-	"firerate":    {"name": "Rapid Discharge", "max": 10, "per": "+8% fire rate",           "desc": "Arc more often."},
+	"luck":        {"name": "Stroke of Luck",  "max": 5,  "per": "+10% to ALL proc chances", "desc": "Crit, burn, freeze, stun… every chance, retroactively."},
+	"damage":      {"name": "Overvolt",        "max": 10, "per": "+20% damage",             "desc": "Stronger bolts."},
+	"firerate":    {"name": "Rapid Discharge", "max": 10, "per": "+20% fire rate",           "desc": "Arc more often."},
 	"bounce":      {"name": "Chain Reaction",  "max": 5,  "per": "+1 bounce",               "desc": "Chains to more enemies (base 3 → 8)."},
-	"lightning":   {"name": "Lightning Mastery", "max": 10, "per": "+2% stun & +5% stun duration", "desc": "GLOBAL: boosts stun chance + duration — Arc electrocute, Gauss EMP, Avatar lightning."},
-	"electrocute": {"name": "Electrocute",     "max": 5,  "per": "+5% stun chance",         "desc": "Stun 0.5s (boss 0.2s); stunned foes take +50% damage."},
+	"lightning":   {"name": "Lightning Mastery", "max": 10, "per": "+10% stun & +10% stun duration", "desc": "GLOBAL: boosts stun chance + duration — Arc electrocute, Gauss EMP, Avatar lightning."},
+	"electrocute": {"name": "Electrocute",     "max": 5,  "per": "+10% stun chance",         "desc": "Stun 0.5s (boss 0.2s); stunned foes take +50% damage."},
 }
 const ARC_ACQUIRE_RANGE := 400.0  # max px to acquire the FIRST target (chains then extend further via ARC_RANGE)
 const ARC_RANGE    := 200.0    # max px between consecutive chain links
@@ -3218,6 +3230,35 @@ func _rebuild_grid() -> void:
 	for e in _enemies():
 		if not is_instance_valid(e):
 			continue
+		# ── Multi-point bodies (centipede) must register in EVERY cell they occupy ────────────────────
+		# 2026-08-25 bug fix (user report: "centipede rất khỏe, bắn mãi ko chết" — suspected an HP multiplier
+		# tied to its node count). It was not HP at all: a centipede's hp is 30 (15 base × ENEMY_HP_TUNE),
+		# one of the WEAKEST creeps on the roster. The problem was here, in the broad phase.
+		#
+		# This grid indexed every enemy by `global_position` alone, which for a centipede is its HEAD. Its
+		# body trails ~330px behind (measured live: 10 segments, head→tail 329-345px) — well past GRID_CELL
+		# (128) — so the enemy was only ever a candidate for projectiles near the head. Measured live:
+		# **7-9 of its 10 segments returned no candidate at all**, i.e. bullets flew straight through most of
+		# the body without a hit test ever running. The narrow phase was never the issue (callers already use
+		# _hit_pos() → nearest_hit_point(), which resolves to the nearest segment); the enemy simply never
+		# reached them.
+		#
+		# Only centipedes pay the extra cost: hit_points() allocates a fresh array, so it is called ONLY for
+		# that behavior (same guard _beam_swept_hit_enemy() uses) and the cells are de-duplicated, since
+		# consecutive segments usually share one.
+		var beh: Variant = e.get("behavior")
+		if typeof(beh) == TYPE_STRING and String(beh) == "centipede" and e.has_method("hit_points"):
+			var seen: Dictionary = {}
+			for pt: Vector2 in e.call("hit_points"):
+				var pc := _grid_cell(pt)
+				if seen.has(pc):
+					continue
+				seen[pc] = true
+				if _grid.has(pc):
+					(_grid[pc] as Array).append(e)
+				else:
+					_grid[pc] = [e]
+			continue
 		var cell := _grid_cell((e as Node2D).global_position)
 		if _grid.has(cell):
 			(_grid[cell] as Array).append(e)
@@ -3552,9 +3593,9 @@ func snake_set_capstone(id: String) -> void:
 		GameManager.add_mech("anemia_vuln", 1.0)   # flag: enemies take +1% dmg per 10 bleed stacks (enemy-side)
 
 func _snake_dmg() -> float:
-	return SNAKE_DAMAGE * (1.0 + 0.10 * float(_snake_upg["damage"]))
+	return SNAKE_DAMAGE * (1.0 + 0.20 * float(_snake_upg["damage"]))
 func _snake_speed_mult() -> float:
-	return 1.0 + 0.10 * float(_snake_upg["speed"])
+	return 1.0 + 0.20 * float(_snake_upg["speed"])
 
 ## Speed multiplier (≥1) for an automation weapon's attack/move/spin rate; 1.0 for non-automation weapons.
 func _automation_rate(kind: String) -> float:
@@ -3743,7 +3784,10 @@ func _gat_fire_bonus() -> float:
 
 ## Multishot: HYBRID resolution, same shape as _gat_bounces/_gat_pierce_budget but resolved ONCE per shot (not
 ## per bullet) in _fire_gatling — 0.4/rank = 20% of the 2-bullet base, so the guaranteed+_proc() split there
-## lands on the correct +20%/rank expected value (guaranteed extra bullet every 5th rank).
+## lands on the correct +20%/rank EXPECTED value. NOTE the guarantee arrives at rank 3, not rank 5: _fire_
+## gatling does `extra += int(ms)`, and ms = 0.4×rank crosses 1.0 at rank 2.5 (rank 3 → 1 guaranteed + a 20%
+## roll, rank 5 → exactly 2 guaranteed). The old "every 5th rank" note here was wrong — it read across from
+## Piercing/Bouncing, which really are 0.2/rank and so really do land on every 5th.
 func _gat_multishot_chance() -> float:
 	var glob: float = GameManager.mech_bonus("multishot_pct") if GameManager.has_method("mech_bonus") else 0.0
 	return float(_gat_upg["multishot"]) * 0.4 + glob   # local ranks (0.4 = 20% of the 2-bullet base) + global
@@ -3971,14 +4015,14 @@ func _db_lvl() -> int:
 
 ## Beam damage per tick: base × Overcharge ranks. Energy/all masteries applied centrally in _roll_damage.
 func _db_dmg() -> float:
-	var local := 1.0 + float(_db_upg["damage"]) * 0.10
+	var local := 1.0 + float(_db_upg["damage"]) * 0.20
 	var allin := 3.0 if _db_capstone == "all_in" else 1.0   # All-In: +200% damage
 	return DEATHBEAM_DAMAGE * local * allin
 
 ## Firing-cycle length: Heat Sink ranks (floored so it never collapses).
 func _db_cycle() -> float:
-	var reduction := float(_db_upg["cooldown"]) * 0.05
-	return DEATHBEAM_CYCLE * maxf(0.25, 1.0 - reduction)
+	# Reciprocal, not `1.0 - rank*0.20`: that would hit exactly 0 at rank 5 (infinite fire rate).
+	return DEATHBEAM_CYCLE / (1.0 + 0.20 * float(_db_upg["cooldown"]))
 
 ## Beam-on time: Capacitor (global duration), clamped to keep a little off-time.
 func _db_duration() -> float:
@@ -3992,11 +4036,11 @@ func _db_width_mult() -> float:
 
 ## Burn-apply chance PER SECOND (Incinerate ranks). Rolled per damage tick, scaled by the tick interval.
 func _db_incinerate_rate() -> float:
-	return float(_db_upg["incinerate"]) * 0.05
+	return float(_db_upg["incinerate"]) * 0.10
 
 ## Freeze-apply chance PER SECOND (Freeze ranks).
 func _db_freeze_rate() -> float:
-	return float(_db_upg["freeze"]) * 0.05
+	return float(_db_upg["freeze"]) * 0.10
 
 ## Lights-Out capstone: while the Lasgun beam fires, every OTHER weapon's cooldown is scaled ×0.7 (-30%).
 func _cd_scale(kind: String) -> float:
@@ -4060,10 +4104,10 @@ func arc_grant_upgrade(id: String) -> bool:
 	_arc_upg[id] = int(_arc_upg.get(id, 0)) + 1
 	if GameManager.has_method("add_mech"):
 		if id == "luck":
-			GameManager.add_mech("proc_luck", 0.01)            # GLOBAL: every _proc() chance reads this
+			GameManager.add_mech("proc_luck", 0.10)            # GLOBAL: every _proc() chance reads this
 		elif id == "lightning":
-			GameManager.add_mech("lightning_stun_chance", 0.02)  # GLOBAL stun chance (Lightning Mastery)
-			GameManager.add_mech("lightning_stun_dur", 0.05)     # GLOBAL stun duration
+			GameManager.add_mech("lightning_stun_chance", 0.10)  # GLOBAL stun chance (Lightning Mastery)
+			GameManager.add_mech("lightning_stun_dur", 0.10)     # GLOBAL stun duration
 	return true
 
 func arc_set_capstone(id: String) -> void:
@@ -4076,7 +4120,7 @@ func _arc_lvl() -> int:
 
 ## Arc per-link damage: base × Overvolt ranks. Energy/all masteries applied centrally in _roll_damage.
 func _arc_dmg() -> float:
-	var local := 1.0 + float(_arc_upg["damage"]) * 0.10
+	var local := 1.0 + float(_arc_upg["damage"]) * 0.20
 	var holy := 1.0
 	if _arc_capstone == "holy":
 		holy = 1.0 + 1.5 * float(maxi(0, _arc_jumps_normal()))   # all would-be bounces converted to damage
@@ -4094,12 +4138,12 @@ func _arc_jumps() -> int:
 
 ## Fire-rate multiplier on the Arc cooldown (Rapid Discharge ranks).
 func _arc_cd_mult() -> float:
-	return 1.0 / (1.0 + float(_arc_upg["firerate"]) * 0.08)
+	return 1.0 / (1.0 + float(_arc_upg["firerate"]) * 0.20)
 
 ## Per-hit chance to stun (Electrocute ranks + Lightning Mastery). Rolled via _proc (so Stroke of Luck applies).
 func _arc_electrocute_chance() -> float:
 	var lm: float = GameManager.mech_bonus("lightning_stun_chance") if GameManager.has_method("mech_bonus") else 0.0
-	return float(_arc_upg["electrocute"]) * 0.05 + lm
+	return float(_arc_upg["electrocute"]) * 0.10 + lm
 
 ## Stun duration: 0.5s normal / 0.2s boss, × Lightning Mastery duration bonus.
 func _arc_stun_dur(is_boss: bool) -> float:
@@ -4118,7 +4162,7 @@ func gauss_grant_upgrade(id: String) -> bool:
 		return false
 	_gauss_upg[id] = int(_gauss_upg.get(id, 0)) + 1
 	if id == "aoe_mastery" and GameManager.has_method("add_mech"):
-		GameManager.add_mech("aoe_pct", 0.05)   # GLOBAL: _aoe_radius reads mech_bonus("aoe_pct")
+		GameManager.add_mech("aoe_pct", 0.10)   # GLOBAL: _aoe_radius reads mech_bonus("aoe_pct")
 	return true
 
 func gauss_set_capstone(id: String) -> void:
@@ -4129,7 +4173,7 @@ func _gauss_lvl() -> int:
 
 ## Common Gauss damage multiplier (Amplify ranks). Energy/all masteries applied centrally in _roll_damage.
 func _gauss_dmg_factor() -> float:
-	return 1.0 + float(_gauss_upg["damage"]) * 0.10
+	return 1.0 + float(_gauss_upg["damage"]) * 0.20
 
 ## Orb damage budget. Spirit Bomb's extra scaling is applied in _fire_gauss.
 func _gauss_budget() -> float:
@@ -4143,15 +4187,15 @@ func _gauss_tick_dmg() -> float:
 func _gauss_charge_time() -> float:
 	if _gauss_capstone == "spirit_bomb":
 		return 5.0
-	var rate := 1.0 + float(_gauss_upg["cooldown"]) * 0.08 + (1.0 if _gauss_capstone == "pew" else 0.0)
+	var rate := 1.0 + float(_gauss_upg["cooldown"]) * 0.20 + (1.0 if _gauss_capstone == "pew" else 0.0)
 	return GAUSS_CHARGE_TIME / rate
 
 func _gauss_burn_chance() -> float:
-	return float(_gauss_upg["meltdown"]) * 0.05
+	return float(_gauss_upg["meltdown"]) * 0.10
 
 func _gauss_stun_chance() -> float:
 	var lm: float = GameManager.mech_bonus("lightning_stun_chance") if GameManager.has_method("mech_bonus") else 0.0
-	return float(_gauss_upg["emp"]) * 0.05 + lm
+	return float(_gauss_upg["emp"]) * 0.10 + lm
 
 ## Orb-size multiplier (Pew Pew: -75%).
 func _gauss_size_mult() -> float:
@@ -4276,32 +4320,68 @@ func _fire_death_beam(delta: float) -> void:
 ## (prev_from, prev_dir) to (cur_from, cur_dir) since the last damage tick. A single straight-line test
 ## only catches enemies exactly on the beam's CURRENT angle at the tick instant, so a beam that rotates
 ## fast (or a tick rate that's slow relative to turn speed) can tunnel past enemies it swept over between
-## ticks; this samples the swept arc instead. Substep count scales with the angle turned so the sampling
-## stays fine at high turn rates, capped to bound worst-case cost (e.g. a near-instant 180° flip).
+## ticks — the whole swept wedge has to count, not just its final edge.
+##
+## 2026-08-24 perf rewrite (user bug report: "laser bắn chạm vào địch, fps 165 → 125"). This used to SAMPLE the
+## arc: up to 513 substeps, each with a slerp + lerp + dot + length, run once PER LIVE ENEMY PER TICK. With a
+## few hundred creeps alive and the ship swinging the beam around (a fast turn pushes the step count to its
+## 512 cap, since it was sized off the beam's full 3000px range), that's tens of thousands of GDScript vector
+## ops inside a single frame — a ~20ms stall every damage tick, which at DEATHBEAM_TICK cadence reads exactly
+## as a sustained 165→125 FPS drop. It is now the closed form instead, O(1) and allocation-free:
+## with the origin held fixed, a point at distance d is within `w` of the ray aimed at angle θ exactly when
+## |θ − bearing| ≤ asin(w/d), so "was it ever swept" is just "is its bearing inside the swept arc, or within
+## asin(w/d) of an end of it" — no sampling, and no tunnelling either (the sampled version could still slip
+## between substeps; this one cannot).
 func _beam_swept_hit(prev_from: Vector2, prev_dir: Vector2, cur_from: Vector2, cur_dir: Vector2, block_along: float, hit_w: float, pos: Vector2) -> bool:
-	var ang_delta := absf(prev_dir.angle_to(cur_dir))
-	# Step count so consecutive samples are within ~hit_w of each other at the FAR end of the beam (arc
-	# length ≈ block_along * ang_delta) — a fixed angular step would under-sample at long range, letting
-	# far-away enemies still tunnel through a fast sweep even though near ones were caught.
-	var steps := clampi(int(ceil(block_along * ang_delta / maxf(1.0, hit_w))), 1, 512)
-	for i in range(steps + 1):
-		var t := float(i) / float(steps)
-		var dir_i := prev_dir.slerp(cur_dir, t)
-		var from_i := prev_from.lerp(cur_from, t)
-		var to_p: Vector2 = pos - from_i
-		var along := to_p.dot(dir_i)
-		if along < 0.0 or along > block_along:
-			continue
-		if (to_p - dir_i * along).length() <= hit_w:
-			return true
-	return false
+	# The closed form above assumes ONE origin, but the muzzle also travels while the beam sweeps. Shifting a
+	# ray's origin by `pad` moves any point's perpendicular distance to that ray by at most `pad`, so testing
+	# the single origin cur_from with hit_w + pad (and block_along + pad) is a conservative SUPERSET of the old
+	# per-substep test — it can never miss a hit the sampled version caught. Ship travel across one ~0.1s tick
+	# is a handful of px against a 14px-wide beam, so the widening is not perceptible.
+	var pad := prev_from.distance_to(cur_from)
+	var w := hit_w + pad
+	var reach := block_along + pad
+	var rel := pos - cur_from
+	var lim := reach + w
+	if rel.length_squared() > lim * lim:
+		return false          # past the far end (max range, or a boss blocking) — cheap squared reject, no sqrt
+	var d := rel.length()
+	if d <= w:
+		return true           # point-blank: inside the beam's own width whatever the angle
+	# Angular test. The sweep covers every angle between prev_dir and cur_dir the SHORT way round (matching
+	# Vector2.slerp's own path, which is what the sampled version walked). `dev` = how far the point's bearing
+	# sits OUTSIDE that arc (0 when it's inside).
+	var a0 := prev_dir.angle()
+	var sweep := angle_difference(a0, cur_dir.angle())   # signed, shortest
+	var off := angle_difference(a0, rel.angle())         # signed bearing offset from the arc's start
+	var dev := 0.0
+	if sweep >= 0.0:
+		if off < 0.0:
+			dev = -off
+		elif off > sweep:
+			dev = off - sweep
+	else:
+		if off > 0.0:
+			dev = off
+		elif off < sweep:
+			dev = sweep - off
+	if dev > asin(clampf(w / d, 0.0, 1.0)):
+		return false
+	return d * cos(dev) <= reach   # `along` at the closest swept angle — still inside the beam's LENGTH
 
 ## Multi-point wrapper for _beam_swept_hit(): tests `en`'s WHOLE hittable body (hit_points() — every segment
 ## for a Centipede, just its own global_position for everyone else) instead of a single point, so a beam
 ## sweeping across any part of a long body registers, not just its head.
 func _beam_swept_hit_enemy(prev_from: Vector2, prev_dir: Vector2, cur_from: Vector2, cur_dir: Vector2, block_along: float, hit_w: float, en: Node) -> bool:
-	var pts: Array = en.call("hit_points") if en.has_method("hit_points") else [(en as Node2D).global_position]
-	for pt: Vector2 in pts:
+	# Fast path: test the node's own position directly, with no Array allocated. arena_enemy.hit_points()
+	# returns a fresh `[global_position]` for everything that ISN'T a centipede, so calling it unconditionally
+	# churned one throwaway array per live enemy per beam tick for a point we can read straight off the node.
+	if _beam_swept_hit(prev_from, prev_dir, cur_from, cur_dir, block_along, hit_w, (en as Node2D).global_position):
+		return true
+	var beh: Variant = en.get("behavior")
+	if typeof(beh) != TYPE_STRING or String(beh) != "centipede" or not en.has_method("hit_points"):
+		return false   # single-point body — already tested above
+	for pt: Vector2 in en.call("hit_points"):
 		if _beam_swept_hit(prev_from, prev_dir, cur_from, cur_dir, block_along, hit_w, pt):
 			return true
 	return false
@@ -4609,7 +4689,7 @@ func red_x_grant_upgrade(id: String) -> bool:
 	_red_x_upg[id] = int(_red_x_upg.get(id, 0)) + 1
 	if GameManager.has_method("add_mech"):
 		if id == "fire":
-			GameManager.add_mech("burn_chance", 0.05)     # GLOBAL Fire Mastery
+			GameManager.add_mech("burn_chance", 0.10)     # GLOBAL Fire Mastery
 		elif id == "prolong":
 			GameManager.add_mech("burn_dur_add", 0.2)     # GLOBAL burn duration
 	return true
@@ -4623,17 +4703,17 @@ func _red_x_lvl() -> int:
 	return weapon_level("dragons_breath")
 
 func _dragon_dps() -> float:
-	return DRAGON_DPS * (1.0 + 0.10 * float(_red_x_upg["damage"]))
+	return DRAGON_DPS * (1.0 + 0.20 * float(_red_x_upg["damage"]))
 
 func _dragon_range() -> float:
-	return DRAGON_RANGE * (1.0 + 0.10 * float(_red_x_upg["range"]))
+	return DRAGON_RANGE * (1.0 + 0.20 * float(_red_x_upg["range"]))
 
 ## Full cone angle (deg). Wide Spray ranks + AoE. The Sun evo → full 360°.
 func _dragon_cone_deg() -> float:
 	if _red_x_capstone == "the_sun":
 		return 360.0
 	var aoe: float = GameManager.mech_bonus("aoe_pct") if GameManager.has_method("mech_bonus") else 0.0
-	return DRAGON_CONE_DEG * (1.0 + 0.15 * float(_red_x_upg["cone"])) * (1.0 + aoe)
+	return DRAGON_CONE_DEG * (1.0 + 0.20 * float(_red_x_upg["cone"])) * (1.0 + aoe)
 
 ## Per-tick burn chance: base + Fire Mastery (Stroke of Luck added by _proc at roll time).
 func _dragon_burn_chance() -> float:
@@ -4824,17 +4904,17 @@ func chem_grant_upgrade(id: String) -> bool:
 		return false
 	_chem_upg[id] = int(_chem_upg.get(id, 0)) + 1
 	if id == "intensity" and GameManager.has_method("add_mech"):
-		GameManager.add_mech("tick_rate", 0.05)   # GLOBAL (shared Intensity Mastery)
+		GameManager.add_mech("tick_rate", 0.10)   # GLOBAL (shared Intensity Mastery)
 	elif id == "ms":
-		GameManager.add_move_speed(0.04)
+		GameManager.add_move_speed(0.10)
 	return true
 
 func _chem_dmg_value() -> float:
-	return CHEMTRAIL_TICK_DAMAGE * (1.0 + 0.10 * float(_chem_upg["damage"]))
+	return CHEMTRAIL_TICK_DAMAGE * (1.0 + 0.20 * float(_chem_upg["damage"]))
 func _chem_dur_mult() -> float:
 	return 1.0 + 0.20 * float(_chem_upg["duration"])
 func _chem_burn_chance() -> float:   # per second (scaled by tick interval at roll time)
-	return 0.05 * float(_chem_upg["burn"])
+	return 0.10 * float(_chem_upg["burn"])
 func _chem_sedative() -> float:      # reduction fraction applied to enemy damage AND move speed
 	return 0.025 * float(_chem_upg["sedative"])
 
@@ -5232,7 +5312,7 @@ func orbital_grant_upgrade(id: String) -> bool:
 		return false
 	_orbital_upg[id] = int(_orbital_upg.get(id, 0)) + 1
 	if id == "contact" and GameManager.has_method("add_mech"):
-		GameManager.add_mech("contact_dmg_mult", 0.05)   # GLOBAL: every contact weapon + the ship reads this
+		GameManager.add_mech("contact_dmg_mult", 0.10)   # GLOBAL: every contact weapon + the ship reads this
 	return true
 
 func orbital_set_capstone(id: String) -> void:
@@ -5269,27 +5349,27 @@ func _orbital_lvl() -> int:
 ## Per-ball contact damage (Heavy Orbs ranks + Widen's damage half). Contact Mastery is applied globally in
 ## _roll_damage. Center of the Universe evo adds 100% armor + 5% Max HP on top (flat).
 func _orbital_dmg_value() -> float:
-	var dmg := ORBITAL_DAMAGE * (1.0 + 0.10 * float(_orbital_upg["damage"]) + 0.075 * float(_orbital_upg["widen"]))
+	var dmg := ORBITAL_DAMAGE * (1.0 + 0.20 * float(_orbital_upg["damage"]) + 0.20 * float(_orbital_upg["widen"]))
 	if _orbital_capstone == "center":
 		dmg += float(GameManager.upg_base_defense) + 0.05 * float(GameManager.ship_max_hp)
 	return dmg
 
 ## Spin multiplier (Overspin +15% + Flywheel +7%).
 func _orbital_spin_mult() -> float:
-	return 1.0 + 0.15 * float(_orbital_upg["spin"]) + 0.07 * float(_orbital_upg["spin2"])
+	return 1.0 + 0.20 * float(_orbital_upg["spin"]) + 0.20 * float(_orbital_upg["spin2"])
 
 ## Orbit radius (Tight Orbit -10%/rank vs Widen +5%/rank — opposing dials — floored so it never collapses).
 ## Pinned to base under Singularities.
 func _orbital_radius() -> float:
 	if _singularity_active:
 		return ORBITAL_RADIUS
-	var mult := pow(0.90, float(_orbital_upg["tighten"])) * (1.0 + 0.05 * float(_orbital_upg["widen"]))
+	var mult := pow(0.90, float(_orbital_upg["tighten"])) * (1.0 + 0.20 * float(_orbital_upg["widen"]))
 	return ORBITAL_RADIUS * maxf(0.3, mult)
 
 ## Ball-size multiplier (Bigger Orbs +10%) × AoE bonus.
 func _orbital_size_mult() -> float:
 	var aoe: float = GameManager.mech_bonus("aoe_pct") if GameManager.has_method("mech_bonus") else 0.0
-	return (1.0 + 0.10 * float(_orbital_upg["size"])) * (1.0 + aoe)
+	return (1.0 + 0.20 * float(_orbital_upg["size"])) * (1.0 + aoe)
 
 ## Avatar: assign each ball an element, spread as evenly as possible and avoiding two of the same in a row.
 func _rebuild_orbital_elements() -> void:
@@ -5641,7 +5721,7 @@ func shooter_grant_upgrade(id: String) -> bool:
 		return false
 	_shooter_upg[id] = int(_shooter_upg.get(id, 0)) + 1
 	if id == "automation" and GameManager.has_method("add_mech"):
-		GameManager.add_mech("automation_dmg", 0.05)   # GLOBAL: +5% to all automation weapons
+		GameManager.add_mech("automation_dmg", 0.10)   # GLOBAL: +5% to all automation weapons
 	return true
 
 func shooter_set_capstone(id: String) -> void:
@@ -5650,9 +5730,9 @@ func shooter_set_capstone(id: String) -> void:
 		_shooter_rebuild_elements()
 
 func _shooter_dmg() -> float:
-	return SHOOTER_DAMAGE * (1.0 + 0.10 * float(_shooter_upg["damage"]))
+	return SHOOTER_DAMAGE * (1.0 + 0.20 * float(_shooter_upg["damage"]))
 func _shooter_crit() -> float:
-	return 0.05 * float(_shooter_upg["crit"])   # local crit (folded into _roll_damage for kind "shooter")
+	return 0.10 * float(_shooter_upg["crit"])   # local crit (folded into _roll_damage for kind "shooter")
 func _shooter_count() -> int:
 	var n := SHOOTER_BASE_ORBS + int(_shooter_upg["morebital"])
 	if _shooter_capstone == "the_fleet":
@@ -5701,7 +5781,7 @@ func _tick_shooter(delta: float, enemy_on_screen: bool) -> void:
 		_shooter_orbs.pop_back()
 	if _shooter_capstone == "avatar2" and _shooter_elements.size() != n:
 		_shooter_rebuild_elements()
-	var rate := maxf(0.01, _rate_mult * (1.0 + 0.08 * float(_shooter_upg["firerate"])))
+	var rate := maxf(0.01, _rate_mult * (1.0 + 0.20 * float(_shooter_upg["firerate"])))
 	for i in _shooter_orbs.size():
 		var orb: Dictionary = _shooter_orbs[i]
 		orb["pos"] = _shooter_slot_pos(i, n)   # locked to the ship — no trailing/lag
@@ -5724,7 +5804,7 @@ func _tick_shooter(delta: float, enemy_on_screen: bool) -> void:
 			var tgt := _nearest_enemy(orb["pos"] as Vector2, SHOOTER_RANGE, [])
 			if tgt != null and is_instance_valid(tgt):
 				var bursts := 1
-				if _proc(0.08 * float(_shooter_upg["multishot"])):
+				if _proc(0.10 * float(_shooter_upg["multishot"])):
 					bursts += 1                              # Scatter Volley: a bonus burst
 				orb["burst_left"] = SHOOTER_BURST * bursts
 				orb["gap"] = 0.0
@@ -6012,14 +6092,14 @@ func _player2_weapon_count() -> int:
 			c += 1
 	return c
 func _player2_dmg_scale() -> float:
-	var m := 1.0 + 0.05 * float(_player2_upg["damage"])                                    # Overclock
+	var m := 1.0 + 0.20 * float(_player2_upg["damage"])                                    # Overclock
 	m *= 1.0 + 0.0125 * float(_player2_upg["diversify"]) * float(_player2_weapon_count())  # Diversification Mastery
 	return 0.25 * m
 func _player2_fam_bonus() -> Dictionary:
 	return {
-		"kinetic":    0.10 * float(_player2_upg["kinetic"]),
-		"energy":     0.10 * float(_player2_upg["energy"]),
-		"biochemical": 0.10 * float(_player2_upg["biochemical"]),
+		"kinetic":    0.20 * float(_player2_upg["kinetic"]),
+		"energy":     0.20 * float(_player2_upg["energy"]),
+		"biochemical": 0.20 * float(_player2_upg["biochemical"]),
 	}
 ## The weapons Player 2 copies = the top (1 + Proactive rank) by level, highest first (excluding P2 itself).
 func _player2_copy_list() -> Array:
@@ -6271,6 +6351,36 @@ func available_fusions() -> Array:
 			out.append(fid)
 	return out
 
+## The weapon kinds that are ONE HALF of a recipe whose other half you already own, but which can't fuse yet
+## because at least one side is still below FUSION_MIN_LEVEL. Only the side(s) actually short of the gate are
+## returned, and only while still upgradeable.
+##
+## 2026-08-25, on request: a READY fusion already gets a guaranteed card (see available_fusions() and
+## arena_levelup_ui._generate_choices), but getting there was pure luck — with a big roster of weapons and aux
+## competing for 3 slots, the two components you need to level could go unoffered for many level-ups
+## ("roll mãi ko ra được level up để fuse"). The board now always keeps one of them on the table.
+func pending_fusion_components() -> Array:
+	var out: Array = []
+	for fid: String in FUSION_DEFS.keys():
+		if fid in _acquired:
+			continue
+		var rec: Dictionary = FUSION_DEFS[fid]
+		var a := String(rec["a"])
+		var b := String(rec["b"])
+		if not ((a in _acquired) and (b in _acquired)):
+			continue
+		if weapon_capstone(a) != "" or weapon_capstone(b) != "":
+			continue   # an evolved component can never fuse — same rule available_fusions() uses
+		var la := int(_levels.get(a, 1))
+		var lb := int(_levels.get(b, 1))
+		if la >= FUSION_MIN_LEVEL and lb >= FUSION_MIN_LEVEL:
+			continue   # already ready → available_fusions()'s own guaranteed card covers this recipe
+		for k: String in [a, b]:
+			var lv := la if k == a else lb
+			if lv < FUSION_MIN_LEVEL and weapon_can_upgrade(k) and not (k in out):
+				out.append(k)
+	return out
+
 ## Perform a fusion: remove both components, grant the fused kind (carrying the maxed state).
 func fuse(fusion_id: String) -> bool:
 	if not FUSION_DEFS.has(fusion_id):
@@ -6423,7 +6533,16 @@ func spawn_weapon_pickup(kind: String, world_pos: Vector2) -> void:
 	var p := PickupScript.new()
 	p.add_to_group("debug_weapon_pickup")
 	get_parent().add_child(p)
-	p.setup(world_pos, kind)
+	# The 3D art is resolved HERE, not inside the pickup: arena_weapon_pickup.gd can't preload this file
+	# back (PickupScript above is already a preload the other way). See ARENA_PICKUP_GLB's own comment for
+	# why this is a manual table, not InventoryManager.glb_for() (which is right for the level-up board and
+	# WRONG here for several weapons whose sibling glb is their ammo, not the gun).
+	p.setup(world_pos, kind, _pickup_glb(kind))
+
+## The .glb art for a weapon KIND on the ARENA specifically, or "" when none is curated (the pickup then
+## draws its procedural crate — the default for every weapon not listed in ARENA_PICKUP_GLB).
+func _pickup_glb(kind: String) -> String:
+	return String(ARENA_PICKUP_GLB.get(kind, ""))
 
 ## Debug (legacy F12): drop a Lasgun pickup at a world position on the gameplay plane.
 func spawn_death_beam_pickup_near(world_pos: Vector2) -> void:
@@ -6981,7 +7100,7 @@ func mortar_grant_upgrade(id: String) -> bool:
 		return false
 	_mortar_upg[id] = int(_mortar_upg.get(id, 0)) + 1
 	if id == "kinetic" and GameManager.has_method("add_mech"):
-		GameManager.add_mech("kinetic_dmg", 0.05)   # GLOBAL: shared Kinetic Mastery (same key as Gatling's)
+		GameManager.add_mech("kinetic_dmg", 0.10)   # GLOBAL: shared Kinetic Mastery (same key as Gatling's)
 	return true
 
 func mortar_set_capstone(id: String) -> void:
@@ -7012,17 +7131,17 @@ func _mortar_cap_rate_mult() -> float:
 
 ## Per-shot damage (Bigger Payload + Concentrated Fire + capstone; global/family/crit added by _roll_damage).
 func _mortar_shot_damage() -> float:
-	var m := 1.0 + 0.10 * float(_mortar_upg["damage"]) + 0.15 * float(_mortar_upg["concentrated"])
+	var m := 1.0 + 0.20 * float(_mortar_upg["damage"]) + 0.20 * float(_mortar_upg["concentrated"])
 	return MORTAR_DAMAGE * m * _mortar_cap_dmg_mult()
 
 ## Blast radius (Wider Blast + Concentrated Fire trade-off + capstone + global AoE mods).
 func _mortar_blast_radius() -> float:
-	var m := maxf(0.05, 1.0 + 0.10 * float(_mortar_upg["aoe"]) - 0.10 * float(_mortar_upg["concentrated"]))
+	var m := maxf(0.05, 1.0 + 0.20 * float(_mortar_upg["aoe"]) - 0.20 * float(_mortar_upg["concentrated"]))
 	return _aoe_radius(MORTAR_AOE * m * _mortar_cap_aoe_mult())
 
 ## Fire interval (Rapid Reload + capstone + global fire-rate).
 func _mortar_interval() -> float:
-	var fr := _rate_mult * (1.0 + 0.08 * float(_mortar_upg["firerate"])) * _mortar_cap_rate_mult()
+	var fr := _rate_mult * (1.0 + 0.20 * float(_mortar_upg["firerate"])) * _mortar_cap_rate_mult()
 	return MORTAR_FIRE_INTERVAL / maxf(0.01, fr)
 
 ## Mortar: auto-fire one mortarbullet toward the mouse. The Fusion Reactor evolve turns it off (passive core).
@@ -7316,13 +7435,13 @@ func sonic_grant_upgrade(id: String) -> bool:
 	return true
 
 func _sonic_dmg() -> float:
-	return SONIC_DAMAGE * (1.0 + 0.10 * float(_sonic_upg["damage"]))
+	return SONIC_DAMAGE * (1.0 + 0.20 * float(_sonic_upg["damage"]))
 func _sonic_range() -> float:
-	return SONIC_MAX_RADIUS * (1.0 + 0.15 * float(_sonic_upg["range"]))
+	return SONIC_MAX_RADIUS * (1.0 + 0.20 * float(_sonic_upg["range"]))
 func _sonic_cd_mult() -> float:
-	return 1.0 + 0.08 * float(_sonic_upg["cd"])
+	return 1.0 + 0.20 * float(_sonic_upg["cd"])
 func _sonic_freeze() -> float:
-	return 0.05 * float(_sonic_upg["cold"])
+	return 0.10 * float(_sonic_upg["cold"])
 ## Cone half-angle: base + 7.5°/rank (15° per rank full), × AoE bonus.
 func _sonic_cone_half() -> float:
 	var aoe: float = GameManager.mech_bonus("aoe_pct") if GameManager.has_method("mech_bonus") else 0.0
@@ -7419,15 +7538,15 @@ func zsword_grant_upgrade(id: String) -> bool:
 	return true
 
 func _zsword_dmg() -> float:
-	return ZSWORD_DAMAGE * (1.0 + 0.10 * float(_zsword_upg["damage"]))
+	return ZSWORD_DAMAGE * (1.0 + 0.20 * float(_zsword_upg["damage"]))
 func _zsword_length() -> float:
-	return ZSWORD_LENGTH * (1.0 + 0.15 * float(_zsword_upg["size"]))
+	return ZSWORD_LENGTH * (1.0 + 0.20 * float(_zsword_upg["size"]))
 func _zsword_cd_mult() -> float:
-	return 1.0 + 0.08 * float(_zsword_upg["cd"])
+	return 1.0 + 0.20 * float(_zsword_upg["cd"])
 func _zsword_crit() -> float:
-	return 0.05 * float(_zsword_upg["crit"])
+	return 0.10 * float(_zsword_upg["crit"])
 func _zsword_divergence() -> float:
-	return 0.05 * float(_zsword_upg["divergence"])
+	return 0.10 * float(_zsword_upg["divergence"])
 func _zsword_swords() -> int:
 	return 2 if _zsword_capstone == "dual" else 1
 
@@ -7545,7 +7664,7 @@ func ionize_set_capstone(id: String) -> void:
 
 ## Field damage per tick (Field Density + Zone evolves).
 func _ionize_dmg() -> float:
-	var d := IONIZE_DAMAGE * (1.0 + 0.10 * float(_ionize_upg["damage"]))
+	var d := IONIZE_DAMAGE * (1.0 + 0.20 * float(_ionize_upg["damage"]))
 	if _ionize_capstone == "zone_of_absolution":
 		d *= IONIZE_ABSOLUTION_DMG
 	elif _ionize_capstone == "zone_of_war":
@@ -7554,7 +7673,7 @@ func _ionize_dmg() -> float:
 
 ## Field radius (Event Horizon + Zone of Absolution + global AoE mods).
 func _ionize_field_radius() -> float:
-	var m := 1.0 + 0.10 * float(_ionize_upg["aoe"])
+	var m := 1.0 + 0.20 * float(_ionize_upg["aoe"])
 	if _ionize_capstone == "zone_of_absolution":
 		m *= IONIZE_ABSOLUTION_AOE
 	return _aoe_radius(IONIZE_RADIUS * m)
@@ -7672,12 +7791,16 @@ func _tick_ionize(delta: float) -> void:
 				en.take_damage(float(r["dmg"]), 0.0)
 				if bool(r["is_crit"]):
 					_spawn_crit_number(en_hp, float(r["dmg"]))
-			# Field status procs (per tick, ~3.3/s): 1%/rank each, + Stroke of Luck via _proc.
-			if frz > 0 and en.has_method("apply_freeze") and _proc(0.01 * float(frz)):
+			# Field status procs (per tick, ~3.3/s): 10%/rank each, + Stroke of Luck via _proc.
+			# NOTE these are the only PER-TICK chance perks in the game — every other "chance" perk rolls per
+			# shot or per second. At 3.3 ticks/s, 10%/rank/tick is ~28%/s at rank 1 and ~97%/s at rank 5, on
+			# EVERY enemy in the field at once. Raised from 1% with the rest of the chance perks on request;
+			# flagged because this one is far more potent than its number suggests.
+			if frz > 0 and en.has_method("apply_freeze") and _proc(0.10 * float(frz)):
 				en.apply_freeze(1)
-			if brn > 0 and en.has_method("apply_burn") and _proc(0.01 * float(brn)):
+			if brn > 0 and en.has_method("apply_burn") and _proc(0.10 * float(brn)):
 				en.apply_burn(1)
-			if shk > 0 and en.has_method("apply_stun") and _proc(0.01 * float(shk)):
+			if shk > 0 and en.has_method("apply_stun") and _proc(0.10 * float(shk)):
 				en.apply_stun(IONIZE_STUN_DUR)
 	for ruin in _ruins():
 		if not is_instance_valid(ruin):
@@ -8044,17 +8167,17 @@ func boom_set_capstone(id: String) -> void:
 
 # ── Boomerang effective stats (pool + capstone) ──
 func _boom_dmg() -> float:
-	var m := 1.0 + 0.10 * float(_boom_upg["damage"])
+	var m := 1.0 + 0.20 * float(_boom_upg["damage"])
 	if _boom_capstone == "death_roll":
 		m *= 2.0   # Death Roll: +100% damage
 	return BOOM_DAMAGE * m
 func _boom_speed_mult() -> float:
-	var m := 1.0 + 0.10 * float(_boom_upg["speed"])
+	var m := 1.0 + 0.20 * float(_boom_upg["speed"])
 	if _boom_capstone == "death_roll":
 		m *= 0.30   # Death Roll: -70% throw speed
 	return m
 func _boom_size_mult() -> float:
-	return 1.0 + 0.10 * float(_boom_upg["size"])
+	return 1.0 + 0.20 * float(_boom_upg["size"])
 ## Target blade count: base + Nanobots Bodies + Split Blade picks + Chaos evolve.
 func _boom_target_count() -> int:
 	var n := BOOM_COUNT + _body_count() + int(_boom_upg["count"])
@@ -8170,9 +8293,9 @@ func para_set_capstone(id: String) -> void:
 
 # ── Parasite effective stats (pool ranks) ──
 func _para_dmg() -> float:
-	return PARA_DAMAGE * (1.0 + 0.10 * float(_para_upg["damage"]))
+	return PARA_DAMAGE * (1.0 + 0.20 * float(_para_upg["damage"]))
 func _para_radius() -> float:
-	return _aoe_radius(PARA_RADIUS * (1.0 + 0.10 * float(_para_upg["aoe"])))
+	return _aoe_radius(PARA_RADIUS * (1.0 + 0.20 * float(_para_upg["aoe"])))
 func _para_lifetime() -> float:
 	return PARA_LIFETIME * (1.0 + 0.20 * float(_para_upg["duration"]))
 
@@ -10107,28 +10230,52 @@ func _tick_predator(delta: float, enemy_on_screen: bool) -> void:
 		_predator_prev_valid = true
 
 ## The beam direction from `head` that crosses the MOST enemies (candidate directions = toward each enemy).
+##
+## 2026-08-24 perf pass — same report as _beam_swept_hit's rewrite above (Predator is viper + death_beam, so
+## it fires the same laser on the same DEATHBEAM_TICK cadence). Two changes, no change to what it picks in
+## any ordinary fight:
+##   • Every enemy's hit point + hit width is resolved ONCE into flat arrays instead of re-running
+##     _hit_pos() (a has_method + call) and en.get("hit_radius") inside the O(N²) inner loop — that was
+##     ~2 dictionary-ish lookups per PAIR, i.e. ~180k of them at 300 creeps alive.
+##   • Candidate directions are capped at AIM_CANDIDATES, sampled with an even stride across the (already
+##     spatially unsorted) enemy list rather than truncating to the first N — the search stays O(cap·N)
+##     instead of O(N²). Below the cap this is bit-for-bit the old search; above it, the beam still lines up
+##     on a dense cluster (any of the many enemies inside one gives nearly the same direction), it just
+##     stops re-deriving that same answer a few hundred redundant times.
+## Perpendicular distance is compared SQUARED (|to_e|² − along² vs hit_w²) so the inner loop needs no sqrt.
+const AIM_CANDIDATES := 48   # max candidate beam directions tested per Predator aim tick (see above)
+
 func _best_beam_dir(head: Vector2) -> Vector2:
 	var enemies := _enemies()
+	var pos: Array[Vector2] = []
+	var w2: Array[float] = []     # each enemy's hit width, SQUARED
+	for en in enemies:
+		if not is_instance_valid(en):
+			continue
+		var _en_r: Variant = en.get("hit_radius")
+		var hw: float = DEATHBEAM_WIDTH * 0.5 + (float(_en_r) if _en_r != null else DEATHBEAM_HIT_PAD)
+		pos.append(_hit_pos(en, head) - head)
+		w2.append(hw * hw)
+	var n := pos.size()
+	if n == 0:
+		return _predator_aim
 	var best_dir := _predator_aim
 	var best_count := -1
-	for cand in enemies:
-		if not is_instance_valid(cand):
-			continue
-		var cd: Vector2 = _hit_pos(cand, head) - head
-		if cd.length() < 1.0:
+	var stride: int = maxi(1, int(ceil(float(n) / float(AIM_CANDIDATES))))
+	var c := 0
+	while c < n:
+		var cd: Vector2 = pos[c]
+		c += stride
+		if cd.length_squared() < 1.0:
 			continue
 		var dir := cd.normalized()
 		var count := 0
-		for en in enemies:
-			if not is_instance_valid(en):
-				continue
-			var to_e: Vector2 = _hit_pos(en, head) - head
+		for i in n:
+			var to_e: Vector2 = pos[i]
 			var along := to_e.dot(dir)
 			if along < 0.0 or along > DEATHBEAM_RANGE:
 				continue
-			var _en_r = en.get("hit_radius")
-			var hit_w: float = DEATHBEAM_WIDTH * 0.5 + (float(_en_r) if _en_r != null else DEATHBEAM_HIT_PAD)
-			if (to_e - dir * along).length() <= hit_w:
+			if to_e.length_squared() - along * along <= w2[i]:
 				count += 1
 		if count > best_count:
 			best_count = count

@@ -3,6 +3,400 @@
 > Module of [`CLAUDE.md`](../CLAUDE.md). Read this when working on enemy behavior, bosses, waves, arena enemies, ruins, enemy panel.
 > Always-on core rules (conventions, coordinate system, image/render rules, LOCKED MODULES) live in CLAUDE.md — read that too.
 
+## Changelog — 2026-08-25 (47th pass) — dummy really is blocked now; boss_stub can never be fielded as a creep
+
+### "Trước đây tôi đã set rule là ko spawn dummy rồi? Vì sao giờ vẫn còn thấy trên arena?"
+
+Because the 43rd pass only blocked the AUTOMATIC selection pools and deliberately let an **authored** row
+through ("an explicitly authored timeline row still spawns itself"). That was the wrong call here:
+`elecforest.json` authors **290 dummies across 6 rows** (t=270, 420, 1380, 1440, 1530, 1680), so on Electric
+they kept arriving exactly as before. My note claiming it was handled was true only of the pools.
+
+Fixed at the fire path: `_tl_fire()` now refuses any type whose def carries `no_auto`. Blocking it there
+rather than in `_spawn_def()` deliberately keeps `arena_debug_spawn`'s Quick Spawn working — that is the
+intended way to put a test dummy on the field.
+
+Also closed a second hole found while auditing: `_timeline_earliest_type_pool()` (the reinforcement pool used
+before the timeline's first entry fires) filtered `elite` but **never** boss_stub/gate_waves/no_auto, on both
+its direct-type and fleet-member branches. Both now use `is_auto_excluded()`, matching
+`_timeline_type_pool()`.
+
+### "Metalfly là boss, không được spawn ra như creep"
+
+`metalfly` is already `behavior: "boss_stub"`, so every automatic pool excluded it. The gap was an authored
+row: `_tl_fire` passes `is_boss` straight from the entry, so a row that names a boss_stub type **without**
+`is_boss: true` spawned it as an ordinary capped creep with none of a boss's handling.
+
+`_spawn_def()` now promotes any boss_stub def to `is_boss = true` regardless of how it was requested. That is
+the single funnel every spawn passes through, so "fielded as a creep" is simply not reachable any more.
+
+**Verified** with a temp timeline authoring `dummy` ×40 (t=5) and `metalfly` ×3 **without** `is_boss` (t=10),
+on the Electric map:
+```
+t= 6 | dummy=0 | metalfly as BOSS=0 as CREEP=0
+t=12 | dummy=0 | metalfly as BOSS=3 as CREEP=0
+```
+Every dummy refused; every metalfly promoted to a real boss, none as a creep.
+
+> The 290 dummy rows are still sitting in `elecforest.json` — now inert. Say the word and I'll strip them so
+> the timeline reads honestly in F7; I left the level data alone rather than editing authored content unasked.
+
+## Changelog — 2026-08-25 (46th pass) — Elite/Champion now drop a collectible weapon (3D if it has a model)
+
+"Khi bắn chết elite / champion, tôi cần icon weapon drop ra trên màn hình (nếu trong inventory có glb thì drop
+object glb xoay tròn, ko có thì fallback png). Khi ăn thì có notification ở góc dưới bên phải: '[tên vũ khí]
+has been acquired. Press I to view'."
+
+New **`scripts/gameplay/arena_item_drop.gd`** — a collectible keyed by an `InventoryManager` **def_id** (not a
+weapon KIND like `arena_weapon_pickup.gd`, which arms the bespoke 5-slot arena loadout). It goes into the
+**backpack**, which is what makes "Press I to view" the right call to action.
+
+Art follows the request exactly, with a third safety rung:
+1. `InventoryManager.get_glb(def_id)` returns a model → live SubViewport render spinning at `MODEL_RPM`
+   (`arena_loot.gd`'s recipe: SubViewport + 2 DirectionalLight3D + ambient + Camera3D at `ISO_DEG`, model
+   centred on its own AABB). Served through `item_3d_icon.warm_scene()`, so a heavy model comes from the
+   shared warm cache instead of cold-loading mid-fight.
+2. otherwise → the item's flat PNG icon, drawn aspect-correct (width fixed, height from the texture ratio).
+3. neither → a rarity-coloured diamond, so a drop can never be invisible.
+
+Both forms get a rarity-tinted pulsing glow halo and a bob, and collect at `COLLECT_RANGE` (fixed range — it
+does not magnetise like an XP orb). On pickup: `add_to_backpack()` + `MetaManager.mark_run_temp()` (in-run
+loot, purged next run — same lifecycle as the existing field drops), then the notice. A full backpack says so
+instead of silently swallowing the drop.
+
+`ArenaToast.show()` gained a `corner` argument; `"bottom_right"` is the new placement, clear of the
+top-centre chrome and the bottom-centre HP/Shield/Level bars. Every existing caller keeps the default `"top"`.
+
+**Additive, not a replacement**: Elite still drops its 50 coin and Champion still grants its guaranteed-new
+weapon/aux pick — the drop is on top of both. Say the word if it should replace them instead. Champion rolls
+from a higher rarity cap (`very_rare`) than Elite (`rare`), via the same `MetaManager.roll_boss_weapon()` the
+mid-run field drops already use.
+
+**One real bug caught during verification**: `ArenaToast` parents its CanvasLayer *and its fade tween* to the
+host it is given, and the drop `queue_free()`s itself 0.25s into its pop — hosting the toast on `self` killed
+the notice a quarter-second in, far short of its 3s life. It is hosted on the parent (the Arena) instead.
+
+**Verified in a live arena, screenshotted:** the drop rendering as a spinning 3D model in its glow halo above
+the ship, and the pickup notice reading `GATLING GUN HAS BEEN ACQUIRED. PRESS I TO VIEW` in the bottom-right.
+Both art paths confirmed in the log (`mortar` → PNG, `gauss`/`homing_missile`/`z_sword` → 3D).
+
+> Noted while testing, not changed: the first Elite actually appears at `START_DELAY + INTERVAL` (90+30 =
+> 120s), and the first Champion at 150+60 = 210s — the accumulator only starts counting *after* the start
+> delay, so both tiers arrive one full interval later than the constant names suggest.
+
+## Changelog — 2026-08-25 (45th pass) — centipede wasn't tanky, most of its body simply could not be hit
+
+"Nghiên cứu kĩ centipede xem có cái gì đó làm cho creep này nhân HP lên khác biệt hẳn với các con khác, có
+thể do số node của nó chăng? Nó rất khỏe, bắn mãi ko chết."
+
+The instinct was right that the segments are responsible — but **not through HP**. There is no node-count HP
+multiplier anywhere: `hp_max = def.hp × lvl_mult × beacon × ENEMY_HP_TUNE`, and `centi_segments` never enters
+it. Measured live, a `centipede` has **30 HP** (15 base × ×2 tune) — one of the *weakest* creeps on the roster,
+with armor 7 (≈27% reduction). Nothing about its durability was unusual.
+
+**The real cause was the collision broad phase.** `arena_weapons._rebuild_grid()` indexed every enemy by
+`global_position` alone — which for a centipede is its **HEAD**. Its body trails ~330px behind, far past
+`GRID_CELL` (128), so the enemy only ever became a hit candidate for projectiles near its head. Probed in a
+live arena:
+
+```
+BEFORE  segs=10  head_to_tail=345px  head_cell=(2,-8) tail_cell=(5,-7)
+        grid finds it at TAIL: false   |  segments UNHITTABLE by the grid: 9 of 10
+AFTER   segs=10  head_to_tail=345px
+        grid finds it at TAIL: true    |  segments UNHITTABLE by the grid: 0 of 10
+```
+
+So **7–9 of its 10 segments had no hit test run against them at all** — bullets flew straight through the
+visible body. You were shooting a creep that mostly wasn't there to hit, which is exactly "bắn mãi ko chết".
+
+The narrow phase was never at fault: callers already resolve `_hit_pos()` → `nearest_hit_point()`, which picks
+the nearest segment correctly. The enemy just never reached them. That also explains why it read as tanky
+mainly against projectile weapons — the Lasgun/Predator beams iterate `_enemies()` directly with no grid, so
+those always could hit the body.
+
+**Fix**: a multi-point body now registers in **every cell it occupies**. Only centipedes pay the extra cost —
+`hit_points()` allocates, so it is called only for that behavior (the same guard `_beam_swept_hit_enemy()`
+uses), and cells are de-duplicated since consecutive segments usually share one. Confirmed after the fix that
+a centipede's HP actually drops under fire (30 → 13 over the probe window) instead of sitting at full.
+
+Applies to every centipede-behavior creep: `centipede`, `atlantic_centipede`, `hammerhead`, `killerwhale`,
+`shark_elite`, `spermwhale2`.
+
+## Changelog — 2026-08-25 (44th pass) — the ranged ceiling is now ABSOLUTE (boss/elite/champion excepted)
+
+"Luật trần 10 con này là cao nhất override các rule khác (trừ boss, ví dụ đang có 10 con bắn rồi, boss vẫn có
+thể spawn được, boss bao gồm cả elite và champion)."
+
+Audited **every** path an enemy can reach the field, rather than assuming the one fixed last pass was the
+only one:
+
+| path | status |
+|---|---|
+| `_spawn_def()` — ambient loop, timeline units, catch-up, **debug Quick Spawn** | already gated ✓ |
+| `_deploy_fleet()` via `_drain_fleet_queue()` | gated, but had an escape hatch → **fixed** |
+| `_spawn_sibling()` — stone→magma death-spawns, alien morphs | ungated → **closed** |
+| boss / elite / champion | exempt **by design** ✓ |
+
+**The escape hatch.** Last pass admitted an over-sized formation whole "when the field is clear of shooters,
+better than a permanently stuck queue". `fleet_layout.cfg` has two formations that carry more ranged units
+than the whole ceiling — `AT.Squid.Grid.15` (15) and `AT.StingrayElite.Row.11` (11) — so that hatch really
+did breach the rule. It is gone. Such a formation now waits for the ceiling's full worth of room and then
+deploys **thinned**: `_deploy_fleet()` takes a `shoot_budget` and skips ranged escorts past it (melee members
+untouched). Safe to thin because escorts are built from the `roster` array handed to `init_fleet_dock()` — a
+shorter roster is simply a smaller formation; orphaning only happens when a LIVE escort loses its carrier.
+
+**`_spawn_sibling()`** builds an arena_enemy directly, bypassing `_spawn_def()`. No def death-spawns a ranged
+creep today (every stone→magma target is behavior `"chase"`), so this is a no-op right now — new public
+`can_spawn_shooter()` closes it so a future def can't silently reopen the hole the way `"sentinel"` did.
+
+**Verified** — stress timeline: the 15-ranged squid grid ×6, 150 `shooter`, 80 `sentinel`, the 11-ranged
+stingray fleet ×4, with Elite/Champion timers shrunk so both fire into a saturated field:
+```
+t= 3 | normal_shooters=10/10 OK | elite/champ_exempt=0 | total=10 | fleetq=0
+t= 9 | normal_shooters=10/10 OK | elite/champ_exempt=0 | total=10 | fleetq=6
+t=15 | normal_shooters= 9/10 OK | elite/champ_exempt=2 | total=11 | fleetq=6
+t=18 | normal_shooters= 8/10 OK | elite/champ_exempt=3 | total=11 | fleetq=6
+```
+Normal ranged creeps never exceed 10; Elite/Champion spawn **on top** of a full ceiling, exactly as
+specified (both are `def["elite"] = true`, which is the same flag the `not is_boss and not elite` guard in
+`_spawn_def()` already honoured). Queued formations wait rather than being dropped.
+
+## Changelog — 2026-08-25 (43rd pass) — the ranged classifier had drifted from the code; `dummy` excluded from every auto-spawn path
+
+### "9 animalhornet và 16 sentinel (các sentinel này cũng bắn đạn), vậy là vi phạm rule rồi"
+
+Correct — and the ceiling itself was working; the **classifier** feeding it was wrong.
+`WaveHpGen.SHOOT_BEHAVIORS` was a hand-written list of 4 behaviors that had silently drifted from
+`arena_enemy.gd`. An audit of every `case` in `_tick_behavior()` for `spawn_bullet` / `throw_bomb` /
+`_beamer_tick` / the missile volley found **six** firing behaviors, not four:
+
+| behavior | fires? | was classified? |
+|---|---|---|
+| shooter, beamer, bomber, missile | yes | yes |
+| **sentinel** | yes — a 5-bullet fan at the player every 2s | **NO** |
+| **steer_kiter** | yes — fires while kiting (spawn_mode_2's test_kiter) | **NO** |
+
+`sentinel` is the one that produced the report: that id sits inside the **Kingdom1/Kingdom2 fleets**, so
+`fleet_shoot_count()` returned **0** for those formations and `_drain_fleet_queue()`'s ranged ceiling waved
+every Kingdom deployment straight through. Verified after the fix — the same fleets now report correctly:
+
+```
+[TMP-shootids] 11: animalhornet, atlantic_squid, beamer, missile, pros5, sentinel,
+                   shark_elite, shooter, stingray_elite, test_charger, test_kiter   (was 9)
+[TMP-pool] kingdom1_shooters=1  kingdom2_shooters=1                                 (was 0, 0)
+```
+
+Worth stating precisely: `sentinel1`–`sentinel4`/`sentinelleader` are behavior `"patrol"` and genuinely do
+**not** fire — they only carry `strike_back` (turn and chase once hit) plus contact damage. Only the plain
+`sentinel` id is ranged. A Kingdom1 deployment is 1 ranged + 8 melee.
+
+The list now carries a note to re-run that audit whenever a behavior gains or loses a projectile.
+
+### "dummy ko bao giờ được tự động Gen và spawn trên arena, vì đây là creep test"
+
+New `WaveHpGen.is_auto_excluded(def)` — data-driven (`"no_auto": true` on the def) rather than an
+`id == "dummy"` check copy-pasted across call sites, so any future test/target creep just gets the flag.
+`invincible` counts as an implicit opt-out on its own: a creep that cannot be killed can never be cleared,
+so auto-spawning one would wedge the field and the alive-cap forever — `dummy` carries both flags.
+
+Wired into all four AUTOMATIC selection paths (it also subsumes the `boss_stub`/`gate_waves` checks each of
+them already had): F7's "Gen" candidate pool, the runtime HP-milestone generator's pool, the low-population
+reinforcement pool, and Elite/Champion promotion. Verified: `dummy_in_gen_pool=false`.
+
+Deliberately still works: an explicitly authored timeline row, Fleet Edit membership, and
+`arena_debug_spawn`'s Quick Spawn — those are the manual test paths and are the whole point of the creep.
+
+## Changelog — 2026-08-25 (42nd pass) — Elite/Champion verified live; glowing tier ring (gold/red)
+
+### "Cơ chế spawn elite/champion còn hoạt động không? Có drop weapon/aux mỗi khi bắn được elite/champion không?"
+
+Verified live, not just read — shrunk `ELITE_CREEP_START_DELAY`/`CHAMPION_CREEP_START_DELAY` for one boot,
+one-shot-killed the first of each the instant it spawned, and watched the actual reward call fire:
+```
+[TMP-tier] spawned base=pirate1 champion=false elite=true hp=140
+[TMP-die]  ELITE died, type=pirate1 mgr_found=true will_spawn_coin=true
+[TMP-tier] spawned base=piratespearshield champion=true elite=true hp=300
+[TMP-die]  CHAMPION died, type=piratespearshield ui_found=true will_grant=true
+```
+Both tiers still spawn on their own timers (Elite every 30s from t=90, Champion every 60s from t=150, each
+promoting the current wave's own weakest not-yet-promoted type) and both still pay out on death exactly as
+designed: **Elite → flat 50 coin**, **Champion → guaranteed-new weapon/aux pick** (`grant_champion_reward()`,
+falling back to a unique fragment if every run-slot is already full). Neither the 2026-08-24 HP-milestone
+generator nor the fleet ranged-ceiling touched this path — `_spawn_tiered_creep()` calls `_spawn_def()`
+directly with `def["elite"]=true`, which is the SAME flag that exempts it from the new shooter/alive-cap gate
+(see the 41st-pass entry).
+
+*(Process note: the diagnostic pass that confirmed this also caught and fixed a self-inflicted regression —
+a cleanup script had accidentally deleted the actual `_spawn_def(...)` call itself while stripping a
+temp-print line that shared the same line as real code. Elite/Champion would not have spawned at all with
+that bug in place; the boot trace above is from AFTER the fix, and a second boot re-confirmed it.)*
+
+### "Với các enemy elite, vẽ vòng tròn vàng phát sáng bao quanh nó. Champion thì vòng đỏ"
+
+`arena_enemy.gd`'s `_draw()` now draws a pulsing glow ring around any `_is_elite` creep — **gold** for plain
+Elite, **red** for Champion (checked in that order, same precedence the death-reward split already uses,
+since every Champion also carries `_is_elite=true` for the cap-bypass). Sized off `_radius` + a fixed margin,
+so it automatically scales with the creep's own already-upscaled size (2× for Elite, 3× for Champion) with no
+separate lookup. Drawn first, under the body/tentacles, so the sprite reads clearly on top while the ring
+still frames it.
+
+Verified visually — forced both to spawn next to the player and screenshotted the live arena:
+
+*(gold ring around the Elite, red ring around the Champion, clearly readable against a 122-enemy field)*
+
+## Changelog — 2026-08-24 (41st pass) — the ranged ceiling had a fleet-shaped hole; raised to 10
+
+"Hornet cũng là enemy shoot projectile, vì sao ở giây thứ 55, có tới hơn 70 animalhornet trên arena?"
+
+Real, and the classifier was never the problem — `animalhornet` is `behavior: "bomber"`, which
+`WaveHpGen.is_shoot_def()` counts as ranged. The hole was the exemption the 40th pass shipped one entry
+above: **`_deploy_fleet()` builds its units directly and never went through `_spawn_def()`**, where the
+ceiling lives. `elecforest.json`'s t=60 row is `fleet:A.Hornet.Diamon.5` **×20** — 5 hornets per deployment,
+100 in total — and every one of them arrived through that exempt path. Spread across the 30→60s gap by the
+39th pass's own fix, the arithmetic lands exactly on the report:
+
+```
+t=35  3 deploys → 15 hornets      t=50  12 deploys → 60 hornets
+t=40  6 deploys → 30 hornets      t=55  16 deploys → 80 hornets
+t=45  9 deploys → 45 hornets      t=60  20 deploys → 100 hornets
+```
+
+A level's ranged pressure is largely delivered BY formations, so exempting them made the rule close to
+meaningless in practice.
+
+**Fix:** fleets deploy through their own gate now. `_tl_fire()` pushes each deployment onto `_fleet_queue`
+instead of deploying inline, and `_drain_fleet_queue()` (run every frame, and immediately after any fire)
+admits formations oldest-first for as long as the ceiling has room for the *next* one. A formation is
+admitted or deferred **whole** — a rigid dock can't be thinned mid-deploy without orphaning its escorts —
+and the queue stops at the first one that doesn't fit rather than skipping past it, so the authored order
+survives. Fleets with no ranged members never wait. A single formation carrying more shooters than the whole
+ceiling is admitted once the field is clear of shooters, so it can't wedge the queue forever.
+
+`SHOOT_MAX_ALIVE` **5 → 10** on request. The generator reads the same const for its per-wave total, so
+composed waves scale with it automatically.
+
+**Verified** — the same fleet row replayed on the default map, booted:
+```
+[TMP-hornet] t=5  alive=10 hornets=10 SHOOTERS=10 fleet_queue=3
+[TMP-hornet] t=10 alive=14 hornets=10 SHOOTERS=10 fleet_queue=6
+```
+Pinned at exactly 10 with the surplus formations queued, against ~80 before.
+
+## Changelog — 2026-08-24 (40th pass) — waves are now COMPOSED at runtime from HP milestones, and a hard 5-shooter ceiling
+
+"Dựa trên các mốc total HP. Mỗi lần start game, luôn tự gen lại mỗi mốc 30 giây rồi rải đều ra các tick 5 giây."
+
+### What was already there, and what wasn't
+
+Both rules the request assumed existed, did — but only as **authoring-time** rules inside F7's "Generate Base
+on HP" button, and one of them was a different number counting a different thing:
+
+| rule | before | now |
+|---|---|---|
+| wave total ≈ target HP | `GEN_HP_TOLERANCE = 0.10`, F7 Gen button only | same ±10%, enforced at runtime every wave |
+| ranged-creep limit | `SHOOT_TYPE_CAP = 10` **placed per id, per generated row** | ≤5 **alive at once**, enforced on every spawn |
+
+And the milestones themselves did not exist as data anywhere: `target_hp` lived only in F7's in-memory row
+dict and was **never written to the JSON**, so it was lost on every reload.
+
+### Timing — the deadline is the PREVIOUS milestone, not the milestone
+
+Gap-spread releases a milestone's units across the gap *behind* it (t=90's wave fires at 65/70/75/80/85/90),
+so its composition must exist before **t=65**. The request estimated "generate at t=55 for t=90" — right idea;
+`_tick_hp_gen()` anchors on the previous milestone instead (t=90's wave is composed at t=60), which is the
+same deadline with no magic number and keeps working if the milestone grid isn't 30s.
+
+### The pieces
+
+- **`scripts/gameplay/wave_hp_gen.gd`** (new) — the composer, extracted so F7 and the director can't drift.
+  Pure statics; callers pass their own candidate pools. Holds `is_shoot_def()` (the one definition of "fires
+  projectiles"), the fleet HP/shooter-count helpers, and `generate()`.
+- **`arena_wave_editor.gd`** — `_generate_row_hp()`/`_is_shoot_type()`/`_fleet_total_hp()` now delegate to it.
+  `hp_targets` is written into the wave JSON on Save and restored on Load *and* on any row rebuild (which
+  reads the live director, not the file — that path would otherwise blank every target field). New
+  **"Targets = Actual"** button seeds every row's target from the HP its slots already hold, so a
+  hand-authored timeline becomes a milestone curve in one press.
+- **`arena_wave_director_v2.gd`** — `set_timeline(entries, targets)`; `_tick_hp_gen()` composes each milestone
+  one milestone ahead; `_gen_compose()` spreads it with the same `_spread_entry()` the authored timeline uses
+  (factored out of `_spread_gaps()`); generated entries ride their own `_gen_fire_queue` so the authored
+  queue's ordering and final-boss logic are untouched. An authored entry at a timestamp that *has* a target is
+  dropped — the target defines that row now, and firing both would double the wave.
+
+### The 5-shooter ceiling
+
+`SHOOT_MAX_ALIVE = 5`, checked in `_spawn_def()` — the funnel every ordinary spawn passes through — exactly
+the way `MISSILE_MAX_ALIVE` already worked: the spawn is **refused**, the item stays in `_spawn_queue`, and
+the next drain pick tries something else. So the field keeps filling at full rate with melee creeps and the
+held-back shooter arrives when one of the five dies. `_drain_spawn_queue()` now skips queued shooters without
+burning its retry budget while the ceiling is closed, so a large backlog of them can't starve the melee
+creeps sharing that queue. Exempt: bosses/elites, and Fleet Edit formations (`_deploy_fleet()` builds units
+directly — thinning a rigid dock mid-deploy would orphan its escorts); the generator budgets a fleet's own
+ranged units against the same number so composed waves don't lean on that exemption.
+
+### Verified
+
+- **Composer** (`tools/check_wave_hp_gen.gd`, 400 random targets against a realistic roster): 389/400 within
+  ±10%, **0 ceiling violations** across four scenarios including a fleet-only pool and a ranged-only pool.
+  The uniform-random pick was replaced with a bounded best-of-6 draw (`_pick_index`) after the first run
+  showed ~8% of waves missing by up to 71% (285% on fleet-only) simply because the draw came up all-cheap or
+  all-expensive; that is now 61% / 28% worst-case. The residual misses are targets physically unreachable
+  from the drawn pool inside 10 slots at `PER_SLOT_MAX` each.
+- **Runtime** (booted arena, milestones at 10s + an authored 240-shooter flood): milestones composed one
+  ahead (t=20's wave built at t=10) landing +0.0% / +0.5% / −1.0% of target, spread evenly across the 5s
+  ticks (88/89/89/89/91/91 units), and `shooters_alive` pinned at exactly **5** the whole run while total
+  alive still climbed to the 120 cap.
+
+### Note
+
+Nothing changes until a wave file has `hp_targets` — `spawnmode2.json` has none yet, so it plays exactly as
+before. Press **"Targets = Actual"** in F7 (or type a curve into the Total HP column) to switch it on. Its
+current curve is worth reviewing first: it runs 8.1k → 25k → 39k, then 100 at t=150, 356k at t=180 and 0 at
+t=360.
+
+## Changelog — 2026-08-24 (39th pass) — gap-spread only ever spread the FIRST unit of each authored wave row
+
+"Có cảm giác các wave creep đang bị drop theo từng tick 30 giây (như wave editor) chứ ko được rải đều theo
+từng tick 5 giây (như cơ chế rải creep đã nói trước đây)."
+
+Correct, and it was `_spread_gaps()` in `arena_wave_director_v2.gd`. The function walked `sorted` entry by
+entry and did `prev_t = t` after **each** one. But one authored F7 row is several entries (one per Unit slot)
+all stamped with the SAME `time` — so only a row's first unit ever measured a real gap. Units 2..N saw
+`gap = 0`, fell straight through the `gap <= GRID_SPREAD_STEP` early-out, and dumped their whole count in one
+instant burst at the row's timestamp.
+
+`spawnmode2.json` is a 30s grid of 4–10 entries per row, so in practice ~99% of every wave arrived as a
+single 30-second drop. Units released per 5s bucket, first 200s (recomputed from the actual timeline):
+
+```
+BEFORE  5s=33 10s=33 15s=33 20s=33 25s=34 30s=240 35s=33 … 60s=289 … 90s=305 … 120s=1256 … 180s=1409
+AFTER   5s=66 10s=67 15s=67 20s=67 25s=69 30s=70  35s=74 … 60s=78  … 90s=94  … 120s=213  … 180s=1077
+```
+
+**Fix:** the loop now takes the whole GROUP of entries sharing a timestamp before advancing `prev_t`, so every
+entry in a row spreads across the same gap — the one back to the previous *distinct* timestamp. Interleaving
+several entries' sub-ticks leaves the queue out of order (row A's 5s…10s…, then row B's 5s…) and `_tl_tick()`
+walks it strictly sequentially, so `_spread_gaps()` now re-sorts by time before returning; ties may land in
+any order, which the callers already tolerate (see `set_timeline()`'s final-boss scan).
+
+The 180s bucket stays large on purpose — those are `"stream"` entries, deliberately exempt from gap-spread
+because they already carry their own ramp/duration.
+
+Verified in a booted arena: the real `_tl_fire_queue` expanded from 443 to 2956 entries and every bucket
+under 200s landed in the 66–213 range instead of spiking to 1256.
+
+## Changelog — 2026-08-24 — Total HP on the live creep readout (top-right)
+
+"Thêm dòng total HP vào bảng thông tin về creep… để tôi theo dõi xem người chơi có đang bị quá ngộp thở với
+lượng creep lớn ko."
+
+`perf_overlay.gd`'s enemy breakdown (the green type/count list under the FPS readout) gained a
+`Total HP <current> / <max>` line between the header and the per-type rows, short-formatted (`12.3k`,
+`2.40M`) so the right-aligned 350px column still fits. Summed in the pass that already walks the
+`arena_enemy` group for the counts — two extra property reads per creep, at the same throttled 5 Hz — and
+read via `.get()` so a group member without `hp`/`hp_max` is skipped rather than erroring. A head-count alone
+can't tell 300 flies from 12 fleet carriers; this is the number that says whether the field is actually
+oppressive.
+
 ## Changelog — 2026-08-15 (38th pass) — Shift-click range-select for TP/Vortex/LED; LED points now arrow-key movable
 
 Two requests: (1) holding Shift and clicking 2 points should select everything IN BETWEEN too (standard
@@ -2132,6 +2526,30 @@ Large session reworking the Arena enemy layer and its dev editors:
 
 > Verification was parse-check + headless arena boot (clean). UI interactions (drag-drop, context menus, hover previews) still need manual F5 confirmation. Per-slot fleet SIZE is not yet applied to spawned enemies (uses `ENEMY_DEFS` size).
 
+## Wave Edit (F7) — `scripts/ui/hud/arena_wave_editor.gd`
+
+Changes of 2026-08-24:
+
+- **`test_chaser` is hidden from the roster** (`EDITOR_HIDDEN_TYPES`). It is spawn_mode_2's synthesised
+  "fly + steer_chaser" entry (`arena_wave_director_v2.gd`'s `TEST_ROSTER`), so its MODEL is `fly` — which is
+  already in the list, making the two read as the same creep twice. Hidden in the UI only: the continuous
+  spawn loop still uses it, so deleting it from `TEST_ROSTER` would change how spawn_mode_2 actually plays.
+  Its siblings `test_flanker`/`test_kiter`/`test_charger` are the same shape over dragonfly/shooter/
+  animalhornet and are NOT hidden — only this one was asked for.
+- **Gen and Gen All save by themselves.** Gen is destructive (it clears the row before refilling it), so
+  there is no useful state between generating and saving. `_on_save()` now returns the filename it wrote so
+  the Gen status line can report the outcome instead of being overwritten by the save's own message; Gen All
+  saves ONCE after the whole batch, not per row.
+- **A two-digit Total HP means thousands.** Anything under `HP_SHORTHAND_MAX` (100) is multiplied by 1000
+  when Gen runs — 13 becomes 13,000 — and the expansion is written back into the field, because a field
+  still reading "13" next to a row holding 13,000 HP of creeps would make the next Gen press look wrong.
+  Nothing legitimate lives in that range: the cheapest creep on the roster outweighs a two-digit total on
+  its own.
+
+  > This needed the SpinBox's `step` dropped from 100 to 1 as well. `Range` snaps whatever is typed to its
+  > step, so a typed "13" became 0 and the shorthand could never have fired — the field could not hold a
+  > two-digit value at all.
+
 ## Boss Fight System (`scripts/gameplay/boss_fight.gd`)
 
 ### Structure: coordinator + standalone per-boss controllers
@@ -2310,7 +2728,7 @@ Each enemy has a `behavior` string from `ENEMY_DEFS` in `arena_wave_director.gd`
 | `"jump"` | octopus | Pause → aim-once → leap |
 | `"jump_diag"` | spider | 45° diagonal jumps only |
 | `"shooter"` | jet fighter | Ranged projectiles |
-| `"boss_stub"` | elephant, chromeleon, metalfly | High-HP, slow, no real moveset yet |
+| `"boss_stub"` | elephant, chromeleon, metalfly | High-HP, slow. Chromeleon still has no moveset; elephant has its own class (`boss_script`); **metalfly** has a 2-move set + live 3D body, layered on via `"boss_move"` — see below |
 
 **Spiral fix — two phases:**
 ```gdscript
@@ -2360,6 +2778,189 @@ All enemy types defined in `ENEMY_DEFS`. Boss stubs now use real sprite sheet ic
 "chromeleon":{..., "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},
 "metalfly":  {..., "icon": "res://assets/bosses/metalfly/metalfly.sheet.png"},
 ```
+
+### Arena Metalfly boss — live 3D body + 2-move set (2026-08-24)
+
+Metalfly is the first `boss_stub` creep to get a real moveset **without** becoming its own class. Two new
+mechanisms make that possible, both keyed off one def field:
+
+```gdscript
+"metalfly": {"behavior": "boss_stub", "boss_move": "metalfly", "sprite_alpha": 0.0, ...}
+```
+
+- **`"boss_move"`** — a named moveset layered ON TOP of `behavior: "boss_stub"`, dispatched from the
+  `"chase", "boss_stub"` branch of `_tick_behavior()` (`_tick_metalfly`). Layered rather than made its own
+  `behavior` string so the boss keeps every exemption already keyed off `"boss_stub"`: no HP/speed tuning,
+  the `"boss"` group, no `LIFETIME_MAX` despawn, no off-screen recycling in the v2 director.
+- **`"sprite_alpha": 0.0`** — hides the flat `.sheet.png` without dropping it. The icon stays the FALLBACK
+  body: if the glb fails to load, `_setup_metalfly()` puts `_sprite_alpha` back to 1.0 and the boss draws as
+  the old sprite. (Same arrangement the electric temple boss uses.)
+
+**Phase 1 — cocoon (2026-08-24).** The boss ARRIVES as `assets/map/electric/boss/Cocoon.glb` — a static
+mesh with no bones — rendered by `scripts/gameplay/fx/glb_spin_body.gd` (a generic spinning-3D-body node; it
+takes any glb path, nothing in it is Metalfly-specific). It rams the player at `MF_COCOON_SPEED` (120 px/s,
+nearly double the winged form's) with its own `MF_COCOON_HP` (2000) pool.
+
+It spins on **two** axes. The camera looks straight down the view Y, so a Y spin alone reads as a flat dial
+turn — same silhouette all the way round, a rotating picture rather than a rotating object. `tumble_rpm`
+adds a second rotation about the view X and is what actually rolls it end over end. The two rates are
+deliberately unrelated (26 and 17 RPM): related ones compose into a single fixed axis and the tumble
+disappears again. Each axis gets its own nested node rather than both accumulating onto one Euler, and
+`VP_PAD` went up to 1.5 because a tumble swings the model's vertical extent into the plane `center_and_fit`
+sized it by.
+
+Running that pool out **hatches** the boss rather than killing it: `take_damage`'s `hp <= 0` branch calls
+`_metalfly_hatch()` instead of `_die()`, so none of death's consequences fire — no kill tally, no XP, no
+loot, no chain-reaction, no `boss_defeated`. The hatch blows a `MF_HATCH_BLAST_PX` explosion, frees the
+cocoon, builds the winged rig (deferred until here, so a fight that never gets past the cocoon never pays
+for a second SubViewport + skeleton), refills to Phase 2's pool and enters Move 1.
+
+The def's `hp`/`speed` are **Phase 2's**. `configure()` captures them into `_mf_p2_hp`/`_mf_p2_speed` after
+every multiplier has been applied (player level, Beacon, the director's `HP_MULT`) and drops the cocoon's
+flat constants in, so the real boss still gets all of that scaling. On hatch, write **`_base_speed`**, not
+`speed` — `_process()` recomputes `speed` from it through the slow/Beacon/Zone-of-Peace chain every frame.
+
+**Phase 2 body** — `scripts/gameplay/fx/metalfly_rig.gd`, a child Node2D holding a SubViewport that renders
+`assets/map/electric/boss/metalfly.glb` top-down (via `glb_topdown_rig.gd`'s shared framing). The glb has a
+46-bone UniRig skeleton and **zero animation clips**, so every motion is posed from code each frame: wing
+beat, forewing lag, antenna sway, leg/abdomen idle, mouth gape. See that file's header for the bone map,
+the measured per-bone vertex displacements, and why a bone rotation must be composed onto the rest pose and
+converted out of model space (a naive `set_bone_pose_rotation` moves a UniRig leg by 0.034 units, i.e.
+nothing). Verified body offset from the node origin: 6 px.
+
+**Move 1 — cruise.** Slow beat (2.2 Hz), chases the player, fires one projectile from EACH wing TIP every
+second (`MF_SHOT_INTERVAL`). Muzzles are read off the live posed skeleton (`wing_muzzles()`), so they ride
+the beat rather than sitting at a fixed offset. Runs for `MF_CRUISE_T` (6s).
+
+**Move 2 — lunge.** Mouth gapes, beat goes to 9 Hz, and a 150 px lane is drawn from the boss. For the whole
+`MF_WINDUP` (1.5s) the lane **tracks the player** (`aim()` every frame, 2026-08-24) — sidestepping once no
+longer beats it, the lane comes with you. Then the mouth shuts, the wings STOP, the lane **locks**, and the
+boss flies down it at `MF_LUNGE_SPEED`. Only the direction tracks; the lane's ORIGIN stays pinned where the
+wind-up began, so it keeps marking the ground the boss will actually leave from.
+
+Lane length is a fixed `MF_LUNGE_LEN` (1200 px) and the boss always flies the whole of it. It was the
+current distance-to-player at first, which made the same move into two different fights: a point-blank
+wind-up became a twitch, a long-range one a screen-crossing charge. A fixed length also guarantees the
+lunge overshoots a player who stands still.
+
+Lane VFX: 80% opacity overall (the player has to read the field THROUGH it), three widening glow layers
+under the body so the light bleeds past the edges, and a blink that multiplies a slow breath by a fast
+flicker — one rate alone reads as a mechanical pulse. On lock all of that stops and the lane brightens
+(`LOCKED_BOOST`): going from flickering to solid is itself the tell that the dodge window shut.
+
+**Move 3 — swarm release.** Fast beat for `MF_SWARM_WINDUP` inside a **gathering ring**
+(`scripts/gameplay/fx/metalfly_swarm_ring.gd`), then `MF_SWARM_COUNT` (8) miniature Metalflies burst out of
+that ring and chase.
+
+The ring is raised at exactly `MF_SWARM_RING` — the radius the brood appears at — so it reads as the thing
+they come out of rather than as decoration that happens to be nearby, and it is released the instant they
+do. It throws off concentric pulses of light the whole time: `PULSE_COUNT` rings share one clock, spread
+around it by index, so there is always one leaving the centre and one arriving at the rim (a continuous
+flow, not a burst per period) and no ring is ever created, tracked or freed.
+
+Its palette, global opacity and both blink rates are read straight off `metalfly_charge_path.gd` rather
+than restated — the lane and the ring are the same boss saying "something is about to come out of me" and
+should read as one visual language; retyped constants drift apart the first time either is tuned.
+
+> Two drawing notes. It is built from **annuli** (`draw_arc` with a width), never stacked discs: overlapping
+> translucent discs accumulate alpha toward the middle and turn a radial gradient into a dark blob. And
+> unlike the lane it is a **CHILD of the boss** — the lane marks a strip of ground the boss is about to
+> leave, so it must stay put; the ring marks the boss itself, and the separation pass shoves the boss around
+> inside a busy field even while it holds station. Same model and same rig at `MF_SWARM_SCALE` (25%) of the body size, with
+`MF_SWARM_HP_FRAC` (5%) of the boss's HP. Both are taken from the BOSS's own live numbers, not from the
+`metalfly_spawn` def, so the brood scales with everything the boss scaled with.
+
+> Two multipliers have to be divided back OUT when writing those overrides, and both were wrong first time:
+> `ENEMY_HP_TUNE` (configure() re-applies the global x2 to every non-`boss_stub` enemy — the brood hatched
+> at 10%, not 5%) and `SIZE_TO_RADIUS` (a def's `size` is not the hit radius — the bodies came out 26.2%
+> instead of 25%). `SIZE_TO_RADIUS` was an inline `1.05` before this; it is a named const now precisely
+> because anything deriving a def `size` back from a live `_radius` has to know about it.
+
+**The two specials alternate** rather than being rolled, so neither can come up three times running and
+neither can go missing for a whole fight.
+
+**`body_rig` — a live 3D body on an ORDINARY enemy.** The def key Move 3's brood uses: build the Metalfly
+rig at `body_px`, attach no moveset, and let the enemy's own `behavior` (chase) drive it exactly as it
+would with a flat sprite. `_process()` points the model along `_facing` for every rig, boss or not — that
+call used to live inside `_tick_metalfly`, where it ran before the facing was finalised and covered only
+the boss, leaving the brood pointing wherever it spawned.
+
+**The lane** (`scripts/gameplay/fx/metalfly_charge_path.gd`) is parented to `get_parent()` (Arena root,
+world space), NOT to the boss — same reasoning as the beamer's beam. As a child it would translate with the
+boss during the lunge, so the danger zone would slide along underneath it and always extend the same
+distance ahead, i.e. stop being a telegraph exactly when it matters. Freed via `tree_exited`.
+
+#### Authoring the mount angles — Creep Edit, Electric map
+
+Both bodies are authored in **Creep Edit** (not Boss Edit — that panel is the SpaceScreen boss's 2D layer
+editor and has no 3D/rotation machinery at all). On the Electric map the palette carries a **Metalfly**
+group with two rows:
+
+| Row | Body | cfg key | Asset |
+|-----|------|---------|-------|
+| `Metalfly` (root) | Phase 2, `metalfly_rig.gd` | `Metalfly` | `metalfly.glb` |
+| `Metalfly Cocoon` | Phase 1, `glb_spin_body.gd` | `Metalfly Cocoon` | `Cocoon.glb` |
+
+Declared via the base's own hooks (`_extra_names` / `_asset_path_for` / `_group_metalfly_layers` /
+`_default_creep_rect` / `_front_marker_angle`) — the same set weapon_edit_mode.gd uses for Jeager's clip
+layers, so the FRONT arrow comes for free.
+
+> **Both bodies must also be listed in `WIRED_3D_CREEPS`** or the "3D VIEW / MOUNT ANGLE" section stays
+> hidden and there are **no Rotate X/Y/Z sliders at all** — the models still preview perfectly, which is
+> what makes the omission easy to miss (it shipped that way in the first pass here). That allowlist is
+> deliberate: `_refresh_glb_view_ui()` gates the rotation UI on it so a glb with no real 3D runtime wiring
+> can't offer controls that silently do nothing. Metalfly qualifies because `_creep_mount_rot()` genuinely
+> feeds both bodies. Anything added to the palette later needs the same two-step: declare it, AND wire the
+> runtime before allowlisting it. Adding them to the BASE cannot leak
+into the other editors: `weapon_edit_mode.gd` overrides every one of those hooks, and hud/fleet edit extend
+`CanvasLayer`, not this file. They are further gated to `MF_MAP` ("electric").
+
+**The root IS the winged body.** Giving Phase 2 its own `Metalfly Wings` row put a second, identical model
+on the canvas stacked exactly on the root's — indistinguishable from one body until you drag it. Two rows,
+two bodies.
+
+**The FRONT arrow points DOWN (+PI/2), not up like the weapons'.** `metalfly.glb` is authored head-at-+Z,
+and glb_topdown_rig.gd maps +Z to screen-down, so at zero calibration the nose genuinely points down. An
+arrow pointing up would invite a 180° "correction" that the runtime would apply on top of an orientation
+that is already right — i.e. the boss flying backwards, which is the exact bug the arrow was added to
+Jeager to fix. Arrow aligned with the nose at `rot` 0 keeps the dial a pure correction: **0 means "what
+ships today"**, which is the state verified in the arena.
+
+**Runtime.** `arena_enemy.gd::_creep_mount_rot(layer)` reads `rot_base ∘ rot` out of `creep_layout.cfg`
+(through `_creep_layout()`, whose cache the editor drops on save — so an edit lands on the next spawn, no
+restart) and hands it to whichever body is being built. `metalfly_rig.gd` composes it INSIDE the heading
+yaw (`Basis(UP, PI/2 - heading) * mount`): the mount corrects how the model sits on its own axes, the yaw
+is which way it is flying this frame. Composed the other way round, dialling a mount angle would swing the
+travel direction instead. `glb_spin_body.gd` puts it on a dedicated node between the spin pivot and the
+model — writing it onto the model would throw away the fit scale `center_and_fit` baked into that transform.
+
+Verified end to end by `tools/check_metalfly_creep_edit.gd`: dial a rotation into the rig the sliders drive
+→ `_save_layout()` → spawn a boss → read the basis its body actually renders with, and compare against
+`view_basis(rot)`.
+
+#### Gotcha fixed here: facing froze above ~130 fps
+
+`_process()` only re-aims `_facing` when the enemy actually moved more than 0.5 px in the frame. At the
+boss's cruise speed of 65 px/s that threshold is crossed at 60 fps (1.1 px/frame) and MISSED above ~130 fps
+(0.4 px/frame) — so on a fast machine the boss chased the player while pointing wherever it happened to be
+pointing when the fight started. `_mf_face_player()` now sets the facing directly in every non-lunge state
+(including the cocoon's), which sidesteps the threshold entirely. Facing a target should not depend on the
+frame rate. Measured after the fix: 0.0° error at every sampled frame of settled cruise.
+
+#### Gotcha fixed here: hit-stagger froze the whole move cycle
+
+Every hit re-arms `_stagger_t`, and `_process()` gated `_tick_behavior()` on `_stagger_t <= 0.0`. Under
+sustained Gatling fire the re-arm outruns the decay, so the boss's move clock advanced **0.00s across 700
+frames** — holding the fire button cancelled the entire fight and Move 2 was unreachable. `_boss_move != ""`
+now bypasses hit-stagger (stun and docking still freeze it) and is also `_stagger_exempt` from the
+off-screen LOD, so a scripted cycle keeps a stable cadence. Any future `"boss_move"` inherits both.
+
+#### Dev tools
+
+| Tool | What it verifies |
+|------|------------------|
+| `tools/screenshot_metalfly.gd` | The FIGHT — boots the arena, spawns the boss under live fire, asserts the state sequence `[0,1,2,3,0]` and screenshots each beat. Its header lists the three things it has to arrange (clear the field, kill knockback, pin the player) and why each is a property of the harness, not the boss. |
+| `tools/screenshot_metalfly_rig.gd` | The ANIMATION — the rig alone, heading pinned, dumping one PNG per sampled frame of the slow beat / fast beat / gape, plus the centroid check. |
 
 ### `arena_elephant.gd` — Arena Elephant Boss
 

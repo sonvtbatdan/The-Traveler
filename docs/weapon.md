@@ -3,6 +3,164 @@
 > Module of [`CLAUDE.md`](../CLAUDE.md). Read this when working on weapons, firing, inventory/affixes, ship visuals, arena weapon mechanics + their VFX.
 > Always-on core rules (conventions, coordinate system, image/render rules, LOCKED MODULES) live in CLAUDE.md — read that too.
 
+## Changelog — 2026-08-25 (58th pass) — the level-up board now always keeps a fusion component on the table
+
+"Khi phát hiện 2 vũ khí có thể fusion được với nhau đang được trang bị, sẽ ưu tiên luôn có ít nhất 1 loại vũ
+khí ở bảng level up, tránh trường hợp roll mãi ko ra được level up để fuse."
+
+A **ready** fusion (both components at `FUSION_MIN_LEVEL`) already got a guaranteed card — that part worked.
+The gap was the step before it: two owned components still short of level 15 competed with every other owned
+weapon AND every aux for 3 slots, so the roll could skip them indefinitely and the fusion stayed unreachable.
+
+New `ArenaWeapons.pending_fusion_components()` returns the halves of a recipe you already own both sides of,
+but which can't fuse yet — only the side(s) actually below the gate, and only while still upgradeable.
+Evolved components are excluded (they can never fuse), and a recipe that's already ready is skipped since
+`available_fusions()`'s own guaranteed card covers it.
+
+`arena_levelup_ui._generate_choices()` reserves **one** slot for a random pick from that list, placed after
+the ready-fusion block (which has the stronger claim). Only one slot, so the rest of the board still varies.
+
+## Changelog — 2026-08-25 (57th pass) — Gatling perk labels now name the actual mechanic
+
+"Sao gatling giờ nhiều perk bị đổi thành +20% damage vậy? Bouncing round là +20% ricochet, piercing là +20%
+piercing mà?"
+
+Worth stating plainly: **the 55th/56th-pass balance work did not touch `GATLING_POOL`** — it was excluded on
+request ("trừ gatling đã làm rồi") and was in fact the reference the other 25 pools were retuned toward.
+`git show HEAD:…` of that block is byte-identical to the working copy. Those "+20% damage" labels pre-date
+this session.
+
+But the report is right that they're wrong. Three different mechanics were all labelled "+20% damage",
+because the label was written as the *expected-value* equivalent rather than the mechanic:
+
+| perk | what the code does | label was | label now |
+|---|---|---|---|
+| `hardened` | `1.0 + 0.2×rank` on base damage | +20% damage | +20% damage (unchanged — correct) |
+| `piercing` | `0.2×rank` chance of an extra **pierce** hit | +20% damage | **+20% pierce chance** |
+| `bouncing` | `0.2×rank` chance of an extra **ricochet** hit | +20% damage | **+20% ricochet chance** |
+| `multishot` | **`0.4×rank`** chance of an extra bullet | +20% damage | **+40% extra-bullet chance** |
+
+`multishot` was the most misleading: the card said "+20%" while the actual proc number is **40%/rank** (0.4 of
+a 2-bullet volley averages out to the +20% damage the label was quoting). Each `desc` now still states the
+damage-equivalence, so the perks stay comparable at a glance — the headline just no longer claims to be
+something it isn't.
+
+**Also corrected a wrong code comment** found while verifying: `_gat_multishot_chance()`'s doc claimed
+"guaranteed extra bullet every 5th rank". `_fire_gatling()` does `extra += int(ms)` with `ms = 0.4×rank`,
+which crosses 1.0 at rank 2.5 — so the guarantee actually lands at **rank 3** (rank 5 gives exactly 2). The
+"every 5th" figure was read across from Piercing/Bouncing, which are 0.2/rank and genuinely do land on 5.
+
+No values changed — labels and comments only.
+
+## Changelog — 2026-08-25 (56th pass) — CHANCE + GLOBAL perks raised to 10%/rank
+
+Follow-up to the 55th pass, on request: "các chance nâng lên +10%, các global nâng lên +10%, các count để
+nguyên." 22 code sites + 21 labels.
+
+Read as **raise to** 10%, so anything already at or above 10% was left alone — dropping `hemorrhage` /
+`hemophilia` (both +20% bleed, global) down to 10% would be a nerf, not a raise. Same for Ionizing Field's
+`proximity`, Death Beam's `energy`/`duration`, Z-Sword's `martial` and Annihilator's `burn` (all already 10–20%).
+
+Raised: arc luck 1→10, arc lightning stun 2→10 & duration 5→10, arc electrocute 5→10, gauss meltdown/emp
+5→10, gauss aoe_mastery 5→10, db incinerate/freeze 5→10, chemtrail burn 5→10 & intensity 5→10 & move-speed
+4→10, shooter crit 5→10 & multishot 8→10 & automation 5→10, sonic cold 5→10, z-sword crit 5→10 & divergence
+5→10, dragon fire 5→10, orbital contact 5→10, mortar kinetic 5→10, ionize freezing/burning/shocking 1→10.
+
+COUNT perks (20 of them: `+1 chain jump`, `+1 orb`, `+2 shards`, `+1 segment`, …) deliberately untouched.
+
+### ⚠️ Ionizing Field's three per-tick procs are worth a second look
+
+`freezing` / `burning` / `shocking` are the only **per-tick** chance perks in the game — every other "chance"
+perk rolls per shot or per second. The Ionize field ticks ~3.3×/s against *every enemy in range at once*, so
+at the new 10%/rank that is roughly **28%/s at rank 1 and ~97%/s at rank 5**, field-wide. They were 1%/rank
+precisely because of that multiplier. Raised as instructed and flagged in-code at the call site; if the
+field starts permanently freeze/stun-locking everything, these three are the cause, not the rest of the pass.
+
+## Changelog — 2026-08-25 (55th pass) — every multiplier perk retuned to +20%/rank
+
+"Bạn balance lại các chỉ số của các perk sao cho mỗi lần lên level sẽ tăng tiến khoảng 20% sức mạnh."
+
+Confirmed the shape first rather than assuming: **additive on base**, `1.0 + rank * 0.20` — the same curve
+`GATLING_POOL` already used (rank 1 = 1.2×, rank 5 = 2.0×, rank 10 = 3.0×), not compounding `1.2^rank`.
+
+The pools had drifted badly apart. Across 136 perks the per-rank value was: 10% ×51, 5% ×20, 15% ×14, 8% ×13,
+20% ×10 (Gatling's), and a tail down to 1%. **71 code sites + 76 display labels** retuned to 20%, covering
+every multiplier-type perk in all 25 non-Gatling pools: damage, fire/tick/swing rate, cooldown, radius, size,
+range, width, spread, splash, duration, uptime, pull, spin, throw speed, move speed, slow strength.
+
+**Cooldown perks use the reciprocal form, not `1.0 - rank*0.20`** — that would hit exactly 0 at rank 5 and go
+negative past it (infinite fire rate / divide-by-zero). `base / (1.0 + 0.20*rank)` is the correct "+20% fire
+rate per rank" and can never collapse; `arc`'s firerate already used this shape, the other six now match.
+Verified live:
+
+```
+[TMP-bal] rank= 0 | db dmg x1.00 | db cycle 5.000s | wraith cd 0.700 | anni cd 1.600
+[TMP-bal] rank= 1 | db dmg x1.20 | db cycle 4.167s | wraith cd 0.583 | anni cd 1.333
+[TMP-bal] rank= 5 | db dmg x2.00 | db cycle 2.500s | wraith cd 0.350 | anni cd 0.800
+[TMP-bal] rank=10 | db dmg x3.00 | db cycle 1.667s | wraith cd 0.233 | anni cd 0.533
+```
+
+Death Beam's cycle floor is unaffected in practice: the old code floored the multiplier at 0.25×; the new
+rank-10 value is 0.333×, inside the range that was already reachable, so `_db_duration()`'s
+`_db_cycle() - 0.3` clamp still lands positive.
+
+### Deliberately NOT touched — 44 perks awaiting review
+
+Three groups where "20%" isn't a multiplier and a blind bump would be wrong (user is reviewing these):
+- **COUNT** (20): `+1 chain jump`, `+1 orb`, `+2 shards`, `+1 segment`, `+1 bounce`, `+1 orbital`, … — integers,
+  not ratios. `+1 bounce` on a 3-hop chain is +33%, not +20%.
+- **CHANCE** (14): `+5% burn chance`, `+5% crit`, `+1%/tick freeze`, … — percentage POINTS. Bumping these to
+  20pp/rank would reach 100% proc in five ranks.
+- **GLOBAL** (10): `+10% energy damage (global)`, `+5% area (global)`, … — these multiply across the whole
+  loadout, so 20% each is worth far more than 20% of one weapon. (Left as-is, but note the flip side: a global
+  stuck at 5% while everything else is 20% is now strictly the worst pick in its pool.)
+
+Weapons with no pool at all (striker, rift_maker, fat_boy, yari, yari_jaeger, swarm, homing_missile, and the
+6 fusions) fall through `_weapon_pool()` to `{}` and were out of scope by the request's own definition.
+
+## Changelog — 2026-08-24 (54th pass) — laser damage tick rewritten from a 513-step arc sample to closed form
+
+"Khi vũ khí laser bắn chạm vào địch, fps bị drop rõ rệt (165fps giảm còn 125 fps)."
+
+Real, and it was `_beam_swept_hit()` in `arena_weapons.gd`. Both laser paths (`_fire_death_beam`, and
+`_tick_predator`'s beam — Predator is viper + death_beam, same tick) test **every live enemy** against the
+arc the beam swept since the last damage tick. That test used to SAMPLE the arc: `steps` was sized off the
+beam's full 3000px `DEATHBEAM_RANGE` (`block_along * ang_delta / hit_w`, capped at 512), so one moderate
+mouse swing pushed it to hundreds of substeps — each a `slerp` + `lerp` + `dot` + `length` — **per enemy,
+per tick**. Measured on a scattered field (`from` fixed, enemies 50–1500px, 3000px range, 14px width):
+
+| alive | turn between ticks | old | new |
+|---|---|---|---|
+| 120 | 60° | 3.79 ms | 0.050 ms |
+| 300 | 60° | 8.73 ms | 0.118 ms |
+| 300 | 120° | 14.51 ms | 0.120 ms |
+| 500 | 120° | 24.35 ms | 0.221 ms |
+
+At `DEATHBEAM_TICK` cadence that is exactly a sustained 165 → 125 FPS, and it only shows up with the beam
+ON and creeps alive — which is why it read as "drops when the laser touches an enemy".
+
+**Now O(1), no sampling and no allocation.** With the origin held fixed, a point at distance `d` is within
+`w` of the ray aimed at angle θ exactly when `|θ − bearing| ≤ asin(w/d)` — so "was it ever swept" is just
+"is its bearing inside the swept arc, or within `asin(w/d)` of an end of it", plus a length check. The
+muzzle's own travel across the tick is folded in as conservative padding (shifting a ray's origin by `pad`
+moves any point's perpendicular distance by at most `pad`, so testing one origin with `hit_w + pad` is a
+superset of the old per-substep test).
+
+Cross-checked against the old implementation over 40 000 randomised sweeps: **0 regressions** (never misses
+a hit the sampled version caught) and 182 extra hits (0.45%, the padding) — and it can't tunnel the way the
+sampled version could between substeps.
+
+Two smaller cuts in the same path:
+- `_beam_swept_hit_enemy()` tests the node's own `global_position` first. `arena_enemy.hit_points()` returns
+  a **fresh** `[global_position]` for everything that isn't a centipede, so the old unconditional call
+  churned one throwaway Array per live enemy per tick for a point readable straight off the node.
+- `_best_beam_dir()` (Predator's aim) resolved `_hit_pos()` + `en.get("hit_radius")` inside its O(N²) inner
+  loop — ~180k lookups at 300 alive. Positions/widths are now hoisted into flat arrays once, the perpendicular
+  test is squared (no sqrt), and candidate directions are capped at `AIM_CANDIDATES` = 48, strided across the
+  list. Below the cap it is the old search exactly; above it the beam still lines up on a dense cluster.
+
+Verified by arena boot (0 `SCRIPT ERROR`); the FPS number itself needs a play session to confirm.
+
 ## Changelog — 2026-08-24 (53rd pass) — the approach clip is chosen by distance, not rolled
 
 "Giờ ko random move nữa, mà khoảng cách <300 pixel đến enemy thì dùng run, lớn hơn 300px thì dùng fly."

@@ -222,6 +222,23 @@ func _model_meshes(node: Node) -> Array:
 ## (see _content_measured), then stops: the model spins continuously, so re-measuring every frame would make
 ## the label visibly jitter as the silhouette's width/height change with rotation — one representative
 ## snapshot is deliberately used instead, same reasoning as arena_chest_pointer.gd's own _measure_content().
+##
+## 2026-08-25 bug fix (user report: "offset và khoảng cách giữa object và text của chest đúng, rescue landmark
+## sai" — verified by sampling 40 consecutive frames' get_used_rect() live): a freshly created transparent
+## SubViewport's FIRST rendered frame can read back FULLY OPAQUE — a one-frame GPU clear/composite race, not
+## specific to this model or map. get_used_rect() then reports the WHOLE 128×128 canvas as "used" instead of
+## empty, so the `used.size.x <= 0` guard above doesn't catch it (a full box has positive size, it's just
+## WRONG). Every measurement from the SECOND successful read onward was correct and stable (~40-58px of 128,
+## matching this file's own documented "38-52% of frame width" for GLB rescue models) — this only ever
+## corrupts the FIRST one, whichever frame that happens to land on. Both this file and arena_chest_pointer.gd
+## trusted that first read unconditionally, so BOTH were exposed to the exact same race; chest usually read
+## fine in practice (never confirmed why — likely a small, consistent difference in when its viewport first
+## renders vs when this file's own _process() first checks), which is what made it look like a rescue-only
+## bug. Fix: discard the first successful GLB-mode read, trust the second — cheap (one extra ~1-frame wait,
+## imperceptible) and doesn't touch the flat-icon (temple) path below, which reads a real loaded PNG's alpha
+## synchronously and was never exposed to this race.
+var _measure_good_reads := 0   # GLB mode only — see the fix note above
+
 func _measure_content() -> void:
 	if _icon_tex == null:
 		return
@@ -231,6 +248,10 @@ func _measure_content() -> void:
 	var used := img.get_used_rect()
 	if used.size.x <= 0 or used.size.y <= 0:
 		return
+	if _glb_path != "":
+		_measure_good_reads += 1
+		if _measure_good_reads < 2:
+			return   # discard the first read — see the 2026-08-25 fix note above
 	var tex_w := float(_icon_tex.get_width())
 	if tex_w <= 0.0:
 		return

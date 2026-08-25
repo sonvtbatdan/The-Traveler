@@ -123,6 +123,68 @@ Wiring: `arena.gd._setup_hud_edit()` (CanvasLayer layer=9 + ObjectsContainer) �
 
 ---
 
+## Changelog — 2026-08-25 — Creep Info Save was silently DELETING overrides (two separate bugs)
+
+"Sao bảng creep info, tôi chỉnh HP, bấm calculate XP, bấm save, rồi qua tab khác chỉnh, khi quay về tab cũ,
+giá trị lại bị reset lại? Lỗi ko save được?"
+
+Not a write failure — the write succeeded and then threw the data away. Two independent bugs in
+`creep_info_panel.gd`'s `_on_save()`, both surfacing as "the value reset".
+
+### Bug 1 (the severe one): `base` was already overridden
+
+`_on_save()` only writes an entry when the SpinBox differs from the def's base value. But `base` was
+`WaveDir.ENEMY_DEFS`, and that dict has the saved overrides written INTO it before the panel ever opens —
+`arena_debug_spawn.gd`'s `_ready()` calls `apply_overrides(WaveDir.ENEMY_DEFS)` (and the panel itself
+re-applies after every Save). So an already-overridden row compared **equal** to its "base", wrote nothing,
+and the override was dropped.
+
+Measured by driving the real panel: **open it, press Save with NOTHING edited → `creep_info_overrides.cfg`
+went from 12 entries to 0.** Every override, gone, in one click.
+
+Fixed with a static `_pristine` snapshot captured inside `apply_overrides()` the first time it touches a def
+— i.e. before the override overwrites it — and a `pristine_base(id)` accessor `_on_save()` now compares
+against. Guarded so later calls (the second director, the post-Save live re-apply, a second arena load
+reusing the same `static var` dicts) never re-capture an already-overridden value.
+
+### Bug 2: Save was scoped to the visible map tab
+
+`ov` started `{}` and was filled only from `_rows`, which holds just the currently selected map tab (see
+`_populate()`'s `_map_tab_id` filter) — then the **whole file** was replaced with it. Saving while on one tab
+erased every override belonging to every other tab. It now starts from what is already on disk and
+updates/removes only the rows actually on screen (an edited-back-to-default row `erase()`s its entry, so
+clearing an override still works).
+
+### Verified — the reported workflow, driven end to end
+
+```
+step1  electric tab: hp=777, Calculate XP, Save  -> saved {hp:777, xp:78}; atlantic entries intact
+step2  atlantic tab: hp=999 on hammerhead, Save  -> saved; electric edit SURVIVED (animalhornet still 777)
+step3  back to electric tab                      -> animalhornet spin_hp = 777   (previously: reset to base)
+```
+And the regression that started it: Save with nothing edited now keeps 12/12 entries (was 12 -> 0).
+
+Note while testing: **"Calculate XP" applies to every row on the current tab**, not just the one you edited
+(its own status line says "for all N creep(s)") — so it will create XP overrides across that whole tab.
+
+## Changelog — 2026-08-24 — F7: HP targets are saved now, and a "Targets = Actual" button
+
+The wave editor's **Total HP** column (the Gen target) used to live only in the in-memory row dict — it was
+never written to the wave JSON, so it vanished on every Load. It is now persisted as a top-level
+`hp_targets: [{time, hp}]` alongside `timeline`, restored on Load, and re-applied on any row rebuild (which
+reads the live director, not the file). That matters beyond convenience: those targets are what the runtime
+milestone generator composes each run's waves from — see the 40th-pass entry in [`enemy.md`](enemy.md).
+
+New toolbar button **"Targets = Actual"** (green, next to "Gen All (HP)") copies every row's *Actual HP* into
+its *Total HP* target and saves. One press turns a hand-authored timeline into the milestone curve the
+director regenerates from; rows with no content get 0, which means "leave this row's authored entries alone",
+so it is never destructive.
+
+`_generate_row_hp()`, `_is_shoot_type()` and `_fleet_total_hp()` now delegate to the shared
+`scripts/gameplay/wave_hp_gen.gd`. The Gen button's own behaviour is unchanged — same ±10% target band, same
+`SHOOT_TYPE_CAP` = 10 per-id ranged ceiling — except that composition accuracy improved (a bounded best-of-6
+candidate draw replaced the uniform-random pick; see the enemy.md entry for the measurements).
+
 ## Changelog — 2026-07-28 — Auto-Fire dev toggle (`arena_hud_buttons.gd`)
 
 New text-label dev button (no icon asset needed — `_make_label_btn`, same pattern as INV/END RUN), below
@@ -151,6 +213,23 @@ Bottom-center HBox (CanvasLayer). Controls:
 
 **Dev mode default state (2026-06-20):** `const DEV_MODE := false` — panel starts hidden. `arena_hud_buttons.gd` shows `dev:off` icon at game start (clicking toggles to `dev:on` and reveals firerate/level controls). Changed from `true` → `false` so players don't see debug controls by default.
 
+### Creep Edit — Metalfly's two 3D bodies (2026-08-24)
+
+Creep Edit's palette carries the arena Metalfly boss on the **Electric** map: a `Metalfly` group whose root
+row is the winged Phase 2 body (`metalfly.glb`) with `Metalfly Cocoon` (`Cocoon.glb`) as its one child
+layer. Both get the Rotate X/Y/Z sliders and a FRONT arrow, exactly like Jeager's clip layers in Weapon
+Edit, because they go through the same base hooks. Saved angles land in `creep_layout.cfg` and are read by
+`arena_enemy.gd::_creep_mount_rot()` on the next spawn. Full write-up, including why the arrow points DOWN
+here and up for the weapons: [`docs/enemy.md`](enemy.md) → "Authoring the mount angles".
+
+> **One Save in Creep/Weapon Edit rewrites FOUR whole files** — `creep_layout.cfg`, `plume_styles.cfg`,
+> `weapon_layout.cfg`, `creep_chain_overrides.cfg` — re-emitting every entry in them, not just the one being
+> edited, with whatever fields the current editor version produces. They therefore show enormous diffs after
+> a Save that changed one number. Any tool calling `_save_layout()` must back up and restore all four.
+>
+> The **Wave** editor's Save is separate and touches only `levels/arena/<file>.json` +
+> `spawn_mode_2_wave_<map>.cfg`. Verified 2026-08-24: a bare arena boot writes none of these.
+
 ### `arena_debug_spawn.gd` — Quick Spawn panel (2026-06-21)
 
 Panel added to `_dev_ui_root` (bottom-left, 192×242px). Only visible when Dev:on.
@@ -159,11 +238,23 @@ Panel added to `_dev_ui_root` (bottom-left, 192×242px). Only visible when Dev:o
 - Header: "Quick Spawn" label + "CLEAR ALL" button — each `SIZE_EXPAND_FILL`, row height 50px
 - Grid: `GridContainer` 4 columns × 48×48px cells inside `ScrollContainer` (4 rows visible = 192px height; scroll reveals row 5)
 
-**Enemy order** (`QUICK_SPAWN_ORDER` const): fly, bee, bug, swarm, diver, dragonfly, octopus, spider, centipede, shooter, sentinel, beamer, bomber, missile, dummy → then bosses: elephant, chromeleon, metalfly. Bosses get red background cells.
+**Tabs** (2026-08-24 — was Enemies / Fleet): **Enemies** (the quick-spawn grid), **Fleet** (saved-fleet list + formation preview), **Boss**.
 
-**Thumbnails:** loaded via `_load_thumb(icon)` — GIF path → `GifLoader.load_gif()` frame 0; PNG → `load()`. Source: `WaveDir.ENEMY_DEFS[type_id]["icon"]`.
+**Enemy order** (`QUICK_SPAWN_ORDER` const): fly, bee, bug, swarm, diver, dragonfly, octopus, spider, centipede, shooter, sentinel, beamer, bomber, missile, dummy, … Anything in `QUICK_BOSS_IDS` is SKIPPED here — bosses live in the Boss tab now, and listing them in both was just confusing.
+
+**Boss tab** (2026-08-24): `QUICK_BOSS_IDS` (elephant, chromeleon, metalfly) in a 2-column grid at `BOSS_CELL` (92px, vs the Enemies grid's 48). Cells keep the red boss styling. A def carrying **`"boss_glb"`** renders as a LIVE, slowly-spinning 3D model (`Item3DIcon`) instead of a flat thumbnail — currently only metalfly. Clicking spawns exactly as the Enemies grid does.
+
+> **Item3DIcon + anchors don't mix.** `setup()` assigns the control's `size` itself, so anchoring the icon FULL_RECT *before* calling it makes that write recompute the offsets against the parent's size at that instant — zero, before layout — and the icon resolves to about double the cell once the grid sizes the button, spilling out of the panel. Give it a fixed `position` and let `setup()` own the size.
+
+**Thumbnails:** loaded via `_load_thumb(icon)` — `.sheet.png` → first frame only, sliced by the sibling `.sheet.json` (`_sheet_first_frame`; before 2026-08-24 the whole strip was squeezed into the cell, every frame side by side); GIF → `GifLoader.load_gif()` frame 0; PNG → `load()`. Source: `WaveDir.ENEMY_DEFS[type_id]["icon"]`.
 
 **Spawn:** random position in viewport (`camera.global_position ± 500/270px`). Enemy added as sibling of `wave_director` (same parent as other arena enemies).
+
+> **Bosses must pass `is_boss = true` to the director** (fixed 2026-08-24 — "khi bấm vào không thấy spawn ra"). `_spawn_enemy_at` passed a hardcoded `false`, and the director's one authoritative cap gate (v1 `_spawn`, v2 `_spawn_def`) bypasses `MAX_ALIVE` only for `is_boss`/`elite` defs — so a boss cell was silently rejected on any field at cap, which during real play is nearly always. It now passes `QUICK_BOSS_IDS.has(type_id)`. Verified by A/B: floods the arena to the cap (120), then presses each real Boss-tab Button — 3/3 blocked with the old `false`, 3/3 spawn with the fix (`tools/check_boss_quickspawn.gd`). Affected all three bosses; only noticed once metalfly got its own tab.
+>
+> Consequence: **Shift+click bulk-spawn is disabled for bosses.** The cap used to absorb that mistake; now that bosses bypass it, a Shift+click would drop 300 uncapped bosses.
+
+**Cell styling:** boss cells get a red fill + red border. A cell with a live 3D model (`boss_glb`) keeps the red BORDER but takes a dark fill instead — these models are dark and unlit, and red-on-dark buried metalfly's silhouette where a flat sprite sat on the red fine.
 
 **CLEAR ALL:** removes every node in group `"arena_enemy"` (2026-07-27: broadened from a dedicated `"quick_spawn_enemy"` tag to ALL live creeps — a dev hitting Clear wants a clean field, including real wave-director spawns, not just the ones they quick-spawned through this panel).
 

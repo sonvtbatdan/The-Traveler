@@ -32,6 +32,7 @@ extends CanvasLayer
 const FONT_PATH := "res://assets/fonts/mandalore/mandalore.ttf"
 const LEVELS_DIR := "res://levels/arena"
 const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")   # for enemy_draw_width()'s canonical size lookup
+const WaveHpGen := preload("res://scripts/gameplay/wave_hp_gen.gd")   # shared HP-target wave composer (also used by the runtime director)
 func _current_map_id() -> String:
 	return String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
 
@@ -173,6 +174,15 @@ var _file_opt: OptionButton = null
 var _status: Label = null
 var _readout: TextEdit = null
 var _rows: Array = []
+## Ids the PICKER and Gen's candidate pool never offer, even though the director knows them (2026-08-24).
+## `test_chaser` is spawn_mode_2's synthesised "fly + steer_chaser" entry (arena_wave_director_v2.gd's
+## TEST_ROSTER): its model IS `fly`, which is already in the list, so the two read as the same creep twice
+## and picking either gets you the same thing on screen. Hidden here only — the continuous spawn loop still
+## uses it, so removing it from TEST_ROSTER would change how spawn_mode_2 actually plays.
+## Its three siblings (test_flanker/kiter/charger) are the same shape over dragonfly/shooter/animalhornet;
+## they are NOT hidden because only this one was asked for.
+const EDITOR_HIDDEN_TYPES: Array[String] = ["test_chaser"]
+
 var _types: Array = []
 var _open: bool = false
 var _prev_paused: bool = false         # pause state before opening → restored on close (dev:on stays paused)
@@ -200,6 +210,8 @@ func _ready() -> void:
 	_director = get_tree().get_first_node_in_group("wave_director")
 	if _director != null and _director.has_method("enemy_types"):
 		_types = _director.enemy_types()
+		for skip: String in EDITOR_HIDDEN_TYPES:
+			_types.erase(skip)
 	_build_ui()
 	_root.visible = false
 
@@ -358,6 +370,12 @@ func _build_ui() -> void:
 	gen_all_btn.tooltip_text = "Generate every row whose 'Total HP' field is > 0 (skips rows left at 0)"
 	gen_all_btn.add_theme_color_override("font_color", Color(0.4, 0.75, 1.0))
 	btns.add_child(gen_all_btn)
+	var fill_btn := _mk_button("Targets = Actual", _on_fill_targets)
+	fill_btn.tooltip_text = "Copy every row's Actual HP into its 'Total HP' target field.\n"\
+			+ "One press turns a hand-authored timeline into HP milestones the runtime director\n"\
+			+ "re-composes fresh every run (see arena_wave_director_v2's milestone generator)."
+	fill_btn.add_theme_color_override("font_color", Color(0.55, 0.9, 0.55))
+	btns.add_child(fill_btn)
 	var apply_btn := _mk_button("Apply & Restart", _on_apply)
 	apply_btn.add_theme_color_override("font_color", Color(0.95, 0.85, 0.2))
 	btns.add_child(apply_btn)
@@ -413,6 +431,17 @@ func _rebuild_rows() -> void:
 				break
 		_update_type_btn(row)
 		_update_row_hp(row)
+	# Restore the HP targets too — this function rebuilds from the DIRECTOR's live state (never the file), so
+	# without this a Save/Load or any other rebuild would silently blank every target field back to 0.
+	if _director.has_method("get_hp_targets"):
+		for t: Dictionary in _director.get_hp_targets():
+			var trow := _grid_row_for_time(float(t.get("time", 0.0)))
+			if trow.is_empty():
+				continue
+			trow["target_hp"] = float(t.get("hp", 0.0))
+			var sp := trow.get("hp_spin") as SpinBox
+			if sp != null:
+				sp.set_value_no_signal(float(t.get("hp", 0.0)))
 
 ## Find the template row whose time matches `t` snapped to the nearest 5s grid point (clamped 5…1800).
 func _grid_row_for_time(t: float) -> Dictionary:
@@ -457,8 +486,11 @@ func _add_row(time: float, preset_slots: Array = []) -> void:
 	# ("Generate Base on HP" fills the row so its real total lands within GEN_HP_TOLERANCE of this value).
 	# The row's actual live slot-content total is still shown in the Type popup's own "Total HP" header
 	# (_row_total_hp(), unchanged) whenever that popup is open — this field is only ever the Gen target.
-	var hp_spin := _mk_spin(0.0, 100000000.0, 100.0, 0.0, 130)
-	hp_spin.tooltip_text = "Target HP for 'Generate Base on HP' — 0 = don't generate this row"
+	# step 1, not 100: SpinBox SNAPS whatever is typed to its step, so with a step of 100 a typed "13"
+	# became 0 and the thousands shorthand below could never have fired.
+	var hp_spin := _mk_spin(0.0, 100000000.0, 1.0, 0.0, 130)
+	hp_spin.tooltip_text = "Target HP for 'Generate Base on HP' — 0 = don't generate this row.
+Under %d is read as THOUSANDS on Gen: 13 -> 13,000." % int(HP_SHORTHAND_MAX)
 	hb.add_child(hp_spin)
 
 	# Actual HP — read-only, display only: the row's REAL current slot-content total (same value/math
@@ -542,36 +574,17 @@ func _row_total_hp(row: Dictionary) -> float:
 func _fleet_total_hp(fleet_name: String) -> float:
 	if _director == null:
 		return 0.0
-	var fleet: Dictionary = {}
-	for fl in _load_fleets():
-		if String((fl as Dictionary).get("name", "")) == fleet_name:
-			fleet = fl
-			break
-	if fleet.is_empty():
-		return 0.0
-	var total := 0.0
-	for s: Dictionary in (fleet.get("slots", []) as Array):
-		for en in (s.get("enemies", []) as Array):
-			var id := String(en)
-			if id == "":
-				continue
-			var d: Dictionary = _director.ENEMY_DEFS.get(id, {})
-			total += float(d.get("hp", 0.0))
-	return total
+	return WaveHpGen.fleet_hp(_load_fleets(), fleet_name, _director.ENEMY_DEFS)
 
 # ── Generate Base on HP ──────────────────────────────────────────────────────────
 ## True for any enemy def with a ranged attack — the 4 classic behaviors that fire projectiles
 ## ("shooter"/"beamer"/"bomber"/"missile"), the "gauss_shooter" flag (pros5 — ranged bolted onto a
 ## "chase" behavior), or an explicit Creep Info "shoot" override (the composed move/shoot system —
 ## anything other than "none"). Contact-only/melee creeps (the vast majority of the roster) are false.
+## Kept as a thin wrapper so this file's own call sites read unchanged; the definition itself now lives in
+## wave_hp_gen.gd, shared with the runtime director's concurrent-shooter gate so the two can't drift apart.
 func _is_shoot_type(d: Dictionary) -> bool:
-	if String(d.get("behavior", "")) in ["shooter", "beamer", "bomber", "missile"]:
-		return true
-	if bool(d.get("gauss_shooter", false)):
-		return true
-	if d.has("shoot") and String(d.get("shoot", "none")) != "none":
-		return true
-	return false
+	return WaveHpGen.is_shoot_def(d)
 
 ## Auto-fills `row`'s slots with a random creep/fleet mix whose combined HP lands within
 ## GEN_HP_TOLERANCE of `target` — clears the row first, so every Gen press is a fresh composition,
@@ -586,103 +599,70 @@ func _generate_row_hp(row: Dictionary, target: float) -> float:
 		_update_type_btn(row)
 		_update_row_hp(row)
 		return 0.0
-
-	# Candidate pools — every enemy type / fleet BELONGING TO THE CURRENT MAP (_map_enemy_ids()/
-	# _map_fleets()), minus one-off bosses (behavior "boss_stub", or "gate_waves" like the Scorpion)
-	# which don't belong in a randomly-generated filler wave. Unit hp already folds in "blob" (matches
-	# _row_total_hp()).
-	var unit_pool: Array = []   # [{id, hp}]
-	for id in _map_enemy_ids():
-		var ids := String(id)
-		var d: Dictionary = _director.ENEMY_DEFS.get(ids, {})
-		if String(d.get("behavior", "")) == "boss_stub" or bool(d.get("gate_waves", false)):
-			continue
-		var hp := float(d.get("hp", 0.0)) * float(maxi(1, int(d.get("blob", 1))))
-		if hp > 0.0:
-			unit_pool.append({"id": ids, "hp": hp})
-	var fleet_pool: Array = []   # [{name, hp}]
-	for fl in _map_fleets():
-		var nm := String((fl as Dictionary).get("name", ""))
-		var fhp := _fleet_total_hp(nm)
-		if fhp > 0.0:
-			fleet_pool.append({"name": nm, "hp": fhp})
-	if unit_pool.is_empty() and fleet_pool.is_empty():
-		_update_type_btn(row)
-		_update_row_hp(row)
-		return 0.0
-
-	var patterns: Array = _director.PATTERNS
-	var slot_i := 0
-	var shoot_used: Dictionary = {}   # unit id -> total count already placed in THIS row (SHOOT_TYPE_CAP applies per row, not per slot — a wave could otherwise reach the cap in slot 1 and again in slot 2)
-	var iterations := 0
-	# Phase 1 — greedy fill: drop picks (unit or fleet, ~35% fleet chance when both are available)
-	# into empty slots, each sized to roughly absorb whatever's left of the target, until either the
-	# 10 slots run out or the remainder is already small enough for Phase 2 to close exactly. Capped
-	# retry budget (iterations) so an all-maxed-out-shoot-type pool can't spin forever without ever
-	# advancing slot_i — see the "cap <= 0" skip below.
-	while slot_i < slots.size() and iterations < slots.size() * 4:
-		iterations += 1
-		var achieved := _row_total_hp(row)
-		var remaining := target - achieved
-		if remaining <= target * 0.02:
-			break
-		var use_fleet := not fleet_pool.is_empty() and (unit_pool.is_empty() or randf() < 0.35)
-		if use_fleet:
-			var f: Dictionary = fleet_pool[randi() % fleet_pool.size()]
-			var fhp: float = f["hp"]
-			var n := clampi(int(round(remaining / fhp)), 1, 20)   # sane cap on how many copies of one fleet
-			slots[slot_i] = {"type": "fleet:" + String(f["name"]), "count": n, "pattern": "ring", "is_boss": false, "duration": 0.0}
-		else:
-			var u: Dictionary = unit_pool[randi() % unit_pool.size()]
-			var uhp: float = u["hp"]
-			var uid: String = u["id"]
-			# HP-scaled per-slot cap (cheap fry can swarm higher, pricey types stay small) — mirrors the
-			# same "12000 budget" idea used to author the map wave JSONs, so a Gen'd row doesn't dump an
-			# absurd single count of an expensive creep into one slot.
-			var cap := clampi(int(round(12000.0 / uhp)), 5, 500)
-			# Ranged/"shoot" creeps get a hard SHOOT_TYPE_CAP-per-row ceiling on top of the above,
-			# regardless of HP — a swarm of shooters/beamers/missiles is far more dangerous than the
-			# same HP total in melee creeps (2026-08-17 request).
-			if _is_shoot_type(_director.ENEMY_DEFS.get(uid, {})):
-				cap = mini(cap, SHOOT_TYPE_CAP - int(shoot_used.get(uid, 0)))
-				if cap <= 0:
-					continue   # this shoot type is already at cap for the row — retry with a fresh pick, don't consume a slot
-			var count := clampi(int(round(remaining / uhp)), 1, cap)
-			if _is_shoot_type(_director.ENEMY_DEFS.get(uid, {})):
-				shoot_used[uid] = int(shoot_used.get(uid, 0)) + count
-			slots[slot_i] = {"type": uid, "count": count, "pattern": String(patterns[randi() % patterns.size()]), "is_boss": false, "duration": 0.0}
-		slot_i += 1
-
-	# Phase 2 — fine-tune: solve the LAST filled slot's count exactly so the total lands as close to
-	# target as its own per-slot cap allows, instead of leaving whatever Phase 1's rounding produced.
-	if slot_i > 0:
-		var last: Dictionary = slots[slot_i - 1]
-		var lt := String(last.get("type", ""))
-		var lhp := 0.0
-		if lt.begins_with("fleet:"):
-			lhp = _fleet_total_hp(lt.substr(6))
-		elif lt != "":
-			var ld: Dictionary = _director.ENEMY_DEFS.get(lt, {})
-			lhp = float(ld.get("hp", 0.0)) * float(maxi(1, int(ld.get("blob", 1))))
-		if lhp > 0.0:
-			var others := _row_total_hp(row) - lhp * float(int(last.get("count", 1)))
-			var need := target - others
-			var new_count := maxi(1, int(round(need / lhp)))
-			if not lt.begins_with("fleet:") and _is_shoot_type(_director.ENEMY_DEFS.get(lt, {})):
-				# Cap against SHOOT_TYPE_CAP minus whatever OTHER slots of this same type already used
-				# (shoot_used still includes this slot's own Phase-1 count — subtract it back out first).
-				var other_shoot_use := int(shoot_used.get(lt, 0)) - int(last.get("count", 1))
-				new_count = clampi(new_count, 1, maxi(1, SHOOT_TYPE_CAP - other_shoot_use))
-			last["count"] = new_count
-
+	var composed: Array = WaveHpGen.generate(target, _gen_unit_pool(), _gen_fleet_pool(),
+			_director.PATTERNS, slots.size(), SHOOT_TYPE_CAP, 0)
+	for i in mini(composed.size(), slots.size()):
+		slots[i] = composed[i]
 	_update_type_btn(row)
 	_update_row_hp(row)
 	return _row_total_hp(row)
 
+## Candidate units for a generated wave: every enemy type belonging to the CURRENT MAP (_map_enemy_ids()),
+## minus one-off bosses ("boss_stub", or "gate_waves" like the Scorpion) which don't belong in a randomly
+## composed filler wave. Unit hp folds in "blob" so it matches what _row_total_hp() counts.
+## Shared shape with arena_wave_director_v2._gen_unit_pool() — both feed WaveHpGen.generate().
+func _gen_unit_pool() -> Array:
+	var pool: Array = []
+	if _director == null:
+		return pool
+	for id in _map_enemy_ids():
+		var ids := String(id)
+		var d: Dictionary = _director.ENEMY_DEFS.get(ids, {})
+		if WaveHpGen.is_auto_excluded(d):
+			continue   # one-off bosses, and test-only creeps like dummy — see that function's doc comment
+		var hp := float(d.get("hp", 0.0)) * float(maxi(1, int(d.get("blob", 1))))
+		if hp > 0.0:
+			pool.append({"id": ids, "hp": hp, "shoot": WaveHpGen.is_shoot_def(d)})
+	return pool
+
+func _gen_fleet_pool() -> Array:
+	var pool: Array = []
+	if _director == null:
+		return pool
+	var all_fleets := _load_fleets()
+	for fl in _map_fleets():
+		var nm := String((fl as Dictionary).get("name", ""))
+		var fhp := WaveHpGen.fleet_hp(all_fleets, nm, _director.ENEMY_DEFS)
+		if fhp > 0.0:
+			pool.append({"name": nm, "hp": fhp,
+					"shoot": WaveHpGen.fleet_shoot_count(all_fleets, nm, _director.ENEMY_DEFS)})
+	return pool
+
+## A row's Gen target, with the thousands shorthand applied (2026-08-24, on request: "nếu chỉ điền 2 số
+## (ví dụ 13, 25) thì tự động hiểu là 13000, 25000 khi bấm gen"). Anything under HP_SHORTHAND_MAX is read
+## as thousands — no real wave total is two digits, the cheapest creep on the roster outweighs that on its
+## own, so there is nothing legitimate in that range to be ambiguous with.
+##
+## The expansion is written BACK into the field and the row, not just used for the calculation: Gen is
+## destructive (it clears the row first), and a field still reading "13" after generating 13,000 HP of
+## creeps would make the next Gen press look like it was about to do something much smaller.
+const HP_SHORTHAND_MAX := 100.0
+
+func _resolve_target_hp(row: Dictionary) -> float:
+	var v := float(row.get("target_hp", 0.0))
+	if v <= 0.0 or v >= HP_SHORTHAND_MAX:
+		return v
+	v *= 1000.0
+	row["target_hp"] = v
+	var sp := row.get("hp_spin") as SpinBox
+	if sp != null:
+		sp.set_value_no_signal(v)   # no_signal: the handler would just re-assign what we set above
+	return v
+
 ## Per-row "Gen" button — see column "Generate Base on HP". Skips (with a status message) if the
 ## row's target field is 0.
 func _on_gen_row(row: Dictionary) -> void:
-	var target := float(row.get("target_hp", 0.0))
+	var target := _resolve_target_hp(row)
 	if target <= 0.0:
 		_set_status("t=%ds — HP is 0, skipped" % int(round(float(row["time_val"]))))
 		return
@@ -690,7 +670,12 @@ func _on_gen_row(row: Dictionary) -> void:
 	_refresh_readout()
 	var pct := (achieved / target - 1.0) * 100.0
 	var flag := "" if absf(pct) <= GEN_HP_TOLERANCE * 100.0 else "  (outside ±10%)"
-	_set_status("Generated t=%ds — target %s, got %s (%+.1f%%)%s" % [int(round(float(row["time_val"]))), _fmt_hp(target), _fmt_hp(achieved), pct, flag])
+	# Gen is destructive — it wipes the row before refilling it — so there is no useful state to be in
+	# between generating and saving (2026-08-24, on request: "Khi bấm Gen, tự động lưu luôn").
+	var saved := _on_save()
+	_set_status("Generated t=%ds — target %s, got %s (%+.1f%%)%s%s" % [
+		int(round(float(row["time_val"]))), _fmt_hp(target), _fmt_hp(achieved), pct, flag,
+		("  · saved " + saved) if saved != "" else "  · SAVE FAILED"])
 
 ## Top "Gen All (HP)" button — generates every row whose target field is > 0; rows left at 0 are
 ## skipped entirely, per request.
@@ -699,7 +684,7 @@ func _on_gen_all() -> void:
 	var total_target := 0.0
 	var total_achieved := 0.0
 	for row: Dictionary in _rows:
-		var target := float(row.get("target_hp", 0.0))
+		var target := _resolve_target_hp(row)
 		if target <= 0.0:
 			continue
 		total_achieved += _generate_row_hp(row, target)
@@ -710,7 +695,34 @@ func _on_gen_all() -> void:
 		_set_status("Gen All — no rows have HP set (every 'Total HP' field is 0)")
 		return
 	var pct := (total_achieved / total_target - 1.0) * 100.0 if total_target > 0.0 else 0.0
-	_set_status("Gen All — %d row(s) generated, target %s, got %s (%+.1f%%)" % [n, _fmt_hp(total_target), _fmt_hp(total_achieved), pct])
+	# ...and once, after the whole batch — not per row inside the loop, which would rewrite the file n times
+	# for one press.
+	var saved := _on_save()
+	_set_status("Gen All — %d row(s) generated, target %s, got %s (%+.1f%%)%s" % [
+		n, _fmt_hp(total_target), _fmt_hp(total_achieved), pct,
+		("  · saved " + saved) if saved != "" else "  · SAVE FAILED"])
+
+## "Targets = Actual" — seed every row's Total HP TARGET from the HP its slots actually hold right now
+## (2026-08-24). The runtime milestone generator only acts on rows that have a target set, so a timeline
+## authored by hand (every existing wave JSON) would otherwise be invisible to it until each row's target
+## was typed in one at a time. This makes the existing shape of a level the starting curve, in one press.
+## Rows with no content get 0 (= "leave this row's authored entries alone"), so it is never destructive.
+## Saves afterwards, same as Gen All, since the targets are only useful once they're on disk.
+func _on_fill_targets() -> void:
+	var n := 0
+	var total := 0.0
+	for row: Dictionary in _rows:
+		var hp := _row_total_hp(row)
+		row["target_hp"] = hp
+		var sp := row.get("hp_spin") as SpinBox
+		if sp != null:
+			sp.set_value_no_signal(hp)
+		if hp > 0.0:
+			n += 1
+			total += hp
+	var saved := _on_save()
+	_set_status("Targets = Actual — %d row(s) seeded, %s total%s" % [
+			n, _fmt_hp(total), ("  · saved " + saved) if saved != "" else "  · SAVE FAILED"])
 
 ## Exact integer HP with thousands separators (e.g. "1,234,500") — no K/M abbreviation, no precision lost.
 ## round() here only cancels float-multiplication noise (hp × count × blob are all whole numbers in
@@ -772,6 +784,18 @@ func _collect() -> Array:
 			entries.append(e)
 	return entries
 
+## The per-row "Total HP" TARGET fields, as [{time, hp}] for every row that actually has one set.
+## Saved alongside the timeline (2026-08-24) so the runtime director can re-compose each milestone fresh
+## every run — before this, `target_hp` lived only in the in-memory row dict and was lost on reload, which
+## is why "the HP milestones" existed as a concept in the editor but as no data anywhere on disk.
+func _collect_hp_targets() -> Array:
+	var out: Array = []
+	for r: Dictionary in _rows:
+		var hp := float(r.get("target_hp", 0.0))
+		if hp > 0.0:
+			out.append({"time": float(r["time_val"]), "hp": hp})
+	return out
+
 # ── Actions ───────────────────────────────────────────────────────────────────
 func _on_add() -> void:
 	var t := GRID_STEP
@@ -817,7 +841,10 @@ func _on_build_test() -> void:
 	_set_status("Built %d waves × %d %s, every %.1fs" % [TEST_WAVES, per_wave, t, iv])
 
 # ── Save / Load library (JSON in res://levels/arena/) ───────────────────────────
-func _on_save() -> void:
+## Returns the filename written, or "" on failure — so a caller that saves as a SIDE EFFECT (Gen, below)
+## can fold the outcome into its own status line instead of having its message silently overwritten by
+## this one. Still safe to connect straight to a Button: a returned value is simply ignored there.
+func _on_save() -> String:
 	DirAccess.make_dir_recursive_absolute(LEVELS_DIR)
 	# Locked maps (see MAP_FIXED_FILES) always save to their own ONE file, ignoring whatever's in the
 	# (now read-only, for these maps) Name field — no more free Save-as-any-name for electric/volcanic/atlantic.
@@ -828,8 +855,9 @@ func _on_save() -> void:
 	var f := FileAccess.open(LEVELS_DIR + "/" + fname, FileAccess.WRITE)
 	if f == null:
 		_set_status("Save FAILED")
-		return
-	f.store_string(JSON.stringify({"name": display_name, "timeline": tl}, "  "))
+		return ""
+	var targets := _collect_hp_targets()
+	f.store_string(JSON.stringify({"name": display_name, "timeline": tl, "hp_targets": targets}, "  "))
 	f.close()
 	# Live-apply + remember, same as _on_load() does — otherwise the disk write succeeds but (a) THIS
 	# panel keeps showing the director's now-stale live timeline on reopen (_rebuild_rows() reads
@@ -838,7 +866,7 @@ func _on_save() -> void:
 	# a Save-only edit look like it silently reverted (2026-08-02 bug report: reproduces on any map, not
 	# just Electric — Save alone never touched the live director before this fix).
 	if _director != null:
-		_director.set_timeline(tl)
+		_director.set_timeline(tl, targets)
 	_remember_last_wave(fname)
 	_refresh_files()
 	for i in _file_opt.item_count:
@@ -846,6 +874,7 @@ func _on_save() -> void:
 			_file_opt.selected = i
 			break
 	_set_status("Saved " + fname)
+	return fname
 
 func _on_load() -> void:
 	if _file_opt == null or _file_opt.item_count == 0:
@@ -863,7 +892,8 @@ func _on_load() -> void:
 		return
 	_name_edit.text = _txt(String((parsed as Dictionary).get("name", fname.get_basename())))
 	if _director != null:
-		_director.set_timeline((parsed as Dictionary)["timeline"])
+		var tgt: Variant = (parsed as Dictionary).get("hp_targets", [])
+		_director.set_timeline((parsed as Dictionary)["timeline"], tgt if tgt is Array else [])
 	_remember_last_wave(fname)
 	_rebuild_rows()
 	_refresh_readout()

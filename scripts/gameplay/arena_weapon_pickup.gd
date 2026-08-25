@@ -3,6 +3,18 @@ extends Node2D
 ## it reads as "grab me". Collected when the player flies within COLLECT_RANGE (its OWN fixed range — a weapon
 ## shouldn't magnetize across the screen like an XP orb). On collection it auto-equips the weapon by telling
 ## arena_weapons to activate it (activate_<kind>), pops, and frees. Gameplay plane (sharp, not blurred).
+##
+## 2026-08-24: a weapon listed in `arena_weapons.ARENA_PICKUP_GLB` shows a LIVE 3D model, slowly spinning,
+## in place of the procedural crate diamond + emblem; the glow halo and the pop-on-collect stay exactly as
+## they were, so it still reads as a pickup at a glance. `arena_weapons.spawn_weapon_pickup()` resolves the
+## path and passes it to setup() — that table is curated BY HAND, one weapon at a time, and deliberately
+## NOT derived from the level-up board's icon resolution (InventoryManager.glb_for()): several weapons'
+## sibling .glb is their AMMO/PROJECTILE model (the in-flight shot), not the gun, and would look wrong sitting
+## in a "grab me" crate. Anything not in that table keeps drawing the procedural crate, as before.
+##
+## Recipe is arena_loot.gd's `_build_model_viewport()` — SubViewport + 2 DirectionalLight3D + Camera3D at a
+## fixed ISO_DEG, model centred on its own AABB — kept as its own copy here for the same reason
+## arena_loot/arena_chest/item_3d_icon each keep one.
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
 const SIZE          := 14.0                       # icon radius px
@@ -36,19 +48,117 @@ const KIND_STYLE := {
 }
 const DEFAULT_STYLE := {"color": Color(0.8, 0.8, 0.8), "ring": Color(0.95, 0.95, 0.95), "emblem": "beam"}
 
+const Item3DIcon := preload("res://scripts/ui/hud/item_3d_icon.gd")   # warm_scene() only — no Control is made here
+
+const VP_SIZE      := 64        # 3D render resolution — small on purpose, matches arena_loot.gd's
+const ISO_DEG      := 30.0      # camera tilt — matches arena_loot.gd / arena_chest.gd
+const MODEL_WIDTH  := 40.0      # on-screen px for the model (bigger than the SIZE*2 crate — a weapon drop
+                                # is a bigger deal than a heart, and the silhouette needs the room to read)
+const MODEL_RPM    := 10.0      # idle spin
+const MODEL_SPIN   := deg_to_rad(MODEL_RPM * 360.0 / 60.0)   # rad/s
+
 var _kind: String = "death_beam"
 var _t := 0.0
 var _player: Node2D = null
 var _popping := false
 var _pop_t := 0.0
+var _vp: SubViewport = null
+var _cam: Camera3D = null
+var _pivot: Node3D = null
+var _spr3d: Sprite2D = null
+var _is_3d := false
 
-func setup(world_pos: Vector2, kind: String) -> void:
+func setup(world_pos: Vector2, kind: String, glb_path: String = "") -> void:
 	global_position = world_pos
 	_kind = kind
 	_t = randf() * TAU
+	if glb_path != "" and ResourceLoader.exists(glb_path):
+		_build_model_viewport(glb_path)
+
+## See this file's header. Returns false (nothing changed) if the model won't load, so the procedural crate
+## in _draw() simply stands as before.
+func _build_model_viewport(glb_path: String) -> bool:
+	var packed := Item3DIcon.warm_scene(glb_path)   # shared warm table — see that function's comment
+	var model: Node3D = (packed.instantiate() as Node3D) if packed != null else null
+	if model == null:
+		push_warning("arena_weapon_pickup: could not load " + glb_path)
+		return false
+	_vp = SubViewport.new()
+	_vp.size = Vector2i(VP_SIZE, VP_SIZE)
+	_vp.transparent_bg = true
+	_vp.own_world_3d = true
+	_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	add_child(_vp)
+	var key := DirectionalLight3D.new()
+	key.rotation = Vector3(deg_to_rad(-55.0), deg_to_rad(-35.0), 0.0)
+	key.light_energy = 1.3
+	_vp.add_child(key)
+	var fill := DirectionalLight3D.new()
+	fill.rotation = Vector3(deg_to_rad(-15.0), deg_to_rad(140.0), 0.0)
+	fill.light_energy = 0.5
+	_vp.add_child(fill)
+	# Ambient, same reason item_3d_icon.gd needed it: project.godot has no default environment, so any face
+	# the two directional lights miss renders pure black on a dark-material model.
+	var env := WorldEnvironment.new()
+	var e := Environment.new()
+	e.background_mode = Environment.BG_CLEAR_COLOR
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	e.ambient_light_color = Color(0.4, 0.42, 0.48)
+	e.ambient_light_energy = 1.2
+	env.environment = e
+	_vp.add_child(env)
+	_cam = Camera3D.new()
+	_vp.add_child(_cam)
+	_pivot = Node3D.new()
+	_vp.add_child(_pivot)
+	_pivot.add_child(model)
+	_frame_cam(model)
+	_spr3d = Sprite2D.new()
+	_spr3d.texture = _vp.get_texture()
+	_spr3d.scale = Vector2.ONE * (MODEL_WIDTH / float(VP_SIZE))
+	add_child(_spr3d)
+	_is_3d = true
+	return true
+
+## Centre `model` on its own AABB and back the camera off far enough to fit it — same as arena_loot._frame_cam.
+func _frame_cam(model: Node3D) -> void:
+	var aabb := _model_aabb(model)
+	model.position -= aabb.position + aabb.size * 0.5
+	var radius: float = maxf(aabb.size.length() * 0.5, 0.001)
+	var dist := radius / tan(deg_to_rad(_cam.fov * 0.5)) + radius
+	var iso := deg_to_rad(ISO_DEG)
+	# look_at_from_position, not position + look_at: look_at needs is_inside_tree() and silently no-ops
+	# otherwise (the bug item_3d_icon.gd's own header documents), and _cam IS parented by now but this is
+	# the form that can't regress if that ever changes.
+	_cam.look_at_from_position(Vector3(0.0, cos(iso), sin(iso)) * dist, Vector3.ZERO, Vector3(0.0, 1.0, 0.0))
+
+func _model_aabb(root: Node3D) -> AABB:
+	var acc := AABB()
+	var has := false
+	for mi: MeshInstance3D in _model_meshes(root):
+		# Local transform, not global: the chain isn't in the main tree yet when this runs.
+		var box: AABB = mi.transform * mi.get_aabb()
+		if not has:
+			acc = box
+			has = true
+		else:
+			acc = acc.merge(box)
+	return acc if has else AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2))
+
+func _model_meshes(node: Node) -> Array:
+	var out: Array = []
+	if node is MeshInstance3D:
+		out.append(node)
+	for c: Node in node.get_children():
+		out.append_array(_model_meshes(c))
+	return out
 
 func _process(delta: float) -> void:
 	_t += delta
+	if _is_3d and _spr3d != null:
+		_pivot.rotation.y += MODEL_SPIN * delta
+		_spr3d.position = Vector2(0.0, sin(_t * BOB_SPEED) * BOB_AMP)   # same bob as the crate
+		_spr3d.visible = not _popping
 	if _popping:
 		_pop_t += delta
 		queue_redraw()
@@ -88,6 +198,8 @@ func _draw() -> void:
 	# Glow halo.
 	draw_circle(c, SIZE * 2.0 * pulse, Color(col.r, col.g, col.b, 0.12 * GLOW))
 	draw_circle(c, SIZE * 1.35 * pulse, Color(col.r, col.g, col.b, 0.25 * GLOW))
+	if _is_3d:
+		return   # the live model IS the art — glow halo above still frames it, crate/emblem would occlude it
 	# Crate diamond.
 	var d := SIZE
 	var pts := PackedVector2Array([c + Vector2(0, -d), c + Vector2(d, 0), c + Vector2(0, d), c + Vector2(-d, 0)])

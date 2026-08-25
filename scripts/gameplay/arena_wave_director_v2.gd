@@ -11,6 +11,8 @@ const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 const CreepInfoPanelScript := preload("res://scripts/ui/hud/creep_info_panel.gd")
 const CreepEditModeScript := preload("res://scripts/ui/boss_edit/creep_edit_mode.gd")
 const V1 := preload("res://scripts/gameplay/arena_wave_director.gd")
+const WaveHpGen := preload("res://scripts/gameplay/wave_hp_gen.gd")   # shared HP-target wave composer (F7 uses the same one)
+const WaveEditorConf := preload("res://scripts/ui/hud/arena_wave_editor.gd")   # map-eligibility consts ONLY (MAP_ENEMY_FOLDERS / SHARED_ENEMY_FOLDERS / FLEET_PREFIX_MAP) so a generated wave fields the same roster F7 would offer. No instance is ever made here; the editor never preloads this file back, so there is no cycle.
 
 # ══ Annulus geometry ═══════════════════════════════════════════════════════════
 const R_PADDING      := 150.0   # R_min = half the screen diagonal + this (never spawns in view)
@@ -139,6 +141,57 @@ const RANDOM_FORMATIONS := ["ring", "pincer", "wall", "wedge", "portal"]
 const TL_BLOB_SPAWN_R := 90.0    # cluster radius for a "blob" def (e.g. "swarm", blob:50), timeline path only
 const GRID_SPREAD_STEP := 5.0    # matches the F7 editor's row grid (GRID_STEP in arena_wave_editor.gd)
 
+# ══ Runtime HP-milestone waves (2026-08-24) ════════════════════════════════════════════════════════
+# On request: "Mỗi lần start game, luôn tự gen lại mỗi mốc 30 giây rồi rải đều ra các tick 5 giây."
+#
+# A wave file's `hp_targets` (the F7 "Total HP" column, persisted since 2026-08-24) is a list of MILESTONES:
+# {time, hp}. For each one this director composes a FRESH random creep/fleet mix hitting that HP total —
+# every run, so no two runs field the same wave — and spreads it across the 5s grid ticks leading UP to the
+# milestone, using the identical spread math the authored timeline gets (_spread_entry).
+#
+# WHEN each one is composed: a milestone's units are released across the gap BEHIND it (t=90's wave actually
+# fires at 65, 70, 75, 80, 85, 90), so its composition has to exist before the first of those ticks — NOT at
+# t=90. It is composed the moment the run clock passes the PREVIOUS milestone, i.e. t=90's wave is built at
+# t=60. (The user's own estimate was "gen at t=55 for t=90" — right idea; anchoring on the previous milestone
+# is the same deadline without a magic number, and it keeps working if the milestone grid isn't 30s.)
+#
+# An authored entry sitting at a timestamp that HAS a target is dropped — the target is what that row means
+# now, and firing both would double the wave. Rows with no target (or a wave file with no `hp_targets` at
+# all, i.e. every file authored before this) keep their hand-placed entries exactly as before.
+const GEN_SLOTS_PER_WAVE := 10   # same 2×5 slot budget one F7 row has
+# "stream" is deliberately absent: a generated wave is ALREADY trickled across the 5s ticks, and a stream
+# slot carries duration 0 (see _tl_fire's maxf(0.01, ...)), which would dump its whole count in one frame.
+const GEN_PATTERNS := ["ring", "arc", "scatter", "pincer", "wall", "wedge", "portal", "random"]
+
+# ══ Concurrent ranged-creep ceiling ════════════════════════════════════════════════════════════════
+# On request: "Có không quá 5 creep bắn projectile xuất hiện đồng thời trên arena." Enforced in _spawn_def()
+# — the one funnel every ordinary spawn goes through (continuous loop, timeline, generated waves, catch-up,
+# Elite/Champion) — exactly the way MISSILE_MAX_ALIVE already works: the spawn is REFUSED, the item stays in
+# _spawn_queue, and _drain_spawn_queue's next pick tries something else. So the field keeps filling at full
+# rate with melee creeps and the held-back shooter arrives once one of the five dies.
+#
+# Fleet Edit formations deploy through their OWN gate instead (_drain_fleet_queue below), because
+# _deploy_fleet() builds its units directly rather than through _spawn_def() and a rigid dock formation
+# can't be thinned mid-deploy without orphaning its escorts — so a whole formation is admitted or deferred
+# as one unit, budgeted by how many ranged members it carries.
+#
+# 2026-08-24 bug report: "hornet cũng là enemy shoot projectile, vì sao ở giây thứ 55, có tới hơn 70
+# animalhornet trên arena?" — exactly that loophole. animalhornet IS classified ranged (behavior "bomber"),
+# but elecforest.json's t=60 row is `fleet:A.Hornet.Diamon.5` ×20 — 5 hornets per deployment, 100 in total,
+# every one of them arriving through the fleet path that never consulted this ceiling. Spread across the
+# 30→60s gap that put ~80 on the field by t=55. Enforcing it on fleets too is what actually makes the rule
+# mean anything, since a level's ranged pressure is largely delivered BY formations.
+#
+# PRECEDENCE (2026-08-25, on request: "luật trần 10 con này là cao nhất override các rule khác"): this
+# ceiling outranks every other spawn rule — the ambient rate loop, the low-population catch-up burst, the
+# HP-milestone generator, an authored timeline row, and whole Fleet Edit formations all yield to it.
+#
+# The ONE exemption is a boss, and "boss" here explicitly includes ELITE and CHAMPION creeps: with 10 ranged
+# creeps already up, a boss/elite/champion may still spawn. That is the `not is_boss and not def["elite"]`
+# guard in _spawn_def() — Elite/Champion are spawned by _spawn_tiered_creep() with def["elite"] = true, so
+# both tiers already ride that same exemption.
+const SHOOT_MAX_ALIVE := 10   # raised from 5 on request, 2026-08-24
+
 # ══ Per-type hard cap — "missile" launchers hold position near the player (behavior "missile", standoff)
 # and are NOT covered by _tick_despawn_teleport() (that only recycles "steer_*" behaviors), so multiple
 # timeline waves' worth of them pile up on screen indefinitely instead of getting culled/replaced. Capped
@@ -150,6 +203,17 @@ const MISSILE_MAX_ALIVE := 4
 
 var timeline: Array = []          # live, F7-editable, SPARSE — {time, type, count, pattern, [duration], [is_boss], ...}
 var _tl_fire_queue: Array = []    # timeline with gap-spread applied — what _tl_tick() actually fires from
+var hp_targets: Array = []        # [{time, hp}] sorted — the authored HP milestones (see the const block above)
+var _gen_fire_queue: Array = []   # generated milestone waves, already spread, in time order (own queue so the authored one keeps its invariants)
+var _gen_next: int = 0            # index into _gen_fire_queue of the next generated entry to fire
+var _gen_ms_i: int = 0            # index into hp_targets of the next milestone still to compose
+var _gen_unit_pool: Array = []    # [{id, hp, shoot}] eligible creeps for this map, built once in _ready
+var _gen_fleet_pool: Array = []   # [{name, hp, shoot}] eligible formations for this map
+var _shoot_ids: Dictionary = {}   # enemy id -> true for every ranged type (SHOOT_MAX_ALIVE gate)
+var _shoot_alive_n: int = 0       # cached count of live ranged creeps (see _shoot_alive)
+var _shoot_alive_frame: int = -1
+var _fleet_queue: Array = []      # [{name, angle, rot}] formations waiting on the ranged ceiling (see _drain_fleet_queue)
+var _fleet_shoot_n: Dictionary = {}   # fleet name -> ranged units ONE deployment puts on the field
 var _tl_start_t: float = 0.0  # _run_t at the moment set_timeline() was last called — elapsed() is relative to this
 var _tl_next: int = 0         # index into _tl_fire_queue of the next entry to fire
 var _tl_streams: Array = []   # active "stream" entries: {type, left, dur, elapsed, r0, ramp, credit, is_boss, ...}
@@ -222,6 +286,10 @@ func _ready() -> void:
 		ENEMY_DEFS[k] = ENEMY_DEFS_V2[k]
 	CreepInfoPanelScript.apply_overrides(ENEMY_DEFS)   # Creep Info dev panel's saved HP/Move/Shoot overrides
 	CreepEditModeScript.apply_chain_overrides(ENEMY_DEFS)   # Creep Edit's CHAIN section — segments/spacing/bend-lock
+	# Both derived from the FINAL ENEMY_DEFS (after every override above), and both before
+	# _load_remembered_timeline() below — that call composes the first milestone, which needs the pools.
+	_shoot_ids = WaveHpGen.shoot_type_ids(ENEMY_DEFS)
+	_build_gen_pools()
 	_player = get_tree().get_first_node_in_group("player")
 	_mgr = get_tree().get_first_node_in_group("enemy_manager")
 	if _player != null:
@@ -257,7 +325,8 @@ func _load_remembered_timeline() -> void:
 	f.close()
 	if typeof(parsed) != TYPE_DICTIONARY or not (parsed as Dictionary).has("timeline"):
 		return
-	set_timeline((parsed as Dictionary)["timeline"])
+	var tgt: Variant = (parsed as Dictionary).get("hp_targets", [])
+	set_timeline((parsed as Dictionary)["timeline"], tgt if tgt is Array else [])
 
 func enemy_types() -> Array:
 	return ENEMY_DEFS.keys()
@@ -276,10 +345,23 @@ func get_timeline() -> Array:
 ## Replace the timeline and restart its playback from "t=0" relative to right now (see the class-level
 ## comment on elapsed() above for why this doesn't touch _run_t/Agony/Elite-Creep state). Also rebuilds the
 ## gap-spread firing queue (_tl_fire_queue) — see the class-level comment on gap-spread.
-func set_timeline(entries: Array) -> void:
+func set_timeline(entries: Array, targets: Array = []) -> void:
 	timeline = entries.duplicate(true)
 	timeline.sort_custom(func(a, b): return float(a["time"]) < float(b["time"]))
-	_tl_fire_queue = _spread_gaps(timeline)
+	hp_targets = []
+	for t in targets:
+		var td: Dictionary = t
+		var thp := float(td.get("hp", 0.0))
+		if thp > 0.0:
+			hp_targets.append({"time": float(td.get("time", 0.0)), "hp": thp})
+	hp_targets.sort_custom(func(a, b): return float(a["time"]) < float(b["time"]))
+	_gen_fire_queue.clear()
+	_gen_next = 0
+	_gen_ms_i = 0
+	_fleet_queue.clear()
+	# Authored entries at a milestone timestamp are superseded by that milestone's generated wave (see the
+	# GEN_SLOTS_PER_WAVE const block) — everything else plays exactly as before.
+	_tl_fire_queue = _spread_gaps(_authored_minus_milestones(timeline))
 	_tl_start_t = _run_t
 	_tl_next = 0
 	_tl_streams.clear()
@@ -310,43 +392,181 @@ func set_timeline(entries: Array) -> void:
 	if _fb_idx >= 0:
 		_final_boss_entry = _tl_fire_queue[_fb_idx]
 		_tl_fire_queue.remove_at(_fb_idx)
+	# Milestone 0's own gap runs from t=0, so its ticks start almost immediately — compose it up front rather
+	# than waiting for the first _tick_hp_gen() (which would already be a tick or two late).
+	_tick_hp_gen()
 
-## Expand `sorted` (already time-sorted) into the actual firing queue: a filled entry that follows a gap
-## since the previous entry has its count divided evenly across every ~GRID_SPREAD_STEP tick spanning that
-## gap (tick spacing = gap / round(gap / GRID_SPREAD_STEP), so the LAST tick always lands exactly on the
-## entry's own authored time, even if that time isn't itself grid-aligned). Remainder units go to the
+## Read by F7 so a Save/Load round-trip keeps the milestone targets (the panel rebuilds its rows from this
+## director's live state, never from the file — see arena_wave_editor._rebuild_rows).
+func get_hp_targets() -> Array:
+	return hp_targets
+
+## `timeline` minus every entry whose time matches a milestone that has an HP target — those rows are now
+## DEFINED by their target, and the composed wave replaces them. Match is by the 5s grid the F7 rows sit on
+## (is_equal_approx on raw floats would miss a 30.0 vs 29.999999 round-trip through JSON).
+func _authored_minus_milestones(entries: Array) -> Array:
+	if hp_targets.is_empty():
+		return entries
+	var taken: Dictionary = {}
+	for t: Dictionary in hp_targets:
+		taken[int(round(float(t["time"])))] = true
+	var out: Array = []
+	for e: Dictionary in entries:
+		if not taken.has(int(round(float(e.get("time", 0.0))))):
+			out.append(e)
+	return out
+
+## Eligible creeps/formations for a generated wave on the map being played — the same rule F7's own Gen
+## candidate pool uses (own map folder + SHARED_ENEMY_FOLDERS for units; FLEET_PREFIX_MAP, else the same
+## folder test on member ids, for fleets), read from that file's consts so the two can't diverge. Built once:
+## ENEMY_DEFS and fleet_layout.cfg don't change mid-run.
+func _build_gen_pools() -> void:
+	_gen_unit_pool.clear()
+	_gen_fleet_pool.clear()
+	var map_id := String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
+	var own_folder := String(WaveEditorConf.MAP_ENEMY_FOLDERS.get(map_id, ""))
+	var allowed: Array = ([own_folder] + WaveEditorConf.SHARED_ENEMY_FOLDERS) if own_folder != "" else []
+	for id in ENEMY_DEFS.keys():
+		var ids := String(id)
+		if ENEMY_DEFS_V2.has(ids):
+			continue   # the 4 TEST_ROSTER placeholders are re-skins of real types — don't offer both
+		var d: Dictionary = ENEMY_DEFS[ids]
+		if WaveHpGen.is_auto_excluded(d):
+			continue   # one-off bosses + test-only creeps (dummy) — see WaveHpGen.is_auto_excluded()
+		if not allowed.is_empty() and not _icon_in_folders(String(d.get("icon", "")), allowed):
+			continue
+		var hp := float(d.get("hp", 0.0)) * float(maxi(1, int(d.get("blob", 1))))
+		if hp > 0.0:
+			_gen_unit_pool.append({"id": ids, "hp": hp, "shoot": WaveHpGen.is_shoot_def(d)})
+	var fleets := _load_fleets()
+	for fl in fleets:
+		var nm := String((fl as Dictionary).get("name", ""))
+		if nm == "" or not _fleet_belongs(fl, nm, map_id, allowed):
+			continue
+		var fhp := WaveHpGen.fleet_hp(fleets, nm, ENEMY_DEFS)
+		if fhp > 0.0:
+			_gen_fleet_pool.append({"name": nm, "hp": fhp,
+					"shoot": WaveHpGen.fleet_shoot_count(fleets, nm, ENEMY_DEFS)})
+
+func _icon_in_folders(icon: String, folders: Array) -> bool:
+	for p in folders:
+		if icon.begins_with(String(p)):
+			return true
+	return false
+
+func _fleet_belongs(fl: Variant, nm: String, map_id: String, allowed: Array) -> bool:
+	if allowed.is_empty():
+		return true   # "default"/unmapped map — every fleet is fair game, same as F7
+	for pm: Dictionary in WaveEditorConf.FLEET_PREFIX_MAP:
+		if nm.begins_with(String(pm["prefix"])):
+			return String(pm["map"]) == map_id   # a recognized prefix decides outright
+	for s: Dictionary in ((fl as Dictionary).get("slots", []) as Array):
+		for en in (s.get("enemies", []) as Array):
+			var d: Dictionary = ENEMY_DEFS.get(String(en), {})
+			if _icon_in_folders(String(d.get("icon", "")), allowed):
+				return true   # legacy, un-prefixed fleet — same folder fallback F7 uses
+	return false
+
+## Compose every milestone whose composition deadline has arrived. Milestone i's units are spread across the
+## gap behind it, so it is built once the clock passes milestone i-1 (milestone 0 at t=0). Each milestone is
+## composed EXACTLY once per run — _gen_ms_i only ever advances.
+func _tick_hp_gen() -> void:
+	var t := elapsed()
+	while _gen_ms_i < hp_targets.size():
+		var prev := float(hp_targets[_gen_ms_i - 1]["time"]) if _gen_ms_i > 0 else 0.0
+		if t < prev:
+			return
+		_gen_compose(_gen_ms_i, prev)
+		_gen_ms_i += 1
+
+func _gen_compose(i: int, prev_t: float) -> void:
+	var ms: Dictionary = hp_targets[i]
+	var t := float(ms["time"])
+	# shoot_cap_per_type is 0 (unlimited) here on purpose: SHOOT_MAX_ALIVE is a TOTAL, and a per-type ceiling
+	# on top of a total of 5 would only ever make the mix more uniform, never safer.
+	var slots: Array = WaveHpGen.generate(float(ms["hp"]), _gen_unit_pool, _gen_fleet_pool, GEN_PATTERNS,
+			GEN_SLOTS_PER_WAVE, 0, SHOOT_MAX_ALIVE)
+	var block: Array = []
+	for slot: Dictionary in slots:
+		var e := slot.duplicate(true)
+		e["time"] = t
+		for sub: Dictionary in _spread_entry(e, prev_t, t):
+			block.append(sub)
+	# Each slot spreads independently, so the block interleaves — sort it before appending. Every entry in it
+	# lands in (prev_t, t], i.e. after everything already queued, so the queue as a whole stays time-ordered
+	# and _gen_next can keep walking it with a plain index.
+	block.sort_custom(func(a, b): return float(a["time"]) < float(b["time"]))
+	_gen_fire_queue.append_array(block)
+
+## Expand `sorted` (already time-sorted) into the actual firing queue: every entry stamped at a given time
+## has its count divided evenly across each ~GRID_SPREAD_STEP tick spanning the gap back to the previous
+## DISTINCT timestamp (all entries of one authored row share that same gap — see the grouping note below).
+## Tick spacing = gap / round(gap / GRID_SPREAD_STEP), so the LAST tick always lands exactly on the
+## entry's own authored time, even if that time isn't itself grid-aligned. Remainder units go to the
 ## final ticks so the total spawned always equals the authored count exactly. Skipped (passed through
 ## unchanged) for: "Boss" entries and "stream" entries. The FIRST entry's own gap is measured from t=0 (the
 ## run's start, `prev_t`'s own initial value below) exactly like any other entry's gap from ITS predecessor —
 ## user bug report: a single-entry timeline (e.g. Volcanic's vocalnic.json, one "magma1" row at t=30s) was
 ## dumping its entire count in one instant burst at t=30 instead of spreading across the 30s runway, because
 ## this used to special-case "no previous entry" as "never spread" regardless of how large that gap was.
+## One entry's count divided across the ~GRID_SPREAD_STEP ticks spanning (prev_t, t]. Shared by
+## _spread_gaps() (authored timeline) and _gen_compose() (runtime milestone waves) so both trickle
+## identically. Returns [entry] unchanged when the gap is too small to subdivide.
+func _spread_entry(entry: Dictionary, prev_t: float, t: float) -> Array:
+	var gap := t - prev_t
+	if gap <= GRID_SPREAD_STEP:
+		var one := entry.duplicate(true)
+		one["time"] = t
+		return [one]
+	var out: Array = []
+	var n_ticks: int = maxi(1, int(round(gap / GRID_SPREAD_STEP)))
+	var step := gap / float(n_ticks)
+	var total := maxi(1, int(entry.get("count", 1)))
+	var base := total / n_ticks
+	var rem := total % n_ticks
+	for k in n_ticks:
+		var n := base + (1 if k >= n_ticks - rem else 0)   # remainder → the LAST ticks (so the tick landing on t always fires)
+		if n <= 0:
+			continue
+		var sub := entry.duplicate(true)
+		sub["time"] = prev_t + step * float(k + 1)
+		sub["count"] = n
+		out.append(sub)
+	return out
+
 func _spread_gaps(sorted: Array) -> Array:
 	var out: Array = []
 	var prev_t := 0.0
-	for entry: Dictionary in sorted:
-		var t := float(entry.get("time", 0.0))
-		var pattern := String(entry.get("pattern", "ring"))
-		var is_boss := bool(entry.get("is_boss", false))
+	var i := 0
+	while i < sorted.size():
+		var t := float((sorted[i] as Dictionary).get("time", 0.0))
+		# Take the whole GROUP of entries sharing this timestamp before advancing `prev_t`. One authored F7
+		# row is several entries (one per Unit slot) all stamped with the SAME "time", and every one of them
+		# has to spread across the SAME gap — the one measured back to the previous DISTINCT timestamp.
+		# 2026-08-24 bug fix: this used to advance `prev_t = t` after EVERY entry, so only a row's FIRST unit
+		# ever saw a non-zero gap; units 2..N measured gap 0, fell through the `gap <= GRID_SPREAD_STEP`
+		# early-out and dumped their whole count in one instant burst. With spawnmode2.json's 30s grid (rows
+		# of 4-10 entries each) that meant ~99% of every wave arrived as a single 30-second drop instead of
+		# trickling every 5s — exactly the reported "creep rơi theo từng tick 30 giây" symptom.
+		var j := i
+		while j < sorted.size() and is_equal_approx(float((sorted[j] as Dictionary).get("time", 0.0)), t):
+			j += 1
 		var gap := t - prev_t
-		if is_boss or pattern == "stream" or gap <= GRID_SPREAD_STEP:
-			out.append(entry)
-			prev_t = t
-			continue
-		var n_ticks: int = maxi(1, int(round(gap / GRID_SPREAD_STEP)))
-		var step := gap / float(n_ticks)
-		var total := maxi(1, int(entry.get("count", 1)))
-		var base := total / n_ticks
-		var rem := total % n_ticks
-		for k in n_ticks:
-			var n := base + (1 if k >= n_ticks - rem else 0)   # remainder → the LAST ticks (so the tick landing on t always fires)
-			if n <= 0:
+		for gi in range(i, j):
+			var entry: Dictionary = sorted[gi]
+			var pattern := String(entry.get("pattern", "ring"))
+			var is_boss := bool(entry.get("is_boss", false))
+			if is_boss or pattern == "stream" or gap <= GRID_SPREAD_STEP:
+				out.append(entry)
 				continue
-			var sub := entry.duplicate(true)
-			sub["time"] = prev_t + step * float(k + 1)
-			sub["count"] = n
-			out.append(sub)
+			out.append_array(_spread_entry(entry, prev_t, t))
 		prev_t = t
+		i = j
+	# Interleaving several entries' sub-ticks leaves `out` out of order (row A's 5s…10s… then row B's 5s…),
+	# and _tl_tick() walks this queue strictly sequentially — an out-of-order entry would stall every later
+	# one behind it. Re-sort by time; ties may land in any order (sort_custom isn't stable), which the
+	# callers already tolerate (see set_timeline()'s final-boss scan).
+	out.sort_custom(func(a, b): return float(a["time"]) < float(b["time"]))
 	return out
 
 ## Seconds since the current timeline was applied (NOT the overall run clock — see class comment).
@@ -377,7 +597,9 @@ func _process(delta: float) -> void:
 	_tick_elite_creep(delta)
 	_tick_champion_creep(delta)
 	_tick_spawn_loop(delta, alive)
+	_tick_hp_gen()
 	_tl_tick(delta)
+	_drain_fleet_queue()   # retry formations the ranged ceiling held back on an earlier tick
 	_drain_spawn_queue()
 	_despawn_acc += delta
 	if _despawn_acc >= DESPAWN_INTERVAL:
@@ -567,7 +789,11 @@ func _timeline_type_pool() -> Array:
 			continue
 		seen[t] = true
 		var d: Dictionary = ENEMY_DEFS.get(t, {})
-		if d.is_empty() or bool(d.get("elite", false)) or bool(entry.get("is_boss", false)) or String(d.get("behavior", "")) == "boss_stub":
+		if d.is_empty() or bool(d.get("elite", false)) or bool(entry.get("is_boss", false)):
+			continue
+		# boss_stub/gate_waves as before, plus test-only creeps (dummy): an authored `dummy` row still spawns
+		# itself, it just never becomes reinforcement fodder or gets promoted to an Elite/Champion.
+		if WaveHpGen.is_auto_excluded(d):
 			continue
 		candidates.append(t)
 	return candidates
@@ -771,7 +997,7 @@ func _timeline_earliest_type_pool() -> Array:
 					if t == "" or seen.has(t):
 						continue
 					var d: Dictionary = ENEMY_DEFS.get(t, {})
-					if d.is_empty() or bool(d.get("elite", false)):
+					if d.is_empty() or bool(d.get("elite", false)) or WaveHpGen.is_auto_excluded(d):
 						continue
 					seen[t] = true
 					candidates.append(t)
@@ -780,6 +1006,12 @@ func _timeline_earliest_type_pool() -> Array:
 			continue
 		var d: Dictionary = ENEMY_DEFS.get(type_s, {})
 		if d.is_empty() or bool(d.get("elite", false)):
+			continue
+		# 2026-08-25: this branch checked `elite` but never boss_stub/gate_waves/no_auto, so a boss_stub type
+		# authored at the earliest timestamp WITHOUT an is_boss flag (or a test-only creep like dummy) could be
+		# drawn as ordinary reinforcement filler. The fleet branch above has the same gap — both now share
+		# is_auto_excluded(), matching _timeline_type_pool()'s own filter.
+		if WaveHpGen.is_auto_excluded(d):
 			continue
 		seen[type_s] = true
 		candidates.append(type_s)
@@ -847,15 +1079,66 @@ func _drain_spawn_queue() -> void:
 		return   # field is full — leave everything queued as-is, try again next frame
 	var budget := SPAWN_BUDGET
 	var tries := mini(_spawn_queue.size(), 50)   # bounded so a queue full of at-cap "missile" entries can't stall a frame
-	while budget > 0 and tries > 0 and not _spawn_queue.is_empty():
-		tries -= 1
+	# Ranged ceiling closed for this frame? Then every shooter still queued is guaranteed to be refused, and a
+	# queue holding hundreds of them (a hand-authored shooter flood — the generator never composes more than
+	# SHOOT_MAX_ALIVE per wave) would otherwise spend the whole `tries` budget on picks that cannot succeed,
+	# starving the melee creeps sitting in the same queue. Skipping those costs one dictionary lookup and
+	# deliberately does NOT consume `tries`; `scans` is the separate hard bound that keeps the loop finite.
+	var shoot_blocked := _shoot_alive() >= SHOOT_MAX_ALIVE
+	var scans := mini(_spawn_queue.size() * 2, 200)
+	while budget > 0 and tries > 0 and scans > 0 and not _spawn_queue.is_empty():
+		scans -= 1
 		var idx := randi() % _spawn_queue.size()
 		var it: Dictionary = _spawn_queue[idx]
+		if shoot_blocked and _shoot_ids.has(String(it["type"])):
+			continue
+		tries -= 1
 		var node := _spawn(String(it["type"]), it["pos"] as Vector2)
 		if node != null:
 			_spawn_queue.remove_at(idx)
 			budget -= 1
 		# else: rejected by a per-type cap (e.g. "missile" at MISSILE_MAX_ALIVE) — leave queued, next pick tries another
+
+## Deploy queued formations, oldest first, for as long as the ranged ceiling has room for the NEXT one.
+## Stops at the first formation that doesn't fit rather than skipping past it — a level's fleet order is
+## authored, so holding the queue in sequence keeps that intact; the held formation deploys as soon as
+## enough of its predecessors' ranged members have died. A fleet carrying no ranged units never waits.
+##
+## A formation carrying MORE ranged units than the whole ceiling (fleet_layout.cfg has two: AT.Squid.Grid.15
+## at 15 and AT.StingrayElite.Row.11 at 11) can never fit as authored. It is NOT waved through — the ceiling
+## is absolute — and it is not dropped either: it waits for the full ceiling's worth of room, then deploys
+## THINNED, with its ranged escorts capped to what fits (`shoot_budget`). Melee members are unaffected, so
+## the formation still reads as itself, just with fewer guns up at once. Safe to thin: escorts are built from
+## the `roster` array _deploy_fleet() hands to init_fleet_dock(), so a shorter roster is simply a smaller
+## formation — nothing is orphaned (that only happens if a LIVE escort loses its carrier).
+func _drain_fleet_queue() -> void:
+	var guard := _fleet_queue.size()
+	while not _fleet_queue.is_empty() and guard > 0:
+		guard -= 1
+		var it: Dictionary = _fleet_queue[0]
+		var nm := String(it["name"])
+		var sh := _fleet_shoot_count(nm)
+		var budget := SHOOT_MAX_ALIVE
+		if sh > 0:
+			var room := SHOOT_MAX_ALIVE - _shoot_alive()
+			# Wait for room for the whole formation, or — if it is bigger than the ceiling itself — for the
+			# ceiling's full worth. Stops at the first formation that doesn't fit rather than skipping past
+			# it, so the authored deployment order survives.
+			if room < mini(sh, SHOOT_MAX_ALIVE):
+				return
+			budget = room
+		_fleet_queue.pop_front()
+		_deploy_fleet(nm, float(it["angle"]), float(it["rot"]), budget)
+		# Keep the per-frame cache exact (several formations can deploy in one frame). A thinned deployment
+		# only put `budget` ranged units on the field, not the formation's full `sh`.
+		_shoot_alive_n += mini(sh, budget)
+
+## Ranged units one deployment of `fleet_name` puts on the field. Cached: fleet_layout.cfg is read from disk
+## by _load_fleets() and neither it nor ENEMY_DEFS changes mid-run.
+func _fleet_shoot_count(fleet_name: String) -> int:
+	if not _fleet_shoot_n.has(fleet_name):
+		_fleet_shoot_n[fleet_name] = WaveHpGen.fleet_shoot_count(_load_fleets(), fleet_name, ENEMY_DEFS)
+	return int(_fleet_shoot_n[fleet_name])
 
 func _spawn(type_id: String, pos: Vector2, is_boss: bool = false) -> Node:
 	var src: Dictionary = ENEMY_DEFS.get(type_id, {})
@@ -881,14 +1164,52 @@ func _spawn_def(type_id: String, def: Dictionary, pos: Vector2, is_boss: bool = 
 	# usual boss/elite cap-bypass, since "missile" itself is never boss/elite. See const comment above.
 	if type_id == MISSILE_TYPE_ID and _type_alive_count(MISSILE_TYPE_ID) >= MISSILE_MAX_ALIVE:
 		return null
+	# 2026-08-25, on request ("metalfly là boss, không được spawn ra như creep"): a boss_stub def is a BOSS by
+	# definition, so it is promoted here no matter how it was requested — an authored timeline row that forgot
+	# `is_boss`, or any other path — instead of being fielded as a regular capped creep with none of a boss's
+	# handling. Selection-side exclusion (is_auto_excluded) already keeps boss_stub out of every automatic
+	# pool; this is the last line, so "spawned as a creep" is simply not reachable.
+	if not is_boss and String(def.get("behavior", "")) == "boss_stub":
+		is_boss = true
+	var is_shooter := _shoot_ids.has(type_id)
 	if not is_boss and not bool(def.get("elite", false)):
+		# Ranged ceiling (see SHOOT_MAX_ALIVE). Refusing rather than dropping is the point: the caller leaves
+		# the item in _spawn_queue and picks another, so the field still fills — with melee creeps — and this
+		# one arrives when a slot frees up.
+		if is_shooter and _shoot_alive() >= SHOOT_MAX_ALIVE:
+			return null
 		if get_tree().get_node_count_in_group("arena_enemy") >= _effective_cap():
 			return null
 	var e := EnemyScript.new()
 	e.configure(type_id, _mgr, def)
 	e.position = pos
 	get_parent().add_child(e)
+	if is_shooter:
+		_shoot_alive_n += 1   # _drain_spawn_queue spawns several per frame; without this the cached count
+		                      # below would stay stale within the frame and let the ceiling be overshot
 	return e
+
+## Public: may a NON-boss/elite creep of `type_id` spawn right now without breaching the ranged ceiling?
+## For spawn paths that build an arena_enemy directly instead of going through _spawn_def() — today just
+## arena_enemy.gd's _spawn_sibling() (stone→magma death-spawns, alien morphs). No current def death-spawns
+## a ranged creep, so this changes nothing today; it exists so the ceiling can't be silently reopened by a
+## future def, which is exactly how the "sentinel" hole got in.
+func can_spawn_shooter(type_id: String) -> bool:
+	return not _shoot_ids.has(type_id) or _shoot_alive() < SHOOT_MAX_ALIVE
+
+## Live count of ranged creeps, rebuilt at most once per process frame (the gate above is consulted on every
+## drain attempt, and this walks the whole "arena_enemy" group). Kept exact within a frame by the increment
+## in _spawn_def; deaths only ever make it stale on the SAFE side (too high) until the next frame.
+func _shoot_alive() -> int:
+	var f := Engine.get_process_frames()
+	if f != _shoot_alive_frame:
+		_shoot_alive_frame = f
+		var n := 0
+		for e in get_tree().get_nodes_in_group("arena_enemy"):
+			if _shoot_ids.has(String(e.get("_type"))):
+				n += 1
+		_shoot_alive_n = n
+	return _shoot_alive_n
 
 # ── Timeline engine ──────────────────────────────────────────────────────────────────────────────
 func _tl_tick(delta: float) -> void:
@@ -896,6 +1217,11 @@ func _tl_tick(delta: float) -> void:
 	while _tl_next < _tl_fire_queue.size() and float(_tl_fire_queue[_tl_next].get("time", 0.0)) <= t:
 		_tl_fire(_tl_fire_queue[_tl_next])
 		_tl_next += 1
+	# Generated milestone waves ride their own queue (see the const block on runtime HP milestones) — same
+	# fire path, same clock, just kept separate so the authored queue's ordering/final-boss logic is untouched.
+	while _gen_next < _gen_fire_queue.size() and float(_gen_fire_queue[_gen_next].get("time", 0.0)) <= t:
+		_tl_fire(_gen_fire_queue[_gen_next])
+		_gen_next += 1
 	_tl_tick_streams(delta)
 	_tick_final_boss(t)
 
@@ -908,6 +1234,8 @@ func _tick_final_boss(t: float) -> void:
 	if not _final_boss_pending:
 		if _tl_next < _tl_fire_queue.size() or t < float(_final_boss_entry.get("time", 0.0)):
 			return   # earlier entries (or streams from them) may still be playing out — not yet
+		if _gen_ms_i < hp_targets.size() or _gen_next < _gen_fire_queue.size() or not _fleet_queue.is_empty():
+			return   # a generated wave (or a formation held by the ranged ceiling) is still to come
 		_final_boss_pending = true
 		_reinforcement_locked = true
 	if not _tl_streams.is_empty() or get_tree().get_node_count_in_group("arena_enemy") > 0:
@@ -938,6 +1266,9 @@ func debug_jump_to_final_boss() -> bool:
 	if _final_boss_entry.is_empty() or _final_boss_node != null:
 		return false
 	_tl_next = _tl_fire_queue.size()
+	_gen_ms_i = hp_targets.size()
+	_gen_next = _gen_fire_queue.size()
+	_fleet_queue.clear()
 	_tl_streams.clear()
 	_reinforcement_locked = true
 	_final_boss_pending = true
@@ -949,6 +1280,13 @@ func debug_jump_to_final_boss() -> bool:
 func _tl_fire(entry: Dictionary) -> void:
 	var type_s := String(entry.get("type", ""))
 	var is_boss := bool(entry.get("is_boss", false))
+	# `no_auto` creeps (dummy — a test target) never reach the arena from a wave file, even one that names
+	# them outright. 2026-08-25 follow-up: the first pass at this rule only filtered the AUTOMATIC selection
+	# pools and deliberately let an authored row through, but elecforest.json authors 290 dummies across 6
+	# rows, so they kept appearing in play. Blocking it here (rather than in _spawn_def) keeps
+	# arena_debug_spawn's Quick Spawn working — that is the intended way to put a dummy on the field.
+	if not type_s.begins_with("fleet:") and bool((ENEMY_DEFS.get(type_s, {}) as Dictionary).get("no_auto", false)):
+		return
 	var angle_deg := float(entry.get("angle", NAN))   # optional fixed spawn heading (deg); NAN = random
 	if type_s.begins_with("fleet:"):
 		# "n" (count) = how many times the whole formation deploys — same meaning as a Unit slot's count.
@@ -961,7 +1299,8 @@ func _tl_fire(entry: Dictionary) -> void:
 		# has no concept of deploying a multi-unit formation, so fleets stay a timeline-only feature.
 		var fleet_rot := float(entry.get("fleet_rotate", 0.0))
 		for i in maxi(1, int(entry.get("count", 1))):
-			_deploy_fleet(type_s.substr(6), angle_deg, fleet_rot)
+			_fleet_queue.append({"name": type_s.substr(6), "angle": angle_deg, "rot": fleet_rot})
+		_drain_fleet_queue()   # deploy whatever fits right now; the rest waits on the ranged ceiling
 		return
 	var count := maxi(1, int(entry.get("count", 1)))
 	var pattern := String(entry.get("pattern", "ring"))
@@ -1061,7 +1400,10 @@ func _tl_queue_or_spawn(type_id: String, pos: Vector2, is_boss: bool) -> void:
 ## direction off the player the whole formation appears from/advances out of. `rotate_deg` spins the
 ## formation's own shape (each slot's offset from the fleet centroid) around that centroid before placing —
 ## independent of spawn_angle_deg, so a formation can face any way regardless of which side it enters from.
-func _deploy_fleet(fleet_name: String, spawn_angle_deg: float = NAN, rotate_deg: float = 0.0) -> void:
+## `shoot_budget` = how many RANGED units this deployment may put on the field (see _drain_fleet_queue).
+## Ranged escorts beyond it are skipped; melee escorts are never affected. Defaults to "no limit" for the
+## callers that don't care (mothership path, debug deploy).
+func _deploy_fleet(fleet_name: String, spawn_angle_deg: float = NAN, rotate_deg: float = 0.0, shoot_budget: int = 999999) -> void:
 	if _player == null or not is_instance_valid(_player):
 		return
 	var fleet: Dictionary = {}
@@ -1122,6 +1464,8 @@ func _deploy_fleet(fleet_name: String, spawn_angle_deg: float = NAN, rotate_deg:
 	if carrier_def.is_empty():
 		return
 	var cdef := carrier_def.duplicate()   # no draw_w override — creep_layout.cfg is the sole size source
+	if _shoot_ids.has(carrier_id):
+		shoot_budget -= 1   # the flagship itself is a ranged unit — it comes out of the same budget
 	var carrier := EnemyScript.new()
 	carrier.configure(carrier_id, _mgr, cdef)
 	var carrier_off: Vector2 = (carrier_slot.get("pos", Vector2.ZERO) as Vector2) - ref
@@ -1141,6 +1485,10 @@ func _deploy_fleet(fleet_name: String, spawn_angle_deg: float = NAN, rotate_deg:
 		if pool.is_empty():
 			continue
 		var id := String(pool[randi() % pool.size()])   # random pool → roll one, same as v1
+		if _shoot_ids.has(id):
+			if shoot_budget <= 0:
+				continue   # ranged ceiling reached — this escort is left out of the formation
+			shoot_budget -= 1
 		var off: Vector2 = (s.get("pos", Vector2.ZERO) as Vector2) - ref
 		if not is_zero_approx(rot):
 			off = off.rotated(rot)

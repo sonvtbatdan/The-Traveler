@@ -19,6 +19,12 @@ const ArenaExplosion   := preload("res://scripts/gameplay/arena_explosion.gd")
 const DeathFX          := preload("res://scripts/gameplay/arena_death_fx.gd")
 const EnergyVortex     := preload("res://scripts/gameplay/fx/energy_vortex.gd")
 const LedLight         := preload("res://scripts/gameplay/fx/led_light.gd")
+const GlbSpinBody      := preload("res://scripts/gameplay/fx/glb_spin_body.gd")         # generic spinning 3D body (Metalfly's phase-1 cocoon)
+const GlbRigScript     := preload("res://scripts/gameplay/fx/glb_topdown_rig.gd")       # editor-space -> view-space rotation math (see _creep_mount_rot)
+const MetalflyRig      := preload("res://scripts/gameplay/fx/metalfly_rig.gd")          # boss_move "metalfly": live code-posed 3D body
+const MetalflyPath     := preload("res://scripts/gameplay/fx/metalfly_charge_path.gd")  # ...and its Move 2 lane telegraph
+const MetalflyRing     := preload("res://scripts/gameplay/fx/metalfly_swarm_ring.gd")
+const ItemDropScript   := preload("res://scripts/gameplay/arena_item_drop.gd")   # Elite/Champion weapon drop, see _drop_tier_weapon()   # ...and its Move 3 gathering ring
 const LaserBeamScript  := preload("res://scripts/gameplay/lasgun_ani_5.gd")   # beamer's beam VFX — same procedural shader beam as the player's death_beam weapon, recolored blue (see _ready()'s "beamer" setup)
 # Per-enemy attack SFX (one-shot; played from a lazily-created AudioStreamPlayer on bus "SFX").
 const SFX_SPIDER_JUMP  := preload("res://assets/audio/sfx/dash.wav")      # spider (jump_diag) leap
@@ -36,6 +42,11 @@ static var simplified_mode: bool = false
 const USE_DOWNSCALED_SPRITES := true
 const ICON_DRAW_SCALE := 2.6   # drawn sprite width = _radius × this (sprites read a bit bigger than the hit circle)
 const ENEMY_LAYER := 2              # physics layer enemies live on (separate from the player on layer 1)
+## A def's "size" is not the hit radius — it is scaled by this. Named (was an inline 1.05 at the one place
+## that reads it) because anything deriving a def "size" BACK from a live `_radius` has to divide it out, and
+## silently being 5% off is exactly the kind of thing nobody notices: the Metalfly brood's bodies came out
+## 26.2% of the boss instead of the 25% they were specified at.
+const SIZE_TO_RADIUS := 1.05
 const CORE_FRAC := 0.75             # collision-core radius = _radius × this. Kept modest: the soft player-push already makes the crowd read as a wall, and bigger cores make the physics solver much more expensive in dense packs.
 
 # TEMP DIAGNOSTIC — used by arena_perf_spike_logger.gd to report how many enemies died in a spiking frame.
@@ -145,6 +156,20 @@ const SQUASH_REF_SPEED := 220.0 # speed at which squash reaches full magnitude
 const HIT_FLASH_COLOR := Color(1.0, 1.0, 1.0)    # normal hit → white
 const KILL_FLASH_COLOR := Color(1.0, 0.18, 0.18) # a killing blow → red
 const HIT_FLASH_TIME := 0.20    # flash duration on hit (white sprite flash to register the hit)
+
+# ── Elite/Champion Creep glowing ring (2026-08-25, on request: "với các enemy elite, vẽ vòng tròn vàng phát
+# sáng bao quanh nó. Champion thì vòng đỏ") — a milestone spawn (arena_wave_director_v2._spawn_tiered_creep,
+# 2-3× normal size already) also needs to read as one AT A GLANCE even buried in a crowded field, not just
+# from its size. Champion (_is_champion) supersedes Elite (_is_elite alone) for colour, same branch order the
+# death-reward split already uses in _die() — every Champion also carries _is_elite=true for the cap-bypass,
+# so checking _is_champion FIRST is required, not optional. Drawn around `_radius` (already the promoted,
+# up-scaled hit radius — see configure()'s `_radius = size * SIZE_TO_RADIUS`), so the ring grows with the
+# creep's own up-scaled size automatically, no separate size lookup needed.
+const TIER_RING_ELITE_COL    := Color(1.0, 0.85, 0.15)   # gold/yellow
+const TIER_RING_CHAMPION_COL := Color(1.0, 0.18, 0.15)   # red
+const TIER_RING_MARGIN       := 10.0   # px beyond _radius the ring sits at
+const TIER_RING_WIDTH        := 3.0    # outline stroke width
+const TIER_RING_PULSE_SPEED  := 2.5    # rad/s — matches arena_chest.gd's own beacon-aura pulse cadence
 # Flash shader: lerp the sprite's pixels toward flash_color by `flash` (modulate-white can't whiten a texture).
 const FLASH_SHADER_CODE := """
 shader_type canvas_item;
@@ -256,6 +281,68 @@ const CHARGE_TELEGRAPH_T    := 0.6
 const CHARGE_PULSE_FREQ     := 18.0
 const CHARGE_DASH_SPEED     := 620.0
 const CHARGE_DASH_T         := 0.5
+
+# ── Metalfly boss ("boss_move": "metalfly" in the def — see _tick_metalfly) ─────────────────────────────
+# TWO PHASES, one node. Phase 1 is a cocoon: a separate 3D body (Cocoon.glb, a static mesh), its OWN small
+# HP pool, spinning in place while it chases the player fast. Killing it does NOT kill the boss — the
+# `hp <= 0` branch of take_damage() is intercepted (`_metalfly_hatch`), so no XP, no loot, no kill tally,
+# no death FX beyond the hatch blast. The winged body and its moveset only exist from Phase 2 on.
+#
+# The DEF's own hp/speed are Phase 2's (they are the real boss's numbers, and every def-level multiplier —
+# player level, Beacon, the director's HP_MULT — is already baked into them by configure()). Phase 1's are
+# the flat constants below, captured/restored in configure() + _metalfly_hatch().
+const MF_COCOON_GLB      := "res://assets/map/electric/boss/Cocoon.glb"
+## Creep Edit layer names for the two bodies — the KEY each one's mount angle is stored under in
+## creep_layout.cfg. Defined here, not in the editor, so the contract has exactly one owner: creep_edit_mode.gd
+## already preloads this script and reads these, while this script preloads nothing of the editor's (a
+## preload the other way would close a cycle). A typo would be silent — the layer would simply never find
+## its saved rotation — which is why neither side spells the string twice.
+const MF_LAYER_COCOON    := "Metalfly Cocoon"
+## The winged body is keyed under the boss's own name, not a "… Wings" suffix, because in Creep Edit it IS
+## the group's root row — the boss's palette entry and its Phase 2 body are the same object. Giving it a
+## separate name put a second, identical model on the canvas stacked exactly on the root's, which reads as
+## one body until you drag it and discover there were two.
+const MF_LAYER_WINGS     := "Metalfly"
+const MF_COCOON_HP       := 2000.0
+const MF_COCOON_SPEED    := 120.0   # px/s — much faster than the winged form's 65: the cocoon just rams
+const MF_COCOON_PX       := 150.0   # on-screen size of the cocoon body
+const MF_COCOON_RPM      := 26.0    # "xoay tròn" — in-plane spin (about the view vertical)
+## Second spin axis, so the cocoon TUMBLES instead of only turning like a dial. Deliberately not a multiple
+## or divisor of MF_COCOON_RPM: two related rates compose into one fixed axis and the roll disappears again.
+const MF_COCOON_TUMBLE_RPM := 17.0
+const MF_HATCH_BLAST_PX  := 260.0   # hatch explosion size — bigger than the boss, it has to read as an event
+
+# The body is a live, code-posed 3D rig (MetalflyRig); these constants are only the FIGHT. The two moves:
+#   Move 1 "cruise"  — slow wing beat, chases the player, one projectile off EACH wing tip every second.
+#   Move 2 "lunge"   — mouth gapes open, wings buzz, a 150px lane is drawn to the player and held for
+#                      MF_WINDUP seconds; then the mouth shuts, the wings STOP, and it flies down the lane.
+# The lane is locked the instant the wind-up starts, not re-aimed while it charges — that is what makes the
+# move dodgeable, and it matches how "steer_charger" above already telegraphs its own dash.
+const MF_CRUISE_T       := 6.0     # seconds of Move 1 before Move 2 comes round
+const MF_SHOT_INTERVAL  := 1.0     # Move 1: one volley per second...
+const MF_SHOT_SPEED     := 240.0   # ...of 2 shards, one from each wing tip, aimed at the player
+const MF_SHOT_DMG       := 12
+const MF_WINDUP         := 1.5     # Move 2: mouth open + fast flap + lane drawn, before it commits
+const MF_LUNGE_SPEED    := 900.0
+## Fixed lane length — NOT the distance to the player. The boss flies the whole 1200 px whatever happens, so
+## the lunge always overshoots a player who stands still and always ends somewhere the fight has to
+## re-close from. A length derived from the current distance (what this was at first) made a point-blank
+## wind-up into a twitch and a long-range one into a screen-crossing charge: same move, two different fights.
+const MF_LUNGE_LEN      := 1200.0
+const MF_RECOVER_T      := 0.9     # vulnerable beat after the lunge before Move 1 resumes
+const MF_TURN_WINDUP    := 6.0     # rad/s the boss swings onto the lane while winding up
+const MF_TURN_CHASE     := 5.0     # rad/s it turns to face the player in every non-charging state
+# ── Move 3: swarm release ────────────────────────────────────────────────────────────────────────────────
+# Fast wing beat, then MF_SWARM_COUNT miniature Metalflies burst out in a ring and chase the player. They
+# are the SAME model and the same rig, just built at a fraction of the size (see MetalflyRig.setup's
+# `display_px`), and their HP is a fraction of the BOSS's own current maximum rather than a flat number —
+# so they scale with everything the boss scales with (player level, Beacon, the director's HP_MULT).
+const MF_SWARM_ID       := "metalfly_spawn"
+const MF_SWARM_WINDUP   := 1.2
+const MF_SWARM_COUNT    := 8
+const MF_SWARM_RING     := 110.0   # px from the boss the brood appears at
+const MF_SWARM_SCALE    := 0.25    # of the boss's body size
+const MF_SWARM_HP_FRAC  := 0.05    # of the boss's hp_max
 
 # Fallbacks so the enemy is self-sufficient if configured without a def (e.g. manager.spawn_bomb).
 const FALLBACK := {
@@ -460,6 +547,24 @@ var _centi_head_icon: String = CENTI_HEAD_ICON_DEFAULT
 var _centi_body_icons: Array = [CENTI_BODY_ICON_DEFAULT]
 var _centi_tail_icon: String = CENTI_TAIL_ICON_DEFAULT
 var _tele_anchor: Vector2 = Vector2.ZERO   # teleport: idle-jigger anchor (last landing spot)
+# ── Metalfly boss ("boss_move": "metalfly") — see the MF_* constants and _tick_metalfly() ──
+var _boss_move: String = ""            # def "boss_move": a named moveset layered ON TOP of behavior "boss_stub"
+var _mf_phase: int = 1                 # 1 = cocoon prologue, 2 = winged boss with the moveset
+var _mf_cocoon: Node2D = null          # phase-1 body (GlbSpinBody on Cocoon.glb); freed when it hatches
+var _mf_p2_hp: float = 0.0             # the def's own (fully multiplied) hp_max, held back for phase 2
+var _mf_p2_speed: float = 0.0          # ...and its speed, likewise
+var _mf_rig: Node2D = null             # live 3D body (MetalflyRig); null → the flat sprite still draws
+var _mf_path: Node2D = null            # Move 2 lane telegraph (MetalflyChargePath)
+var _mf_ring: Node2D = null            # Move 3 gathering ring (MetalflySwarmRing) — a CHILD, unlike the lane
+var _mf_state: int = 0                 # 0 cruise, 1 lunge wind-up, 2 lunge, 3 recover, 4 swarm wind-up
+var _mf_t: float = 0.0                 # seconds in the current state
+var _mf_shot_t: float = 0.0            # Move 1 volley timer
+var _mf_dir: Vector2 = Vector2.RIGHT   # Move 2: lane direction — TRACKS the player until the lunge starts
+var _mf_travelled: float = 0.0         # Move 2: how far down the lane it has flown
+var _mf_use_swarm: bool = false        # which special comes after this cruise — they alternate
+# ── A live 3D body on a PLAIN enemy (def "body_rig") — the miniatures Move 3 releases ──
+var _body_rig: String = ""             # "" = none; "metalfly" = MetalflyRig, no moveset attached
+var _body_px: float = 0.0              # its on-screen footprint diagonal
 # ── Per-def special modifiers (enemies.pdf "Move" column) ──
 var _sprite_alpha: float = 1.0      # ghost: <1 → permanently see-through
 var _evade_chance: float = 0.0      # ghost: chance to dodge a hit entirely once hp ≤ _evade_below × max
@@ -621,7 +726,7 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	speed            = float(d.get("speed", 95.0)) * tune_spd
 	# Per-enemy flank bias so the crowd envelops instead of trailing (bosses steer straight).
 	_flank_bias      = 0.0 if behavior == "boss_stub" else randf_range(-FLANK_BIAS_MAX, FLANK_BIAS_MAX)
-	_radius          = float(d.get("size", 16.0)) * 1.05
+	_radius          = float(d.get("size", 16.0)) * SIZE_TO_RADIUS
 	contact_damage   = int(d.get("contact", 6))
 	contact_explodes = bool(d.get("explodes", false))
 	xp               = float(d.get("xp", 5)) * float(lvl_mult) * ENEMY_XP_TUNE   # ×2 XP value (all enemies)
@@ -651,6 +756,19 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_magma_split     = bool(d.get("magma_split", false))
 	_anti_magnetic   = bool(d.get("anti_magnetic", false))
 	_gauss_shooter   = bool(d.get("gauss_shooter", false))
+	_boss_move       = String(d.get("boss_move", ""))   # named boss moveset (metalfly); "" = plain boss_stub chase
+	_body_rig        = String(d.get("body_rig", ""))    # live 3D body on an ordinary enemy — no moveset implied
+	_body_px         = float(d.get("body_px", 0.0))
+	if _boss_move == "metalfly":
+		# Hold the def's hp/speed back for Phase 2 and drop in the cocoon's own, so the boss ARRIVES as the
+		# cocoon. Captured here rather than re-read from the def later because these values already carry
+		# every multiplier configure() applied above (player level, Beacon, the director's HP_MULT) —
+		# re-deriving them at hatch time would silently drop all of that.
+		_mf_p2_hp    = hp_max
+		_mf_p2_speed = speed
+		hp_max = MF_COCOON_HP
+		hp     = hp_max
+		speed  = MF_COCOON_SPEED
 	_idle_spin       = deg_to_rad(float(d.get("idle_spin", 0.0)))   # deg/s in the def -> rad/s stored
 	_flap_icons      = d.get("flap_icons", [])   # 2+ filenames (same folder as "icon") to alternate — wing-flap effect
 	_no_downscale    = bool(d.get("no_downscale", false))
@@ -698,6 +816,10 @@ func _ready() -> void:
 	_flash_mat = ShaderMaterial.new()
 	_flash_mat.shader = _flash_shader
 	_load_icon()
+	if _boss_move == "metalfly":
+		_setup_metalfly()
+	elif _body_rig == "metalfly":
+		_setup_body_rig()
 	if behavior == "centipede":
 		_load_centipede()
 	_load_tentacle()
@@ -1682,7 +1804,32 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore
 			_knockback = dir * KNOCKBACK_SPEED * knock * momentum * _knockback_mult
 	queue_redraw()
 	if hp <= 0.0:
+		# Metalfly Phase 1: running the cocoon's HP out HATCHES the boss, it doesn't kill it. Intercepted
+		# here rather than inside _die() so none of death's consequences (kill tally, XP, loot, chain
+		# reaction, boss_defeated) can fire for what is really the first half of one fight.
+		if _boss_move == "metalfly" and _mf_phase == 1:
+			_metalfly_hatch()
+			return
 		_die()
+
+## Elite/Champion weapon drop (see _die()). Rolls one weapon from InventoryManager's own loot table — the
+## same `roll_boss_weapon()` the mid-run field drops use — and leaves it on the ground as an
+## arena_item_drop.gd collectible instead of granting it silently. Champion draws from a higher rarity cap
+## (very_rare) than Elite (rare). Parented to the arena (get_parent()) rather than to this enemy, which is
+## about to free itself.
+func _drop_tier_weapon() -> void:
+	if not MetaManager.has_method("roll_boss_weapon"):
+		return
+	var cap: int = int(MetaManager.RARITY_RANK.get("very_rare", 3)) if _is_champion 			else int(MetaManager.RARITY_RANK.get("rare", 2))
+	var def_id := String(MetaManager.roll_boss_weapon(cap))
+	if def_id == "":
+		return
+	var host := get_parent()
+	if host == null or not is_instance_valid(host):
+		return
+	var drop: Node2D = ItemDropScript.new()
+	host.add_child(drop)
+	drop.call("setup", global_position, def_id)
 
 ## LIFETIME_MAX safety net — quietly removes an enemy that's been alive too long (never reached/engaged the
 ## player, or otherwise got stuck) WITHOUT any of _die()'s effects: no kill count, no XP/loot/reward, no
@@ -1748,6 +1895,13 @@ func _die() -> void:
 	elif _is_elite:
 		if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("spawn_loot"):
 			_mgr.spawn_loot(global_position, "coin")   # spawn_loot's own default value is 50
+	# Weapon drop — BOTH tiers, on top of the tier reward above (2026-08-25, on request: "khi bắn chết
+	# elite/champion, tôi cần icon weapon drop ra trên màn hình"). A physical collectible, not an instant
+	# grant: it lands where the creep died and goes into the BACKPACK when flown over, with a bottom-right
+	# "…has been acquired. Press I to view" notice. See arena_item_drop.gd. Champion rolls from a higher
+	# rarity cap than Elite, matching how much rarer the tier is.
+	if _is_elite:
+		_drop_tier_weapon()
 	if _is_final_boss and GameManager.has_signal("final_boss_defeated"):
 		GameManager.final_boss_defeated.emit()
 	if _squid_attached:
@@ -1794,6 +1948,12 @@ func _spawn_sibling(id: String, at: Vector2) -> void:
 		return
 	var def: Dictionary = (wd.ENEMY_DEFS as Dictionary).get(id, {})
 	if def.is_empty():
+		return
+	# This path builds an arena_enemy DIRECTLY, bypassing the director's _spawn_def() and therefore its
+	# ranged ceiling (SHOOT_MAX_ALIVE), which is an absolute rule for non-boss creeps. No def death-spawns a
+	# ranged creep today (every stone→magma target is behavior "chase"), so this is a no-op right now — it's
+	# here so a future def can't silently reopen the hole the way "sentinel" did.
+	if wd.has_method("can_spawn_shooter") and not bool(wd.call("can_spawn_shooter", id)):
 		return
 	var e: Node = get_script().new()   # a fresh arena_enemy (no preload needed — same script)
 	e.call("configure", id, _mgr, def)
@@ -2157,7 +2317,10 @@ func _process(delta: float) -> void:
 	var on_screen := true
 	if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("visible_world_rect"):
 		on_screen = (_mgr.visible_world_rect() as Rect2).grow(LOD_MARGIN).has_point(global_position)
-	var _stagger_exempt := behavior == "centipede" or behavior == "squid" or behavior == "mothership"
+	# `_boss_move` is exempt for the same reason as the three below: a boss running a scripted move cycle
+	# needs a stable cadence, or its wind-up/lunge timings stretch and snap back as it crosses the screen edge.
+	var _stagger_exempt := behavior == "centipede" or behavior == "squid" or behavior == "mothership" \
+			or _boss_move != ""
 	var _run_full_tick := _stagger_exempt or on_screen \
 		or (int(Engine.get_physics_frames()) + get_instance_id()) % LOD_STAGGER_N == 0
 	_t += delta
@@ -2198,7 +2361,14 @@ func _process(delta: float) -> void:
 	if not _init_done:
 		_init_behavior()
 		_init_done = true
-	if _stagger_t <= 0.0 and not _docked and _stun_t <= 0.0 and _run_full_tick:   # staggered/docked/stunned/off-turn → movement & attacks frozen (visuals still play)
+	# A boss with a named moveset (`_boss_move`) ignores HIT-STAGGER — stun and docking still freeze it.
+	# Measured 2026-08-24 while verifying the Metalfly moveset: under sustained Gatling fire the boss's move
+	# clock advanced 0.00s across 700 frames, because each hit re-arms `_stagger_t` faster than it decays
+	# (the same stagger-lock the `elif` below already describes). For an ordinary creep that reads as
+	# flinching; for a boss it means holding the fire button cancels the entire fight — it would never reach
+	# its wind-up, so the moveset would exist but be unreachable.
+	var stagger_ok := _stagger_t <= 0.0 or _boss_move != ""
+	if stagger_ok and not _docked and _stun_t <= 0.0 and _run_full_tick:   # staggered/docked/stunned/off-turn → movement & attacks frozen (visuals still play)
 		_tick_behavior(delta)
 		if _gauss_shooter:   # pros5 ranged attack, independent of the chase movement
 			_gauss_t += delta
@@ -2241,6 +2411,12 @@ func _process(delta: float) -> void:
 		_fleet_update_dock_positions(delta)
 	if _idle_spin != 0.0:
 		_facing += _idle_spin * delta   # slow in-place rotation for stationary wrecks (dummy behavior)
+	# Point a live 3D body along the final facing. Done HERE, after every contributor to `_facing` has had
+	# its say, rather than inside _tick_metalfly — that ran before the block above and covered only the
+	# boss, leaving Move 3's brood (a plain "chase" enemy with the same rig) pointing wherever it spawned.
+	# The rig wants the travel angle; `_facing` is that plus PI/2 ("sprite north").
+	if _mf_rig != null and is_instance_valid(_mf_rig):
+		_mf_rig.call("set_heading", _facing - PI * 0.5)
 	if not _frames.is_empty():
 		_anim_acc += delta
 		var fd: float = float(_delays[_anim_frame]) if _anim_frame < _delays.size() else 0.1
@@ -2570,6 +2746,13 @@ func _tick_behavior(delta: float) -> void:
 		return
 	match behavior:
 		"chase", "boss_stub":
+			# A boss with a named moveset runs that instead of the plain chase below. Layered on top of
+			# "boss_stub" rather than being its own `behavior` so it keeps every boss exemption already
+			# keyed off that string (HP/speed tuning, the "boss" group, no LIFETIME_MAX despawn, no
+			# off-screen recycling in the v2 director).
+			if _boss_move == "metalfly":
+				_tick_metalfly(delta, dist, dir)
+				return
 			# Recycle a normal chaser once the player has outrun it far past the screen (bosses never culled).
 			if behavior == "chase" and dist > CHASE_CULL:
 				_release_all_docks()   # a Fleet Edit carrier (e.g. fly/bee/bug slots) must free its escorts here
@@ -3264,6 +3447,261 @@ func _beamer_tick(delta: float, dir: Vector2) -> void:
 				_phase = 0
 				_timer = 0.0
 
+## ── Metalfly boss ────────────────────────────────────────────────────────────────────────────────────────
+## Builds the live 3D body and the Move 2 lane telegraph.
+##
+## The body is a child of this enemy (it must follow it). The LANE IS NOT — it goes under `get_parent()`
+## (the Arena root, world space, no rotation), exactly like the beamer's own beam does above, and for the
+## same reason: the lane marks a fixed strip of ground the boss is about to fly down. Parented to the enemy
+## it would translate WITH the boss during the lunge, so the "danger zone" would slide along under it and
+## always extend the same distance ahead — i.e. it would stop being a telegraph at the exact moment the
+## player needs it to mean something. Freed via tree_exited so it never outlives its owner.
+##
+## If the rig fails to build (glb missing/unimportable) it is dropped and `_mf_rig` stays null: the moveset
+## below still runs, and the enemy falls back to whatever its def's "icon" draws. That is why the def keeps
+## `sprite_alpha: 0.0` rather than dropping the icon — the sprite is the fallback body, just invisible while
+## the 3D one is up (same arrangement the electric temple boss already uses).
+func _setup_metalfly() -> void:
+	_mf_path = MetalflyPath.new()
+	_mf_path.visible = false
+	_mf_path.z_index = 0   # world-space now, so this is absolute: over the ground, under the creeps (z 1)
+	var p := get_parent()
+	if p != null:
+		p.add_child(_mf_path)
+		tree_exited.connect(_on_metalfly_gone)
+	# Phase 1 only. The winged rig is NOT built here — it is built at hatch time (_metalfly_hatch), so a
+	# fight that never gets past the cocoon never pays for a second SubViewport + skeleton. The glb's
+	# PackedScene is cached by ResourceLoader after the first boss of the run, and the hatch blast covers
+	# the instantiate either way.
+	# Added BEFORE either body so that, at equal z_index, tree order draws the ring UNDER the boss rather
+	# than across it.
+	_mf_ring = MetalflyRing.new()
+	_mf_ring.visible = false
+	add_child(_mf_ring)
+	var cocoon: Node2D = GlbSpinBody.new()
+	add_child(cocoon)
+	if cocoon.call("setup", MF_COCOON_GLB, MF_COCOON_PX, MF_COCOON_RPM, MF_COCOON_TUMBLE_RPM,
+			_creep_mount_rot(MF_LAYER_COCOON)):
+		_mf_cocoon = cocoon
+	else:
+		cocoon.queue_free()
+		_sprite_alpha = 1.0   # no 3D body — put the flat sprite back on, or the boss would be invisible
+
+## Phase 1 -> Phase 2. Called INSTEAD of _die() when the cocoon's HP runs out (see take_damage), so none of
+## death's consequences fire: no kill tally, no XP, no loot, no boss_defeated. The node lives on; only its
+## body, stats and behaviour change.
+func _metalfly_hatch() -> void:
+	_mf_phase = 2
+	_spawn_explosion(MF_HATCH_BLAST_PX)
+	_play_boom()
+	if _mf_cocoon != null and is_instance_valid(_mf_cocoon):
+		_mf_cocoon.queue_free()
+	_mf_cocoon = null
+	var rig: Node2D = MetalflyRig.new()
+	add_child(rig)
+	if rig.call("setup", _creep_mount_rot(MF_LAYER_WINGS)):
+		_mf_rig = rig
+	else:
+		rig.queue_free()
+		_sprite_alpha = 1.0   # no winged body either — fall back to the def's flat sheet
+	# Phase 2's own pool, full. `_base_speed` (not `speed`) is the one to write: _process() recomputes
+	# `speed` from it every frame through the slow/Beacon/Zone-of-Peace multiplier chain, so assigning
+	# `speed` here would be overwritten on the very next tick.
+	hp_max      = _mf_p2_hp
+	hp          = hp_max
+	_base_speed = _mf_p2_speed
+	speed       = _mf_p2_speed
+	# Enter the moveset at the top of Move 1, with a fresh clock — the cocoon chase left both dirty.
+	_mf_state  = 0
+	_mf_t      = 0.0
+	_mf_shot_t = 0.0
+	_flash     = 0.0
+
+func _on_metalfly_gone() -> void:
+	if _mf_path != null and is_instance_valid(_mf_path):
+		_mf_path.queue_free()
+	_mf_path = null
+
+## Move 1 / Move 2, in that cycle. Called from the "boss_stub" branch of _tick_behavior() instead of the
+## plain chase, so everything else about being a boss (HP/speed tune exemptions, the "boss" group, never
+## being culled or recycled) is unchanged.
+func _tick_metalfly(delta: float, _dist: float, dir: Vector2) -> void:
+	_mf_t += delta
+	if _mf_phase == 1:
+		# Cocoon: no moves and no attacks, it just rams the player. It DOES face them — see _mf_face_player
+		# for why that can't be left to the movement-derived facing.
+		_mf_face_player(delta, dir)
+		velocity = dir * speed
+		_move_step()
+		return
+	match _mf_state:
+		0:   # ── Move 1: cruise. Slow beat, close on the player, two shards a second off the wing tips.
+			_mf_face_player(delta, dir)
+			velocity = dir * speed
+			_move_step()
+			_mf_shot_t += delta
+			if _mf_shot_t >= MF_SHOT_INTERVAL:
+				_mf_shot_t -= MF_SHOT_INTERVAL
+				_mf_fire_wings()
+			if _mf_t >= MF_CRUISE_T:
+				# The two specials alternate rather than being rolled, so neither can come up three times
+				# running and neither can go missing for a whole fight.
+				if _mf_use_swarm:
+					_mf_begin_swarm()
+				else:
+					_mf_begin_windup(dir)
+				_mf_use_swarm = not _mf_use_swarm
+		1:   # ── Move 2 wind-up: hover, gape, buzz — and TRACK the player with the lane.
+			velocity = Vector2.ZERO
+			# The lane follows the player for the whole wind-up (2026-08-24, on request). Sidestepping once
+			# no longer beats the move: the lane comes with you, and only the instant it locks below does the
+			# aim stop mattering. The boss turns onto its own lane, which is where it is about to fly.
+			_mf_dir = dir
+			_facing = _approach_angle(_facing, _mf_dir.angle() + PI * 0.5, MF_TURN_WINDUP * delta)
+			if _mf_path != null and is_instance_valid(_mf_path):
+				_mf_path.call("aim", _mf_dir)
+			if _mf_t >= MF_WINDUP:
+				_mf_state = 2
+				_mf_t = 0.0
+				_mf_travelled = 0.0
+				if _mf_rig != null and is_instance_valid(_mf_rig):
+					_mf_rig.call("set_mouth_open", false)   # mouth shuts...
+					_mf_rig.call("set_flap", "none")        # ...and the wings stop, per the move's brief
+				if _mf_path != null and is_instance_valid(_mf_path):
+					_mf_path.call("lock")                   # lane freezes: the aim is final
+				_play_sfx(SFX_SPIDER_JUMP)
+		2:   # ── Move 2 lunge: straight down the now-locked lane, wings held still, full length.
+			velocity = _mf_dir * MF_LUNGE_SPEED
+			_move_step()
+			_mf_travelled += MF_LUNGE_SPEED * delta
+			if _mf_travelled >= MF_LUNGE_LEN:
+				_mf_state = 3
+				_mf_t = 0.0
+				if _mf_path != null and is_instance_valid(_mf_path):
+					_mf_path.call("release")
+				if _mf_rig != null and is_instance_valid(_mf_rig):
+					_mf_rig.call("set_flap", "slow")
+		4:   # ── Move 3 wind-up: hover and buzz, then throw the brood.
+			velocity = Vector2.ZERO
+			_mf_face_player(delta, dir)
+			if _mf_t >= MF_SWARM_WINDUP:
+				_mf_release_swarm()
+				_mf_state = 3
+				_mf_t = 0.0
+				if _mf_rig != null and is_instance_valid(_mf_rig):
+					_mf_rig.call("set_flap", "slow")
+		_:   # ── Recover: a short, near-motionless beat where the player gets to punish the last move.
+			_mf_face_player(delta, dir)
+			velocity = dir * speed * 0.25
+			_move_step()
+			if _mf_t >= MF_RECOVER_T:
+				_mf_state = 0
+				_mf_t = 0.0
+				_mf_shot_t = 0.0
+
+## Turn to face the player, for every state that isn't the committed lunge.
+##
+## Set here rather than left to `_process()`'s movement-derived facing, which only re-aims when the enemy
+## actually moved more than 0.5 px in the frame. At the boss's cruise speed of 65 px/s that threshold is
+## crossed at 60 fps (1.1 px) and MISSED above ~130 fps (0.4 px) — so on a fast machine the boss chased the
+## player while pointing wherever it happened to be pointing when the fight started. Facing a target is not
+## something that should depend on the frame rate.
+func _mf_face_player(delta: float, dir: Vector2) -> void:
+	_facing = _approach_angle(_facing, dir.angle() + PI * 0.5, MF_TURN_CHASE * delta)
+
+## Raises the lane and puts the boss into Move 2's wind-up. The lane is a fixed MF_LUNGE_LEN long and starts
+## aimed at the player; state 1 re-aims it every frame until it locks.
+func _mf_begin_windup(dir: Vector2) -> void:
+	_mf_state = 1
+	_mf_t = 0.0
+	_mf_dir = dir
+	if _mf_rig != null and is_instance_valid(_mf_rig):
+		_mf_rig.call("set_mouth_open", true)
+		_mf_rig.call("set_flap", "fast")
+	if _mf_path != null and is_instance_valid(_mf_path):
+		# World-space node (see _setup_metalfly) — pin it to where the boss is standing RIGHT NOW. Only the
+		# DIRECTION tracks the player during the wind-up; the origin stays put, so the lane keeps marking
+		# the ground the boss will actually leave from.
+		_mf_path.global_position = global_position
+		_mf_path.call("set_beam", dir, MF_LUNGE_LEN)
+
+## Move 3's wind-up: hover, beat hard, and raise the gathering ring. The brood is released at the end of it
+## (_mf_release_swarm), which is also where the ring drops.
+func _mf_begin_swarm() -> void:
+	_mf_state = 4
+	_mf_t = 0.0
+	if _mf_rig != null and is_instance_valid(_mf_rig):
+		_mf_rig.call("set_flap", "fast")
+	if _mf_ring != null and is_instance_valid(_mf_ring):
+		# Same radius the brood appears at, so the ring reads as the thing they come OUT of rather than as
+		# unrelated decoration that happens to be nearby.
+		_mf_ring.call("begin", MF_SWARM_RING)
+
+## Move 3: MF_SWARM_COUNT miniature Metalflies in an even ring around the boss, each a real arena_enemy that
+## chases and can be shot. Size and HP are taken from THIS boss's own current numbers rather than the def's,
+## so the brood scales with whatever the boss was scaled by (player level, Beacon, the director's HP_MULT).
+func _mf_release_swarm() -> void:
+	var wd := get_tree().get_first_node_in_group("wave_director")
+	if wd == null:
+		return
+	var src: Dictionary = (wd.ENEMY_DEFS as Dictionary).get(MF_SWARM_ID, {})
+	if src.is_empty():
+		push_warning("metalfly: no '%s' def — Move 3 released nothing" % MF_SWARM_ID)
+		return
+	_play_boom()
+	if _mf_ring != null and is_instance_valid(_mf_ring):
+		_mf_ring.call("release")   # the ring's whole job was the wind-up — it goes as the brood arrives
+	for i in MF_SWARM_COUNT:
+		var def := src.duplicate()
+		# Written as flat values, and `lvl` cleared: these are already the boss's fully-multiplied numbers,
+		# so leaving the def's own scaling on would apply the player-level multiplier a second time.
+		#
+		# ENEMY_HP_TUNE is divided OUT because configure() will multiply it straight back in: that global x2
+		# applies to every enemy whose behavior isn't "boss_stub", and the brood are plain chasers. Without
+		# this they hatched at 10% of the boss's HP, not the 5% they are specified at. (Same correction the
+		# ruin/temple layers make for the same reason — see their own ENEMY_HP_TUNE consts.)
+		def["hp"] = hp_max * MF_SWARM_HP_FRAC / ENEMY_HP_TUNE
+		def["lvl"] = false
+		# ...and SIZE_TO_RADIUS likewise: `size` is a def field, `_radius` is what it becomes.
+		def["size"] = _radius * MF_SWARM_SCALE / SIZE_TO_RADIUS
+		def["body_px"] = MetalflyRig.DISPLAY_PX * MF_SWARM_SCALE
+		var ang := TAU * float(i) / float(MF_SWARM_COUNT) + _facing
+		var e: Node = get_script().new()
+		e.call("configure", MF_SWARM_ID, _mgr, def)
+		get_parent().add_child(e)
+		e.set("global_position", global_position + Vector2(cos(ang), sin(ang)) * MF_SWARM_RING)
+
+## A live 3D body on an ORDINARY enemy — no moveset, no phases, no lane. Only the body: the enemy's own
+## `behavior` (chase, for Move 3's brood) drives it exactly as it would with a flat sprite, and `_process()`
+## points the model along `_facing`. `sprite_alpha: 0.0` in the def hides the 2D icon, which stays as the
+## fallback if the glb ever fails to build — same arrangement the boss itself uses.
+func _setup_body_rig() -> void:
+	var rig: Node2D = MetalflyRig.new()
+	add_child(rig)
+	var px := _body_px if _body_px > 0.0 else MetalflyRig.DISPLAY_PX
+	if rig.call("setup", _creep_mount_rot(MF_LAYER_WINGS), px):
+		_mf_rig = rig
+	else:
+		rig.queue_free()
+		_sprite_alpha = 1.0
+
+## Move 1's volley: one shard from each wing TIP, read off the live posed skeleton so the muzzles ride the
+## wing beat. Falls back to the body centre if the 3D rig never built.
+func _mf_fire_wings() -> void:
+	if _mgr == null or not is_instance_valid(_mgr):
+		return
+	var muzzles: Array[Vector2] = []
+	if _mf_rig != null and is_instance_valid(_mf_rig):
+		muzzles = _mf_rig.call("wing_muzzles")
+	if muzzles.is_empty():
+		muzzles = [global_position]
+	_play_sfx(SFX_ZAP)
+	var pp := _player_pos()
+	for m: Vector2 in muzzles:
+		var to := pp - m
+		var d := to.normalized() if to.length() > 0.01 else Vector2.DOWN
+		_mgr.spawn_bullet(m, d * MF_SHOT_SPEED, MF_SHOT_DMG, self)
+
 ## Beamer's beam VFX — an independent LaserBeamScript instance (the SAME procedural shader beam the
 ## player's death_beam weapon uses, arena_weapons.gd), recolored blue. Parented to get_parent() (this
 ## enemy's own parent — Arena root, world-space, no rotation) rather than to this enemy itself: set_beam()
@@ -3447,6 +3885,30 @@ func _centi_icon_for(k: int, n: int) -> String:
 
 ## The creep_layout.cfg [creeps] entry for `icon_path`'s basename (same case-insensitive lookup
 ## _authored_seg_size()/base_draw_width() use), or {} if this sprite was never placed in Creep Edit.
+## The mount angle authored for a 3D LAYER in Creep Edit, in the editor's own Z-up space — hand it straight
+## to glb_topdown_rig.gd's `view_basis()`. Zero when the layer has never been touched, which is what makes
+## "no calibration" mean "exactly what shipped", not "some default pose".
+##
+## `rot_base` ∘ `rot`, not `rot` alone: the editor's "Set 0° here" button banks the dialled-in orientation
+## into `rot_base` and zeroes `rot`, so reading one half silently drops the other (same trap arena_weapons.gd's
+## `_read_creep_rot` documents). No legacy-axis migration here, unlike that one: creep_layout.cfg holds no
+## rotations at all today, so every value it will ever have is written by the current, Z-up editor.
+##
+## Reads through `_creep_layout()`, whose cache creep_edit_mode.gd invalidates on save — so a rotation
+## dialled in the editor reaches the next boss that spawns without a restart.
+static var _mount_rot_helper: RefCounted = null
+static func _creep_mount_rot(layer_name: String) -> Vector3:
+	var cfg := _creep_layout()
+	if cfg == null:
+		return Vector3.ZERO
+	var entry: Dictionary = cfg.get_value("creeps", layer_name, {})
+	if entry.is_empty():
+		return Vector3.ZERO
+	if _mount_rot_helper == null:
+		_mount_rot_helper = GlbRigScript.new()
+	return _mount_rot_helper.compose_rot(
+		entry.get("rot_base", Vector3.ZERO), entry.get("rot", Vector3.ZERO))
+
 func _creep_layout_entry(cfg: ConfigFile, icon_path: String) -> Dictionary:
 	var raw_name := icon_path.get_file().get_basename()
 	var cname := raw_name.to_lower()
@@ -3696,6 +4158,14 @@ func _draw() -> void:
 	if mat != null:
 		mat.set_shader_parameter("flash", flash_s)
 		mat.set_shader_parameter("flash_color", _flash_color)
+	# Elite/Champion glowing ring — drawn first (under the body/tentacles) so the sprite reads clearly on
+	# top while the ring still frames it. See the const-block comment above for the colour/size rationale.
+	if _is_elite:
+		var ring_col := TIER_RING_CHAMPION_COL if _is_champion else TIER_RING_ELITE_COL
+		var pulse := 0.65 + 0.35 * sin(_t * TIER_RING_PULSE_SPEED)
+		var ring_r := _radius + TIER_RING_MARGIN
+		draw_circle(Vector2.ZERO, ring_r * 1.4, Color(ring_col.r, ring_col.g, ring_col.b, 0.10 * pulse))   # soft outer halo
+		draw_arc(Vector2.ZERO, ring_r, 0.0, TAU, 48, Color(ring_col.r, ring_col.g, ring_col.b, 0.55 + 0.35 * pulse), TIER_RING_WIDTH, true)
 	# Tentacles first (world-space chains) so they sit behind the body sprite; root paints last → just under body.
 	if not _tent_template.is_empty():
 		_draw_tentacle(alpha)

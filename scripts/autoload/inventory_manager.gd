@@ -657,13 +657,28 @@ const ITEM_DEFS: Dictionary = {
 # Items granted automatically the FIRST time a save is created (new game only).
 # Keeping this separate from ITEM_DEFS means future items (e.g. asteroid drops in
 # Phase 4) can be defined without being auto-placed in the backpack.
-# User feedback: "trong kho (equipment) chỉ có vũ khí cơ bản là gatling gun" — a fresh profile starts with
-# ONLY the basic weapon, no gear (hull/thruster/shield). Zero gear is a safe, already-handled baseline: the
-# ship still has BASE_SHIP_HP/BASE_SHIELD_MAX (game_manager.gd) with no hull/shield item owned or equipped —
-# every other weapon/gear item is earned via boss drops (see meta_manager.gd's _seed_starter_blueprints() and
-# arena_drop_ui.gd's salvage screen).
+#
+# 2026-08-25, on request: **EMPTY** — a new game (or Settings' Reset Profile) now starts with a completely
+# bare inventory. "Khi mới bắt đầu game thì inventory phải trống mới đúng. Người chơi sẽ có cơ chế craft đồ
+# từ mechanic, khi đó mới đem đi và xuất hiện trong inventory được." Previously this granted gatling_gun.
+#
+# Safe to empty: arena combat does NOT read equipped inventory weapons at all — arena.gd deliberately never
+# instantiates arena_loadout.gd, and the run is armed entirely by the bespoke 5-slot system (the start-of-run
+# weapon chest + F12 pickups, see arena_weapons.gd). The ship also keeps BASE_SHIP_HP/BASE_SHIELD_MAX
+# (game_manager.gd) with zero hull/shield equipped, which was already the shipped baseline.
+#
+# NOTE this only governs what a FRESH profile is seeded with. Mid-run "field drop" loot
+# (meta_manager.gd's roll_field_drop(), 2% per creep kill) still adds items to the backpack during a run —
+# deliberately left alone for now, per "tạm thời skip, chỉ cần make sure khi bắt đầu 1 game mới (hay reset
+# profile) thì inventory trống". Those are marked run-temp and purged at the start of the next run.
+const STARTER_ITEMS: Array[String] = []
+
+# The starter BLUEPRINT — a separate concept from STARTER_ITEMS above, and deliberately still gatling_gun.
+# meta_manager.gd seeds this into the craftable blueprint list (_seed_starter_blueprints) and exempts it from
+# the "already known?" check, so a fresh profile can immediately CRAFT a Gatling Gun at the mechanic rather
+# than being handed one. That is exactly the flow the empty-inventory request describes ("người chơi sẽ có cơ
+# chế craft đồ từ mechanic, khi đó mới đem đi và xuất hiện trong inventory được"), so it stays.
 const STARTER_WEAPON_ID := "gatling_gun"
-const STARTER_ITEMS: Array[String] = [STARTER_WEAPON_ID]
 
 # ── Runtime state ─────────────────────────────────────────────────────────────
 # _items: uid(int) -> {"def": String, "where": String, "cell": Vector2i}
@@ -878,11 +893,14 @@ func unequip(slot: String) -> bool:
 	inventory_changed.emit()
 	return true
 
-## Sell price for one item instance. FLAT $1 for now.
+## Payout for scrapping one item instance ("Extract & Dispose"). FLAT $5 (2026-08-25, on request — was $1).
 ## TODO: real per-item / affix-based pricing goes here (read the item's def + rolled
-## affixes by uid and compute a value). Keep this the single source of sell pricing.
+## affixes by uid and compute a value). Keep this the single source of sell pricing — the right-click
+## confirm dialog and the inventory's Extract & Dispose drop slot both read it.
+const EXTRACT_PAYOUT := 5
+
 func get_sell_price(uid: int) -> int:
-	return 1
+	return EXTRACT_PAYOUT
 
 ## Sell (delete) an item and pay the player. Works whether the item is in the
 ## backpack or equipped — selling an equipped item just removes it from its slot
@@ -950,6 +968,35 @@ func get_icon(def_id: String) -> Texture2D:
 ## 2026-08-19, on request: a batch of test weapon glbs was dropped in alongside their existing PNGs under
 ## the same basename, no separate data field needed. Callers (arena_levelup_ui.gd) use this to swap a
 ## TextureRect for a live-rendered Item3DIcon when one exists, falling back to get_icon()'s PNG otherwise.
+## Explicit .glb art for icons whose MODEL file isn't named after the PNG — the sibling-of-the-icon guess
+## below (and in arena_levelup_ui) can't find those on its own. Keyed by ICON PATH rather than def_id so it
+## also covers weapon kinds that have no ITEM_DEFS entry at all and are identified purely by an icon
+## override (Striker, whose art is the Orbital Impact OFFENSE model — see arena_weapons.WEAPON_INFO).
+const GLB_BY_ICON := {
+	"res://assets/inventory/ND-OID-F.png": "res://assets/inventory/defense orbital.glb",
+	"res://assets/inventory/ND-OIF-F.png": "res://assets/inventory/offense orbital.glb",
+	"res://assets/weaponry/ND-OIF-F.png": "res://assets/inventory/offense orbital.glb",
+}
+
+## The .glb for a weapon identified by an ITEM_DEFS def_id and/or a direct icon-path override — the SINGLE
+## resolution shared by the level-up board (arena_levelup_ui._weapon_icon_glb), the arena weapon pickup
+## (arena_weapon_pickup.gd) and the background preloader (arena_glb_preloader.gd), so a weapon can never
+## show a 3D model in one of those and a flat PNG in another. "" = no model, caller falls back to the PNG.
+func glb_for(def_id: String, icon_path: String) -> String:
+	if def_id != "":
+		var g := get_glb(def_id)
+		if g != "":
+			return g
+	if icon_path != "":
+		var ov := String(GLB_BY_ICON.get(icon_path, ""))
+		if ov != "" and ResourceLoader.exists(ov):
+			return ov
+		if icon_path.get_extension().to_lower() == "png":
+			var candidate := icon_path.get_basename() + ".glb"
+			if ResourceLoader.exists(candidate):
+				return candidate
+	return ""
+
 func get_glb(def_id: String) -> String:
 	if _glb_cache.has(def_id):
 		return String(_glb_cache[def_id])
@@ -963,10 +1010,16 @@ func get_glb(def_id: String) -> String:
 		_glb_cache[def_id] = explicit
 		return explicit
 	var icon_path := String(d.get("icon", ""))
-	if icon_path != "" and icon_path.get_extension().to_lower() == "png":
-		var candidate := icon_path.get_basename() + ".glb"
-		if ResourceLoader.exists(candidate):
-			glb_path = candidate
+	if icon_path != "":
+		# A GLB_BY_ICON entry outranks the sibling guess (Defensive Orbitals' icon is ND-OID-F.png but its
+		# model is "defense orbital.glb" — nothing about the filename connects the two).
+		var mapped := String(GLB_BY_ICON.get(icon_path, ""))
+		if mapped != "" and ResourceLoader.exists(mapped):
+			glb_path = mapped
+		elif icon_path.get_extension().to_lower() == "png":
+			var candidate := icon_path.get_basename() + ".glb"
+			if ResourceLoader.exists(candidate):
+				glb_path = candidate
 	_glb_cache[def_id] = glb_path
 	return glb_path
 

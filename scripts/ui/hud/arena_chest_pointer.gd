@@ -107,6 +107,18 @@ func _process(_delta: float) -> void:
 ## rather than measuring every frame, since the chest spins continuously and re-measuring every frame would
 ## make the label visibly jitter as the silhouette's width/height change with rotation). Leaves the current
 ## fallback in place (and keeps retrying next frame) if the image can't be read yet.
+##
+## 2026-08-25 bug fix — see arena_ruin_pointer.gd's own _measure_content() for the full write-up: a freshly
+## created transparent SubViewport's FIRST rendered frame can read back fully OPAQUE (a one-frame GPU
+## clear/composite race), which get_used_rect() then wrongly reports as "the whole canvas is used" instead of
+## empty — passing the size>0 check below despite being garbage. Verified live over 40 consecutive frames on
+## this exact codepath: frame 1 always misfires (full box), frame 2 onward is correct and stable. This file
+## and arena_ruin_pointer.gd share the identical vulnerable pattern (trust the first successful read
+## unconditionally); chest usually happened to read fine in practice, which is what made this look like a
+## rescue-landmark-only bug rather than the shared race it actually is. Fix: discard the first successful
+## read, trust the second.
+var _measure_good_reads := 0   # see the fix note above
+
 func _measure_content() -> void:
 	var img: Image = _icon_tex.get_image()
 	if img == null:
@@ -114,6 +126,9 @@ func _measure_content() -> void:
 	var used := img.get_used_rect()
 	if used.size.x <= 0 or used.size.y <= 0:
 		return
+	_measure_good_reads += 1
+	if _measure_good_reads < 2:
+		return   # discard the first read — see the 2026-08-25 fix note above
 	var tex_w := float(_icon_tex.get_width())
 	if tex_w <= 0.0:
 		return

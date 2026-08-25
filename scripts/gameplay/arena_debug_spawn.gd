@@ -22,6 +22,7 @@ const CreepInfoPanelScript := preload("res://scripts/ui/hud/creep_info_panel.gd"
 const CreepEditModeScript  := preload("res://scripts/ui/boss_edit/creep_edit_mode.gd")   # see _ready()'s apply_chain_overrides() call
 const ArenaToastScript := preload("res://scripts/ui/hud/arena_toast.gd")   # BOSS FIGHT button no-op feedback
 const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")   # for WEAPON_INFO/FUSION_DEFS code names
+const Item3DIcon   := preload("res://scripts/ui/hud/item_3d_icon.gd")      # Boss tab cells for defs with a "boss_glb"
 # Weapon roster for the Dev → Weapon panel. Four tabs (WEAPON_TAB_ORDER, below):
 #   drop     = obtained from drops, incl. the 2 "narratively fusion" kinds that aren't real FUSION_DEFS
 #              recipes (Venomancer, Yari Jaeger — see "fusion"'s own comment)
@@ -154,6 +155,9 @@ const QUICK_SPAWN_ORDER: Array[String] = [
 	"elephant", "chromeleon", "metalfly",
 ]
 const QUICK_BOSS_IDS: Array[String] = ["elephant", "chromeleon", "metalfly"]
+# Boss-tab cell size. Bigger than the Enemies grid's 48 because a "boss_glb" cell is a live 3D render, and a
+# spinning model in a 48px box reads as a smudge (see _make_quick_cell).
+const BOSS_CELL := 92
 
 
 # Set true to show the hotkey panel + fire-rate controls at startup.
@@ -173,11 +177,12 @@ var _weapon_panel: Panel = null   # Spawn Weapon — button-toggled, default hid
 var _weapon_grid: GridContainer = null         # current-tab cell grid (rebuilt on tab switch)
 var _weapon_tab: String = "drop"               # active weapon tab
 var _weapon_tab_btns: Dictionary = {}          # tab id → Button (for highlight)
-# Creep panel tabs: Enemies (quick-spawn grid) + Fleet (saved-fleet list + formation preview)
+# Creep panel tabs: Enemies (quick-spawn grid) + Fleet (saved-fleet list + preview) + Boss (QUICK_BOSS_IDS)
 var _creep_tab: String = "enemies"
 var _creep_tab_btns: Dictionary = {}
 var _creep_enemies_content: Control = null
 var _creep_fleet_content: Control = null
+var _creep_boss_content: Control = null
 var _fleet_list_vbox: VBoxContainer = null
 var _fleet_preview: Control = null             # floating 500×500 formation preview (hover)
 var _fleet_icon_cache: Dictionary = {}
@@ -508,13 +513,13 @@ func _build_quick_spawn_panel() -> void:
 	btn_clear.pressed.connect(_clear_quick_spawn)
 	hdr.add_child(btn_clear)
 
-	# Tab row — Enemies / Fleet
+	# Tab row — Enemies / Fleet / Boss
 	var tabs := HBoxContainer.new()
 	tabs.custom_minimum_size = Vector2(0.0, float(TAB_H))
 	tabs.add_theme_constant_override("separation", 2)
 	vbox.add_child(tabs)
 	_creep_tab_btns.clear()
-	for tab_def: Array in [["enemies", "Enemies"], ["fleet", "Fleet"]]:
+	for tab_def: Array in [["enemies", "Enemies"], ["fleet", "Fleet"], ["boss", "Boss"]]:
 		var tb := Button.new()
 		tb.text = String(tab_def[1])
 		tb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -545,6 +550,8 @@ func _build_quick_spawn_panel() -> void:
 	grid.add_theme_constant_override("v_separation", 0)
 	escroll.add_child(grid)
 	for type_id: String in QUICK_SPAWN_ORDER:
+		if QUICK_BOSS_IDS.has(type_id):
+			continue   # bosses moved to their own tab (2026-08-24) — listing them twice would be confusing
 		grid.add_child(_make_quick_cell(type_id, CELL))
 
 	# Fleet tab — list of saved fleets (formation preview on hover, click to spawn).
@@ -557,6 +564,23 @@ func _build_quick_spawn_panel() -> void:
 	_fleet_list_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_fleet_list_vbox.add_theme_constant_override("separation", 2)
 	fscroll.add_child(_fleet_list_vbox)
+
+	# Boss tab (2026-08-24) — the QUICK_BOSS_IDS roster, split out of the Enemies grid. Cells are bigger
+	# (BOSS_CELL) because a boss whose def carries a "boss_glb" renders as a LIVE spinning 3D model rather
+	# than a flat thumbnail, and that needs the room to read.
+	var bscroll := ScrollContainer.new()
+	bscroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bscroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	bscroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_AUTO
+	content.add_child(bscroll)
+	_creep_boss_content = bscroll
+	var bgrid := GridContainer.new()
+	bgrid.columns = 2
+	bgrid.add_theme_constant_override("h_separation", 0)
+	bgrid.add_theme_constant_override("v_separation", 0)
+	bscroll.add_child(bgrid)
+	for type_id: String in QUICK_BOSS_IDS:
+		bgrid.add_child(_make_quick_cell(type_id, BOSS_CELL))
 
 	# Floating 500×500 formation preview (shown while hovering a fleet row) — to the right of both panels.
 	_fleet_preview = _FleetPreview.new()
@@ -583,6 +607,8 @@ func _select_creep_tab(tab_id: String) -> void:
 		_creep_enemies_content.visible = (tab_id == "enemies")
 	if _creep_fleet_content != null:
 		_creep_fleet_content.visible = (tab_id == "fleet")
+	if _creep_boss_content != null:
+		_creep_boss_content.visible = (tab_id == "boss")
 	if tab_id == "fleet":
 		_rebuild_fleet_list()   # refresh in case fleets were edited since last open
 	else:
@@ -711,7 +737,15 @@ func _make_quick_cell(type_id: String, cell_size: int) -> Control:
 		s.border_color = border
 		return s
 
-	if is_boss:
+	var has_glb: bool = String(def.get("boss_glb", "")) != ""
+	if has_glb:
+		# A live 3D cell keeps the red BORDER that marks it as a boss but drops the red fill (2026-08-24, on
+		# request: "nền icon màu đỏ"). These models are dark and unlit against a background — red-on-dark
+		# buried metalfly's silhouette, where a flat sprite sat on top of the red perfectly well.
+		btn.add_theme_stylebox_override("normal",  _make_style.call(Color(0.05, 0.05, 0.07, 0.88), Color(0.65, 0.15, 0.10, 0.80)))
+		btn.add_theme_stylebox_override("hover",   _make_style.call(Color(0.12, 0.09, 0.10, 0.94), Color(1.00, 0.35, 0.25, 1.00)))
+		btn.add_theme_stylebox_override("pressed", _make_style.call(Color(0.02, 0.02, 0.03, 0.96), Color(0.65, 0.15, 0.10, 0.80)))
+	elif is_boss:
 		btn.add_theme_stylebox_override("normal",  _make_style.call(Color(0.42, 0.05, 0.05, 0.80), Color(0.65, 0.15, 0.10, 0.80)))
 		btn.add_theme_stylebox_override("hover",   _make_style.call(Color(0.65, 0.10, 0.08, 0.92), Color(1.00, 0.35, 0.25, 1.00)))
 		btn.add_theme_stylebox_override("pressed", _make_style.call(Color(0.25, 0.03, 0.03, 0.95), Color(0.65, 0.15, 0.10, 0.80)))
@@ -720,6 +754,27 @@ func _make_quick_cell(type_id: String, cell_size: int) -> Control:
 		btn.add_theme_stylebox_override("hover",   _make_style.call(Color(0.14, 0.18, 0.26, 0.92), Color(0.50, 0.65, 1.00, 0.90)))
 		btn.add_theme_stylebox_override("pressed", _make_style.call(Color(0.05, 0.07, 0.10, 0.95), Color(0.25, 0.30, 0.48, 0.55)))
 	btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+
+	# A boss whose def carries "boss_glb" shows the LIVE 3D model, slowly spinning, instead of a flat
+	# thumbnail (2026-08-24, "Đặt metalfly (dạng 3D) vào tab này"). Item3DIcon keeps mouse_filter IGNORE, so
+	# it sits harmlessly under this Button and the click still lands. Falls through to the PNG path below if
+	# the glb can't be built, and every boss without the key (elephant, chromeleon) is unchanged.
+	var glb_path: String = String(def.get("boss_glb", ""))
+	if glb_path != "":
+		const PAD := 3
+		var icon3d: Control = Item3DIcon.new()
+		# setup() OWNS the control's size (it assigns `size` itself). Anchors must NOT be used with it: an
+		# earlier version anchored FULL_RECT with -3 offsets first, and setup()'s later `size =` write
+		# recomputed those offsets against the button's size AT THAT MOMENT — zero, since nothing had been
+		# laid out yet — so once the grid sized the button the icon resolved to roughly DOUBLE the cell and
+		# spilled out of the panel. Fixed size + fixed position, no anchors, can't be reflowed.
+		if not icon3d.call("setup", glb_path, float(cell_size - PAD * 2), float(cell_size - PAD * 2)):
+			icon3d.free()   # never entered the tree
+		else:
+			btn.add_child(icon3d)
+			icon3d.position = Vector2(PAD, PAD)
+			btn.pressed.connect(_spawn_quick_enemy.bind(type_id, btn))
+			return btn
 
 	var icon_path: String = String(def.get("icon", ""))
 	if icon_path != "":
@@ -740,6 +795,8 @@ func _make_quick_cell(type_id: String, cell_size: int) -> Control:
 
 func _load_thumb(icon: String) -> Texture2D:
 	var src: String = EnemyScript._resolve_sprite(icon)   # prefer assets/enemiesHD/, fall back to assets/enemies/
+	if src.ends_with(".sheet.png"):
+		return _sheet_first_frame(src)
 	if src.ends_with(".gif"):
 		var g := GifLoader.load_gif(src)
 		if g != null and g.has_meta("gif_frames"):
@@ -752,6 +809,34 @@ func _load_thumb(icon: String) -> Texture2D:
 		t = load(icon) as Texture2D   # HD failed to load (e.g. not imported) → standard sprite
 	return t
 
+## First frame of a `<name>.sheet.png` as an AtlasTexture, sliced by its sibling `<name>.sheet.json` (same
+## {cols, w, h} format arena_enemy.gd's _load_sheet_frames reads). Without this a sheet-icon cell showed the
+## WHOLE strip squeezed into the button — every frame side by side, unreadable. It only became obvious once
+## the Boss tab's cells went up to BOSS_CELL, but the three sheet-icon bosses looked like that in the
+## Enemies grid too. Falls back to the raw sheet if the JSON is missing or unparseable.
+func _sheet_first_frame(path: String) -> Texture2D:
+	var atlas := load(path) as Texture2D
+	if atlas == null:
+		return null
+	var json_path := path.replace(".sheet.png", ".sheet.json")
+	if not FileAccess.file_exists(json_path):
+		return atlas
+	var file := FileAccess.open(json_path, FileAccess.READ)
+	if file == null:
+		return atlas
+	var data = JSON.parse_string(file.get_as_text())
+	file.close()
+	if not (data is Dictionary):
+		return atlas
+	var fw := int((data as Dictionary).get("w", atlas.get_width()))
+	var fh := int((data as Dictionary).get("h", atlas.get_height()))
+	if fw <= 0 or fh <= 0:
+		return atlas
+	var at := AtlasTexture.new()
+	at.atlas = atlas
+	at.region = Rect2(0, 0, fw, fh)
+	return at
+
 ## Shift+Click a quick-spawn cell to mass-spawn BULK_SPAWN_COUNT at once instead of 1 — a fast way
 ## to reach a stress-test population (e.g. reproduce the arena's creep-count FPS cliff) without
 ## waiting for the wave timeline to build up naturally over real playtime.
@@ -760,7 +845,10 @@ const BULK_SPAWN_COUNT := 300
 func _spawn_quick_enemy(type_id: String, btn: Button) -> void:
 	var cam := get_viewport().get_camera_2d()
 	var base := cam.global_position if cam != null else Vector2.ZERO
-	var n := BULK_SPAWN_COUNT if Input.is_key_pressed(KEY_SHIFT) else 1
+	# Bulk-spawn is for building a stress-test horde, never for bosses — and since bosses now correctly
+	# bypass the alive cap (see _spawn_enemy_at), a Shift+click on a boss cell would otherwise drop 300
+	# uncapped bosses on the field. The cap used to absorb that mistake; it no longer does.
+	var n := BULK_SPAWN_COUNT if (Input.is_key_pressed(KEY_SHIFT) and not QUICK_BOSS_IDS.has(type_id)) else 1
 	var spawned := 0
 	for _i in n:
 		var pos := base + Vector2(_rng.randf_range(-500.0, 500.0), _rng.randf_range(-270.0, 270.0))
@@ -786,7 +874,13 @@ func _spawn_enemy_at(type_id: String, pos: Vector2) -> bool:
 			return true
 	var wd := get_tree().get_first_node_in_group("wave_director")
 	if wd != null:
-		return wd.call("_spawn", type_id, pos, false) != null
+		# `is_boss` MUST be true for a boss (2026-08-24 bug: clicking a boss cell did nothing). The director's
+		# one authoritative cap gate — v1's _spawn, v2's _spawn_def — bypasses MAX_ALIVE only for
+		# `is_boss`/`elite` defs, and this call passed a hardcoded `false`. So a boss quick-spawn was
+		# rejected outright whenever the field was at cap, which during real play it essentially always is:
+		# the boss is exactly the thing a dev wants to force in on top of a busy field, not the one thing
+		# that can't be. Pre-existing for all three bosses; only noticed once metalfly got its own tab.
+		return wd.call("_spawn", type_id, pos, QUICK_BOSS_IDS.has(type_id)) != null
 	var def := src.duplicate()
 	var mgr := get_tree().get_first_node_in_group("enemy_manager")
 	var e: Node

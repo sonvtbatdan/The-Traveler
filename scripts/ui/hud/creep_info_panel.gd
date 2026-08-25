@@ -76,6 +76,26 @@ static func load_overrides() -> Dictionary:
 	var data = cfg.get_value("overrides", "data", {})
 	return data if data is Dictionary else {}
 
+## The ORIGINAL hp/xp of every def an override has ever been applied to, captured the first time
+## apply_overrides() touches it — i.e. BEFORE the override overwrites it. 2026-08-25 bug fix, see _on_save():
+## the panel's "is this value an override or just the default?" test compared the SpinBox against
+## `WaveDir.ENEMY_DEFS`, but that dict has already had the saved overrides written INTO it by the time the
+## panel opens (arena_debug_spawn.gd's own _ready() calls apply_overrides(WaveDir.ENEMY_DEFS)). So every
+## already-overridden value compared EQUAL to its "base" and was written out as "no override" — one Save
+## silently emptied the whole file. Measured: opening the panel and pressing Save with NOTHING edited took
+## creep_info_overrides.cfg from 12 entries to 0.
+##
+## Static so it survives the panel being closed/rebuilt, and shared by every director that applies overrides.
+## Only ids that actually carry an override are captured; anything else is still pristine in the live def.
+static var _pristine: Dictionary = {}   # id -> {"hp": float, "xp": float}
+
+## The un-overridden hp/xp for `id` — the pristine snapshot when we have one, else the live def (which, for
+## an id with no override, has never been written to).
+static func pristine_base(id: String) -> Dictionary:
+	if _pristine.has(id):
+		return _pristine[id]
+	return WaveDir.ENEMY_DEFS.get(id, {})
+
 ## Mutates `defs` IN PLACE (Dictionary is a reference type) — call once per director, on its OWN ENEMY_DEFS,
 ## from that director's _ready(). Each director applies independently rather than relying on instantiation
 ## order, since only ONE of v1/v2 is ever actually instantiated (per arena.gd's USE_SPAWN_MODE_2 flag).
@@ -86,6 +106,11 @@ static func apply_overrides(defs: Dictionary) -> void:
 			continue
 		var o: Dictionary = ov[id]
 		var entry: Dictionary = defs[id]
+		# Snapshot BEFORE the first write, and only once per id — later calls (the second director, the
+		# live re-apply after Save, a second arena load reusing the same static dicts) must not re-capture
+		# an already-overridden value.
+		if not _pristine.has(id):
+			_pristine[id] = {"hp": float(entry.get("hp", 0.0)), "xp": float(entry.get("xp", 0.0))}
 		if o.has("hp"):
 			entry["hp"] = float(o["hp"])
 		if o.has("xp"):
@@ -370,11 +395,23 @@ func _on_recalc_all_xp() -> void:
 		xp_spin.value = maxf(10.0, round(hp_spin.value / 10.0))
 	_status.text = "Recalculated XP from HP for all %d creep(s) — remember to Save." % _rows.size()
 
+## 2026-08-25 — two bugs fixed here, both of which read to the user as "Save doesn't work / values reset":
+##
+##  1. `ov` started EMPTY and was filled only from `_rows`, which holds just the CURRENTLY VISIBLE map tab
+##     (see _populate()'s _map_tab_id filter) — then the whole file was replaced with it. So saving while on
+##     one tab silently erased every override belonging to every OTHER tab. It now starts from what is
+##     already on disk and updates/removes only the rows actually on screen.
+##
+##  2. `base` was `WaveDir.ENEMY_DEFS`, which ALREADY has the saved overrides applied into it (see
+##     apply_overrides()/_pristine above). An overridden-but-unedited row therefore compared equal to its
+##     "base", wrote no entry, and the override was dropped. This was the big one: opening the panel and
+##     pressing Save with nothing edited took the file from 12 entries to 0. Now compares against
+##     pristine_base(), the true un-overridden value.
 func _on_save() -> void:
-	var ov: Dictionary = {}
+	var ov: Dictionary = load_overrides()   # keep other tabs' entries — see (1) above
 	for r: Dictionary in _rows:
 		var id: String = r["id"]
-		var base: Dictionary = WaveDir.ENEMY_DEFS.get(id, {})
+		var base: Dictionary = pristine_base(id)   # true original, NOT the live (already-overridden) def — see (2)
 		var hp: float = (r["hp_spin"] as SpinBox).value
 		var xp: float = (r["xp_spin"] as SpinBox).value
 		var move_i: int = (r["move_opt"] as OptionButton).selected
@@ -390,7 +427,9 @@ func _on_save() -> void:
 			entry["move"] = move_s
 		if shoot_s != "":   # "(default)" (index 0) writes nothing; explicit "None" (SHOOT_LOGICS[0]) DOES write "shoot":"none"
 			entry["shoot"] = shoot_s
-		if not entry.is_empty():
+		if entry.is_empty():
+			ov.erase(id)   # this row now matches the original exactly — drop any stale override for it
+		else:
 			ov[id] = entry
 	var cfg := ConfigFile.new()
 	cfg.set_value("overrides", "data", ov)

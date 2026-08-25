@@ -16,7 +16,10 @@ class_name ArenaToast
 const FONT_BODY := "res://assets/fonts/mandalore/mandalore.ttf"
 const LIFETIME := 3.0
 
-static func show(host: Node, text: String) -> void:
+## `corner` picks where the toast sits. "top" (default) is the original top-centre placement every existing
+## caller uses; "bottom_right" (2026-08-25, on request for the elite/champion weapon drop pickup) tucks it
+## into the lower-right, clear of the top-centre chrome and of the bottom-centre HP/Shield/Level bars.
+static func show(host: Node, text: String, corner: String = "top") -> void:
 	var cl := CanvasLayer.new()
 	cl.layer = 60   # above gameplay + the edge-of-screen ruin pointer (55), below settings/overlays
 	cl.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -31,13 +34,21 @@ static func show(host: Node, text: String) -> void:
 	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
 	lbl.add_theme_constant_override("outline_size", 4)
 	lbl.text = MandaloreText.a(text)
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	lbl.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	lbl.offset_left = -280.0
-	lbl.offset_right = 280.0
-	lbl.offset_top = 60.0
-	lbl.offset_bottom = 100.0
+	if corner == "bottom_right":
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		lbl.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+		lbl.offset_left = -640.0
+		lbl.offset_right = -24.0
+		lbl.offset_top = -96.0
+		lbl.offset_bottom = -56.0
+	else:
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.set_anchors_preset(Control.PRESET_CENTER_TOP)
+		lbl.offset_left = -280.0
+		lbl.offset_right = 280.0
+		lbl.offset_top = 60.0
+		lbl.offset_bottom = 100.0
 	lbl.modulate.a = 0.0
 	cl.add_child(lbl)
 

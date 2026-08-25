@@ -3,6 +3,50 @@
 > Module of [`CLAUDE.md`](../CLAUDE.md). Read this when working on autoloads, main scene, GameManager, persistence, main menu, settings, music player.
 > Always-on core rules (conventions, coordinate system, image/render rules, LOCKED MODULES) live in CLAUDE.md — read that too.
 
+## Changelog — 2026-08-25 — Inventory: "Extract & Dispose" drop slot, payout raised to $5
+
+"Ở bảng Inventory: làm một ô slot có tên là Extract & Dispose. Kéo vũ khí vào đây sẽ xóa vũ khí đó và +5 gold.
+Click chuột phải cũng hiện extract & dispose for 5$ (thay vì 1 như hiện tại)."
+
+- `InventoryManager.get_sell_price()` → new `EXTRACT_PAYOUT` const = **5** (was a hardcoded 1). Single source
+  of the payout, read by both routes below, so they can never quote different numbers.
+- New **`scripts/ui/inventory/extract_slot.gd`** (`InvExtractSlot`) — a drop target in the panel's left column
+  under GEAR, double-wide, styled red to read as destructive rather than as another equip slot. Drop any item
+  and it is destroyed for the payout via the same `sell_item()` call the right-click uses. It lights up for
+  every dragged item (there is no compatibility test — it takes anything), wired into the existing
+  `_highlight_for_def`/`_clear_highlights` drag sweep.
+- Right-click confirm reworded: title/button "Extract & Dispose", text `"Extract & Dispose <item> for 5$?"`.
+
+Deliberately **not** gated on `GameManager.is_in_battle()` the way `InvEquipSlot` is: that gate stops loadout
+changes mid-boss-fight, and scrapping doesn't alter the loadout. Dropping an equipped item works too
+(`sell_item` unequips first), mirroring the right-click path exactly.
+
+**Verified** by driving the real panel: slot present at (40, 380) 130×60, `_can_drop_data` accepts, and the
+drop removed the item from the backpack while money went **0 → 5** (delta exactly `EXTRACT_PAYOUT`).
+
+## Changelog — 2026-08-25 — A new profile now starts with a completely EMPTY inventory
+
+"Khi mới bắt đầu game thì inventory phải trống mới đúng. Người chơi sẽ có cơ chế craft đồ từ mechanic, khi đó
+mới đem đi và xuất hiện trong inventory được."
+
+`InventoryManager.STARTER_ITEMS` is now `[]` (was `["gatling_gun"]`), so both a fresh save and Settings'
+**Reset Profile** produce a bare backpack.
+
+Safe to empty: arena combat never reads equipped inventory weapons — `arena.gd` deliberately does not
+instantiate `arena_loadout.gd`, and a run is armed entirely by the bespoke 5-slot system (start-of-run weapon
+chest + F12 pickups). The ship also keeps `BASE_SHIP_HP`/`BASE_SHIELD_MAX` with zero hull/shield equipped,
+which was already the shipped baseline.
+
+`STARTER_WEAPON_ID` is **kept** — it is a separate concept that `meta_manager.gd` still uses to seed the
+starter *blueprint* list, so a fresh profile can immediately **craft** a Gatling Gun at the mechanic rather
+than being handed one. That is exactly the flow the request describes. (Removing the const outright broke
+three `meta_manager.gd` call sites; caught and restored.)
+
+**Not addressed, per "tạm thời skip":** mid-run field-drop loot (`meta_manager.roll_field_drop()`, 2% per
+creep kill) still adds items to the backpack *during* a run — that, not the starter, is what fills the bag
+over a long playtest. Those are marked run-temp and purged at the start of the next run, so they never reach
+the saved profile (the actual save at the time of the report held just 2 items).
+
 ## Changelog — 2026-08-18 — rubicon→electric code rename finished; new "mechanic" map added
 
 - **Code rename completed**: the Electric map's display name changed from "Rubicon" to "Electric" back on

@@ -1234,16 +1234,25 @@ func _contain_box(native: Vector2, max_w: float, max_h: float) -> Vector2:
 ## _option_icon_tex()'s def_id-then-icon_path priority (see that function's own doc comment), but only the
 ## two ART paths that can plausibly own a glb (an ITEM_DEFS def_id, or a direct WEAPON_INFO/FUSION_DEFS
 ## "icon" override); aux/perk art has no glb and is deliberately not checked here.
+# ── Level-up board high-poly override (2026-08-24, on request) ─────────────────────────────────────
+# 5 weapons show a dedicated high-poly model for the board's thumbnail (small choice cards) AND preview
+# (the big WeaponDisplay) instead of InventoryManager's usual (lighter) inventory/pickup model — ONLY here;
+# the equip screen (inventory_ui.gd) and the arena pickup crate (arena_weapon_pickup.gd) are untouched and
+# keep showing the regular model. Keyed by def_id, checked before the normal resolution.
+const HIGHPOLY_GLB := {
+	"gatling_gun":    "res://assets/inventory/high poly/Gatling.glb",
+	"ionizing_field": "res://assets/inventory/high poly/Ionize field.glb",
+	"gauss":          "res://assets/inventory/high poly/gauss.glb",
+	"homing_missile": "res://assets/inventory/high poly/homing missile.glb",
+	"arc":            "res://assets/inventory/high poly/lightning.glb",
+}
+
 func _weapon_icon_glb(def_id: String, icon_path: String) -> String:
-	if def_id != "" and InventoryManager.ITEM_DEFS.has(def_id):
-		var g := InventoryManager.get_glb(def_id)
-		if g != "":
-			return g
-	if icon_path != "" and icon_path.get_extension().to_lower() == "png":
-		var candidate := icon_path.get_basename() + ".glb"
-		if ResourceLoader.exists(candidate):
-			return candidate
-	return ""
+	var hp := String(HIGHPOLY_GLB.get(def_id, ""))
+	if hp != "" and ResourceLoader.exists(hp):
+		return hp
+	var res := InventoryManager.glb_for(def_id, icon_path)
+	return res
 
 ## Build a CONTAIN-fit weapon/item icon control within (max_w × max_h) — a live-rendered, rotating
 ## Item3DIcon when `def_id`/`icon_path` has a sibling .glb, else the flat TextureRect showing `tex` (same
@@ -1582,6 +1591,18 @@ func _generate_choices(n: int, allow_new: bool = false) -> Array:
 			if not chosen.has(String(fc["ckey"])):
 				choices.append(fc)
 				chosen[String(fc["ckey"])] = true
+	# Guaranteed FUSION-COMPONENT card: if you own both halves of a recipe but they aren't at FUSION_MIN_LEVEL
+	# yet, one of the halves still short of the gate always takes a slot (2026-08-25, on request). Without it,
+	# reaching a fusion was luck — those two weapons compete with every other owned weapon AND aux for 3 slots,
+	# so the roll could skip them indefinitely. Only ONE slot is reserved, so the rest of the board still
+	# varies. Placed after the ready-fusion block above, which has the stronger claim on the slots.
+	if aw != null and choices.size() < n:
+		var pending: Array = aw.call("pending_fusion_components")
+		if not pending.is_empty():
+			var pk := String(pending[randi() % pending.size()])
+			if not chosen.has("w:" + pk):
+				choices.append(_weapon_choice(aw, pk, "upgrade"))
+				chosen["w:" + pk] = true
 	while choices.size() < n:
 		var owned_pool: Array = []
 		var new_pool: Array = []

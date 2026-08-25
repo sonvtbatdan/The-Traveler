@@ -48,7 +48,7 @@ func _ready() -> void:
 	_enemy_label.offset_left = -360
 	_enemy_label.offset_right = -10
 	_enemy_label.offset_top = 134
-	_enemy_label.offset_bottom = 134 + 18.0 * (ENEMY_LIST_CAP + 2)   # capped list → bounded height
+	_enemy_label.offset_bottom = 134 + 18.0 * (ENEMY_LIST_CAP + 3)   # capped list → bounded height (+1 row for the Total HP line)
 	_enemy_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_enemy_label.add_theme_font_size_override("font_size", 12)
 	_enemy_label.add_theme_color_override("font_color", Color(0.7, 1.0, 0.7))
@@ -107,9 +107,26 @@ func _process(delta: float) -> void:
 
 ## Live breakdown of alive enemies by type (e.g. "Fly: 12"), sorted by count descending, capped to
 ## ENEMY_LIST_CAP entries so the panel can't grow past the screen even with the full ~30-type roster alive.
+##
+## The "Total HP" line (2026-08-24, on request) sums every live creep's CURRENT hp, with the field's combined
+## MAX hp next to it — a raw head-count doesn't say whether the field is actually oppressive (300 flies and
+## 12 fleet carriers both read as "300 creeps"), so this is the number to watch for "is the player being
+## asked to chew through more HP than their DPS can clear". Summed in the same single pass that already walks
+## the group for the per-type counts, so it costs two extra property reads per creep at the same 5 Hz.
 func _refresh_enemy_list(total: int) -> void:
 	var counts: Dictionary = {}
+	var hp_sum := 0.0
+	var hp_max_sum := 0.0
 	for e in get_tree().get_nodes_in_group("arena_enemy"):
+		# .get() rather than a typed read: "arena_enemy" also holds non-arena_enemy.gd members (batched
+		# proxies, landmark stand-ins), and a member without an `hp`/`hp_max` property returns null here
+		# instead of erroring — same defensive shape the `_type` read just below already uses.
+		var ehp: Variant = e.get("hp")
+		if ehp != null:
+			hp_sum += float(ehp)
+		var emax: Variant = e.get("hp_max")
+		if emax != null:
+			hp_max_sum += float(emax)
 		var t := String(e.get("_type"))
 		if t == "":
 			continue
@@ -122,7 +139,18 @@ func _refresh_enemy_list(total: int) -> void:
 	var shown := mini(ENEMY_LIST_CAP, pairs.size())
 	for i in range(shown):
 		lines.append("%s: %d" % [String(pairs[i][0]).capitalize(), pairs[i][1]])
-	var txt := "Enemies alive (%d, %d types):\n%s" % [total, pairs.size(), "\n".join(lines)]
+	var txt := "Enemies alive (%d, %d types):\nTotal HP %s / %s\n%s" % [
+		total, pairs.size(), _short_num(hp_sum), _short_num(hp_max_sum), "\n".join(lines)]
 	if pairs.size() > shown:
 		txt += "\n+%d more type%s" % [pairs.size() - shown, "s" if pairs.size() - shown > 1 else ""]
 	_enemy_label.text = txt
+
+## Compact readout for a big HP total — 12345 → "12.3k", 2400000 → "2.40M". The exact figure isn't the point
+## (it moves every frame); the magnitude and which way it's trending are, and a full-length integer would push
+## this right-aligned line past the panel's 350px column.
+func _short_num(v: float) -> String:
+	if v >= 1000000.0:
+		return "%.2fM" % (v / 1000000.0)
+	if v >= 1000.0:
+		return "%.1fk" % (v / 1000.0)
+	return "%d" % int(round(v))

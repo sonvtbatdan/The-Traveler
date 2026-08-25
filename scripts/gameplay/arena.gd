@@ -82,6 +82,7 @@ const DebugSpawnScript   := preload("res://scripts/gameplay/arena_debug_spawn.gd
 const PerfOverlayScript  := preload("res://scripts/ui/hud/perf_overlay.gd")
 const RunClockScript     := preload("res://scripts/ui/hud/arena_run_clock.gd")   # top-right run timer (pauses with the tree)
 const LevelUpUIScript    := preload("res://scripts/ui/hud/arena_levelup_ui.gd")
+const GlbPreloaderScript := preload("res://scripts/gameplay/arena_glb_preloader.gd")   # warms the level-up board's weapon .glb models in the background (see that file)
 const FusionCutsceneScript := preload("res://scripts/gameplay/arena_fusion_cutscene.gd")  # weapon-fusion cutscene
 const InventoryUIScript  := preload("res://scripts/ui/inventory/inventory_ui.gd")   # equip screen (I key)
 const DropUIScript       := preload("res://scripts/ui/hud/arena_drop_ui.gd")          # boss-defeated salvage choice
@@ -293,6 +294,7 @@ func _ready() -> void:
 	add_child(PerfOverlayScript.new())   # FPS/frame-ms readout (top-right); off by default, Settings' FPS switch shows it
 	add_child(RunClockScript.new())      # top-right run timer (freezes while paused: menu / level-up)
 	add_child(LevelUpUIScript.new())     # VS choose-1-of-3 on level-up (pauses the game)
+	add_child(GlbPreloaderScript.new())  # background-loads that board's 3D weapon models so opening it doesn't hitch
 	add_child(FusionCutsceneScript.new())  # weapon-fusion cutscene (group "arena_fusion_cutscene"; awaited by level-up UI)
 	add_child(InventoryUIScript.new())   # equip/loadout screen (toggle with the I key)
 	add_child(DropUIScript.new())        # boss-defeated salvage: equip (run) vs disassemble (blueprint)

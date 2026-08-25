@@ -65,6 +65,46 @@ var _dragging: bool = false
 var _yaw: float = 0.0
 var _aspect: float = 1.0   # (max_w / max_h) passed to setup() — drives both the SubViewport's render-target shape and _frame_cam's ortho `size` solve, see this file's header (2026-08-20)
 
+# ══ Warm cache — the level-up board's anti-hitch preload (2026-08-24) ═══════════════════════════════════
+# A weapon .glb costs ~300ms to load COLD (measured across assets/inventory/*.glb: 280-345ms each, and the
+# level-up board builds 3 small cards + 1 big preview at once — so opening the board froze the game for the
+# better part of a second). Godot's own resource cache only holds WEAK references, so the PackedScene is
+# dropped again the moment the last icon is freed and the NEXT level-up pays the full cost all over again.
+# arena_glb_preloader.gd warms these in the background during play and parks the PackedScene here, where a
+# real (strong) reference keeps it resident; a cached re-load then measures ~0.02ms, i.e. gone.
+# Static so the preloader and every icon share one table without a node lookup between them.
+static var _warm: Dictionary = {}   # glb path -> PackedScene (strong ref)
+
+## Park an already-loaded PackedScene so later setup() calls for `path` skip the disk hit. Called by
+## arena_glb_preloader.gd once its threaded request for `path` completes.
+static func warm_store(path: String, scene: PackedScene) -> void:
+	if path != "" and scene != null:
+		_warm[path] = scene
+
+static func is_warm(path: String) -> bool:
+	return _warm.has(path)
+
+## The PackedScene for `path`, from the warm table when the preloader already parked it, otherwise loaded
+## now AND parked (so the next caller is instant either way). The one entry point every 3D-art consumer
+## should use instead of a bare load() — arena_weapon_pickup.gd goes through this too, which is what keeps
+## a 54 MB orbital model from cold-loading in the middle of a fight just because it dropped as loot.
+static func warm_scene(path: String) -> PackedScene:
+	if path == "":
+		return null
+	var cached: PackedScene = _warm.get(path) as PackedScene
+	if cached != null:
+		return cached
+	var packed := load(path) as PackedScene
+	if packed != null:
+		_warm[path] = packed
+	return packed
+
+## Drop every parked scene (called when the arena tears down — no reason to hold ~75MB of weapon models
+## resident while the player sits in the main menu; the next run just warms them again in the background).
+## Already-instantiated icons are unaffected: an instantiated node doesn't reference its PackedScene.
+static func warm_clear() -> void:
+	_warm.clear()
+
 ## Safe to call fully detached (before this control is parented anywhere) — the AABB-fit framing below only
 ## reads global_transform across the Node3D chain built right here (SubViewport → pivot → model), which
 ## composes independent of whether the outer Control tree is live; the SubViewport itself only needs to be
@@ -126,7 +166,9 @@ func setup(glb_path: String, max_w: float, max_h: float, interactive: bool = fal
 	_pivot = Node3D.new()
 	_vp.add_child(_pivot)
 
-	var packed := load(glb_path) as PackedScene
+	# Warm cache first (see warm_scene above) — a cold load() here is ~300ms of hard freeze, and this runs
+	# while the level-up board is being built, i.e. exactly when the player is watching.
+	var packed := warm_scene(glb_path)
 	var model: Node3D = (packed.instantiate() as Node3D) if packed != null else null
 	if model == null:
 		push_warning("item_3d_icon: could not load " + glb_path)

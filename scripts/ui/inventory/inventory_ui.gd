@@ -14,6 +14,7 @@ const PANEL_X_SHIFT := 50.0   # px the whole panel is nudged left of dead-center
 # before the editor has registered the global class names.
 const BackpackGrid    := preload("res://scripts/ui/inventory/backpack_grid.gd")
 const EquipSlot       := preload("res://scripts/ui/inventory/equip_slot.gd")
+const ExtractSlot     := preload("res://scripts/ui/inventory/extract_slot.gd")   # "Extract & Dispose" drop target
 const LiveSlot        := preload("res://scripts/ui/inventory/live_slot.gd")
 const ItemWidget      := preload("res://scripts/ui/inventory/item_widget.gd")
 const CharacterSheet  := preload("res://scripts/ui/inventory/character_sheet.gd")
@@ -46,6 +47,7 @@ var _weapon_row: Control = null    # 5 read-only slots, live from the arena_weap
 var _aux_row: Control = null       # 5 read-only slots, live from the arena_aux group
 var _msg_label: Label = null       # transient on-panel message (failed equip-requirement, etc.)
 var _dragging: bool = false        # true while an item is being dragged (drag highlight beats hover)
+var _extract_slot = null           # "Extract & Dispose" drop target (extract_slot.gd)
 
 func _ready() -> void:
 	layer = 60
@@ -178,6 +180,21 @@ func _build_panel_contents() -> void:
 		_panel.add_child(es)
 		_slot_nodes[slot] = es
 		gx += RS_SLOT + RS_GAP
+
+	# EXTRACT & DISPOSE (below gear) — drop an item here to destroy it for InventoryManager.EXTRACT_PAYOUT
+	# gold. Sits in the left column under GEAR, deliberately apart from the equip slots since it is
+	# destructive (its own red styling; see extract_slot.gd).
+	var ext_label := Label.new()
+	ext_label.text = MandaloreText.a("EXTRACT")
+	ext_label.position = Vector2(40, 354)
+	ext_label.size = Vector2(300, 20)
+	_apply_font(ext_label, 13)
+	_panel.add_child(ext_label)
+	_extract_slot = ExtractSlot.new()
+	_extract_slot.setup()
+	_extract_slot.position = Vector2(40, 380)
+	_extract_slot.size = Vector2(RS_SLOT * 2.0 + RS_GAP, RS_SLOT)   # double-wide so the two-line label fits
+	_panel.add_child(_extract_slot)
 
 	# Cargo (right side) — placed past the WEAPONS/AUX/GEAR column (~x 600). Items picked up during play.
 	var bp_label := Label.new()
@@ -388,6 +405,9 @@ func _highlight_for_def(def_id: String) -> void:
 		for c in row.get_children():
 			if c is LiveSlot:
 				(c as LiveSlot).set_highlight((c as LiveSlot)._can_drop_data(Vector2.ZERO, {"def_id": def_id, "uid": -1}))
+	# Extract & Dispose takes ANY item, so it lights up for every def — no compatibility test to run.
+	if _extract_slot != null and is_instance_valid(_extract_slot):
+		_extract_slot.set_highlight(true)
 
 func _clear_highlights() -> void:
 	for slot: String in _slot_nodes:
@@ -398,6 +418,8 @@ func _clear_highlights() -> void:
 		for c in row.get_children():
 			if c is LiveSlot:
 				(c as LiveSlot).set_highlight(false)
+	if _extract_slot != null and is_instance_valid(_extract_slot):
+		_extract_slot.set_highlight(false)
 
 func _on_item_hover(def_id: String) -> void:
 	if _dragging:
@@ -446,14 +468,16 @@ var _pending_sell_uid: int = -1
 func _on_sell_requested(p_uid: int, def_id: String) -> void:
 	if _sell_dialog == null:
 		_sell_dialog = ConfirmationDialog.new()
-		_sell_dialog.title = "Sell item"
-		_sell_dialog.ok_button_text = "Sell"
+		_sell_dialog.title = "Extract & Dispose"
+		_sell_dialog.ok_button_text = "Extract & Dispose"
 		_sell_dialog.confirmed.connect(_on_sell_confirmed)
 		add_child(_sell_dialog)
 	_pending_sell_uid = p_uid
 	var item_name := String(InventoryManager.get_def(def_id).get("name", def_id))
 	var price := InventoryManager.get_sell_price(p_uid)
-	_sell_dialog.dialog_text = "Sell %s for $%d?" % [item_name, price]
+	# Wording + payout match the Extract & Dispose drop slot (2026-08-25, on request) — both read
+	# InventoryManager.get_sell_price(), so the two routes can never quote different numbers.
+	_sell_dialog.dialog_text = "Extract & Dispose %s for %d$?" % [item_name, price]
 	_sell_dialog.popup_centered()
 
 func _on_sell_confirmed() -> void:

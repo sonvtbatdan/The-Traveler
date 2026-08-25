@@ -7,7 +7,8 @@ const GifLoader       := preload("res://scripts/ui/edit_mode/gif_loader.gd")
 const GridOverlay     := preload("res://scripts/ui/boss_edit/grid_overlay.gd")
 const EnergyVortex    := preload("res://scripts/gameplay/fx/energy_vortex.gd")
 const LedLight        := preload("res://scripts/gameplay/fx/led_light.gd")
-const ArenaEnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")   # to invalidate its cached layout cfg on save
+const ArenaEnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")   # to invalidate its cached layout cfg on save; also owns the Metalfly layer names (MF_* below)
+const MetalflyRigScript := preload("res://scripts/gameplay/fx/metalfly_rig.gd")   # owns the winged body's glb path
 const WaveDirScript    := preload("res://scripts/gameplay/arena_wave_director.gd")   # ENEMY_DEFS, for the CHAIN section's defaults/live-apply
 const LAYOUT_PATH       := "res://creep_layout.cfg"
 const PLUME_STYLES_PATH := "res://plume_styles.cfg"
@@ -50,6 +51,45 @@ const MAP_REGISTRY: Array[Dictionary] = [
 const ASSET_PANEL_W     := 210.0
 const CTRL_PANEL_W      := 224.0
 const SCREEN_ORIGIN     := Vector2(15.0, 8.0)
+
+# ── Metalfly boss, as 3D LAYERS (2026-08-24) ────────────────────────────────────────────────────────────
+# The arena Metalfly is a two-phase boss whose bodies are BOTH live 3D models (arena_enemy.gd's
+# `boss_move: "metalfly"`): a spinning Cocoon.glb for Phase 1, then the code-posed metalfly.glb rig for
+# Phase 2. Neither is a sprite, so neither could ever appear in the folder scan — they are declared here the
+# same way weapon_edit_mode.gd declares Jeager's animation layers, and they get the same treatment for the
+# same reason: a 3D body needs its mount angle dialled in by eye, which is what the Rotate X/Y/Z sliders and
+# the FRONT arrow exist for.
+#
+# Declared in the BASE (this file) rather than a subclass because Creep Edit *is* the base. It cannot leak
+# into the other editors: weapon_edit_mode.gd overrides every hook below, and hud_edit_mode.gd/
+# fleet_edit_mode.gd extend CanvasLayer, not this file. It is further gated to the Electric map's own
+# palette (MF_MAP), matching the "Map:" dropdown convention — this is Electric's boss.
+## Layer names and asset paths are NOT restated here — every one of them is read off the runtime that
+## consumes them (arena_enemy.gd owns the cfg keys, metalfly_rig.gd owns the winged glb path). A layer whose
+## editor name drifted from its runtime name would look completely fine and simply never apply, which is the
+## worst kind of bug to leave available.
+## TWO bodies, and exactly two rows: the group's ROOT is the winged body itself (it is both the boss's
+## palette entry and its Phase 2 model — a separate "… Wings" row would place a second, identical model
+## stacked precisely on the root's), with the cocoon hanging under it as the one child layer.
+const MF_MAP           := "electric"
+const MF_ROOT          := ArenaEnemyScript.MF_LAYER_WINGS    # Phase 2 body (metalfly_rig.gd) + the group row
+const MF_COCOON        := ArenaEnemyScript.MF_LAYER_COCOON   # Phase 1 body (glb_spin_body.gd)
+const MF_LAYERS: Array[String] = [MF_COCOON]
+const MF_GLB := {
+	MF_ROOT:   MetalflyRigScript.GLB_PATH,
+	MF_COCOON: ArenaEnemyScript.MF_COCOON_GLB,
+}
+## Where the FRONT arrow points for these layers — DOWN the canvas (+PI/2), not up like the weapons.
+## That is not a style choice: metalfly.glb is authored with its head at +Z, and the shared top-down framing
+## (glb_topdown_rig.gd) maps +Z to screen-DOWN, so at zero calibration the model's nose genuinely points
+## down. Pointing the arrow up instead would invite a 180° "correction" that the runtime would then apply
+## on top of an orientation which is already right — the boss would fly backwards, which is exactly the bug
+## the arrow was added to Jeager to fix. Arrow aligned with the nose at rot 0 keeps `rot` a pure correction:
+## 0 means "what ships today", verified in the arena.
+const MF_FRONT_ANGLE   := PI * 0.5
+const MF_LAYER_PX      := 170.0               # preview size — near the arena's own DISPLAY_PX (180)
+const MF_COCOON_POS    := Vector2(300.0, 210.0)
+const MF_WINGS_POS     := Vector2(560.0, 210.0)
 
 # ── State ──────────────────────────────────────────────────────────────────────
 var _is_open:          bool   = false
@@ -378,9 +418,15 @@ func _scan_creeps() -> void:
 			_all_creep_names.append(extra)
 	_all_creep_names.sort()
 
-## Override to add palette entries the folder scan cannot find. Base: none.
+## Override to add palette entries the folder scan cannot find. Base: the Metalfly boss's two 3D bodies
+## (see the MF_* block) — they are glbs in assets/map/electric/boss/, not sprites in an enemies folder, so
+## nothing the scan does could ever turn them up.
 func _extra_names() -> Array[String]:
-	return []
+	if _selected_map_id != MF_MAP:
+		return []
+	var out: Array[String] = [MF_ROOT]
+	out.append_array(MF_LAYERS)
+	return out
 
 ## Multi-node auto-grouping (2026-08-13): sprite files named "<Prefix>Head" / "<Prefix>Body<N>" /
 ## "<Prefix>Tail" (case-insensitive suffix — e.g. "ViperHead.png"/"Viperbody1.png"/"VIPERBODY2.png"/
@@ -455,6 +501,22 @@ func _auto_group_chain_names() -> void:
 			if force or not _creep_parents.has(m):
 				_creep_parents[m] = root
 		_chain_group_order[root] = members
+	_group_metalfly_layers()
+
+## Hangs Metalfly's two body glbs off its own root in the LAYERS list. Same shape as weapon_edit_mode.gd's
+## Jeager grouping and for the same reason: these names share no Head/Body/Tail suffix, so the regex above
+## could never have found them. A plain LAYERS group, not a chain — `_chain_id_for()` doesn't claim them, so
+## there is no Segments/Spacing panel and no auto-arrangement; you place and rotate each one yourself.
+func _group_metalfly_layers() -> void:
+	if not _all_creep_names.has(MF_ROOT):
+		return
+	var members: Array[String] = []
+	for m: String in MF_LAYERS:
+		if m in _all_creep_names:
+			_creep_parents[m] = MF_ROOT
+			members.append(m)
+	if not members.is_empty():
+		_chain_group_order[MF_ROOT] = members
 
 # ── UI construction ────────────────────────────────────────────────────────────
 
@@ -1663,10 +1725,14 @@ func _front_markers() -> Array:
 		})
 	return out
 
-## Canvas angle "forward" points at for `creep_name`, or NAN when it has none. Only the weapon editor knows
-## (weapon_edit_mode.gd forwards to arena_weapons.gd, which owns the draw paths this is derived from).
-func _front_marker_angle(_creep_name: String) -> float:
-	return NAN
+## Canvas angle "forward" points at for `creep_name`, or NAN when it has none. Sprite creeps have none — a
+## flat sprite is authored facing whichever way it is drawn and the arena just rotates it. The Metalfly boss
+## bodies DO: they are 3D models with a real nose, and MF_FRONT_ANGLE (see its header for why it points
+## down, not up like the weapons') is where that nose sits at zero calibration.
+## weapon_edit_mode.gd overrides this and forwards to arena_weapons.gd, which owns the draw paths its own
+## weapons' angles are derived from.
+func _front_marker_angle(creep_name: String) -> float:
+	return MF_FRONT_ANGLE if MF_GLB.has(creep_name) else NAN
 
 ## Pushes `_layer_hidden` onto the placed EditableObjectNodes. The 3D group overlay reads the same dict
 ## directly (see _build_plume3d_preview), so both representations of a part hide together.
@@ -5162,6 +5228,11 @@ const WIRED_3D_CREEPS := ["VIPER head top", "VIPER body", "VIPER Tail", "Yari-Je
 	# Yari Jeager's animation glbs (2026-08-23) — each clip carries its OWN mount angle, applied by
 	# `_draw_yari()` while that clip is the one playing. See weapon_edit_mode.gd's JAEGER_CLIPS.
 	"Fly", "Walk", "Run", "Dive", "Kick", "Low Kick", "Slash", "Fly punch",
+	# The Metalfly boss's two bodies (2026-08-24). They meet this list's bar — arena_enemy.gd's
+	# `_creep_mount_rot()` reads their saved `rot` on every spawn and hands it to metalfly_rig.gd /
+	# glb_spin_body.gd, so the sliders move the real boss, not just the preview. Named via the runtime's own
+	# constants rather than retyped, same as the MF_* block at the top of this file.
+	ArenaEnemyScript.MF_LAYER_WINGS, ArenaEnemyScript.MF_LAYER_COCOON,
 	# "stand" is Jeager's MASTER layer (2026-08-23) — the one plumes are authored on, so it needs the same
 	# Rotate X/Y/Z + TP XYZ surface every other layer has. Its own mount angle is an authoring convenience
 	# (turn the reference model to a workable angle); the runtime takes the object's orientation from the
@@ -6490,13 +6561,24 @@ func _uses_points() -> bool: return true
 ## (2026-08-23) because Jeager's eight animation-clip layers would otherwise all stack on this one spot and
 ## the group overlay would render them on top of each other, which makes it impossible to see which one a
 ## rotation slider is moving. `aspect` is the source texture's height/width.
-func _default_creep_rect(_creep_name: String, aspect: float) -> Rect2:
+func _default_creep_rect(creep_name: String, aspect: float) -> Rect2:
+	# Metalfly's two bodies get their own side-by-side spots at close to the size the arena draws them.
+	# Stacking them on the shared default would put one exactly on top of the other, which makes it
+	# impossible to see which body a rotation slider is moving — the same trap Jeager's grid avoids.
+	match creep_name:
+		MF_COCOON:
+			return Rect2(MF_COCOON_POS, Vector2(MF_LAYER_PX, MF_LAYER_PX * aspect))
+		MF_ROOT:
+			return Rect2(MF_WINGS_POS, Vector2(MF_LAYER_PX, MF_LAYER_PX * aspect))
 	return Rect2(Vector2(480.0, 380.0), Vector2(60.0, 60.0 * aspect))
 
 ## Explicit asset path for a creep, overriding the "<folder>/<name>.<ext>" scan. weapon_edit_mode.gd uses it
-## to point every one of Jeager's animation layers at ONE merged glb. "" = use the scan (everything else).
-func _asset_path_for(_creep_name: String) -> String:
-	return ""
+## to point every one of Jeager's animation layers at ONE merged glb; here it resolves Metalfly's two boss
+## bodies. "" = use the scan (everything else).
+## `_rig_key()` below is what keeps MF_ROOT and MF_WINGS from collapsing into one preview rig — they share
+## metalfly.glb, and a path alone as the key would give them one rotation between them.
+func _asset_path_for(creep_name: String) -> String:
+	return String(MF_GLB.get(creep_name, ""))
 
 ## Which animation clip this creep's PREVIEW should play, "" for the glb's own first one. Only meaningful
 ## when several creeps share one asset, which is exactly Jeager's case after the merge.

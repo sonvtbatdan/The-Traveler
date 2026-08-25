@@ -3,6 +3,190 @@
 > Module của [`CLAUDE.md`](../CLAUDE.md). Đọc file này khi làm bất cứ thứ gì liên quan HUD in-game (thanh HP/Shield/Level, slot weapon/aux, nút Menu/Inv, coin/kill, layout HUD).
 > Cơ chế **editor** (kéo/thả, groups, blend, save layout) nằm chi tiết ở [`docs/dev_mode.md`](dev_mode.md) — file này là bức tranh tổng + các lưu ý sống còn.
 
+## Changelog — 2026-08-25 — Off-screen pointer label gap: the "chest correct, rescue wrong" bug was actually shared by both, and had nothing to do with copy-paste
+
+"Đọc offset và khoảng cách giữa object và text của chest (hiện tại đang đúng) và áp dụng cho rescue landmark
+(hiện tại đang sai)."
+
+Read both files first: `arena_chest_pointer.gd` and `arena_ruin_pointer.gd`'s label-gap math (`_anchor.x +
+_content_half.x + LABEL_GAP_PX`) and every constant feeding it (`EDGE_MARGIN`, `HUD_GAP`, `LABEL_GAP_PX`,
+font size) were **already byte-identical** — unified back on 2026-08-19 per both files' own changelogs. So
+there was nothing to "copy from chest" at the code level. The actual bug was underneath both, in
+`_measure_content()`.
+
+**Root cause, confirmed by sampling `get_used_rect()` over 40 live consecutive frames**: a freshly created
+transparent SubViewport's very **first** rendered frame can read back **fully opaque** (a one-frame GPU
+clear/composite race — corner AND center pixels both `alpha=1.0`, RGB `(0,0,0)`). `get_used_rect()` then
+reports the WHOLE 128×128 canvas as "used" instead of empty, which slips past the `used.size.x <= 0` guard
+because a full box has positive size — it's just wrong. Every frame from the **second** successful read
+onward was correct and stable (~40–58px of 128, matching this file's own documented "38–52% of frame width"
+for GLB rescue models).
+
+Both pointer files trusted whichever frame happened to be their first successful read, completely
+unconditionally — so both were equally exposed to this exact race. Chest usually happened to land on a good
+frame in real play (never confirmed why — likely just a small, consistent difference in exactly when its
+viewport first renders vs. when this file's own `_process()` first checks), which is what made it *look*
+like a chest-only-correct, rescue-only-wrong split, when the vulnerability was identical in both.
+
+**Fix** (both files): discard the first successful `get_used_rect()` read, trust the second. Cheap (one
+extra ~1-frame wait, imperceptible) and doesn't touch the flat-icon (temple) path in `arena_ruin_pointer.gd`,
+which reads a real loaded PNG's alpha synchronously and was never exposed to this particular race.
+
+Verified live — `content_half` before the fix was always exactly `icon_size * 0.5` (the full padded box, for
+BOTH); after the fix:
+```
+chest: content_half=(19.0, 19.0)  of icon_size(84,84)   → ~23% half, tight fit
+ruin:  content_half=(27.7, 17.3)  of icon_size(120,120) → ~23%/14% half, matches the documented 38-52% fill
+```
+
+## Changelog — 2026-08-25 — Arena pickup art un-automated (ammo ≠ gun); dedicated orbital models; 5 high-poly level-up overrides
+
+Two corrections to the previous day's "every weapon with a .glb drops as 3D" pass, both from user feedback:
+
+### 1. Arena pickup art is no longer auto-derived
+
+"Có nhiều vũ khí (ví dụ laser, aliwa), glb trên arena là đạn, còn glb trong level-up và inventory là súng, nên
+chúng ko cùng drop được. Tôi sẽ chỉ định thủ công vũ khí nào hiện trên arena là 3D."
+
+Right — `InventoryManager.glb_for()` (sibling-of-the-icon guess) was never meant to answer "does this look
+right as a dropped weapon pickup"; for several weapons the glb sitting next to the icon is that weapon's
+**ammo/projectile model** (its in-flight shot), not the gun. Auto-wiring every resolvable glb to the pickup
+crate would have shown the wrong asset for those.
+
+`arena_weapons.gd` now has its own `ARENA_PICKUP_GLB` table (kind → path), curated by hand — nothing is added
+automatically. `_pickup_glb()` reads only this table; anything not listed keeps the procedural crate diamond,
+same as before any of this 3D work started. Currently populated with the 2 orbitals below only.
+
+### 2. The orbitals use a SEPARATE, arena-specific model
+
+"Dùng ND-OID-F.glb và ND-OIO-F.glb trong assets\\weaponry để hiện trên screen."
+
+`ARENA_PICKUP_GLB`:
+```
+"defensive_orbitals": "res://assets/weaponry/ND-OID-F.glb"   # NOT assets/inventory/"defense orbital.glb"
+"striker":            "res://assets/weaponry/ND-OIO-F.glb"   # NOT assets/inventory/"offense orbital.glb"
+```
+The level-up board / inventory still show `assets/inventory/"defense orbital.glb"` / `"offense orbital.glb"`
+(via `InventoryManager.GLB_BY_ICON`, unchanged) — the two pairs are deliberately different files for
+deliberately different contexts, exactly the ammo-vs-gun split above.
+
+### 3. 5 weapons get a high-poly model, level-up board ONLY
+
+"Có 5 vũ khí tôi muốn dùng file high poly (đặt ở assets\\inventory\\high poly) thay vào thumbnail và preview
+trong bảng level up."
+
+New `arena_levelup_ui.HIGHPOLY_GLB` (keyed by def_id, checked before the normal resolution in
+`_weapon_icon_glb()` — covers every call site in that file, i.e. both the small choice-card thumbnails and
+the big WeaponDisplay preview):
+```
+gatling_gun    -> assets/inventory/high poly/Gatling.glb
+ionizing_field -> assets/inventory/high poly/Ionize field.glb
+gauss          -> assets/inventory/high poly/gauss.glb
+homing_missile -> assets/inventory/high poly/homing missile.glb
+arc            -> assets/inventory/high poly/lightning.glb
+```
+Scoped to the level-up board only — the equip screen (`inventory_ui.gd`, doesn't use `Item3DIcon` at all) and
+the arena pickup (curated separately, see above) are untouched and keep their regular model/PNG.
+
+### Preloader
+
+`arena_glb_preloader._collect_paths()` now pulls from all three sources (board's normal resolution, board's
+high-poly override, arena's curated table) so nothing added above cold-loads on first use. All 18 distinct
+models — 5 high-poly (80–102 MB source each) + 2 arena-specific orbitals (26–29 MB) + the 11 already
+covered — warm in the background; booted run: `18 weapon model(s) warmed by t=10.8s`.
+
+### Verified (booted arena)
+
+```
+[TMP-board]  def_id=gatling_gun -> HIGHPOLY res://assets/inventory/high poly/Gatling.glb
+[TMP-pickup] kind=defensive_orbitals glb=res://assets/weaponry/ND-OID-F.glb is_3d=true
+[TMP-pickup] kind=striker            glb=res://assets/weaponry/ND-OIO-F.glb is_3d=true
+[TMP-pickup] kind=gauss              glb=(none) is_3d=false   ← auto-wiring removed, back to the crate
+[TMP-pickup] kind=death_beam         glb=(none) is_3d=false
+[TMP-pickup] kind=aliwa              glb=(none) is_3d=false
+```
+
+## Changelog — 2026-08-24 — Orbital Impact models wired in: level-up board AND the arena weapon drop
+
+"Cập nhật thêm defense, offense orbital 3D vào bảng level up và cũng dùng glb này cho spawn trên arena khi
+loot được."
+
+`assets/inventory/defense orbital.glb` + `offense orbital.glb` (they had never been imported — no `.import`
+existed — so an editor import pass ran first). Neither is reachable by the sibling-of-the-icon guess that
+resolves every other weapon model: Defensive Orbitals' icon is `ND-OID-F.png`, and Striker (the Orbital
+Impact **OFFENSE** weapon) has no `ITEM_DEFS` entry at all — it is identified purely by an icon override at
+`assets/weaponry/ND-OIF-F.png`.
+
+**One resolution point** now serves every consumer: `InventoryManager.glb_for(def_id, icon_path)`, with a
+`GLB_BY_ICON` table for art whose model isn't named after its PNG. `arena_levelup_ui._weapon_icon_glb()`,
+`arena_glb_preloader._glb_for()` and the new pickup path all delegate to it, so a weapon can't show a model
+in one place and a flat PNG in another.
+
+**Arena drop:** `arena_weapon_pickup.gd` renders the live model — SubViewport + 2 lights + ambient + a
+Camera3D at `ISO_DEG`, the `arena_loot.gd` recipe — spinning at `MODEL_RPM`, in place of the procedural
+crate diamond + emblem. The glow halo, bob and pop-on-collect are untouched, so it still reads as a pickup.
+`arena_weapons.spawn_weapon_pickup()` resolves the path and passes it to `setup()` (the pickup can't preload
+`arena_weapons` back — that preload already runs the other way).
+
+**Scope note:** this is keyed off "does this weapon have a model", not off the two orbitals, so **every**
+weapon with a `.glb` now drops as a 3D pickup — Gauss, Gatling, Viper and the rest, matching what the
+level-up board has shown since 2026-08-19. Say so if you want it restricted to the orbitals only.
+
+`item_3d_icon.gd` gained `warm_scene(path)` — the warm table's single entry point, returning the parked
+`PackedScene` or loading-and-parking it. The pickup goes through it too, which is what stops a 54 MB model
+cold-loading mid-fight because it happened to drop as loot.
+
+**Verified** (booted arena, pickups force-spawned):
+```
+[TMP-pickup] kind=defensive_orbitals glb=.../defense orbital.glb is_3d=true
+[TMP-pickup] kind=striker            glb=.../offense orbital.glb is_3d=true
+[TMP-pickup] kind=gauss              glb=.../Gauss.glb           is_3d=true
+```
+and the preloader now warms **16** models (was 15 — `ND-OID-F.glb` is replaced by `defense orbital.glb`,
+`offense orbital.glb` is new) finishing at t≈8.8s.
+
+### ⚠️ These two models are very heavy
+
+| | source | imported .scn | cold load | vertices |
+|---|---|---|---|---|
+| defense orbital | 82 MB | 54 MB | 426 ms | **1,038,894** |
+| offense orbital | 115 MB | 66 MB | 438 ms | **1,688,818** |
+| Gauss (for scale) | — | 1.1 MB | 308 ms | 29,111 |
+
+The cold load is absorbed by the background preloader, but the **vertex count is not** — each live pickup
+renders its mesh every frame (`UPDATE_ALWAYS`), so one dropped offense orbital pushes 1.7M verts/frame for a
+40 px sprite, and holding both resident costs ~120 MB on top of VIPER's 55 MB. They are ~40× heavier than
+any other weapon model here. Decimating them (or baking a low-poly LOD for icon/pickup use) is worth doing
+before this ships.
+
+## Changelog — 2026-08-24 — Level-up hitch WAS the 3D models; they are now warmed in the background
+
+"Kiểm tra xem mỗi lần lên level thì bị giật lag (có phải do load model 3D ko?)" — yes, it is.
+
+The board swaps a live-rendered `item_3d_icon.gd` in wherever a weapon has a sibling `.glb` (3 small choice
+cards + 1 big `WeaponDisplay` preview, all built in the frame the board opens). Timed cold `load()` of every
+`assets/inventory/*.glb`: **280–345 ms each** (`carnage` 9 ms and `Jeager` 22 ms are the only cheap ones), so
+opening the board stalled the main thread for most of a second. And it recurred every level-up: Godot's
+resource cache holds only **weak** references, so the `PackedScene` is released the moment the board's icons
+free, and the next level-up pays the identical cost again. A cached re-load, by contrast, is ~0.02 ms.
+
+Fix, two parts:
+- **`scripts/gameplay/arena_glb_preloader.gd`** (new, added by `arena.gd` next to `LevelUpUIScript`) resolves
+  every weapon/fusion glb the board can offer — exactly the way `arena_levelup_ui._weapon_icon_glb()` does, so
+  the sets can't drift — and loads them via `ResourceLoader.load_threaded_request()`, **off the main thread,
+  one at a time**, starting `START_DELAY` = 3 s into the run so it never competes with the arena's own load.
+- **`item_3d_icon.gd`** gained a `static var _warm` table (`warm_store`/`is_warm`/`warm_clear`). A static
+  strong reference is what actually keeps a scene resident; `setup()` reads it first and also parks its own
+  first cold load, so even a board opened before the preloader got there is instant the second time.
+  `_exit_tree()` clears the table on leaving the arena — no reason to hold ~75 MB of weapon models resident in
+  the main menu, and the next run re-warms in the background.
+
+Verified in a booted arena: `[glb-preload] 15 weapon model(s) warmed by t=10.0s` — comfortably before any
+realistic first level-up. The 3 inventory glbs NOT in that set (`carnage`, `NC-DC-F`, `ND-OIF-F`) are ones the
+board's own resolution doesn't reach either (e.g. Striker's icon override points at
+`assets/weaponry/ND-OIF-F.png`, whose sibling `.glb` doesn't exist), so those slots keep showing their flat
+PNG exactly as before.
+
 ## Changelog — 2026-07-28 — Level Up board: hover-away falls back to the selected perk's info
 
 Bug: `arena_levelup_ui.gd._board_click()`'s `mouse_exited` handler only reset the hover-scale VFX — it

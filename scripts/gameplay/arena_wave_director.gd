@@ -62,7 +62,7 @@ static var ENEMY_DEFS := {
 	"sentinel4":     {"behavior": "patrol", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 20.0, "contact": 10, "xp": 40.0,  "armor": 4.0, "strike_back": true, "icon": "res://assets/map/electric/enemies/sentinel4.png"},
 	"sentinelleader":{"behavior": "patrol", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 25.0, "contact": 20, "xp": 60.0, "armor": 6.0, "strike_back": true, "icon": "res://assets/map/electric/enemies/sentinelleader.png"},
 	# ── Developer ──
-	"dummy":    {"behavior": "dummy", "hp": 200.0, "speed": 0.0, "size": 18.0, "contact": 0, "xp": 1000.0, "invincible": true, "icon": "res://assets/enemiesHD/dummy.png"},
+	"dummy":    {"behavior": "dummy", "hp": 200.0, "speed": 0.0, "size": 18.0, "contact": 0, "xp": 1000.0, "invincible": true, "no_auto": true, "icon": "res://assets/enemiesHD/dummy.png"},   # no_auto: test target only — never auto-Gen'd or auto-spawned, see WaveHpGen.is_auto_excluded()
 	# ── Emerald Nebula — teleporters ──
 	"alien1": {"behavior": "teleport", "lvl": true, "hp": 12.0, "speed": 130.0, "size": 18.0, "contact": 10, "xp": 60.0, "armor": 3.0, "icon": "res://assets/map/mystic/enemies/alien1.png"},
 	"alien2": {"behavior": "teleport", "lvl": true, "hp": 8.0,  "speed": 130.0, "size": 18.0, "contact": 10, "xp": 40.0,  "armor": 3.0, "icon": "res://assets/map/mystic/enemies/alien2.png"},
@@ -160,7 +160,22 @@ static var ENEMY_DEFS := {
 	# bosses — big high-HP stubs (real movesets later)
 	"elephant":  {"behavior": "boss_stub", "hp": 5500.0, "speed": 110.0, "size": 70.0, "contact": 40, "xp": 2500.0, "shape": "circle",   "tint": Color(0.75, 0.70, 0.65), "icon": "res://assets/bosses/elephant/elephant.sheet.png", "boss_script": "res://scripts/gameplay/arena_elephant.gd"},
 	"chromeleon":{"behavior": "boss_stub", "hp": 4200.0, "speed": 70.0, "size": 60.0, "contact": 35, "xp": 2000.0, "shape": "diamond",  "tint": Color(0.45, 0.90, 0.65), "icon": "res://assets/bosses/chromeleon/chromeleon.sheet.png"},
-	"metalfly":  {"behavior": "boss_stub", "hp": 4800.0, "speed": 65.0, "size": 64.0, "contact": 38, "xp": 2250.0, "shape": "triangle", "tint": Color(0.70, 0.75, 0.85), "icon": "res://assets/bosses/metalfly/metalfly.sheet.png"},
+	# Metalfly (2026-08-24): a TWO-PHASE boss on one node — "boss_move" turns the whole thing on, see
+	# arena_enemy.gd's MF_* constants and _tick_metalfly.
+	#   Phase 1 — spawns as a spinning Cocoon.glb, 2000 HP, speed 120, rams the player. Running that pool
+	#             out HATCHES it (no XP/loot/kill — see _metalfly_hatch), it does not end the fight.
+	#   Phase 2 — the live, code-posed 3D rig from metalfly.glb (scripts/gameplay/fx/metalfly_rig.gd) with a
+	#             2-move set. THE HP/SPEED BELOW ARE PHASE 2's: configure() holds them back and swaps in the
+	#             cocoon's flat constants for Phase 1, so every multiplier here still applies to the real boss.
+	# `sprite_alpha: 0.0` hides the flat sheet WITHOUT dropping it: the icon stays the fallback body if a glb
+	# ever fails to load, and Creep Info/editor lookups still resolve.
+	# `boss_glb` is UI only — the Dev → Creep panel's Boss tab renders it as a live 3D cell (arena_debug_spawn.gd).
+	# Move 3's brood (2026-08-24) — never spawned by the timeline or the director, only by the boss itself
+	# (arena_enemy.gd's _mf_release_swarm), which OVERRIDES "hp"/"size"/"body_px" from its own current
+	# numbers so the brood scales with it. The values here are only what a stray direct spawn would get.
+	# `body_rig` gives an ordinary chase enemy the live 3D Metalfly body with no moveset attached.
+	"metalfly_spawn": {"behavior": "chase", "body_rig": "metalfly", "body_px": 45.0, "sprite_alpha": 0.0, "hp": 240.0, "speed": 155.0, "size": 16.0, "contact": 12, "xp": 80.0, "shape": "triangle", "tint": Color(0.70, 0.75, 0.85), "icon": "res://assets/bosses/metalfly/metalfly.sheet.png"},
+	"metalfly":  {"behavior": "boss_stub", "boss_move": "metalfly", "sprite_alpha": 0.0, "hp": 4800.0, "speed": 65.0, "size": 64.0, "contact": 38, "xp": 2250.0, "shape": "triangle", "tint": Color(0.70, 0.75, 0.85), "icon": "res://assets/bosses/metalfly/metalfly.sheet.png", "boss_glb": "res://assets/map/electric/boss/metalfly.glb"},
 	# Scorpion — full 4-move 3D boss (boss_scorpion.gd renders its own model). 100 armor.
 	# "gate_waves": pauses the whole timeline the instant it spawns and resumes only when it dies.
 	"scorpion":  {"behavior": "boss_stub", "hp": 4000.0, "speed": 110.0, "size": 126.0, "contact": 0, "xp": 3000.0, "armor": 100.0, "boss_script": "res://scripts/gameplay/boss_scorpion.gd", "gate_waves": true},
