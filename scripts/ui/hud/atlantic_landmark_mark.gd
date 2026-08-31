@@ -94,7 +94,7 @@ func _build_ui() -> void:
 	_panel.position = ((vp_size - _panel.size) * 0.5).round()   # centered on screen — same reasoning as
 	                                                              # atlantic_crater_mark.gd's header
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.03, 0.06, 0.08, 0.98)
+	sb.bg_color = UiPalette.SURFACE
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(2)
 	sb.border_color = Color(0.35, 0.65, 0.55)   # sea-green border — distinct from the other 4 Atlantic panels

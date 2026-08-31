@@ -10,10 +10,10 @@ const PANEL_W := 200.0
 const PANEL_H := 760.0   # matches inventory_ui.gd's PANEL_SIZE.y — same vertical span, top-aligned
 const EDGE_GAP := 6.0
 
-const COL_TITLE := Color(0.75, 0.88, 1.0)
-const COL_LABEL := Color(0.62, 0.70, 0.86)
+const COL_TITLE := UiPalette.ACCENT_INK
+const COL_LABEL := UiPalette.MUTED
 const COL_VALUE := Color(0.82, 0.95, 0.85)
-const COL_NOTE  := Color(0.55, 0.61, 0.74)
+const COL_NOTE  := UiPalette.FAINT
 const COL_ATTR  := Color(1.0, 0.85, 0.55)   # attribute values (warm gold)
 
 const ROW_PITCH := 32.0   # vertical px per stat row
@@ -64,9 +64,9 @@ func _ready() -> void:
 
 func _style() -> void:
 	var s := StyleBoxFlat.new()
-	s.bg_color = Color(0.06, 0.08, 0.12, 0.97)
+	s.bg_color = UiPalette.SURFACE
 	s.set_border_width_all(2)
-	s.border_color = Color(0.3, 0.4, 0.6, 0.95)
+	s.border_color = UiPalette.ACCENT_DIM
 	s.set_corner_radius_all(10)
 	add_theme_stylebox_override("panel", s)
 
@@ -93,10 +93,10 @@ func _mk_btn(txt: String, sz: int) -> Button:
 		elif state == "disabled": shade = 0.08
 		s.bg_color = Color(shade, shade + 0.03, shade + 0.08, 0.95)
 		s.set_border_width_all(1)
-		s.border_color = Color(0.35, 0.45, 0.65, 0.7)
+		s.border_color = UiPalette.WIRE_2
 		s.set_corner_radius_all(4)
 		b.add_theme_stylebox_override(state, s)
-	b.add_theme_color_override("font_color", Color(0.85, 0.92, 1.0))
+	b.add_theme_color_override("font_color", UiPalette.INK)
 	b.add_theme_color_override("font_disabled_color", Color(0.4, 0.45, 0.55))
 	return b
 

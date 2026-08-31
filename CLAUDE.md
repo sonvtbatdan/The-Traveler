@@ -32,6 +32,7 @@ CLAUDE.md này (router) luôn được đọc mỗi session. Chi tiết từng h
 | Upgrade / defense track / equipment / level-up cards | [`docs/upgrade.md`](docs/upgrade.md) |
 | Edit mode (F4) / HUD edit (F6) / creep·fleet·wave editor / debug spawn | [`docs/dev_mode.md`](docs/dev_mode.md) |
 | Autoloads / main scene / GameManager / persistence / main menu / settings / music player | [`docs/core.md`](docs/core.md) |
+| **UI design system** (fonts, `UiPalette` tokens, global `theme.tres`) — styling any code-built panel/editor | [`docs/ui.md`](docs/ui.md) |
 
 > Bản đầy đủ trước khi tách: `CLAUDE.md.full.bak` (giữ để tra cứu, có thể xoá khi ổn định).
 

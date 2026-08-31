@@ -341,10 +341,10 @@ func _build_ui() -> void:
 
 	var panel := Panel.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.07, 0.08, 0.12, 0.98)
+	sb.bg_color = UiPalette.SURFACE
 	sb.set_corner_radius_all(8)
 	sb.set_border_width_all(2)
-	sb.border_color = Color(0.30, 0.45, 0.75)
+	sb.border_color = UiPalette.ACCENT_DIM
 	sb.set_content_margin_all(12.0)
 	panel.add_theme_stylebox_override("panel", sb)
 	var psize := Vector2(1180.0, 700.0)
@@ -360,7 +360,7 @@ func _build_ui() -> void:
 	panel.add_child(vb)
 
 	var title := _mk_label("WEAPON INFO", 16)
-	title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	title.add_theme_color_override("font_color", UiPalette.AMBER)
 	vb.add_child(title)
 
 	var top_row := HBoxContainer.new()
@@ -377,7 +377,7 @@ func _build_ui() -> void:
 	close_btn.add_theme_color_override("font_color", Color(0.95, 0.3, 0.3))
 	top_row.add_child(close_btn)
 	_status = _mk_label("", 11)
-	_status.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	_status.add_theme_color_override("font_color", UiPalette.AMBER)
 	top_row.add_child(_status)
 
 	_global_perk_btn = _mk_button("Perk: Expand All", _on_toggle_all_perks)
@@ -483,7 +483,7 @@ func _select_tab(tab: String) -> void:
 	_active_tab = tab
 	for t: String in TAB_ORDER:
 		(_tab_scroll[t] as ScrollContainer).visible = (t == tab)
-		(_tab_btns[t] as Button).add_theme_color_override("font_color", Color(1.0, 0.85, 0.3) if t == tab else Color(0.82, 0.9, 1.0))
+		(_tab_btns[t] as Button).add_theme_color_override("font_color", UiPalette.AMBER if t == tab else UiPalette.INK)
 	var has_perks := tab == "weapon" or tab == "aux"
 	_global_perk_btn.visible = has_perks
 	if has_perks:
@@ -495,7 +495,7 @@ func _select_weapon_subtab(st: String) -> void:
 	_weapon_subtab = st
 	for k: String in WEAPON_SUBTAB_ORDER:
 		(_weapon_subtab_box[k] as VBoxContainer).visible = (k == st)
-		(_weapon_subtab_btns[k] as Button).add_theme_color_override("font_color", Color(1.0, 0.85, 0.3) if k == st else Color(0.82, 0.9, 1.0))
+		(_weapon_subtab_btns[k] as Button).add_theme_color_override("font_color", UiPalette.AMBER if k == st else UiPalette.INK)
 	if _global_perk_btn != null and _active_tab == "weapon":
 		_global_perk_btn.text = "Perk: Collapse All" if bool(_expand_state.get(st, false)) else "Perk: Expand All"
 
@@ -763,9 +763,9 @@ func _make_perk_table(tab: String, owner_id: String, pool: Dictionary, icon_reso
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 2)
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.10, 0.11, 0.16, 0.9)
+	sb.bg_color = UiPalette.SURFACE_2
 	sb.set_border_width_all(1)
-	sb.border_color = Color(0.25, 0.35, 0.55)
+	sb.border_color = UiPalette.WIRE_2
 	sb.set_content_margin_all(6.0)
 	sb.corner_radius_top_left = 4; sb.corner_radius_top_right = 4
 	sb.corner_radius_bottom_left = 4; sb.corner_radius_bottom_right = 4
@@ -921,7 +921,7 @@ func _mk_label(text: String, sz: int) -> Label:
 	var l := Label.new()
 	l.text = text
 	l.add_theme_font_size_override("font_size", sz)
-	l.add_theme_color_override("font_color", Color(0.82, 0.9, 1.0))
+	l.add_theme_color_override("font_color", UiPalette.INK)
 	return l
 
 func _mk_button(text: String, cb: Callable) -> Button:

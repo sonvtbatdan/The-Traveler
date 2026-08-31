@@ -542,10 +542,12 @@ func _clear_row(row: Dictionary) -> void:
 ## "blob" (e.g. "swarm", blob:50)
 ## multiplies in too — each queued position for a blob type actually spawns `blob` creeps around it at
 ## runtime (_tl_queue_or_spawn()), not just 1, so `count` alone understates the real total for those types.
-## Uses the RAW def "hp" — NOT the runtime-applied ENEMY_HP_TUNE (×2) or any "lvl"/Beacon/Elite-Creep
-## multiplier, since those depend on player level/aux state unknowable at authoring time — read as a
-## relative/base-line indicator, not the exact in-run total. Fleet deployment (incl. "count"/n) is now
-## wired up in arena_wave_director_v2.gd's _deploy_fleet(), so this matches what actually spawns.
+## Uses WaveHpGen.effective_hp() = def "hp" × "blob" × ENEMY_HP_TUNE(×2) — i.e. a creep's LIVE `hp_max`,
+## the same number the perf overlay's "Total HP" readout sums, so an F7 "Total HP" / `hp_targets` value now
+## matches what you actually see on the field in that window (2026-09-01 fix). Does NOT count "lvl"/Beacon
+## (player-state) or `death_spawn`/`magma_split` (those are summed as their own live creeps when they spawn —
+## a stone/magma window just ramps above its target as you fight through it). Fleet "count"/n matches
+## _deploy_fleet().
 func _row_total_hp(row: Dictionary) -> float:
 	var total := 0.0
 	if _director == null:
@@ -557,10 +559,7 @@ func _row_total_hp(row: Dictionary) -> float:
 		if ty.begins_with("fleet:"):
 			total += _fleet_total_hp(ty.substr(6)) * float(int(s.get("count", 1)))
 			continue
-		var d: Dictionary = _director.ENEMY_DEFS.get(ty, {})
-		var hp := float(d.get("hp", 0.0))
-		var blob := maxi(1, int(d.get("blob", 1)))
-		total += hp * float(int(s.get("count", 1))) * float(blob)
+		total += WaveHpGen.effective_hp(ty, _director.ENEMY_DEFS) * float(int(s.get("count", 1)))
 	return total
 
 ## Total HP of fleet `fleet_name`: hp summed over EVERY unit listed in EVERY slot's "enemies" array (per
@@ -609,8 +608,8 @@ func _generate_row_hp(row: Dictionary, target: float) -> float:
 
 ## Candidate units for a generated wave: every enemy type belonging to the CURRENT MAP (_map_enemy_ids()),
 ## minus one-off bosses ("boss_stub", or "gate_waves" like the Scorpion) which don't belong in a randomly
-## composed filler wave. Unit hp folds in "blob" so it matches what _row_total_hp() counts.
-## Shared shape with arena_wave_director_v2._gen_unit_pool() — both feed WaveHpGen.generate().
+## composed filler wave. Unit hp = WaveHpGen.effective_hp() (blob × ENEMY_HP_TUNE — live `hp_max`), matching
+## _row_total_hp(). Shared shape with arena_wave_director_v2._build_gen_pools() — both feed WaveHpGen.generate().
 func _gen_unit_pool() -> Array:
 	var pool: Array = []
 	if _director == null:
@@ -620,7 +619,7 @@ func _gen_unit_pool() -> Array:
 		var d: Dictionary = _director.ENEMY_DEFS.get(ids, {})
 		if WaveHpGen.is_auto_excluded(d):
 			continue   # one-off bosses, and test-only creeps like dummy — see that function's doc comment
-		var hp := float(d.get("hp", 0.0)) * float(maxi(1, int(d.get("blob", 1))))
+		var hp := WaveHpGen.effective_hp(ids, _director.ENEMY_DEFS)
 		if hp > 0.0:
 			pool.append({"id": ids, "hp": hp, "shoot": WaveHpGen.is_shoot_def(d)})
 	return pool
@@ -1516,7 +1515,7 @@ func _mk_button(text: String, cb: Callable) -> Button:
 
 func _style(p: Panel) -> void:
 	var s := StyleBoxFlat.new()
-	s.bg_color = Color(0.05, 0.07, 0.10, 0.97)
+	s.bg_color = UiPalette.SURFACE
 	s.set_border_width_all(2)
 	s.border_color = Color(0.4, 0.6, 0.4, 0.95)
 	s.set_corner_radius_all(8)
@@ -1524,9 +1523,9 @@ func _style(p: Panel) -> void:
 
 func _style_slot(p: Panel) -> void:
 	var s := StyleBoxFlat.new()
-	s.bg_color = Color(0.08, 0.11, 0.15, 0.95)
+	s.bg_color = UiPalette.SURFACE_2
 	s.set_border_width_all(1)
-	s.border_color = Color(0.35, 0.5, 0.65, 0.8)
+	s.border_color = UiPalette.WIRE_2
 	s.set_corner_radius_all(4)
 	p.add_theme_stylebox_override("panel", s)
 
@@ -1583,8 +1582,8 @@ func _build_fleet_dir_pad() -> Control:
 	# against the thumbnail's near-black background, so give the pad's direction buttons their own clearly
 	# visible on/off look instead of relying on the (unstyled) engine default.
 	var sb_dir_off := StyleBoxFlat.new()
-	sb_dir_off.bg_color = Color(0.16, 0.22, 0.30, 0.95)
-	sb_dir_off.border_color = Color(0.45, 0.6, 0.75, 0.95)
+	sb_dir_off.bg_color = UiPalette.SURFACE_3
+	sb_dir_off.border_color = UiPalette.WIRE_2
 	sb_dir_off.set_border_width_all(1)
 	sb_dir_off.set_corner_radius_all(3)
 	var sb_dir_on := StyleBoxFlat.new()

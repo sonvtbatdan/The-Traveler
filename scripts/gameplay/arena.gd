@@ -10,6 +10,7 @@ const HudFrameScript     := preload("res://scripts/ui/hud/arena_hud_frame.gd")  
 const ScreenFxScript     := preload("res://scripts/gameplay/arena_screen_fx.gd") # edge vignette + player hit flash
 const ArenaStatsHudScript := preload("res://scripts/ui/hud/arena_stats_hud.gd")
 const ArenaEnemyMgrScript := preload("res://scripts/gameplay/arena_enemy_manager.gd")
+const ArenaAlwaysPumpScript := preload("res://scripts/gameplay/arena_always_pump.gd")   # see that file's header — keeps ONE per-frame callback alive through Dev Mode's pause
 const XpOrbMgrScript      := preload("res://scripts/gameplay/arena_xp_orb_manager.gd")
 const PlumeMgrScript      := preload("res://scripts/gameplay/arena_plume_manager.gd")
 const WaveDirectorScript := preload("res://scripts/gameplay/arena_wave_director.gd")
@@ -99,6 +100,7 @@ const WeaponInfoPanelScript := preload("res://scripts/ui/hud/weapon_info_panel.g
 const BossEditScript        := preload("res://scripts/ui/boss_edit/boss_edit_mode.gd")
 const CreepEditScript       := preload("res://scripts/ui/boss_edit/creep_edit_mode.gd")
 const WeaponEditScript      := preload("res://scripts/ui/boss_edit/weapon_edit_mode.gd")
+const RuinEditScript        := preload("res://scripts/ui/boss_edit/ruin_edit_mode.gd")   # RUIN tab (2026-08-28) — see that file's header
 const FleetEditScript       := preload("res://scripts/ui/boss_edit/fleet_edit_mode.gd")
 const HudEditScript         := preload("res://scripts/ui/boss_edit/hud_edit_mode.gd")   # authored playerhud (the active HUD)
 const SettingsScript        := preload("res://scripts/ui/settings/settings_panel.gd")
@@ -168,6 +170,7 @@ var _ship_spr: Sprite2D = null            # now displays the 3D ship SubViewport
 var _ship_vp: SubViewport = null          # renders the 3D model top-down
 var _ship_pivot: Node3D = null            # model parent — rolled each frame to bank the ship
 var _ship_cam: Camera3D = null
+var _ship_key_light: DirectionalLight3D = null   # rotated every frame to match the arena's one shared sun — see _update_ship_lighting()
 var _muzzle_anchors: Dictionary = {}      # slot:int -> Node3D on the model (rides the ship's 3D orientation)
 var _player_shape: CircleShape2D = null   # collision circle (Juggernaut scales its radius)
 var _applied_size_mult: float = 1.0       # last ship-size mult applied (Juggernaut nerf)
@@ -180,9 +183,12 @@ var _enemy_mgr: Node = null   # arena_enemy_manager (smart/defend thruster bulle
 var _boss_edit:  Node = null
 var _creep_edit: Node = null
 var _weapon_edit: Node = null
+var _ruin_edit: Node = null           # RUIN tab (2026-08-28) — same editor, pointed at ruin-drop pickups, see ruin_edit_mode.gd
+var _edit_tab_row: HBoxContainer = null   # WEAPON/RUIN tab switcher — see _build_edit_mode_tabs()
 var _hud_edit:   Node = null     # authored playerhud (live HUD when closed; F-button opens the editor)
 var _weapon_chest: Node = null   # start-of-run weapon chest UI
 var _ui_layer: CanvasLayer = null      # HP / weapon / aux / XP HUD layer (hidden while a full-screen editor is open)
+var _edit_backdrop: CanvasLayer = null # opaque black fill shown behind a full-screen editor (see set_edit_focus)
 var _hud_buttons: Node = null          # bottom-right + left dev button clusters
 var _map_id: String = "default"        # MetaManager.selected_map_id, snapshotted at _ready() — which background branch below ran
 var _electric_ground: CanvasLayer = null
@@ -221,6 +227,14 @@ func _ready() -> void:
 	if "run_pending_blueprints" in MetaManager:
 		MetaManager.run_pending_blueprints.clear()   # last run's un-committed DISASSEMBLE picks never made it home
 		MetaManager.run_weapon_drop_seen = false
+	if "bring_home_uid" in MetaManager:
+		# Safety net, not the normal path (the normal path is resolve_bring_home() at THIS run's own end) —
+		# only matters if the app closed mid-run before that ever ran (bring_home_uid isn't saved, see its own
+		# doc note). Rather than silently orphaning whatever InventoryManager still thinks is staged
+		# (where="bring_home", invisible in Cargo, nothing left to ever resolve it), release it back to Cargo
+		# — erring toward the player keeping the item over losing it to a bookkeeping gap.
+		InventoryManager.release_bring_home()
+		MetaManager.bring_home_uid = -1
 	if RESET_RUN_ON_START and GameManager.has_method("reset_run"):
 		GameManager.reset_run()          # fresh VS climb: level 1, no upgrades, full HP
 		if typeof(MetaManager) != TYPE_NIL and MetaManager.has_method("apply_run_start"):
@@ -235,6 +249,8 @@ func _ready() -> void:
 	# behind the sharp gameplay plane). bg is that SubViewport; parallax/streaming are unchanged because its
 	# camera is synced to the main camera each frame.
 	_map_id = String(MetaManager.selected_map_id) if typeof(MetaManager) != TYPE_NIL else "default"
+	if QuestManager.has_method("begin_run"):
+		QuestManager.begin_run(_map_id)
 	var dof := ArenaDofScript.new()
 	add_child(dof)
 	var bg: Node = dof.background_parent()   # DoF SubViewport, or the arena itself when the mask is disabled
@@ -543,6 +559,7 @@ func _build_ui() -> void:
 	add_child(ui)
 	_ui_layer = ui
 	add_child(ScreenFxScript.new())   # edge vignette + player hit flash (own CanvasLayer at layer 9, under the HUD)
+	_build_edit_backdrop()            # black-out behind full-screen editors (Creep/Fleet/HUD/Weapon/Ruin edit)
 	# Legacy Cockpit HUD — REPLACED by the authored playerhud (hud_edit_mode.gd / playerhud_layout.cfg,
 	# wired by _setup_hud_edit). Kept in the tree but HIDDEN so any group lookups still resolve.
 	var _frame := HudFrameScript.new(); _frame.visible = false; ui.add_child(_frame)
@@ -599,6 +616,11 @@ func _build_player() -> void:
 	spr.scale = Vector2(s, s)
 	_ship_spr = spr
 	_player.add_child(spr)
+	# ALWAYS-processing pump (see ArenaAlwaysPump's own header) — keeps the key light's rotation tracking the
+	# arena's live sun even while Dev Mode/Light Edit pauses the tree.
+	var lighting_pump := ArenaAlwaysPumpScript.new()
+	lighting_pump.tick = Callable(self, "_update_ship_lighting")
+	add_child(lighting_pump)
 	_update_ship_3d()
 
 ## Build the SubViewport that renders the 3D ship model top-down (transparent bg, two directional lights).
@@ -612,10 +634,14 @@ func _build_ship_viewport() -> void:
 	_player.add_child(_ship_vp)
 
 	var key := DirectionalLight3D.new()
-	key.rotation = Vector3(deg_to_rad(-55.0), deg_to_rad(-35.0), 0.0)
+	key.rotation = Vector3(deg_to_rad(-55.0), deg_to_rad(-35.0), 0.0)   # placeholder — re-oriented every frame
+																		 # from the arena's sun, see _update_ship_lighting()
 	key.light_energy = 1.3
 	_ship_vp.add_child(key)
-	var fill := DirectionalLight3D.new()   # opposite-side fill so the far side isn't pure black when banked
+	_ship_key_light = key
+	var fill := DirectionalLight3D.new()   # opposite-side fill so the far side isn't pure black when banked —
+											# kept at its authored fixed angle (relative to the ORIGINAL key
+											# placement); only the key light tracks the sun, see doc comment above
 	fill.rotation = Vector3(deg_to_rad(-15.0), deg_to_rad(140.0), 0.0)
 	fill.light_energy = 0.5
 	_ship_vp.add_child(fill)
@@ -765,6 +791,35 @@ func _update_ship_3d() -> void:
 	# Heading now lives in 3D, so the display sprite must stay screen-fixed (cancel _player's rotation).
 	if _ship_spr != null:
 		_ship_spr.rotation = -_player.rotation
+
+## Key light rotation, derived from the arena's ONE shared sun (arena_enemy_manager.gd's sun_dir()) — actually
+## illuminating the 3D ship model (2026-08-28, on request: "tôi muốn ánh sáng chiếu lên các object 3D luôn").
+## Driven by an ArenaAlwaysPump (see _build_player()'s call site) instead of living inside _update_ship_3d(),
+## so it keeps tracking a live Light Edit change EVEN WHILE Dev Mode has get_tree().paused = true (see that
+## pump's own header for the full bug write-up). `delta` is unused — kept only so this matches the Callable
+## signature ArenaAlwaysPump._process() calls with.
+##
+## The ground shaders' sun_dir() convention is X/Y = screen-plane toward the light, Z = height (0 grazing,
+## 1 overhead) — i.e. it already treats the ground as a flat X/Z-horizontal, Y-up plane (a real 3D
+## interpretation, not just a 2D shader trick: "height above the ground" IS the Y-up component in any
+## standard Y-up 3D space, which is exactly what the ship's own World3D is). So the mapping below isn't a
+## guess: ground X → world X, ground height → world Y, ground Y (the ground plane's OTHER horizontal axis) →
+## world Z. `world_light_dir` points TOWARD the light (same convention sun_dir already uses); DirectionalLight3D
+## shines along its own local -Z, so the node is oriented to look along -world_light_dir (away from the
+## light) to make that true.
+func _update_ship_lighting(_delta: float) -> void:
+	if _ship_key_light == null:
+		return
+	var mgr := _arena_enemy_mgr()
+	if mgr == null or not mgr.has_method("sun_dir"):
+		return
+	var sun: Vector3 = mgr.call("sun_dir")
+	var world_light_dir := Vector3(sun.x, sun.z, sun.y)
+	if world_light_dir.length() > 0.001:
+		# look_at's up-vector can't be parallel to the look direction — swap to a side vector for the
+		# (rare) case of a light aimed almost straight along world Y (fully overhead/grazing along Y).
+		var up := Vector3.UP if absf(world_light_dir.normalized().dot(Vector3.UP)) < 0.999 else Vector3.RIGHT
+		_ship_key_light.look_at_from_position(Vector3.ZERO, -world_light_dir, up)
 
 ## Load the muzzle anchor points (placed in ship_rotation_test) as Node3D children of the model, so they
 ## ride the ship's roll. Weapons resolve their world muzzle via muzzle_world(slot).
@@ -1117,7 +1172,71 @@ func _setup_weapon_edit() -> void:
 	add_child(wem)
 	_weapon_edit = wem
 	wem.setup(oc)
+	# RUIN tab (2026-08-28, on request: "trong mục weapon edit, thêm 1 tab bên cạnh tab weapon hiện tại...
+	# tab Ruin") — a second, independent instance of the same editor base class, pointed at ruin-drop pickups
+	# instead of weapons (see ruin_edit_mode.gd). Its own CanvasLayer(9)/ObjectsContainer, same recipe as the
+	# weapon one just above — it starts closed and never shows itself; _build_edit_mode_tabs() below is what
+	# lets a dev actually reach it (arena_debug_spawn.gd's "Edit Weapon" button still only opens `wem`
+	# directly, unchanged).
+	var cl2 := CanvasLayer.new()
+	cl2.layer = 9
+	add_child(cl2)
+	var oc2 := Control.new()
+	oc2.set_anchors_preset(Control.PRESET_FULL_RECT)
+	oc2.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cl2.add_child(oc2)
+	var rem := RuinEditScript.new()
+	add_child(rem)
+	_ruin_edit = rem
+	rem.setup(oc2)
+	_build_edit_mode_tabs()
 	print("[arena-startup] (deferred) _setup_weapon_edit: %.1fms" % ((Time.get_ticks_usec() - _t0) / 1000.0))
+
+## Small floating "WEAPON"/"RUIN" switcher, always on top of whichever of the two editors is currently open
+## (2026-08-28) — the actual "tab" the user asked for. Neither editor instance knows the other exists; this
+## just calls .toggle() on whichever is live to close it (restoring pause/UI state via its own existing
+## logic, unchanged) then .toggle() on the target to open it. Visibility is POLLED every frame via an
+## ArenaAlwaysPump rather than hooked into every possible open path — arena_debug_spawn.gd's "Edit Weapon"
+## button calls `_weapon_edit.toggle()` directly and has no idea this row exists — cheap for a dev-only
+## overlay, and it has to survive the SAME `get_tree().paused = true` both editors set while open (hence
+## ALWAYS process mode on its whole CanvasLayer, inherited down to the buttons and the pump).
+func _build_edit_mode_tabs() -> void:
+	var cl := CanvasLayer.new()
+	cl.layer = 10   # above both editors' own CanvasLayer(9)
+	cl.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(cl)
+	_edit_tab_row = HBoxContainer.new()
+	_edit_tab_row.position = Vector2(16.0, 8.0)
+	_edit_tab_row.add_theme_constant_override("separation", 4)
+	_edit_tab_row.visible = false
+	cl.add_child(_edit_tab_row)
+	var wbtn := Button.new()
+	wbtn.text = "WEAPON"
+	wbtn.pressed.connect(func() -> void: _switch_edit_tab(_weapon_edit))
+	_edit_tab_row.add_child(wbtn)
+	var rbtn := Button.new()
+	rbtn.text = "RUIN"
+	rbtn.pressed.connect(func() -> void: _switch_edit_tab(_ruin_edit))
+	_edit_tab_row.add_child(rbtn)
+	var pump := ArenaAlwaysPumpScript.new()
+	pump.tick = Callable(self, "_tick_edit_tab_visibility")
+	add_child(pump)
+
+## Closes whichever of the two editors is currently open (if it isn't already `target`), then opens `target`.
+func _switch_edit_tab(target: Node) -> void:
+	if target == null or bool(target.call("is_open")):
+		return   # already showing this tab
+	if _weapon_edit != null and _weapon_edit != target and bool(_weapon_edit.call("is_open")):
+		_weapon_edit.call("toggle")
+	if _ruin_edit != null and _ruin_edit != target and bool(_ruin_edit.call("is_open")):
+		_ruin_edit.call("toggle")
+	target.call("toggle")
+
+func _tick_edit_tab_visibility(_delta: float) -> void:
+	if _edit_tab_row == null:
+		return
+	_edit_tab_row.visible = (_weapon_edit != null and bool(_weapon_edit.call("is_open"))) \
+		or (_ruin_edit != null and bool(_ruin_edit.call("is_open")))
 
 ## Authored playerhud: a CanvasLayer(9) + full-screen ObjectsContainer that hud_edit_mode.gd fills. When
 ## the editor is closed those placed nodes ARE the live HUD (wired to game state via its runtime bindings),
@@ -1240,11 +1359,30 @@ func _setup_atlantic_crater_mark() -> void:
 func _setup_atlantic_landmark_mark() -> void:
 	add_child(AtlanticLandmarkMarkScript.new())
 
+## Full-screen black fill (CanvasLayer 8) shown behind an open editor: above every gameplay/background
+## layer (map ground is CanvasLayer -10, the parallax/planets/ship/enemies all render on layer 0, the
+## mortar shockwave on layer 8) but below every editor's own CanvasLayer (9) + its panels, so only the
+## editor's edit objects and UI remain visible over pure black. Hidden by default.
+func _build_edit_backdrop() -> void:
+	_edit_backdrop = CanvasLayer.new()
+	_edit_backdrop.name = "EditBackdrop"
+	_edit_backdrop.layer = 8
+	_edit_backdrop.visible = false
+	add_child(_edit_backdrop)
+	var rect := ColorRect.new()
+	rect.color = Color.BLACK
+	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_edit_backdrop.add_child(rect)
+
 ## Hide the gameplay + all HUD (HP/XP, weapon/aux slots, button clusters, debug panels, player, live enemies)
-## while a full-screen editor (Creep / Fleet) is open, so only the editor panels + its edit objects show.
-## Restored when the editor closes. Background/parallax is left in place.
+## AND black out the whole background (map ground, parallax starfield, planets…) while a full-screen editor
+## (Creep / Fleet / HUD / Weapon / Ruin edit) is open, so only the editor panels + its edit objects show
+## over pure black. Everything is restored when the editor closes.
 func set_edit_focus(on: bool) -> void:
 	var vis := not on
+	if _edit_backdrop != null and is_instance_valid(_edit_backdrop):
+		_edit_backdrop.visible = on
 	if _ui_layer != null and is_instance_valid(_ui_layer):
 		_ui_layer.visible = vis
 	if _hud_buttons != null and is_instance_valid(_hud_buttons):
@@ -1383,6 +1521,8 @@ func _build_run_over_backdrop(cl: CanvasLayer) -> void:
 ## old anchor-preset approach measured the box BEFORE its children were added, so it drifted off-center as
 ## content grew).
 func _show_run_over(victory: bool) -> void:
+	if QuestManager.has_method("end_run"):
+		QuestManager.end_run(_map_id, victory)   # evaluate quest objectives before the run state is torn down
 	get_tree().paused = true
 	var cl := CanvasLayer.new()
 	cl.layer = 190   # below HudEditRuntime's own overlay (layer 200, "above absolutely everything else in the
@@ -1427,6 +1567,7 @@ func _show_run_over(victory: bool) -> void:
 	_build_run_over_stats(box, victory)
 	_build_rescue_result(box, victory)
 	_build_blueprint_result(box, victory)
+	_build_bring_home_result(box, victory)
 	var btn_row := HBoxContainer.new()
 	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	btn_row.add_theme_constant_override("separation", 16)
@@ -1555,6 +1696,32 @@ func _build_blueprint_result(box: VBoxContainer, victory: bool) -> void:
 		var text := ("Blueprint secured: %s" % name_s) if victory else ("Blueprint lost: %s (died before returning to Dock)" % name_s)
 		row.add_child(_run_over_text_label(text))
 		section.add_child(row)
+
+## "Bring Home" result line (2026-08-29, on request) — mirrors _build_blueprint_result's outcome framing but
+## for MetaManager.bring_home_uid (bring_home_slot.gd's drag-in), which stages a PHYSICAL owned item, not just
+## a blueprint. Reads the item's identity BEFORE calling resolve_bring_home() below (which sells it off on
+## death — the uid no longer resolves to anything once that runs). No row at all if nothing was ever staged
+## this run — unlike the blueprint section there's no "boss salvage was shown" concept to still warrant a
+## "nothing acquired" line here; Bring Home only ever has content when the player actively used the slot.
+func _build_bring_home_result(box: VBoxContainer, victory: bool) -> void:
+	var staged_uid: int = MetaManager.bring_home_uid if "bring_home_uid" in MetaManager else -1
+	if staged_uid == -1:
+		return
+	var it := InventoryManager.get_item(staged_uid)
+	var def_id := String(it.get("def", ""))
+	var d := InventoryManager.get_def(def_id)
+	var name_s := String(d.get("name", def_id))
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 8)
+	var tex := InventoryManager.get_icon(def_id)
+	if tex != null:
+		row.add_child(_run_over_icon(tex))
+	var text := ("Brought home: %s" % name_s) if victory else ("Lost: %s (died before returning to Dock)" % name_s)
+	row.add_child(_run_over_text_label(text))
+	box.add_child(row)
+	HudEditRuntime.register(row, "run_over.bring_home")
+	MetaManager.resolve_bring_home(victory)
 
 ## RUN OVER / BOSS ELIMINATED stats — two columns (2026-08-06, on request): col 1 = label (+ icon for the
 ## per-weapon and "Last Hit By" rows), col 2 = its matching value. Rows: Creeps Killed, Coin Collected, one

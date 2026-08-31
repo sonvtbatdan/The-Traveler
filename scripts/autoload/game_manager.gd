@@ -1147,6 +1147,18 @@ func heal(amount: int) -> void:
 	ship_hp = mini(ship_max_hp, ship_hp + amount)
 	ship_hp_changed.emit(ship_hp)
 
+## Restore `amount` shield points, capped at the current live capacity (_shield_max, kept in sync by
+## _tick_shield() from shield_capacity_total()) — the loot-drop counterpart to heal() just above, but for the
+## shield pool instead of HP (2026-08-29, on request: "shield cũng là dạng drop như heal, hồi 20 shield").
+## A no-op with no generator/shield source equipped (_shield_max <= 0), same as heal()'s own no-op while dead.
+## Distinct from activate_shield() right below — that grants a timed full-damage-immunity buff; this just adds
+## flat shield points, and the two have never shared a name or a code path.
+func add_shield(amount: float) -> void:
+	if _shield_max <= 0.0:
+		return
+	ship_shield = minf(_shield_max, ship_shield + amount)
+	ship_shield_changed.emit(ship_shield)
+
 ## Grant full damage immunity for `duration` seconds (from loot shield drop).
 func activate_shield(duration: float) -> void:
 	_shield_immune = true

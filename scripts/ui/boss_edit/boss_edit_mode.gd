@@ -213,7 +213,7 @@ func _build_asset_panel() -> void:
 	var fp_hdr := Label.new()
 	fp_hdr.text = "FIRE POINTS"
 	fp_hdr.add_theme_font_size_override("font_size", 11)
-	fp_hdr.modulate = Color(0.60, 0.63, 0.76)
+	fp_hdr.modulate = UiPalette.MUTED
 	root.add_child(fp_hdr)
 
 	_fp_target_label = Label.new()
@@ -352,7 +352,7 @@ func _build_asset_panel() -> void:
 	var pe_lbl := Label.new()
 	pe_lbl.text = "PLUME STYLE"
 	pe_lbl.add_theme_font_size_override("font_size", 10)
-	pe_lbl.modulate = Color(0.55, 0.90, 1.0)
+	pe_lbl.modulate = UiPalette.ACCENT_INK
 	pe_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pe_hdr_row.add_child(pe_lbl)
 	var pe_reset := Button.new()
@@ -514,7 +514,7 @@ func _add_section(parent: VBoxContainer, text: String) -> void:
 	var lbl := Label.new()
 	lbl.text = text
 	lbl.add_theme_font_size_override("font_size", 11)
-	lbl.modulate = Color(0.60, 0.63, 0.76)
+	lbl.modulate = UiPalette.MUTED
 	parent.add_child(lbl)
 
 func _spin(parent: HBoxContainer, prefix: String, mn: float, mx: float, cb: Callable = Callable()) -> SpinBox:
@@ -607,7 +607,7 @@ func _make_layer_row(eo: EditableObjectNode) -> Control:
 	row.mouse_filter = Control.MOUSE_FILTER_STOP
 
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.25, 0.55, 0.95, 0.45) if is_selected else Color(0.0, 0.0, 0.0, 0.0)
+	style.bg_color = UiPalette.SELECT_WASH if is_selected else Color(0.0, 0.0, 0.0, 0.0)
 	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
 	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
 	row.add_theme_stylebox_override("panel", style)
@@ -665,6 +665,7 @@ func toggle() -> void:
 		_is_open = true
 		_grid_overlay.is_edit_open = true
 		_set_ui_visible(true)
+		_arena_focus(true)
 		_prev_paused = get_tree().paused
 		get_tree().paused = true
 		_reset_zoom()
@@ -699,7 +700,15 @@ func _close() -> void:
 	_select_obj(null)
 	_update_all_boss_interactivity()
 	_update_gameplay_visibility()
+	_arena_focus(false)
 	get_tree().paused = _prev_paused   # keep dev:on paused; only the dev:on→dev:off button resumes
+
+## Hide the arena HUD + gameplay and black out the background while the Boss editor is open (placed boss
+## sprites live on this editor's own layer-9 ObjectsContainer, above the arena's CanvasLayer-8 blackout).
+func _arena_focus(on: bool) -> void:
+	var arena := get_tree().get_first_node_in_group("arena")
+	if arena != null and arena.has_method("set_edit_focus"):
+		arena.set_edit_focus(on)
 
 func _set_ui_visible(v: bool) -> void:
 	_dim_overlay.visible  = v
@@ -1174,7 +1183,7 @@ func _refresh_plume_editor() -> void:
 			_plume_tp_label.modulate = Color(0.55, 0.55, 0.55)
 		elif n == 1:
 			_plume_tp_label.text    = "TP %d" % tp_id
-			_plume_tp_label.modulate = Color(0.55, 0.90, 1.0)
+			_plume_tp_label.modulate = UiPalette.ACCENT_INK
 		else:
 			_plume_tp_label.text    = "%d TPs selected" % n
 			_plume_tp_label.modulate = Color(0.75, 0.90, 1.0)
@@ -1269,7 +1278,7 @@ func _make_fp_row(fp: Dictionary, idx: int) -> Control:
 	row.mouse_filter = Control.MOUSE_FILTER_STOP
 
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.20, 0.65, 1.0, 0.38) if is_sel else Color(0.0, 0.0, 0.0, 0.0)
+	style.bg_color = UiPalette.SELECT_WASH if is_sel else Color(0.0, 0.0, 0.0, 0.0)
 	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
 	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
 	row.add_theme_stylebox_override("panel", style)

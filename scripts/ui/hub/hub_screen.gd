@@ -39,8 +39,8 @@ const CELL_H           := 133.0
 const CELL_GAP         := 7.0
 const ICON_SIZE        := 52.0   # < CELL_W/CELL_H minus label/tag/margin room, so it never crowds the text
 const REVEAL_BTN_H     := 24.0
-const GRID_BG_OFF  := Color(0.10, 0.22, 0.42, 0.65)   # blue  — not loaded / not owned yet
-const GRID_BG_ON   := Color(0.55, 0.30, 0.06, 0.70)   # orange — loaded / owned
+const GRID_BG_OFF  := Color(0.08, 0.11, 0.07, 0.72)   # dark console — not loaded / not owned yet
+const GRID_BG_ON   := Color(0.17, 0.44, 0.27, 0.34)   # phosphor-green wash — loaded / owned
 
 # room_clicked name → sub-tab ids to show in the overlay panel (order = tab order; first = default).
 const ROOM_PANELS := {
@@ -74,6 +74,8 @@ var _merchant_selected_is_gear: bool = false   # cleared on tab switch — see _
 var _scroll: ScrollContainer = null
 var _mapselect_grid: GridContainer = null
 var _dock_host = null   # HudEditScript surface hosting the "dock" board
+var _quest_host = null       # HudEditScript surface hosting the "quest" board (opened from the Bridge room)
+var _quest_layer: CanvasLayer = null   # hidden until Bridge is clicked
 
 func _ready() -> void:
 	if ArenaScript.WEAPON_TEST_MODE:
@@ -81,6 +83,7 @@ func _ready() -> void:
 		call_deferred("_goto_arena")
 		return
 	_build_dock_host()
+	_build_quest_host()
 	_build_panel_ui()
 	_build_toast()
 	_build_main_menu_button()
@@ -131,10 +134,67 @@ func _on_room_clicked(room: String) -> void:
 	if room == "Launch":
 		_open_panel(["mapselect"])
 		return
+	if room == "Bridge":
+		_open_quest()
+		return
 	if ROOM_PANELS.has(room):
 		_open_panel(ROOM_PANELS[room] as Array)
 		return
 	_show_toast(room + " — Coming soon")
+
+# ── Quest board (Bridge room) ──────────────────────────────────────────────────────
+## Runtime-only "quest" board surface + a dim backdrop and BACK button, on its own CanvasLayer that stays
+## hidden until the Bridge room is clicked. Same host pattern as _build_dock_host / the Level-Up overlay.
+func _build_quest_host() -> void:
+	_quest_layer = CanvasLayer.new()
+	_quest_layer.layer = 15   # above the overlay panel (13) and toast (14); MAIN MENU (16) still sits on top
+	_quest_layer.visible = false
+	add_child(_quest_layer)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0.0, 0.0, 0.0, 0.55)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP   # block clicks/hover to the Dock board underneath
+	_quest_layer.add_child(dim)
+
+	var oc := Control.new()
+	oc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	oc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_quest_layer.add_child(oc)
+	_quest_host = HudEditScript.new()
+	add_child(_quest_host)
+	_quest_host.setup(oc, "quest", false)   # editable=false: runtime-only host
+
+	var back := Button.new()
+	back.text = MandaloreText.a("◀  BACK")
+	_font_btn(back, 18)
+	back.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	back.offset_left = 16.0
+	back.offset_top  = 16.0
+	back.pressed.connect(_close_quest)
+	_quest_layer.add_child(back)
+	HudEditRuntime.register(back, "quest.chrome.back_btn")
+
+## Show the Quest board. Re-reads config/boards/quest.cfg first (picks up a layout authored + saved in the
+## board editor since this scene loaded); if nothing has been authored yet, falls back to the same
+## "Coming soon" toast as the other un-built rooms instead of showing an empty screen.
+func _open_quest() -> void:
+	if _quest_host == null:
+		_show_toast("Bridge — Coming soon")
+		return
+	_quest_host.reload()
+	var qb = _quest_host.get_binder()
+	if qb != null and qb.has_method("has_layout") and not qb.has_layout():
+		_show_toast("Bridge — Coming soon")
+		return
+	# reload() rebuilds a fresh binder instance each time — (re)connect its Close button signal.
+	if qb != null and qb.has_signal("close_requested") and not qb.close_requested.is_connected(_close_quest):
+		qb.close_requested.connect(_close_quest)
+	_quest_layer.visible = true
+
+func _close_quest() -> void:
+	if _quest_layer != null:
+		_quest_layer.visible = false
 
 func _launch_run(map_id: String = "default") -> void:
 	MetaManager.selected_map_id = map_id
@@ -168,10 +228,10 @@ func _build_panel_ui() -> void:
 
 	var pc := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.05, 0.06, 0.10, 0.98)
+	sb.bg_color = UiPalette.SURFACE
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(2)
-	sb.border_color = Color(0.30, 0.45, 0.75)
+	sb.border_color = UiPalette.ACCENT_DIM
 	sb.set_content_margin_all(20.0)
 	pc.add_theme_stylebox_override("panel", sb)
 	margin.add_child(pc)
@@ -293,7 +353,7 @@ func _refresh() -> void:
 func _build_loadout() -> void:
 	_header_row("Pick up to %d weapons to bring into your next run. Unlock more via Shop blueprints or Craft uniques." % ArenaWeapons.MAX_WEAPONS)
 	var count_lbl := Label.new()
-	_font(count_lbl, FONT_BODY, 14, Color(0.8, 0.85, 0.95))
+	_font(count_lbl, FONT_BODY, 14, UiPalette.MUTED)
 	count_lbl.text = MandaloreText.a("%d / %d selected" % [MetaManager.loadout.size(), ArenaWeapons.MAX_WEAPONS])
 	_content.add_child(count_lbl)
 
@@ -434,7 +494,7 @@ func _build_merchant_preview(def_id: String, is_gear: bool) -> Control:
 
 	var panel := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.08, 0.09, 0.13, 0.92)
+	sb.bg_color = UiPalette.SURFACE_2
 	sb.set_corner_radius_all(8)
 	sb.set_border_width_all(1)
 	sb.border_color = rarity_col
@@ -489,7 +549,7 @@ func _build_merchant_preview(def_id: String, is_gear: bool) -> Control:
 	var desc := String(d.get("desc", ""))
 	if desc != "":
 		var desc_lbl := Label.new()
-		_font_sz(desc_lbl, 12, Color(0.75, 0.78, 0.85))
+		_font_sz(desc_lbl, 12, UiPalette.MUTED)
 		desc_lbl.text = desc
 		desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		vb.add_child(desc_lbl)
@@ -504,7 +564,7 @@ func _build_merchant_preview(def_id: String, is_gear: bool) -> Control:
 		stat_parts.append("%s: %s" % [String(k).capitalize(), str(v)])
 	if not stat_parts.is_empty():
 		var stats_lbl := Label.new()
-		_font_sz(stats_lbl, 12, Color(0.6, 0.85, 0.95))
+		_font_sz(stats_lbl, 12, UiPalette.MUTED)
 		stats_lbl.text = "\n".join(stat_parts)
 		stats_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		vb.add_child(stats_lbl)
@@ -591,7 +651,7 @@ func _build_craft() -> void:
 		for i in frags.size():
 			var chip := Label.new()
 			var owned := MetaManager.is_fragment_owned(uid, i)
-			_font(chip, FONT_BODY, 14, Color(0.55, 0.95, 0.5) if owned else Color(0.55, 0.55, 0.6))
+			_font(chip, FONT_BODY, 14, UiPalette.GOOD if owned else UiPalette.FAINT)
 			chip.text = MandaloreText.a(("● " if owned else "○ ") + String(frags[i]))
 			frag_list.add_child(chip)
 
@@ -752,10 +812,10 @@ func _make_map_card(entry: Dictionary) -> Control:
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.08, 0.08, 0.10)
+	sb.bg_color = UiPalette.SURFACE_2
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(2)
-	sb.border_color = Color(0.30, 0.45, 0.75) if is_real else Color(0.35, 0.35, 0.38)
+	sb.border_color = UiPalette.ACCENT_DIM if is_real else Color(0.35, 0.35, 0.38)
 	bg.add_theme_stylebox_override("panel", sb)
 	card.add_child(bg)
 
@@ -880,7 +940,7 @@ func _build_construction() -> void:
 
 func _section_title(text: String) -> void:
 	var l := Label.new()
-	_font(l, FONT_TITLE, 18, Color(0.90, 0.75, 0.45))
+	_font(l, FONT_TITLE, 18, UiPalette.AMBER)
 	l.text = text
 	_content.add_child(l)
 
@@ -894,7 +954,7 @@ func _build_pilot_room_section() -> void:
 	var top := HBoxContainer.new()
 	row.add_child(top)
 	var name_lbl := Label.new()
-	_font(name_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
+	_font(name_lbl, FONT_BODY, 18, UiPalette.INK)
 	name_lbl.text = MandaloreText.a("Pilot Room   [%d/%d]" % [lvl, MetaManager.PILOT_UPGRADE_PRICES.size()])
 	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(name_lbl)
@@ -910,7 +970,7 @@ func _build_pilot_room_section() -> void:
 	buy.pressed.connect(func() -> void: MetaManager.buy_pilot_upgrade())
 	top.add_child(buy)
 	var desc := Label.new()
-	_font(desc, FONT_BODY, 13, Color(0.6, 0.62, 0.68))
+	_font(desc, FONT_BODY, 13, UiPalette.FAINT)
 	desc.text = MandaloreText.a("Upgrade the Pilot's quarters — unlocks the Pilot room at the Dock.")
 	row.add_child(desc)
 
@@ -924,7 +984,7 @@ func _build_trading_hub_section() -> void:
 		+ float(MetaManager.passive_level("interest_boost")) * float(MetaManager.PASSIVE_DEFS["interest_boost"]["mag"])
 	var row := _card()
 	var desc := Label.new()
-	_font(desc, FONT_BODY, 14, Color(0.85, 0.9, 1.0))
+	_font(desc, FONT_BODY, 14, UiPalette.INK)
 	desc.text = MandaloreText.a("The Mechanic trades your surplus gear on every Return to Dock, earning %d%% interest on your saved coin — runs of 10+ minutes only. Level up Cunning Engineer below to raise the rate." % int(round(rate * 100.0)))
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	row.add_child(desc)
@@ -942,7 +1002,7 @@ func _build_passives() -> void:
 		var top := HBoxContainer.new()
 		row.add_child(top)
 		var name_lbl := Label.new()
-		_font(name_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
+		_font(name_lbl, FONT_BODY, 18, UiPalette.INK)
 		name_lbl.text = MandaloreText.a("%s   [%d/%d]" % [String(d["name"]), lvl, mx])
 		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		top.add_child(name_lbl)
@@ -958,7 +1018,7 @@ func _build_passives() -> void:
 		buy.pressed.connect(func() -> void: MetaManager.buy_passive(id))
 		top.add_child(buy)
 		var desc := Label.new()
-		_font(desc, FONT_BODY, 13, Color(0.6, 0.62, 0.68))
+		_font(desc, FONT_BODY, 13, UiPalette.FAINT)
 		desc.text = MandaloreText.a(String(d["desc"]))
 		row.add_child(desc)
 
@@ -1019,7 +1079,7 @@ func _make_grid_cell(icon_def_id: String, item_name: String, rarity: String, tag
 	HudEditRuntime.register(tr, "dock.grid_cell." + icon_def_id + ".icon")
 
 	var name_lbl := Label.new()
-	_font(name_lbl, FONT_BODY, 10, Color(0.92, 0.94, 0.98))
+	_font(name_lbl, FONT_BODY, 10, UiPalette.INK)
 	name_lbl.text = MandaloreText.a(item_name)
 	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1132,7 +1192,7 @@ func _item_row(name: String, rarity: String, group: String, right_text: String) 
 func _card() -> VBoxContainer:
 	var pc := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.10, 0.12, 0.18)
+	sb.bg_color = UiPalette.SURFACE_2
 	sb.set_corner_radius_all(6)
 	sb.set_content_margin_all(10)
 	pc.add_theme_stylebox_override("panel", sb)
@@ -1194,7 +1254,7 @@ func _build_toast() -> void:
 	_toast = Label.new()
 	_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_toast.modulate.a = 0.0
-	_font(_toast, FONT_BODY, 24, Color(1.0, 0.85, 0.2))
+	_font(_toast, FONT_BODY, 24, UiPalette.AMBER)
 	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_toast.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_toast.offset_left   = -220.0
@@ -1266,10 +1326,10 @@ func _show_notice(text: String) -> void:
 	_notice_layers.append(cl)
 
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.05, 0.06, 0.10, 0.95)
+	sb.bg_color = UiPalette.SURFACE
 	sb.set_corner_radius_all(8)
 	sb.set_border_width_all(2)
-	sb.border_color = Color(1.0, 0.85, 0.2)
+	sb.border_color = UiPalette.AMBER
 	sb.set_content_margin_all(12.0)
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", sb)
@@ -1282,7 +1342,7 @@ func _show_notice(text: String) -> void:
 	panel.add_child(hb)
 
 	var lbl := Label.new()
-	_font(lbl, FONT_BODY, 14, Color(0.9, 0.95, 1.0))
+	_font(lbl, FONT_BODY, 14, UiPalette.INK)
 	lbl.text = MandaloreText.a(text)
 	lbl.custom_minimum_size = Vector2(260.0, 0.0)
 	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD

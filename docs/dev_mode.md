@@ -123,6 +123,60 @@ Wiring: `arena.gd._setup_hud_edit()` (CanvasLayer layer=9 + ObjectsContainer) �
 
 ---
 
+## Changelog — 2026-08-30 (c) — Board editor: drag-target fix, Reset button, Ctrl+Z, no auto-save on close
+
+`hud_edit_mode.gd`:
+
+- **Canvas drag is now editor-managed** (`_input` LMB handler → `_begin/_update/_end_canvas_drag`), not each
+  node's own `_gui_input`. Fixes "I selected a small layer but grabbing drags the big board layer
+  underneath": the **selected layer/group wins** if the cursor is inside it (grab it anywhere); otherwise
+  the topmost layer under the cursor (`_topmost_node_at`, by `z_index`) is selected + dragged. The event is
+  consumed so a node's own `_gui_input` can't also grab a different layer. The old
+  `_on_eo_transform_*` / `_on_text_moved` signal paths are now dead but left connected.
+- **Reset button** — 5th button in the Save/Delete/Reset/Close/Scan row (all narrowed: font 10 +
+  `content_margin` 3 + `clip_text`; "Reload" renamed "Scan"). `_reset_to_saved()` re-reads the board's
+  saved cfg and rebuilds, discarding unsaved edits + clearing the undo stack.
+- **Close no longer auto-saves.** `_request_close()` just closes (+ a toast if `_dirty`); only the **Save**
+  button writes the cfg. Unsaved drag/drop edits stay live on the surface for the session (a game restart
+  re-reads the cfg). `_switch_board()` still auto-saves a dirty board (switching is the one place edits are
+  otherwise lost silently).
+- **Ctrl+Z undo** — `_undo_stack` of deep `_groups`/`_board_bg`/`_next_id` snapshots (cap 60). `_push_undo(tag)`
+  is called BEFORE each mutating action (`_dirty = true` sites + arrow-nudge + canvas drag's first move);
+  it dedups no-ops (str compare vs stack top) and coalesces bursts of the same `tag` (nudge / xform /
+  opacity / text) within 500 ms. Skips while `_updating_ui` or mid canvas-drag. No redo.
+
+## Changelog — 2026-08-30 (b) — Board editor: per-board background colour
+
+`hud_edit_mode.gd` right panel, new **BG:** row (ColorPickerButton + ✕ clear) directly under Transform W/H.
+Sets `_board_bg`, persisted per board in `[meta] bg_color` (default `Color(0,0,0,0)` = transparent, so no
+existing board changes). `_apply_board_bg()` draws it as a full-rect `ColorRect` at `z_index -4096` added to
+**`_objects_container`'s PARENT** (a sibling, not a child) so canvas zoom/pan leaves it fixed; `_sync_bg_ui()`
+re-pushes it to the rect + picker on every board load/switch. It also runs for runtime-only hosts
+(`editable=false`) — Dock, Quest, Level-Up — so the colour is the actual in-game backdrop, not an
+editor-only preview.
+
+## Changelog — 2026-08-30 — Editors black out the gameplay background
+
+"Khi bấm các nút HUD Edit / Weapon Edit / Creep Edit / Creep Info… thì nền màn chơi loại bỏ hết, để lại
+nền đen hoàn toàn để tiện edit."
+
+- **`arena.gd`**: new `_build_edit_backdrop()` — an opaque black `ColorRect` on a dedicated `CanvasLayer`
+  **layer 8** (`_edit_backdrop`, name `"EditBackdrop"`), hidden by default. Layer 8 sits **above** every
+  gameplay/background layer (map ground = CanvasLayer −10; parallax / planets / ship / enemies all render
+  on layer 0; mortar shockwave on 8) but **below** every editor's own ObjectsContainer (CanvasLayer 9) and
+  panels (11/12) — so the editor's edit objects + UI stay visible over pure black.
+- `set_edit_focus(on)` now also toggles `_edit_backdrop.visible` alongside the existing HUD/player/enemy
+  hide. Its doc comment's old "Background/parallax is left in place" no longer applies.
+- **Consumers** (all route through `set_edit_focus` via their `_arena_focus`): HUD Edit, Creep Edit, Fleet
+  Edit (already did) + **Weapon Edit, Ruin Edit** (guard in `creep_edit_mode._arena_focus` widened from
+  `== "creep_edit"` to `in ["creep_edit","weapon_edit","ruin_edit"]` — their ship / pickup reference is a
+  placed EO on layer 9, above the blackout, so nothing they need is lost) + **Boss Edit** (new
+  `_arena_focus()` helper + calls in its `toggle()`/`_close()`).
+- **Creep Info** (`creep_info_panel.gd`): its full-rect dim `ColorRect` bumped from `Color(0,0,0,0.55)` to
+  `Color.BLACK`.
+- **NOT touched** — the map-edit flyout tools (TERRAIN / LIGHT / PLUME / LANDMARK / CRATER EDIT): those
+  edit the background/terrain itself, so blacking it out would defeat them.
+
 ## Changelog — 2026-08-25 — Creep Info Save was silently DELETING overrides (two separate bugs)
 
 "Sao bảng creep info, tôi chỉnh HP, bấm calculate XP, bấm save, rồi qua tab khác chỉnh, khi quay về tab cũ,
@@ -235,12 +289,14 @@ here and up for the weapons: [`docs/enemy.md`](enemy.md) → "Authoring the moun
 Panel added to `_dev_ui_root` (bottom-left, 192×242px). Only visible when Dev:on.
 
 **Layout:**
-- Header: "Quick Spawn" label + "CLEAR ALL" button — each `SIZE_EXPAND_FILL`, row height 50px
+- Header: **Clear** + **Stop**/**Resume** buttons (2026-08-31, split out of the old single "CLEAR ALL") — each `SIZE_EXPAND_FILL`, row height `HDR_H` (28px)
 - Grid: `GridContainer` 4 columns × 48×48px cells inside `ScrollContainer` (4 rows visible = 192px height; scroll reveals row 5)
 
 **Tabs** (2026-08-24 — was Enemies / Fleet): **Enemies** (the quick-spawn grid), **Fleet** (saved-fleet list + formation preview), **Boss**.
 
 **Enemy order** (`QUICK_SPAWN_ORDER` const): fly, bee, bug, swarm, diver, dragonfly, octopus, spider, centipede, shooter, sentinel, beamer, bomber, missile, dummy, … Anything in `QUICK_BOSS_IDS` is SKIPPED here — bosses live in the Boss tab now, and listing them in both was just confusing.
+
+**Map filter** (2026-08-31): a `"Map:"` `OptionButton` sits above the Enemies grid. Each `QUICK_SPAWN_ORDER` id is bucketed by the `assets/map/<id>/` folder in its def's `icon` path (`_enemy_ids_by_map()`), so a new sprite dropped into a map folder + a def entry needs no wiring here — e.g. `ash1` shows under **Volcanic**. Dropdown = `"All"` then every non-empty bucket in `CREEP_MAP_ORDER` (Electric, Volcanic, Atlantic, Mechanic, Arctic, Cosmic, Mystic, Space). It **defaults to the map the player is currently in** (`_current_map_bucket()` — arena's `_map_id`, else `MetaManager.selected_map_id`; the classic `"default"`/Space arena has no themed roster so it defaults to `"All"`). `_on_creep_map_selected()` → `_rebuild_enemy_grid()` swaps the cells; the panel is 24px taller (`MAP_H`) for the row. Creep Edit's own `"Map:"` dropdown got the same current-map default (`creep_edit_mode._apply_default_map_from_arena()`, once at build time).
 
 **Boss tab** (2026-08-24): `QUICK_BOSS_IDS` (elephant, chromeleon, metalfly) in a 2-column grid at `BOSS_CELL` (92px, vs the Enemies grid's 48). Cells keep the red boss styling. A def carrying **`"boss_glb"`** renders as a LIVE, slowly-spinning 3D model (`Item3DIcon`) instead of a flat thumbnail — currently only metalfly. Clicking spawns exactly as the Enemies grid does.
 
@@ -256,7 +312,9 @@ Panel added to `_dev_ui_root` (bottom-left, 192×242px). Only visible when Dev:o
 
 **Cell styling:** boss cells get a red fill + red border. A cell with a live 3D model (`boss_glb`) keeps the red BORDER but takes a dark fill instead — these models are dark and unlit, and red-on-dark buried metalfly's silhouette where a flat sprite sat on the red fine.
 
-**CLEAR ALL:** removes every node in group `"arena_enemy"` (2026-07-27: broadened from a dedicated `"quick_spawn_enemy"` tag to ALL live creeps — a dev hitting Clear wants a clean field, including real wave-director spawns, not just the ones they quick-spawned through this panel).
+**Clear** (`_clear_quick_spawn`): removes every node in group `"arena_enemy"` (2026-07-27: broadened from a dedicated `"quick_spawn_enemy"` tag to ALL live creeps — a dev hitting Clear wants a clean field, including real wave-director spawns, not just the ones they quick-spawned through this panel). Does **not** stop new waves.
+
+**Stop / Resume** (`_toggle_spawn_stopped`, 2026-08-31): freezes / unfreezes every node in group `"wave_director"` (V1, V2, `test_template`) via `set_process(false)` / `set_physics_process(false)` — all spawn logic lives in their `_process`, and their local run-clock only advances while processing (`arena_wave_director_v2._run_t`), so the timeline resumes exactly where it paused. Button text + colour flip on `_spawn_stopped`. Independent of Clear — Stop leaves the current field untouched; Clear leaves incoming waves running.
 
 **Key preloads at top of file:**
 ```gdscript

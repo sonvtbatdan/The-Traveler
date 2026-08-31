@@ -5,6 +5,10 @@ extends Node2D
 ## Types and effects:
 ##   coin / diamond → GameManager.add_money(50)
 ##   heart          → GameManager.heal(25)
+##   shield         → GameManager.add_shield(20) — a direct shield-point restore, same shape as heart/heal
+##                     just above but for the shield pool (2026-08-29, on request: "shield cũng là dạng drop
+##                     như heal, hồi 20 shield"). NOT the same thing as GameManager.activate_shield() — that's
+##                     an older, unrelated timed-invincibility buff with no loot source of its own right now.
 ##   magnetic       → pull all XP orbs toward the player with a 0→1200 px/s ramp over 2s
 ##   divinity       → spawns arena_divinity_visual.gd on the player: +20% ship size, instant-kills any
 ##                     touching enemy for 10s (200 dps to a boss instead), and full HP/shield damage
@@ -20,15 +24,24 @@ extends Node2D
 ## despawns until collected) so each instance stays cheap. Any type with no glb keeps the old PNG path
 ## unchanged; orb_of_light has neither and stays fully procedural.
 ##
-## coin stays on that 2D path on purpose (2026-08-24, "tạm thời ko dùng coin.glb. Vẫn sử dụng coin.png để
-## drop coin"). A coin.glb exists but is 82 MB un-optimised and is deliberately NOT committed, so the
-## fallback above is what actually runs — and coin is by far the most frequently dropped type, the one
-## where a SubViewport per live instance would cost the most. Dropping a coin.glb into assets/screen/ is
-## all it would take to flip it, which is exactly why this note is here: the absence is a decision.
+## 2026-08-28, on request ("đồng coin dùng model glb, cho nó xoay xoay"): coin is now on the same live-3D
+## path as heart/magnetic/divinity — the "stay on 2D, coin.glb doesn't exist here" note that used to live in
+## this paragraph is gone because it no longer applies: assets/hud/coin.glb DOES exist (used nowhere else in
+## the project) and is now wired in via COIN_GLB below, since it lives outside assets/screen/ — the ONE glb
+## the plain `"res://assets/screen/%s.glb" % _type` convention below can't find on its own, so coin gets an
+## explicit override in _load_tex(). It's still the un-optimised ~82 MB file the old note warned about, and
+## coin is still by far the most frequently dropped type (every live one pays for its own SubViewport) — kept
+## as the user's explicit call, not a free performance win, so revisit if it turns out to cost real FPS at
+## a busy moment. COIN_WIDTH (60% of the shared LOOT_WIDTH, also on request) at least keeps its footprint —
+## and therefore VP_SIZE's upscale cost — smaller than heart/magnetic's own display size.
 
-const LOOT_WIDTH      := 20.0
-const DIVINITY_WIDTH  := 50.0
-const ORB_WIDTH       := 44.0
+## 2026-08-28, on request ("cac icon drop (divinity, cac weapon, magnetic, coin...) cho to len 300% so voi hien tai"): every on-screen display size below is x3 its old value. VP_SIZE (the 3D SubViewport render resolution, for types with a .glb - heart/magnetic/divinity here) is bumped x2, not x3, alongside it: at the OLD size the model was rendered SMALLER than its render target (a downscale, always sharp), so a flat x3 display bump with an unchanged VP_SIZE would upscale the render by 2-3x and read visibly blurry. x2 keeps the render close to 1:1 with the new display size without tripling the per-instance GPU cost for cosmetic-only sharpness. Every glow/halo already reads off these same constants (SIZE/_draw_size/ICON_W), so it scales for free - COLLECT_RANGE/RADIUS (the actual pickup gameplay) is untouched, this is purely visual.
+const Item3DIconScript := preload("res://scripts/ui/hud/item_3d_icon.gd")   # warm_scene()'s shared glb cache — see _build_model_viewport()
+const LOOT_WIDTH      := 60.0    # 20 x3
+const COIN_WIDTH       := LOOT_WIDTH * 0.6   # 36px — coin only, 60% of the shared LOOT_WIDTH (2026-08-28, on request)
+const COIN_GLB         := "res://assets/hud/coin.glb"   # lives outside assets/screen/, so _load_tex() special-cases it — see this file's header
+const DIVINITY_WIDTH  := 150.0   # 50 x3
+const ORB_WIDTH       := 132.0   # 44 x3
 const COLLECT_RADIUS  := 40.0
 const ORB_COLLECT_RADIUS := 60.0   # orb of light is a big reward — easier to pick up
 const SPEED_MIN       := 20.0
@@ -36,7 +49,7 @@ const SPEED_MAX       := 50.0
 const DIVINITY_BLINK_HZ := 4.0
 const DIVINITY_GLOW    := Color(1.0, 0.85, 0.15)
 const ORB_GLOW         := Color(0.65, 0.85, 1.0)   # cool white-blue radiance
-const VP_SIZE          := 64             # 3D render resolution — small on purpose, see class doc comment
+const VP_SIZE          := 128            # 3D render resolution — x2 alongside the x3 display bump, see NOTE above
 const ISO_DEG          := 30.0           # camera tilt — matches arena_chest.gd's ISO_DEG
 const ROT_RPM          := 12.0           # matches arena_chest.gd/electric+volcanic_ruin_layer.gd's ROT_RPM
 const ROT_SPEED        := deg_to_rad(ROT_RPM * 360.0 / 60.0)   # rad/s
@@ -68,13 +81,25 @@ func setup(world_pos: Vector2, type: String, value: int = 50) -> void:
 
 func _load_tex() -> void:
 	var w := LOOT_WIDTH
-	if _type == "divinity":
+	if _type == "coin":
+		w = COIN_WIDTH
+	elif _type == "divinity":
 		w = DIVINITY_WIDTH
 	elif _type == "orb_of_light":
 		w = ORB_WIDTH
+	# Ruin Edit's saved calibration (2026-08-28, on request: "trong mục weapon edit, thêm 1 tab... Ruin...
+	# cũng có thanh chỉnh góc xoay, ô chỉnh kích thước như weapon") — see ruin_edit_mode.gd's header and
+	# _ruin_size()/_ruin_rot()/_ruin_z()'s own doc comments below. {} for a type never opened in that editor,
+	# in which case every override below is a no-op and this behaves exactly as before this pass.
+	var ruin_entry := _ruin_layout_entry()
+	var size_override := _ruin_size(ruin_entry)
+	if size_override > 0.0:
+		w = size_override
 	_draw_size = Vector2(w, w)   # square default — kept as-is for the 3D path and the no-art procedural orb
-	var glb_path := "res://assets/screen/%s.glb" % _type
-	if ResourceLoader.exists(glb_path) and _build_model_viewport(glb_path, w):
+	# coin's glb lives at assets/hud/coin.glb, not assets/screen/coin.glb like every other type here — see
+	# COIN_GLB's own doc comment (this file's header) for why.
+	var glb_path := COIN_GLB if _type == "coin" else ("res://assets/screen/%s.glb" % _type)
+	if ResourceLoader.exists(glb_path) and _build_model_viewport(glb_path, w, ruin_entry):
 		return
 	var path := "res://assets/screen/%s.png" % _type
 	_tex = load(path) as Texture2D
@@ -84,11 +109,52 @@ func _load_tex() -> void:
 	var th := float(_tex.get_height())
 	_draw_size = Vector2(w, w * th / tw)
 
+## The saved calibration entry for `_type` from ruin_edit_mode.gd's cfg ("creeps" section, keyed by the exact
+## same name — "coin"/"heart"/"magnetic"/"divinity" — the editor scans and this file's own `_type` already
+## uses, no mapping needed) — Rotate X/Y/Z mount angle, PgUp/PgDn height, and the W/H size box. {} if the file/
+## section/entry doesn't exist yet (this type was never opened in Ruin Edit), in which case every reader below
+## returns its own no-op default. Read fresh each spawn rather than cached: this file has no long-lived owner
+## to invalidate a cache on save, and a ConfigFile load is cheap next to everything else _load_tex() already
+## does (SubViewport + lights + model instantiate).
+func _ruin_layout_entry() -> Dictionary:
+	var cfg := ConfigFile.new()
+	if cfg.load("res://ruin_layout.cfg") != OK:
+		return {}
+	return cfg.get_value("creeps", _type, {})
+
+## EDITOR-space (Z-up) mount angle → a Y-up Euler ready for `Node3D.rotation` — composes the "Set 0° here"
+## baseline with the live slider offset, same two fields (rot_base/rot) and the same glb_topdown_rig.gd
+## conversion arena_weapons.gd's VIPER/Aliwa/etc. calibration already uses (see that rig's own view_rotation()
+## doc comment: "the ONLY correct way to hand a stored rotation to a Node3D").
+func _ruin_rot(entry: Dictionary) -> Vector3:
+	if entry.is_empty():
+		return Vector3.ZERO
+	var rig := preload("res://scripts/gameplay/fx/glb_topdown_rig.gd").new()
+	var composed: Vector3 = rig.compose_rot(entry.get("rot_base", Vector3.ZERO), entry.get("rot", Vector3.ZERO))
+	return rig.view_rotation(composed)
+
+## PgUp/PgDn vertical lift — same "z" field VIPER's own parts save, a small offset along the model's up axis.
+func _ruin_z(entry: Dictionary) -> float:
+	return float(entry.get("z", 0.0))
+
+## The editor's W/H box (Vector2 — only the width is used, the model is always framed square) as a display-
+## size OVERRIDE, or 0.0 if nothing's been saved yet (LOOT_WIDTH/COIN_WIDTH/DIVINITY_WIDTH stand as authored).
+func _ruin_size(entry: Dictionary) -> float:
+	var sz = entry.get("size", null)
+	return float((sz as Vector2).x) if sz != null else 0.0
+
 ## Renders `glb_path` into a small SubViewport and shows it on a Sprite2D child — see this file's header
 ## for the recipe (identical to arena_chest.gd's _build_model_viewport()). Returns false (no state changed)
-## if the model fails to load, so _load_tex() can fall back to the PNG path.
-func _build_model_viewport(glb_path: String, display_px: float) -> bool:
-	var packed := load(glb_path) as PackedScene
+## if the model fails to load, so _load_tex() can fall back to the PNG path. `ruin_entry` is _load_tex()'s
+## own already-fetched Ruin Edit calibration — see _ruin_rot()/_ruin_z()'s doc comments for how it's applied.
+func _build_model_viewport(glb_path: String, display_px: float, ruin_entry: Dictionary = {}) -> bool:
+	# 2026-08-29, on request ("pre-load các model ruin drop... để tránh lag khi drop") — was a plain load(),
+	# a cold synchronous disk hit on every single drop (every heart/shield/divinity/coin the whole run). Item3D
+	# Icon's warm_scene() is the SAME strong-ref cache the level-up board's arena_glb_preloader.gd already warms
+	# in the background — reusing it here (rather than a second, parallel cache) means one extra line in that
+	# preloader's own path list (see its _collect_paths()) is enough to cover ruin drops too; a cache miss still
+	# falls back to a normal load() (and parks the result for next time) exactly like the board's own icons do.
+	var packed := Item3DIconScript.warm_scene(glb_path)
 	var model: Node3D = (packed.instantiate() as Node3D) if packed != null else null
 	if model == null:
 		push_warning("arena_loot: could not load " + glb_path)
@@ -118,6 +184,15 @@ func _build_model_viewport(glb_path: String, display_px: float) -> bool:
 
 	_pivot.add_child(model)
 	_frame_cam(model)
+	# Ruin Edit's saved mount-angle/lift (2026-08-28) — applied AFTER _frame_cam()'s AABB-centering, which
+	# only ever touches `model.position` (never `model.rotation`), so the two never fight: this is a separate,
+	# additive orientation/offset layered on top of the already-centered model. `_pivot`'s own continuous
+	# ROT_SPEED spin (see _process()) still applies on top of THIS — the calibration sets where the model
+	# starts/holds its "up" from, spin keeps turning it from there, exactly like every other calibrated glb
+	# in this project.
+	if not ruin_entry.is_empty():
+		model.rotation = _ruin_rot(ruin_entry)
+		model.position.y += _ruin_z(ruin_entry)
 
 	_spr3d = Sprite2D.new()
 	_spr3d.texture = _vp.get_texture()
@@ -198,6 +273,9 @@ func _collect() -> void:
 		"heart":
 			if GameManager.has_method("heal"):
 				GameManager.heal(25)
+		"shield":
+			if GameManager.has_method("add_shield"):
+				GameManager.add_shield(20)
 		"magnetic":
 			var mgr := get_tree().get_first_node_in_group("arena_xp_orb_mgr")
 			if mgr != null:
@@ -236,10 +314,11 @@ func _draw() -> void:
 		_draw_orb(bob)
 		return
 	if _type == "divinity":
-		# Bright gold flicker halo behind the icon — the icon's own tint pulse is applied in _process()
-		# (_spr3d.modulate) for the 3D path, or below via draw_texture_rect's modulate for the PNG path.
+		# 2026-08-28, on request ("divinity: bỏ vòng tròn vàng nền đi"): the gold flicker halo that used to
+		# draw_circle() BEHIND the icon here is gone. The icon's own tint pulse stays — applied in _process()
+		# (_spr3d.modulate) for the 3D path, or below via draw_texture_rect's modulate for the PNG path — that
+		# blink lives ON the icon itself, not as a separate background shape, so it wasn't what was asked to go.
 		var glow := 0.5 + 0.5 * sin(_t * TAU * DIVINITY_BLINK_HZ)
-		draw_circle(Vector2(0.0, bob), _draw_size.x * 0.9, Color(DIVINITY_GLOW.r, DIVINITY_GLOW.g, DIVINITY_GLOW.b, 0.25 * glow))
 		if _is_3d:
 			return
 		draw_texture_rect(_tex, Rect2(-_draw_size * 0.5 + Vector2(0.0, bob), _draw_size), false, DIVINITY_GLOW.lerp(Color.WHITE, 0.3 + 0.5 * glow))

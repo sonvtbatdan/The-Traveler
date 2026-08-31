@@ -435,7 +435,7 @@ func _build_gen_pools() -> void:
 			continue   # one-off bosses + test-only creeps (dummy) — see WaveHpGen.is_auto_excluded()
 		if not allowed.is_empty() and not _icon_in_folders(String(d.get("icon", "")), allowed):
 			continue
-		var hp := float(d.get("hp", 0.0)) * float(maxi(1, int(d.get("blob", 1))))
+		var hp := WaveHpGen.effective_hp(ids, ENEMY_DEFS)   # live hp_max (base × blob × ×2 tune) — matches the field readout
 		if hp > 0.0:
 			_gen_unit_pool.append({"id": ids, "hp": hp, "shoot": WaveHpGen.is_shoot_def(d)})
 	var fleets := _load_fleets()
@@ -638,6 +638,12 @@ func _tick_agony_fastkill() -> void:
 func _tick_low_count_watch(delta: float, alive: int) -> void:
 	if _reinforcement_locked:
 		return   # waiting for (or past) the timeline's final-boss finale — the field must reach zero, never topped back up
+	if not hp_targets.is_empty():
+		# The designer's HP-milestone curve IS the population authority for this map — flooding the field to
+		# CATCHUP_TARGET on top of it makes `hp_targets` meaningless (2026-09-01 user report: F7 first 30s =
+		# 5000 HP, live field = 11.4k). The composed milestone waves ramp the field to each target on their
+		# own; a lean stretch between milestones is the authored difficulty, not a bug to paper over.
+		return
 	if alive < LOW_COUNT_THRESHOLD:
 		_low_count_timer += delta
 		if _low_count_timer >= LOW_COUNT_GRACE and not _catchup_active:
@@ -1403,6 +1409,27 @@ func _tl_queue_or_spawn(type_id: String, pos: Vector2, is_boss: bool) -> void:
 ## `shoot_budget` = how many RANGED units this deployment may put on the field (see _drain_fleet_queue).
 ## Ranged escorts beyond it are skipped; melee escorts are never affected. Defaults to "no limit" for the
 ## callers that don't care (mothership path, debug deploy).
+## A "fleet_unique" def (e.g. ashleader) may appear AT MOST ONCE per fleet deployment — a squad has 0 or 1
+## leader, never more. Roll a slot's id from its pool; if that rolls a fleet_unique already placed this
+## deployment, fall back to a non-unique option in the pool, else return "" (the slot is dropped).
+func _roll_slot_id(pool: Array, fu_used: Dictionary) -> String:
+	if pool.is_empty():
+		return ""
+	var id := String(pool[randi() % pool.size()])
+	if _is_fleet_unique(id) and fu_used.has(id):
+		var alts: Array = pool.filter(func(x: Variant) -> bool:
+			var s := String(x)
+			return s != "" and not (_is_fleet_unique(s) and fu_used.has(s)))
+		if alts.is_empty():
+			return ""
+		id = String(alts[randi() % alts.size()])
+	if _is_fleet_unique(id):
+		fu_used[id] = true
+	return id
+
+func _is_fleet_unique(id: String) -> bool:
+	return bool((ENEMY_DEFS.get(id, {}) as Dictionary).get("fleet_unique", false))
+
 func _deploy_fleet(fleet_name: String, spawn_angle_deg: float = NAN, rotate_deg: float = 0.0, shoot_budget: int = 999999) -> void:
 	if _player == null or not is_instance_valid(_player):
 		return
@@ -1455,13 +1482,14 @@ func _deploy_fleet(fleet_name: String, spawn_angle_deg: float = NAN, rotate_deg:
 	var anchor := _annulus_pos(_player.global_position, anchor_angle)
 	var ref := _fleet_centroid(fleet)
 	var rot := deg_to_rad(rotate_deg)
+	var _fu_used: Dictionary = {}   # fleet_unique ids placed this deployment (ashleader etc.) — max 1 each
 	var cpool: Array = []
 	for en in (carrier_slot.get("enemies", []) as Array):
 		if String(en) != "":
 			cpool.append(String(en))
-	var carrier_id := String(cpool[randi() % cpool.size()])
+	var carrier_id := _roll_slot_id(cpool, _fu_used)
 	var carrier_def: Dictionary = ENEMY_DEFS.get(carrier_id, {})
-	if carrier_def.is_empty():
+	if carrier_id == "" or carrier_def.is_empty():
 		return
 	var cdef := carrier_def.duplicate()   # no draw_w override — creep_layout.cfg is the sole size source
 	if _shoot_ids.has(carrier_id):
@@ -1484,7 +1512,9 @@ func _deploy_fleet(fleet_name: String, spawn_angle_deg: float = NAN, rotate_deg:
 				pool.append(String(en))
 		if pool.is_empty():
 			continue
-		var id := String(pool[randi() % pool.size()])   # random pool → roll one, same as v1
+		var id := _roll_slot_id(pool, _fu_used)   # random pool → roll one; caps fleet_unique (ashleader) at 1
+		if id == "":
+			continue
 		if _shoot_ids.has(id):
 			if shoot_budget <= 0:
 				continue   # ranged ceiling reached — this escort is left out of the formation
@@ -1528,10 +1558,13 @@ func _deploy_mothership_v2(mother_slot: Dictionary, child_slots: Array, spawn_an
 	mother.set("global_position", _annulus_pos(_player.global_position, anchor_angle))
 	get_parent().add_child(mother)
 	var rot := deg_to_rad(rotate_deg)
+	var _fu_used: Dictionary = {}
 	var roster: Array = []
 	for cs: Dictionary in child_slots:
 		var ids: Array = cs["ids"]
-		var cid := String(ids[randi() % ids.size()])   # random pool → roll one (as the generic deploy)
+		var cid := _roll_slot_id(ids, _fu_used)   # random pool → roll one; caps fleet_unique at 1
+		if cid == "":
+			continue
 		var cslot: Dictionary = cs["slot"]
 		var base_off: Vector2 = (cslot.get("pos", Vector2.ZERO) as Vector2) - mpos_screen
 		if not is_zero_approx(rot):

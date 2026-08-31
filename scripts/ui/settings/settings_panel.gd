@@ -196,10 +196,10 @@ func _build_ui() -> void:
 	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(480.0, 0.0)
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.07, 0.12, 0.98)
+	sb.bg_color = UiPalette.SURFACE
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(2)
-	sb.border_color = Color(0.30, 0.45, 0.75)
+	sb.border_color = UiPalette.ACCENT_DIM
 	sb.set_content_margin_all(22.0)
 	panel.add_theme_stylebox_override("panel", sb)
 	center.add_child(panel)
@@ -218,7 +218,7 @@ func _build_ui() -> void:
 	# ── Volume ──
 	var vol_lbl := Label.new()
 	vol_lbl.text = MandaloreText.a("Volume")
-	_font(vol_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
+	_font(vol_lbl, FONT_BODY, 18, UiPalette.INK)
 	col.add_child(vol_lbl)
 	var vol_row := HBoxContainer.new()
 	vol_row.add_theme_constant_override("separation", 10)
@@ -240,7 +240,7 @@ func _build_ui() -> void:
 	# ── Graphic ──
 	var gfx_lbl := Label.new()
 	gfx_lbl.text = MandaloreText.a("Graphic")
-	_font(gfx_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
+	_font(gfx_lbl, FONT_BODY, 18, UiPalette.INK)
 	col.add_child(gfx_lbl)
 	var gfx_row := HBoxContainer.new()
 	gfx_row.add_theme_constant_override("separation", 12)
@@ -255,7 +255,7 @@ func _build_ui() -> void:
 	# ── HUD ──
 	var hud_lbl := Label.new()
 	hud_lbl.text = MandaloreText.a("HUD")
-	_font(hud_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
+	_font(hud_lbl, FONT_BODY, 18, UiPalette.INK)
 	col.add_child(hud_lbl)
 	_hud_opt = OptionButton.new()
 	_hud_opt.custom_minimum_size = Vector2(0.0, 42.0)
@@ -269,7 +269,7 @@ func _build_ui() -> void:
 	# ── Language ──
 	var lang_lbl := Label.new()
 	lang_lbl.text = MandaloreText.a("Language")
-	_font(lang_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
+	_font(lang_lbl, FONT_BODY, 18, UiPalette.INK)
 	col.add_child(lang_lbl)
 	_lang_opt = OptionButton.new()
 	_lang_opt.custom_minimum_size = Vector2(0.0, 42.0)
@@ -287,7 +287,7 @@ func _build_ui() -> void:
 	var dev_lbl := Label.new()
 	dev_lbl.text = MandaloreText.a("Dev Mode")
 	dev_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_font(dev_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
+	_font(dev_lbl, FONT_BODY, 18, UiPalette.INK)
 	dev_row.add_child(dev_lbl)
 	_dev_chk = CheckButton.new()
 	_dev_chk.toggled.connect(_on_dev_toggled)
@@ -300,7 +300,7 @@ func _build_ui() -> void:
 	var fps_lbl := Label.new()
 	fps_lbl.text = MandaloreText.a("FPS")
 	fps_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_font(fps_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
+	_font(fps_lbl, FONT_BODY, 18, UiPalette.INK)
 	fps_row.add_child(fps_lbl)
 	_fps_chk = CheckButton.new()
 	_fps_chk.toggled.connect(_on_fps_toggled)
@@ -313,7 +313,7 @@ func _build_ui() -> void:
 	var auto_aim_lbl := Label.new()
 	auto_aim_lbl.text = MandaloreText.a("Auto-Aim")
 	auto_aim_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_font(auto_aim_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
+	_font(auto_aim_lbl, FONT_BODY, 18, UiPalette.INK)
 	auto_aim_row.add_child(auto_aim_lbl)
 	_auto_aim_chk = CheckButton.new()
 	_auto_aim_chk.toggled.connect(_on_auto_aim_toggled)
@@ -326,7 +326,7 @@ func _build_ui() -> void:
 	var cursor_lbl := Label.new()
 	cursor_lbl.text = MandaloreText.a("Custom Mouse")
 	cursor_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_font(cursor_lbl, FONT_BODY, 18, Color(0.85, 0.9, 1.0))
+	_font(cursor_lbl, FONT_BODY, 18, UiPalette.INK)
 	cursor_row.add_child(cursor_lbl)
 	var cursor_btn := Button.new()
 	cursor_btn.text = MandaloreText.a("Choose...")
@@ -355,7 +355,7 @@ func _build_ui() -> void:
 	reset_profile_btn.text = MandaloreText.a("RESET PROFILE (delete save)")
 	reset_profile_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_font_btn(reset_profile_btn, 14)
-	reset_profile_btn.add_theme_color_override("font_color", Color(0.95, 0.35, 0.30))
+	reset_profile_btn.add_theme_color_override("font_color", UiPalette.DANGER)
 	reset_profile_btn.add_theme_color_override("font_hover_color", Color(1.0, 0.5, 0.45))
 	reset_profile_btn.pressed.connect(_on_reset_profile_pressed)
 	col.add_child(reset_profile_btn)
@@ -491,8 +491,8 @@ func _sync_controls() -> void:
 	_updating = false
 
 func _update_mode_highlight() -> void:
-	var on := Color(0.30, 0.55, 0.95)
-	var off := Color(0.6, 0.6, 0.65)
+	var on := UiPalette.ACCENT
+	var off := UiPalette.FAINT
 	_win_btn.modulate  = on if not _cur_fs else off
 	_full_btn.modulate = on if _cur_fs else off
 
@@ -601,7 +601,7 @@ func _build_cursor_popup() -> void:
 	margin.add_child(vb)
 	var title := Label.new()
 	title.text = MandaloreText.a("Choose Cursor")
-	_font(title, FONT_BODY, 16, Color(0.9, 0.92, 1.0))
+	_font(title, FONT_BODY, 16, UiPalette.INK)
 	vb.add_child(title)
 	var grid := GridContainer.new()
 	grid.columns = CURSOR_GRID_COLS

@@ -62,7 +62,7 @@ func _build() -> void:
 	_handle.size = Vector2(PANEL_W, HANDLE_H)
 	_handle.mouse_default_cursor_shape = Control.CURSOR_DRAG
 	var hs := StyleBoxFlat.new()
-	hs.bg_color = Color(0.2, 0.6, 0.7, 0.85)
+	hs.bg_color = UiPalette.ACCENT_DIM
 	_handle.add_theme_stylebox_override("panel", hs)
 	_root.add_child(_handle)
 
@@ -117,12 +117,12 @@ func _build() -> void:
 
 func _apply_root_style() -> void:
 	var s := StyleBoxFlat.new()
-	s.bg_color            = Color(0.06, 0.08, 0.12, 0.88)
+	s.bg_color            = UiPalette.SURFACE
 	s.border_width_left   = 2
 	s.border_width_right  = 2
 	s.border_width_top    = 2
 	s.border_width_bottom = 2
-	s.border_color        = Color(0.3, 0.4, 0.6, 0.9)
+	s.border_color        = UiPalette.ACCENT_DIM
 	s.corner_radius_top_left     = 8
 	s.corner_radius_top_right    = 8
 	s.corner_radius_bottom_left  = 8
@@ -134,12 +134,12 @@ func _make_empty_box() -> Panel:
 	p.custom_minimum_size = BOX_SIZE
 	p.size = BOX_SIZE
 	var s := StyleBoxFlat.new()
-	s.bg_color            = Color(0.07, 0.09, 0.13, 0.95)
+	s.bg_color            = UiPalette.SURFACE
 	s.border_width_left   = 1
 	s.border_width_right  = 1
 	s.border_width_top    = 1
 	s.border_width_bottom = 1
-	s.border_color        = Color(0.35, 0.45, 0.65, 0.9)
+	s.border_color        = UiPalette.WIRE_2
 	s.corner_radius_top_left     = 6
 	s.corner_radius_top_right    = 6
 	s.corner_radius_bottom_left  = 6
@@ -155,7 +155,7 @@ func set_edit_mode(active: bool) -> void:
 	# In edit mode highlight the outer border
 	var s := _root.get_theme_stylebox("panel") as StyleBoxFlat
 	if s:
-		s.border_color = Color(0.2, 0.7, 0.8, 1.0) if active else Color(0.3, 0.4, 0.6, 0.9)
+		s.border_color = UiPalette.ACCENT if active else UiPalette.ACCENT_DIM
 		s.border_width_left   = 3 if active else 2
 		s.border_width_right  = 3 if active else 2
 		s.border_width_top    = 3 if active else 2

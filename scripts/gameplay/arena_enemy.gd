@@ -19,6 +19,7 @@ const ArenaExplosion   := preload("res://scripts/gameplay/arena_explosion.gd")
 const DeathFX          := preload("res://scripts/gameplay/arena_death_fx.gd")
 const EnergyVortex     := preload("res://scripts/gameplay/fx/energy_vortex.gd")
 const LedLight         := preload("res://scripts/gameplay/fx/led_light.gd")
+const SmokeTrail       := preload("res://scripts/gameplay/fx/smoke_trail.gd")   # def flag "smoke_trail": world-space dark smoke wake
 const GlbSpinBody      := preload("res://scripts/gameplay/fx/glb_spin_body.gd")         # generic spinning 3D body (Metalfly's phase-1 cocoon)
 const GlbRigScript     := preload("res://scripts/gameplay/fx/glb_topdown_rig.gd")       # editor-space -> view-space rotation math (see _creep_mount_rot)
 const MetalflyRig      := preload("res://scripts/gameplay/fx/metalfly_rig.gd")          # boss_move "metalfly": live code-posed 3D body
@@ -267,6 +268,15 @@ const FLANK_PREDICT_T := 0.5
 # the player-approach pull (see the "shooter" case in _tick_behavior).
 const JF_FLOCK_WEIGHT   := 0.7    # how strongly the cohesion pull competes with the player-approach pull
 const JF_FLOCK_HOLD_R   := 70.0   # already "in" the pack within this of the centroid — cohesion pull stops
+# Plain "chase" — the SAME kind of cohesion pull as "shooter"/jetfighter above, but generalized to every
+# ordinary creep species instead of one hardcoded type (2026-08-28, on request: "khi cac creep cung chung
+# loai xuat hien tren man hinh, chung se co xu huong form lai thanh cac pack... hoac cac fleet"). Kept as its
+# own separate pair of consts rather than reusing JF_FLOCK_WEIGHT/HOLD_R — "shooter" is a different behavior
+# string and stays completely out of this feature's scope, so the two systems must never be coupled even
+# though they start out tuned to the same feel. See arena_enemy_manager.gd's _tick_pack_fleet() for the
+# other half (the per-species centroid this reads, AND the size-4+ promotion into a rigid Fleet instead).
+const PACK_WEIGHT := 0.7    # same tuning as JF_FLOCK_WEIGHT, see const doc comment above
+const PACK_HOLD_R := 70.0   # same tuning as JF_FLOCK_HOLD_R, see const doc comment above
 # "steer_kiter" — 3-zone standoff: approach past R_ATTACK, hold+fire between R_FLEE and R_ATTACK, flee
 # below R_FLEE. Fires from global_position (test enemies have no authored firepoints).
 const KITE_R_ATTACK      := 340.0
@@ -417,6 +427,8 @@ static var _tp_fracs_cache: Dictionary = {}
 var _plumes: Array[CPUParticles2D] = []
 var _vortexes: Array = []   # EnergyVortex children (creep_layout.cfg [vortexpoints] + plume_styles.cfg [vortex_styles])
 var _leds: Array = []       # LedLight children (creep_layout.cfg [ledpoints] + plume_styles.cfg [led_styles])
+var _smoke: Node2D = null   # SmokeTrail child (def flag "smoke_trail") — world-space dark billowing wake
+var _smoke_trail: bool = false
 var _plume_vrot_applied: float = 0.0   # last rotation pushed to plume emitters; skip the re-rotate when unchanged
 var _plume_vrot_init: bool = false
 const LOD_MARGIN := 180.0   # grow the camera-visible rect by this before the off-screen LOD test (sprite/plume slack)
@@ -754,6 +766,7 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_is_champion     = bool(d.get("champion", false))
 	_knockback_mult  = float(d.get("knockback_mult", 0.0 if _is_elite else 1.0))
 	_magma_split     = bool(d.get("magma_split", false))
+	_smoke_trail     = bool(d.get("smoke_trail", false))
 	_anti_magnetic   = bool(d.get("anti_magnetic", false))
 	_gauss_shooter   = bool(d.get("gauss_shooter", false))
 	_boss_move       = String(d.get("boss_move", ""))   # named boss moveset (metalfly); "" = plain boss_stub chase
@@ -826,6 +839,7 @@ func _ready() -> void:
 	_setup_plumes()
 	_setup_vortexes()
 	_setup_leds()
+	_setup_smoke()
 	_setup_fire_points()
 	if behavior == "beamer":
 		_setup_laser_beam()
@@ -1232,6 +1246,17 @@ static func _load_led_styles_for(cname: String) -> Dictionary:
 	if cfg == null:
 		return {}
 	return cfg.get_value("led_styles", _resolve_cfg_key(cfg, "led_styles", cname), {})
+
+## Dark billowing smoke wake (def flag "smoke_trail"). One SmokeTrail child at the body centre; its emitter
+## is world-space so the puffs stay behind as the creep moves and dissipate into a long tail. Emission is
+## LOD-gated with the plumes in _process(); _die() detaches it so the wake finishes fading.
+func _setup_smoke() -> void:
+	if not _smoke_trail or _draw_size == Vector2.ZERO:
+		return
+	var s: Node2D = SmokeTrail.new()
+	add_child(s)
+	s.call("setup", maxf(_draw_size.x, _draw_size.y))
+	_smoke = s
 
 func _setup_fire_points() -> void:
 	if _icon.is_empty() or _draw_size == Vector2.ZERO:
@@ -1818,10 +1843,12 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore
 ## (very_rare) than Elite (rare). Parented to the arena (get_parent()) rather than to this enemy, which is
 ## about to free itself.
 func _drop_tier_weapon() -> void:
-	if not MetaManager.has_method("roll_boss_weapon"):
+	if not MetaManager.has_method("roll_boss_reward"):
 		return
 	var cap: int = int(MetaManager.RARITY_RANK.get("very_rare", 3)) if _is_champion 			else int(MetaManager.RARITY_RANK.get("rare", 2))
-	var def_id := String(MetaManager.roll_boss_weapon(cap))
+	# roll_boss_reward (2026-08-28, was roll_boss_weapon) also draws aux, and prefers whatever the player
+	# doesn't already own in any form — see that function's own doc comment for the full write-up.
+	var def_id := String(MetaManager.roll_boss_reward(cap))
 	if def_id == "":
 		return
 	var host := get_parent()
@@ -1884,6 +1911,8 @@ func _die() -> void:
 		_burst_small_magma()   # large magma → MAGMA_SPLIT_N small magma flung outward
 	if GameManager.has_method("add_kill"):
 		GameManager.add_kill()   # tally for the arena HUD kill counter
+	if QuestManager.has_method("on_enemy_killed"):
+		QuestManager.on_enemy_killed(_type, behavior == "boss_stub", _is_final_boss, _drop_loot)   # quest tracking
 	# Milestone Elite/Champion Creep reward on death (2026-08-06, on request — split by tier; see
 	# arena_wave_director_v2.gd's header comment above _tick_elite_creep for the full rationale):
 	#   Champion (_is_champion) → guaranteed-new weapon/aux pick (or a fragment if every slot's full).
@@ -1895,11 +1924,12 @@ func _die() -> void:
 	elif _is_elite:
 		if _mgr != null and is_instance_valid(_mgr) and _mgr.has_method("spawn_loot"):
 			_mgr.spawn_loot(global_position, "coin")   # spawn_loot's own default value is 50
-	# Weapon drop — BOTH tiers, on top of the tier reward above (2026-08-25, on request: "khi bắn chết
+	# Weapon/aux drop — BOTH tiers, on top of the tier reward above (2026-08-25, on request: "khi bắn chết
 	# elite/champion, tôi cần icon weapon drop ra trên màn hình"). A physical collectible, not an instant
-	# grant: it lands where the creep died and goes into the BACKPACK when flown over, with a bottom-right
-	# "…has been acquired. Press I to view" notice. See arena_item_drop.gd. Champion rolls from a higher
-	# rarity cap than Elite, matching how much rarer the tier is.
+	# grant: it lands where the creep died. Champion rolls from a higher rarity cap than Elite, matching how
+	# much rarer the tier is. What happens on PICKUP depends on whether a live arena slot is still open for
+	# it (2026-08-28) — see arena_item_drop.gd's _collect()/_try_grant_live_slot() for the full split between
+	# "straight into a level-up pick, equipped immediately" and the older "BACKPACK + bottom-right toast".
 	if _is_elite:
 		_drop_tier_weapon()
 	if _is_final_boss and GameManager.has_signal("final_boss_defeated"):
@@ -1927,9 +1957,20 @@ func _die() -> void:
 		var skew: float = GameManager.mech_bonus("coin_skew")
 		for _c in mini(coins, 20):
 			_mgr.spawn_loot(global_position, "coin", GameManager.roll_coin_value(hp_max, skew))
-	# Field find: small chance this creep kill also drops a weapon/aux token straight into Cargo.
-	if MetaManager.has_method("roll_field_drop"):
-		MetaManager.roll_field_drop()
+	# Field find: DISABLED (2026-08-28, on request). MetaManager.roll_field_drop() used to fire here at 2% per
+	# creep kill, granting a weapon/aux STRAIGHT into Cargo with no on-screen drop, no toast and no sound. That
+	# rate was tuned as if kills were rare, but spawn_mode_2 runs at TARGET_RATE 2/s x START_BOOST_MULT 3 and
+	# Electric's elecforest.json alone dumps 200 flies at t=30 — ~300+ kills in the first minute, i.e. ~6-9
+	# invisible items landing in a freshly-reset backpack (user bug report: "co che drop ngam", Vipers and all —
+	# the roll_boss_weapon(rare) cap gates nothing, 9 of the 16 eligible weapons ARE rarity rare). Weapons/aux
+	# now come only from level-ups, the start-of-run chest, Elite/Champion drops (arena_item_drop.gd — a real
+	# collectible you fly over) and boss salvage. roll_field_drop() itself is kept but is no longer called from
+	# gameplay; see its own doc comment in meta_manager.gd.
+	# Detach the smoke wake so the puffs already in the air fade out naturally instead of being cut when
+	# this node frees at the end of the death pop.
+	if _smoke != null and is_instance_valid(_smoke):
+		_smoke.call("detach", get_parent())
+		_smoke = null
 	# Explosion VFX + random boom SFX
 	_spawn_explosion(maxf(_draw_size.x, _radius * 2.0))
 	_play_boom()
@@ -2458,6 +2499,8 @@ func _process(delta: float) -> void:
 			for p: CPUParticles2D in _plumes:
 				if is_instance_valid(p):
 					p.emitting = plumes_on
+		if _smoke != null and is_instance_valid(_smoke):
+			_smoke.call("set_emitting", plumes_on)
 	if on_screen:
 		# `_docked` escorts (Fleet Edit / mothership) never have their plumes emit-toggled off by `crowded`
 		# above (see the `if not _docked:` guard) — set_docked()/_reenable_plumes() keep them permanently
@@ -2769,7 +2812,23 @@ func _tick_behavior(delta: float) -> void:
 					var fade := clampf((dist - FLANK_FADE_NEAR) / (FLANK_FADE_FAR - FLANK_FADE_NEAR), 0.0, 1.0)
 					var perp := Vector2(-dir.y, dir.x)
 					steer = (dir + perp * _flank_bias * fade).normalized()
-				velocity = steer * speed
+				var chase_v := steer * speed
+				# Ambient pack cohesion — pulls a plain "chase" creep toward its own species' shared centroid
+				# so scattered same-type creeps visibly drift together into a loose crowd instead of every
+				# one approaching independently (2026-08-28; see arena_enemy_manager.gd's _tick_pack_fleet()
+				# for the full pack/fleet system). "boss_stub" shares this case for its non-metalfly fallback
+				# move and is excluded — a boss cohering toward ordinary creeps would be bizarre. A carrier
+				# already leading its own docked squad (_fleet_dock not empty) is excluded too — it shouldn't
+				# get tugged toward unrelated loose conspecifics and drag its formation off-shape.
+				if behavior == "chase" and _fleet_dock.is_empty() and _mgr != null and _mgr.has_method("pack_valid") and bool(_mgr.call("pack_valid", _type)):
+					var pc: Vector2 = _mgr.call("pack_center", _type)
+					var to_pack := pc - global_position
+					var pdist := to_pack.length()
+					if pdist > PACK_HOLD_R:
+						chase_v += (to_pack / pdist) * speed * PACK_WEIGHT
+						if chase_v.length() > speed:
+							chase_v = chase_v.normalized() * speed
+				velocity = chase_v
 			_move_step()
 		"steer_chaser":   # spawn_mode_2 (flies) — vortex/spiral seek: swirl fades to a direct dive up close
 			var vperp := Vector2(-dir.y, dir.x) * _vortex_sign
@@ -3266,13 +3325,37 @@ func init_fleet_dock(roster: Array) -> void:
 	for spec: Dictionary in roster:
 		var e := _spawn_docked_child(String(spec["id"]), spec["base_off"] as Vector2, float(spec.get("draw_w", 0.0)), 0.0, true, "fleet")
 		if not e.is_empty():
-			# Per-escort randomized wander phase/freq (see FLEET_WANDER_* consts) — _fleet_update_dock_positions()
-			# uses these so the formation reads as loosely held rather than a perfectly rigid welded frame, while
-			# still fundamentally tracking the carrier's slot (speed-capped — see FLEET_MAX_SPEED_MULT).
-			e["wander_freq"] = randf_range(FLEET_WANDER_FREQ_MIN, FLEET_WANDER_FREQ_MAX)
-			e["wander_phase"] = randf() * TAU
-			e["wander_t"] = 0.0
-			_fleet_dock.append(e)
+			_register_fleet_escort(e["node"], spec["base_off"] as Vector2, e)
+
+## Shared by init_fleet_dock() (brand-new spawned escorts, above) and add_existing_fleet_escort() (already-
+## alive creeps folded into an ambient fleet mid-run, below) — seeds the per-escort randomized wander phase/
+## freq (see FLEET_WANDER_* consts) so the formation reads as loosely held rather than a perfectly rigid
+## welded frame, while still fundamentally tracking the carrier's slot (speed-capped — see
+## FLEET_MAX_SPEED_MULT), then appends the dock entry _fleet_update_dock_positions() drives every frame.
+func _register_fleet_escort(node: Node2D, base_off: Vector2, entry: Dictionary = {}) -> void:
+	if entry.is_empty():
+		entry = {"node": node, "base_off": base_off, "rot": 0.0}
+	entry["wander_freq"] = randf_range(FLEET_WANDER_FREQ_MIN, FLEET_WANDER_FREQ_MAX)
+	entry["wander_phase"] = randf() * TAU
+	entry["wander_t"] = 0.0
+	_fleet_dock.append(entry)
+
+## Dock an ALREADY-ALIVE, independently-spawned creep onto this carrier as a fleet escort — the ambient
+## counterpart to init_fleet_dock()'s roster just above, which only ever SPAWNS brand-new nodes for an
+## authored Fleet Edit formation. Used by arena_enemy_manager.gd's _tick_pack_fleet() to fold organically-
+## spawned same-species creeps into a formation mid-run (2026-08-28, on request — see that function's header
+## for the full pack/fleet system). `base_off` is the escort's DESIRED slot (carrier-local, rotated by this
+## carrier's live _facing every frame — same convention init_fleet_dock uses), NOT its current position:
+## _fleet_update_dock_positions()'s existing speed-capped catch-up glides it there over a couple of seconds,
+## which is what makes the assembly read as creeps flying INTO formation rather than teleporting into one.
+func add_existing_fleet_escort(node: Node2D, base_off: Vector2) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	node.set("_dock_kind", "fleet")
+	node.call("set_docked", true)
+	if node.has_method("_reenable_plumes"):
+		node.call("_reenable_plumes")
+	_register_fleet_escort(node, base_off)
 
 ## Fleet-formation counterpart of _ms_update_dock_positions(): unlike mothership's exact instant snap, each
 ## escort CHASES its carrier-relative slot (+ a small continuous per-escort positional wander, own randomized
@@ -3737,7 +3820,20 @@ func _rand_offset(r: float) -> Vector2:
 	var a := randf() * TAU
 	return Vector2(cos(a), sin(a)) * randf_range(r * 0.4, r)
 
+## 2026-08-30 bug fix ("một cụm flies mất hẳn logic chase... đứng im tại chỗ" — confirmed live: a stuck fleet
+## escort's `_docked` stayed `true` forever because no live enemy's `_fleet_dock` referenced it any more — its
+## carrier had died without releasing it). Every KNOWN carrier
+## removal site (_despawn_stale(), morph, CHASE_CULL, PATROL_CULL ×2, SWARM_ZOOM_CULL, _die()) already calls
+## _release_all_docks() individually right before its own queue_free() — but that's a per-call-site opt-in,
+## not a guarantee: any removal path not on that list (present or future) skips it, and an escort has no
+## back-reference to its own carrier to self-rescue once that happens — it sits `_docked=true` forever, no
+## carrier ever repositioning it again (_fleet_update_dock_positions() only runs from the CARRIER's own
+## _process(), which no longer exists). _exit_tree() fires no matter how a node leaves the tree — the one
+## hook every removal path shares — so releasing docks here too is a universal safety net that requires no
+## per-call-site diligence. Calling it twice in the same removal (once explicitly, once here) is harmless:
+## _release_fleet_dock()/the mothership loop both just iterate an already-empty array the second time.
 func _exit_tree() -> void:
+	_release_all_docks()
 	if _missile_volley != null and is_instance_valid(_missile_volley):
 		_missile_volley.queue_free()
 	_missile_volley = null

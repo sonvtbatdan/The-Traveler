@@ -4,9 +4,14 @@ class_name InvExtractSlot
 ## "Extract & Dispose" — a drop target in the inventory panel (2026-08-25, on request: "làm một ô slot có
 ## tên là Extract & Dispose. Kéo vũ khí vào đây sẽ xóa vũ khí đó và +5 gold").
 ##
-## Drop any item on it and the item is destroyed for InventoryManager.EXTRACT_PAYOUT gold. That is the SAME
-## call (`sell_item`) and the same price source (`get_sell_price`) the right-click confirm uses, so the two
-## routes can never disagree about the payout.
+## Drop any item on it and — since 2026-08-29 (on request: "khi kéo vào sẽ hiện bảng prompt: 'This will
+## destroy item' và tùy chọn Yes / No. Chọn Yes sẽ extract lấy coin... Chọn No thì đặt vũ khí về vị trí cũ") —
+## a confirm dialog pops up before anything actually happens. Routed through inventory_ui.gd's
+## _on_sell_requested()/_sell_dialog, the SAME confirm the right-click path already used — so wording and the
+## payout (InventoryManager.get_sell_price(), no longer a flat amount) can never disagree between the two
+## routes. "No"/closing the dialog does nothing at all: the drop never touched the item in the first place
+## (Godot's own drag-drop preview just resets), so it's already exactly "back where it was" with zero code
+## needed for that half.
 ##
 ## Deliberately NOT gated on GameManager.is_in_battle() the way InvEquipSlot is: that gate exists to stop
 ## loadout changes mid-boss-fight, and scrapping an item doesn't alter the loadout — it only removes a
@@ -64,7 +69,12 @@ func _can_drop_data(_at: Vector2, data: Variant) -> bool:
 		and int((data as Dictionary)["uid"]) != -1
 
 func _drop_data(_at: Vector2, data: Variant) -> void:
-	var uid := int((data as Dictionary)["uid"])
+	var d: Dictionary = data
+	var uid := int(d["uid"])
 	if uid == -1:
 		return
-	InventoryManager.sell_item(uid)   # destroys the item and pays get_sell_price() — the shared path
+	var def_id := String(d.get("def_id", ""))
+	var ui := get_tree().get_first_node_in_group("inventory_ui")
+	if ui == null or not ui.has_method("_on_sell_requested"):
+		return   # can't confirm — refuse rather than silently destroying without asking
+	ui._on_sell_requested(uid, def_id)

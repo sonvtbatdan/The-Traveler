@@ -15,6 +15,11 @@ extends Node2D
 ## the chest spawns on EVERY map, including Default/Space, which has no 3D scatter host at all — mirrors why
 ## the ship gets its own dedicated viewport instead of borrowing a map's trees system too.
 ##
+## 2026-08-28, on request ("voi chest hien dang co hinh tron vang lam nen, hay thay no bang cac vong tron toa
+## ra lien tuc, radius=100px"): the static pulsing gold disc this used to draw in _draw() is gone, replaced by
+## arena_beacon_rings.gd parented under the chest sprite - see that file's header. _draw() itself is now empty
+## of chrome, so this node no longer needs a per-frame queue_redraw().
+##
 ## icon_texture() exposes this same live, already-spinning SubViewport render so arena_chest_pointer.gd's edge
 ## indicator can just display it directly — ONE rendered model drives both the in-world sprite and the edge
 ## icon, no separate static indicator image file needed at all ("dùng nó thay cho file ảnh indicator luôn").
@@ -27,11 +32,9 @@ const ISO_DEG         := 30.0         # camera tilt off top-down — matches are
                                        # project's other iso-rendered 3D-in-2D elements
 const ROT_RPM         := 12.0         # matches electric_ruin_layer.gd/volcanic_ruin_layer.gd's ROT_RPM exactly
 const ROT_SPEED       := deg_to_rad(ROT_RPM * 360.0 / 60.0)   # rad/s
-const GOLD           := Color(1.0, 0.85, 0.35)
-const AURA_SIZE      := DISPLAY_PX * 1.9
+const BeaconRingsScript := preload("res://scripts/gameplay/arena_beacon_rings.gd")
 
 var _player: Node2D = null
-var _t: float = 0.0
 var _taken: bool = false
 var _vp: SubViewport = null
 var _cam: Camera3D = null
@@ -42,11 +45,11 @@ func _ready() -> void:
 	add_to_group("arena_chest")
 	z_index = 50   # above weapon FX (≤6), below the ship (100)
 	_build_model_viewport()
+	_build_beacon()
 
 func _process(delta: float) -> void:
 	if _taken:
 		return
-	_t += delta
 	if _pivot != null:
 		_pivot.rotation.y += ROT_SPEED * delta
 	if _player == null or not is_instance_valid(_player):
@@ -54,7 +57,6 @@ func _process(delta: float) -> void:
 	if _player != null and global_position.distance_to(_player.global_position) <= COLLECT_RANGE:
 		_collect()
 		return
-	queue_redraw()
 
 func _collect() -> void:
 	_taken = true
@@ -149,8 +151,11 @@ func _model_meshes(node: Node) -> Array:
 		out.append_array(_model_meshes(c))
 	return out
 
-func _draw() -> void:
-	# Glowing beacon aura beneath the model sprite (kept from the old placeholder — still reads well as a
-	# "reward landmark" marker even with the real model on top).
-	var pulse := 0.5 + 0.5 * sin(_t * 3.0)
-	draw_circle(Vector2.ZERO, AURA_SIZE, Color(GOLD.r, GOLD.g, GOLD.b, 0.10 + 0.10 * pulse))
+## Expanding gold rings beneath the model sprite - the "fly here" beacon, replacing the old static pulsing
+## disc (see this file's header, 2026-08-28). z_index -1 is RELATIVE to this node's own 50, i.e. absolute 49:
+## just under the chest sprite, still above the creeps at z 1.
+func _build_beacon() -> void:
+	var beacon: Node2D = BeaconRingsScript.new()
+	beacon.z_index = -1
+	add_child(beacon)
+	beacon.call("setup", BeaconRingsScript.GOLD)

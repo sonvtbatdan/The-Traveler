@@ -15,6 +15,7 @@ const PANEL_X_SHIFT := 50.0   # px the whole panel is nudged left of dead-center
 const BackpackGrid    := preload("res://scripts/ui/inventory/backpack_grid.gd")
 const EquipSlot       := preload("res://scripts/ui/inventory/equip_slot.gd")
 const ExtractSlot     := preload("res://scripts/ui/inventory/extract_slot.gd")   # "Extract & Dispose" drop target
+const BringHomeSlot   := preload("res://scripts/ui/inventory/bring_home_slot.gd")   # "Bring Home" drop target
 const LiveSlot        := preload("res://scripts/ui/inventory/live_slot.gd")
 const ItemWidget      := preload("res://scripts/ui/inventory/item_widget.gd")
 const CharacterSheet  := preload("res://scripts/ui/inventory/character_sheet.gd")
@@ -48,6 +49,7 @@ var _aux_row: Control = null       # 5 read-only slots, live from the arena_aux 
 var _msg_label: Label = null       # transient on-panel message (failed equip-requirement, etc.)
 var _dragging: bool = false        # true while an item is being dragged (drag highlight beats hover)
 var _extract_slot = null           # "Extract & Dispose" drop target (extract_slot.gd)
+var _bring_home_slot = null        # "Bring Home" drop target (bring_home_slot.gd)
 
 func _ready() -> void:
 	layer = 60
@@ -181,7 +183,7 @@ func _build_panel_contents() -> void:
 		_slot_nodes[slot] = es
 		gx += RS_SLOT + RS_GAP
 
-	# EXTRACT & DISPOSE (below gear) — drop an item here to destroy it for InventoryManager.EXTRACT_PAYOUT
+	# EXTRACT & DISPOSE (below gear) — drop an item here to destroy it for InventoryManager.get_sell_price()
 	# gold. Sits in the left column under GEAR, deliberately apart from the equip slots since it is
 	# destructive (its own red styling; see extract_slot.gd).
 	var ext_label := Label.new()
@@ -195,6 +197,22 @@ func _build_panel_contents() -> void:
 	_extract_slot.position = Vector2(40, 380)
 	_extract_slot.size = Vector2(RS_SLOT * 2.0 + RS_GAP, RS_SLOT)   # double-wide so the two-line label fits
 	_panel.add_child(_extract_slot)
+
+	# BRING HOME (2026-08-29, on request) — right next to EXTRACT, opposite intent (green, not destructive):
+	# drop a weapon here to stage it (and its blueprint) for MetaManager.resolve_bring_home() at run end. See
+	# bring_home_slot.gd's own header for the full risk framing.
+	var bh_x := 40.0 + (RS_SLOT * 2.0 + RS_GAP) + RS_GAP
+	var bh_label := Label.new()
+	bh_label.text = MandaloreText.a("BRING HOME")
+	bh_label.position = Vector2(bh_x, 354)
+	bh_label.size = Vector2(300, 20)
+	_apply_font(bh_label, 13)
+	_panel.add_child(bh_label)
+	_bring_home_slot = BringHomeSlot.new()
+	_bring_home_slot.setup()
+	_bring_home_slot.position = Vector2(bh_x, 380)
+	_bring_home_slot.size = Vector2(RS_SLOT * 2.0 + RS_GAP, RS_SLOT)   # double-wide so the two-line label fits
+	_panel.add_child(_bring_home_slot)
 
 	# Cargo (right side) — placed past the WEAPONS/AUX/GEAR column (~x 600). Items picked up during play.
 	var bp_label := Label.new()
@@ -228,6 +246,10 @@ func _rebuild() -> void:
 			c.queue_free()
 	for slot: String in _slot_nodes:
 		for c in (_slot_nodes[slot] as Control).get_children():
+			if c is ItemWidget:
+				c.queue_free()
+	if _bring_home_slot != null and is_instance_valid(_bring_home_slot):
+		for c in (_bring_home_slot as Control).get_children():
 			if c is ItemWidget:
 				c.queue_free()
 
@@ -264,6 +286,23 @@ func _rebuild() -> void:
 		w.sell_requested.connect(_on_sell_requested)
 		w.mouse_entered.connect(_on_item_hover.bind(def_id))
 		w.mouse_exited.connect(_on_item_unhover)
+
+	# Bring Home occupant (2026-08-29) — same render shape as an equip slot above: InventoryManager's own
+	# "bring_home" where already keeps it out of backpack_uids(), so this is the only place it's drawn.
+	# Dragging it back out reuses backpack_grid.gd's existing generic move_item() drop — no extra code needed
+	# there, since move_item() already treats every non-"backpack" where identically.
+	if _bring_home_slot != null and is_instance_valid(_bring_home_slot):
+		var bh_uid := InventoryManager.equipped_uid("bring_home")
+		if bh_uid != -1:
+			var bh_def_id := String(InventoryManager.get_item(bh_uid)["def"])
+			var bw := ItemWidget.new()
+			bw.size = Vector2(RS_SLOT, RS_SLOT) - Vector2(6, 6)
+			bw.position = (_bring_home_slot.size - bw.size) * 0.5
+			_bring_home_slot.add_child(bw)
+			bw.setup(bh_uid, bh_def_id, CELL, "bring_home")
+			bw.sell_requested.connect(_on_sell_requested)
+			bw.mouse_entered.connect(_on_item_hover.bind(bh_def_id))
+			bw.mouse_exited.connect(_on_item_unhover)
 
 	_rebuild_weapons_aux()
 
@@ -408,6 +447,11 @@ func _highlight_for_def(def_id: String) -> void:
 	# Extract & Dispose takes ANY item, so it lights up for every def — no compatibility test to run.
 	if _extract_slot != null and is_instance_valid(_extract_slot):
 		_extract_slot.set_highlight(true)
+	# Bring Home only takes non-unique weapons — _is_eligible() is the same check its own _can_drop_data()
+	# runs, just decoupled from needing a real uid (hover-preview only ever has the def_id, same convention
+	# as the WEAPONS/AUX LiveSlot check right above).
+	if _bring_home_slot != null and is_instance_valid(_bring_home_slot):
+		_bring_home_slot.set_highlight(_bring_home_slot._is_eligible(def_id))
 
 func _clear_highlights() -> void:
 	for slot: String in _slot_nodes:
@@ -420,6 +464,8 @@ func _clear_highlights() -> void:
 				(c as LiveSlot).set_highlight(false)
 	if _extract_slot != null and is_instance_valid(_extract_slot):
 		_extract_slot.set_highlight(false)
+	if _bring_home_slot != null and is_instance_valid(_bring_home_slot):
+		_bring_home_slot.set_highlight(false)
 
 func _on_item_hover(def_id: String) -> void:
 	if _dragging:
@@ -460,16 +506,23 @@ func _on_backdrop_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		close()
 
-# ── Sell (right-click an item) ────────────────────────────────────────────────
+# ── Sell (right-click an item, or drop onto Extract & Dispose) ───────────────────
 
 var _sell_dialog: ConfirmationDialog = null
 var _pending_sell_uid: int = -1
 
+## Shared by BOTH sell entry points — right-click (item_widget.gd's sell_requested signal) and dropping onto
+## the Extract & Dispose slot (extract_slot.gd, 2026-08-29, on request: "khi kéo vào sẽ hiện bảng prompt:
+## 'This will destroy item' và tùy chọn Yes / No"). Confirming here is the ONLY place either route actually
+## calls InventoryManager.sell_item() — extract_slot.gd used to sell immediately on drop with no confirm at
+## all; it now just calls this the same as a right-click would. Cancel/close does nothing at all, which is
+## exactly "No, put it back" — the item was never touched until Yes actually fires.
 func _on_sell_requested(p_uid: int, def_id: String) -> void:
 	if _sell_dialog == null:
 		_sell_dialog = ConfirmationDialog.new()
-		_sell_dialog.title = "Extract & Dispose"
-		_sell_dialog.ok_button_text = "Extract & Dispose"
+		_sell_dialog.title = "This will destroy item"
+		_sell_dialog.ok_button_text = "Yes"
+		_sell_dialog.cancel_button_text = "No"
 		_sell_dialog.confirmed.connect(_on_sell_confirmed)
 		add_child(_sell_dialog)
 	_pending_sell_uid = p_uid
@@ -477,7 +530,7 @@ func _on_sell_requested(p_uid: int, def_id: String) -> void:
 	var price := InventoryManager.get_sell_price(p_uid)
 	# Wording + payout match the Extract & Dispose drop slot (2026-08-25, on request) — both read
 	# InventoryManager.get_sell_price(), so the two routes can never quote different numbers.
-	_sell_dialog.dialog_text = "Extract & Dispose %s for %d$?" % [item_name, price]
+	_sell_dialog.dialog_text = "This will destroy item.\n\nExtract %s for %d$?" % [item_name, price]
 	_sell_dialog.popup_centered()
 
 func _on_sell_confirmed() -> void:
@@ -522,9 +575,9 @@ func _apply_font(c: Control, sz: int) -> void:
 
 func _style_panel(p: Panel) -> void:
 	var s := StyleBoxFlat.new()
-	s.bg_color = Color(0.06, 0.08, 0.12, 0.97)
+	s.bg_color = UiPalette.SURFACE
 	s.set_border_width_all(2)
-	s.border_color = Color(0.3, 0.4, 0.6, 0.95)
+	s.border_color = UiPalette.ACCENT_DIM
 	s.set_corner_radius_all(10)
 	p.add_theme_stylebox_override("panel", s)
 
@@ -552,7 +605,7 @@ func _style_button(b: Button) -> void:
 			shade = 0.08
 		s.bg_color = Color(shade, shade + 0.03, shade + 0.08, 0.95)
 		s.set_border_width_all(2)
-		s.border_color = Color(0.35, 0.45, 0.65, 0.9)
+		s.border_color = UiPalette.WIRE_2
 		s.set_corner_radius_all(6)
 		b.add_theme_stylebox_override(state, s)
-	b.add_theme_color_override("font_color", Color(0.8, 0.86, 0.95))
+	b.add_theme_color_override("font_color", UiPalette.INK)

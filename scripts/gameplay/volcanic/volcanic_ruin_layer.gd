@@ -20,6 +20,7 @@ extends Node2D
 ##     drop an orb of light (the rescue itself, resolved at run-end, IS the reward).
 
 const RuinPointerScript := preload("res://scripts/ui/hud/arena_ruin_pointer.gd")
+const BeaconRingsScript := preload("res://scripts/gameplay/arena_beacon_rings.gd")
 const ArenaToastScript := preload("res://scripts/ui/hud/arena_toast.gd")
 const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 const VolcanicNoise := preload("res://scripts/gameplay/volcanic/volcanic_noise.gd")
@@ -99,6 +100,7 @@ func _spawn_ruin(key: String, pos: Vector2) -> void:
 	})
 	e.position = pos                  # parent (Arena) sits at world origin, so local == global
 	get_parent().add_child(e)
+	_spawn_beacon(e)
 	_spawn_pointer(e, String(def["glb"]))
 
 	GameManager.run_rescue_char_id = key
@@ -119,6 +121,17 @@ func _on_ruin_gone(entry: Dictionary) -> void:
 	if is_instance_valid(entry["node3d"]):
 		entry["node3d"].queue_free()
 	_active.erase(entry)
+
+## Expanding sea-blue rings marking the rescue landmark in-world (2026-08-28, on request: "voi rescue, dung
+## vong tron toa mau xanh nuoc bien") - the counterpart to the chest's gold ones, see arena_beacon_rings.gd.
+## Parented to the landmark's own arena_enemy vehicle, so it is freed with it (death or despawn) and needs no
+## entry in `_active`/_on_ruin_gone. z_index -1 is RELATIVE to that enemy's own z of 1, i.e. absolute 0: over
+## the ground, under the creeps.
+func _spawn_beacon(target: Node2D) -> void:
+	var beacon: Node2D = BeaconRingsScript.new()
+	beacon.z_index = -1
+	target.add_child(beacon)
+	beacon.call("setup", BeaconRingsScript.SEA_BLUE)
 
 ## Edge-of-screen arrow + live distance guiding the player to the ruin (mirrors electric_ruin_layer.gd's own
 ## _spawn_pointer, minus the glb_path arg — see arena_ruin_pointer.gd's header on why only rescue ruins get

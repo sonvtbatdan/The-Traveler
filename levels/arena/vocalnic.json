@@ -1,43 +1,901 @@
 {
+  "hp_targets": [
+    {
+      "hp": 5000.0,
+      "time": 30.0
+    },
+    {
+      "hp": 5000.0,
+      "time": 60.0
+    },
+    {
+      "hp": 6000.0,
+      "time": 90.0
+    },
+    {
+      "hp": 7000.0,
+      "time": 120.0
+    },
+    {
+      "hp": 8000.0,
+      "time": 150.0
+    },
+    {
+      "hp": 8000.0,
+      "time": 180.0
+    },
+    {
+      "hp": 9000.0,
+      "time": 210.0
+    },
+    {
+      "hp": 9000.0,
+      "time": 240.0
+    },
+    {
+      "hp": 10000.0,
+      "time": 270.0
+    },
+    {
+      "hp": 10000.0,
+      "time": 300.0
+    },
+    {
+      "hp": 11000.0,
+      "time": 330.0
+    },
+    {
+      "hp": 11000.0,
+      "time": 360.0
+    },
+    {
+      "hp": 12000.0,
+      "time": 390.0
+    },
+    {
+      "hp": 13000.0,
+      "time": 420.0
+    },
+    {
+      "hp": 13000.0,
+      "time": 450.0
+    },
+    {
+      "hp": 14000.0,
+      "time": 480.0
+    },
+    {
+      "hp": 15000.0,
+      "time": 540.0
+    },
+    {
+      "hp": 15000.0,
+      "time": 570.0
+    },
+    {
+      "hp": 16000.0,
+      "time": 600.0
+    },
+    {
+      "hp": 16000.0,
+      "time": 630.0
+    },
+    {
+      "hp": 17000.0,
+      "time": 660.0
+    },
+    {
+      "hp": 17000.0,
+      "time": 690.0
+    },
+    {
+      "hp": 18000.0,
+      "time": 720.0
+    },
+    {
+      "hp": 18000.0,
+      "time": 750.0
+    },
+    {
+      "hp": 19000.0,
+      "time": 780.0
+    },
+    {
+      "hp": 19000.0,
+      "time": 810.0
+    },
+    {
+      "hp": 20000.0,
+      "time": 840.0
+    },
+    {
+      "hp": 20000.0,
+      "time": 870.0
+    },
+    {
+      "hp": 21000.0,
+      "time": 900.0
+    },
+    {
+      "hp": 21000.0,
+      "time": 930.0
+    },
+    {
+      "hp": 21000.0,
+      "time": 960.0
+    },
+    {
+      "hp": 21000.0,
+      "time": 990.0
+    },
+    {
+      "hp": 20000.0,
+      "time": 1020.0
+    },
+    {
+      "hp": 20000.0,
+      "time": 1050.0
+    },
+    {
+      "hp": 21000.0,
+      "time": 1080.0
+    },
+    {
+      "hp": 21000.0,
+      "time": 1110.0
+    },
+    {
+      "hp": 22000.0,
+      "time": 1140.0
+    },
+    {
+      "hp": 22000.0,
+      "time": 1170.0
+    },
+    {
+      "hp": 22000.0,
+      "time": 1200.0
+    },
+    {
+      "hp": 22000.0,
+      "time": 1230.0
+    },
+    {
+      "hp": 23000.0,
+      "time": 1260.0
+    },
+    {
+      "hp": 23000.0,
+      "time": 1290.0
+    },
+    {
+      "hp": 23000.0,
+      "time": 1320.0
+    },
+    {
+      "hp": 23000.0,
+      "time": 1350.0
+    },
+    {
+      "hp": 22000.0,
+      "time": 1380.0
+    },
+    {
+      "hp": 22000.0,
+      "time": 1410.0
+    },
+    {
+      "hp": 23000.0,
+      "time": 1440.0
+    },
+    {
+      "hp": 23000.0,
+      "time": 1470.0
+    },
+    {
+      "hp": 24000.0,
+      "time": 1500.0
+    },
+    {
+      "hp": 24000.0,
+      "time": 1530.0
+    },
+    {
+      "hp": 24000.0,
+      "time": 1560.0
+    },
+    {
+      "hp": 24000.0,
+      "time": 1590.0
+    },
+    {
+      "hp": 25000.0,
+      "time": 1620.0
+    },
+    {
+      "hp": 25000.0,
+      "time": 1650.0
+    },
+    {
+      "hp": 25000.0,
+      "time": 1680.0
+    },
+    {
+      "hp": 25000.0,
+      "time": 1710.0
+    },
+    {
+      "hp": 26000.0,
+      "time": 1740.0
+    },
+    {
+      "hp": 26000.0,
+      "time": 1770.0
+    },
+    {
+      "hp": 27000.0,
+      "time": 1800.0
+    }
+  ],
   "name": "vocalnic",
   "timeline": [
     {
-      "count": 50,
-      "pattern": "ring",
+      "count": 125,
+      "pattern": "wedge",
       "time": 30.0,
-      "type": "magma1"
+      "type": "stone7"
     },
     {
-      "count": 50,
-      "pattern": "ring",
-      "time": 30.0,
-      "type": "magma4"
-    },
-    {
-      "count": 50,
-      "duration": 5.0,
+      "count": 100,
+      "duration": 0.0,
       "pattern": "stream",
       "time": 60.0,
+      "type": "stone3"
+    },
+    {
+      "count": 2,
+      "pattern": "ring",
+      "time": 90.0,
+      "type": "fleet:V.Ash.Mix.12"
+    },
+    {
+      "count": 117,
+      "pattern": "wedge",
+      "time": 120.0,
       "type": "magma1"
+    },
+    {
+      "count": 11,
+      "pattern": "ring",
+      "time": 150.0,
+      "type": "fleet:V.Mag1.Rec.12"
+    },
+    {
+      "count": 160,
+      "pattern": "wall",
+      "time": 180.0,
+      "type": "stone2"
+    },
+    {
+      "count": 180,
+      "pattern": "ring",
+      "time": 210.0,
+      "type": "stone2"
+    },
+    {
+      "count": 4,
+      "pattern": "ring",
+      "time": 240.0,
+      "type": "fleet:V.Ash.Rec.8"
+    },
+    {
+      "count": 42,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 270.0,
+      "type": "metalfly_spawn"
+    },
+    {
+      "count": 200,
+      "pattern": "wall",
+      "time": 300.0,
+      "type": "magma5"
+    },
+    {
+      "count": 183,
+      "pattern": "wall",
+      "time": 330.0,
+      "type": "magma7"
+    },
+    {
+      "count": 275,
+      "pattern": "portal",
+      "time": 360.0,
+      "type": "stone7"
+    },
+    {
+      "count": 300,
+      "pattern": "random",
+      "time": 390.0,
+      "type": "stone6"
+    },
+    {
+      "count": 4,
+      "pattern": "portal",
+      "time": 420.0,
+      "type": "metalfly_spawn"
+    },
+    {
+      "count": 150,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 420.0,
+      "type": "ash3"
+    },
+    {
+      "count": 200,
+      "pattern": "arc",
+      "time": 450.0,
+      "type": "magma1"
+    },
+    {
+      "count": 2,
+      "pattern": "ring",
+      "time": 450.0,
+      "type": "fleet:V.Mag6.Rec.12"
+    },
+    {
+      "count": 240,
+      "pattern": "pincer",
+      "time": 480.0,
+      "type": "magma5"
+    },
+    {
+      "count": 2,
+      "pattern": "ring",
+      "time": 480.0,
+      "type": "fleet:V.Mag1.Rec.16"
+    },
+    {
+      "count": 240,
+      "pattern": "pincer",
+      "time": 540.0,
+      "type": "magma5"
+    },
+    {
+      "count": 38,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 540.0,
+      "type": "ash1"
+    },
+    {
+      "count": 150,
+      "pattern": "scatter",
+      "time": 570.0,
+      "type": "ash1"
+    },
+    {
+      "count": 60,
+      "pattern": "random",
+      "time": 570.0,
+      "type": "stone1"
+    },
+    {
+      "count": 150,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 600.0,
+      "type": "ash4"
+    },
+    {
+      "count": 8,
+      "pattern": "ring",
+      "time": 600.0,
+      "type": "fleet:V.Mag6.Rec.12"
+    },
+    {
+      "count": 300,
+      "pattern": "scatter",
+      "time": 630.0,
+      "type": "stone6"
+    },
+    {
+      "count": 80,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 630.0,
+      "type": "magma5"
+    },
+    {
+      "count": 83,
+      "pattern": "wedge",
+      "time": 660.0,
+      "type": "magma2"
+    },
+    {
+      "count": 150,
+      "pattern": "scatter",
+      "time": 660.0,
+      "type": "ash2"
     },
     {
       "count": 10,
       "pattern": "ring",
-      "time": 60.0,
-      "type": "magma3"
+      "time": 690.0,
+      "type": "fleet:V.Stone1.Rec.9"
+    },
+    {
+      "count": 150,
+      "pattern": "pincer",
+      "time": 720.0,
+      "type": "ash4"
+    },
+    {
+      "count": 100,
+      "pattern": "pincer",
+      "time": 720.0,
+      "type": "magma7"
+    },
+    {
+      "count": 240,
+      "pattern": "portal",
+      "time": 750.0,
+      "type": "stone4"
+    },
+    {
+      "count": 15,
+      "pattern": "ring",
+      "time": 750.0,
+      "type": "fleet:V.Mag6.Col.10"
+    },
+    {
+      "count": 300,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 780.0,
+      "type": "stone7"
+    },
+    {
+      "count": 140,
+      "pattern": "wedge",
+      "time": 780.0,
+      "type": "stone4"
+    },
+    {
+      "count": 200,
+      "pattern": "ring",
+      "time": 810.0,
+      "type": "magma2"
+    },
+    {
+      "count": 88,
+      "pattern": "wedge",
+      "time": 810.0,
+      "type": "ash1"
+    },
+    {
+      "count": 200,
+      "pattern": "random",
+      "time": 840.0,
+      "type": "magma1"
+    },
+    {
+      "count": 3,
+      "pattern": "ring",
+      "time": 840.0,
+      "type": "fleet:V.Stone.Row.10"
+    },
+    {
+      "count": 11,
+      "pattern": "wedge",
+      "time": 870.0,
+      "type": "magma1"
+    },
+    {
+      "count": 7,
+      "pattern": "ring",
+      "time": 870.0,
+      "type": "fleet:V.Stone.Row.10"
+    },
+    {
+      "count": 240,
+      "pattern": "scatter",
+      "time": 900.0,
+      "type": "stone2"
+    },
+    {
+      "count": 180,
+      "pattern": "arc",
+      "time": 900.0,
+      "type": "magma5"
     },
     {
       "count": 20,
       "pattern": "ring",
-      "time": 60.0,
+      "time": 930.0,
+      "type": "fleet:V.Mag2.Diamond.14"
+    },
+    {
+      "count": 36,
+      "pattern": "wedge",
+      "time": 930.0,
+      "type": "stone1"
+    },
+    {
+      "count": 20,
+      "pattern": "ring",
+      "time": 960.0,
+      "type": "fleet:V.Mag2.Diamond.5"
+    },
+    {
+      "count": 20,
+      "pattern": "ring",
+      "time": 960.0,
+      "type": "fleet:V.Mag2.Diamond.5"
+    },
+    {
+      "count": 225,
+      "pattern": "wall",
+      "time": 960.0,
+      "type": "stone5"
+    },
+    {
+      "count": 200,
+      "pattern": "portal",
+      "time": 990.0,
+      "type": "magma7"
+    },
+    {
+      "count": 150,
+      "pattern": "pincer",
+      "time": 990.0,
+      "type": "magma7"
+    },
+    {
+      "count": 20,
+      "pattern": "ring",
+      "time": 1020.0,
+      "type": "fleet:V.Mag6.Rec.12"
+    },
+    {
+      "count": 5,
+      "pattern": "ring",
+      "time": 1020.0,
+      "type": "fleet:V.Mag7.Mix.13"
+    },
+    {
+      "count": 3,
+      "pattern": "ring",
+      "time": 1050.0,
+      "type": "fleet:V.Ash.Wedge.9"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 1050.0,
+      "type": "magma1"
+    },
+    {
+      "count": 9,
+      "pattern": "ring",
+      "time": 1080.0,
+      "type": "fleet:V.Mag7.Mix.10"
+    },
+    {
+      "count": 200,
+      "pattern": "scatter",
+      "time": 1110.0,
+      "type": "magma3"
+    },
+    {
+      "count": 180,
+      "pattern": "random",
+      "time": 1110.0,
+      "type": "stone3"
+    },
+    {
+      "count": 20,
+      "pattern": "ring",
+      "time": 1140.0,
+      "type": "fleet:V.Mag7.Mix.8"
+    },
+    {
+      "count": 108,
+      "pattern": "portal",
+      "time": 1140.0,
+      "type": "stone1"
+    },
+    {
+      "count": 200,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 1170.0,
+      "type": "magma7"
+    },
+    {
+      "count": 14,
+      "pattern": "ring",
+      "time": 1170.0,
+      "type": "fleet:V.Mag1.Rec.12"
+    },
+    {
+      "count": 50,
+      "pattern": "wall",
+      "time": 1200.0,
+      "type": "metalfly_spawn"
+    },
+    {
+      "count": 9,
+      "pattern": "ring",
+      "time": 1200.0,
+      "type": "fleet:V.Stone.Mix.8"
+    },
+    {
+      "count": 200,
+      "pattern": "scatter",
+      "time": 1230.0,
+      "type": "magma7"
+    },
+    {
+      "count": 4,
+      "pattern": "ring",
+      "time": 1230.0,
+      "type": "fleet:V.Mag7.Mix.10"
+    },
+    {
+      "count": 108,
+      "pattern": "random",
+      "time": 1260.0,
+      "type": "ash3"
+    },
+    {
+      "count": 20,
+      "pattern": "ring",
+      "time": 1260.0,
+      "type": "fleet:V.Mag1.Rec.12"
+    },
+    {
+      "count": 20,
+      "pattern": "ring",
+      "time": 1290.0,
+      "type": "fleet:V.Mag2.Diamond.9"
+    },
+    {
+      "count": 15,
+      "pattern": "ring",
+      "time": 1290.0,
+      "type": "fleet:V.Mag7.Mix.8"
+    },
+    {
+      "count": 240,
+      "pattern": "random",
+      "time": 1320.0,
+      "type": "magma5"
+    },
+    {
+      "count": 20,
+      "pattern": "ring",
+      "time": 1320.0,
+      "type": "fleet:V.Mag6.Col.10"
+    },
+    {
+      "count": 6,
+      "pattern": "ring",
+      "time": 1320.0,
+      "type": "fleet:V.Mag6.Rec.12"
+    },
+    {
+      "count": 20,
+      "pattern": "ring",
+      "time": 1350.0,
+      "type": "fleet:V.Mag1.Rec.16"
+    },
+    {
+      "count": 48,
+      "pattern": "wall",
+      "time": 1350.0,
+      "type": "ash1"
+    },
+    {
+      "count": 240,
+      "pattern": "portal",
+      "time": 1380.0,
+      "type": "magma5"
+    },
+    {
+      "count": 167,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 1380.0,
+      "type": "magma7"
+    },
+    {
+      "count": 20,
+      "pattern": "ring",
+      "time": 1410.0,
+      "type": "fleet:V.Mag7.Mix.8"
+    },
+    {
+      "count": 18,
+      "pattern": "ring",
+      "time": 1410.0,
+      "type": "fleet:V.Mag2.Diamond.5"
+    },
+    {
+      "count": 9,
+      "pattern": "ring",
+      "time": 1440.0,
+      "type": "fleet:V.Ash.Rec.8"
+    },
+    {
+      "count": 220,
+      "pattern": "random",
+      "time": 1470.0,
+      "type": "stone1"
+    },
+    {
+      "count": 200,
+      "pattern": "arc",
+      "time": 1470.0,
+      "type": "magma7"
+    },
+    {
+      "count": 20,
+      "pattern": "ring",
+      "time": 1500.0,
+      "type": "fleet:V.Mag1.Rec.9"
+    },
+    {
+      "count": 5,
+      "pattern": "ring",
+      "time": 1500.0,
+      "type": "fleet:V.Stone.Row.10"
+    },
+    {
+      "count": 20,
+      "pattern": "ring",
+      "time": 1530.0,
+      "type": "fleet:V.Mag1.Rec.16"
+    },
+    {
+      "count": 20,
+      "pattern": "portal",
+      "time": 1530.0,
+      "type": "metalfly_spawn"
+    },
+    {
+      "count": 10,
+      "pattern": "ring",
+      "time": 1560.0,
+      "type": "fleet:V.Mag7.Mix.10"
+    },
+    {
+      "count": 9,
+      "pattern": "ring",
+      "time": 1590.0,
+      "type": "fleet:V.Ash.Rec.8"
+    },
+    {
+      "count": 16,
+      "pattern": "pincer",
+      "time": 1590.0,
+      "type": "magma7"
+    },
+    {
+      "count": 150,
+      "pattern": "portal",
+      "time": 1620.0,
+      "type": "ash3"
+    },
+    {
+      "count": 150,
+      "pattern": "ring",
+      "time": 1620.0,
+      "type": "ash2"
+    },
+    {
+      "count": 25,
+      "pattern": "scatter",
+      "time": 1620.0,
+      "type": "stone5"
+    },
+    {
+      "count": 13,
+      "pattern": "ring",
+      "time": 1650.0,
+      "type": "fleet:V.Ash.Col.7"
+    },
+    {
+      "count": 37,
+      "pattern": "random",
+      "time": 1680.0,
       "type": "magma6"
     },
     {
-      "count": 1,
-      "is_boss": true,
+      "count": 3,
       "pattern": "ring",
+      "time": 1680.0,
+      "type": "fleet:V.Ash.Mix.12"
+    },
+    {
+      "count": 240,
+      "pattern": "pincer",
+      "time": 1680.0,
+      "type": "stone3"
+    },
+    {
+      "count": 200,
+      "pattern": "wedge",
+      "time": 1710.0,
+      "type": "magma3"
+    },
+    {
+      "count": 240,
+      "pattern": "wall",
+      "time": 1710.0,
+      "type": "magma5"
+    },
+    {
+      "count": 13,
+      "pattern": "random",
+      "time": 1710.0,
+      "type": "ash1"
+    },
+    {
+      "count": 20,
+      "pattern": "ring",
+      "time": 1740.0,
+      "type": "fleet:V.Mag2.Diamond.5"
+    },
+    {
+      "count": 240,
+      "pattern": "scatter",
+      "time": 1740.0,
+      "type": "stone1"
+    },
+    {
+      "count": 160,
+      "pattern": "random",
+      "time": 1740.0,
+      "type": "stone2"
+    },
+    {
+      "count": 300,
+      "pattern": "pincer",
+      "time": 1770.0,
+      "type": "stone5"
+    },
+    {
+      "count": 240,
+      "pattern": "wall",
+      "time": 1770.0,
+      "type": "magma4"
+    },
+    {
+      "count": 33,
+      "pattern": "pincer",
+      "time": 1770.0,
+      "type": "magma1"
+    },
+    {
+      "count": 300,
+      "pattern": "pincer",
       "time": 1800.0,
-      "type": "elephant"
+      "type": "stone6"
+    },
+    {
+      "count": 300,
+      "pattern": "portal",
+      "time": 1800.0,
+      "type": "stone7"
+    },
+    {
+      "count": 50,
+      "pattern": "scatter",
+      "time": 1800.0,
+      "type": "magma1"
     }
   ]
 }

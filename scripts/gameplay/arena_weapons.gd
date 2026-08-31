@@ -20,7 +20,20 @@ const GAT_MAX_DIST      := 1300.0   # px travelled before despawn
 const GAT_HIT_RADIUS    := 24.0     # bullet↔enemy hit distance (px) — fallback when an enemy has no hit_radius
 const GAT_BULLET_HIT_R  := 10.0     # the bullet's OWN collision radius (added to the enemy radius); slightly bigger than the sprite (glow half-width ≈ 7px) so it hits on visual contact
 const GAT_SPREAD_DEG    := 0.0      # ± random spray on each shot (0 = laser-straight; base Gatling now stable)
-const GAT_STAGGER       := 0.1      # s the enemy is staggered (movement/attacks frozen) per Gatling hit
+## 2026-08-29 bug fix ("khi di chuyển thành pack, 1 vài con trúng đạn và chết, 1 số con khác bị mất logic
+## chase nên đứng yên tại chỗ" — flies moving in a cluster: a few get shot and die, others nearby go
+## motionless). Root cause, confirmed with a live repro (a fly re-hit every GAT_FIRE_INTERVAL with the old
+## 0.1s stagger never moved a single px in 6s while an unhit control fly closed the whole gap): GAT_STAGGER
+## (0.1) was ≥ GAT_FIRE_INTERVAL (0.09) — arena_enemy.gd's take_damage() does `_stagger_t = maxf(_stagger_t,
+## stagger)`, so a hit landing before the PREVIOUS hit's stagger fully decays just re-arms it to the same
+## ceiling, forever — `_tick_behavior()` (all movement/attacks) never gets a `_stagger_t <= 0.0` window to
+## run again. This is the exact mechanism arena_enemy.gd's `_boss_move != ""` comment already documents
+## ("holding the fire button cancels the entire fight") — bosses were exempted from it there, but ordinary
+## creeps caught in sustained Gatling fire hit the identical permalock, not just a flinch. Fixed at the
+## source instead: dropped comfortably under the interval (with headroom for fire-rate upgrades shrinking
+## it further at runtime) so a stagger tick always has a moment to expire before the next hit re-arms it —
+## still a visible per-hit flinch, just never a dead stop.
+const GAT_STAGGER       := 0.05     # s the enemy is staggered (movement/attacks frozen) per Gatling hit
 const GAT_LIGHT         := 1.0      # dust-light "value" per Gatling bullet (low → lights up nearby dust only)
 const GAT_WING_SPACING  := 26.0     # px between the two wing muzzles (twin parallel streams)
 const GAT_FIRE_STAGGER  := 0.2      # s the RIGHT-wing bullet(s) fire AFTER their left-wing partner (twin-barrel stagger)
@@ -524,7 +537,16 @@ func _omega_radius() -> float:
 func _tick_omega(delta: float) -> void:
 	var n := _omega_orb_count()
 	if _omega_cd.size() != n:
+		# 2026-08-29 crash fix ("Invalid call. Nonexistent 'float' constructor", arena_weapons.gd:532) — the
+		# "extra orb" levelup perk (_omega_upg["count"]) grows n mid-run, and Array.resize() on a plain,
+		# untyped Array (not a PackedFloat32Array) fills newly-added slots with `null`, not 0.0 — the very next
+		# line's float(_omega_cd[i]) on that null slot is exactly what crashed. Only the NEW tail slots need
+		# filling; a blanket _omega_cd.fill(0.0) after resize would also reset every orb's existing hit
+		# cooldown, letting them all re-hit the same target for free the instant a new orb is added.
+		var old_size := _omega_cd.size()
 		_omega_cd.resize(n)
+		for j in range(old_size, n):
+			_omega_cd[j] = 0.0
 	_omega_angle = fmod(_omega_angle + delta * OMEGA_SPIN_SPEED * (1.0 + 0.20 * float(_omega_upg["spin"])), TAU)
 	var center := _player.global_position
 	var radius := _omega_radius()
@@ -562,6 +584,14 @@ const SLANCE_WIDTH         := 56.0
 const SLANCE_SPLASH_RADIUS := 60.0
 const SLANCE_SPLASH_FRAC   := 0.4
 const SLANCE_COL           := Color(0.75, 0.4, 1.0)
+# HDR core/spark colors for the redesigned beam VFX (2026-08-29) — see _draw_slance()'s own header comment.
+# R/G/B > 1.0 is intentional: the arena's WorldEnvironment has glow_hdr_threshold=1.0 (arena.gd's
+# _make_glow_world_env()), so anything over that genuinely blooms on screen for free — same trick
+# ARC_CORE_COL/ARC_SPARK_COL already use for Arc Lightning's own "high energy" look, just shifted toward
+# violet/magenta for a UV feel instead of blue.
+const SLANCE_CORE_COL      := Color(1.6, 0.9, 2.8)    # HDR violet-white beam core (blooms)
+const SLANCE_SPARK_COL     := Color(2.0, 1.3, 3.4)    # HDR — hotter/brighter, for traveling pulses + impact flare
+const SLANCE_SMOKE_COL     := Color(0.3, 0.22, 0.4)   # dim, NOT HDR — smoke should read as dark/soft, never glowing
 const SLANCE_POOL := {
 	"damage": {"name": "Collapse Intensity", "max": 10, "per": "+20% damage",      "desc": "The lance burns hotter."},
 	"width":  {"name": "Wide Aperture",      "max": 5,  "per": "+20% beam width",  "desc": "A thicker beam."},
@@ -575,7 +605,16 @@ const PRISM_RANGE      := 820.0
 const PRISM_WIDTH      := 36.0
 const PRISM_BEAMS      := 3
 const PRISM_SPREAD_DEG := 16.0
-const PRISM_COL        := Color(1.0, 0.55, 0.85)
+const PRISM_COL        := Color(1.0, 0.8, 0.2)   # 2026-08-29, on request: "màu vàng nắng" (was pink)
+# HDR core/spark/smoke colors — same "point-to-flare beam, HDR bloom core, traveling pulses, smoke wisps"
+# treatment as Singularity Lance (see _draw_prism()'s own header), just a warm golden palette instead of
+# violet. R/G/B > 1.0 on the HDR ones is intentional — see SLANCE_CORE_COL's own comment for why.
+const PRISM_CORE_COL   := Color(2.6, 2.1, 0.7)     # HDR golden-white beam core (blooms)
+const PRISM_SPARK_COL  := Color(3.2, 2.6, 0.9)     # HDR — hotter/brighter, for traveling pulses + impact flare
+const PRISM_SMOKE_COL  := Color(0.42, 0.34, 0.18)  # dim warm haze, NOT HDR — smoke should read as dark/soft
+const PRISM_PULSE_COUNT := 3
+const PRISM_PULSE_SPEED := 0.8    # cycles/sec — slower than Lance's own 1.6 ("tốc độ hạt bắn ra chậm hơn")
+const PRISM_SMOKE_COUNT := 5
 const PRISM_POOL := {
 	"damage": {"name": "Coherence",  "max": 10, "per": "+20% damage",      "desc": "Each lance hits harder."},
 	"width":  {"name": "Focus Lens", "max": 5,  "per": "+20% beam width",  "desc": "Thicker lances."},
@@ -583,20 +622,35 @@ const PRISM_POOL := {
 	"rate":   {"name": "Rapid Split","max": 5,  "per": "+20% tick rate",    "desc": "Ticks land more often."},
 }
 
+## 2026-08-29, on request ("hailstorm: vfx giờ đây là dạng sóng mang năng lượng băng giá tỏa thành vòng tròn
+## từ player ra") — a full mechanic redesign, not just a reskin: was N pellets fired in a HAIL_SPREAD_DEG
+## forward cone, each dying on its first hit; now ONE expanding 360° ring wave per cast, centered on the
+## player (not aimed), damaging + slowing every enemy its leading edge sweeps past exactly once. See
+## _fire_hailstorm()/_tick_hail_waves()/_draw_hail() below for the full rewrite. HAIL_SPREAD_DEG/HAIL_HIT_R
+## are gone (no more cone, no more per-pellet point hit-radius — replaced by HAIL_RING_THICKNESS, the band
+## width the expanding ring hits within). HAIL_PELLETS/HAIL_RANGE/HAIL_COOLDOWN/HAIL_SPEED/HAIL_SLOW_* keep
+## their old names/values where the concept still maps directly (HAIL_SPEED is now the ring's expansion
+## speed instead of a pellet's flight speed; HAIL_RANGE is now the ring's max radius).
 const HAIL_DAMAGE     := 22.0
 const HAIL_PELLETS    := 10
-const HAIL_SPREAD_DEG := 46.0
 const HAIL_RANGE      := 320.0
 const HAIL_COOLDOWN   := 0.45
 const HAIL_SPEED      := 760.0
-const HAIL_HIT_R      := 24.0
+const HAIL_RING_THICKNESS := 44.0   # the expanding ring's damage/visual band width
+const HAIL_EXTRA_RING_DELAY := 0.15 # seconds between each of "Blizzard"'s extra staggered rings
 const HAIL_SLOW_PCT   := 0.30
 const HAIL_SLOW_DUR   := 1.0
 const HAIL_COL        := Color(0.65, 0.9, 1.0)
+# HDR core/spark + dim mist colors — same layered "glow + HDR bloom core + sparkle + wisp" treatment as
+# Singularity Lance/Prism Array (see _draw_hail()'s own header), just wrapped around a circle instead of a
+# line. R/G/B > 1.0 on the HDR ones is intentional — see SLANCE_CORE_COL's own comment for why.
+const HAIL_CORE_COL   := Color(1.4, 2.2, 2.8)     # HDR bright cyan-white leading edge (blooms)
+const HAIL_SPARK_COL  := Color(1.8, 2.6, 3.2)     # HDR — frost crystal sparkles along the ring
+const HAIL_MIST_COL   := Color(0.55, 0.75, 0.85)  # dim pale frost mist trailing just inside the ring, NOT HDR
 const HAIL_POOL := {
-	"damage":  {"name": "Sharpened Shards", "max": 10, "per": "+20% damage",       "desc": "Each shard cuts deeper."},
-	"pellets": {"name": "Blizzard",         "max": 5,  "per": "+2 shards",         "desc": "A denser storm of shards."},
-	"cd":      {"name": "Squall Line",      "max": 10, "per": "+20% fire rate",     "desc": "Fire the volley more often."},
+	"damage":  {"name": "Sharpened Shards", "max": 10, "per": "+20% damage",       "desc": "The wave bites colder, hitting harder."},
+	"pellets": {"name": "Blizzard",         "max": 5,  "per": "+1 ring",           "desc": "An extra ring bursts out with each cast."},
+	"cd":      {"name": "Squall Line",      "max": 10, "per": "+20% fire rate",     "desc": "The ring bursts out more often."},
 	"slow":    {"name": "Deep Freeze",      "max": 5,  "per": "+20% slow strength","desc": "Chilled enemies move even slower."},
 }
 
@@ -612,7 +666,7 @@ var _prism_upg: Dictionary = {"damage": 0, "width": 0, "spread": 0, "rate": 0}
 
 var _hail_active: bool = false
 var _hail_cd: float = 0.0
-var _hail_pellets: Array = []
+var _hail_waves: Array = []   # [{radius: float, hit: Array}] — one expanding ring per cast (+ "Blizzard" extras)
 var _hail_upg: Dictionary = {"damage": 0, "pellets": 0, "cd": 0, "slow": 0}
 
 ## Enemies within `half_w` of the ray (from, from + dir*range), in front of `from`. Used by the simplified
@@ -659,6 +713,13 @@ func _slance_dmg() -> float:
 func _slance_width() -> float:
 	return SLANCE_WIDTH * (1.0 + 0.20 * float(_slance_upg["width"]))
 
+## VISUAL-only width for _draw_slance() (2026-08-29, on request: "thu hẹp tia sáng của singularity lance
+## xuống còn 50% so với hiện tại") — deliberately separate from _slance_width(), which still drives the real
+## hit-detection width in _fire_slance()'s _beam_hits() call. Same "shrink the icon, not the gameplay" split
+## this session already used for ruin/champion drop art (COLLECT_RANGE left untouched there too).
+func _slance_draw_width() -> float:
+	return _slance_width() * 0.5
+
 func _slance_splash_radius() -> float:
 	return SLANCE_SPLASH_RADIUS * (1.0 + 0.20 * float(_slance_upg["splash"]))
 
@@ -691,10 +752,119 @@ func _fire_slance(delta: float) -> void:
 		var r2 := _roll_damage(_slance_dmg() * SLANCE_SPLASH_FRAC, "singularity_lance")
 		en2.take_damage(float(r2["dmg"]), 0.0, 0.0, false, false, bool(r2["is_crit"]))
 
+## Deterministic pseudo-random in [0,1) from a float seed — classic shader-style hash (sin + large multiply +
+## fract), used below instead of instantiating a RandomNumberGenerator every draw call (this runs every frame
+## while the lance is firing).
+func _slance_hash(n: float) -> float:
+	var s := sin(n * 12.9898) * 43758.5453
+	return s - floor(s)
+
+## Draws a beam whose width ramps from 0 (a single point) at `from` up to the full `w` over the first
+## `flare_frac` of its length, then holds at `w` for the rest — 2026-08-29, on request: "phần bắt đầu phát ra
+## tia sáng thay vì là cạnh thẳng thì bắt đầu từ 1 điểm và tỏa ra thành dải sáng". draw_line() can't vary its
+## own width along its length, so this builds an explicit two-sided polygon instead (a smoothstep-eased
+## "funnel" near `from`, then parallel edges) — the standard trick for a tapered/muzzle-flare beam shape.
+## Alpha ramps together with the width (both driven by the same `ramp` factor per vertex, via draw_polygon's
+## per-point color array) so the beam also fades softly INTO existence at the origin, not just narrows.
+func _draw_tapered_beam(from: Vector2, to: Vector2, w: float, color: Color, flare_frac: float = 0.12, segments: int = 16) -> void:
+	var seg := to - from
+	var seg_len := seg.length()
+	if seg_len < 1.0 or w <= 0.0:
+		return
+	var dir := seg / seg_len
+	var perp := Vector2(-dir.y, dir.x)
+	var poly := PackedVector2Array()
+	var cols := PackedColorArray()
+	poly.resize((segments + 1) * 2)
+	cols.resize((segments + 1) * 2)
+	for i in (segments + 1):
+		var f := float(i) / float(segments)
+		var ramp: float = smoothstep(0.0, flare_frac, f) if flare_frac > 0.0 else 1.0
+		var half_w := w * 0.5 * ramp
+		var c := from + seg * f
+		var vc := Color(color.r, color.g, color.b, color.a * ramp)
+		poly[i] = c + perp * half_w
+		cols[i] = vc
+		poly[poly.size() - 1 - i] = c - perp * half_w
+		cols[cols.size() - 1 - i] = vc
+	draw_polygon(poly, cols)
+
+## Singularity Lance beam VFX (2026-08-29, on request: "vfx màu tím của nó hơi đơn điệu... tôi muốn code lại
+## vfx để trông đẹp mắt hơn, dạng tia UV tím mang năng lượng cao, bốc khói và phát sáng, thay vì 1 thanh tím
+## như hiện tại"). Was 2 flat draw_line calls (a translucent purple bar + a thin white core) — now 6
+## procedural layers, same "_draw()-only, no shader/particle-node" technique this file's own richer beams
+## already use (_draw_gravwell()'s logarithmic-spiral vortex is the closest precedent), animated off
+## Time.get_ticks_msec() so nothing needs its own persistent state:
+##   1. wide soft outer glow, TAPERED (2026-08-29 follow-up: "phần bắt đầu... bắt đầu từ 1 điểm và tỏa ra
+##      thành dải sáng") — starts as a point at the muzzle and flares to full width via _draw_tapered_beam(),
+##      instead of a hard-edged rectangle from the very first pixel
+##   2. a jittered energy layer — a short zig-zag polyline re-rolled a few times a second (not every frame),
+##      pinned to the beam's true endpoints (sin fade), so it crackles like unstable high-energy arcing
+##      instead of vibrating into pure noise
+##   3. an HDR-bright violet core (SLANCE_CORE_COL, values >1 so the project's own 2D bloom picks it up for
+##      free) replacing the old flat white line — this is the actual "phát sáng" (glowing), also tapered
+##   4. 3 traveling energy pulses sliding muzzle→impact (fmod against elapsed time) — reads as power surging
+##      down the lance instead of a static bar
+##   5. drifting, fading smoke wisps along the beam's length — dim/desaturated, never HDR, so they read as
+##      "bốc khói" (smoke) silhouetted against the bright core rather than more glow
+##   6. a pulsing HDR impact flare at the beam's far end
+## Width comes from _slance_draw_width() (2026-08-29: "thu hẹp tia sáng... xuống còn 50%"), a purely visual
+## half-scale kept SEPARATE from _slance_width() — the real hit-detection width in _fire_slance() is untouched.
 func _draw_slance() -> void:
 	var from := _muzzle()
-	draw_line(from, _slance_to, Color(SLANCE_COL, 0.35), _slance_width(), true)
-	draw_line(from, _slance_to, Color(1.0, 1.0, 1.0, 0.8), 4.0, true)
+	var to := _slance_to
+	var seg := to - from
+	var seg_len := seg.length()
+	if seg_len < 1.0:
+		return
+	var dir := seg / seg_len
+	var perp := Vector2(-dir.y, dir.x)
+	var w := _slance_draw_width()
+	var t := float(Time.get_ticks_msec()) * 0.001
+
+	# 1) outer soft glow — tapered: a point at `from`, full width by ~12% of the beam's length.
+	_draw_tapered_beam(from, to, w * 1.4, Color(SLANCE_COL, 0.22))
+	_draw_tapered_beam(from, to, w * 0.7, Color(SLANCE_COL, 0.4))
+
+	# 2) jittered energy layer.
+	const JITTER_STEPS := 8
+	var jitter_seed := float(floor(t * 6.0))   # re-rolls ~6x/sec — crackle, not vibration
+	var jitter_pts := PackedVector2Array()
+	for i in (JITTER_STEPS + 1):
+		var f := float(i) / float(JITTER_STEPS)
+		var edge_fade := sin(f * PI)   # 0 at both ends, 1 at the middle — keeps the beam pinned at its real endpoints
+		var off := (_slance_hash(jitter_seed * 97.0 + float(i)) - 0.5) * w * 0.5 * edge_fade
+		jitter_pts.append(from + seg * f + perp * off)
+	draw_polyline(jitter_pts, Color(1.0, 0.8, 1.0, 0.5), maxf(2.0, w * 0.18), true)
+
+	# 3) HDR-bright core — tapered like the glow layers above.
+	_draw_tapered_beam(from, to, maxf(3.0, w * 0.12), SLANCE_CORE_COL)
+
+	# 4) traveling energy pulses.
+	const PULSE_COUNT := 3
+	const PULSE_SPEED := 1.6   # cycles/sec
+	for i in PULSE_COUNT:
+		var phase := fmod(t * PULSE_SPEED + float(i) / float(PULSE_COUNT), 1.0)
+		var pulse_r := w * 0.32 * (0.6 + 0.4 * sin(phase * PI))   # biggest mid-travel, tapers at both ends
+		draw_circle(from + seg * phase, pulse_r, Color(SLANCE_SPARK_COL, 0.85))
+
+	# 5) smoke wisps — slow, desynced drift + fade along the beam.
+	const SMOKE_COUNT := 5
+	for i in SMOKE_COUNT:
+		var seed_i := float(i) * 13.37
+		var along := _slance_hash(seed_i)
+		var side := (_slance_hash(seed_i + 5.0) - 0.5) * w * 1.2
+		var cycle := fmod(t * 0.35 + _slance_hash(seed_i + 9.0), 1.0)   # slow drifting loop, desynced per wisp
+		var wisp_pos := from + seg * along + perp * (side + cycle * 14.0) - dir * cycle * 10.0
+		var wisp_a := (1.0 - cycle) * 0.22
+		var wisp_r := w * (0.35 + cycle * 0.5)
+		draw_circle(wisp_pos, wisp_r, Color(SLANCE_SMOKE_COL, wisp_a))
+
+	# 6) pulsing HDR impact flare.
+	var flare_pulse := 0.7 + 0.3 * sin(t * 9.0)
+	draw_circle(to, w * 0.9 * flare_pulse, Color(SLANCE_COL, 0.18))
+	draw_circle(to, w * 0.45 * flare_pulse, Color(SLANCE_CORE_COL, 0.55))
+	draw_circle(to, w * 0.18 * flare_pulse, Color(SLANCE_SPARK_COL, 0.9))
 
 # ── Prism Array: acquire/rank API + fire/draw ──
 func prism_upgrade_rank(id: String) -> int:
@@ -718,6 +888,12 @@ func _prism_dmg() -> float:
 
 func _prism_width() -> float:
 	return PRISM_WIDTH * (1.0 + 0.20 * float(_prism_upg["width"]))
+
+# 2026-08-29, on request ("các tia prism array nhỏ lại, bằng 35% so với hiện tại") — visual-only shrink,
+# same convention as Lance's _slance_draw_width(): the real hit-detection width (_prism_width(), used by
+# _fire_prism()'s _beam_hits() call) is untouched, only what _draw_prism() renders gets thinner.
+func _prism_draw_width() -> float:
+	return _prism_width() * 0.35
 
 func _prism_spread() -> float:
 	return PRISM_SPREAD_DEG * (1.0 + 0.20 * float(_prism_upg["spread"]))
@@ -746,12 +922,72 @@ func _fire_prism(delta: float) -> void:
 			if bool(r["is_crit"]):
 				_spawn_crit_number((en as Node2D).global_position, float(r["dmg"]))
 
+## Prism Array beam VFX (2026-08-29, on request: "vfx cho prism array: cũng giống như lance, nhưng là 3 tia,
+## tốc độ hạt bắn ra chậm hơn, có thêm khói. Màu vàng nắng") — same 6-layer "point-to-flare beam, HDR bloom
+## core, traveling energy pulses, drifting smoke wisps, pulsing impact flare" treatment _draw_slance() uses
+## (see that function's own header for the full layer breakdown) — just 3 beams (_prism_dirs, unchanged) with
+## a warm golden palette instead of violet, and slower traveling pulses (PRISM_PULSE_SPEED < Lance's own).
+## Reuses _slance_hash()/_draw_tapered_beam() directly — both are already fully generic despite the name,
+## not worth duplicating for a second weapon.
 func _draw_prism() -> void:
 	var from := _muzzle()
-	for dir: Vector2 in _prism_dirs:
-		var to := from + dir * PRISM_RANGE
-		draw_line(from, to, Color(PRISM_COL, 0.3), _prism_width(), true)
-		draw_line(from, to, Color(1.0, 1.0, 1.0, 0.7), 3.0, true)
+	var w := _prism_draw_width()
+	var t := float(Time.get_ticks_msec()) * 0.001
+	for i in _prism_dirs.size():
+		_draw_prism_beam(from, from + (_prism_dirs[i] as Vector2) * PRISM_RANGE, w, t, i)
+
+## One of Prism Array's 3 beams. `beam_i` folds into every hash seed below so the 3 beams' jitter/smoke/pulse
+## phases desync from each other instead of animating in lockstep (which would read as one wide beam rather
+## than 3 distinct ones).
+func _draw_prism_beam(from: Vector2, to: Vector2, w: float, t: float, beam_i: int) -> void:
+	var seg := to - from
+	var seg_len := seg.length()
+	if seg_len < 1.0:
+		return
+	var dir := seg / seg_len
+	var perp := Vector2(-dir.y, dir.x)
+	var beam_seed := float(beam_i) * 271.0
+
+	# 1) outer soft glow — tapered from a point at the muzzle.
+	_draw_tapered_beam(from, to, w * 1.4, Color(PRISM_COL, 0.22))
+	_draw_tapered_beam(from, to, w * 0.7, Color(PRISM_COL, 0.4))
+
+	# 2) jittered energy layer.
+	const JITTER_STEPS := 8
+	var jitter_seed := float(floor(t * 6.0)) + beam_seed
+	var jitter_pts := PackedVector2Array()
+	for i in (JITTER_STEPS + 1):
+		var f := float(i) / float(JITTER_STEPS)
+		var edge_fade := sin(f * PI)
+		var off := (_slance_hash(jitter_seed * 97.0 + float(i)) - 0.5) * w * 0.5 * edge_fade
+		jitter_pts.append(from + seg * f + perp * off)
+	draw_polyline(jitter_pts, Color(1.0, 0.95, 0.75, 0.5), maxf(2.0, w * 0.18), true)
+
+	# 3) HDR-bright core — tapered like the glow layers above.
+	_draw_tapered_beam(from, to, maxf(3.0, w * 0.12), PRISM_CORE_COL)
+
+	# 4) traveling energy pulses — slower than Lance's own (PRISM_PULSE_SPEED < SLANCE's PULSE_SPEED).
+	for i in PRISM_PULSE_COUNT:
+		var phase := fmod(t * PRISM_PULSE_SPEED + float(i) / float(PRISM_PULSE_COUNT) + beam_seed * 0.01, 1.0)
+		var pulse_r := w * 0.32 * (0.6 + 0.4 * sin(phase * PI))
+		draw_circle(from + seg * phase, pulse_r, Color(PRISM_SPARK_COL, 0.85))
+
+	# 5) smoke wisps — slow, desynced drift + fade along the beam.
+	for i in PRISM_SMOKE_COUNT:
+		var seed_i := beam_seed + float(i) * 13.37
+		var along := _slance_hash(seed_i)
+		var side := (_slance_hash(seed_i + 5.0) - 0.5) * w * 1.2
+		var cycle := fmod(t * 0.35 + _slance_hash(seed_i + 9.0), 1.0)
+		var wisp_pos := from + seg * along + perp * (side + cycle * 14.0) - dir * cycle * 10.0
+		var wisp_a := (1.0 - cycle) * 0.22
+		var wisp_r := w * (0.35 + cycle * 0.5)
+		draw_circle(wisp_pos, wisp_r, Color(PRISM_SMOKE_COL, wisp_a))
+
+	# 6) pulsing HDR impact flare.
+	var flare_pulse := 0.7 + 0.3 * sin(t * 9.0 + beam_seed)
+	draw_circle(to, w * 0.9 * flare_pulse, Color(PRISM_COL, 0.18))
+	draw_circle(to, w * 0.45 * flare_pulse, Color(PRISM_CORE_COL, 0.55))
+	draw_circle(to, w * 0.18 * flare_pulse, Color(PRISM_SPARK_COL, 0.9))
 
 # ── Hailstorm: acquire/rank API + fire/tick/draw ──
 func hail_upgrade_rank(id: String) -> int:
@@ -773,48 +1009,101 @@ func activate_hailstorm() -> void:
 func _hail_dmg() -> float:
 	return HAIL_DAMAGE * (1.0 + 0.20 * float(_hail_upg["damage"]))
 
-func _fire_hailstorm(delta: float) -> void:
-	_hail_cd -= delta
+## Casts a fresh ring wave centered on the player (NOT aimed — see this section's own 2026-08-29 header note).
+## "Blizzard" (_hail_upg["pellets"]) now adds extra rings instead of extra pellets: each one starts at a
+## NEGATIVE radius (a cheap stagger — _tick_hail_waves() below just skips drawing/hitting until it counts back
+## up past 0) so they burst out one after another instead of all overlapping as one ring.
+func _fire_hailstorm(_delta: float) -> void:
+	_hail_cd -= _delta
 	if _hail_cd > 0.0:
 		return
 	_hail_cd = HAIL_COOLDOWN / (1.0 + 0.20 * float(_hail_upg["cd"])) / _rate_mult
-	var fwd := _forward()
-	var start := _muzzle()
-	var n := HAIL_PELLETS + int(_hail_upg["pellets"]) * 2
-	for _i in n:
-		var a := deg_to_rad(randf_range(-HAIL_SPREAD_DEG * 0.5, HAIL_SPREAD_DEG * 0.5))
-		var dir := fwd.rotated(a)
-		_hail_pellets.append({"pos": start, "vel": dir * HAIL_SPEED, "life": 0.0, "hit": []})
+	var extra_rings := int(_hail_upg["pellets"])
+	for i in (1 + extra_rings):
+		_hail_waves.append({"radius": -float(i) * HAIL_EXTRA_RING_DELAY * HAIL_SPEED, "hit": []})
 
-func _tick_hail_pellets(delta: float) -> void:
-	var i := _hail_pellets.size() - 1
+## Expands every live ring by HAIL_SPEED*delta and hits whatever's newly inside its HAIL_RING_THICKNESS band
+## around the current radius — each enemy only ONCE per ring (own `hit` list per wave, since a slow-moving
+## enemy could otherwise sit inside the moving band for several frames in a row).
+func _tick_hail_waves(delta: float) -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	var center := _player.global_position
+	var i := _hail_waves.size() - 1
 	while i >= 0:
-		var pd: Dictionary = _hail_pellets[i]
-		pd["pos"] = (pd["pos"] as Vector2) + (pd["vel"] as Vector2) * delta
-		pd["life"] = float(pd["life"]) + delta
-		var p: Vector2 = pd["pos"]
-		var dead := float(pd["life"]) * HAIL_SPEED >= HAIL_RANGE
-		if not dead:
-			for en in _enemies_near(p, HAIL_HIT_R):
-				if not is_instance_valid(en) or not en.has_method("take_damage"):
-					continue
-				var r := _roll_damage(_hail_dmg(), "hailstorm")
-				en.take_damage(float(r["dmg"]), 0.05, 0.0, false, false, bool(r["is_crit"]))
-				if bool(r["is_crit"]):
-					_spawn_crit_number(p, float(r["dmg"]))
-				if en.has_method("apply_slow"):
-					en.call("apply_slow", HAIL_SLOW_PCT * (1.0 + 0.20 * float(_hail_upg["slow"])), HAIL_SLOW_DUR)
-				dead = true
-				break
-		if dead:
-			_hail_pellets.remove_at(i)
-		else:
-			_hail_pellets[i] = pd
+		var wd: Dictionary = _hail_waves[i]
+		var r := float(wd["radius"]) + HAIL_SPEED * delta
+		if r >= HAIL_RANGE:
+			_hail_waves.remove_at(i)
+			i -= 1
+			continue
+		wd["radius"] = r
+		if r < 0.0:
+			_hail_waves[i] = wd   # still staggering in — no hits/draw until it counts up past 0
+			i -= 1
+			continue
+		var hit_list: Array = wd["hit"]
+		for en in _enemies_near(center, r + HAIL_RING_THICKNESS * 0.5):
+			if not is_instance_valid(en) or not en.has_method("take_damage") or en in hit_list:
+				continue
+			var d := center.distance_to((en as Node2D).global_position)
+			if absf(d - r) > HAIL_RING_THICKNESS * 0.5:
+				continue   # near the ring's centre, or still outside its leading edge — not caught yet
+			hit_list.append(en)
+			var rr := _roll_damage(_hail_dmg(), "hailstorm")
+			en.take_damage(float(rr["dmg"]), 0.05, 0.0, false, false, bool(rr["is_crit"]))
+			if bool(rr["is_crit"]):
+				_spawn_crit_number((en as Node2D).global_position, float(rr["dmg"]))
+			if en.has_method("apply_slow"):
+				en.call("apply_slow", HAIL_SLOW_PCT * (1.0 + 0.20 * float(_hail_upg["slow"])), HAIL_SLOW_DUR)
+		wd["hit"] = hit_list
+		_hail_waves[i] = wd
 		i -= 1
 
+## Hailstorm ring-wave VFX (2026-08-29, on request: "vfx giờ đây là dạng sóng mang năng lượng băng giá tỏa
+## thành vòng tròn từ player ra") — same layered "soft outer glow + HDR bloom core + sparkle + wisp" recipe
+## Singularity Lance/Prism Array use (see their own _draw_slance()/_draw_prism() headers), wrapped around an
+## expanding circle instead of a line: reuses _slance_hash() for the jitter/scatter, same as those two.
+##   1. wide soft outer glow ring (2 layered draw_arc widths, existing HAIL_COL)
+##   2. an HDR-bright cyan-white leading edge (HAIL_CORE_COL, blooms via the project's own 2D glow pipeline)
+##   3. frost crystal sparkles scattered along the ring's circumference, jittered radially + slowly rotating
+##   4. pale frost mist wisps trailing just inside the ring (a cold wake left behind the leading edge)
+## Fades out as the ring nears HAIL_RANGE so it doesn't just vanish at max radius.
 func _draw_hail() -> void:
-	for pd: Dictionary in _hail_pellets:
-		draw_circle(pd["pos"], 4.0, HAIL_COL)
+	if _hail_waves.is_empty() or _player == null or not is_instance_valid(_player):
+		return
+	var center := _player.global_position
+	var t := float(Time.get_ticks_msec()) * 0.001
+	for wd: Dictionary in _hail_waves:
+		var r: float = wd["radius"]
+		if r <= 0.0:
+			continue
+		var fade := 1.0 - clampf(r / HAIL_RANGE, 0.0, 1.0)
+
+		# 1) soft outer glow ring.
+		draw_arc(center, r, 0.0, TAU, 64, Color(HAIL_COL, 0.18 * fade), HAIL_RING_THICKNESS * 1.6, true)
+		draw_arc(center, r, 0.0, TAU, 64, Color(HAIL_COL, 0.35 * fade), HAIL_RING_THICKNESS * 0.8, true)
+
+		# 2) HDR-bright leading edge.
+		draw_arc(center, r, 0.0, TAU, 64, Color(HAIL_CORE_COL, fade), maxf(2.5, HAIL_RING_THICKNESS * 0.16), true)
+
+		# 3) frost crystal sparkles along the ring, slowly rotating.
+		const SPARK_N := 14
+		for i in SPARK_N:
+			var a := TAU * float(i) / float(SPARK_N) + t * 0.6
+			var jr := r + (_slance_hash(float(i) * 7.0 + floor(t * 5.0) * 31.0) - 0.5) * HAIL_RING_THICKNESS * 0.7
+			var p := center + Vector2(cos(a), sin(a)) * jr
+			var spark_size := 2.5 + _slance_hash(float(i) * 3.3) * 2.5
+			draw_circle(p, spark_size, Color(HAIL_SPARK_COL, 0.8 * fade))
+
+		# 4) frost mist trailing just inside the ring.
+		const MIST_N := 10
+		for i in MIST_N:
+			var seed_i := float(i) * 19.0
+			var a2 := TAU * _slance_hash(seed_i)
+			var trail := _slance_hash(seed_i + 4.0) * 40.0   # how far inside the ring this wisp trails
+			var mp := center + Vector2(cos(a2), sin(a2)) * maxf(0.0, r - trail)
+			draw_circle(mp, 6.0 + trail * 0.25, Color(HAIL_MIST_COL, 0.16 * fade))
 
 # ── Wraithfire (splash fireball + burn), Hivemind (minion swarm), Annihilator (charge pierce lance),
 # Event Horizon (growing_zone, Graviton Well's bigger sibling) — batch 3 ─────────────────────────
@@ -2103,7 +2392,11 @@ const DEATHBEAM_RANGE   := 3000.0   # beam length px — runs far off-screen so 
 const DEATHBEAM_BEAM_Z  := 90       # beam draws ON TOP of enemies (z≤4); still under the ship (z 100)
 const DEATHBEAM_DAMAGE  := 22.0     # damage PER TICK
 const DEATHBEAM_TICK    := 0.10     # s between damage ticks (≈ damage/sec = DEATHBEAM_DAMAGE / this)
-const DEATHBEAM_STAGGER := 0.15     # s stagger per tick
+# 2026-08-29 bug fix — same permalock as GAT_STAGGER's own doc comment above (see that one for the full
+# write-up + repro): 0.15 ≥ DEATHBEAM_TICK's 0.10, so anything standing continuously in the beam (or
+# Predator, which fires on this same constant) never got a `_stagger_t <= 0.0` window to move again. Dropped
+# under the tick interval with the same margin.
+const DEATHBEAM_STAGGER := 0.06     # s stagger per tick
 const DEATHBEAM_WIDTH   := 14.0     # beam hit width (px) — matches the beam visual
 const DEATHBEAM_HIT_PAD := 16.0     # enemy-radius padding for the distance-to-line hit test
 const DEATHBEAM_LIGHT        := 5.5 # dust-light value per sample point along the beam (casts light on the dust)
@@ -2306,6 +2599,7 @@ const SFX_ORBITAL_IMPACT: AudioStream = preload("res://assets/audio/sfx/AstroMen
 const SFX_DEATHBEAM_CHARGE: AudioStream = preload("res://assets/audio/sfx/Scifi/blg_beam_01.wav")
 const SFX_DEATHBEAM_BEAM: AudioStream = preload("res://assets/audio/sfx/AstroMenace-SFX/weaponfire14.wav")
 const PickupScript := preload("res://scripts/gameplay/arena_weapon_pickup.gd")
+const ArenaAlwaysPumpScript := preload("res://scripts/gameplay/arena_always_pump.gd")   # see that file's header — keeps ONE per-frame callback alive through Dev Mode's pause
 const OrbChargeScript := preload("res://scripts/gameplay/arena_orb_charge_fx.gd")
 const GatMuzzleScript := preload("res://scripts/gameplay/arena_gatling_muzzle.gd")
 const GaussOrbFX   := preload("res://scripts/gameplay/gauss_orb_fx.gd")   # used for both the orb AND (bigger) the impact burst
@@ -2786,6 +3080,7 @@ var _snake3d_vp: SubViewport = null
 var _snake3d_cam: Camera3D = null
 var _snake3d_layer: TextureRect = null         # world-space child (see SNAKE3D_REGION comment) — recentred on
 												# the player every frame instead of the whole world
+var _snake3d_key_light: DirectionalLight3D = null   # rotated every frame to match the arena's one shared sun — see _update_snake3d_lighting()
 var _snake3d_head: Array = []                  # MeshInstance3D, index by chain — child of _snake3d_head_carrier[i]
 var _snake3d_tail: Array = []                  # MeshInstance3D, index by chain — child of _snake3d_tail_carrier[i]
 var _snake3d_body_base: Transform3D = Transform3D.IDENTITY  # body's fit transform — MultiMesh can't have real
@@ -3385,8 +3680,8 @@ func _process(delta: float) -> void:
 		_fire_prism(delta)
 	if _hail_active and enemy_on_screen:
 		_fire_hailstorm(delta)
-	if not _hail_pellets.is_empty():
-		_tick_hail_pellets(delta)
+	if not _hail_waves.is_empty():
+		_tick_hail_waves(delta)
 	if _wraith_active and enemy_on_screen:
 		_fire_wraithfire(delta)
 	if not _wraith_bolts.is_empty():
@@ -6204,6 +6499,42 @@ func clear_all_weapons() -> void:
 				(anchor as Node2D).visible = false
 	_snake_active    = false;  _snake_init = false;  _snake_pts.clear()
 	_snake2_init = false;  _snake2_pts.clear();  _snake_kills = 0
+	# 2026-08-29 bug fix (report: "nút clear không clear được nhiều loại vũ khí (có lance)") — every weapon
+	# below was added in a later pass and simply never got wired into this function at all: none of their
+	# `_active` flags (or supporting state) were being reset, so CLEAR silently left them running. Found by
+	# diffing every `var _*_active: bool` declaration in this file against what this function actually
+	# touched — this is every single one that was missing, not just Singularity Lance.
+	_gravwell_active = false;  _gravwell_on = false;  _gravwell_cd = 0.0;  _gravwell_age = 0.0;  _gravwell_tick = 0.0
+	_thunder_active  = false;  _thunder_cd = 0.0;  _thunder_chain.clear();  _thunder_chain_age = 0.0
+	_omega_active    = false;  _omega_cd.clear();  _omega_angle = 0.0
+	_slance_active   = false;  _slance_tick = 0.0
+	_prism_active    = false;  _prism_tick = 0.0;  _prism_dirs.clear()
+	_hail_active     = false;  _hail_cd = 0.0;  _hail_waves.clear()
+	_wraith_active   = false;  _wraith_cd = 0.0;  _wraith_bolts.clear()
+	_hive_active     = false;  _hive_bats.clear()
+	_anni_active     = false;  _anni_charge = 0.0;  _anni_bolts.clear();  _anni_shot_age = 0.0
+	_eventh_active   = false;  _eventh_on = false;  _eventh_cd = 0.0;  _eventh_age = 0.0;  _eventh_tick = 0.0
+	_set_eventh_player_shelter(false)   # NOT a plain bool assign — this also restores the player ship's
+										 # modulate (darkened while sheltered), see that setter's own doc note
+	_homing_active   = false;  _homing_acc = 0.0;  _missiles.clear()
+	_toxic_active    = false
+	_singularity_active = false;  _singularity_tick = 0.0;  _singularity_pos.clear()
+	# _singularity_nodes (the 3 void-rift ColorRects) are POOLED — _ensure_singularity_nodes() only ever
+	# builds them once and reuses them via `visible` (same convention as _para_gas_fx just above). Hiding
+	# here, NOT freeing/clearing the array: freeing would desync the array from real (now-dangling) node refs,
+	# and clearing it would make a later re-acquire build a SECOND set on top of the first (which stays
+	# orphaned forever, still parented to self) instead of reusing what already exists.
+	for rift in _singularity_nodes:
+		if is_instance_valid(rift):
+			(rift as ColorRect).visible = false
+	_carnage_active  = false;  _carnage_gat_acc = 0.0;  _carnage_redx_tick = 0.0
+	if _carnage_fire != null and is_instance_valid(_carnage_fire):
+		_carnage_fire.visible = false   # pooled the same way _para_gas_fx/_singularity_nodes are — hide, don't free
+	_vampire_active  = false;  _vampire_init = false;  _vampire_units.clear();  _vampire_rings.clear()
+	_overcharger_active = false
+	_predator_active = false;  _predator_beam_cd = 0.0;  _predator_prev_valid = false
+	if _predator_beam != null and is_instance_valid(_predator_beam):
+		_predator_beam.visible = false   # pooled via _ensure_predator_beam() — same hide-don't-free treatment
 
 # ── Weapon levels (level-up upgrades) ────────────────────────────────────────────
 ## Per-kind level cap — fused weapons get FUSION_BONUS_LEVELS extra levels above MAX_WEAPON_LEVEL.
@@ -9598,6 +9929,15 @@ func _setup_snake_3d() -> void:
 	_snake3d_vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	add_child(_snake3d_vp)
 	rig.build_lighting(_snake3d_vp)
+	# Grab the key light build_lighting() just made (it's added FIRST, before the fill light — see that
+	# function) so an always-pump can re-orient it toward the arena's real sun every frame — see
+	# _update_snake3d_lighting()'s own doc comment. Reading it back off the SubViewport's children rather than
+	# changing build_lighting()'s own signature deliberately keeps this Viper-only: that helper is shared by
+	# Aliwa/Jaeger/Swarmball/shooter/etc, none of which the user asked to also track the sun.
+	for c in _snake3d_vp.get_children():
+		if c is DirectionalLight3D:
+			_snake3d_key_light = c
+			break
 	_snake3d_cam = rig.make_camera(_snake3d_vp, SNAKE3D_REGION)
 
 	_snake3d_head_cal = _read_creep_rot("VIPER head top")
@@ -9667,7 +10007,34 @@ func _setup_snake_3d() -> void:
 	_snake3d_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_snake3d_layer)
 
+	# ALWAYS-processing pump (see ArenaAlwaysPump's own header) — keeps the key light's rotation tracking the
+	# arena's live sun even while Dev Mode/Light Edit pauses the tree. Kept separate from
+	# _snake3d_update_chain()'s own per-frame work on purpose: THAT function also recomputes real chain
+	# segment transforms, which must stay frozen during pause like the rest of gameplay — only this cosmetic
+	# sun-tracking half needs to keep moving.
+	var lighting_pump := ArenaAlwaysPumpScript.new()
+	lighting_pump.tick = Callable(self, "_update_snake3d_lighting")
+	add_child(lighting_pump)
+
 	_snake3d_ready = true
+
+## Key light rotation, derived from the arena's ONE shared sun (arena_enemy_manager.gd's sun_dir()) — see
+## arena.gd's _update_ship_lighting() for the full derivation of the ground-shader-sun → world-space-light-
+## direction mapping this reuses verbatim (X→X, height→Y, the ground's other horizontal axis→Z — not a
+## guess, just what "height above a Y-up ground plane" already means). Driven by an ArenaAlwaysPump so it
+## keeps tracking a live Light Edit change EVEN WHILE Dev Mode has get_tree().paused = true (see that pump's
+## own header). `delta` unused, kept only to match ArenaAlwaysPump's Callable signature.
+func _update_snake3d_lighting(_delta: float) -> void:
+	if _snake3d_key_light == null:
+		return
+	var mgr := get_tree().get_first_node_in_group("enemy_manager")
+	if mgr == null or not mgr.has_method("sun_dir"):
+		return
+	var sun: Vector3 = mgr.call("sun_dir")
+	var world_light_dir := Vector3(sun.x, sun.z, sun.y)
+	if world_light_dir.length() > 0.001:
+		var up := Vector3.UP if absf(world_light_dir.normalized().dot(Vector3.UP)) < 0.999 else Vector3.RIGHT
+		_snake3d_key_light.look_at_from_position(Vector3.ZERO, -world_light_dir, up)
 
 ## Converts a 2D world point + travel angle into a segment's CARRIER transform (2026-08-20, 3rd pass — real
 ## parent-child attachment): position is expressed RELATIVE TO THE PLAYER (not raw world coords) because
@@ -9837,6 +10204,8 @@ func _snake3d_update_chain(chain_idx: int, pts: Array, dir: float) -> void:
 	# Recentre the composite window on the player (world-space child — see _setup_snake_3d's comment).
 	if _snake3d_layer != null and _player != null:
 		_snake3d_layer.position = _player.global_position - Vector2(SNAKE3D_REGION, SNAKE3D_REGION)
+	# Key light rotation is handled by an always-pump instead of here — see _update_snake3d_lighting()'s own
+	# doc comment for why (Dev Mode/Light Edit pause bug).
 
 ## 3D counterpart of _load_snake_plume() — same weapon_layout.cfg/weapon_plume_styles.cfg entries (VIPER head
 ## top/body/Tail), same fraction math, but builds Node3D anchors + CPUParticles3D (_snake3d_rig.make_plume)

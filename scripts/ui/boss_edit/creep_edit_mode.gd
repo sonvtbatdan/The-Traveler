@@ -358,6 +358,27 @@ func _ensure_built() -> void:
 	_load_vortex_styles()
 	_load_led_styles()
 	_update_gameplay_visibility()
+	_apply_default_map_from_arena()
+
+## Open the palette on the map the player is currently in (arena `_map_id`, else MetaManager.selected_map_id)
+## instead of always "Space". Runs once at build time, only if the "Map:" selector is shown and still on its
+## "default" — the user is free to switch afterward. weapon_edit_mode has no selector (`_map_option` null).
+func _apply_default_map_from_arena() -> void:
+	if _map_option == null or _selected_map_id != "default":
+		return
+	var mid := ""
+	var arena := get_tree().get_first_node_in_group("arena")
+	if arena != null and is_instance_valid(arena):
+		mid = String(arena.get("_map_id"))
+	if mid == "" and typeof(MetaManager) != TYPE_NIL:
+		mid = String(MetaManager.selected_map_id)
+	if mid == "" or mid == "default":
+		return
+	for i: int in MAP_REGISTRY.size():
+		if String(MAP_REGISTRY[i]["id"]) == mid:
+			_map_option.selected = i
+			_on_map_selected(i)
+			return
 
 func is_open() -> bool:
 	return _is_open
@@ -645,14 +666,14 @@ func _build_asset_panel() -> void:
 	var glb_hdr := Label.new()
 	glb_hdr.text = "3D VIEW / MOUNT ANGLE"
 	glb_hdr.add_theme_font_size_override("font_size", 11)
-	glb_hdr.modulate = Color(0.65, 0.75, 1.0)
+	glb_hdr.modulate = UiPalette.ACCENT_INK
 	root.add_child(glb_hdr)
 	# 2026-08-22 — the axis convention is invisible from the sliders alone, and getting it wrong wastes a lot
 	# of dragging, so it is spelled out right where it is used. See glb_topdown_rig.gd's axis-space section.
 	var glb_hint := Label.new()
 	glb_hint.text = "X·Y = play plane, Z = vertical (up)"
 	glb_hint.add_theme_font_size_override("font_size", 9)
-	glb_hint.modulate = Color(0.6, 0.62, 0.7)
+	glb_hint.modulate = UiPalette.MUTED
 	root.add_child(glb_hint)
 	var glb_axis_tips: Array = [
 		"Rot X — tilt about the canvas LEFT-RIGHT axis.",
@@ -826,7 +847,7 @@ A thrust point selected: these are ABSOLUTE — the handle position is the angle
 	var vx_hdr := Label.new()
 	vx_hdr.text = "VORTEX POINTS"
 	vx_hdr.add_theme_font_size_override("font_size", 11)
-	vx_hdr.modulate = Color(0.55, 0.80, 1.0)
+	vx_hdr.modulate = UiPalette.ACCENT_INK
 	vx_hdr.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vx_hdr_row.add_child(vx_hdr)
 	var vx_copy := Button.new()
@@ -1045,7 +1066,7 @@ A thrust point selected: these are ABSOLUTE — the handle position is the angle
 	var pe_lbl := Label.new()
 	pe_lbl.text = "PLUME STYLE"
 	pe_lbl.add_theme_font_size_override("font_size", 10)
-	pe_lbl.modulate = Color(0.55, 0.90, 1.0)
+	pe_lbl.modulate = UiPalette.ACCENT_INK
 	pe_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pe_hdr_row.add_child(pe_lbl)
 	var pe_copy := Button.new()
@@ -1481,7 +1502,7 @@ func _build_ctrl_panel() -> void:
 	var xf_hdr := Label.new()
 	xf_hdr.text = "TRANSFORM"
 	xf_hdr.add_theme_font_size_override("font_size", 10)
-	xf_hdr.modulate = Color(0.60, 0.63, 0.76)
+	xf_hdr.modulate = UiPalette.MUTED
 	root.add_child(xf_hdr)
 
 	var pos_row := HBoxContainer.new()
@@ -1567,7 +1588,7 @@ func _add_section(parent: VBoxContainer, text: String) -> void:
 	var lbl := Label.new()
 	lbl.text = text
 	lbl.add_theme_font_size_override("font_size", 11)
-	lbl.modulate = Color(0.60, 0.63, 0.76)
+	lbl.modulate = UiPalette.MUTED
 	parent.add_child(lbl)
 
 func _spin(parent: HBoxContainer, prefix: String, mn: float, mx: float, cb: Callable = Callable()) -> SpinBox:
@@ -1958,7 +1979,7 @@ func _make_layer_row(cname: String, eo: EditableObjectNode, is_child: bool) -> C
 	row.mouse_filter = Control.MOUSE_FILTER_STOP
 
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.25, 0.55, 0.95, 0.45) if is_selected else Color(0.0, 0.0, 0.0, 0.0)
+	style.bg_color = UiPalette.SELECT_WASH if is_selected else Color(0.0, 0.0, 0.0, 0.0)
 	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
 	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
 	row.add_theme_stylebox_override("panel", style)
@@ -2099,10 +2120,13 @@ func _process(_delta: float) -> void:
 	if _is_open and not get_tree().paused:
 		_close()
 
-## Hide the arena HUD + gameplay while the CREEP editor is open (not the Weapon-edit subclass, which needs
-## the ship visible). The arena exposes set_edit_focus().
+## Hide the arena HUD + gameplay and black out the background while this editor is open. Applies to the
+## Creep editor and its Weapon-edit / Ruin-edit subclasses too — each of those keeps its own ship / pickup
+## reference as a placed EditableObject on its layer-9 ObjectsContainer, which sits ABOVE the arena's
+## blackout (CanvasLayer 8), so hiding the world player/enemies/HUD behind it costs them nothing.
+## The arena exposes set_edit_focus().
 func _arena_focus(on: bool) -> void:
-	if _edit_group() != "creep_edit":
+	if not (_edit_group() in ["creep_edit", "weapon_edit", "ruin_edit"]):
 		return
 	var arena := get_tree().get_first_node_in_group("arena")
 	if arena != null and arena.has_method("set_edit_focus"):
@@ -3595,7 +3619,7 @@ func _make_vortex_row(pt: Dictionary, idx: int) -> Control:
 	row.custom_minimum_size = Vector2(0.0, 28.0)
 	row.mouse_filter = Control.MOUSE_FILTER_STOP
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.30, 0.55, 0.95, 0.40) if is_sel else Color(0.0, 0.0, 0.0, 0.0)
+	style.bg_color = UiPalette.SELECT_WASH if is_sel else Color(0.0, 0.0, 0.0, 0.0)
 	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
 	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
 	row.add_theme_stylebox_override("panel", style)
@@ -3669,7 +3693,7 @@ func _refresh_vortex_editor() -> void:
 			_vortex_lbl.modulate = Color(0.55, 0.55, 0.55)
 		elif n <= 1:
 			_vortex_lbl.text = "VX %d" % vx_id
-			_vortex_lbl.modulate = Color(0.55, 0.80, 1.0)
+			_vortex_lbl.modulate = UiPalette.ACCENT_INK
 		else:
 			_vortex_lbl.text = "%d VXs selected" % n
 			_vortex_lbl.modulate = Color(0.75, 0.90, 1.0)
@@ -5237,7 +5261,20 @@ const WIRED_3D_CREEPS := ["VIPER head top", "VIPER body", "VIPER Tail", "Yari-Je
 	# Rotate X/Y/Z + TP XYZ surface every other layer has. Its own mount angle is an authoring convenience
 	# (turn the reference model to a workable angle); the runtime takes the object's orientation from the
 	# PLAYING clip's layer, falling back to "Yari-Jeager" — see _jaeger_clip_pose().
-	"stand"]
+	"stand",
+	# Ruin-drop pickups (2026-08-28, on request: "thêm 1 tab... Ruin... cũng có thanh chỉnh góc xoay, ô
+	# chỉnh kích thước như weapon") — arena_loot.gd now reads their saved rot/rot_base/z/size back on every
+	# spawn (_read_ruin_rot/_read_ruin_z/_read_ruin_size), same as VIPER's own _read_creep_rot/_read_creep_z,
+	# so the sliders and the W/H box drive the real in-game pickup, not just this editor's preview. See
+	# ruin_edit_mode.gd. "shield" joined the other four 2026-08-29 once arena_loot.gd's _collect() actually
+	# grew a "shield" case (GameManager.add_shield(20)) and arena_small_ruin.gd's LOOT_POOL could drop it —
+	# before that there was no runtime to wire the sliders to, per this const's own rule above.
+	"heart", "magnetic", "divinity", "coin", "shield",
+	# The 5 XP orb tiers (2026-08-29, on request: "đặt luôn các orb xp vào bảng ruin để tôi điều chỉnh kích
+	# thước") — arena_xp_orb_manager.gd reads these back too, just through its own _load_ruin_scale()/
+	# _start_spin_bake() instead of arena_loot.gd's per-spawn readers (one shared baked spin-atlas per tier,
+	# not a live model per pickup — see that file's matching 2026-08-29 header note).
+	"green", "yellow", "orange", "red", "purple"]
 # 2026-08-21: "ND-Aliwa-Bmr" added once its own 3D runtime plume actually landed (_setup_aliwa_3d/
 # _load_aliwa_plume_3d in arena_weapons.gd).
 # 2026-08-23: "Swarmball"/"Swarmbot"/"shooter"/"BC-SL-Spore" added on the same terms — arena_weapons.gd's
@@ -5655,7 +5692,7 @@ func _refresh_plume_editor() -> void:
 			_plume_tp_label.modulate = Color(0.55, 0.55, 0.55)
 		elif n == 1:
 			_plume_tp_label.text    = "TP %d" % tp_id
-			_plume_tp_label.modulate = Color(0.55, 0.90, 1.0)
+			_plume_tp_label.modulate = UiPalette.ACCENT_INK
 		else:
 			_plume_tp_label.text    = "%d TPs selected" % n
 			_plume_tp_label.modulate = Color(0.75, 0.90, 1.0)
@@ -5853,7 +5890,7 @@ func _build_chain_controls(root: VBoxContainer) -> void:
 	var hdr := Label.new()
 	hdr.text = "CHAIN (multi-node)"
 	hdr.add_theme_font_size_override("font_size", 10)
-	hdr.modulate = Color(0.60, 0.63, 0.76)
+	hdr.modulate = UiPalette.MUTED
 	_chain_section.add_child(hdr)
 
 	# 2026-08-15, per user request ("không hiển thị description, để tránh làm bảng quá dài"): the explainer

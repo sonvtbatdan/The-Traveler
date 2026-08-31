@@ -96,12 +96,12 @@ func _ready() -> void:
 
 func _apply_style() -> void:
 	_panel_style = StyleBoxFlat.new()
-	_panel_style.bg_color            = Color(0.07, 0.09, 0.13, 0.95)
+	_panel_style.bg_color            = UiPalette.SURFACE
 	_panel_style.border_width_left   = 1
 	_panel_style.border_width_right  = 1
 	_panel_style.border_width_top    = 1
 	_panel_style.border_width_bottom = 1
-	_panel_style.border_color        = Color(0.35, 0.45, 0.65, 0.9)
+	_panel_style.border_color        = UiPalette.WIRE_2
 	_panel_style.corner_radius_top_left     = 6
 	_panel_style.corner_radius_top_right    = 6
 	_panel_style.corner_radius_bottom_left  = 6
@@ -172,10 +172,10 @@ func _build_float_panel() -> void:
 	_float_panel.visible = false
 
 	var ps := StyleBoxFlat.new()
-	ps.bg_color            = Color(0.06, 0.08, 0.14, 0.97)
+	ps.bg_color            = UiPalette.SURFACE
 	ps.border_width_left   = 1; ps.border_width_right  = 1
 	ps.border_width_top    = 1; ps.border_width_bottom = 1
-	ps.border_color        = Color(0.40, 0.55, 0.80, 0.90)
+	ps.border_color        = UiPalette.ACCENT_DIM
 	ps.corner_radius_top_left     = 6; ps.corner_radius_top_right    = 6
 	ps.corner_radius_bottom_left  = 6; ps.corner_radius_bottom_right = 6
 	_float_panel.add_theme_stylebox_override("panel", ps)
@@ -217,7 +217,7 @@ func _build_float_panel() -> void:
 	var tm_lbl := Label.new()
 	tm_lbl.text = MandaloreText.a("Minutes:")
 	tm_lbl.add_theme_font_size_override("font_size", 11)
-	tm_lbl.add_theme_color_override("font_color", Color(0.72, 0.80, 0.95))
+	tm_lbl.add_theme_color_override("font_color", UiPalette.MUTED)
 	tm_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tm_lbl.vertical_alignment    = VERTICAL_ALIGNMENT_CENTER
 	if _gameplay_font: tm_lbl.add_theme_font_override("font", _gameplay_font)
@@ -236,7 +236,7 @@ func _build_float_panel() -> void:
 	_timer_lbl = Label.new()
 	_timer_lbl.text = MandaloreText.a("—")
 	_timer_lbl.add_theme_font_size_override("font_size", 14)
-	_timer_lbl.add_theme_color_override("font_color", Color(0.90, 0.95, 1.0))
+	_timer_lbl.add_theme_color_override("font_color", UiPalette.INK)
 	_timer_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	if _gameplay_font: _timer_lbl.add_theme_font_override("font", _gameplay_font)
 	_timer_box.add_child(_timer_lbl)
@@ -361,7 +361,7 @@ func _process(delta: float) -> void:
 	if over != _hovering:
 		_hovering = over
 		_hover_timer = 0.0
-		_panel_style.bg_color = Color(0.11, 0.14, 0.20, 0.97) if over else Color(0.07, 0.09, 0.13, 0.95)
+		_panel_style.bg_color = UiPalette.SURFACE_3 if over else UiPalette.SURFACE
 	if not _hovering and _expanded:
 		_hover_timer += delta
 		if _hover_timer >= COLLAPSE_DELAY:

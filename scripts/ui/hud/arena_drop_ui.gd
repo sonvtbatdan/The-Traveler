@@ -171,7 +171,7 @@ func _build_ui() -> void:
 	_root.add_child(center)
 	var panel := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.07, 0.08, 0.13, 0.98)
+	sb.bg_color = UiPalette.SURFACE
 	sb.set_corner_radius_all(10)
 	sb.set_content_margin_all(22)
 	panel.add_theme_stylebox_override("panel", sb)
@@ -203,7 +203,7 @@ func _build_ui() -> void:
 func _card() -> VBoxContainer:
 	var pc := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.11, 0.13, 0.19)
+	sb.bg_color = UiPalette.SURFACE_2
 	sb.set_corner_radius_all(6)
 	sb.set_content_margin_all(10)
 	pc.add_theme_stylebox_override("panel", sb)

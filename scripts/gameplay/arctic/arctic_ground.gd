@@ -48,6 +48,10 @@ const WATER_DARKEN_FACTOR := 0.4
 
 var _rect: ColorRect
 var _mat: ShaderMaterial
+# Cached copy of the light_dir this function just computed (2026-08-28) - the single "sun" the player ship's
+# and VIPER's own key lights orient off via arena_enemy_manager.gd's sun_dir(), instead of each guessing its
+# own independent light direction. See sun_dir()'s own doc comment just below.
+var _sun_dir: Vector3 = Vector3(0.6, 0.6, 0.6)   # matches the shader uniform's own default
 var _neutral_normal_tex: ImageTexture = null
 var _canopy_count: int = 4
 
@@ -208,10 +212,20 @@ func apply_canopy_lighting(angle_deg: float, height: float, ambient: float, spec
 	var rad := deg_to_rad(angle_deg)
 	var light_dir := Vector3(cos(rad) * xy_mag, sin(rad) * xy_mag, h)
 	_mat.set_shader_parameter("canopy_light_dir", light_dir)
+	_sun_dir = light_dir
 	_mat.set_shader_parameter("canopy_ambient", ambient)
 	_mat.set_shader_parameter("canopy_specular_strength", specular)
 	_mat.set_shader_parameter("canopy_light_color", color)
 	_mat.set_shader_parameter("canopy_contrast", contrast)
+
+## Public: the live "sun" direction this ground is currently lit by - Vector3(x, y, height), same convention
+## as the shader's own canopy_light_dir uniform (screen-space XY toward the light, Z = how overhead it is, 0 = grazing
+## / 1 = straight down). Read by arena_enemy_manager.gd's _tick_sun() so the player ship's and VIPER's own
+## key lights orient off the SAME direction as THIS map's own Light Edit setting instead of each inventing
+## its own - see that function's header for the full "one sun" rationale (2026-08-28, user report: "neu la 2
+## nguon sang doc lap thi ban dang lam sai, toi can 1 mat troi thoi").
+func sun_dir() -> Vector3:
+	return _sun_dir
 
 func _resize() -> void:
 	var vp_size: Vector2 = get_viewport().get_visible_rect().size

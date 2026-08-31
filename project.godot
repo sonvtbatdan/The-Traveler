@@ -22,6 +22,7 @@ GameManager="*res://scripts/autoload/game_manager.gd"
 AffixManager="*res://scripts/autoload/affix_manager.gd"
 InventoryManager="*res://scripts/autoload/inventory_manager.gd"
 MetaManager="*res://scripts/autoload/meta_manager.gd"
+QuestManager="*res://scripts/autoload/quest_manager.gd"
 HudEditRuntime="*res://scripts/autoload/hud_edit_runtime.gd"
 MandaloreText="*res://scripts/autoload/mandalore_text.gd"
 
@@ -30,6 +31,10 @@ MandaloreText="*res://scripts/autoload/mandalore_text.gd"
 window/size/viewport_width=1440
 window/size/viewport_height=780
 window/stretch/mode="canvas_items"
+
+[gui]
+
+theme/custom="res://assets/ui/theme.tres"
 
 [input]
 

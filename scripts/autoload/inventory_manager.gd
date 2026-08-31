@@ -513,9 +513,12 @@ const ITEM_DEFS: Dictionary = {
 	},
 
 	# ── Aux "field find" tokens — one per arena_aux.gd AUX_DEFS entry (def_id = "aux_" + aux id). Backpack-
-	# representable so a creep-kill field drop (MetaManager.roll_field_drop) can land in Cargo and be
-	# dragged onto an empty AUX slot. Rarity is bucketed from the aux's level-up roll weight (no gameplay
-	# stats live here — the real effect applies through arena_aux.gd once swapped in).
+	# representable so an aux can sit in Cargo and be dragged onto an empty AUX slot (live_slot.gd accepts any
+	# "aux_"-prefixed def_id). Rarity is bucketed from the aux's level-up roll weight (no gameplay stats live
+	# here — the real effect applies through arena_aux.gd once swapped in).
+	# NOTE 2026-08-28: their only producer, MetaManager's creep-kill field drop, is now disabled (see
+	# roll_field_drop's header) — so nothing currently puts one of these in Cargo. Kept because the defs cost
+	# nothing and the drag path still works if a future source (shop tab, salvage choice) wants them.
 	"aux_hp":          {"name": "Reinforcement Plate", "icon": "res://assets/hud/aux perk/hp/hp.png",                 "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "common",    "desc": "+20 Max HP."},
 	"aux_regen":       {"name": "Nanobots",             "icon": "res://assets/hud/aux perk/regen/regen.png",           "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "common",    "desc": "+0.5 HP/s regen."},
 	"aux_armor":       {"name": "Exoskeleton",          "icon": "res://assets/hud/aux perk/armor/armor.png",           "size": Vector2i(1, 1), "tags": ["aux"], "rarity": "common",    "desc": "+2 Armor."},
@@ -667,10 +670,10 @@ const ITEM_DEFS: Dictionary = {
 # weapon chest + F12 pickups, see arena_weapons.gd). The ship also keeps BASE_SHIP_HP/BASE_SHIELD_MAX
 # (game_manager.gd) with zero hull/shield equipped, which was already the shipped baseline.
 #
-# NOTE this only governs what a FRESH profile is seeded with. Mid-run "field drop" loot
-# (meta_manager.gd's roll_field_drop(), 2% per creep kill) still adds items to the backpack during a run —
-# deliberately left alone for now, per "tạm thời skip, chỉ cần make sure khi bắt đầu 1 game mới (hay reset
-# profile) thì inventory trống". Those are marked run-temp and purged at the start of the next run.
+# NOTE this only governs what a FRESH profile is seeded with. The mid-run "field drop" loot that used to keep
+# refilling the backpack anyway (meta_manager.gd's roll_field_drop(), 2% per creep kill, completely silent) is
+# now DISABLED — 2026-08-28, after it made a freshly-reset profile sprout ~6-9 unexplained items, Vipers
+# included, in its first minute on Electric. See roll_field_drop's header for the full write-up.
 const STARTER_ITEMS: Array[String] = []
 
 # The starter BLUEPRINT — a separate concept from STARTER_ITEMS above, and deliberately still gatling_gun.
@@ -893,14 +896,61 @@ func unequip(slot: String) -> bool:
 	inventory_changed.emit()
 	return true
 
-## Payout for scrapping one item instance ("Extract & Dispose"). FLAT $5 (2026-08-25, on request — was $1).
-## TODO: real per-item / affix-based pricing goes here (read the item's def + rolled
-## affixes by uid and compute a value). Keep this the single source of sell pricing — the right-click
-## confirm dialog and the inventory's Extract & Dispose drop slot both read it.
+## "Bring Home" (2026-08-29, on request) — a single-item staging slot for the inventory UI's Bring Home drop
+## target. Same "where" mechanism and single-occupant swap shape as equip()/unequip() above (reuses
+## _send_to_backpack, fires the same item_equipped/item_unequipped signals with slot name "bring_home" so
+## existing listeners need no special-casing) — but this is NOT a real EQUIP_SLOTS gear slot: no stat effect,
+## and deliberately no fits_slot()/meets_requirement() gate (the caller, MetaManager.stage_bring_home(),
+## already restricts this to weapon items before ever calling here). can_place()/_find_free_cell() already
+## treat any where != "backpack" as not occupying a cell, so nothing else needed changes for this to coexist
+## cleanly with the real backpack grid.
+func stage_bring_home(uid: int) -> bool:
+	if not _items.has(uid):
+		return false
+	var occupant := equipped_uid("bring_home")
+	if occupant == uid:
+		return true
+	if occupant != -1:
+		if not _send_to_backpack(occupant):
+			return false   # no room to swap the previous pick back to Cargo
+		item_unequipped.emit("bring_home", occupant)
+	_items[uid]["where"] = "bring_home"
+	save_game()
+	item_equipped.emit("bring_home", uid)
+	inventory_changed.emit()
+	return true
+
+## Send the Bring Home slot's current occupant (if any) back to Cargo — used both for the player dragging it
+## back out by hand (via the generic move_item() path backpack_grid.gd already calls, which needs no changes
+## since it treats every non-"backpack" where identically) and by MetaManager.resolve_bring_home()'s victory
+## path (the item survives a completed run and becomes an ordinary owned item again). A no-op returning true
+## when nothing is staged.
+func release_bring_home() -> bool:
+	var uid := equipped_uid("bring_home")
+	if uid == -1:
+		return true
+	if not _send_to_backpack(uid):
+		return false
+	save_game()
+	item_unequipped.emit("bring_home", uid)
+	inventory_changed.emit()
+	return true
+
+## Payout for scrapping one item instance ("Extract & Dispose"). 2026-08-29, on request ("lượng coin thu
+## được bằng 1/10 giá mua"): 1/10th of MetaManager.blueprint_price(def_id) — the exact same rarity-tiered
+## price the Merchant charges to buy that item, so extracting something never looks arbitrary next to what
+## it would cost to buy back. Was a flat $5 (2026-08-25, itself a bump from $1) before this; EXTRACT_PAYOUT
+## stays as the floor for anything with no meaningful price (an unrecognized def_id → blueprint_price's own
+## 100-default ÷ 10 = 10, well above this floor in practice — kept mainly as a defensive minimum, not the
+## normal case). Keep this the single source of sell pricing — the right-click confirm dialog and the
+## inventory's Extract & Dispose drop slot both read it, so the two routes can never disagree.
 const EXTRACT_PAYOUT := 5
 
 func get_sell_price(uid: int) -> int:
-	return EXTRACT_PAYOUT
+	var def_id := String(_items.get(uid, {}).get("def", ""))
+	if def_id == "":
+		return EXTRACT_PAYOUT
+	return maxi(EXTRACT_PAYOUT, int(round(float(MetaManager.blueprint_price(def_id)) / 10.0)))
 
 ## Sell (delete) an item and pay the player. Works whether the item is in the
 ## backpack or equipped — selling an equipped item just removes it from its slot

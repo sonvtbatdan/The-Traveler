@@ -62,6 +62,20 @@ var _zoom: float = 1.0
 var _drag_panel: Panel = null         # panel currently being dragged by its title bar
 var _drag_off: Vector2 = Vector2.ZERO
 
+# ── Undo (Ctrl+Z) — deep snapshots of _groups/_board_bg/_next_id taken BEFORE each mutating action ──
+const UNDO_MAX := 60
+var _undo_stack: Array = []
+var _last_undo_tag: String = ""       # coalesce rapid repeats of the same op (arrow-nudge, slider drag)
+var _last_undo_ms: int = 0
+
+# ── Canvas drag — the editor drives it (NOT each node's own _gui_input) so a layer selected in the
+# panel is dragged even when a bigger layer (e.g. the board background) sits under the cursor. ──
+var _cdrag_id: int = -2               # -2 = idle · -1 = dragging the selected GROUP · >=0 = child id
+var _cdrag_start_mouse: Vector2 = Vector2.ZERO
+var _cdrag_start_pos: Dictionary = {} # id -> Vector2 (position at grab time)
+var _cdrag_presnap: Dictionary = {}   # undo snapshot captured at grab, pushed on first real move
+var _cdrag_moved: bool = false
+
 # ── Board (which layout / palette / binder this surface authors + shows) ─────────────
 # The editor is board-agnostic: HUD-specific runtime lives in the board's BoardBinder (e.g. hud_binder.gd).
 var _board_id: String = "hud"
@@ -103,6 +117,10 @@ var _txt_color:  ColorPickerButton = null
 var _out_color:  ColorPickerButton = null
 var _out_size:   SpinBox      = null
 var _align_opt:  OptionButton = null
+# board background colour (per board, saved in [meta] bg_color)
+var _bg_color_btn: ColorPickerButton = null
+var _bg_rect:      ColorRect          = null
+var _board_bg:     Color              = Color(0, 0, 0, 0)
 
 # ── Lifecycle ──────────────────────────────────────────────────────────────────────
 
@@ -244,9 +262,178 @@ func _open() -> void:
 	_rebuild_groups_panel()
 
 func _request_close() -> void:
+	# Close does NOT write the cfg — only the Save button does. Unsaved drag/drop edits stay live on the
+	# surface for the rest of the session (until a game restart re-reads the cfg); a toast flags them.
 	if _dirty:
-		_save_layout()
+		show_toast("Closed with unsaved edits — press Save to keep them")
 	_close()
+
+## Reset button: throw away unsaved edits and re-read the board's saved cfg from disk.
+func _reset_to_saved() -> void:
+	_select(-1)
+	if _binder != null:
+		_binder.clear()
+	_undo_stack.clear()
+	_last_undo_tag = ""
+	_end_canvas_drag()
+	_load_layout()
+	_rebuild_nodes()
+	_reassign_z()
+	_sync_bg_ui()
+	_set_gameplay(false)
+	_rebuild_groups_panel()
+	_dirty = false
+	show_toast("Reset to saved " + _layout_load.get_file())
+
+# ── Undo (Ctrl+Z) ──────────────────────────────────────────────────────────────────────
+func _snapshot() -> Dictionary:
+	return {"groups": _groups.duplicate(true), "bg": _board_bg, "next_id": _next_id}
+
+## Push the CURRENT state onto the undo stack — call this BEFORE a mutating edit. `tag` coalesces bursts
+## of the same fine-grained op (arrow-nudge, slider drag) into one undo step within COALESCE_MS.
+func _push_undo(tag: String = "") -> void:
+	if not _is_open or _updating_ui or (_cdrag_id != -2 and _cdrag_moved):
+		return   # not open / mid UI-refresh reentrancy / mid canvas-drag (that pushes its own presnap)
+	var now := Time.get_ticks_msec()
+	if tag != "" and tag == _last_undo_tag and now - _last_undo_ms < 500:
+		_last_undo_ms = now
+		return
+	var snap := _snapshot()
+	if not _undo_stack.is_empty():
+		var top: Dictionary = _undo_stack[-1]
+		if top["bg"] == snap["bg"] and str(top["groups"]) == str(snap["groups"]):
+			_last_undo_tag = tag
+			_last_undo_ms = now
+			return   # no-op edit — nothing to record
+	_last_undo_tag = tag
+	_last_undo_ms = now
+	_undo_stack.append(snap)
+	if _undo_stack.size() > UNDO_MAX:
+		_undo_stack.pop_front()
+
+func _undo() -> void:
+	if _undo_stack.is_empty():
+		show_toast("Nothing to undo")
+		return
+	var snap: Dictionary = _undo_stack.pop_back()
+	_last_undo_tag = ""
+	_end_canvas_drag()
+	_select(-1)
+	_groups = snap["groups"]
+	_board_bg = snap["bg"]
+	_next_id = int(snap["next_id"])
+	_rebuild_nodes()
+	_reassign_z()
+	_sync_bg_ui()
+	_set_gameplay(false)
+	_rebuild_groups_panel()
+	_dirty = true
+	show_toast("Undo")
+
+# ── Canvas drag (editor-managed) ───────────────────────────────────────────────────────
+## True while the pointer is over one of the editor's side panels (drags there are the panel's own).
+func _over_panel(screen_pos: Vector2) -> bool:
+	if _left_panel != null and _left_panel.visible and _left_panel.get_global_rect().has_point(screen_pos):
+		return true
+	if _right_panel != null and _right_panel.visible and _right_panel.get_global_rect().has_point(screen_pos):
+		return true
+	if _ctx_menu != null and _ctx_menu.visible:
+		return true
+	return false
+
+## Topmost placed node whose on-screen rect contains `screen_pos` (highest z_index wins), skipping
+## locked / hidden layers. -1 if none.
+func _topmost_node_at(screen_pos: Vector2) -> int:
+	var best := -1
+	var best_z := -2147483648
+	for id: int in _nodes:
+		if _is_child_locked(id) or not _child_visible(id):
+			continue
+		var n = _nodes[id]
+		if n == null or not is_instance_valid(n):
+			continue
+		if not (n as Control).get_global_rect().has_point(screen_pos):
+			continue
+		var z := (n as CanvasItem).z_index
+		if z >= best_z:
+			best_z = z
+			best = id
+	return best
+
+## LMB press on the canvas: pick the drag target. The SELECTED layer/group wins if the cursor is inside
+## it (so you can grab it anywhere, even over a bigger layer); otherwise select+grab the topmost layer
+## under the cursor. Returns true if a drag was started (caller then consumes the event).
+func _begin_canvas_drag(screen_pos: Vector2) -> bool:
+	_cdrag_id = -2
+	_cdrag_start_pos.clear()
+	_cdrag_moved = false
+	if _sel_id != -1 and not _is_child_locked(_sel_id):
+		var sn = _nodes.get(_sel_id)
+		if sn != null and is_instance_valid(sn) and (sn as Control).get_global_rect().has_point(screen_pos):
+			_cdrag_id = _sel_id
+	if _cdrag_id == -2 and _sel_group != -1:
+		var gr := _group_screen_rect(_sel_group)
+		if gr.size != Vector2.ZERO and gr.has_point(screen_pos):
+			_cdrag_id = -1
+	if _cdrag_id == -2:
+		var hit := _topmost_node_at(screen_pos)
+		if hit == -1:
+			_select(-1)
+			return false
+		_select(hit)
+		_cdrag_id = hit
+	# record start positions
+	if _cdrag_id == -1:
+		for ch: Dictionary in _groups[_sel_group].get("children", []):
+			var n = _nodes.get(int(ch.get("id", -1)))
+			if n != null and is_instance_valid(n):
+				_cdrag_start_pos[int(ch.get("id", -1))] = (n as Control).position
+	else:
+		var n = _nodes.get(_cdrag_id)
+		if n == null or not is_instance_valid(n):
+			_cdrag_id = -2
+			return false
+		_cdrag_start_pos[_cdrag_id] = (n as Control).position
+	_cdrag_start_mouse = screen_pos
+	_cdrag_presnap = _snapshot()
+	return true
+
+func _update_canvas_drag(screen_pos: Vector2) -> void:
+	if _cdrag_id == -2:
+		return
+	var delta := (screen_pos - _cdrag_start_mouse) / maxf(_zoom, 0.001)
+	if not _cdrag_moved:
+		if delta.length() < 1.0:
+			return
+		_cdrag_moved = true
+		_last_undo_tag = ""
+		_undo_stack.append(_cdrag_presnap)
+		if _undo_stack.size() > UNDO_MAX:
+			_undo_stack.pop_front()
+	for id: int in _cdrag_start_pos:
+		var n = _nodes.get(id)
+		if n == null or not is_instance_valid(n):
+			continue
+		var np: Vector2 = (_cdrag_start_pos[id] as Vector2) + delta
+		(n as Control).position = np
+		var loc := _find_child(id)
+		if loc.x >= 0:
+			(_groups[loc.x]["children"] as Array)[loc.y]["pos"] = np
+	_dirty = true
+	_refresh_props()
+
+func _end_canvas_drag() -> void:
+	_cdrag_id = -2
+	_cdrag_start_pos.clear()
+	_cdrag_moved = false
+
+## Screen-space bounding box of a group (its _group_bbox, mapped through the objects-container transform).
+func _group_screen_rect(gi: int) -> Rect2:
+	var bb := _group_bbox(gi)
+	if bb.size == Vector2.ZERO or _objects_container == null:
+		return Rect2()
+	var xf := _objects_container.get_global_transform_with_canvas()
+	return Rect2(xf * bb.position, bb.size * _zoom)
 
 func _close() -> void:
 	_is_open = false
@@ -316,17 +503,28 @@ func _on_zoom_slider_changed(value: float) -> void:
 
 func _scan_fonts() -> void:
 	_font_names.clear()
-	var dir := DirAccess.open(FONTS_FOLDER)
+	_scan_fonts_in("", 0)   # recurse subfolders too (e.g. assets/fonts/ui/, assets/fonts/mandalore/)
+	_font_names.sort()
+
+## `rel` is the path under FONTS_FOLDER (""/"ui"/…); a font in a subfolder is stored as "<rel>/<basename>"
+## so _font_path(fname) → FONTS_FOLDER + fname + ext still resolves it. Depth-capped for safety.
+func _scan_fonts_in(rel: String, depth: int) -> void:
+	if depth > 3:
+		return
+	var dir := DirAccess.open(FONTS_FOLDER + rel)
 	if dir == null:
 		return
 	dir.list_dir_begin()
 	var e := dir.get_next()
 	while e != "":
-		if not dir.current_is_dir() and e.get_extension().to_lower() in ["ttf", "otf", "fnt"]:
-			_font_names.append(e.get_basename())
+		if dir.current_is_dir():
+			if not e.begins_with("."):
+				_scan_fonts_in(("%s/%s" % [rel, e]) if rel != "" else e, depth + 1)
+		elif e.get_extension().to_lower() in ["ttf", "otf", "fnt"]:
+			var base := e.get_basename()
+			_font_names.append(("%s/%s" % [rel, base]) if rel != "" else base)
 		e = dir.get_next()
 	dir.list_dir_end()
-	_font_names.sort()
 
 func _scan_items() -> void:
 	_item_files.clear()
@@ -420,7 +618,7 @@ func _build_left_panel() -> void:
 	title.text = "≡ GROUPS"
 	title.tooltip_text = "Drag to move panel"
 	title.add_theme_font_size_override("font_size", 13)
-	title.modulate = Color(0.60, 0.63, 0.76)
+	title.modulate = UiPalette.MUTED
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.mouse_filter = Control.MOUSE_FILTER_STOP
 	title.gui_input.connect(_on_panel_drag_input.bind(_left_panel))
@@ -491,40 +689,43 @@ func _build_right_panel() -> void:
 	_board_opt.item_selected.connect(_on_board_opt_selected)
 	board_row.add_child(_board_opt)
 
+	# 5 buttons in one row — narrow (font 10 + clip_text) so they all fit. Save is the ONLY thing that
+	# writes the cfg; drag/drop edits stay in memory until then. Reset re-reads the saved cfg (discards
+	# unsaved edits); Reload re-scans the sprite folder for the ITEMS palette.
 	var btn_row := HBoxContainer.new()
-	btn_row.add_theme_constant_override("separation", 3)
+	btn_row.add_theme_constant_override("separation", 2)
 	root.add_child(btn_row)
-	var save_btn := Button.new()
-	save_btn.text = "Save"
-	save_btn.add_theme_font_size_override("font_size", 11)
-	save_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	save_btn.pressed.connect(_save_layout)
-	btn_row.add_child(save_btn)
-	_delete_btn = Button.new()
-	_delete_btn.text = "Delete"
-	_delete_btn.add_theme_font_size_override("font_size", 11)
-	_delete_btn.disabled = true
-	_delete_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_delete_btn.pressed.connect(_delete_selected)
-	btn_row.add_child(_delete_btn)
-	var close_btn := Button.new()
-	close_btn.text = "Close"
-	close_btn.add_theme_font_size_override("font_size", 11)
-	close_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	close_btn.pressed.connect(_request_close)
-	btn_row.add_child(close_btn)
-	# Reload: re-scan the active board's asset folder → add any NEW sprites to the ITEMS palette.
-	var reload_btn := Button.new()
-	reload_btn.text = "Reload"
-	reload_btn.tooltip_text = "Scan the board's sprite folder for new items"
-	reload_btn.add_theme_font_size_override("font_size", 11)
-	reload_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	reload_btn.pressed.connect(_reload_items)
-	btn_row.add_child(reload_btn)
+	var _btn_specs := [
+		["Save", "Write the current layout to the board's cfg", _save_layout],
+		["Delete", "Delete the selected layer / group", _delete_selected],
+		["Reset", "Reload the SAVED cfg — discards unsaved drag/drop edits", _reset_to_saved],
+		["Close", "Close the editor (does NOT save)", _request_close],
+		["Scan", "Re-scan the board's sprite folder for new ITEMS", _reload_items],
+	]
+	for spec: Array in _btn_specs:
+		var b := Button.new()
+		b.text = String(spec[0])
+		b.tooltip_text = String(spec[1])
+		b.add_theme_font_size_override("font_size", 10)
+		# tight horizontal padding so all 5 labels fit unclipped in the narrow panel
+		for st: String in ["normal", "hover", "pressed", "disabled"]:
+			var base := b.get_theme_stylebox(st) as StyleBoxFlat
+			var sb := base.duplicate() if base != null else StyleBoxFlat.new()
+			sb.content_margin_left = 3.0
+			sb.content_margin_right = 3.0
+			b.add_theme_stylebox_override(st, sb)
+		b.clip_text = true
+		b.custom_minimum_size = Vector2(0.0, 0.0)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.pressed.connect(spec[2] as Callable)
+		btn_row.add_child(b)
+		if String(spec[0]) == "Delete":
+			_delete_btn = b
+			_delete_btn.disabled = true
 
 	# ITEMS palette
 	root.add_child(HSeparator.new())
-	_add_label(root, "ITEMS", Color(0.60, 0.63, 0.76))
+	_add_label(root, "ITEMS", UiPalette.MUTED)
 	var pal_scroll := ScrollContainer.new()
 	pal_scroll.custom_minimum_size = Vector2(0.0, 220.0)
 	pal_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -539,7 +740,7 @@ func _build_right_panel() -> void:
 
 	# TRANSFORM
 	root.add_child(HSeparator.new())
-	_add_label(root, "TRANSFORM", Color(0.60, 0.63, 0.76))
+	_add_label(root, "TRANSFORM", UiPalette.MUTED)
 	var pos_row := HBoxContainer.new()
 	pos_row.add_theme_constant_override("separation", 3)
 	root.add_child(pos_row)
@@ -550,6 +751,31 @@ func _build_right_panel() -> void:
 	root.add_child(sz_row)
 	_w_spin = _mk_spin(sz_row, "W", 1.0, 4000.0, _on_w_spin)
 	_h_spin = _mk_spin(sz_row, "H", 1.0, 4000.0, _on_h_spin)
+
+	# BOARD BG — a full-screen colour fill behind every placed item on this board (saved per board in
+	# [meta] bg_color; default fully transparent so existing boards are unchanged). ✕ clears it.
+	var bg_row := HBoxContainer.new()
+	bg_row.add_theme_constant_override("separation", 3)
+	root.add_child(bg_row)
+	var bg_lbl := Label.new()
+	bg_lbl.text = "BG:"
+	bg_lbl.add_theme_font_size_override("font_size", 10)
+	bg_lbl.custom_minimum_size = Vector2(_pfx_w("BG"), 0.0)
+	bg_row.add_child(bg_lbl)
+	_bg_color_btn = ColorPickerButton.new()
+	_bg_color_btn.custom_minimum_size = Vector2(0.0, 22.0)
+	_bg_color_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_bg_color_btn.color = _board_bg
+	_bg_color_btn.color_changed.connect(_on_bg_color_changed)
+	bg_row.add_child(_bg_color_btn)
+	var bg_clear := Button.new()
+	bg_clear.text = "✕"
+	bg_clear.tooltip_text = "Clear background colour (transparent)"
+	bg_clear.add_theme_font_size_override("font_size", 10)
+	bg_clear.pressed.connect(func() -> void:
+		_bg_color_btn.color = Color(0, 0, 0, 0)
+		_on_bg_color_changed(Color(0, 0, 0, 0)))
+	bg_row.add_child(bg_clear)
 
 	# Zoom (canvas) — slider + mouse wheel, like creep edit
 	var zoom_row := HBoxContainer.new()
@@ -639,7 +865,7 @@ func _build_right_panel() -> void:
 	_text_section.add_theme_constant_override("separation", 4)
 	root.add_child(_text_section)
 	_text_section.add_child(HSeparator.new())
-	_add_label(_text_section, "TEXT", Color(0.55, 0.90, 1.0))
+	_add_label(_text_section, "TEXT", UiPalette.ACCENT_INK)
 
 	_txt_edit = LineEdit.new()
 	_txt_edit.placeholder_text = "text…"
@@ -686,6 +912,31 @@ func _add_label(parent: Control, text: String, col: Color) -> void:
 	lbl.add_theme_font_size_override("font_size", 11)
 	lbl.modulate = col
 	parent.add_child(lbl)
+
+func _on_bg_color_changed(c: Color) -> void:
+	_push_undo("bg")
+	_board_bg = c
+	_apply_board_bg()
+	_dirty = true
+
+## Full-screen ColorRect drawn behind every placed item — a SIBLING of _objects_container (added to its
+## parent CanvasLayer at z −4096) so canvas zoom/pan never moves it. Created lazily; the colour is the
+## board's [meta] bg_color (default fully transparent = no change). Also runs for a runtime-only host.
+func _apply_board_bg() -> void:
+	if _objects_container == null:
+		return
+	if _bg_rect == null or not is_instance_valid(_bg_rect):
+		var host := _objects_container.get_parent()
+		if host == null:
+			return
+		_bg_rect = ColorRect.new()
+		_bg_rect.name = "BoardBgColor"
+		_bg_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_bg_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_bg_rect.z_index = -4096
+		host.add_child(_bg_rect)
+		host.move_child(_bg_rect, 0)
+	_bg_rect.color = _board_bg
 
 func _mk_spin(parent: HBoxContainer, prefix: String, mn: float, mx: float, cb: Callable) -> SpinBox:
 	var lbl := Label.new()
@@ -794,6 +1045,7 @@ func _child_icon(ch: Dictionary) -> Texture2D:
 # ── Group operations ───────────────────────────────────────────────────────────────
 
 func _add_group() -> void:
+	_push_undo()
 	_groups.append({"name": "Group %d" % (_groups.size() + 1), "children": [], "collapsed": false, "locked": false})
 	_dirty = true
 	_rebuild_groups_panel()
@@ -814,6 +1066,7 @@ func _toggle_group_collapsed(gi: int) -> void:
 
 ## Lock: a locked group can't be selected/moved/resized and its children can't be dragged on canvas.
 func _toggle_group_locked(gi: int) -> void:
+	_push_undo()
 	if gi < 0 or gi >= _groups.size():
 		return
 	var now_locked := not bool(_groups[gi].get("locked", false))
@@ -838,6 +1091,7 @@ func _dup_child(ch: Dictionary) -> Dictionary:
 
 ## Reorder: move group at `from` to sit before group at `to`.
 func move_group(from: int, to: int) -> void:
+	_push_undo()
 	if from == to or from < 0 or from >= _groups.size():
 		return
 	var g: Dictionary = _groups[from]
@@ -879,6 +1133,7 @@ func show_child_context(gi: int, child_id: int, screen_pos: Vector2) -> void:
 	_ctx_menu.popup()
 
 func _on_ctx_id(id: int) -> void:
+	_push_undo()
 	if _ctx_kind == "group":
 		if _ctx_gi < 0 or _ctx_gi >= _groups.size():
 			return
@@ -907,6 +1162,7 @@ func _on_ctx_id(id: int) -> void:
 				_delete_child(_ctx_id)
 
 func _rename_group(gi: int) -> void:
+	_push_undo()
 	var dlg := AcceptDialog.new()
 	dlg.title = "Group name"
 	dlg.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -928,6 +1184,7 @@ func _rename_group(gi: int) -> void:
 	le.select_all()
 
 func _delete_group(gi: int) -> void:
+	_push_undo()
 	if gi < 0 or gi >= _groups.size():
 		return
 	for ch: Dictionary in _groups[gi].get("children", []):
@@ -938,6 +1195,7 @@ func _delete_group(gi: int) -> void:
 	_rebuild_groups_panel()
 
 func _add_text_to_group(gi: int) -> void:
+	_push_undo()
 	var ch := {
 		"id": _next_id, "type": "text",
 		"text": "Text", "font": (_font_names[0] if not _font_names.is_empty() else ""),
@@ -956,6 +1214,7 @@ func _add_text_to_group(gi: int) -> void:
 
 ## Add a palette item as a new instance to group gi (at child index ci, or top if ci<0).
 func drop_item_file(file: String, gi: int, ci: int) -> void:
+	_push_undo()
 	if gi < 0 or gi >= _groups.size():
 		return
 	var ch := {
@@ -983,6 +1242,7 @@ func _default_item_size(file: String) -> Vector2:
 
 ## Move a child (identified by id) so it lands in group gi before child index ci (ci<0 = append at top).
 func relocate_child(child_id: int, to_gi: int, to_ci: int) -> void:
+	_push_undo()
 	var loc := _find_child(child_id)
 	if loc.x < 0 or to_gi < 0 or to_gi >= _groups.size():
 		return
@@ -1057,6 +1317,7 @@ func _child_visible(child_id: int) -> bool:
 
 ## Eye toggle: show/hide a layer (persists; the node is hidden in gameplay too).
 func _toggle_child_visible(child_id: int) -> void:
+	_push_undo()
 	var loc := _find_child(child_id)
 	if loc.x < 0:
 		return
@@ -1143,6 +1404,7 @@ func _refresh_props() -> void:
 # ── Property edits ───────────────────────────────────────────────────────────────────
 
 func _on_transform_spin() -> void:
+	_push_undo("xform")
 	if _updating_ui:
 		return
 	if _sel_group != -1:
@@ -1158,6 +1420,7 @@ func _on_transform_spin() -> void:
 	_dirty = true
 
 func _on_w_spin() -> void:
+	_push_undo("xform")
 	if _updating_ui:
 		return
 	if _sel_group != -1:
@@ -1171,6 +1434,7 @@ func _on_w_spin() -> void:
 	_apply_size_to_selected()
 
 func _on_h_spin() -> void:
+	_push_undo("xform")
 	if _updating_ui:
 		return
 	if _sel_group != -1:
@@ -1265,6 +1529,7 @@ func _apply_size_to_selected() -> void:
 	_dirty = true
 
 func _on_opacity_changed(value: float) -> void:
+	_push_undo("opacity")
 	if _updating_ui:
 		return
 	var op: float = clampf(value / 100.0, 0.0, 1.0)
@@ -1287,6 +1552,7 @@ func _on_opacity_changed(value: float) -> void:
 	_dirty = true
 
 func _on_blend_selected(idx: int) -> void:
+	_push_undo()
 	if _updating_ui:
 		return
 	var ch := _selected_child()
@@ -1301,6 +1567,7 @@ func _on_blend_selected(idx: int) -> void:
 ## GROW dropdown (bar bands only): store the grow direction on the child; it drives the fill's
 ## `grow_dir` shader uniform in gameplay (fills are runtime-only, so no live editor preview).
 func _on_grow_selected(idx: int) -> void:
+	_push_undo()
 	if _updating_ui:
 		return
 	var ch := _selected_child()
@@ -1310,6 +1577,7 @@ func _on_grow_selected(idx: int) -> void:
 	_dirty = true
 
 func _on_text_field_changed() -> void:
+	_push_undo("text")
 	if _updating_ui:
 		return
 	var ch := _selected_child()
@@ -1339,6 +1607,7 @@ func _delete_selected() -> void:
 		_delete_child(_sel_id)
 
 func _delete_child(child_id: int) -> void:
+	_push_undo()
 	var loc := _find_child(child_id)
 	if loc.x < 0:
 		return
@@ -1512,6 +1781,7 @@ func _save_layout() -> void:
 	cfg.set_value("meta", "version", 1)
 	cfg.set_value("meta", "next_id", _next_id)
 	cfg.set_value("meta", "board", _board_id)
+	cfg.set_value("meta", "bg_color", _board_bg)
 	cfg.set_value("hud", "groups", _groups)
 	# Ensure the target folder exists (config/boards/…) before saving.
 	var save_path := _layout_save if _layout_save != "" else _layout_load
@@ -1528,15 +1798,25 @@ func _load_layout() -> void:
 	if load_path == "" or cfg.load(load_path) != OK:
 		_groups = []
 		_next_id = 1
+		_board_bg = Color(0, 0, 0, 0)
+		_sync_bg_ui()
 		return
 	var data = cfg.get_value("hud", "groups", [])
 	if data is Array:
 		_groups = data
 	_next_id = int(cfg.get_value("meta", "next_id", 1))
+	_board_bg = cfg.get_value("meta", "bg_color", Color(0, 0, 0, 0))
+	_sync_bg_ui()
 	# Safety: ensure unique ids / next_id is past every existing id.
 	for g: Dictionary in _groups:
 		for ch: Dictionary in g.get("children", []):
 			_next_id = maxi(_next_id, int(ch.get("id", 0)) + 1)
+
+## Push _board_bg to both the live ColorRect and the picker button (called on every board load/switch).
+func _sync_bg_ui() -> void:
+	_apply_board_bg()
+	if _bg_color_btn != null and is_instance_valid(_bg_color_btn):
+		_bg_color_btn.color = _board_bg
 
 # ── Input: arrow-nudge selected node ───────────────────────────────────────────────────
 
@@ -1557,6 +1837,24 @@ func _input(event: InputEvent) -> void:
 				and not (event as InputEventMouseButton).pressed:
 			_drag_panel = null
 		return
+	# Canvas drag (editor-managed) — LMB press picks the target (selected layer wins over what's under the
+	# cursor), motion moves it, release ends it. Consumes the event so a node's own _gui_input can't also
+	# grab a DIFFERENT (bigger) layer underneath.
+	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		var lb := event as InputEventMouseButton
+		if lb.pressed:
+			if not _over_panel(lb.position) and _begin_canvas_drag(lb.position):
+				get_viewport().set_input_as_handled()
+			return
+		else:
+			if _cdrag_id != -2:
+				_end_canvas_drag()
+				get_viewport().set_input_as_handled()
+			return
+	if event is InputEventMouseMotion and _cdrag_id != -2:
+		_update_canvas_drag((event as InputEventMouseMotion).position)
+		get_viewport().set_input_as_handled()
+		return
 	# Mouse-wheel zoom (ignore when the cursor is over a panel).
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
@@ -1568,7 +1866,15 @@ func _input(event: InputEvent) -> void:
 			_apply_zoom(mb.position)
 			get_viewport().set_input_as_handled()
 		return
-	if _sel_id == -1 or not (event is InputEventKey) or not (event as InputEventKey).pressed:
+	if not (event is InputEventKey) or not (event as InputEventKey).pressed:
+		return
+	# Ctrl+Z — undo the last edit (works regardless of selection).
+	if (event as InputEventKey).keycode == KEY_Z and (event as InputEventKey).ctrl_pressed \
+			and not (event as InputEventKey).shift_pressed:
+		_undo()
+		get_viewport().set_input_as_handled()
+		return
+	if _sel_id == -1:
 		return
 	var ke := event as InputEventKey
 	var dir := Vector2.ZERO
@@ -1583,6 +1889,7 @@ func _input(event: InputEvent) -> void:
 		dir *= 10.0
 	var n = _nodes.get(_sel_id, null)
 	if n != null and is_instance_valid(n):
+		_push_undo("nudge")
 		(n as Control).position += dir
 		var loc := _find_child(_sel_id)
 		if loc.x >= 0:
@@ -1613,10 +1920,10 @@ class _PaletteCell extends Panel:
 	func _init() -> void:
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(0.10, 0.12, 0.16, 0.9)
+		sb.bg_color = UiPalette.SURFACE_2
 		sb.set_corner_radius_all(4)
 		sb.set_border_width_all(1)
-		sb.border_color = Color(0.3, 0.4, 0.55)
+		sb.border_color = UiPalette.WIRE_2
 		add_theme_stylebox_override("panel", sb)
 	func set_icon(tex: Texture2D) -> void:
 		_tr = TextureRect.new()
@@ -1702,11 +2009,11 @@ class _GroupRow extends Panel:
 	func _restyle() -> void:
 		var sb := StyleBoxFlat.new()
 		if _selected:
-			sb.bg_color = Color(0.28, 0.50, 0.85, 0.95)
+			sb.bg_color = UiPalette.SELECT_WASH
 		elif locked:
 			sb.bg_color = Color(0.22, 0.16, 0.16, 0.95)
 		else:
-			sb.bg_color = Color(0.16, 0.20, 0.30, 0.95)
+			sb.bg_color = UiPalette.SURFACE_3
 		sb.set_corner_radius_all(3)
 		add_theme_stylebox_override("panel", sb)
 	func _on_input(event: InputEvent) -> void:
@@ -1792,7 +2099,7 @@ class _ChildRow extends Panel:
 		_lbl.modulate = Color(1.0, 1.0, 1.0) if vis else Color(0.55, 0.57, 0.62)
 	func _restyle() -> void:
 		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(0.25, 0.55, 0.95, 0.45) if _sel else Color(0.08, 0.10, 0.14, 0.6)
+		sb.bg_color = UiPalette.SELECT_WASH if _sel else Color(0.08, 0.10, 0.09, 0.6)
 		sb.set_corner_radius_all(3)
 		add_theme_stylebox_override("panel", sb)
 	func set_selected(on: bool) -> void:

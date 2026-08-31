@@ -17,7 +17,8 @@ extends Node2D
 ## arena_loot/arena_chest/item_3d_icon each keep one.
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
-const SIZE          := 14.0                       # icon radius px
+## 2026-08-28, on request ("cac icon drop (divinity, cac weapon, magnetic, coin...) cho to len 300% so voi hien tai"): every on-screen display size below (SIZE/MODEL_WIDTH) is x3 its old value. VP_SIZE (the 3D SubViewport render resolution, for types with a .glb - heart/magnetic/divinity here) is bumped x2, not x3, alongside it: at the OLD size the model was rendered SMALLER than its render target (a downscale, always sharp), so a flat x3 display bump with an unchanged VP_SIZE would upscale the render by 2-3x and read visibly blurry. x2 keeps the render close to 1:1 with the new display size without tripling the per-instance GPU cost for cosmetic-only sharpness. Every glow/halo already reads off these same constants (SIZE/_draw_size/ICON_W), so it scales for free - COLLECT_RANGE/RADIUS (the actual pickup gameplay) is untouched, this is purely visual.
+const SIZE          := 42.0                       # 14 x3 — icon radius px
 const GLOW          := 1.0                        # glow intensity
 const COLLECT_RANGE := 46.0                        # fly within this to grab it
 const BOB_AMP       := 4.0
@@ -50,9 +51,9 @@ const DEFAULT_STYLE := {"color": Color(0.8, 0.8, 0.8), "ring": Color(0.95, 0.95,
 
 const Item3DIcon := preload("res://scripts/ui/hud/item_3d_icon.gd")   # warm_scene() only — no Control is made here
 
-const VP_SIZE      := 64        # 3D render resolution — small on purpose, matches arena_loot.gd's
+const VP_SIZE      := 128       # 3D render resolution — x2 alongside the x3 display bump, see NOTE above
 const ISO_DEG      := 30.0      # camera tilt — matches arena_loot.gd / arena_chest.gd
-const MODEL_WIDTH  := 40.0      # on-screen px for the model (bigger than the SIZE*2 crate — a weapon drop
+const MODEL_WIDTH  := 120.0     # 40 x3 — on-screen px for the model (bigger than the SIZE*2 crate — a weapon drop
                                 # is a bigger deal than a heart, and the silhouette needs the room to read)
 const MODEL_RPM    := 10.0      # idle spin
 const MODEL_SPIN   := deg_to_rad(MODEL_RPM * 360.0 / 60.0)   # rad/s

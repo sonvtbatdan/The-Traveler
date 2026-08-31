@@ -92,12 +92,34 @@ static func fleet_unit_ids(fleets: Array, fleet_name: String) -> Array:
 		return ids
 	return []
 
-## Combined RAW def HP of one whole formation — NOT the runtime-applied ENEMY_HP_TUNE / "lvl" / Beacon /
-## Elite multipliers, which depend on player state. Same base-line convention every editor HP readout uses.
+## MUST match arena_enemy.gd's own const — the ×2 HP every non-"boss_stub" enemy gets in configure().
+const ENEMY_HP_TUNE := 2.0
+
+## One creep's HP **as it appears on the live field** — `hp` × any `blob` count × ENEMY_HP_TUNE. This is
+## exactly what a spawned creep's `hp_max` is and what the perf overlay's "Total HP" readout sums, so a
+## milestone `hp_targets` value composed against this = the number you actually see in that window.
+## (2026-09-01, user report: F7 said 5000 for the first 30s but the live readout showed 11.4k — the ×2
+## tune wasn't folded in, and low-count catch-up was flooding the field on top; catch-up is now off
+## whenever hp_targets is set — see arena_wave_director_v2._tick_low_count_watch.)
+## Does NOT count `death_spawn` / `magma_split` — those become their OWN live creeps when they spawn and are
+## summed then; they just mean a stone/magma window ramps ABOVE its target as the player fights through it.
+## Still no "lvl"/Beacon (player-state, unknowable at authoring time — and `lvl` is off the Volcanic roster).
+## `with_blob` — false inside a fleet (rigid dock spawns one creep per slot, ignoring the type's own blob).
+static func effective_hp(id: String, defs: Dictionary, with_blob: bool = true) -> float:
+	var d: Dictionary = defs.get(id, {})
+	if d.is_empty():
+		return 0.0
+	var hp := float(d.get("hp", 0.0)) * ENEMY_HP_TUNE
+	if with_blob:
+		hp *= float(maxi(1, int(d.get("blob", 1))))
+	return hp
+
+## Combined live-field HP of one whole formation — see effective_hp(). No `blob` expansion (fleet slots
+## spawn one creep each). Still no player-state multipliers.
 static func fleet_hp(fleets: Array, fleet_name: String, defs: Dictionary) -> float:
 	var total := 0.0
 	for id: String in fleet_unit_ids(fleets, fleet_name):
-		total += float((defs.get(id, {}) as Dictionary).get("hp", 0.0))
+		total += effective_hp(id, defs, false)
 	return total
 
 ## How many ranged units ONE deployment of this formation puts on the field — so a caller enforcing a

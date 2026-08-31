@@ -60,6 +60,97 @@ var _jf_flock_center: Vector2 = Vector2.ZERO
 var _jf_flock_valid: bool = false
 var _jf_flock_acc: float = 0.0
 
+# ── The ONE sun — single shared light direction for the 3D objects' own lighting ─────────────────────────
+# (2026-08-28, user report: "Ánh sáng đang cast qua object 3D này có phải ánh sáng trong Light Edit ko? Nếu
+# là 2 nguồn sáng độc lập thì bạn đang làm sai, tôi cần 1 mặt trời thôi" — the player ship's and VIPER's own
+# key lights used to be a hand-picked constant, completely disconnected from the map's REAL, player-
+# configurable sun: each terrain's Light Edit panel (electric/volcanic/atlantic/arctic/mechanic_light_edit.gd)
+# already drives a real light direction into that map's own ground shader (canopy_light_dir / ground_light_dir
+# — identical Vector3(cos(angle)*xy_mag, sin(angle)*xy_mag, height) formula in every one of the 5 *_ground.gd
+# files, just renamed canopy_*/ground_* per map). That WAS the second, independent light source the report
+# correctly called out.
+#
+# Fix: every *_ground.gd caches that same computed Vector3 and exposes it back via a public sun_dir() — see
+# that function's own doc comment in e.g. electric_ground.gd. THIS function polls whichever one of the 5
+# map-ground groups is actually alive right now (only one ever is, per run) and caches ITS sun_dir() here, so
+# arena.gd's ship key light and arena_weapons.gd's VIPER key light both orient off the exact same Vector3 —
+# genuinely one sun, not two coincidentally similar ones. Falls back to SUN_DEFAULT (matching the ground
+# shader's own uniform default) on a map with no ground node at all (Default/Space).
+#
+# 2026-08-28, later same day, on request ("bỏ chế độ đổ bóng đi, cả 2D và 3D, xóa hẳn code. Vẫn giữ lại cái
+# ánh sáng chiếu lên object 3D"): the earlier drop-shadow feature this system ALSO used to feed (arena_enemy.
+# gd's creep blob shadow, arena.gd's ship shadow sprite, arena_weapons.gd's VIPER shadow layer, and this
+# file's own sun_offset_2d() helper) has been removed outright, code and all — sun_dir() below is untouched
+# and still the single source both 3D key lights read.
+const SUN_RECALC_EVERY := 1.0   # seconds — a "sun" a player is actively dragging a Light Edit slider on is
+                                 # the only thing that ever changes this; no light needs frame-perfect tracking
+const SUN_GROUND_GROUPS := ["electric_ground", "volcanic_ground", "atlantic_ground", "arctic_ground", "mechanic_ground"]
+const SUN_DEFAULT := Vector3(0.6, 0.6, 0.6)   # matches every *_ground.gdshader's own uniform default
+var _sun_dir: Vector3 = SUN_DEFAULT
+var _sun_acc: float = 0.0
+
+func _tick_sun(delta: float) -> void:
+	_sun_acc += delta
+	if _sun_acc < SUN_RECALC_EVERY:
+		return
+	_sun_acc = 0.0
+	for grp: String in SUN_GROUND_GROUPS:
+		var ground := get_tree().get_first_node_in_group(grp)
+		if ground != null and is_instance_valid(ground) and ground.has_method("sun_dir"):
+			_sun_dir = ground.call("sun_dir")
+			return
+	_sun_dir = SUN_DEFAULT   # no map ground this run (Default/Space) — fixed, still-consistent fallback
+
+## Public: the arena's one live sun direction, Vector3(x, y, height) — same convention as the ground shaders'
+## own light_dir (screen-space XY toward the light, Z = how overhead: 0 grazing, 1 straight down). Read by
+## arena.gd's/arena_weapons.gd's key-light rotation (_update_ship_lighting()/_update_snake3d_lighting()).
+func sun_dir() -> Vector3:
+	return _sun_dir
+
+# ── Ambient Pack/Fleet regrouping — organically-spawned same-species creeps drift together mid-run ────────
+# (2026-08-28, on request: "khi các creep cùng chủng loại xuất hiện trên màn hình, chúng sẽ có xu hướng form
+# lại thành các pack (bầy đàn đi chung hỗn độn) hoặc các fleet (form theo dạng fleet)... tùy thuộc số lượng
+# các enemy đang có sẵn trên map"). Generalizes the jetfighter flock above from one hardcoded `_type` to
+# every plain "chase"-behavior creep, and adds a second, stronger tier on top of it:
+#   • FLEET — a same-species cluster of PACK_FLEET_MIN_SIZE..PACK_FLEET_MAX_SIZE mutually-close, still-
+#     independent creeps is rigidly assembled into a real Fleet Edit-style formation: the member nearest the
+#     player becomes the flagship carrier and keeps running its own normal "chase" steering completely
+#     unmodified (real creep movement, not a scripted path); every other member is docked onto it via
+#     arena_enemy.gd's add_existing_fleet_escort() — the SAME rigid-dock / speed-capped-catch-up machinery an
+#     authored Fleet Edit formation gets from init_fleet_dock() (arena_wave_director_v2.gd's _deploy_fleet()),
+#     just fed a shape synthesized on the spot (_fleet_wedge_offsets()) instead of one hand-placed in the
+#     Fleet Edit UI — no fleet_layout.cfg entry exists (or reasonably could — see that function's own doc
+#     comment) for an ad-hoc same-species cluster of an arbitrary size that only exists because of how a run
+#     happened to unfold. Docking each escort at its DESIRED slot (not its current position) is what makes
+#     the assembly read as flying INTO formation — _fleet_update_dock_positions()'s existing speed-capped
+#     chase closes the gap over a couple of seconds instead of snapping.
+#   • PACK — every eligible "chase" creep NOT (yet) claimed by a fleet this pass gets a soft cohesion pull
+#     toward its own species' shared centroid — exactly the jetfighter flock's mechanic, just keyed per
+#     `_type` instead of one hardcoded id (see pack_center()/pack_valid(), read from arena_enemy.gd's "chase"
+#     case via PACK_WEIGHT/PACK_HOLD_R). This is the "hỗn độn" loose-crowd half of the request: no minimum
+#     size, no formation shape — creeps just visibly drift toward each other's general vicinity.
+# Both tiers re-run every PACK_FLEET_INTERVAL: as more of a species spawns in, yesterday's loose pack members
+# graduate into today's fleet; when a fleet's carrier dies its escorts release (arena_enemy.gd's existing
+# _die() → _release_all_docks(), unconditional for every enemy, already covers this) and fall straight back
+# into the pack pool on the very next pass — no extra bookkeeping needed here for that.
+#
+# Scope is deliberately narrow (2026-08-28, per explicit choice over the broader "every steering behavior"
+# option): ONLY behavior == "chase" is eligible, on both sides. Excluded: elite/champion/final-boss (their own
+# milestone-encounter reward flow, see arena_enemy.gd's _is_elite/_is_champion), boss_stub (shares the "chase"
+# match case for its non-metalfly fallback move but is checked separately), centipede (already has its own
+# chain-body formation), mothership/fleet-docked escorts and existing carriers (already mid-formation), and
+# every specialized steering behavior (steer_chaser/steer_flanker/steer_kiter/bomber/beamer/etc.) — those
+# already have their own bespoke movement feel that an added cohesion/dock bias would fight against.
+const PACK_FLEET_INTERVAL  := 2.5     # seconds between regroup passes — clustering costs more than the flat
+                                       # flock centroid above, so this deliberately runs slower than JF_FLOCK_RECALC_EVERY
+const PACK_FLEET_MIN_SIZE  := 4       # minimum same-species cluster that graduates into a fleet
+const PACK_FLEET_MAX_SIZE  := 9       # largest procedural fleet this forms in one pass (request: "4,5,6,7,8,9... con")
+const PACK_FLEET_CLUSTER_R := 260.0   # same-species creeps within this of a cluster's seed count as "close
+                                       # enough" to fleet together
+var _pack_fleet_acc: float = 0.0
+var _pack_centers: Dictionary = {}    # type_id -> Vector2 — this pass's shared cohesion target per species
+var _pack_valid: Dictionary = {}      # type_id -> bool
+
 var _hit_player: AudioStreamPlayer = null
 var _hit_flash_rect: ColorRect = null
 var _hit_flash_mat: ShaderMaterial = null
@@ -106,6 +197,16 @@ var _sep_grid:  Dictionary = {}
 
 func _ready() -> void:
 	add_to_group("enemy_manager")
+	# ALWAYS, not the default INHERIT — SPECIFICALLY so _tick_sun() (see below) keeps tracking the map's live
+	# Light Edit sun even while Dev Mode pauses the tree (arena_hud_buttons.gd's set_dev_mode() does
+	# `get_tree().paused = true`, and Light Edit is a Dev Mode-only panel — a slider drag would otherwise
+	# visibly do nothing to the ship's/VIPER's key lights until the tester closed the panel, 2026-08-28 bug
+	# report: "sao tôi chỉnh light height và các slider khác, bóng đổ lên terrain của player vẫn ko thay đổi
+	# nhỉ" — filed against the drop-shadow feature that report's fix fed, since removed outright). _process()
+	# below immediately early-returns into everything ELSE this manager does (bullets, separation, pack/fleet,
+	# explosions) once paused, so real gameplay simulation stays exactly as frozen as before this change —
+	# only the cosmetic sun cache keeps refreshing.
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	process_priority = 100   # run the separation pass AFTER every enemy has moved this physics frame
 	z_index = -1   # bullets/explosions just under the player/enemies
 	_player = get_tree().get_first_node_in_group("player")
@@ -249,6 +350,11 @@ func _tick_separation() -> void:
 			(_sep_nodes[i] as Node2D).global_position += pv
 
 func _process(delta: float) -> void:
+	# Runs ALWAYS now (see _ready()) so the sun cache survives Dev Mode's pause — but everything below this
+	# point is real gameplay simulation, which must stay exactly as frozen as it was before that change.
+	_tick_sun(delta)
+	if get_tree().paused:
+		return
 	_now += delta
 	_update_vis_rect()
 	_enemy_count = get_tree().get_node_count_in_group("arena_enemy")   # cached for the plume density LOD
@@ -262,6 +368,7 @@ func _process(delta: float) -> void:
 	_tick_bullets(delta)
 	_sync_jf_multimesh()
 	_tick_jf_flock(delta)
+	_tick_pack_fleet(delta)
 	_tick_explosions(delta)
 	queue_redraw()
 	if _hit_flash_rect != null:
@@ -299,6 +406,157 @@ func jf_flock_center() -> Vector2:
 
 func jf_flock_valid() -> bool:
 	return _jf_flock_valid
+
+## Regroup pass — see this section's header (above the consts/vars) for the full pack/fleet design. Buckets
+## every FLEET/PACK-eligible creep by species (`_type`), tries to graduate each species' own cluster(s) into
+## a rigid fleet via _form_fleets(), and turns whatever's left into that species' pack cohesion centroid.
+## O(alive) to bucket + O(k²) per species for clustering (k = that species' own live count, not the whole
+## field — see _form_fleets' doc comment) — throttled to PACK_FLEET_INTERVAL, so this is a few-times-a-second
+## cost at most, not a per-frame one.
+func _tick_pack_fleet(delta: float) -> void:
+	_pack_fleet_acc += delta
+	if _pack_fleet_acc < PACK_FLEET_INTERVAL:
+		return
+	_pack_fleet_acc = 0.0
+	var by_type: Dictionary = {}   # type_id -> Array[Node2D], every eligible live member of that species
+	for e in get_tree().get_nodes_in_group("arena_enemy"):
+		if not is_instance_valid(e):
+			continue
+		if String(e.get("behavior")) != "chase":
+			continue   # scope: plain "chase" only — see this section's header
+		if bool(e.get("_is_elite")) or bool(e.get("_is_champion")) or bool(e.get("_is_final_boss")):
+			continue   # milestone encounters keep their own reward flow, untouched by this
+		if bool(e.get("_docked")):
+			continue   # already someone else's escort (mothership, an authored fleet, or an earlier pack/fleet pass)
+		var dock: Array = e.get("_fleet_dock")
+		if dock != null and not dock.is_empty():
+			continue   # already a carrier of its own squad — don't fold it into ANOTHER formation
+		var tid := String(e.get("_type"))
+		if tid == "":
+			continue
+		if not by_type.has(tid):
+			by_type[tid] = []
+		(by_type[tid] as Array).append(e)
+	_pack_centers.clear()
+	_pack_valid.clear()
+	for tid: String in by_type:
+		var leftover: Array = _form_fleets(by_type[tid])
+		if leftover.size() > 0:
+			var sum := Vector2.ZERO
+			for e in leftover:
+				sum += (e as Node2D).global_position
+			_pack_centers[tid] = sum / float(leftover.size())
+			_pack_valid[tid] = true
+
+## Clusters `members` (already filtered to one species' fleet-eligible population) into as many
+## PACK_FLEET_MIN_SIZE..PACK_FLEET_MAX_SIZE fleets as fit, forming each one immediately via _form_one_fleet(),
+## and returns whatever's left un-clustered — that becomes this species' pack pool for the pass (see
+## _tick_pack_fleet). SINGLE-LINKAGE / chain clustering, not "everyone within CLUSTER_R of one seed": a
+## cluster grows by admitting any still-unclaimed node within CLUSTER_R of ANY member already in it, not just
+## the original seed. That distinction matters — an evenly-spaced LINE of 5 same-species creeps 100px apart
+## (each neighbour-to-neighbour link well inside CLUSTER_R=260, but the two ends 400px apart, outside it)
+## previously failed to cluster at all under seed-only distance, because every non-seed member was checked
+## against the FIRST node alone; chain-linking lets it grow through each intermediate member instead, which
+## is exactly the shape a same-species stream converging on the player from one direction tends to form.
+## One pass, O(k²) worst case, but k is a SINGLE species' own live population (this game's per-type counts run
+## tens, not thousands) since the by-species bucketing in _tick_pack_fleet already keeps different creep types
+## from ever being compared against each other here.
+func _form_fleets(members: Array) -> Array:
+	var unclaimed: Array = members.duplicate()
+	var leftover: Array = []
+	while not unclaimed.is_empty():
+		var cluster: Array = [unclaimed[0]]
+		unclaimed.remove_at(0)
+		var grew := true
+		while grew and cluster.size() < PACK_FLEET_MAX_SIZE:
+			grew = false
+			var i := 0
+			while i < unclaimed.size():
+				var cand: Node2D = unclaimed[i]
+				var joins := false
+				for m in cluster:
+					if (m as Node2D).global_position.distance_to(cand.global_position) <= PACK_FLEET_CLUSTER_R:
+						joins = true
+						break
+				if joins:
+					cluster.append(cand)
+					unclaimed.remove_at(i)
+					grew = true
+					if cluster.size() >= PACK_FLEET_MAX_SIZE:
+						break   # full — whatever's still unclaimed waits for the NEXT cluster/pass instead
+				else:
+					i += 1
+		if cluster.size() >= PACK_FLEET_MIN_SIZE:
+			_form_one_fleet(cluster)
+		else:
+			leftover.append_array(cluster)
+	return leftover
+
+## Assembles ONE cluster (already known: same species, PACK_FLEET_MIN_SIZE..MAX_SIZE members, all mutually
+## close) into a rigid fleet. The member nearest the player becomes the flagship carrier — kept running its
+## own normal "chase" steering unmodified, real creep movement rather than a scripted path — and every other
+## member is greedily matched to whichever procedural wedge slot (_fleet_wedge_offsets()) it's currently
+## closest to (minimizes total travel, so no member gets assigned a slot clear across the formation from
+## where it's standing), then docked at that DESIRED slot via arena_enemy.gd's add_existing_fleet_escort() —
+## see that function's own doc comment on why a desired slot, not the escort's current position, is what
+## makes the assembly read as "flying into formation" rather than snapping there.
+func _form_one_fleet(group: Array) -> void:
+	var carrier: Node2D = group[0]
+	if _player != null and is_instance_valid(_player):
+		var best_d: float = carrier.global_position.distance_squared_to(_player.global_position)
+		for n in group:
+			var d: float = (n as Node2D).global_position.distance_squared_to(_player.global_position)
+			if d < best_d:
+				best_d = d
+				carrier = n
+	if not carrier.has_method("add_existing_fleet_escort"):
+		return   # not an arena_enemy after all (shouldn't happen — every member came from group "arena_enemy")
+	var escorts: Array = group.duplicate()
+	escorts.erase(carrier)
+	var spacing: float = maxf(24.0, float(carrier.get("_radius")) * 1.6)   # bigger species get more elbow room
+	var facing: float = float(carrier.get("_facing"))
+	var slots: Array = _fleet_wedge_offsets(escorts.size(), spacing)
+	for esc in escorts:
+		var epos: Vector2 = (esc as Node2D).global_position
+		var best_i := 0
+		var best_dist := 1.0e18
+		for i in slots.size():
+			var world_slot: Vector2 = carrier.global_position + (slots[i] as Vector2).rotated(facing)
+			var d: float = epos.distance_squared_to(world_slot)
+			if d < best_dist:
+				best_dist = d
+				best_i = i
+		var chosen: Vector2 = slots[best_i]
+		slots.remove_at(best_i)
+		carrier.call("add_existing_fleet_escort", esc, chosen)
+
+## Procedural trailing-wedge shape (à la geese / fighter squadron) for `n` escorts around a carrier at local
+## origin, in the SAME carrier-local pre-`_facing`-rotation frame arena_enemy.gd's `base_off` convention
+## already uses everywhere else (init_fleet_dock/_fleet_update_dock_positions): local UP (−Y) is straight
+## ahead of the carrier's own travel and local RIGHT/LEFT (±X) is lateral spread — derived from how
+## arena_enemy.gd computes `_facing` itself (movement angle + 90°, the standard "sprite drawn facing up"
+## correction), NOT an arbitrary choice; see add_existing_fleet_escort()'s call site above for where this
+## gets rotated into world space. Two escorts per row, alternating sides, each row one step further back
+## and out than the last — deliberately simple/symmetric rather than reusing an authored fleet_layout.cfg
+## shape: those are hand-placed per SPECIFIC species at FIXED sizes (5/9/10/12/16/20...), none of which cover
+## an arbitrary ad-hoc cluster of 3-8 escorts (PACK_FLEET_MIN_SIZE=4 minus the carrier .. PACK_FLEET_MAX_SIZE
+## =9 minus the carrier) for a species that may never have had a fleet authored for it at all.
+func _fleet_wedge_offsets(n: int, spacing: float) -> Array:
+	var out: Array = []
+	for i in n:
+		var row := i / 2 + 1
+		var side := -1.0 if i % 2 == 0 else 1.0
+		out.append(Vector2(side * row * spacing, row * spacing * 0.85))   # +Y = behind (see doc comment)
+	return out
+
+## Read by arena_enemy.gd's "chase" case for cohesion — check pack_valid(type_id) first (false if this
+## species has no leftover pack pool this pass, e.g. everyone of that type is already in a fleet, or the
+## single one alive has nothing to flock toward).
+func pack_center(type_id: String) -> Vector2:
+	return _pack_centers.get(type_id, Vector2.ZERO)
+
+func pack_valid(type_id: String) -> bool:
+	return bool(_pack_valid.get(type_id, false))
 
 # ── Legacy API (now world-space) ───────────────────────────────────────────────
 func ship_center() -> Vector2:

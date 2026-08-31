@@ -6,7 +6,9 @@ class_name InvLiveSlot
 ## swaps it into the live arena_weapons/arena_aux run state at this slot index. An empty slot (index
 ## >= the live count) just acquires the dropped kind; an occupied weapon slot replaces it outright.
 ## Occupied AUX slots can't be replaced — arena_aux.gd's effects are additive deltas with no "undo",
-## so swapping OUT an owned aux would leave its old stats stuck. See MetaManager.roll_field_drop().
+## so swapping OUT an owned aux would leave its old stats stuck. Cargo items reaching this slot come from
+## level-ups, the start-of-run chest, Elite/Champion drops (arena_item_drop.gd) and boss salvage — the old
+## silent creep-kill field drop is disabled, see MetaManager.roll_field_drop's header.
 
 var row_kind: String = ""   # "weapon" | "aux"
 var slot_index: int = -1

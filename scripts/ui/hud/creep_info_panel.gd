@@ -129,16 +129,16 @@ func _build_ui() -> void:
 
 	var dim := ColorRect.new()
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	dim.color = Color(0.0, 0.0, 0.0, 0.55)
+	dim.color = Color.BLACK   # fully black out the gameplay behind the table while editing (on request)
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	_root.add_child(dim)
 
 	var panel := Panel.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.07, 0.08, 0.12, 0.98)
+	sb.bg_color = UiPalette.SURFACE
 	sb.set_corner_radius_all(8)
 	sb.set_border_width_all(2)
-	sb.border_color = Color(0.30, 0.45, 0.75)
+	sb.border_color = UiPalette.ACCENT_DIM
 	sb.set_content_margin_all(12.0)
 	panel.add_theme_stylebox_override("panel", sb)
 	var psize := Vector2(760.0, 620.0)
@@ -157,7 +157,7 @@ func _build_ui() -> void:
 	title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
 	vb.add_child(title)
 	var hint := _mk_label("Move \"(default)\" + Shoot \"None\" = untouched (keeps original behavior). Overriding only ONE of the two does NOT keep the other's original pattern — the unit falls back to stationary / no shooting for whichever side is left default.", 10)
-	hint.add_theme_color_override("font_color", Color(0.65, 0.72, 0.82))
+	hint.add_theme_color_override("font_color", UiPalette.MUTED)
 	hint.custom_minimum_size = Vector2(psize.x - 16.0, 0.0)
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD
 	vb.add_child(hint)
@@ -166,10 +166,10 @@ func _build_ui() -> void:
 	btn_row.add_theme_constant_override("separation", 8)
 	vb.add_child(btn_row)
 	var save_btn := _mk_button("Save", _on_save)
-	save_btn.add_theme_color_override("font_color", Color(0.35, 0.9, 0.35))
+	save_btn.add_theme_color_override("font_color", UiPalette.GOOD)
 	btn_row.add_child(save_btn)
 	var close_btn := _mk_button("Close", toggle)
-	close_btn.add_theme_color_override("font_color", Color(0.95, 0.3, 0.3))
+	close_btn.add_theme_color_override("font_color", UiPalette.DANGER)
 	btn_row.add_child(close_btn)
 	_status = _mk_label("", 11)
 	_status.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
@@ -449,7 +449,7 @@ func _mk_label(text: String, sz: int) -> Label:
 	var l := Label.new()
 	l.text = text
 	l.add_theme_font_size_override("font_size", sz)
-	l.add_theme_color_override("font_color", Color(0.82, 0.9, 1.0))
+	l.add_theme_color_override("font_color", UiPalette.INK)
 	return l
 
 func _mk_button(text: String, cb: Callable) -> Button:

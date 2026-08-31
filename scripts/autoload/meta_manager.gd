@@ -11,6 +11,8 @@ const SAVE_PATH := "user://save.cfg"
 const ArenaWeapons := preload("res://scripts/gameplay/arena_weapons.gd")   # WEAPON_INFO/CHEST_POOL — canonical kind registry
 const ArenaAux := preload("res://scripts/gameplay/arena_aux.gd")          # AUX_DEFS — field-drop candidate pool
 
+# Field-drop tuning — DEAD while the mechanic is off (2026-08-28, see roll_field_drop below). Kept so the
+# mechanic can be switched back on by restoring the one call site in arena_enemy.gd's _die().
 const FIELD_DROP_CHANCE        := 0.02   # per creep kill
 const FIELD_DROP_WEAPON_CHANCE := 0.6    # vs. aux, when a drop actually happens
 
@@ -168,6 +170,18 @@ var run_weapon_drop_seen: bool = false   # true once ANY boss-salvage weapon car
                                           # arena.gd tell "no boss fought" (suppress the line) apart from
                                           # "fought a boss, disassembled nothing" (show "no blueprint" line)
 
+# ── "Bring Home" (2026-08-29, on request) — an in-run inventory slot for an ALREADY-OWNED weapon (unlike the
+# boss-salvage DISASSEMBLE choice above, which stages a fresh drop's blueprint with no physical item
+# involved) ────────────────────────────────────────────────────────────────────────────────────────────────
+# Dragging a weapon into the Inventory screen's Bring Home slot (bring_home_slot.gd) does two things at once:
+# stages its own blueprint (stage_blueprint(), same staged-until-victory pipeline as DISASSEMBLE — commits
+# together with it in commit_pending_blueprints()) AND physically pulls the item itself out of Cargo into
+# InventoryManager's own "bring_home" where, at risk right alongside the blueprint. Same win/lose framing:
+# complete the run and BOTH the item and its blueprint come home for good; die first and the item is lost
+# (sold off, resolve_bring_home()) same as an unsecured mid-run run_temp drop. Not saved across an app
+# restart mid-run — same accepted limitation run_pending_blueprints already has, see that var's own doc note.
+var bring_home_uid: int = -1   # Cargo item uid currently staged, or -1
+
 # Map Pack registry — hub's "Launch" flow opens a map-select panel over this list (see hub_screen.gd
 # _build_mapselect). Every map is the SAME scene/arena.gd (same ship, weapons, HUD, dev-mode editors,
 # enemy/wave systems) — only the terrain/background visuals and the creep spawn timeline differ per map_id
@@ -188,11 +202,47 @@ const MAP_DEFS := {
 }
 var selected_map_id: String = "default"   # last map picked in the Launch panel (not persisted — resets each session)
 
+## The map the Quest board (Bridge room) is currently showing. Cycled by its back/forward buttons and
+## PERSISTED (user://save.cfg) so re-opening the board returns to the map the player last viewed. Defaults
+## to "electric" on a fresh profile. QUEST_MAP_ORDER is the back/forward cycle order (mirrors the Launch
+## panel's card order — see hub_screen.LAUNCH_CARDS).
+const QUEST_MAP_ORDER := ["default", "electric", "volcanic", "atlantic", "mechanic", "arctic"]
+var quest_map_id: String = "electric"
+
+func set_quest_map_id(id: String) -> void:
+	if not MAP_DEFS.has(id) or id == quest_map_id:
+		return
+	quest_map_id = id
+	save_meta()
+	meta_changed.emit()
+
+## Step the Quest board map by `delta` (wraps) and return the new id.
+func quest_map_step(delta: int) -> String:
+	var i := QUEST_MAP_ORDER.find(quest_map_id)
+	if i < 0:
+		i = 0
+	var nxt := String(QUEST_MAP_ORDER[(i + delta + QUEST_MAP_ORDER.size()) % QUEST_MAP_ORDER.size()])
+	set_quest_map_id(nxt)
+	return nxt
+
+func quest_map_name() -> String:
+	return String((MAP_DEFS.get(quest_map_id, {}) as Dictionary).get("name", quest_map_id.capitalize()))
+
 func _ready() -> void:
 	load_meta()
 	_seed_starter_blueprints()
 	if GameManager.has_signal("boss_defeated") and not GameManager.boss_defeated.is_connected(_on_boss_defeated):
 		GameManager.boss_defeated.connect(_on_boss_defeated)
+	if not InventoryManager.item_unequipped.is_connected(_on_item_unequipped):
+		InventoryManager.item_unequipped.connect(_on_item_unequipped)
+
+## Keeps bring_home_uid in sync whenever the staged item leaves InventoryManager's "bring_home" where by ANY
+## path — the player dragging it back to Cargo (backpack_grid.gd's generic move_item() call), a swap-out from
+## staging a different item (InventoryManager.stage_bring_home()'s own occupant-eviction), or a right-click
+## sell. Without this, resolve_bring_home() could act on a uid that already safely left the risk zone.
+func _on_item_unequipped(slot: String, uid: int) -> void:
+	if slot == "bring_home" and bring_home_uid == uid:
+		bring_home_uid = -1
 
 ## Codex Lock unlock condition: "defeat your first boss" — boss_defeated fires on EVERY boss kill, but
 ## unlock_room() is idempotent, so this only actually does anything (save + notify) the first time.
@@ -237,6 +287,31 @@ func commit_pending_blueprints() -> void:
 func blueprint_price(def_id: String) -> int:
 	var r := String(InventoryManager.get_def(def_id).get("rarity", "common"))
 	return int(BLUEPRINT_PRICE.get(r, 100))
+
+## Inventory's Bring Home slot drop handler (bring_home_slot.gd calls this on drop) — stages BOTH halves
+## together (see bring_home_uid's own doc comment): the physical item (InventoryManager.stage_bring_home,
+## swaps any previous pick back to Cargo) and its blueprint (stage_blueprint, same pipeline DISASSEMBLE
+## uses). No-ops (leaves everything untouched) if the item fails to stage — e.g. Cargo had no room to swap
+## the previous pick back out.
+func stage_bring_home(uid: int, def_id: String) -> void:
+	if not InventoryManager.stage_bring_home(uid):
+		return
+	bring_home_uid = uid
+	stage_blueprint(def_id)
+	meta_changed.emit()
+
+## Called by arena.gd's _show_run_over every time a run ends, right alongside commit_pending_blueprints() —
+## victory returns the staged item to Cargo for good (its blueprint half is already handled by that sibling
+## call); death loses it, sold off the same way purge_run_temp() disposes of an unsecured mid-run drop rather
+## than deleted for nothing. A no-op if nothing was ever staged this run.
+func resolve_bring_home(victory: bool) -> void:
+	if bring_home_uid == -1:
+		return
+	if victory:
+		InventoryManager.release_bring_home()
+	else:
+		InventoryManager.sell_item(bring_home_uid)
+	bring_home_uid = -1
 
 ## Buy one clean copy of a weapon for coins → into the backpack. Returns true on success. Normally requires
 ## an already-known blueprint — EXCEPT the CHEST_POOL "starter tier" (gatling_gun/death_beam/arc/gauss),
@@ -340,10 +415,22 @@ func buy_gear(def_id: String) -> bool:
 	meta_changed.emit()
 	return true
 
-# ── Field drops (creep kills) — small chance to find a weapon/aux "token" straight in Cargo, so ────
-# players keep discovering upgrades after their 5 WEAPONS/AUX run-slots fill up (swap one in via the
-# Inventory screen's Cargo → slot drag). Run-temp: purged next run start if never swapped in, same as
-# the boss-salvage "equip for this run" choice.
+# ── Field drops (creep kills) — DISABLED 2026-08-28, on request ──────────────────────────────────────
+# The idea was a small chance to find a weapon/aux "token" straight in Cargo, so players keep discovering
+# upgrades after their 5 WEAPONS/AUX run-slots fill up (swap one in via the Inventory screen's Cargo → slot
+# drag), run-temp like the boss-salvage "equip for this run" choice.
+#
+# In practice it read as a BUG: nothing about it is visible (no world drop, no toast, no sound) and 2% per
+# creep kill is enormous at this game's kill rate — spawn_mode_2 runs TARGET_RATE 2/s × START_BOOST_MULT 3
+# and Electric's elecforest.json dumps 200 flies at t=30, so a fresh profile picked up ~6-9 unexplained items
+# in its first minute. The roll_boss_weapon(rare) cap did not hold it back either: 9 of the 16 eligible
+# weapons are rarity "rare" (32.7% of the weighted pool — Viper alone 3.6%), and _drop_field_aux() has no
+# rarity weighting at all. Those items were then sold for 5 coin each by purge_run_temp() at the next run
+# start, i.e. free coin from loot the player never knowingly earned.
+#
+# The three functions below are LEFT INTACT but are no longer called from gameplay — the single call site in
+# arena_enemy.gd's _die() is commented out there, so re-enabling is a one-line change. Weapons/aux now come
+# only from level-ups, the start-of-run chest, Elite/Champion drops (arena_item_drop.gd) and boss salvage.
 func roll_field_drop() -> void:
 	if randf() >= FIELD_DROP_CHANCE:
 		return
@@ -379,8 +466,10 @@ func _drop_field_aux() -> void:
 
 # ── Debug: simulate a full run's worth of rewards without playing it out ─────────────────────────────
 # Used by the Dev Mode "skip run" hotkey (arena_debug_spawn.gd, F4): rolls `kills` creep-kill rewards
-# (coin + field drop, same formulas/gates as a real kill in arena_enemy.gd's _die()) plus `bosses` boss
-# fragment drops, so a tester lands in Dock with roughly what a real run would have paid out.
+# (coin only — the field-drop roll that used to run here went away with the mechanic itself, see
+# roll_field_drop above; simulating drops a real kill no longer grants would put items in Cargo that no
+# amount of actual play can produce) plus `bosses` boss fragment drops, so a tester lands in Dock with
+# roughly what a real run would have paid out.
 const SIM_ENEMY_HP_MIN := 20.0
 const SIM_ENEMY_HP_MAX := 3000.0
 
@@ -393,7 +482,6 @@ func simulate_run_rewards(kills: int, bosses: int) -> void:
 			var skew: float = GameManager.mech_bonus("coin_skew")
 			for _c in mini(coins, 20):
 				GameManager.add_money(GameManager.roll_coin_value(hp, skew))
-		roll_field_drop()
 	for _b in bosses:
 		roll_fragment_drop()
 
@@ -505,11 +593,84 @@ func roll_boss_weapon(max_rank: int) -> String:
 			return String(ids[i])
 	return String(ids[ids.size() - 1])
 
+## Elite/Champion physical drop roll (2026-08-28, on request: "khi bắn elite/champion, ưu tiên các vũ khí
+## chưa được equip... ra vũ khí khác hoặc aux khác") — the counterpart to roll_boss_weapon() above, widened to
+## draw from BOTH weapons and aux (roll_boss_weapon is weapon-only; kept untouched since meta_manager.gd's own
+## now-disabled roll_field_drop() still calls it, and this function's own "prefer unowned" bias would change
+## that dead code path's semantics for no reason). Same rarity-capped weighted pool, but built TWICE — once
+## unrestricted, once excluding anything the player already owns in ANY form:
+##   • weapon: a real backpack copy (InventoryManager.owns_def), a known blueprint (has_blueprint — this is
+##     what actually excludes the STARTER weapon, e.g. gatling_gun: it's granted as a blueprint at profile
+##     creation, never as a literal backpack item, so owns_def() alone would miss it), or a crafted unique.
+##   • aux: a real backpack copy, OR currently owned in the live arena_aux.gd run loadout (owned_aux()) — aux
+##     has no blueprint/crafted-unique concept of its own.
+## Rolls from the unowned pool when it's non-empty; falls back to the FULL pool once the player already owns
+## everything eligible, so a drop is never wasted to "nothing available" — see the user's own "ưu tiên", not
+## "loại trừ tuyệt đối", framing.
+func roll_boss_reward(max_rank: int) -> String:
+	var all_ids: Array = []
+	var all_weights: Array = []
+	var new_ids: Array = []
+	var new_weights: Array = []
+	var ax := get_tree().get_first_node_in_group("arena_aux")
+	var owned_aux_ids: Array = (ax.call("owned_aux") as Array) if (ax != null and ax.has_method("owned_aux")) else []
+	for id: String in InventoryManager.ITEM_DEFS:
+		var d: Dictionary = InventoryManager.ITEM_DEFS[id]
+		var tags: Array = d.get("tags", [])
+		var is_weapon: bool = tags.has("weapon") and not tags.has("shield")
+		var is_aux: bool = tags.has("aux")
+		if (not is_weapon and not is_aux) or bool(d.get("unique", false)):
+			continue
+		var r := String(d.get("rarity", "common"))
+		if int(RARITY_RANK.get(r, 0)) > max_rank:
+			continue
+		var w := float(InventoryManager.RARITY_LOOT_WEIGHTS.get(r, 0))
+		if w <= 0.0:
+			continue
+		all_ids.append(id)
+		all_weights.append(w)
+		var owned: bool
+		if is_aux:
+			owned = InventoryManager.owns_def(id) or owned_aux_ids.has(id.substr(4))   # "aux_" prefix, 4 chars
+		else:
+			owned = InventoryManager.owns_def(id) or has_blueprint(id) or crafted_uniques.has(id)
+		if not owned:
+			new_ids.append(id)
+			new_weights.append(w)
+	var ids := new_ids if not new_ids.is_empty() else all_ids
+	var weights := new_weights if not new_ids.is_empty() else all_weights
+	var total := 0.0
+	for w2: float in weights:
+		total += w2
+	if total <= 0.0:
+		return ""
+	var pick := randf() * total
+	var cum := 0.0
+	for i in ids.size():
+		cum += float(weights[i])
+		if pick < cum:
+			return String(ids[i])
+	return String(ids[ids.size() - 1])
+
 # ── Run-temporary drops (lost at the end of the run) ─────────────────────────────
 ## Flag an item uid as a mid-run drop — it is sold off (removed) at the next run start.
 func mark_run_temp(uid: int) -> void:
 	if uid != -1 and not run_temp_uids.has(uid):
 		run_temp_uids.append(uid)
+		save_meta()
+
+func is_run_temp(uid: int) -> bool:
+	return run_temp_uids.has(uid)
+
+## 2026-08-29, on request ("làm thêm 1 ô... Bring Home... kéo vũ khí vào đây sẽ mang được về dock") — the
+## inventory's Bring Home drop slot calls this on drop: un-flags `uid` so purge_run_temp() at the next run
+## start no longer sells it off. The item itself never moves (still a normal backpack/equipped item as far as
+## InventoryManager is concerned — mark_run_temp/is_run_temp/clear_run_temp only ever gate purge_run_temp,
+## nothing else reads them), so this is a one-way, always-safe operation: nothing is lost by calling it on an
+## item that was never run-temp to begin with (a plain no-op then).
+func clear_run_temp(uid: int) -> void:
+	if run_temp_uids.has(uid):
+		run_temp_uids.erase(uid)
 		save_meta()
 
 ## Remove every still-present run-temp item (mid-run boss drops the player chose to use). Call at the
@@ -640,6 +801,7 @@ func save_meta() -> void:
 	cfg.set_value("meta", "run_temp", run_temp_uids)
 	cfg.set_value("meta", "loadout", loadout)
 	cfg.set_value("meta", "room_unlocks", room_unlocks)
+	cfg.set_value("meta", "quest_map_id", quest_map_id)
 	cfg.save(SAVE_PATH)
 
 func load_meta() -> void:
@@ -653,3 +815,6 @@ func load_meta() -> void:
 	run_temp_uids = cfg.get_value("meta", "run_temp", [])
 	loadout = cfg.get_value("meta", "loadout", [])
 	room_unlocks = cfg.get_value("meta", "room_unlocks", {})
+	quest_map_id = String(cfg.get_value("meta", "quest_map_id", "electric"))
+	if not MAP_DEFS.has(quest_map_id):
+		quest_map_id = "electric"

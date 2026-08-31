@@ -1047,6 +1047,49 @@ func grant_reward() -> void:
 	if not _showing:
 		_begin()
 
+## GUARANTEED single-item level-up (2026-08-28, on request: "khi nhặt được mà vẫn còn slot để trang bị thì
+## đưa vào bảng levelup để người chơi chọn perk và trang bị vũ khí đó luôn") — called by arena_item_drop.gd
+## the instant an elite/champion physical drop is walked over AND its kind still has a free run-loadout slot.
+## Unlike grant_new_item_choice() below (a random pick-1-of-3 among ALL unowned items), this shows exactly
+## ONE top card: the SPECIFIC weapon/aux def_id just picked up — nothing is re-rolled, so what the player
+## found on the ground is what they're offered. Clicking that one card routes into its own perk pool
+## (_route_options(), completely unchanged) if it has one — "3 perk của nó", the user's own phrasing — or a
+## single Confirm if it doesn't; either way the existing _pick()/_apply()/spend_*_point() chain equips it for
+## real, same as every other "new" card already does (spend_weapon_point()/spend_aux_point() implicitly
+## acquire on a first pick, see those functions' own bodies in arena_weapons.gd/arena_aux.gd). Silently
+## no-ops if def_id can't be resolved to a live weapon/aux kind — shouldn't happen in practice, since
+## arena_item_drop.gd's own _try_grant_live_slot() already checked before calling this.
+func grant_specific_item_choice(def_id: String) -> void:
+	var card := _card_for_def_id(def_id)
+	if card.is_empty():
+		return
+	_pending += 1
+	_mode_queue.append({"single_card": card})
+	if not _showing:
+		_begin()
+
+## Builds a top-level level-up card dict (same shape _weapon_choice()/_aux_choice() build below) for a
+## specific InventoryManager def_id — a weapon def_id, or an "aux_"-prefixed aux id. Empty Dictionary if it
+## doesn't resolve to a live weapon/aux kind at all (e.g. arena_weapons/arena_aux aren't in the tree, or the
+## def_id is neither).
+func _card_for_def_id(def_id: String) -> Dictionary:
+	if def_id.begins_with("aux_"):
+		var ax := get_tree().get_first_node_in_group("arena_aux")
+		if ax == null or not ax.has_method("def_for"):
+			return {}
+		var id := def_id.substr(4)   # strip "aux_"
+		var d: Dictionary = ax.call("def_for", id)
+		if d.is_empty():
+			return {}
+		return _aux_choice(ax, id, "new")
+	var aw := get_tree().get_first_node_in_group("arena_weapons")
+	if aw == null or not aw.has_method("kind_for_def_id"):
+		return {}
+	var kind := String(aw.call("kind_for_def_id", def_id))
+	if kind == "":
+		return {}
+	return _weapon_choice(aw, kind, "new")
+
 ## Grant ONE pick-1-of-3 of BRAND-NEW items only, guaranteed to mix weapons and passives (never all
 ## weapons, never all passives). Dropped by a temple boss's orb of light (arena_loot.gd) — electric_temple_
 ## layer.gd / volcanic_temple_layer.gd.
@@ -1098,7 +1141,11 @@ func _show_cards() -> void:
 	var mode: Dictionary = _mode_queue.pop_front() if not _mode_queue.is_empty() else {}
 	_allow_new = bool(mode.get("allow_new", false))
 	var mixed_new := bool(mode.get("mixed", false))
-	if mixed_new:
+	if mode.has("single_card"):
+		# grant_specific_item_choice() — exactly one guaranteed card, no reroll. See that function's own doc
+		# comment for the full "why" (2026-08-28).
+		_choices = [mode["single_card"]]
+	elif mixed_new:
 		_choices = _generate_new_mixed_choices(CHOICES)
 	else:
 		_choices = _generate_choices(CHOICES, _allow_new)
@@ -1530,7 +1577,7 @@ func _make_option_box(c: Dictionary, idx: int, total: int) -> Control:
 	# Hover highlight: brighten the box border + fill while the cursor is over it.
 	var base_sb := box.get_theme_stylebox("panel") as StyleBoxFlat
 	var hover_sb := base_sb.duplicate() as StyleBoxFlat
-	hover_sb.bg_color = Color(0.16, 0.21, 0.32, 0.95)
+	hover_sb.bg_color = UiPalette.SURFACE_3
 	hover_sb.set_border_width_all(3)
 	hover_sb.border_color = Color(1.0, 0.85, 0.35, 1.0)
 	btn.mouse_entered.connect(func() -> void: box.add_theme_stylebox_override("panel", hover_sb))
@@ -2308,9 +2355,9 @@ func _make_panel() -> Panel:
 	var p := Panel.new()
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.08, 0.10, 0.16, 0.85)
+	sb.bg_color = UiPalette.SURFACE_2
 	sb.set_border_width_all(2)
-	sb.border_color = Color(0.30, 0.45, 0.70, 0.9)
+	sb.border_color = UiPalette.ACCENT_DIM
 	sb.set_corner_radius_all(10)
 	p.add_theme_stylebox_override("panel", sb)
 	return p

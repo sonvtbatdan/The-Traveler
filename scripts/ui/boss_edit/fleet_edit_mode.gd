@@ -256,7 +256,7 @@ func _hdr(parent: Control, text: String) -> HBoxContainer:
 	var lbl := Label.new()
 	lbl.text = MandaloreText.a(text)
 	lbl.add_theme_font_size_override("font_size", 12)
-	lbl.modulate = Color(0.55, 0.90, 1.0)
+	lbl.modulate = UiPalette.ACCENT_INK
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if _font: lbl.add_theme_font_override("font", _font)
 	row.add_child(lbl)
@@ -1032,10 +1032,10 @@ class _PaletteCell extends Panel:
 	func _init() -> void:
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(0.10, 0.12, 0.16, 0.9)
+		sb.bg_color = UiPalette.SURFACE_2
 		sb.set_corner_radius_all(4)
 		sb.set_border_width_all(1)
-		sb.border_color = Color(0.3, 0.4, 0.55)
+		sb.border_color = UiPalette.WIRE_2
 		add_theme_stylebox_override("panel", sb)
 	func set_icon(tex: Texture2D) -> void:
 		_tr = TextureRect.new()
@@ -1084,7 +1084,7 @@ class _SlotCell extends Panel:
 		_restyle()
 	func _restyle() -> void:
 		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(0.08, 0.10, 0.14, 0.9)
+		sb.bg_color = UiPalette.SURFACE
 		sb.set_corner_radius_all(4)
 		sb.set_border_width_all(2 if _selected else 1)
 		sb.border_color = Color(1.0, 0.85, 0.2) if _selected else Color(0.28, 0.36, 0.5)

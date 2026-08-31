@@ -420,6 +420,66 @@ var amount := int(enemy_width / 5.0)  # e.g. width=200 → amount=40
 Quy tắc: `amount = enemy_display_width / 5`. Điều này giữ VFX nhẹ với enemy nhỏ và đẹp với enemy lớn. Dùng lifetime ~0.35s, blend_mode = ADD giống ship plume.
 
 
+## Creep Smoke Trail (`scripts/gameplay/fx/smoke_trail.gd` + 3 shaders)
+
+A burning-wreck wake — volumetric-look smoke + drifting ash + flickering embers + a licking source flame —
+that strings into a long dissipating tail as the creep moves. Opt-in per creep via the ENEMY_DEF flag
+**`"smoke_trail": true`** (users: `ash1`–`ash4` + `ashleader`, Volcanic). `SmokeTrail` (`Node2D`, no
+`class_name`) is a child of the arena_enemy; its size scales with `max(_draw_size.x, _draw_size.y)`, so
+`ashleader` gets a bigger wake automatically. **World-space = trail:** every emitter is `local_coords = false`, so puffs stay
+where born; the creep's motion strings them out.
+
+### v3 (2026-08-31) — "đạt mức như Hades" without baked flipbook art
+
+AAA smoke = billboarded particles playing **flipbooks baked offline from a fluid sim** (Houdini/EmberGen) +
+6-way lighting + motion vectors. With no baked art, the same *look* is approximated **procedurally in the
+draw shader**, per particle:
+
+- **`smoke_trail.gdshader`** (MIX): the sample point is **domain-warped by a slow TIME-evolving noise
+  field**, so the internal pattern folds and curls over the puff's life — the "boil" a flipbook gives,
+  instead of a puff that just scales. The **noise-field gradient is treated as a surface normal and lit from
+  the fire direction** (`light_dir`), giving bright ridges / dark hollows → reads as a lit volume, not a
+  decal (a cheap stand-in for the 6-way lighting bake). Erosion threshold rises with age (`young_cut` →
+  `old_cut`, age = `1 - COLOR.a/peak_alpha`) → dense core, frays to wisps. Per-particle **seed packed into
+  `COLOR.r/COLOR.g`** (neutral grey `color_ramp` × a `color_initial_ramp` that scales only RED 0.5→1.5),
+  recovered in-shader for a per-puff rotation + noise offset so overlapping puffs never line up.
+- **`smoke_ember.gdshader`** (ADD): flicker (per-particle sine phase) + a sharp HDR pinpoint core; particles
+  `particle_flag_align_y` → streak along velocity. Blooms under the arena glow env.
+- **`smoke_flame.gdshader`** (ADD): a soft blob eroded into licking tongues by upward-scrolling fractal
+  noise (the `dynamic_fire` technique). HDR → blooms.
+
+One `ImageTexture` feeds all three shaders — `_bake_fbm2` packs **two independent** wrap-blended (seamless)
+FBM fields into `.r` / `.g`, so the smoke shader gets a 2D domain-warp vector from **one** sample. Baked
+**synchronously** so it's ready frame 1 (unlike `NoiseTexture2D`'s threaded bake). All layers are
+`CPUParticles2D` (Godot 4.6 `CPUParticles2D` has **no** turbulence — only GPU does; the shader's evolving
+warp substitutes for curl-noise motion). Faked turbulence via random ± `tangential_accel` / `radial_accel`.
+Smoke fragment does 5 texture reads (3 before the `discard`, 2 for relief lighting after).
+
+**Layers:** smoke (`z -3`, `amount ≈ w/1.5`) · ash motes (`z -1`, MIX, a few cinder-tinted) · embers (`z 0`,
+ADD HDR) · source flame (`z -1`, ADD HDR) · a small pulsing additive glow `Sprite2D` (`z -2`, alpha+scale
+driven by layered sines in `_process`).
+
+**Crowd LOD** (`_apply_detail`, throttled ~3×/s, keyed off `SmokeTrail._active` — the static live count):
+tier `>4` switches the smoke shader to its `cheap` path (skips the relief-lighting reads); `>9` drops the
+flame; `>16` drops the embers. Past a rank budget among live trails (`_slot`, captured at setup) the
+lower-ranked ones at tier ≥2 keep **only the glow sprite** and hide/stop every particle layer — VFX-budget
+style, so cost is bounded by fleet size, not linear in it; re-revealed monotonically as the crowd thins.
+`_reconcile_emitters()` is the single place emitters turn on/off (caller intent × `_detaching` × visibility).
+(`CPUParticles2D` has no `amount_ratio`, and setting `amount` restarts the sim — hence layer/shader toggles,
+not count thinning.) Measured headless, 21 ash stacked on screen: ~29 fps vs ~42 for 21 plain creeps.
+
+**Wiring** (`arena_enemy.gd`): `_setup_smoke()` in `_ready()`; every emitter LOD-gated with the plumes
+(`set_emitting(plumes_on)`); `_die()` → `detach(get_parent())` reparents to the arena, stops emitters, fades
+the glow, self-frees after `lifetime + 0.6`. `_exit_tree` decrements `_active`.
+
+Textures + shaders cached in **static** vars (built once, shared). `setup(width_px, style)` — `style`
+overrides `lifetime` / `spread` / `vel_min|max` / `scale_min|max`; deeper changes = inline consts / shader
+uniforms (all `hint_range`-annotated). Verified live on Volcanic, ~90–125 FPS with one creep.
+
+**Ceiling:** this is Dead-Cells / Curse-of-the-Dead-Gods tier, not Dota 2 — matching that needs the baked
+fluid-sim flipbook + real 6-way lighting + motion-vector frame blending, which are art-pipeline, not code.
+
+
 ## Thrust Objects Policy
 
 **CRITICAL: Thrust objects (auto.gif, manual.gif, thrust.png) behavior locked by design.**

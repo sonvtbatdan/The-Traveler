@@ -97,21 +97,40 @@ static var ENEMY_DEFS := {
 	"piratespear":       {"behavior": "chase", "lvl": true, "hp": 4.0, "speed": 150.0, "size": 16.0, "contact": 10, "xp": 20.0, "armor": 1.0, "icon": "res://assets/map/cosmic/enemies/piratespear.png"},
 	"piratespearshield": {"behavior": "chase", "lvl": true, "hp": 4.0, "speed": 150.0, "size": 16.0, "contact": 10, "xp": 20.0, "armor": 5.0, "icon": "res://assets/map/cosmic/enemies/piratespearshield.png"},
 	# ── Magellanic Clouds — magma (shootable; a LARGE magma splits into 3 small magma on death) ──
-	"magma1": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 40.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/map/volcanic/enemies/magma1.png"},
-	"magma2": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 40.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/map/volcanic/enemies/magma2.png"},
-	"magma3": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 40.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/map/volcanic/enemies/magma3.png"},
-	"magma4": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 40.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/map/volcanic/enemies/magma4.png"},
-	"magma5": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 40.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/map/volcanic/enemies/magma5.png"},
-	"magma6": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 40.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/map/volcanic/enemies/magma6.png"},
-	"magma7": {"behavior": "chase", "lvl": true, "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 40.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/map/volcanic/enemies/magma7.png"},
+	# 2026-09-01: `"lvl": true` REMOVED from the whole magma/stone/ash roster (user report: Volcanic creeps
+	# "bắn rất lâu chết" vs Electric despite lower sticker HP). Reason: with `lvl` their runtime HP was
+	# base × ENEMY_HP_TUNE(×2) × player_level, but (a) Electric's core roster (fly/bee/bug/…) is FLAT — no
+	# `lvl` — so Volcanic got exponentially tankier as you leveled while Electric didn't, and (b) vocalnic.json
+	# has `hp_targets` so the runtime HP-milestone composer (WaveHpGen) sizes waves by RAW base HP and is
+	# level-blind — a "5000 raw" milestone became 5000×2×player_level actual on field. Now flat (base × ×2),
+	# same model as Electric. Tune the base numbers + re-run F7 "Generate Base on HP".
+	# NOTE still un-accounted-for by the composer (design features, not bugs): stone `death_spawn` (each stone
+	# also spawns a magma) and magma `magma_split` (a large magma bursts into MAGMA_SPLIT_N small ones) — both
+	# make a stone/magma "cost" more HP-to-clear than its sticker. Lower base HP or hp_targets to compensate.
+	"magma1": {"behavior": "chase", "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 40.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/map/volcanic/enemies/magma1.png"},
+	"magma2": {"behavior": "chase", "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 40.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/map/volcanic/enemies/magma2.png"},
+	"magma3": {"behavior": "chase", "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 40.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/map/volcanic/enemies/magma3.png"},
+	"magma4": {"behavior": "chase", "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 40.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/map/volcanic/enemies/magma4.png"},
+	"magma5": {"behavior": "chase", "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 40.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/map/volcanic/enemies/magma5.png"},
+	"magma6": {"behavior": "chase", "hp": 8.0, "speed": 130.0, "size": 21.0, "contact": 10, "xp": 40.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/map/volcanic/enemies/magma6.png"},
+	"magma7": {"behavior": "chase", "hp": 8.0, "speed": 130.0, "size": 25.0, "contact": 10, "xp": 40.0, "armor": 0.0, "magma_split": true, "icon": "res://assets/map/volcanic/enemies/magma7.png"},
 	# ── Globular Cluster — stone (spawns matching magmaN on death) ──
-	"stone1": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 50.0, "armor": 3.0, "death_spawn": "magma1", "icon": "res://assets/map/volcanic/enemies/stone1.png"},
-	"stone2": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 50.0, "armor": 3.0, "death_spawn": "magma2", "icon": "res://assets/map/volcanic/enemies/stone2.png"},
-	"stone3": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 50.0, "armor": 3.0, "death_spawn": "magma3", "icon": "res://assets/map/volcanic/enemies/stone3.png"},
-	"stone4": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 50.0, "armor": 3.0, "death_spawn": "magma4", "icon": "res://assets/map/volcanic/enemies/stone4.png"},
-	"stone5": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 50.0, "armor": 3.0, "death_spawn": "magma5", "icon": "res://assets/map/volcanic/enemies/stone5.png"},
-	"stone6": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 50.0, "armor": 3.0, "death_spawn": "magma6", "icon": "res://assets/map/volcanic/enemies/stone6.png"},
-	"stone7": {"behavior": "chase", "lvl": true, "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 50.0, "armor": 3.0, "death_spawn": "magma7", "icon": "res://assets/map/volcanic/enemies/stone7.png"},
+	"stone1": {"behavior": "chase", "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 50.0, "armor": 3.0, "death_spawn": "magma1", "icon": "res://assets/map/volcanic/enemies/stone1.png"},
+	"stone2": {"behavior": "chase", "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 50.0, "armor": 3.0, "death_spawn": "magma2", "icon": "res://assets/map/volcanic/enemies/stone2.png"},
+	"stone3": {"behavior": "chase", "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 50.0, "armor": 3.0, "death_spawn": "magma3", "icon": "res://assets/map/volcanic/enemies/stone3.png"},
+	"stone4": {"behavior": "chase", "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 50.0, "armor": 3.0, "death_spawn": "magma4", "icon": "res://assets/map/volcanic/enemies/stone4.png"},
+	"stone5": {"behavior": "chase", "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 50.0, "armor": 3.0, "death_spawn": "magma5", "icon": "res://assets/map/volcanic/enemies/stone5.png"},
+	"stone6": {"behavior": "chase", "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 50.0, "armor": 3.0, "death_spawn": "magma6", "icon": "res://assets/map/volcanic/enemies/stone6.png"},
+	"stone7": {"behavior": "chase", "hp": 9.0, "speed": 130.0, "size": 23.0, "contact": 10, "xp": 50.0, "armor": 3.0, "death_spawn": "magma7", "icon": "res://assets/map/volcanic/enemies/stone7.png"},
+	# ── ash — burning wreck: trails a smoke/ember/flame wake (def flag "smoke_trail"). hp / move / thrust
+	# points still placeholder — user tunes later then re-gens the wave. ashleader = squad flagship:
+	# "fleet_unique" (max 1 per fleet, arena_wave_director*._roll_slot_id) + "no_auto" (only via fleet /
+	# authored row / dev spawn, never a solo auto-gen'd creep). Flat HP (no `lvl`) like the rest — see above.
+	"ash1":      {"behavior": "chase", "hp": 8.0,  "speed": 130.0, "size": 25.0, "contact": 10, "xp": 40.0, "armor": 0.0, "smoke_trail": true, "icon": "res://assets/map/volcanic/enemies/ash1.png"},
+	"ash2":      {"behavior": "chase", "hp": 8.0,  "speed": 130.0, "size": 25.0, "contact": 10, "xp": 40.0, "armor": 0.0, "smoke_trail": true, "icon": "res://assets/map/volcanic/enemies/ash2.png"},
+	"ash3":      {"behavior": "chase", "hp": 8.0,  "speed": 130.0, "size": 26.0, "contact": 10, "xp": 40.0, "armor": 0.0, "smoke_trail": true, "icon": "res://assets/map/volcanic/enemies/ash3.png"},
+	"ash4":      {"behavior": "chase", "hp": 8.0,  "speed": 130.0, "size": 25.0, "contact": 10, "xp": 40.0, "armor": 0.0, "smoke_trail": true, "icon": "res://assets/map/volcanic/enemies/ash4.png"},
+	"ashleader": {"behavior": "chase", "hp": 14.0, "speed": 128.0, "size": 34.0, "contact": 18, "xp": 70.0, "armor": 2.0, "smoke_trail": true, "fleet_unique": true, "no_auto": true, "strike_back": true, "icon": "res://assets/map/volcanic/enemies/ashleader.png"},
 	# ── Koprulu Sector — pros (TODO(special): pros5 fires gauss; prosmotherblank = mother ship w/ child ships) ──
 	"pros1": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 40.0, "armor": 3.0, "icon": "res://assets/map/mechanic/enemies/pros1.png"},
 	"pros2": {"behavior": "chase", "lvl": true, "hp": 7.0, "speed": 130.0, "size": 20.0, "contact": 10, "xp": 40.0, "armor": 3.0, "icon": "res://assets/map/mechanic/enemies/pros2.png"},
@@ -467,6 +486,26 @@ func _drain_spawn_queue() -> void:
 ## Deploy a named fleet (from res://fleet_layout.cfg, authored in Fleet Edit): for each non-empty unit slot,
 ## roll one enemy from its pool (single = that enemy) and spawn it at the slot's placed position. The fleet's
 ## slot positions were set on screen in the editor → converted screen→world via the active camera here.
+## A "fleet_unique" def (e.g. ashleader) may appear AT MOST ONCE per fleet deployment — a squad has 0 or 1
+## leader, never more. See arena_wave_director_v2._roll_slot_id (same contract).
+func _roll_slot_id(pool: Array, fu_used: Dictionary) -> String:
+	if pool.is_empty():
+		return ""
+	var id := String(pool[randi() % pool.size()])
+	if _is_fleet_unique(id) and fu_used.has(id):
+		var alts: Array = pool.filter(func(x: Variant) -> bool:
+			var s := String(x)
+			return s != "" and not (_is_fleet_unique(s) and fu_used.has(s)))
+		if alts.is_empty():
+			return ""
+		id = String(alts[randi() % alts.size()])
+	if _is_fleet_unique(id):
+		fu_used[id] = true
+	return id
+
+func _is_fleet_unique(id: String) -> bool:
+	return bool((ENEMY_DEFS.get(id, {}) as Dictionary).get("fleet_unique", false))
+
 func _deploy_fleet(fleet_name: String, is_boss: bool) -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load("res://fleet_layout.cfg") != OK:
@@ -508,6 +547,7 @@ func _deploy_fleet(fleet_name: String, is_boss: bool) -> void:
 	# (its non-empty centroid) there, keeping each unit's authored relative offset (Fleet Edit px = world px).
 	var anchor := _one_position()
 	var ref := _fleet_centroid_screen(fleet)
+	var _fu_used: Dictionary = {}   # fleet_unique ids placed this deployment (ashleader etc.) — max 1 each
 	for s: Dictionary in fleet.get("slots", []):
 		var pool: Array = []
 		for en in (s.get("enemies", []) as Array):
@@ -515,7 +555,9 @@ func _deploy_fleet(fleet_name: String, is_boss: bool) -> void:
 				pool.append(String(en))
 		if pool.is_empty():
 			continue
-		var id := String(pool[randi() % pool.size()])   # random pool → roll one
+		var id := _roll_slot_id(pool, _fu_used)   # random pool → roll one; caps fleet_unique (ashleader) at 1
+		if id == "":
+			continue
 		# No draw_w override — Creep Edit's creep_layout.cfg is the sole size source (fleet_edit_mode.gd no
 		# longer stores a per-slot size; see that file's header).
 		_spawn(id, anchor + ((s.get("pos", Vector2.ZERO) as Vector2) - ref), is_boss)
@@ -554,9 +596,12 @@ func _deploy_mothership(mother_slot: Dictionary, child_slots: Array, _is_boss: b
 	get_parent().add_child(mother)
 	# Escort roster: id + carrier-relative offset + rotation, all in world px (1:1). No draw_w — see above.
 	var roster: Array = []
+	var _fu_used: Dictionary = {}
 	for cs: Dictionary in child_slots:
 		var ids: Array = cs["ids"]
-		var cid := String(ids[randi() % ids.size()])   # random pool → roll one (as the generic deploy)
+		var cid := _roll_slot_id(ids, _fu_used)   # random pool → roll one; caps fleet_unique at 1
+		if cid == "":
+			continue
 		var cslot: Dictionary = cs["slot"]
 		roster.append({
 			"id": cid,

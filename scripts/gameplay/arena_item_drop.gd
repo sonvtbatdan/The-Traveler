@@ -3,8 +3,17 @@ extends Node2D
 ## request: "khi bắn chết elite / champion, tôi cần icon weapon drop ra trên màn hình").
 ##
 ## Distinct from arena_weapon_pickup.gd, which grants one of the bespoke 5-slot ARENA weapons (`acquire_
-## weapon(kind)`) and is keyed by weapon KIND. This one is keyed by an `InventoryManager` **def_id** and goes
-## into the BACKPACK — which is why its pickup notice says "Press I to view" (I opens the inventory panel).
+## weapon(kind)`) and is keyed by weapon KIND. This one is keyed by an `InventoryManager` **def_id** (a
+## weapon OR an "aux_"-prefixed aux id, since 2026-08-28 — see MetaManager.roll_boss_reward()).
+##
+## 2026-08-28, on request ("khi nhặt được mà vẫn còn slot để trang bị thì đưa vào bảng levelup... trang bị
+## vũ khí đó luôn"): _collect() now checks FIRST whether the picked-up def_id resolves to a live arena
+## weapon/aux kind with a free slot — if so it skips the backpack ENTIRELY and opens the level-up board
+## scoped to just this one item (arena_levelup_ui.gd's grant_specific_item_choice()), which equips it for
+## real the moment a perk is confirmed. Only when that's not possible (every relevant slot already full, or
+## the def isn't a live-sloppable kind at all) does it fall back to the ORIGINAL behavior below — into the
+## BACKPACK, with a bottom-right "Press I to view" notice (now via arena_notify_stack.gd instead of a plain
+## arena_toast.gd call, so two pickups close together stack instead of overlapping).
 ##
 ## Art, per the request ("nếu trong inventory có glb thì drop object glb xoay tròn, ko có thì fallback png"):
 ##   • `InventoryManager.get_glb(def_id)` returns a model → live SubViewport render, spinning at MODEL_RPM.
@@ -20,18 +29,26 @@ extends Node2D
 
 const Item3DIcon := preload("res://scripts/ui/hud/item_3d_icon.gd")   # warm_scene() only — no Control is made here
 const ArenaToastScript := preload("res://scripts/ui/hud/arena_toast.gd")
+const ArenaNotifyStackScript := preload("res://scripts/ui/hud/arena_notify_stack.gd")
 
 const COLLECT_RANGE := 52.0
 const BOB_AMP       := 4.0
 const BOB_SPEED     := 2.2
 const GLOW          := 1.0
-const ICON_W        := 44.0     # on-screen width of the flat-PNG form (height follows the texture's ratio)
-const VP_SIZE       := 64       # 3D render resolution — small on purpose, matches arena_loot.gd's
+## 2026-08-28, on request ("cac icon drop (divinity, cac weapon, magnetic, coin...) cho to len 300% so voi hien tai"): every on-screen display size below (ICON_W/MODEL_WIDTH/FALLBACK_R) is x3 its old value. VP_SIZE (the 3D SubViewport render resolution, for types with a .glb - heart/magnetic/divinity here) is bumped x2, not x3, alongside it: at the OLD size the model was rendered SMALLER than its render target (a downscale, always sharp), so a flat x3 display bump with an unchanged VP_SIZE would upscale the render by 2-3x and read visibly blurry. x2 keeps the render close to 1:1 with the new display size without tripling the per-instance GPU cost for cosmetic-only sharpness. Every glow/halo already reads off these same constants (SIZE/_draw_size/ICON_W), so it scales for free - COLLECT_RANGE/RADIUS (the actual pickup gameplay) is untouched, this is purely visual.
+## 2026-08-29, on request ("các item drop ra khi bắn champion / elite / boss, thu nhỏ chúng lại còn 30% so
+## với hiện tại"): ICON_W/MODEL_WIDTH/FALLBACK_R now × 0.3 of the 2026-08-28 values above (so effectively
+## ~90% of the ORIGINAL pre-300%-bump size — 300% × 30% = 90%). VP_SIZE is left alone: it's a RENDER
+## resolution, not a display size, so a smaller display just means the same render gets downscaled a bit more
+## before showing — always sharp, no reason to shrink it too. COLLECT_RANGE (the actual pickup gameplay
+## radius) is untouched on purpose — smaller icon, same forgiving pickup range.
+const ICON_W        := 132.0 * 0.3    # 44 x3 x0.3 — on-screen width of the flat-PNG form (height follows the texture's ratio)
+const VP_SIZE       := 128      # 3D render resolution — unchanged, see 2026-08-29 note above
 const ISO_DEG       := 30.0
-const MODEL_WIDTH   := 48.0
+const MODEL_WIDTH   := 144.0 * 0.3    # 48 x3 x0.3
 const MODEL_RPM     := 10.0
 const MODEL_SPIN    := deg_to_rad(MODEL_RPM * 360.0 / 60.0)
-const FALLBACK_R    := 13.0     # radius of the no-art diamond
+const FALLBACK_R    := 39.0 * 0.3     # 13 x3 x0.3 — radius of the no-art diamond
 
 var _def_id: String = ""
 var _t := 0.0
@@ -82,29 +99,57 @@ func _process(delta: float) -> void:
 		_collect()
 	queue_redraw()
 
-## Into the BACKPACK, flagged run-temp exactly like meta_manager's own field drops, so it behaves as
-## in-run loot (purged at the start of the next run) rather than silently becoming permanent profile gear.
-## A full backpack is reported rather than swallowed — otherwise the pickup would just vanish on contact.
+## Live-arena-slot first, BACKPACK as the fallback (see this file's 2026-08-28 header note). Backpack items
+## are flagged run-temp exactly like meta_manager's own field drops, so they behave as in-run loot (purged at
+## the start of the next run) rather than silently becoming permanent profile gear. A full backpack is
+## reported rather than swallowed — otherwise the pickup would just vanish on contact.
 func _collect() -> void:
 	_popping = true
 	_pop_t = 0.0
-	# The toast must be hosted by something that OUTLIVES this drop: ArenaToast parents its CanvasLayer (and
-	# its fade tween) to `host`, and this node queue_free()s itself 0.25s into the pop — hosting it on `self`
-	# would kill the notice a quarter-second in, long before its 3s lifetime. Parent (the Arena) is stable.
+	# The notice must be hosted by something that OUTLIVES this drop: both arena_toast.gd and
+	# arena_notify_stack.gd parent their CanvasLayer (and its fade tween) to `host`, and this node
+	# queue_free()s itself 0.25s into the pop — hosting it on `self` would kill the notice a quarter-second
+	# in, long before its 3s lifetime. Parent (the Arena) is stable.
 	var host: Node = get_parent()
 	if host == null or not is_instance_valid(host):
 		host = get_tree().current_scene
+	if _try_grant_live_slot():
+		return   # equipped straight from the ground via the level-up board — never touches the backpack
 	var nm := String(InventoryManager.get_def(_def_id).get("name", _def_id))
 	if not InventoryManager.has_room_for(_def_id):
-		ArenaToastScript.show(host, "%s dropped — inventory FULL" % nm, "bottom_right")
+		ArenaNotifyStackScript.show(host, "%s dropped — inventory FULL" % nm)
 		return
 	var uid := InventoryManager.add_to_backpack(_def_id)
 	if uid == -1:
-		ArenaToastScript.show(host, "%s dropped — inventory FULL" % nm, "bottom_right")
+		ArenaNotifyStackScript.show(host, "%s dropped — inventory FULL" % nm)
 		return
 	if MetaManager.has_method("mark_run_temp"):
 		MetaManager.mark_run_temp(uid)
-	ArenaToastScript.show(host, "%s has been acquired. Press I to view" % nm, "bottom_right")
+	ArenaNotifyStackScript.show(host, "%s has been acquired. Press I to view" % nm)
+
+## Checks whether `_def_id` resolves to a live weapon/aux kind AND has a free run-loadout slot right now; if
+## so, hands it to arena_levelup_ui.gd's grant_specific_item_choice() and returns true (drop fully handled —
+## _collect() must not fall through to the backpack). False otherwise (weapons_full/aux_slots_full, the
+## def_id isn't a live-sloppable kind — e.g. some other item type — or the level-up UI/relevant system node
+## just isn't in the tree), which sends the caller down the ORIGINAL backpack+notice path unchanged.
+func _try_grant_live_slot() -> bool:
+	var lvl := get_tree().get_first_node_in_group("levelup_ui")
+	if lvl == null or not lvl.has_method("grant_specific_item_choice"):
+		return false
+	if _def_id.begins_with("aux_"):
+		var ax := get_tree().get_first_node_in_group("arena_aux")
+		if ax == null or bool(ax.call("aux_slots_full")):
+			return false
+		lvl.call("grant_specific_item_choice", _def_id)
+		return true
+	var aw := get_tree().get_first_node_in_group("arena_weapons")
+	if aw == null or not aw.has_method("kind_for_def_id"):
+		return false
+	var kind := String(aw.call("kind_for_def_id", _def_id))
+	if kind == "" or bool(aw.call("weapons_full")):
+		return false
+	lvl.call("grant_specific_item_choice", _def_id)
+	return true
 
 ## See this file's header. Returns false (nothing changed) if the model won't load, so setup() falls through
 ## to the flat-PNG path.

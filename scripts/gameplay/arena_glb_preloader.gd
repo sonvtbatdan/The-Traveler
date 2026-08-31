@@ -41,15 +41,21 @@ func _ready() -> void:
 		_done = true
 		set_process(false)
 
-## Every distinct .glb any of the three curated art paths can show, in the order they're most likely to be
-## needed. Three sources, each resolved the exact same way its own consumer resolves it, so the preload set
-## can never miss (or mis-order) something a real screen would load cold:
+## Every distinct .glb any of the FOUR curated art paths can show, in the order they're most likely to be
+## needed. Each resolved the exact same way its own consumer resolves it, so the preload set can never miss
+## (or mis-order) something a real screen would load cold:
 ##   1. The level-up board's NORMAL resolution (arena_levelup_ui._weapon_icon_glb() minus its high-poly
 ##      override) — every WEAPON_INFO/FUSION_DEFS kind's def_id/icon glb via InventoryManager.glb_for().
 ##   2. The level-up board's HIGH-POLY override (LevelUpUI.HIGHPOLY_GLB) — 5 specific def_ids, 2026-08-24.
 ##   3. The arena pickup's curated table (ArenaWeapons.ARENA_PICKUP_GLB) — deliberately NOT the same
 ##      resolution as (1): see that table's own comment for why arena art can't be auto-derived.
-## Anything without a model in ALL THREE is simply absent — those slots keep using their flat PNG.
+##   4. Ruin-drop pickups (arena_loot.gd, 2026-08-29 on request: "pre-load các model ruin drop... để tránh lag
+##      khi drop") — heart/magnetic/divinity/shield + coin, the exact same 5 paths arena_loot.gd's own
+##      _load_tex() resolves ("res://assets/screen/%s.glb" % type, with coin's own COIN_GLB override). Both
+##      this list and that file's still keep their own copy of the "screen/" prefix rather than sharing a
+##      constant — same "read-only tables that would need to import each other" tradeoff as the rest of this
+##      file's per-source duplication, not worth a cross-file dependency for 5 literals.
+## Anything without a model in ALL FOUR is simply absent — those slots keep using their flat PNG.
 func _collect_paths() -> PackedStringArray:
 	var seen: Dictionary = {}
 	var out: PackedStringArray = []
@@ -70,6 +76,16 @@ func _collect_paths() -> PackedStringArray:
 			continue
 		seen[p] = true
 		out.append(p)
+	for ruin_path in [
+		"res://assets/screen/heart.glb", "res://assets/screen/magnetic.glb",
+		"res://assets/screen/divinity.glb", "res://assets/screen/shield.glb",
+		"res://assets/hud/coin.glb",
+	]:
+		var rp := String(ruin_path)
+		if seen.has(rp) or not ResourceLoader.exists(rp):
+			continue
+		seen[rp] = true
+		out.append(rp)
 	return out
 
 func _glb_for(def_id: String, icon_path: String) -> String:

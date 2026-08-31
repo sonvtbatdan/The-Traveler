@@ -3,6 +3,113 @@
 > Module của [`CLAUDE.md`](../CLAUDE.md). Đọc file này khi làm bất cứ thứ gì liên quan HUD in-game (thanh HP/Shield/Level, slot weapon/aux, nút Menu/Inv, coin/kill, layout HUD).
 > Cơ chế **editor** (kéo/thả, groups, blend, save layout) nằm chi tiết ở [`docs/dev_mode.md`](dev_mode.md) — file này là bức tranh tổng + các lưu ý sống còn.
 
+## Changelog — 2026-08-30 (e) — Quest board wired to a real quest system (Electric, 12 quests)
+
+- **`scripts/autoload/quest_manager.gd`** (new autoload, after MetaManager): `QUESTS` = the 12 Electric
+  quests from the [Electric Quest Board artifact](https://claude.ai/code/artifact/10dad07c-fd59-4204-b4d4-ff2085fb1308)
+  (eq01..eq12, 3 tiers, `prereq` + tier-gate: T2 needs ≥2 T1 done, T3 needs ≥3 T2 done + eq09). Live
+  tracking during a run (per-type / per-faction kills, survive time, first-hit time, 3 s burst-kill peak,
+  temple breaks, boss / final-boss kills, rescue, no-revive) + a persistent per-map lifetime kill tally;
+  `end_run()` evaluates every available quest's `obj` spec, multi-pass so a mid-eval tier unlock also
+  completes. Rewards: **coins real** (`GameManager.add_money`), "+X% … on Electric" / luck / global-XP are
+  RECORDED (`map_mod()` / `luck_bonus` / `global_xp_pct`, persisted) — wiring those numbers into live
+  gameplay is a follow-up. Persisted: `user://save.cfg [quests]`.
+- **Hooks:** `arena_enemy._die()` → `QuestManager.on_enemy_killed(_type, is_boss, is_final, drop_loot)`;
+  `arena._ready` → `begin_run(map_id)`; `arena._show_run_over` → `end_run(map_id, victory)`;
+  QuestManager connects `GameManager.player_hit` / `rebirth_used`.
+- **`quest_binder.gd`:** cells 0–11 → eq01..eq12 (12–29 empty). Cell art from `QuestManager.state_of()`:
+  locked = dim `btn quest` (disabled), available = `btn quest` / `…pressed` (selected) / `…track`
+  (tracked), done = `btn quest done` (still clickable to view). **Hover** a cell → after 0.3 s a green
+  name tooltip drops below it. **Click** → the TV panel's 4 authored sentinel texts ("Quest name",
+  "Objective Description", "Reward Description", "Trivia") are hidden and refilled by **wrapped** runtime
+  Labels using each one's authored font/size/colour, width wrapped to the `quest tv` right edge
+  ("Objective" / "Reward" green headers left alone). **Track** button → `QuestManager.toggle_tracked` (max 3).
+- **`mapname` sprite** moved (cfg) into the board's bottom-left cutout window + scan `scanline_freq`
+  lowered to 22 so the orange lines read on the short strip.
+- **quest tv VFX** (`_scanlines_over` now takes `with_sweep` / `with_border` / `opacity`): the TV screen
+  keeps only the fine `selection_scan` lines at `modulate.a` 0.5 — no `selection_sweep` band, no border
+  ring (`border_strength` 0). It renders at the `quest tv` node's z (currently 225) which is **below**
+  `quest board` (234), so it shows through the board's window cutout. `mapname` keeps the full treatment.
+- **Per-quest icons** (`assets/hud/quest/Electric/<quest name>.png`, filename == `QUESTS[qid].name`):
+  `_add_cell_icon()` puts a `TextureRect` (`EXPAND_IGNORE_SIZE` + `STRETCH_KEEP_ASPECT_CENTERED`, GPU
+  scale) as a child of each slot button. Fit box = `Vector2(53,55) · ICON_FIT(0.80) − ICON_SHRINK(4)`,
+  centred. Child of the button so it inherits `modulate` — dimmed with the slot when the quest is locked.
+- **Every quest cell (0–11) is clickable to VIEW its info** — locked/available/done all open in the TV
+  panel; only locked can't be tracked/completed, only the 18 empty cells are `disabled`. (Was: locked
+  cells `disabled` → "why can't I click 8 of the 12 quests".) A locked cell shows `btn quest pressed`
+  while it's the one being viewed, still dimmed.
+
+## Changelog — 2026-08-30 (d) — Quest board: map selector, auto-centre, fixed cell size
+
+- **`quest_binder._center_board()`** (first thing in `build()`, + on `viewport.size_changed`): restores every
+  authored node to its cfg pos then shifts them all so the union bbox is centred in the game window. Runtime
+  nodes (grid/VFX/overlays) are placed AFTER, from the shifted positions, so they follow.
+- **Grid cells are now a fixed `CELL_W×CELL_H` = 53×55** (was aspect-derived from `btn quest`), 3 px apart,
+  the 6×5 block centred inside the `quest grid` rect.
+- **Map selector:** `MetaManager` gained `quest_map_id` (default `"electric"`, **persisted** in
+  `user://save.cfg`), `QUEST_MAP_ORDER` (= Launch-panel card order), `set_quest_map_id`, `quest_map_step`,
+  `quest_map_name`. The binder resolves the authored **"Map Name"** text (`_HudText`, sentinel match) and
+  sets it to `quest_map_name()`; **"btn back" / "btn forward"** overlay buttons swap to `…press` art on
+  `button_down`, restore + `quest_map_step(∓1)` on release. Re-opening the board returns to the last map.
+- **`mapname` sprite** gets its own **orange** CRT scan-line (`SCAN_ORANGE`), via the generalised
+  `_scanlines_over(file, colour)` — `quest tv` keeps green. ⚠️ If `mapname` is authored in a low-Z group
+  (behind `quest board`) its scan-line is hidden too — move it / reorder its group in the editor.
+
+## Changelog — 2026-08-30 (b) — Quest board: grid + button states + TV VFX + per-board BG colour
+
+Built on top of the "Quest" board added earlier the same day.
+
+### `quest_binder.gd` — now the full interaction (self-contained, like DockBinder)
+- **6×5 cell grid** generated at runtime over the authored `quest grid` sprite's rect:
+  `cell_w = (grid_w − 5·3) / 6`, `cell_h = cell_w · (btn_native_h / btn_native_w)` (keeps `btn quest`'s
+  147×152 aspect — 5 rows then land just inside the grid art's own height), **3 px gap between cells only**.
+  30 `TextureButton`s, row-major, `z = 245` (above every authored layer). The ONE authored `btn quest`
+  is just an art reference — hidden at runtime.
+- **Cell states** (sprite per state in `assets/hud/quest/`): idle `btn quest` → selected `btn quest pressed`
+  (radio, one at a time) → tracked `btn quest track` (**up to 3**, wins over "selected" visually) → done
+  `btn quest done` (not clickable; **no trigger yet** — `_done` static array, wire when quest data exists).
+- **Track button** (`btn track` ⇄ `btn untrack`): reflects whether the *selected* cell is tracked. Click to
+  track/untrack it. Nothing selected → no-op. Already 3 tracked → toast **"Maximum 3 quest tracking allowed"**
+  (Mandalore font, fades in/out, pinned near the top of `quest board`).
+- **Close button** (`btn close` → `btn close press` on hover): emits `close_requested`; `hub_screen._open_quest`
+  (re)connects it to `_close_quest` after every `reload()` (fresh binder instance each time).
+- **TV scan-line VFX**: the Level Up board's exact shader pair (`selection_scan` + `selection_sweep`,
+  green `Color(0.35,1.0,0.45,0.5)`) as two `ColorRect`s over the `quest tv` rect. **z-order (2026-08-30 fix):**
+  runtime nodes no longer use a fixed z — the VFX takes the `quest tv` node's OWN `z_index` (added after
+  every authored node, so tree order still floats it just over the tv art) and the cells take
+  `quest grid`'s `z_index + 1`. So re-ordering the "Quest Tivi" group *below* "Quest Board" in the editor
+  now correctly pushes the scan-line behind the board frame too.
+- Selection/tracking are `static var`s (survive the host's per-open `clear()`+`build()`; reset on game
+  restart — no quest-data model yet).
+
+### Per-board background colour (editor feature — ALL boards)
+`hud_edit_mode.gd`: a **BG:** `ColorPickerButton` + ✕ clear, right under the Transform W/H row. Saved per
+board in `[meta] bg_color` (default fully transparent → existing boards unchanged). Applied by
+`_apply_board_bg()` as a full-screen `ColorRect` **z −4096, a SIBLING of `_objects_container`** (added to its
+parent CanvasLayer) so canvas zoom/pan never moves it — runs for runtime-only hosts too, so the colour
+shows in-game, not just in the editor. See [`dev_mode.md`](dev_mode.md).
+
+## Changelog — 2026-08-30 — New "Quest" board (Dock → Bridge room)
+
+"Bảng này sẽ hiện ra khi bấm ô Bridge ở Dock Menu (hiện đang là coming soon)" + "Làm thêm dòng Quest trong
+HUD Edit ... load các asset trong assets/hud/quest".
+
+- **`board_defs.gd`**: new `"quest"` entry (`assets/hud/quest/`, `config/boards/quest.cfg`,
+  `quest_binder.gd`) + appended to `ORDER` → shows up as a **"Quest"** row in the board editor's "Board:"
+  dropdown automatically (dropdown is built from `ORDER`). Not a `hud_version`, so it's excluded from the
+  Settings HUD picker like `levelup`/`dock`/`choose_weapon`.
+- **`scripts/ui/boards/quest_binder.gd`** (`QuestBinder`): minimal for now — board is pure authored chrome
+  (`quest board` / `quest grid` / `quest tv` / `quest btn` (+` pressed`)). Only exposes `has_layout()`
+  (any non-empty group) so the host can fall back to a toast until it's authored. Dynamic quest rows TBD.
+- **`hub_screen.gd`**: `_build_quest_host()` — a runtime-only `HudEditScript` surface + dim + BACK button
+  on a hidden `CanvasLayer` (layer 15), same pattern as `_build_dock_host` / the chest UI's board host.
+  `_on_room_clicked` routes `"Bridge"` → `_open_quest()` (was the generic "Coming soon" toast).
+  `_open_quest()` calls `_quest_host.reload()` first (picks up a layout saved by the editor since the
+  scene loaded) and still shows the "Bridge — Coming soon" toast if `has_layout()` is false.
+- **Authoring workflow** (unchanged from every other board): arena → dev:on → Asset 41 (HUD Edit) →
+  Board: "Quest" → drag the palette sprites → Save writes `config/boards/quest.cfg`. The HUD editor is
+  only wired in the arena, not the hub.
+
 ## Changelog — 2026-08-25 — Off-screen pointer label gap: the "chest correct, rescue wrong" bug was actually shared by both, and had nothing to do with copy-paste
 
 "Đọc offset và khoảng cách giữa object và text của chest (hiện tại đang đúng) và áp dụng cho rescue landmark
@@ -217,7 +324,7 @@ code path and wasn't touched.
 `arena.gd`:
 - `_build_ui()` (CanvasLayer "UI", layer 10): thêm **cockpit HUD** widgets nhưng `visible = false` (legacy, ẩn).
 - `call_deferred("_setup_hud_edit")` → **`_setup_hud_edit()`**: tạo `CanvasLayer(layer=9)` + `ObjectsContainer` (Control full‑rect, mouse_filter IGNORE) → `HudEditScript.new()` → `hem.setup(oc)`. Đây là **playerhud sống**.
-- `set_edit_focus(on)`: ẩn gameplay + HUD + buttons + player + enemies khi mở 1 full‑screen editor (playerhud editor gọi qua `_arena_focus`).
+- `set_edit_focus(on)`: ẩn gameplay + HUD + buttons + player + enemies **+ bật `_edit_backdrop` (ColorRect đen kín, CanvasLayer 8)** khi mở 1 full‑screen editor (playerhud editor gọi qua `_arena_focus`) — xem [`dev_mode.md`](dev_mode.md) changelog 2026‑08‑30.
 
 `arena_hud_buttons.gd` (CanvasLayer 11, cụm nút góc phải + dev góc trái):
 - Nút **Asset 41** (`_hud_edit_btn`, chỉ hiện khi **dev:on**) → `_on_hud_edit()` → `get_first_node_in_group("hud_edit").toggle()` mở/đóng editor playerhud.

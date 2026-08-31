@@ -156,7 +156,17 @@ func setup(glb_path: String, max_w: float, max_h: float, interactive: bool = fal
 	e.background_mode = Environment.BG_CLEAR_COLOR
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	e.ambient_light_color = Color(0.4, 0.42, 0.48)
-	e.ambient_light_energy = 1.2
+	# 2026-08-29, bug report ("vũ khí trong hình thumbnail của bảng levelup đang bị chiếu sáng quá mức... vật
+	# thể trong bảng level up hay các bảng HUD khác ko bị ảnh hưởng bởi ánh sáng trong arena"). Checked first:
+	# this control's lighting is fully self-contained (own key/fill/ambient/headlamp below, own_world_3d=true)
+	# and never reads sun_dir()/anything from the arena — grepped every sun_dir() consumer in the project and
+	# this file isn't one of them, so the recent ship-lighting feature has no code path into here at all. The
+	# actual issue: this file's own FIXED light budget was just genuinely high — key(1.3) + fill(0.5) +
+	# ambient(1.2) + a 1.6 headlamp below, stacked, originally tuned so ONE very dark/concave model (KM-FC-A-
+	# Alt.glb) wouldn't render near-black — which overexposes every lighter-colored weapon. Ambient specifically
+	# (applies uniformly to every surface regardless of angle, unlike the directional lights) is the biggest
+	# contributor to a flat, blown-out look, so it's the one trimmed here; 1.2→0.6 halves it.
+	e.ambient_light_energy = 0.6
 	env.environment = e
 	_vp.add_child(env)
 
@@ -257,7 +267,9 @@ func _frame_cam(model: Node3D) -> void:
 	# targets the camera-facing side specifically instead of a general floor.
 	var headlamp := DirectionalLight3D.new()
 	headlamp.rotation = _cam.rotation
-	headlamp.light_energy = 1.6
+	headlamp.light_energy = 0.9   # 2026-08-29: 1.6→0.9, see this file's ambient-trim doc note above — still
+	                              # comfortably brighter than the fill light for the dark-model case this was
+	                              # added for, without stacking to near-white on everything else
 	_vp.add_child(headlamp)
 
 ## Composes each mesh's transform relative to `root` from LOCAL `.transform` values only (_relative_

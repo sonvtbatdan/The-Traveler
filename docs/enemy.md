@@ -3,6 +3,66 @@
 > Module of [`CLAUDE.md`](../CLAUDE.md). Read this when working on enemy behavior, bosses, waves, arena enemies, ruins, enemy panel.
 > Always-on core rules (conventions, coordinate system, image/render rules, LOCKED MODULES) live in CLAUDE.md — read that too.
 
+## Changelog — 2026-09-01 — Volcanic: F7 said 5000 HP / 30s, live field showed 11.4k. THREE stacked bugs.
+
+User playtest: t=24, 120 creeps, live "Total HP" **11.4k** — but the F7 wave editor's first 30s milestone is
+only **5000**. Three independent causes, each inflating the field in a way the milestone target couldn't see:
+
+1. **`"lvl": true` on the whole magma / stone / ash roster.** Runtime `hp_max = base × ENEMY_HP_TUNE(×2) ×
+   GameManager.player_level`. Electric's core roster (`fly`/`bee`/`bug`/`swarm`/`spider`/`dragonfly`/`diver`)
+   is **flat** — no `lvl` — so Volcanic got exponentially tankier as you level, Electric didn't. The flag
+   isn't shown in the Creep Info panel, so the user (who'd tuned magma→60 / stone→50 / ash→80 there) couldn't
+   see the ×level on top. **Fix: `"lvl"` removed from magma1-7, stone1-7, ash1-4, ashleader** → flat.
+   (`centipede` keeps `lvl` — the one Electric creep that has it, unchanged.)
+
+2. **The `ENEMY_HP_TUNE` ×2 was never folded into the HP-milestone maths.** `hp_targets` / F7's "Total HP"
+   column were in bare-`hp` terms; the live "Total HP" readout sums post-×2 `hp_max`. So "5000" always meant
+   "10000 on the field". **Fix: `WaveHpGen.effective_hp(id, defs)`** now returns `hp × blob × ENEMY_HP_TUNE`
+   — a creep's real live `hp_max`. Wired into the composer pool (`_build_gen_pools`), F7's `_gen_unit_pool` +
+   `_row_total_hp`, and `fleet_hp`. F7's column now matches the in-run readout 1:1; a `hp_targets` value = the
+   HP you actually see. (Death-spawns are NOT counted — a stone's magma/frags are summed as their own live
+   creeps when they appear, so a stone/magma window just ramps a bit above target as you fight it.)
+
+3. **Low-count catch-up was flooding the field, ignoring `hp_targets` entirely.** When `alive` stays under
+   `LOW_COUNT_THRESHOLD` (20) for 2s — which at run start it always does — catch-up dumps `CATCHUP_BURST` (50)
+   then pumps `CATCHUP_RATE` (15/s) up to `CATCHUP_TARGET` (100), picking creeps with **no HP budget at all**.
+   So the first ~10s hit 100 creeps regardless of the milestone. **Fix: `_tick_low_count_watch` now no-ops
+   when `hp_targets` is non-empty** — the milestone composer is the population authority for that map; its
+   waves ramp the field to each target on their own. Maps without `hp_targets` (Electric) keep catch-up.
+
+**Verified** (booted Volcanic): catch-up never fires, milestone 0 composes to ~5000 live-field HP (5 of 6
+random draws within ±5%; the 6th whiffs low — pre-existing `_pick_index` ~2% failure mode, made worse by
+`metalfly_spawn` sitting in the gen pool — flag for later).
+
+**Cadence (`cách rải creep theo từng tick`): no bug.** Both maps trickle through the same `_spread_entry()`
+(count ÷ 5s ticks). The per-tick flood was purely #1+#2+#3.
+
+**User's next step:** re-tune per-creep HP (Creep Info) + `hp_targets` in `vocalnic.json`, then re-run F7
+"Generate Base on HP". The density is now milestone-driven (no catch-up backstop), so if 5000/30s feels thin,
+raise the targets — the number is now exactly the field HP you'll see.
+
+## Changelog — 2026-08-31 — `ash1`–`ash4` + `ashleader` (Volcanic "burning wreck" creeps); `fleet_unique` flag
+
+New Volcanic creeps, all carrying the `"smoke_trail": true` VFX flag (see `docs/vfx.md` → Creep Smoke
+Trail): `ash1`–`ash4` ordinary chase creeps, `ashleader` the squad flagship — bigger/tankier, `strike_back`,
+plus two new flags:
+
+- **`"fleet_unique": true`** — a fleet deployment fields **at most one** of this def, ever (user rule: "fleet
+  có thể không có ashleader, hoặc có thì tối đa là 1"). Enforced by `_roll_slot_id(pool, fu_used)` in BOTH
+  directors' `_deploy_fleet` + mothership paths: a slot that rolls an already-placed `fleet_unique` id falls
+  back to a non-unique pool option, else the slot is dropped. `V.Ash.Wedge.9` / `V.Ash.Col.7` author exactly
+  one `["ashleader"]` slot (it's the biggest sprite → becomes the carrier); `V.Ash.Rec.8` / `V.Ash.Mix.12`
+  author none. The guard is belt-and-suspenders over the authoring.
+- **`"no_auto": true`** on `ashleader` — `WaveHpGen.is_auto_excluded` → kept out of every AUTOMATIC pool (F7
+  Gen, runtime milestone gen, low-pop reinforcement, Elite/Champion promotion) so a lone leader never spawns
+  itself; still available via fleets, an authored timeline row, the F7 Unit picker, and dev Quick Spawn.
+
+Four `V.Ash.*` fleets in `fleet_layout.cfg` (`V.` prefix → auto-scoped to Volcanic in F7's Fleet picker;
+ash icons live in `assets/map/volcanic/enemies/` → the Unit picker + Gen pool pick them up with no wiring).
+HP is placeholder — user tunes per-creep then re-runs F7 "Gen". Added to `arena_debug_spawn.gd`
+`QUICK_SPAWN_ORDER` (Dev → Creep, Volcanic filter). Verified live: each fleet deploys with the right leader
+count (0/0/1/1) and every ash creep gets its smoke VFX child.
+
 ## Changelog — 2026-08-25 (47th pass) — dummy really is blocked now; boss_stub can never be fielded as a creep
 
 ### "Trước đây tôi đã set rule là ko spawn dummy rồi? Vì sao giờ vẫn còn thấy trên arena?"

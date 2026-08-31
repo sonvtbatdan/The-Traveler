@@ -15,7 +15,12 @@ extends Node2D
 ## chain instead of two. box1-4.png/BOX_WIDTH/BOX_HP/setup_as_box removed with it (no other caller referenced
 ## them — see git history if the box phase is ever wanted back).
 
-const ArenaExplosion := preload("res://scripts/gameplay/arena_explosion.gd")
+## 2026-08-29, on request ("khi bắn nổ ruin, loại bỏ hình gif animation, sử dụng vfx nổ giống như khi bắn
+## enemies") — was arena_explosion.gd (a raw 7-frame Gun-Impact50.sheet.png flipbook), now arena_death_fx.gd,
+## the SAME baked-composite explosion arena_enemy.gd's own _spawn_explosion() uses for every creep death (see
+## that file's own doc comment: "the live composite Explosion... tanked the frame rate... the flipbook looks
+## the same for ~zero cost" — a pre-baked bake of a real particle composite, not the older raw sprite sheet).
+const DeathFX := preload("res://scripts/gameplay/arena_death_fx.gd")
 
 # ── TUNABLES ──────────────────────────────────────────────────────────────────
 const SHIP_WIDTH  := 70.0
@@ -25,9 +30,11 @@ const SPEED_MIN   := 20.0
 const SPEED_MAX   := 50.0
 const HIT_FLASH_T := 0.12               # seconds of white flash per hit
 
-# "shield" dropped out of arena_loot.gd's _collect() match when the old shield-visual path was retired
-# (arena_shield_visual.gd is now orphaned) — kept out of the pool so it never silently does nothing.
-const LOOT_POOL := ["coin", "diamond", "heart", "magnetic", "divinity"]
+# "shield" was dropped out of this pool when the old shield-visual path was retired (arena_shield_visual.gd
+# became orphaned), then added back 2026-08-29 on request ("shield cũng là dạng drop như heal, hồi 20 shield.
+# bắn ruin rơi ra") now that arena_loot.gd's _collect() has a real "shield" case (GameManager.add_shield(20))
+# to route it to — see that file's own doc comment.
+const LOOT_POOL := ["coin", "diamond", "heart", "magnetic", "divinity", "shield"]
 
 # ── State ─────────────────────────────────────────────────────────────────────
 var _variant: int = 1         # 1–4 (which ship texture)
@@ -76,7 +83,14 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 # ── Damage ────────────────────────────────────────────────────────────────────
-func take_damage(dmg: float, _stagger: float = 0.0, _knock: float = 0.0) -> void:
+# 2026-08-29 crash fix ("Invalid call to function 'take_damage'... Expected 3 argument(s)", arena_weapons.gd:
+# 1141/3489 — Hivemind's take_damage(dmg, stagger, knock, ignore_armor, bleeds, was_crit) call, but ANY weapon
+## calling the fuller form would have hit the same crash the moment it targeted a ruin) — this only ever
+# accepted 3 positional args while arena_enemy.gd's own take_damage() (what every weapon is really written
+# against) accepts up to 7. Widened to match that exact signature so no caller can ever over-argument this
+# again; the ruin still only cares about `dmg` — every extra param is accepted and ignored, same as `_stagger`/
+# `_knock` already were.
+func take_damage(dmg: float, _stagger: float = 0.0, _knock: float = 0.0, _ignore_armor: bool = false, _bleeds: bool = false, _was_crit: bool = false, _kind: String = "") -> void:
 	if _dead:
 		return
 	hp -= dmg
@@ -93,7 +107,7 @@ func _die() -> void:
 	queue_free()
 
 func _spawn_explosion(size_px: float) -> void:
-	var ex: Node2D = ArenaExplosion.new()
+	var ex: Node2D = DeathFX.new()
 	get_parent().add_child(ex)
 	ex.call("setup", global_position, size_px)
 

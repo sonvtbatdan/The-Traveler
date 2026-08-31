@@ -121,7 +121,7 @@ func _setup_desc_panel() -> void:
 	_desc_panel.z_index = 100
 
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.04, 0.04, 0.12, 0.94)
+	style.bg_color = UiPalette.SURFACE
 	style.corner_radius_top_left    = 4
 	style.corner_radius_top_right   = 4
 	style.corner_radius_bottom_left  = 4
@@ -158,7 +158,7 @@ func _setup_desc_panel() -> void:
 
 	var desc_lbl := Label.new()
 	desc_lbl.text = data["desc"]
-	desc_lbl.add_theme_color_override("font_color", Color(0.82, 0.9, 1.0))
+	desc_lbl.add_theme_color_override("font_color", UiPalette.INK)
 	desc_lbl.add_theme_font_size_override("font_size", 10)
 	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD
 	desc_lbl.custom_minimum_size = Vector2(180.0, 0.0)

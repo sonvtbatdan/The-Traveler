@@ -44,10 +44,16 @@ const BOARDS := {
 		"assets": "res://assets/hud/dock/",
 		"binder": "res://scripts/ui/boards/dock_binder.gd",
 	},
+	"quest": {
+		"name": "Quest",
+		"layout": "res://config/boards/quest.cfg",
+		"assets": "res://assets/hud/quest/",
+		"binder": "res://scripts/ui/boards/quest_binder.gd",
+	},
 }
 
 ## Dropdown / iteration order (Board: selector in the HUD editor — every board, including Level Up).
-const ORDER := ["hud", "hud_1_1", "levelup", "choose_weapon", "dock"]
+const ORDER := ["hud", "hud_1_1", "levelup", "choose_weapon", "dock", "quest"]
 
 ## Alternate HUD layouts a player can pick between in Settings (excludes non-HUD boards like Level Up).
 static func hud_version_ids() -> Array:

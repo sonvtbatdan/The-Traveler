@@ -426,9 +426,9 @@ func _help_entry(nm: String, highlighted: bool) -> PanelContainer:
 		sb.set_border_width_all(2)
 		sb.border_color = Color(0.5, 0.95, 0.6, 0.95)   # bright green = the selected one
 	else:
-		sb.bg_color = Color(0.08, 0.11, 0.15, 0.9)
+		sb.bg_color = UiPalette.SURFACE_2
 		sb.set_border_width_all(1)
-		sb.border_color = Color(0.25, 0.35, 0.5, 0.6)
+		sb.border_color = UiPalette.WIRE_2
 	pc.add_theme_stylebox_override("panel", sb)
 
 	var margin := MarginContainer.new()
@@ -639,7 +639,7 @@ func _apply_font(c: Control, sz: int) -> void:
 
 func _style(p: Panel) -> void:
 	var s := StyleBoxFlat.new()
-	s.bg_color = Color(0.05, 0.07, 0.10, 0.97)
+	s.bg_color = UiPalette.SURFACE
 	s.set_border_width_all(2)
 	s.border_color = Color(0.4, 0.6, 0.4, 0.95)   # green-ish so it reads as a dev tool
 	s.set_corner_radius_all(8)

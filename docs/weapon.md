@@ -253,7 +253,9 @@ prompted checking the distribution rather than trusting a three-sample run.
 "delay thêm 0.2 giây nữa. Dùng stand.glb làm thumbnail và preview cho bảng level up."
 
 * `YARI_SWEEP_DELAY` 0.2 → **0.4**. Verified over three consecutive attacks: the arc first appears at
-  `sweep_t` 0.406 every time.
+  `sweep_t` 0.406 every time. *(2026-09-01: the bottom-left dev slider that tuned this live was removed —
+  the value is dialled in. `YARI_SWEEP_DELAY` + `arena_weapons.get/set_yari_sweep_delay()` stay; only
+  `arena_debug_spawn._build_sweep_delay_slider()` and its HUD panel are gone.)*
 * `ITEM_DEFS` entries can now name a `"glb"` outright, and `yari_jaeger` points at the merged
   `assets/weaponry/Jeager/Jeager.glb`. `get_glb()` used to only guess a model sitting next to the PNG under
   the same basename, which cannot reach a model that lives in the weaponry folder and is shared with the

@@ -96,7 +96,7 @@ func _build_ui() -> void:
 	sb.bg_color = Color(0.03, 0.06, 0.08, 0.98)
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(2)
-	sb.border_color = Color(0.2, 0.5, 0.75)   # deep-water blue border — distinct from the other 4 Atlantic panels
+	sb.border_color = UiPalette.ACCENT_DIM   # deep-water blue border — distinct from the other 4 Atlantic panels
 	sb.set_content_margin_all(8.0)
 	_panel.add_theme_stylebox_override("panel", sb)
 	add_child(_panel)

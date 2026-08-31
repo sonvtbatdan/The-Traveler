@@ -25,12 +25,12 @@ func _ready() -> void:
 
 func _apply_style() -> void:
 	_panel_style = StyleBoxFlat.new()
-	_panel_style.bg_color            = Color(0.07, 0.09, 0.13, 0.95)
+	_panel_style.bg_color            = UiPalette.SURFACE
 	_panel_style.border_width_left   = 1
 	_panel_style.border_width_right  = 1
 	_panel_style.border_width_top    = 1
 	_panel_style.border_width_bottom = 1
-	_panel_style.border_color        = Color(0.35, 0.45, 0.65, 0.9)
+	_panel_style.border_color        = UiPalette.WIRE_2
 	_panel_style.corner_radius_top_left     = 6
 	_panel_style.corner_radius_top_right    = 6
 	_panel_style.corner_radius_bottom_left  = 6
@@ -61,7 +61,7 @@ func _build_ui() -> void:
 	# ── Task rows ─────────────────────────────────────────────────────────────
 	var chk_border := func() -> StyleBoxFlat:
 		var s := StyleBoxFlat.new()
-		s.bg_color          = Color(0.06, 0.08, 0.12, 0.95)
+		s.bg_color          = UiPalette.SURFACE
 		s.border_color      = Color(0.88, 0.88, 0.88, 0.92)
 		s.border_width_left = 1; s.border_width_right  = 1
 		s.border_width_top  = 1; s.border_width_bottom = 1
@@ -70,8 +70,8 @@ func _build_ui() -> void:
 		return s
 
 	var te_style := StyleBoxFlat.new()
-	te_style.bg_color          = Color(0.05, 0.07, 0.10, 0.85)
-	te_style.border_color      = Color(0.22, 0.30, 0.46, 0.70)
+	te_style.bg_color          = UiPalette.SURFACE_2
+	te_style.border_color      = UiPalette.WIRE_2
 	te_style.border_width_left = 1; te_style.border_width_right  = 1
 	te_style.border_width_top  = 1; te_style.border_width_bottom = 1
 	te_style.corner_radius_top_left     = 3; te_style.corner_radius_top_right    = 3
@@ -80,8 +80,8 @@ func _build_ui() -> void:
 	te_style.content_margin_top  = 3; te_style.content_margin_bottom = 3
 
 	var te_focus := StyleBoxFlat.new()
-	te_focus.bg_color          = Color(0.06, 0.09, 0.14, 0.9)
-	te_focus.border_color      = Color(0.40, 0.55, 0.80, 0.90)
+	te_focus.bg_color          = UiPalette.SURFACE_2
+	te_focus.border_color      = UiPalette.ACCENT
 	te_focus.border_width_left = 1; te_focus.border_width_right  = 1
 	te_focus.border_width_top  = 1; te_focus.border_width_bottom = 1
 	te_focus.corner_radius_top_left     = 3; te_focus.corner_radius_top_right    = 3

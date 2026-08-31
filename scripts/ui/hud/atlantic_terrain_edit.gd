@@ -103,7 +103,7 @@ func _new_panel_shell(pos: Vector2, w: float, max_h: float, title_text: String) 
 	panel.position = pos
 	panel.size = Vector2(w, minf(max_h, vp_h - pos.y - 20.0))
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.04, 0.07, 0.09, 0.98)
+	sb.bg_color = UiPalette.SURFACE
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(2)
 	sb.border_color = Color(0.15, 0.55, 0.65)   # cool teal border — visually distinct from Volcanic's ember/Electric's blue

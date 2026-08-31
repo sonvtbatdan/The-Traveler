@@ -76,7 +76,7 @@ func _build_ui() -> void:
 	_panel.position = Vector2(20.0, 44.0)
 	_panel.size = Vector2(PANEL_W, minf(660.0, vp_h - _panel.position.y - 20.0))
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.04, 0.07, 0.09, 0.98)
+	sb.bg_color = UiPalette.SURFACE
 	sb.set_corner_radius_all(10)
 	sb.set_border_width_all(2)
 	sb.border_color = Color(0.2, 0.55, 0.65)

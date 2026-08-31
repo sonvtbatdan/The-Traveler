@@ -414,20 +414,20 @@ func _make_label_btn(label: String, width: float = BTN_SIZE, height: float = BTN
 	btn.text = label
 	btn.custom_minimum_size = Vector2(width, height)
 	var s := StyleBoxFlat.new()
-	s.bg_color = Color(0.10, 0.12, 0.16, 0.85)
-	s.border_color = Color(0.35, 0.45, 0.60)
+	s.bg_color = UiPalette.SURFACE_2
+	s.border_color = UiPalette.WIRE_2
 	s.set_border_width_all(1)
 	s.corner_radius_top_left = 3; s.corner_radius_top_right = 3
 	s.corner_radius_bottom_left = 3; s.corner_radius_bottom_right = 3
 	btn.add_theme_stylebox_override("normal", s)
 	var sh := s.duplicate() as StyleBoxFlat
-	sh.bg_color = Color(0.18, 0.22, 0.32, 0.95)
+	sh.bg_color = UiPalette.SURFACE_3
 	btn.add_theme_stylebox_override("hover", sh)
 	var sp := s.duplicate() as StyleBoxFlat
-	sp.bg_color = Color(0.25, 0.35, 0.55, 1.0)
+	sp.bg_color = UiPalette.ACCENT_DIM
 	btn.add_theme_stylebox_override("pressed", sp)
 	btn.add_theme_font_size_override("font_size", font_size)
-	btn.add_theme_color_override("font_color", Color(0.85, 0.90, 1.0))
+	btn.add_theme_color_override("font_color", UiPalette.INK)
 	btn.clip_text = true   # uniform SMALL_BTN_W (54px) is narrower than some labels (e.g. "WEAPON INFO") — clip instead of overflow
 	return btn
 
@@ -754,7 +754,7 @@ func set_auto_aim(v: bool) -> void:
 	_auto_fire = v
 	if _auto_fire_btn != null:
 		_auto_fire_btn.text = "AUTO:ON" if _auto_fire else "AUTO:OFF"
-		_auto_fire_btn.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5) if _auto_fire else Color(0.85, 0.90, 1.0))
+		_auto_fire_btn.add_theme_color_override("font_color", UiPalette.GOOD if _auto_fire else UiPalette.INK)
 
 ## Combined dev cheat: forces Auto-Fire on (and keeps that button's own label/color in sync) + GameManager's
 ## damage-mult/invulnerability god_mode flag. Turning God Mode back off also turns Auto-Fire back off — one
@@ -763,10 +763,10 @@ func _on_god_mode() -> void:
 	_click_sfx()
 	_god_mode = not _god_mode
 	_god_mode_btn.text = "GOD:ON" if _god_mode else "GOD:OFF"
-	_god_mode_btn.add_theme_color_override("font_color", Color(1.0, 0.85, 0.2) if _god_mode else Color(0.85, 0.90, 1.0))
+	_god_mode_btn.add_theme_color_override("font_color", UiPalette.AMBER if _god_mode else UiPalette.INK)
 	_auto_fire = _god_mode
 	_auto_fire_btn.text = "AUTO:ON" if _auto_fire else "AUTO:OFF"
-	_auto_fire_btn.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5) if _auto_fire else Color(0.85, 0.90, 1.0))
+	_auto_fire_btn.add_theme_color_override("font_color", UiPalette.GOOD if _auto_fire else UiPalette.INK)
 	if GameManager.has_method("set_god_mode"):
 		GameManager.set_god_mode(_god_mode)
 
@@ -807,10 +807,10 @@ func _build_end_run_popup() -> void:
 
 	var panel := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.07, 0.08, 0.12, 0.98)
+	sb.bg_color = UiPalette.SURFACE
 	sb.set_corner_radius_all(8)
 	sb.set_border_width_all(2)
-	sb.border_color = Color(0.30, 0.45, 0.75)
+	sb.border_color = UiPalette.ACCENT_DIM
 	sb.set_content_margin_all(18.0)
 	panel.add_theme_stylebox_override("panel", sb)
 	center.add_child(panel)
@@ -822,7 +822,7 @@ func _build_end_run_popup() -> void:
 	var title := Label.new()
 	title.text = "End Run — pick an outcome"
 	title.add_theme_font_size_override("font_size", 14)
-	title.add_theme_color_override("font_color", Color(0.9, 0.95, 1.0))
+	title.add_theme_color_override("font_color", UiPalette.INK)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(title)
 
@@ -832,7 +832,7 @@ func _build_end_run_popup() -> void:
 	vb.add_child(btn_row)
 
 	var win_btn := _make_label_btn("WIN", 90.0, 34.0, 13)
-	win_btn.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5))
+	win_btn.add_theme_color_override("font_color", UiPalette.GOOD)
 	win_btn.pressed.connect(_on_end_run_choice.bind(true))
 	btn_row.add_child(win_btn)
 
@@ -883,7 +883,7 @@ func _on_simplified() -> void:
 	# 2026-08-18: was an icon swap (Simplified.png/Simplifiedon.png); now a text/color toggle, same
 	# convention as Auto-Fire/God Mode.
 	_simplified_btn.text = "SIMPLE:ON" if ArenaEnemy.simplified_mode else "SIMPLE:OFF"
-	_simplified_btn.add_theme_color_override("font_color", Color(0.4, 1.0, 0.5) if ArenaEnemy.simplified_mode else Color(0.85, 0.90, 1.0))
+	_simplified_btn.add_theme_color_override("font_color", UiPalette.GOOD if ArenaEnemy.simplified_mode else UiPalette.INK)
 
 	# Scan simplified folder → build filename→path dict
 	var simplified_files: Dictionary = {}

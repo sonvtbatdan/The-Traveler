@@ -147,6 +147,7 @@ const QUICK_SPAWN_ORDER: Array[String] = [
 	"pirate1", "pirate2", "piratespear", "piratespearshield",
 	"magma1", "magma2", "magma3", "magma4", "magma5", "magma6", "magma7",
 	"stone1", "stone2", "stone3", "stone4", "stone5", "stone6", "stone7",
+	"ash1", "ash2", "ash3", "ash4", "ashleader",
 	"pros1", "pros2", "pros3", "pros4", "pros5", "pros6", "pros7", "pros8", "prosmotherblank",
 	# Atlantic sea creatures (2026-08-13) — data-only wire-up, no wave timeline yet; this is the easiest way
 	# to test-spawn them in the meantime (see docs/enemy.md's matching changelog entry).
@@ -158,6 +159,17 @@ const QUICK_BOSS_IDS: Array[String] = ["elephant", "chromeleon", "metalfly"]
 # Boss-tab cell size. Bigger than the Enemies grid's 48 because a "boss_glb" cell is a live 3D render, and a
 # spinning model in a 48px box reads as a smudge (see _make_quick_cell).
 const BOSS_CELL := 92
+const ENEMY_CELL := 48
+
+# Enemies tab "Map:" filter (2026-08-31). Each QUICK_SPAWN_ORDER id is bucketed by the `assets/map/<id>/`
+# folder in its def's icon path (so a new sprite dropped into a map folder + a def entry needs no wiring
+# here — e.g. ash1 → Volcanic). "all" shows the whole roster; ids with no map folder fall under "Space".
+# CREEP_MAP_ORDER is the dropdown order for the buckets that turn out non-empty.
+const CREEP_MAP_ORDER: Array[String] = ["electric", "volcanic", "atlantic", "mechanic", "arctic", "cosmic", "mystic", "space"]
+const CREEP_MAP_NAMES := {
+	"all": "All", "electric": "Electric", "volcanic": "Volcanic", "atlantic": "Atlantic",
+	"mechanic": "Mechanic", "arctic": "Arctic", "cosmic": "Cosmic", "mystic": "Mystic", "space": "Space",
+}
 
 
 # Set true to show the hotkey panel + fire-rate controls at startup.
@@ -170,8 +182,6 @@ const SIM_TARGET_LEVEL := 15   # F4 skip-run: in-run level to simulate reaching 
 var _rng := RandomNumberGenerator.new()
 var _struct_cycle: int = 0   # F11 steps through the four structure types
 var _dev_ui_root: Control = null
-var _sweep_delay_slider: HSlider = null   # bottom-left dev tuner — see _build_sweep_delay_slider()
-var _sweep_delay_lbl:    Label   = null
 var _creep_panel:  Panel = null   # Quick Spawn (creep) — button-toggled, default hidden
 var _weapon_panel: Panel = null   # Spawn Weapon — button-toggled, default hidden
 var _weapon_grid: GridContainer = null         # current-tab cell grid (rebuilt on tab switch)
@@ -183,6 +193,12 @@ var _creep_tab_btns: Dictionary = {}
 var _creep_enemies_content: Control = null
 var _creep_fleet_content: Control = null
 var _creep_boss_content: Control = null
+var _creep_map_option: OptionButton = null    # Enemies tab "Map:" dropdown
+var _creep_enemy_grid: GridContainer = null   # rebuilt when the Map filter changes
+var _creep_map_ids: Array[String] = []        # parallel to _creep_map_option items
+var _creep_map_filter: String = "all"
+var _creep_stop_btn: Button = null            # header "Stop" ⇄ "Resume"
+var _spawn_stopped: bool = false              # true = every wave director's _process is halted
 var _fleet_list_vbox: VBoxContainer = null
 var _fleet_preview: Control = null             # floating 500×500 formation preview (hover)
 var _fleet_icon_cache: Dictionary = {}
@@ -283,77 +299,15 @@ func toggle_hotkey_panel() -> void:
 		_hotkey_panel.visible = not _hotkey_panel.visible
 
 ## Shared invisible root for the dev popups built elsewhere in this file (Quick Spawn / Weapon / Hotkey
-## panels) — used to just host the bottom-center Level Up / Fire-rate row, which has been removed (Level
-## Up now lives in arena_hud_buttons.gd's dev column as +LEVEL; the row overflowed screen width alongside it).
+## panels). Was also the host for the bottom-center Level Up / Fire-rate row (removed — +LEVEL moved to
+## arena_hud_buttons.gd) and the bottom-left Jeager sweep-delay tuning slider (removed 2026-09-01 once the
+## value was dialled in; `YARI_SWEEP_DELAY` in arena_weapons.gd + get/set_yari_sweep_delay() are kept).
 func _build_fire_rate_ui() -> void:
 	var root := Control.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 	_dev_ui_root = root
-	_build_sweep_delay_slider(root)
-
-## Bottom-left dev slider for Yari Jeager's sweep delay (2026-08-24, on request: "làm 1 slider chỉnh mức độ
-## delay, chạy từ 0-2 giây, ngay ở góc trái phía dưới màn chơi, tôi sẽ spawn jeager và tự kéo để điều chỉnh cho
-## khớp animation"). Lining the arc up with the frames where Slash actually swings is a by-eye call, so it
-## wants a live control rather than a constant and a restart.
-##
-## Lives on `_dev_ui_root`, so it appears and disappears with dev mode like every other panel here. Writes
-## straight into the live weapon through `set_yari_sweep_delay()`; nothing is saved, since this is a tuning
-## aid — once a value looks right, put it in `YARI_SWEEP_DELAY`.
-func _build_sweep_delay_slider(root: Control) -> void:
-	var panel := Panel.new()
-	var ps := StyleBoxFlat.new()
-	ps.bg_color = Color(0.04, 0.05, 0.08, 0.88)
-	ps.set_corner_radius_all(4)
-	ps.border_width_left = 1; ps.border_width_right  = 1
-	ps.border_width_top  = 1; ps.border_width_bottom = 1
-	ps.border_color = Color(0.30, 0.40, 0.60, 0.65)
-	panel.add_theme_stylebox_override("panel", ps)
-	panel.anchor_left = 0.0; panel.anchor_right  = 0.0
-	panel.anchor_top  = 1.0; panel.anchor_bottom = 1.0
-	panel.offset_left = 8.0
-	panel.offset_right = 8.0 + 210.0
-	panel.offset_top = -46.0
-	panel.offset_bottom = -8.0
-	root.add_child(panel)
-
-	var vb := VBoxContainer.new()
-	vb.set_anchors_preset(Control.PRESET_FULL_RECT)
-	vb.offset_left = 6.0; vb.offset_right = -6.0
-	vb.offset_top = 3.0;  vb.offset_bottom = -3.0
-	vb.add_theme_constant_override("separation", 1)
-	panel.add_child(vb)
-
-	_sweep_delay_lbl = Label.new()
-	_sweep_delay_lbl.add_theme_font_size_override("font_size", 10)
-	_sweep_delay_lbl.add_theme_color_override("font_color", Color(0.75, 0.87, 1.0))
-	vb.add_child(_sweep_delay_lbl)
-
-	_sweep_delay_slider = HSlider.new()
-	_sweep_delay_slider.min_value = 0.0
-	_sweep_delay_slider.max_value = 2.0
-	_sweep_delay_slider.step = 0.01
-	_sweep_delay_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_sweep_delay_slider.value_changed.connect(_on_sweep_delay_changed)
-	vb.add_child(_sweep_delay_slider)
-	# Seed from whatever the weapon currently holds, so the handle starts where the game actually is.
-	var w := get_tree().get_first_node_in_group("arena_weapons")
-	var cur := 0.4
-	if w != null and w.has_method("get_yari_sweep_delay"):
-		cur = float(w.call("get_yari_sweep_delay"))
-	_sweep_delay_slider.set_value_no_signal(cur)
-	_refresh_sweep_delay_label(cur)
-
-func _on_sweep_delay_changed(v: float) -> void:
-	var w := get_tree().get_first_node_in_group("arena_weapons")
-	if w != null and w.has_method("set_yari_sweep_delay"):
-		w.call("set_yari_sweep_delay", v)
-	_refresh_sweep_delay_label(v)
-
-func _refresh_sweep_delay_label(v: float) -> void:
-	if _sweep_delay_lbl != null:
-		_sweep_delay_lbl.text = "Jeager sweep delay: %.2fs" % v
 
 func _input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
@@ -471,10 +425,11 @@ func _clear_planets() -> void:
 func _build_quick_spawn_panel() -> void:
 	if _dev_ui_root == null:
 		return
-	const CELL  := 48
+	const CELL  := ENEMY_CELL
 	const COLS  := 4
 	const HDR_H := 28
 	const TAB_H := 26
+	const MAP_H := 24           # Enemies tab "Map:" dropdown row
 	const W     := COLS * CELL   # 192 px
 	const GRID_H := CELL * 4    # 4 visible rows = 192 px
 
@@ -490,7 +445,7 @@ func _build_quick_spawn_panel() -> void:
 	panel.anchor_top    = 1.0; panel.anchor_bottom = 1.0
 	panel.offset_left   = 8.0
 	panel.offset_right  = 8.0 + W
-	panel.offset_top    = -(HDR_H + TAB_H + GRID_H + 16)
+	panel.offset_top    = -(HDR_H + TAB_H + MAP_H + GRID_H + 16)
 	panel.offset_bottom = -8.0
 	panel.visible = false               # button-toggled (default hidden even when dev:on)
 	_creep_panel = panel
@@ -501,17 +456,27 @@ func _build_quick_spawn_panel() -> void:
 	vbox.add_theme_constant_override("separation", 0)
 	panel.add_child(vbox)
 
-	# Header row — CLEAR ALL only (the old "Quick Spawn" title is now the Enemies tab).
+	# Header row — Clear (wipe every live creep) + Stop/Resume (pause the wave director's spawning). Split out
+	# of the old single "CLEAR ALL" button (2026-08-31) so a dev can freeze incoming waves without also
+	# clearing the field, and vice-versa.
 	var hdr := HBoxContainer.new()
 	hdr.custom_minimum_size = Vector2(0.0, float(HDR_H))
-	hdr.add_theme_constant_override("separation", 0)
+	hdr.add_theme_constant_override("separation", 2)
 	vbox.add_child(hdr)
 	var btn_clear := Button.new()
-	btn_clear.text = "CLEAR ALL"
+	btn_clear.text = "Clear"
 	btn_clear.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_clear.add_theme_font_size_override("font_size", 10)
+	btn_clear.tooltip_text = "Remove every creep currently on the arena"
 	btn_clear.pressed.connect(_clear_quick_spawn)
 	hdr.add_child(btn_clear)
+	_creep_stop_btn = Button.new()
+	_creep_stop_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_creep_stop_btn.add_theme_font_size_override("font_size", 10)
+	_creep_stop_btn.tooltip_text = "Pause / resume the wave director's spawning"
+	_creep_stop_btn.pressed.connect(_toggle_spawn_stopped)
+	hdr.add_child(_creep_stop_btn)
+	_update_spawn_stop_btn()
 
 	# Tab row — Enemies / Fleet / Boss
 	var tabs := HBoxContainer.new()
@@ -537,22 +502,42 @@ func _build_quick_spawn_panel() -> void:
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(content)
 
-	# Enemies tab — the quick-spawn grid (4 visible rows, scrolls for row 5+).
+	# Enemies tab — a "Map:" filter dropdown above the quick-spawn grid (4 visible rows, scrolls for row 5+).
+	# The dropdown defaults to the map the player is currently in; they can switch to any other set after.
+	var evbox := VBoxContainer.new()
+	evbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	evbox.add_theme_constant_override("separation", 1)
+	content.add_child(evbox)
+	_creep_enemies_content = evbox
+
+	var map_row := HBoxContainer.new()
+	map_row.custom_minimum_size = Vector2(0.0, float(MAP_H))
+	map_row.add_theme_constant_override("separation", 3)
+	evbox.add_child(map_row)
+	var map_lbl := Label.new()
+	map_lbl.text = "Map:"
+	map_lbl.add_theme_font_size_override("font_size", 10)
+	map_row.add_child(map_lbl)
+	_creep_map_option = OptionButton.new()
+	_creep_map_option.add_theme_font_size_override("font_size", 10)
+	_creep_map_option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_creep_map_option.focus_mode = Control.FOCUS_NONE
+	_creep_map_option.item_selected.connect(_on_creep_map_selected)
+	map_row.add_child(_creep_map_option)
+
 	var escroll := ScrollContainer.new()
-	escroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	escroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	escroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	escroll.vertical_scroll_mode   = ScrollContainer.SCROLL_MODE_AUTO
-	content.add_child(escroll)
-	_creep_enemies_content = escroll
+	evbox.add_child(escroll)
 	var grid := GridContainer.new()
 	grid.columns = COLS
 	grid.add_theme_constant_override("h_separation", 0)
 	grid.add_theme_constant_override("v_separation", 0)
 	escroll.add_child(grid)
-	for type_id: String in QUICK_SPAWN_ORDER:
-		if QUICK_BOSS_IDS.has(type_id):
-			continue   # bosses moved to their own tab (2026-08-24) — listing them twice would be confusing
-		grid.add_child(_make_quick_cell(type_id, CELL))
+	_creep_enemy_grid = grid
+	_populate_creep_map_option()   # fills the dropdown + picks the current-map default
+	_rebuild_enemy_grid()
 
 	# Fleet tab — list of saved fleets (formation preview on hover, click to spawn).
 	var fscroll := ScrollContainer.new()
@@ -613,6 +598,80 @@ func _select_creep_tab(tab_id: String) -> void:
 		_rebuild_fleet_list()   # refresh in case fleets were edited since last open
 	else:
 		_hide_fleet_preview()
+
+# ── Enemies tab: Map filter ────────────────────────────────────────────────────
+
+## map_id → Array[String] of QUICK_SPAWN_ORDER ids (bosses excluded — own tab) whose def icon lives under
+## res://assets/map/<id>/…  . An id whose icon has no map folder is bucketed as "space".
+func _enemy_ids_by_map() -> Dictionary:
+	const MARK := "/assets/map/"
+	var out: Dictionary = {}
+	for type_id: String in QUICK_SPAWN_ORDER:
+		if QUICK_BOSS_IDS.has(type_id):
+			continue
+		var icon := String((WaveDir.ENEMY_DEFS.get(type_id, {}) as Dictionary).get("icon", ""))
+		var mid := "space"
+		var k := icon.find(MARK)
+		if k != -1:
+			mid = icon.substr(k + MARK.length()).get_slice("/", 0)
+		if not out.has(mid):
+			out[mid] = [] as Array
+		(out[mid] as Array).append(type_id)
+	return out
+
+## The map the player is currently in — arena's snapshotted `_map_id`, else MetaManager. The classic
+## "default"/Space arena has no themed roster of its own, so it defaults to the full list ("all").
+func _current_map_bucket() -> String:
+	var mid := ""
+	var a := get_tree().get_first_node_in_group("arena")
+	if a != null and is_instance_valid(a):
+		mid = String(a.get("_map_id"))
+	if mid == "" and typeof(MetaManager) != TYPE_NIL:
+		mid = String(MetaManager.selected_map_id)
+	return "all" if (mid == "" or mid == "default") else mid
+
+## Fill the "Map:" dropdown: "All" first, then every non-empty bucket in CREEP_MAP_ORDER. Selects the
+## current map's set by default (falls back to "All" if that map has no enemies in QUICK_SPAWN_ORDER).
+func _populate_creep_map_option() -> void:
+	if _creep_map_option == null:
+		return
+	_creep_map_ids.clear()
+	_creep_map_option.clear()
+	_creep_map_option.add_item(String(CREEP_MAP_NAMES["all"]))
+	_creep_map_ids.append("all")
+	var by_map := _enemy_ids_by_map()
+	for mid: String in CREEP_MAP_ORDER:
+		if by_map.has(mid) and not (by_map[mid] as Array).is_empty():
+			_creep_map_option.add_item(String(CREEP_MAP_NAMES.get(mid, mid.capitalize())))
+			_creep_map_ids.append(mid)
+	var sel := _creep_map_ids.find(_current_map_bucket())
+	if sel < 0:
+		sel = 0
+	_creep_map_option.selected = sel
+	_creep_map_filter = _creep_map_ids[sel]
+
+func _on_creep_map_selected(idx: int) -> void:
+	if idx < 0 or idx >= _creep_map_ids.size():
+		return
+	_creep_map_filter = _creep_map_ids[idx]
+	_rebuild_enemy_grid()
+
+## Repopulate the Enemies grid for the active Map filter. "all" = the whole QUICK_SPAWN_ORDER (minus bosses).
+func _rebuild_enemy_grid() -> void:
+	if _creep_enemy_grid == null:
+		return
+	for c in _creep_enemy_grid.get_children():
+		_creep_enemy_grid.remove_child(c)   # remove NOW (queue_free alone leaves them a frame → transient dupes)
+		c.queue_free()
+	var ids: Array = []
+	if _creep_map_filter == "all":
+		for type_id: String in QUICK_SPAWN_ORDER:
+			if not QUICK_BOSS_IDS.has(type_id):
+				ids.append(type_id)
+	else:
+		ids = (_enemy_ids_by_map().get(_creep_map_filter, [] as Array) as Array)
+	for type_id: String in ids:
+		_creep_enemy_grid.add_child(_make_quick_cell(type_id, ENEMY_CELL))
 
 ## Rebuild the Fleet tab's list from res://fleet_layout.cfg.
 func _rebuild_fleet_list() -> void:
@@ -914,6 +973,26 @@ func _clear_quick_spawn() -> void:
 	for e: Node in get_tree().get_nodes_in_group("arena_enemy"):
 		if is_instance_valid(e):
 			e.queue_free()
+
+## "Stop" freezes every wave director (V1 / V2 / test spawner — all sit in group "wave_director") by
+## halting its _process/_physics_process, so no new creeps arrive; "Resume" restarts them. A director's
+## local clock only advances while it processes (see arena_wave_director_v2.gd `_run_t`), so the timeline
+## picks up exactly where it left off. Debug-only — nothing else touches the directors' processing.
+func _toggle_spawn_stopped() -> void:
+	_spawn_stopped = not _spawn_stopped
+	for wd: Node in get_tree().get_nodes_in_group("wave_director"):
+		if is_instance_valid(wd):
+			wd.set_process(not _spawn_stopped)
+			wd.set_physics_process(not _spawn_stopped)
+	_update_spawn_stop_btn()
+	print("[debug] wave spawning ", "STOPPED" if _spawn_stopped else "RESUMED")
+
+func _update_spawn_stop_btn() -> void:
+	if _creep_stop_btn == null:
+		return
+	_creep_stop_btn.text = "Resume" if _spawn_stopped else "Stop"
+	_creep_stop_btn.add_theme_color_override("font_color",
+		Color(0.45, 0.95, 0.45) if _spawn_stopped else Color(1.0, 0.72, 0.42))
 
 # ── Weapon Spawn panel ──────────────────────────────────────────────────────────
 

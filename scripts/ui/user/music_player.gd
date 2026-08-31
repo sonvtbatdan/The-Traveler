@@ -155,7 +155,7 @@ func _process(delta: float) -> void:
 	if over != _hovering:
 		_hovering = over
 		_hover_timer = 0.0
-		_panel_style.bg_color = Color(0.11, 0.14, 0.20, 0.97) if over else Color(0.07, 0.09, 0.13, 0.95)
+		_panel_style.bg_color = UiPalette.SURFACE_3 if over else UiPalette.SURFACE
 	if not _hovering and _expanded:
 		_hover_timer += delta
 		if _hover_timer >= COLLAPSE_DELAY:
@@ -231,12 +231,12 @@ func _update_game_music_display() -> void:
 
 func _apply_style() -> void:
 	_panel_style = StyleBoxFlat.new()
-	_panel_style.bg_color            = Color(0.07, 0.09, 0.13, 0.95)
+	_panel_style.bg_color            = UiPalette.SURFACE
 	_panel_style.border_width_left   = 1
 	_panel_style.border_width_right  = 1
 	_panel_style.border_width_top    = 1
 	_panel_style.border_width_bottom = 1
-	_panel_style.border_color        = Color(0.35, 0.45, 0.65, 0.9)
+	_panel_style.border_color        = UiPalette.WIRE_2
 	_panel_style.corner_radius_top_left     = 6
 	_panel_style.corner_radius_top_right    = 6
 	_panel_style.corner_radius_bottom_left  = 6
@@ -273,7 +273,7 @@ func _build_ui() -> void:
 	_elapsed_lbl.text = "--:--"
 	_elapsed_lbl.custom_minimum_size = Vector2(60, 0)
 	_elapsed_lbl.add_theme_font_size_override("font_size", 17)
-	_elapsed_lbl.add_theme_color_override("font_color", Color(0.6, 0.72, 0.9))
+	_elapsed_lbl.add_theme_color_override("font_color", UiPalette.MUTED)
 	_elapsed_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	time_row.add_child(_elapsed_lbl)
 
@@ -352,10 +352,10 @@ func _build_ui() -> void:
 	_url_input.add_theme_color_override("font_placeholder_color", Color(0.4, 0.4, 0.4))
 	_url_input.add_theme_font_size_override("font_size", 18)
 	var url_s := StyleBoxFlat.new()
-	url_s.bg_color = Color(0.1, 0.12, 0.16, 1.0)
+	url_s.bg_color = UiPalette.SURFACE_2
 	url_s.border_width_left = 1; url_s.border_width_right  = 1
 	url_s.border_width_top  = 1; url_s.border_width_bottom = 1
-	url_s.border_color = Color(0.75, 0.78, 0.82, 0.9)
+	url_s.border_color = UiPalette.WIRE_2
 	url_s.corner_radius_top_left     = 4; url_s.corner_radius_top_right    = 4
 	url_s.corner_radius_bottom_left  = 4; url_s.corner_radius_bottom_right = 4
 	_url_input.add_theme_stylebox_override("normal",    url_s)
@@ -546,7 +546,7 @@ func _update_queue_scroll() -> void:
 		var normal_s := StyleBoxFlat.new()
 		normal_s.bg_color = Color(0, 0, 0, 0)
 		var hover_s := StyleBoxFlat.new()
-		hover_s.bg_color = Color(0.2, 0.35, 0.6, 0.35)
+		hover_s.bg_color = UiPalette.ACCENT_WASH
 		hover_s.corner_radius_top_left     = 3
 		hover_s.corner_radius_top_right    = 3
 		hover_s.corner_radius_bottom_left  = 3
