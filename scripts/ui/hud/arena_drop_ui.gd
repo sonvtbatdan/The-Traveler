@@ -112,13 +112,13 @@ func _add_weapon_choice(def_id: String) -> void:
 	_font_btn(dis_btn, 15)
 	dis_btn.custom_minimum_size = Vector2(140, 0)
 	var status := Label.new()
-	_font(status, FONT_BODY, 13, Color(0.6, 0.62, 0.68))
+	_font(status, FONT_BODY, 13, UiPalette.MUTED)
 	status.text = MandaloreText.a("Equip for this run, or break down for a permanent blueprint.")
 
 	equip_btn.pressed.connect(func() -> void:
 		_equip_drop(def_id)
 		status.text = MandaloreText.a("Equipped — this copy is lost at the end of the run.")
-		status.add_theme_color_override("font_color", Color(0.5, 0.9, 0.5))
+		status.add_theme_color_override("font_color", UiPalette.GOOD)
 		_resolve(equip_btn, dis_btn))
 	dis_btn.pressed.connect(func() -> void:
 		# 2026-08-06, on request: no longer an instant unlock — staged, becomes a real blueprint only if this
@@ -126,7 +126,7 @@ func _add_weapon_choice(def_id: String) -> void:
 		# first loses it, same risk as an uncollected rescue-landmark character.
 		MetaManager.stage_blueprint(def_id)
 		status.text = MandaloreText.a("Blueprint secured — permanent only if you make it back to the Dock.")
-		status.add_theme_color_override("font_color", Color(0.5, 0.75, 1.0))
+		status.add_theme_color_override("font_color", UiPalette.AMBER)
 		_resolve(equip_btn, dis_btn))
 
 	top.add_child(equip_btn)
@@ -172,7 +172,7 @@ func _build_ui() -> void:
 	var panel := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = UiPalette.SURFACE
-	sb.set_corner_radius_all(10)
+	sb.set_corner_radius_all(0)
 	sb.set_content_margin_all(22)
 	panel.add_theme_stylebox_override("panel", sb)
 	panel.custom_minimum_size = Vector2(720, 0)
@@ -204,7 +204,7 @@ func _card() -> VBoxContainer:
 	var pc := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = UiPalette.SURFACE_2
-	sb.set_corner_radius_all(6)
+	sb.set_corner_radius_all(0)
 	sb.set_content_margin_all(10)
 	pc.add_theme_stylebox_override("panel", sb)
 	_list.add_child(pc)

@@ -87,6 +87,41 @@ const MF_GLB := {
 ## the arrow was added to Jeager to fix. Arrow aligned with the nose at rot 0 keeps `rot` a pure correction:
 ## 0 means "what ships today", verified in the arena.
 const MF_FRONT_ANGLE   := PI * 0.5
+
+# Standalone glb BOSSES' FRONT arrow (2026-09-01 "The Skull", 2026-09-02 "Nautilus" — on request: "hướng
+# chỉ front giống như của jeager"). These aren't MF_GLB-style layer groups — each is one plain
+# WIRED_3D_CREEPS entry, folder-scanned like any other creep — so _front_marker_angle() looks them up in
+# this dict by name.
+## Each value is a STARTING guess (same down-the-canvas convention as MF_FRONT_ANGLE) — compare the arrow to
+## the model's actual face in Creep Edit; if they don't line up, change the number here AND arena_enemy.gd's
+## matching `_glb_front_angle` (def "front_angle", default GLB_FRONT_ANGLE_DEFAULT) — they must stay equal.
+## The pivot's yaw SUBTRACTS from canvas angle (opposite of a 2D sprite's `rotation`), which `_glb_boss_face_player`
+## already accounts for.
+const GLB_BOSS_FRONT_ANGLES := {
+	"boss": PI * 0.5,             # The Skull (Volcanic)
+	"Nautilus": PI * 0.5,         # Nautilus (Atlantic)
+	"Charge Position": PI * 0.5,  # Nautilus's charge-pose layer — same model, so the same FRONT reference
+}
+
+# ── "Charge Position" — Nautilus's charge-pose LAYER (2026-09-02, on request) ────────────────────────────
+# Nautilus's Move 1 pitches the body to a charge pose. That angle used to be a hardcoded Euler in
+# arena_enemy.gd, which came out visibly crooked ("khi charge cũng bị xoay xéo") because it REPLACED the
+# calibrated mount instead of being authored against it. So the pose is authored instead: same Nautilus.glb,
+# its own `rot`/`rot_base` in creep_layout.cfg, dialled with the normal Rotate X/Y/Z sliders.
+# arena_enemy.gd reads it back with `_creep_mount_rot(NB_CHARGE_LAYER)`.
+#
+# It is a CHILD LAYER of the Nautilus group, not a separate palette creep ("Charge position là 1 layer nằm
+# dưới layer Nautilus, vẫn nằm trong nội bộ creep Nautilus") — `_group_nautilus_layers()` parents it, the
+# same shape `_group_metalfly_layers()` uses for the Cocoon. Being a full layer it carries the complete
+# surface: Rotate X/Y/Z, its own FP + TP (their own [firepoints]/[thrustpoints] rows, keyed by this name)
+# and its own FRONT arrow (GLB_BOSS_FRONT_ANGLES above).
+#
+# It has no file of its own on disk, so the name is declared through `_extra_names()`/`_asset_path_for()` —
+# the same pair Metalfly's two bodies use. Gated to the Atlantic map, matching the boss it belongs to.
+const NB_MAP           := "atlantic"
+const NB_CREEP_NAME    := "Nautilus"
+const NB_CHARGE_LAYER  := "Charge Position"
+const NB_CHARGE_GLB    := "res://assets/map/atlantic/enemies/Nautilus.glb"
 const MF_LAYER_PX      := 170.0               # preview size — near the arena's own DISPLAY_PX (180)
 const MF_COCOON_POS    := Vector2(300.0, 210.0)
 const MF_WINGS_POS     := Vector2(560.0, 210.0)
@@ -109,6 +144,7 @@ var _objects_container: Control = null
 # Point state — Fire Points (FP), Thrust Points (TP), Tentacle Points (TenP)
 var _adding_firepoint:    bool = false
 var _adding_thrustpoint:  bool = false
+var _adding_smokepoint:   bool = false   # SP — a thrust point tagged "sp":true (smoke_trail VFX, own cfg section)
 var _adding_tentaclepoint: bool = false
 var _fire_points:        Dictionary = {}  # creep_name -> Array[{pos, id, dir_angle}]
 var _thrust_points:      Dictionary = {}  # creep_name -> Array[{pos, id, dir_angle}]
@@ -188,6 +224,7 @@ var _delete_btn:     Button        = null
 var _grid_btn:       Button        = null
 var _add_fp_btn:     Button        = null
 var _add_tp_btn:     Button        = null
+var _add_sp_btn:     Button        = null   # SP (smoke point) add-mode toggle
 var _add_tenp_btn:   Button        = null
 var _add_vortex_btn: Button        = null
 var _add_led_btn:    Button        = null
@@ -443,6 +480,8 @@ func _scan_creeps() -> void:
 ## (see the MF_* block) — they are glbs in assets/map/electric/boss/, not sprites in an enemies folder, so
 ## nothing the scan does could ever turn them up.
 func _extra_names() -> Array[String]:
+	if _selected_map_id == NB_MAP:
+		return [NB_CHARGE_LAYER]   # Nautilus's charge pose — see the NB_CHARGE_LAYER block up top
 	if _selected_map_id != MF_MAP:
 		return []
 	var out: Array[String] = [MF_ROOT]
@@ -523,6 +562,7 @@ func _auto_group_chain_names() -> void:
 				_creep_parents[m] = root
 		_chain_group_order[root] = members
 	_group_metalfly_layers()
+	_group_nautilus_layers()
 
 ## Hangs Metalfly's two body glbs off its own root in the LAYERS list. Same shape as weapon_edit_mode.gd's
 ## Jeager grouping and for the same reason: these names share no Head/Body/Tail suffix, so the regex above
@@ -538,6 +578,16 @@ func _group_metalfly_layers() -> void:
 			members.append(m)
 	if not members.is_empty():
 		_chain_group_order[MF_ROOT] = members
+
+## Hangs Nautilus's "Charge Position" pose layer off the Nautilus root, same shape as the Metalfly grouping
+## above (a plain LAYERS group, not a chain). It is a FULL layer of that creep — its own Rotate X/Y/Z, its
+## own FP/TP and its own FRONT arrow — not a separate palette creep: the pose belongs to Nautilus, so it
+## lives inside Nautilus's group. See the NB_CHARGE_LAYER block at the top of this file.
+func _group_nautilus_layers() -> void:
+	if not _all_creep_names.has(NB_CREEP_NAME) or not _all_creep_names.has(NB_CHARGE_LAYER):
+		return
+	_creep_parents[NB_CHARGE_LAYER] = NB_CREEP_NAME
+	_chain_group_order[NB_CREEP_NAME] = [NB_CHARGE_LAYER]
 
 # ── UI construction ────────────────────────────────────────────────────────────
 
@@ -577,6 +627,7 @@ func _build_asset_panel() -> void:
 	_asset_panel.size     = Vector2(ASSET_PANEL_W, minf(890.0, vp_h - 56.0))
 	_asset_panel.position = Vector2(20.0, 44.0)
 	add_child(_asset_panel)
+	UiPalette.scanlines(_asset_panel)
 
 	var outer := VBoxContainer.new()
 	outer.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1359,6 +1410,7 @@ func _build_ctrl_panel() -> void:
 	_ctrl_panel.size     = Vector2(CTRL_PANEL_W, 730.0)
 	_ctrl_panel.position = Vector2(_vp_w - CTRL_PANEL_W - 20.0, 44.0)
 	add_child(_ctrl_panel)
+	UiPalette.scanlines(_ctrl_panel)
 
 	var root := VBoxContainer.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1411,8 +1463,11 @@ func _build_ctrl_panel() -> void:
 
 	root.add_child(HSeparator.new())
 
-	var mode_row := HBoxContainer.new()
-	mode_row.add_theme_constant_override("separation", 3)
+	# HFlowContainer (not HBox): 6 add-mode buttons (FP/TP/SP/Vortex/Led + hidden Grid/TenP) no longer fit
+	# one row in the panel width — wrap to a second line instead of clipping "Add SP" off the edge.
+	var mode_row := HFlowContainer.new()
+	mode_row.add_theme_constant_override("h_separation", 3)
+	mode_row.add_theme_constant_override("v_separation", 3)
 	root.add_child(mode_row)
 
 	_grid_btn = Button.new()
@@ -1462,6 +1517,17 @@ func _build_ctrl_panel() -> void:
 	_add_led_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_add_led_btn.pressed.connect(_toggle_adding_ledpoint)
 	mode_row.add_child(_add_led_btn)
+
+	# SP — smoke points (2026-09-01). A thrust point tagged "sp": placed & rotated with the exact same 3D
+	# machinery as TP, but it previews / runs as the ash-wake `smoke_trail` VFX instead of a fire plume, and
+	# saves to its own [smokepoints] cfg section. Built for the Volcanic 3D boss.
+	_add_sp_btn = Button.new()
+	_add_sp_btn.text = "Add SP"
+	_add_sp_btn.toggle_mode = true
+	_add_sp_btn.add_theme_font_size_override("font_size", 12)
+	_add_sp_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_add_sp_btn.pressed.connect(_toggle_adding_smokepoint)
+	mode_row.add_child(_add_sp_btn)
 
 	# Grid + TenP buttons hidden by design (code kept). Add Vortex replaces TenP in the workflow.
 	_grid_btn.visible     = false
@@ -1753,7 +1819,11 @@ func _front_markers() -> Array:
 ## weapon_edit_mode.gd overrides this and forwards to arena_weapons.gd, which owns the draw paths its own
 ## weapons' angles are derived from.
 func _front_marker_angle(creep_name: String) -> float:
-	return MF_FRONT_ANGLE if MF_GLB.has(creep_name) else NAN
+	if MF_GLB.has(creep_name):
+		return MF_FRONT_ANGLE
+	if GLB_BOSS_FRONT_ANGLES.has(creep_name):
+		return float(GLB_BOSS_FRONT_ANGLES[creep_name])
+	return NAN
 
 ## Pushes `_layer_hidden` onto the placed EditableObjectNodes. The 3D group overlay reads the same dict
 ## directly (see _build_plume3d_preview), so both representations of a part hide together.
@@ -1817,8 +1887,8 @@ func _make_group_layer_row(root_name: String) -> Control:
 
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.35, 0.70, 0.55, 0.45) if is_selected else Color(1.0, 1.0, 1.0, 0.06)
-	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
-	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
+	style.corner_radius_top_left    = 0; style.corner_radius_top_right    = 0
+	style.corner_radius_bottom_left = 0; style.corner_radius_bottom_right = 0
 	row.add_theme_stylebox_override("panel", style)
 
 	var hbox := HBoxContainer.new()
@@ -1980,8 +2050,8 @@ func _make_layer_row(cname: String, eo: EditableObjectNode, is_child: bool) -> C
 
 	var style := StyleBoxFlat.new()
 	style.bg_color = UiPalette.SELECT_WASH if is_selected else Color(0.0, 0.0, 0.0, 0.0)
-	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
-	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
+	style.corner_radius_top_left    = 0; style.corner_radius_top_right    = 0
+	style.corner_radius_bottom_left = 0; style.corner_radius_bottom_right = 0
 	row.add_theme_stylebox_override("panel", style)
 
 	var hbox := HBoxContainer.new()
@@ -2070,12 +2140,14 @@ func _close() -> void:
 	_adding_tentaclepoint = false
 	_adding_vortexpoint = false
 	_adding_ledpoint = false
+	_adding_smokepoint = false
 	_grid_btn.button_pressed  = false
 	_add_fp_btn.button_pressed = false
 	_add_tp_btn.button_pressed = false
 	_add_tenp_btn.button_pressed = false
 	_add_vortex_btn.button_pressed = false
 	_add_led_btn.button_pressed = false
+	_add_sp_btn.button_pressed = false
 	_grid_overlay.show_grid    = false
 	_grid_overlay.is_edit_open = false
 	_reset_zoom()
@@ -2383,14 +2455,16 @@ func _refresh_transform_panel() -> void:
 ## Selecting the object (or no TP) puts it back to normal: W/H editable, TP POS hidden+disabled. Non-glb
 ## creeps never show the TP POS row at all — same "_active_glb_path" gate as the rotation sliders.
 func _apply_tp_focus_transform_lock() -> void:
+	# TP/SP OR (2026-09-01) a selected FP / LED on a glb creep — all get the X/Y/Z panel + height field.
+	var pt_focused := not _pt3_target().is_empty()
 	var tp_focused := not _selected_tp_indices.is_empty() and not _active_glb_path.is_empty()
 	_sz_w_spin.editable = not tp_focused
 	_sz_h_spin.editable = not tp_focused
-	_tp_pos3_row.visible = tp_focused
-	_tp_x3_spin.editable = tp_focused
-	_tp_y3_spin.editable = tp_focused
-	_tp_z3_spin.editable = tp_focused
-	if tp_focused:
+	_tp_pos3_row.visible = pt_focused
+	_tp_x3_spin.editable = pt_focused
+	_tp_y3_spin.editable = pt_focused
+	_tp_z3_spin.editable = pt_focused
+	if pt_focused:
 		_refresh_tp_pos3_ui()
 	# 2026-08-22: the Rotate handles mean different things in the two modes (absolute for a TP, jog for an
 	# object — see _sync_glb_rot_handles), so they have to be re-parked whenever focus crosses between them.
@@ -2560,10 +2634,12 @@ func _toggle_grid_mode() -> void:
 		_adding_thrustpoint = false
 		_adding_tentaclepoint = false
 		_adding_vortexpoint = false
+		_adding_smokepoint = false
 		_add_fp_btn.button_pressed = false
 		_add_tp_btn.button_pressed = false
 		_add_tenp_btn.button_pressed = false
 		_add_vortex_btn.button_pressed = false
+		_add_sp_btn.button_pressed = false
 		_select_obj(null)
 		_select_fp(-1)
 		_select_tp(-1)
@@ -2583,6 +2659,8 @@ func _toggle_adding_firepoint() -> void:
 		_add_tenp_btn.button_pressed = false
 		_add_vortex_btn.button_pressed = false
 		_add_led_btn.button_pressed = false
+		_adding_smokepoint = false
+		_add_sp_btn.button_pressed = false
 		_grid_mode = false
 		_grid_btn.button_pressed = false
 		_select_obj(null)
@@ -2599,6 +2677,32 @@ func _toggle_adding_thrustpoint() -> void:
 		_adding_vortexpoint = false
 		_adding_ledpoint = false
 		_add_fp_btn.button_pressed = false
+		_add_tenp_btn.button_pressed = false
+		_add_vortex_btn.button_pressed = false
+		_add_led_btn.button_pressed = false
+		_adding_smokepoint = false
+		_add_sp_btn.button_pressed = false
+		_grid_mode = false
+		_grid_btn.button_pressed = false
+		_select_obj(null)
+		_select_fp(-1)
+		_select_tp(-1)
+		_select_tenp(-1)
+	_update_all_creep_interactivity()
+
+## SP (smoke point) add-mode. SP entries live in `_thrust_points` tagged `"sp": true` — every TP placement
+## / selection / rotation / preview path already handles them; only the list label, the preview VFX
+## (SmokeTrail vs plume) and the save section differ. See _add_smokepoint_at / _save_layout.
+func _toggle_adding_smokepoint() -> void:
+	_adding_smokepoint = _add_sp_btn.button_pressed
+	if _adding_smokepoint:
+		_adding_firepoint = false
+		_adding_thrustpoint = false
+		_adding_tentaclepoint = false
+		_adding_vortexpoint = false
+		_adding_ledpoint = false
+		_add_fp_btn.button_pressed = false
+		_add_tp_btn.button_pressed = false
 		_add_tenp_btn.button_pressed = false
 		_add_vortex_btn.button_pressed = false
 		_add_led_btn.button_pressed = false
@@ -2621,7 +2725,13 @@ func _add_firepoint_at(viewport_pos: Vector2) -> void:
 		_fire_points[_active_creep] = []
 		_fp_id_counter[_active_creep] = 1
 	var fp_id: int = _fp_id_counter.get(_active_creep, 1)
-	_fire_points[_active_creep].append({"pos": ss_pos, "id": fp_id, "dir_angle": 0.0})
+	var new_fp := {"pos": ss_pos, "id": fp_id, "dir_angle": 0.0}
+	# On a 3D (glb, WIRED) creep the click must land WHERE CLICKED on the rotated model — same conversion TP
+	# uses (see _add_thrustpoint_at) — and carry a `z` height field. Plain 2D creeps are unchanged.
+	if not _active_glb_path.is_empty():
+		new_fp["z"] = 0.0
+		_tp_xyz_set(_active_creep, new_fp, _tp_click_to_world(ss_pos))
+	_fire_points[_active_creep].append(new_fp)
 	_fp_id_counter[_active_creep] = fp_id + 1
 	_dirty = true
 	_refresh_fp_list()
@@ -2638,6 +2748,7 @@ func _select_fp(idx: int) -> void:
 	_refresh_fp_list()
 	_update_grid_overlay()
 	_refresh_fp_angle_ui()
+	_refresh_transform_panel()   # 2026-09-01 — glb creep: FP gets the X/Y/Z + height panel (see _pt3_target)
 
 func _delete_selected_fp() -> void:
 	var fps: Array = _fire_points.get(_active_creep, [])
@@ -2729,6 +2840,31 @@ func _add_thrustpoint_at(viewport_pos: Vector2) -> void:
 	# actually runs with this TP included, which only happens on the NEXT save/reload. Without this, the very
 	# first slider drag after Add TP silently found no pivot and did nothing. Saving immediately builds it, so
 	# rotation works from the first interaction, same as for any pre-existing TP.
+	_save_layout(true)
+
+## SP add: identical to _add_thrustpoint_at but tags the entry `"sp": true`. Everything downstream (select,
+## rotate, XYZ panel, preview, arrow-move, delete) already handles it as a TP; the flag only redirects the
+## preview VFX to SmokeTrail and the save to [smokepoints].
+func _add_smokepoint_at(viewport_pos: Vector2) -> void:
+	if _active_creep.is_empty():
+		return
+	var oc_pos: Vector2 = _objects_container.position if (_objects_container != null and is_instance_valid(_objects_container)) else Vector2.ZERO
+	var ss_pos := (viewport_pos - oc_pos) / _zoom - SCREEN_ORIGIN
+	if not _thrust_points.has(_active_creep):
+		_thrust_points[_active_creep] = []
+		_tp_id_counter[_active_creep] = 1
+	var tp_id: int = _tp_id_counter.get(_active_creep, 1)
+	var new_idx: int = (_thrust_points[_active_creep] as Array).size()
+	var new_sp := {"pos": ss_pos, "id": tp_id, "dir_angle": PI * 0.5, "z": 0.0, "sp": true}
+	if not _active_glb_path.is_empty():
+		_tp_xyz_set(_active_creep, new_sp, _tp_click_to_world(ss_pos))
+		new_sp["dir_rot"] = Vector3.ZERO
+	_thrust_points[_active_creep].append(new_sp)
+	_tp_id_counter[_active_creep] = tp_id + 1
+	_dirty = true
+	_select_tp(new_idx)
+	_refresh_dynamic_panels()
+	_update_grid_overlay()
 	_save_layout(true)
 
 
@@ -2838,6 +2974,48 @@ func _tp_mount_basis(creep_name: String) -> Basis:
 	var rr := preload("res://scripts/gameplay/fx/glb_topdown_rig.gd").new()
 	return rr.view_basis(rr.compose_rot(rig.get("rot_base", Vector3.ZERO), rig.get("rot", Vector3.ZERO)))
 
+## 2026-09-01: FP and LED points on a 3D (glb, WIRED) creep get the SAME height / on-model placement TP
+## already has — "chỉnh được chiều cao" + "dính theo object" (user report). Returns the focused point's
+## array + index so the X/Y/Z panel, PgUp/PgDn and the 3D marker preview can all act on ONE choke point.
+## Precedence: a selected TP/SP → a selected FP → a selected LED. Empty when not on a glb creep or nothing
+## point-like is focused. dir_rot (spray rotation) stays TP/SP-only — FP/LED are position + height here.
+func _pt3_target() -> Dictionary:
+	if _active_glb_path.is_empty():
+		return {}
+	if not _selected_tp_indices.is_empty() and _selected_tp_idx >= 0:
+		var tps: Array = _thrust_points.get(_active_creep, [])
+		if _selected_tp_idx < tps.size():
+			return {"arr": tps, "indices": _selected_tp_indices, "list": "tp"}
+	if _selected_fp_idx >= 0:
+		var fps: Array = _fire_points.get(_active_creep, [])
+		if _selected_fp_idx < fps.size():
+			return {"arr": fps, "indices": [_selected_fp_idx], "list": "fp"}
+	if _selected_led_idx >= 0:
+		var leds: Array = _led_points.get(_active_creep, [])
+		if _selected_led_idx < leds.size():
+			return {"arr": leds, "indices": [_selected_led_idx], "list": "led"}
+	return {}
+
+## Apply an editor-world XYZ delta to every point _pt3_target() covers (used by PgUp/PgDn + arrow keys on a
+## glb creep). `_tp_xyz_set` bakes the result back into `pos`+`z`, so the 2D runtime readers stay correct.
+func _pt3_apply_delta(delta: Vector3) -> bool:
+	var t := _pt3_target()
+	if t.is_empty():
+		return false
+	var arr: Array = t["arr"]
+	for idx: int in t["indices"]:
+		if idx >= 0 and idx < arr.size():
+			_tp_xyz_set(_active_creep, arr[idx], _tp_xyz_get(_active_creep, arr[idx]) + delta)
+	_dirty = true
+	match String(t["list"]):
+		"tp":  _refresh_tp_list()
+		"fp":  _refresh_fp_list()
+		"led": _refresh_led_list()
+	_refresh_transform_panel()
+	_update_grid_overlay()
+	_save_layout(true)
+	return true
+
 func _tp_xyz_get(creep_name: String, tp: Dictionary) -> Vector3:
 	var eo: EditableObjectNode = _placed.get(creep_name, null)
 	if eo == null or not is_instance_valid(eo) or eo.size.x < 0.01 or eo.size.y < 0.01:
@@ -2899,12 +3077,14 @@ func _tp_xyz_set(creep_name: String, tp: Dictionary, xyz: Vector3) -> void:
 ## Populates the TP POS X/Y/Z fields from the currently-selected TP — called from _refresh_transform_panel's
 ## tail (its own existing single choke point for "selection changed"), not a separate hook.
 func _refresh_tp_pos3_ui() -> void:
-	if _selected_tp_indices.is_empty() or _selected_tp_idx < 0:
+	var t := _pt3_target()
+	if t.is_empty():
 		return
-	var tps: Array = _thrust_points.get(_active_creep, [])
-	if _selected_tp_idx >= tps.size():
+	var arr: Array = t["arr"]
+	var i0: int = t["indices"][0]
+	if i0 < 0 or i0 >= arr.size():
 		return
-	var xyz := _tp_xyz_get(_active_creep, tps[_selected_tp_idx])
+	var xyz := _tp_xyz_get(_active_creep, arr[i0])
 	_updating_spin = true
 	_tp_x3_spin.value = snappedf(xyz.x, 0.1)
 	_tp_y3_spin.value = snappedf(xyz.y, 0.1)
@@ -2912,16 +3092,21 @@ func _refresh_tp_pos3_ui() -> void:
 	_updating_spin = false
 
 func _on_tp_xyz3_changed() -> void:
-	if _updating_spin or _selected_tp_indices.is_empty():
+	if _updating_spin:
 		return
-	var tps: Array = _thrust_points.get(_active_creep, [])
+	var t := _pt3_target()
+	if t.is_empty():
+		return
+	var arr: Array = t["arr"]
 	var xyz := Vector3(_tp_x3_spin.value, _tp_y3_spin.value, _tp_z3_spin.value)
-	for sel_idx: int in _selected_tp_indices:
-		if sel_idx >= 0 and sel_idx < tps.size():
-			_tp_xyz_set(_active_creep, tps[sel_idx], xyz)
-	_thrust_points[_active_creep] = tps
+	for sel_idx: int in t["indices"]:
+		if sel_idx >= 0 and sel_idx < arr.size():
+			_tp_xyz_set(_active_creep, arr[sel_idx], xyz)
 	_dirty = true
-	_glb_refresh_tp_gizmos(_active_creep)
+	match String(t["list"]):
+		"tp":  _glb_refresh_tp_gizmos(_active_creep)
+		"fp":  _refresh_fp_list()
+		"led": _refresh_led_list()
 	_update_grid_overlay()   # the object's own flat 2D dot overlay also reads `pos` — keep it in sync too
 
 func _on_tp_angle_changed() -> void:
@@ -3370,18 +3555,46 @@ func _on_glb_set_zero_here() -> void:
 	_refresh_tp_list()
 	_save_layout(true)
 
-## "Reset Rotation" — turns whatever is focused back to world-aligned (its "NN°" readouts go to 0/0/0).
-## 2026-08-22: with the sliders now RELATIVE, zeroing the handles no longer resets anything (the delta would
-## just be zero), so this computes the rotation that undoes the focused target's current absolute angle and
-## routes it through the same delta path everything else uses — which also un-orbits a whole group rigidly
-## rather than leaving its parts rotated in place.
+## "Reset Rotation" — zeroes the EDITABLE half of the focused rotation (`rot` / `dir_rot`) while KEEPING the
+## banked `*_base`, so it returns to the "Set 0° here" home pose. 2026-09-02 fix (user: "khi bấm reset
+## rotation vẫn chuyển về giá trị lúc đầu, chứ ko chuyển về trạng thái khi tôi bấm nút Set 0"): this used to
+## undo the FULL composed angle (base included), landing on world-aligned — which, once a baseline had been
+## banked, looked exactly like "Set 0° here" never saved. When no baseline was ever banked (`*_base` == 0)
+## the result is identical to the old world-aligned one, so nothing regresses.
+## The whole-group branch keeps its delta path (it also has to un-orbit the group's part POSITIONS, which a
+## plain per-part zero can't do).
 func _on_glb_reset_rotation() -> void:
 	if _active_glb_path.is_empty():
 		return
-	var rr := preload("res://scripts/gameplay/fx/glb_topdown_rig.gd").new()
-	var delta := rr.rot_basis(_glb_focused_rot()).inverse()
-	_apply_rotation_delta(delta)   # works for a TP too: base⁻¹·(base·old)⁻¹·base·old = base⁻¹, i.e. composed 0
+	if _group_selected:
+		var rr := preload("res://scripts/gameplay/fx/glb_topdown_rig.gd").new()
+		_apply_rotation_delta(rr.rot_basis(_glb_focused_rot()).inverse())
+		_sync_glb_rot_handles()
+		return
+	var ws: Node = get_tree().get_first_node_in_group("arena_weapons")
+	if not _selected_tp_indices.is_empty():
+		var tps: Array = _thrust_points.get(_active_creep, [])
+		for sel_idx: int in _selected_tp_indices:
+			if sel_idx >= 0 and sel_idx < tps.size():
+				tps[sel_idx]["dir_rot"] = Vector3.ZERO
+				var tp_id := int(tps[sel_idx].get("id", 1))
+				if ws != null and ws.has_method("set_live_tp_direction"):
+					var rr2 := preload("res://scripts/gameplay/fx/glb_topdown_rig.gd").new()
+					ws.set_live_tp_direction(_active_creep, tp_id, rr2.tp_rot_editor(tps[sel_idx]))
+		_thrust_points[_active_creep] = tps
+	else:
+		var rig: Dictionary = _glb_preview_cache.get(_active_glb_path, {})
+		if not rig.is_empty():
+			rig["rot"] = Vector3.ZERO
+			_glb_apply_rotation(rig)
+			if ws != null and ws.has_method("set_live_mount_cal"):
+				ws.set_live_mount_cal(_active_creep, Vector3.ZERO)
+	_dirty = true
 	_sync_glb_rot_handles()
+	_glb_refresh_tp_gizmos(_active_creep)
+	_refresh_plume_preview()
+	_refresh_tp_list()
+	_save_layout(true)
 
 # ── Tentacle Points ──────────────────────────────────────────────────────────
 # Each tentacle point spawns one tentacle (the child-segment chain) at its position, aimed by Dir.
@@ -3396,6 +3609,8 @@ func _toggle_adding_tentaclepoint() -> void:
 		_add_tp_btn.button_pressed = false
 		_add_vortex_btn.button_pressed = false
 		_add_led_btn.button_pressed = false
+		_adding_smokepoint = false
+		_add_sp_btn.button_pressed = false
 		_grid_mode = false
 		_grid_btn.button_pressed = false
 		_select_obj(null)
@@ -3478,8 +3693,8 @@ func _make_tenp_row(pt: Dictionary, idx: int) -> Control:
 	row.mouse_filter = Control.MOUSE_FILTER_STOP
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.70, 0.30, 0.95, 0.38) if is_sel else Color(0.0, 0.0, 0.0, 0.0)
-	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
-	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
+	style.corner_radius_top_left    = 0; style.corner_radius_top_right    = 0
+	style.corner_radius_bottom_left = 0; style.corner_radius_bottom_right = 0
 	row.add_theme_stylebox_override("panel", style)
 	var hbox := HBoxContainer.new()
 	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -3521,6 +3736,8 @@ func _toggle_adding_vortexpoint() -> void:
 		_add_tp_btn.button_pressed = false
 		_add_tenp_btn.button_pressed = false
 		_add_led_btn.button_pressed = false
+		_adding_smokepoint = false
+		_add_sp_btn.button_pressed = false
 		_grid_mode = false
 		_grid_btn.button_pressed = false
 		_select_obj(null)
@@ -3620,8 +3837,8 @@ func _make_vortex_row(pt: Dictionary, idx: int) -> Control:
 	row.mouse_filter = Control.MOUSE_FILTER_STOP
 	var style := StyleBoxFlat.new()
 	style.bg_color = UiPalette.SELECT_WASH if is_sel else Color(0.0, 0.0, 0.0, 0.0)
-	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
-	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
+	style.corner_radius_top_left    = 0; style.corner_radius_top_right    = 0
+	style.corner_radius_bottom_left = 0; style.corner_radius_bottom_right = 0
 	row.add_theme_stylebox_override("panel", style)
 	var hbox := HBoxContainer.new()
 	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -3795,10 +4012,12 @@ func _toggle_adding_ledpoint() -> void:
 		_adding_thrustpoint = false
 		_adding_tentaclepoint = false
 		_adding_vortexpoint = false
+		_adding_smokepoint = false
 		_add_fp_btn.button_pressed = false
 		_add_tp_btn.button_pressed = false
 		_add_tenp_btn.button_pressed = false
 		_add_vortex_btn.button_pressed = false
+		_add_sp_btn.button_pressed = false
 		_grid_mode = false
 		_grid_btn.button_pressed = false
 		_select_obj(null)
@@ -3817,7 +4036,11 @@ func _add_ledpoint_at(viewport_pos: Vector2) -> void:
 		_led_points[_active_creep] = []
 		_led_id_counter[_active_creep] = 1
 	var led_id: int = _led_id_counter.get(_active_creep, 1)
-	_led_points[_active_creep].append({"pos": ss_pos, "id": led_id})
+	var new_led := {"pos": ss_pos, "id": led_id}
+	if not _active_glb_path.is_empty():
+		new_led["z"] = 0.0
+		_tp_xyz_set(_active_creep, new_led, _tp_click_to_world(ss_pos))
+	_led_points[_active_creep].append(new_led)
 	_led_id_counter[_active_creep] = led_id + 1
 	_selected_led_idx = _led_points[_active_creep].size() - 1
 	_selected_led_indices = [_selected_led_idx]
@@ -3843,6 +4066,7 @@ func _select_led(idx: int) -> void:
 	_refresh_led_list()
 	_refresh_led_editor()
 	_update_grid_overlay()
+	_refresh_transform_panel()   # 2026-09-01 — glb creep: LED gets the X/Y/Z + height panel
 
 ## 2026-08-15: Shift-click range-selects from the fixed anchor (last plain click) through `idx`, inclusive —
 ## see _select_tp_add()'s comment for the full reasoning (same behavior, ported here).
@@ -3903,8 +4127,8 @@ func _make_led_row(pt: Dictionary, idx: int) -> Control:
 	row.mouse_filter = Control.MOUSE_FILTER_STOP
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(1.0, 0.85, 0.35, 0.35) if is_sel else Color(0.0, 0.0, 0.0, 0.0)
-	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
-	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
+	style.corner_radius_top_left    = 0; style.corner_radius_top_right    = 0
+	style.corner_radius_bottom_left = 0; style.corner_radius_bottom_right = 0
 	row.add_theme_stylebox_override("panel", style)
 	var hbox := HBoxContainer.new()
 	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -4078,6 +4302,8 @@ func _refresh_led_preview() -> void:
 	_preview_leds.clear()
 	if _objects_container == null or not is_instance_valid(_objects_container):
 		return
+	if not _active_glb_path.is_empty():
+		return   # glb creep: LEDs show as 3D markers on the model (see _make_pt3_marker), not flat 2D sprites
 	var cmap: Dictionary = _led_styles.get(_active_creep, {})
 	var leds: Array = _led_points.get(_active_creep, [])
 	for i: int in leds.size():
@@ -4109,8 +4335,8 @@ func _make_point_row(pt: Dictionary, idx: int, is_fp: bool) -> Control:
 
 	var style := StyleBoxFlat.new()
 	style.bg_color = col_sel if is_sel else Color(0.0, 0.0, 0.0, 0.0)
-	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
-	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
+	style.corner_radius_top_left    = 0; style.corner_radius_top_right    = 0
+	style.corner_radius_bottom_left = 0; style.corner_radius_bottom_right = 0
 	row.add_theme_stylebox_override("panel", style)
 
 	var hbox := HBoxContainer.new()
@@ -4121,7 +4347,7 @@ func _make_point_row(pt: Dictionary, idx: int, is_fp: bool) -> Control:
 	var pt_id: int   = pt.get("id",  idx + 1)
 	var pos: Vector2 = pt.get("pos", Vector2.ZERO)
 	var angle_deg    := int(round(rad_to_deg(float(pt.get("dir_angle", 0.0)))))
-	var prefix       := "FP" if is_fp else "TP"
+	var prefix       := "FP" if is_fp else ("SP" if bool(pt.get("sp", false)) else "TP")
 
 	var id_lbl := Label.new()
 	id_lbl.text = "%s%d" % [prefix, pt_id]
@@ -4217,6 +4443,7 @@ func _update_grid_overlay() -> void:
 	_grid_overlay.selected_vortex_idx = _selected_vortex_idx
 	_grid_overlay.led_points        = _led_points.get(_active_creep, [])
 	_grid_overlay.selected_led_idx  = _selected_led_idx
+	_grid_overlay.glb_creep        = not _active_glb_path.is_empty()
 	_grid_overlay.front_markers = _front_markers()
 	if _objects_container != null and is_instance_valid(_objects_container):
 		_grid_overlay.zoom          = _zoom
@@ -4242,6 +4469,9 @@ func _refresh_plume_preview() -> void:
 		var tp_id: int = int(tp.get("id", i + 1))
 		var style: Dictionary = cmap.get("tp_%d" % tp_id, _default_plume_style())
 		var ss_pos: Vector2 = tp["pos"]
+		# SP (smoke point) — handled exactly like a 3D TP below (same anchor / height / rotation, so it sticks
+		# to the model and PgUp raises it), styled grey by _sp_preview_style() in _build_plume3d_preview /
+		# _glb_refresh_tp_gizmos. No separate 2D preview.
 		# 2026-08-22 ("Plume 2D không được spawn tại các object 3D" / "Plume 3D spawn tại điểm tôi click"):
 		# a 3D TP gets a REAL 3D plume preview here instead of the flat CPUParticles2D below — see
 		# `_preview_plumes3d`'s own header for why the 2D one could never rotate (it reads `dir_angle`, which
@@ -4427,8 +4657,15 @@ func _build_plume3d_preview() -> void:
 			if not tp.has("dir_rot"):
 				continue
 			var tp_id: int = int(tp.get("id", i + 1))
-			var pstyle: Dictionary = (_plume_styles.get(dname, {}) as Dictionary).get(
-				"tp_%d" % tp_id, _default_plume_style())
+			var pstyle: Dictionary
+			if bool(tp.get("sp", false)):
+				# SP (smoke point): the SAME 3D anchor/height/rotation path as a TP (so it "dính theo object"
+				# and PgUp raises it), just a grey slow-billow style so it reads as smoke, not fire. The real
+				# ash-wake smoke_trail plays in-game (arena_enemy._setup_smoke_points).
+				pstyle = _sp_preview_style()
+			else:
+				pstyle = (_plume_styles.get(dname, {}) as Dictionary).get(
+					"tp_%d" % tp_id, _default_plume_style())
 			var frac := (((tp["pos"] as Vector2) + SCREEN_ORIGIN) - meo.position) / meo.size
 			var pivot := Node3D.new()
 			pivot.position = Vector3((frac.x - 0.5) * part_px, float(tp.get("z", 0.0)),
@@ -4447,6 +4684,13 @@ func _build_plume3d_preview() -> void:
 			# alone, and ids restart at 1 per part, so keying every part's here would collide.
 			if cname == _active_creep:
 				pivots[tp_id] = pivot
+		# FP / LED markers on a glb creep (2026-09-01) — small billboarded dots parented to `part` so they
+		# stick to and rotate with the model, positioned by the SAME frac+z formula as a TP. FP = red, LED =
+		# amber. Editor-only visual aids; the runtime reads their (rotation-baked) `pos` as before.
+		for fp: Dictionary in _fire_points.get(dname, []):
+			part.add_child(_make_pt3_marker(fp, meo, part_px, Color(1.0, 0.30, 0.20)))
+		for led: Dictionary in _led_points.get(dname, []):
+			part.add_child(_make_pt3_marker(led, meo, part_px, Color(1.0, 0.78, 0.20)))
 		if cname == _active_creep:
 			rot_pivot = part
 
@@ -4517,7 +4761,7 @@ func _make_preview_plume(oc_pos: Vector2, dir_angle: float, style: Dictionary = 
 # ── Interactivity ──────────────────────────────────────────────────────────────
 
 func _update_all_creep_interactivity() -> void:
-	var allow_select: bool = not _grid_mode and not _adding_firepoint and not _adding_thrustpoint and not _adding_tentaclepoint and not _adding_vortexpoint and not _adding_ledpoint
+	var allow_select: bool = not _grid_mode and not _adding_firepoint and not _adding_thrustpoint and not _adding_tentaclepoint and not _adding_vortexpoint and not _adding_ledpoint and not _adding_smokepoint
 	# Build the set of sprites that should be visible: the whole group (root + all its children).
 	# Whether the active member is the root or a child, the entire assembly stays visible.
 	var visible_set: Dictionary = {}
@@ -4644,6 +4888,13 @@ func _input(event: InputEvent) -> void:
 			_save_layout(true)
 			get_viewport().set_input_as_handled()
 			return
+		# 2026-09-01: a selected FP / LED on a glb creep — PgUp/PgDn raise/lower its height, same as a TP's.
+		if dz != 0.0 and not _pt3_target().is_empty():
+			if ke.shift_pressed:
+				dz *= 10.0
+			if _pt3_apply_delta(Vector3(0.0, 0.0, dz)):
+				get_viewport().set_input_as_handled()
+				return
 		var dir := Vector2.ZERO
 		match ke.keycode:
 			KEY_UP:    dir = Vector2( 0.0, -1.0)   # screen-up = +Y (see _tp_xyz_get's up-positive note)
@@ -4659,11 +4910,16 @@ func _input(event: InputEvent) -> void:
 			var vxs: Array = _vortex_points.get(_active_creep, [])
 			var leds: Array = _led_points.get(_active_creep, [])
 			if _selected_fp_idx >= 0 and _selected_fp_idx < fps.size():
-				fps[_selected_fp_idx]["pos"] = (fps[_selected_fp_idx]["pos"] as Vector2) + dir
-				_fire_points[_active_creep] = fps
-				_dirty = true
-				_refresh_fp_list()
-				_update_grid_overlay()
+				if not _active_glb_path.is_empty():
+					# glb creep: nudge in the PLAY PLANE and bake through _tp_xyz_set so the FP stays ON the
+					# rotated model (same fix TP got 2026-08-23). `dir.y` is canvas-down, world Y up → flip.
+					_pt3_apply_delta(Vector3(dir.x, -dir.y, 0.0))
+				else:
+					fps[_selected_fp_idx]["pos"] = (fps[_selected_fp_idx]["pos"] as Vector2) + dir
+					_fire_points[_active_creep] = fps
+					_dirty = true
+					_refresh_fp_list()
+					_update_grid_overlay()
 				get_viewport().set_input_as_handled()
 				return
 			elif not _selected_tp_indices.is_empty():
@@ -4704,13 +4960,16 @@ func _input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 				return
 			elif not _selected_led_indices.is_empty():
-				for sel_idx: int in _selected_led_indices:
-					if sel_idx >= 0 and sel_idx < leds.size():
-						leds[sel_idx]["pos"] = (leds[sel_idx]["pos"] as Vector2) + dir
-				_led_points[_active_creep] = leds
-				_dirty = true
-				_refresh_led_list()
-				_update_grid_overlay()
+				if not _active_glb_path.is_empty():
+					_pt3_apply_delta(Vector3(dir.x, -dir.y, 0.0))   # stay on the rotated model — see the FP branch
+				else:
+					for sel_idx: int in _selected_led_indices:
+						if sel_idx >= 0 and sel_idx < leds.size():
+							leds[sel_idx]["pos"] = (leds[sel_idx]["pos"] as Vector2) + dir
+					_led_points[_active_creep] = leds
+					_dirty = true
+					_refresh_led_list()
+					_update_grid_overlay()
 				get_viewport().set_input_as_handled()
 				return
 			elif is_instance_valid(_selected_obj):
@@ -4800,6 +5059,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				_update_all_creep_interactivity()
 				get_viewport().set_input_as_handled()
 				return
+			if _adding_smokepoint:
+				_adding_smokepoint = false
+				_add_sp_btn.button_pressed = false
+				_update_all_creep_interactivity()
+				get_viewport().set_input_as_handled()
+				return
 			if _adding_tentaclepoint:
 				_adding_tentaclepoint = false
 				_add_tenp_btn.button_pressed = false
@@ -4850,6 +5115,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				_add_thrustpoint_at(mb.position)
 				get_viewport().set_input_as_handled()
 				return
+			if _adding_smokepoint:
+				_add_smokepoint_at(mb.position)
+				get_viewport().set_input_as_handled()
+				return
 			if _adding_tentaclepoint:
 				_add_tentaclepoint_at(mb.position)
 				get_viewport().set_input_as_handled()
@@ -4870,6 +5139,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			elif _adding_thrustpoint:
 				_adding_thrustpoint = false
 				_add_tp_btn.button_pressed = false
+				_update_all_creep_interactivity()
+			elif _adding_smokepoint:
+				_adding_smokepoint = false
+				_add_sp_btn.button_pressed = false
 				_update_all_creep_interactivity()
 			elif _adding_tentaclepoint:
 				_adding_tentaclepoint = false
@@ -5005,22 +5278,36 @@ func _save_layout(silent: bool = false) -> void:
 		# Fire points
 		var fp_data: Array[Dictionary] = []
 		for fp: Dictionary in _fire_points.get(creep_name, []):
-			fp_data.append({"pos": fp["pos"], "id": fp.get("id", 0), "dir_angle": fp.get("dir_angle", 0.0)})
+			var fp_out := {"pos": fp["pos"], "id": fp.get("id", 0), "dir_angle": fp.get("dir_angle", 0.0)}
+			if fp.has("z"):
+				fp_out["z"] = fp["z"]   # 3D-creep height (2026-09-01)
+			fp_data.append(fp_out)
 		cfg.set_value("firepoints", creep_name, fp_data)
-		# Thrust points
+		# Thrust points — SP-tagged entries ("sp": true) split off into their own [smokepoints] section so the
+		# runtime plume reader (arena_enemy._setup_plumes) never sees them and the smoke reader
+		# (arena_enemy._setup_smoke_points) never sees real TPs. Same field set otherwise.
+		# "z" (2026-08-20) and "dir_rot" (2026-08-21, spray-direction calibration — see
+		# glb_topdown_rig.gd's tp_direction()) — this dict rebuild used to whitelist only pos/id/
+		# dir_angle, silently dropping every field added after it on save (worked live in-session,
+		# reset to default on reload). Every consumer already reads these via `.get(key, default)`, so
+		# old saves missing them still load fine — this only fixes NEW writes going forward.
 		var tp_data: Array[Dictionary] = []
+		var sp_data: Array[Dictionary] = []
 		for tp: Dictionary in _thrust_points.get(creep_name, []):
-			# "z" (2026-08-20) and "dir_rot" (2026-08-21, spray-direction calibration — see
-			# glb_topdown_rig.gd's tp_direction()) — this dict rebuild used to whitelist only pos/id/
-			# dir_angle, silently dropping every field added after it on save (worked live in-session,
-			# reset to default on reload). Every consumer already reads these via `.get(key, default)`, so
-			# old saves missing them still load fine — this only fixes NEW writes going forward.
-			var tp_out := {"pos": tp["pos"], "id": tp.get("id", 0), "dir_angle": tp.get("dir_angle", 0.0),
+			var pt_out := {"pos": tp["pos"], "id": tp.get("id", 0), "dir_angle": tp.get("dir_angle", 0.0),
 				"z": tp.get("z", 0.0)}
 			if tp.has("dir_rot"):
-				tp_out["dir_rot"] = tp["dir_rot"]
-			tp_data.append(tp_out)
+				pt_out["dir_rot"] = tp["dir_rot"]
+			if bool(tp.get("sp", false)):
+				sp_data.append(pt_out)
+			else:
+				tp_data.append(pt_out)
 		cfg.set_value("thrustpoints", creep_name, tp_data)
+		if sp_data.is_empty():
+			if cfg.has_section_key("smokepoints", creep_name):
+				cfg.erase_section_key("smokepoints", creep_name)
+		else:
+			cfg.set_value("smokepoints", creep_name, sp_data)
 		# Tentacle points
 		var tn_data: Array[Dictionary] = []
 		for tn: Dictionary in _tentacle_points.get(creep_name, []):
@@ -5034,7 +5321,10 @@ func _save_layout(silent: bool = false) -> void:
 		# Led points (directionless, 2026-08-15)
 		var led_data: Array[Dictionary] = []
 		for led: Dictionary in _led_points.get(creep_name, []):
-			led_data.append({"pos": led["pos"], "id": led.get("id", 0)})
+			var led_out := {"pos": led["pos"], "id": led.get("id", 0)}
+			if led.has("z"):
+				led_out["z"] = led["z"]   # 3D-creep height (2026-09-01)
+			led_data.append(led_out)
 		cfg.set_value("ledpoints", creep_name, led_data)
 	cfg.save(_layout_path())
 	_save_plume_styles()
@@ -5147,23 +5437,33 @@ func _load_layout() -> void:
 		var max_fp_id := 0
 		for fp: Dictionary in cfg.get_value("firepoints", creep_name, []):
 			var fp_id: int = fp.get("id", max_fp_id + 1)
-			_fire_points[creep_name].append({"pos": fp.get("pos", Vector2.ZERO), "id": fp_id, "dir_angle": fp.get("dir_angle", 0.0)})
+			var fp_in := {"pos": fp.get("pos", Vector2.ZERO), "id": fp_id, "dir_angle": fp.get("dir_angle", 0.0)}
+			if fp.has("z"):
+				fp_in["z"] = fp["z"]
+			_fire_points[creep_name].append(fp_in)
 			max_fp_id = maxi(max_fp_id, fp_id)
 		_fp_id_counter[creep_name] = max_fp_id + 1
-		# Thrust points
+		# Thrust points + smoke points (SP). Both live in _thrust_points; SP entries carry "sp": true and
+		# come from the [smokepoints] section (see _save_layout). Loaded into one array so every TP-shaped
+		# code path (select / rotate / XYZ / preview / delete) keeps working on them unchanged.
 		_thrust_points[creep_name] = []
 		var max_tp_id := 0
-		for tp: Dictionary in cfg.get_value("thrustpoints", creep_name, []):
-			var tp_id: int = tp.get("id", max_tp_id + 1)
-			var tp_in := {"pos": tp.get("pos", Vector2.ZERO), "id": tp_id,
-				"dir_angle": tp.get("dir_angle", 0.0), "z": tp.get("z", 0.0)}
-			if tp.has("dir_rot"):
-				tp_in["dir_rot"] = _migrate_axis(tp["dir_rot"], legacy_axis)
-			if tp.has("dir_rot_base"):
-				# 2026-08-22 "Set 0° here" baseline; migrated on the same flag as the object angles.
-				tp_in["dir_rot_base"] = _migrate_axis(tp["dir_rot_base"], legacy_axis)
-			_thrust_points[creep_name].append(tp_in)
-			max_tp_id = maxi(max_tp_id, tp_id)
+		var _load_pts := func(rows: Array, is_sp: bool) -> void:
+			for tp: Dictionary in rows:
+				var tp_id: int = tp.get("id", max_tp_id + 1)
+				var tp_in := {"pos": tp.get("pos", Vector2.ZERO), "id": tp_id,
+					"dir_angle": tp.get("dir_angle", 0.0), "z": tp.get("z", 0.0)}
+				if is_sp:
+					tp_in["sp"] = true
+				if tp.has("dir_rot"):
+					tp_in["dir_rot"] = _migrate_axis(tp["dir_rot"], legacy_axis)
+				if tp.has("dir_rot_base"):
+					# 2026-08-22 "Set 0° here" baseline; migrated on the same flag as the object angles.
+					tp_in["dir_rot_base"] = _migrate_axis(tp["dir_rot_base"], legacy_axis)
+				_thrust_points[creep_name].append(tp_in)
+				max_tp_id = maxi(max_tp_id, tp_id)
+		_load_pts.call(cfg.get_value("thrustpoints", creep_name, []), false)
+		_load_pts.call(cfg.get_value("smokepoints", creep_name, []), true)
 		_tp_id_counter[creep_name] = max_tp_id + 1
 		# Tentacle points
 		_tentacle_points[creep_name] = []
@@ -5186,7 +5486,10 @@ func _load_layout() -> void:
 		var max_led_id := 0
 		for led: Dictionary in cfg.get_value("ledpoints", creep_name, []):
 			var led_id: int = led.get("id", max_led_id + 1)
-			_led_points[creep_name].append({"pos": led.get("pos", Vector2.ZERO), "id": led_id})
+			var led_in := {"pos": led.get("pos", Vector2.ZERO), "id": led_id}
+			if led.has("z"):
+				led_in["z"] = led["z"]
+			_led_points[creep_name].append(led_in)
 			max_led_id = maxi(max_led_id, led_id)
 		_led_id_counter[creep_name] = max_led_id + 1
 
@@ -5274,7 +5577,15 @@ const WIRED_3D_CREEPS := ["VIPER head top", "VIPER body", "VIPER Tail", "Yari-Je
 	# thước") — arena_xp_orb_manager.gd reads these back too, just through its own _load_ruin_scale()/
 	# _start_spin_bake() instead of arena_loot.gd's per-spawn readers (one shared baked spin-atlas per tier,
 	# not a live model per pickup — see that file's matching 2026-08-29 header note).
-	"green", "yellow", "orange", "red", "purple"]
+	"green", "yellow", "orange", "red", "purple",
+	# Standalone glb bosses (Volcanic "boss"/The Skull 2026-09-01, Atlantic "Nautilus" 2026-09-02) — each glb
+	# sits in its map's assets/map/<map>/enemies/ folder so the folder scan finds it (no _extra_names needed);
+	# it just has to clear this allowlist for the Rotate X/Y/Z + FP/TP/SP/LED XYZ surface. arena_enemy.gd's
+	# _setup_glb_spin_body() reads the saved `rot`/`rot_base` via _creep_mount_rot(<name>) on every spawn, and
+	# _setup_fire_points/_setup_smoke_points read the marker lists — so the sliders and markers drive the real boss.
+	"boss", "Nautilus",
+	# Pose-only layer: same glb, its own rot/rot_base, read back by Nautilus's Move 1 (see NB_CHARGE_LAYER).
+	"Charge Position"]
 # 2026-08-21: "ND-Aliwa-Bmr" added once its own 3D runtime plume actually landed (_setup_aliwa_3d/
 # _load_aliwa_plume_3d in arena_weapons.gd).
 # 2026-08-23: "Swarmball"/"Swarmbot"/"shooter"/"BC-SL-Spore" added on the same terms — arena_weapons.gd's
@@ -5542,8 +5853,8 @@ func _glb_refresh_tp_gizmos(creep_name: String) -> void:
 		# trajectories". Skip 3D TPs here — the standalone preview is the single owner of their visual now.
 		# A glb creep NOT in WIRED_3D_CREEPS (e.g. BC-SL-Spore) never gets `dir_rot` on its TPs, so those
 		# still render here exactly as before — this function stays the only preview they have.
-		if tp.has("dir_rot"):
-			continue
+		if tp.has("dir_rot") or bool(tp.get("sp", false)):
+			continue   # 3D TPs → standalone preview; SP smoke points → the 2D SmokeTrail preview
 		var tp_oc: Vector2 = (tp["pos"] as Vector2) + SCREEN_ORIGIN
 		var frac := (tp_oc - eo.position) / eo.size
 		var z: float = tp.get("z", 0.0)
@@ -5659,6 +5970,40 @@ func _default_plume_style() -> Dictionary:
 		"col_core":  Color(1.0, 0.95, 0.7, 1.0),
 		"col_flame": Color(1.0, 0.6,  0.2, 1.0),
 		"col_cool":  Color(0.45, 0.6, 1.0, 0.85),
+	}
+
+## A small billboarded marker dot for an FP / LED point in the 3D preview, at the point's frac+z position
+## (`pt` carries `pos` in SS-space and optional `z`). Parent it to the model part so it rides the mount
+## rotation. `meo` = that part's editor rect; `part_px` = its on-screen diagonal.
+func _make_pt3_marker(pt: Dictionary, meo: EditableObjectNode, part_px: float, col: Color) -> MeshInstance3D:
+	var frac := (((pt["pos"] as Vector2) + SCREEN_ORIGIN) - meo.position) / meo.size
+	var m := MeshInstance3D.new()
+	m.position = Vector3((frac.x - 0.5) * part_px, float(pt.get("z", 0.0)), (frac.y - 0.5) * part_px)
+	var sph := SphereMesh.new()
+	sph.radius = maxf(2.0, part_px * 0.035)
+	sph.height = sph.radius * 2.0
+	m.mesh = sph
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = col
+	mat.emission_enabled = true
+	mat.emission = col
+	m.material_override = mat
+	return m
+
+## Editor-preview style for an SP (smoke point): a slow grey billow so it reads as smoke against the fire
+## plumes. Only the PREVIEW uses this — the live boss plays the real ash-wake smoke_trail.
+func _sp_preview_style() -> Dictionary:
+	return {
+		"vel_min":   14.0,
+		"vel_max":   26.0,
+		"lifetime":  1.4,
+		"spread":    22.0,
+		"sc_min":    2.2,
+		"sc_max":    4.0,
+		"col_core":  Color(0.62, 0.62, 0.60, 0.85),
+		"col_flame": Color(0.42, 0.42, 0.40, 0.60),
+		"col_cool":  Color(0.24, 0.24, 0.23, 0.30),
 	}
 
 func _get_selected_tp_id() -> int:
@@ -6615,6 +6960,8 @@ func _default_creep_rect(creep_name: String, aspect: float) -> Rect2:
 ## `_rig_key()` below is what keeps MF_ROOT and MF_WINGS from collapsing into one preview rig — they share
 ## metalfly.glb, and a path alone as the key would give them one rotation between them.
 func _asset_path_for(creep_name: String) -> String:
+	if creep_name == NB_CHARGE_LAYER:
+		return NB_CHARGE_GLB
 	return String(MF_GLB.get(creep_name, ""))
 
 ## Which animation clip this creep's PREVIEW should play, "" for the glb's own first one. Only meaningful

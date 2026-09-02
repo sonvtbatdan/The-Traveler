@@ -201,6 +201,7 @@ func _build_asset_panel() -> void:
 	_asset_panel.size     = Vector2(ASSET_PANEL_W, 730.0)
 	_asset_panel.position = Vector2(20.0, 44.0)
 	add_child(_asset_panel)
+	UiPalette.scanlines(_asset_panel)
 
 	var root := VBoxContainer.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -419,6 +420,7 @@ func _build_ctrl_panel() -> void:
 	_ctrl_panel.size     = Vector2(CTRL_PANEL_W, 730.0)
 	_ctrl_panel.position = Vector2(_vp_w - CTRL_PANEL_W - 20.0, 44.0)
 	add_child(_ctrl_panel)
+	UiPalette.scanlines(_ctrl_panel)
 
 	var root := VBoxContainer.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -608,8 +610,8 @@ func _make_layer_row(eo: EditableObjectNode) -> Control:
 
 	var style := StyleBoxFlat.new()
 	style.bg_color = UiPalette.SELECT_WASH if is_selected else Color(0.0, 0.0, 0.0, 0.0)
-	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
-	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
+	style.corner_radius_top_left    = 0; style.corner_radius_top_right    = 0
+	style.corner_radius_bottom_left = 0; style.corner_radius_bottom_right = 0
 	row.add_theme_stylebox_override("panel", style)
 
 	var hbox := HBoxContainer.new()
@@ -1279,8 +1281,8 @@ func _make_fp_row(fp: Dictionary, idx: int) -> Control:
 
 	var style := StyleBoxFlat.new()
 	style.bg_color = UiPalette.SELECT_WASH if is_sel else Color(0.0, 0.0, 0.0, 0.0)
-	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
-	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
+	style.corner_radius_top_left    = 0; style.corner_radius_top_right    = 0
+	style.corner_radius_bottom_left = 0; style.corner_radius_bottom_right = 0
 	row.add_theme_stylebox_override("panel", style)
 
 	var hbox := HBoxContainer.new()
@@ -1354,8 +1356,8 @@ func _make_tp_row(tp: Dictionary, idx: int) -> Control:
 	row.mouse_filter = Control.MOUSE_FILTER_STOP
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.10, 0.80, 0.55, 0.38) if is_sel else Color(0.0, 0.0, 0.0, 0.0)
-	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
-	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
+	style.corner_radius_top_left    = 0; style.corner_radius_top_right    = 0
+	style.corner_radius_bottom_left = 0; style.corner_radius_bottom_right = 0
 	row.add_theme_stylebox_override("panel", style)
 	var hbox := HBoxContainer.new()
 	hbox.set_anchors_preset(Control.PRESET_FULL_RECT)

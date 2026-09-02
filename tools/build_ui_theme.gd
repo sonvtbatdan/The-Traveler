@@ -172,16 +172,16 @@ func _init() -> void:
 	quit(0)
 
 # ── stylebox helpers ────────────────────────────────────────────────────────
-func _flat(col: Color, radius: int) -> StyleBoxFlat:
+func _flat(col: Color, _radius: int) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = col
-	sb.set_corner_radius_all(radius)
+	sb.set_corner_radius_all(0)   # CRT console — square corners everywhere
 	return sb
 
 func _btn(bg: Color, border: Color) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
-	sb.set_corner_radius_all(3)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(1)
 	sb.border_color = border
 	sb.content_margin_left = 12.0
@@ -193,7 +193,7 @@ func _btn(bg: Color, border: Color) -> StyleBoxFlat:
 func _field(bg: Color, border: Color) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
-	sb.set_corner_radius_all(3)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(1)
 	sb.border_color = border
 	sb.content_margin_left = 8.0
@@ -202,10 +202,10 @@ func _field(bg: Color, border: Color) -> StyleBoxFlat:
 	sb.content_margin_bottom = 5.0
 	return sb
 
-func _panel(bg: Color, border: Color, radius: int) -> StyleBoxFlat:
+func _panel(bg: Color, border: Color, _radius: int) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
-	sb.set_corner_radius_all(radius)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(1)
 	sb.border_color = border
 	sb.set_content_margin_all(14.0)
@@ -214,7 +214,7 @@ func _panel(bg: Color, border: Color, radius: int) -> StyleBoxFlat:
 func _focus() -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0, 0, 0, 0)
-	sb.set_corner_radius_all(3)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(1)
 	sb.border_color = ACCENT
 	return sb
@@ -228,7 +228,7 @@ func _line(col: Color) -> StyleBoxLine:
 func _track(col: Color) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = col
-	sb.set_corner_radius_all(2)
+	sb.set_corner_radius_all(0)
 	sb.content_margin_top = 3.0
 	sb.content_margin_bottom = 3.0
 	return sb
@@ -236,8 +236,8 @@ func _track(col: Color) -> StyleBoxFlat:
 func _tab(bg: Color, border: Color) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
-	sb.corner_radius_top_left = 4
-	sb.corner_radius_top_right = 4
+	sb.corner_radius_top_left = 0
+	sb.corner_radius_top_right = 0
 	sb.border_width_left = 1
 	sb.border_width_top = 1
 	sb.border_width_right = 1

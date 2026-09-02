@@ -3,6 +3,378 @@
 > Module of [`CLAUDE.md`](../CLAUDE.md). Read this when working on enemy behavior, bosses, waves, arena enemies, ruins, enemy panel.
 > Always-on core rules (conventions, coordinate system, image/render rules, LOCKED MODULES) live in CLAUDE.md — read that too.
 
+## Changelog — 2026-09-02 (k) — Nautilus: charge in the pool again, homing approach-charge, Move 5 hit fix
+
+- **Move 1 is back in the random pool** — a normal telegraphed lunge (locked lane) when the player is inside
+  `NB_FAR_R`. The FORCED approach-charge (player past `NB_FAR_R`, or interrupting a running move) is the
+  same move but flagged `_nb_charge_homing`: its lane **re-aims toward the player at `NB_M1_HOME_RATE`
+  (1.6 rad/s)** — slow enough to juke, so the player gets a dodge window ("có delay nhẹ so với di chuyển
+  của người chơi"). The lunge version stays lane-locked and ends on overshoot; the homing one doesn't.
+- **Move 5 beam dealt no damage.** The sweep turns ~11°/frame — far faster than the beam is thick — so the
+  per-frame "player on the beam now?" test tunnelled past them every pass, and the `fmod(_nb_t, 0.4)` tick
+  gate almost never coincided with a pass. Replaced with a **swept test** (`_ang_swept()` — did the beam's
+  bearing cross the player's this frame, in range?) + a per-contact cooldown (`_nb_beam_hit_cd`, 0.35 s).
+- **Charge now barrels THROUGH the player**, not up to them ("chưa chạm tới player đã dừng"). The dash ends
+  when it has PASSED its closest approach by `NB_M1_PASS` (180 px), not at `NB_M1_ARRIVE_R`. The homing
+  approach-charge also stops re-aiming once within `0.7 × ARRIVE_R` and commits to a straight pass, so the
+  constant re-aim can't curl it into an orbit around the player.
+
+## Changelog — 2026-09-02 (j) — Nautilus: Move 1 approach-only (SUPERSEDED by (k)), interrupt-to-charge, missile size
+
+- Any frame the player gets past `NB_FAR_R` while a move (state 11-14) is running, `_tick_atlantic_boss`
+  **interrupts it** (`_nb_finish_move()` teardown → `_nb_enter_move(0)`) and charges. (Kept.)
+- **Charge has no fixed length.** The dash runs until `dist ≤ NB_M1_ARRIVE_R` (320), or (lunge only) it has
+  overshot its closest approach by a body width, or `NB_M1_DASH_MAX_T` (4 s) as a backstop — was a hard
+  1200 px. `NB_M1_DASH_LEN` is now just the aim-band's drawn length. `_nb_dash_left` → `_nb_dash_min`.
+- **Missile draw size from Weapon Edit.** `_nb_spawn_missile` reads `weapon_layout.cfg [creeps] missile.size.x`
+  (the TRANSFORM panel's W) into the def's `draw_w`; missile.png keeps its own aspect for the height.
+
+## Changelog — 2026-09-02 (i) — Nautilus: continuous moves, forced-charge-when-far, 120 px/s tween
+
+- **No rest beat.** `NB_RECOVER_T` and the state-20 wait are gone — `_tick_atlantic_boss`'s pick state runs
+  the same frame a move ends, so moves are back-to-back ("Ko có thời gian nghỉ giữa các move").
+- **Far → Move 1.** New `NB_FAR_R` (800 px): past it the next move is FORCED to Move 1 (charge) regardless
+  of the random pick, so the boss dashes in to close the gap. `NB_APPROACH_R` removed.
+- **`NB_TWEEN_SPEED` (120 px/s).** Moves that don't drive their own movement — M2 missiles, M3 arcs, M5
+  sweep — now drift toward the player at this speed (was: M2/M3 stationary, M5 at `speed × 1.15` ≈ 60).
+  `NB_M5_CHASE` removed.
+
+## Changelog — 2026-09-02 (h) — Nautilus tuning
+
+- HP stays 5000; `knockback_mult` stays **0.3**.
+- **Move 5 sweep: zero knockback.** The sweep sets `_knockback_mult = 0.0` directly; `_nb_finish_move`
+  restores it to `_nb_base_kb_mult` (captured from the def in `configure()`, = 0.3) — not to 1.0.
+- **Move 1**: charge `NB_M1_CHARGE_T` 1.5 → **1.0 s**, dash `NB_M1_DASH_SPD` 600 → **800 px/s**.
+- **Move 4 fade.** Split into phase 0 (screen up: emit + −50% dmg + regen + retreat, `NB_M4_T` = 5 s) and
+  phase 1 (emitters stopped, buffs off, `NB_M4_FADE` = 5 s while the cloud thins). Puff `lifetime` = the
+  fade window so it dissipates slowly instead of snapping off.
+
+## Changelog — 2026-09-02 (g) — Nautilus: TP spray direction, Move 5 chase/trail, exposure, smokescreen
+
+- **TP jets sprayed INWARD.** `_load_tp_fracs` only read the flat `dir_angle` (→ default `PI/2` "down"),
+  ignoring the `dir_rot` 3-axis spray the sliders write. Now carries `dir_rot` (composed with `dir_rot_base`)
+  and the plume glue projects it through the LIVE mount basis + pivot yaw — `view_basis(mount) ·
+  view_basis(dir_rot) · +Z`, the exact chain Creep Edit's preview plume renders. New `_glb_dir_canvas()`
+  + `_glb_body_basis_yaw()` (shared with `_glb_point_offset`), `dir3` particle meta.
+- **Move 5** now chases at `NB_M5_CHASE` (1.15× speed) instead of `VB_CHASE_SPEED` (0.35× ≈ 18 px/s — "chưa
+  có chase"). The beam trail (`fx/nb_beam_trail.gd`) got ADD blend, alpha 0.30→0.85, `TRAIL_T` 0.45→0.75 s,
+  fade `1−age²` — reads as a real light wake now.
+- **`light_scale` def key** (→ `GlbSpinBody.setup`) multiplies the shared rig's lights + ambient. Nautilus's
+  baked albedo is self-lit and blew out at 1.0 → set to **0.55**. VIPER/Jaeger/Skull default 1.0, untouched.
+- **Smokescreen** (Move 4): new `smoke_trail` style **`follow`** = every layer `local_coords` so the cloud
+  rides the emitter and stays centred on the boss as it retreats ("khói xì ra chưa bao được hết nautilus khi
+  nó chạy lùi"). Emitters are now a ring across the whole body + one dead centre (7, was 5 around FP4),
+  bigger puffs, retreat slowed 0.9→0.65×.
+
+## Changelog — 2026-09-02 (f) — Creep Edit saves weren't reaching the runtime + Move 1 leftover yaw
+
+Two separate reasons an edited "Charge Position" angle looked like it was ignored:
+
+- **`reload_layout_cfgs()` didn't clear the new cache.** `_creep_layout()` now reads through `_layout_cfgs`
+  (keyed by path, so a def's `plume_layout` can point at `weapon_layout.cfg`), but the reload only reset the
+  old `_creep_cfg`/`_creep_cfg_tried` pair. So after a Creep Edit save the runtime kept serving the
+  **pre-save file for the rest of the session** — every live creep/plume edit silently did nothing until a
+  restart. Now clears `_layout_cfgs` too.
+- **Move 1's phase order was wrong.** It unwound the pose *during* the dash, so on screen it read as "tilts,
+  snaps back to default, then lunges" — the authored pose was gone for the whole visible part of the move.
+  Rebuilt to the order the user specified: **0 TURN IN → 1 CHARGE → 2 DASH → 3 TURN OUT**, with the pose
+  held flat (`set_mount_rot(pitched)`, `set_yaw(0)`) through both 1 and 2, and the return to default only
+  after the dash has landed.
+- **Move 1's yaw: settled, then tracked.** The body's orientation is MOUNT × PIVOT-YAW, and the two now
+  carry different halves: the "Charge Position" layer supplies the **tilt** (mount), while the **heading**
+  keeps turning onto the player through the pivot yaw instead of being pinned ("Hướng xoay theo trục Z vẫn
+  cần được xoay về hướng player thay vì fix cứng" — the editor's Rot Z and the pivot yaw are both pure spins
+  about the world vertical, so the yaw is the right place for it). Phase 0 will not hand over until the
+  mount lerp **and** that heading have both settled (`NB_M1_YAW_RATE`) — a half-turned yaw multiplying onto
+  the mount was the original "vẫn bị xéo". Phase 1 tracks the player, phase 2 holds the **locked lane** so
+  the lunge points where it is actually going.
+  Caveat: `_glb_front_angle` is calibrated against the REST pose, so a charge pose with a very different
+  X/Y tilt can aim a constant offset out — trim it with that layer's own Rot Z.
+
+## Changelog — 2026-09-02 (e) — the plume fix was going into DEAD CODE
+
+`arena_enemy._update_plume_xform()` **is never called** — it only appears in its own definition and in two
+comments. The live plume glue is an inline block inside `_process()` (search "Glue plume emitters to the
+sprite"), which re-derives `p.position` from the `base_pos` meta (the flat `(frac − 0.5) · _draw_size`)
+rotated by `_facing`. So (c)/(d)'s 3D projection was patched into a function that runs nowhere, and the TPs
+stayed on the flat path — "TP vẫn bị nằm ở đầu Nautilus".
+
+- The glb branch now lives in the **inline block**, and runs **unconditionally every frame** for a glb creep
+  (the `vrot`-changed gate is a 2D-sprite optimisation; a move can re-pitch the MOUNT without `_facing`
+  moving at all, which would freeze the points mid-move). Sprite creeps keep the gated path untouched.
+- `_update_plume_xform()` is reverted to its original body and marked **UNUSED** in its doc comment, so the
+  next person edits the live one.
+
+## Changelog — 2026-09-02 (d) — the `z` rescale in (c) was wrong + "Charge Position" pose layer
+
+- **Point placement, corrected.** (c) below got the 3D path right but rescaled the authored `z` by
+  `px / 32`, throwing every point ~6× off the body. There is **no rescale**: Creep Edit's
+  `_build_plume3d_preview` places a marker at `(frac − 0.5) · part_px` with
+  `part_px = maxf(eo.size.x, eo.size.y)` **and fits the model to that same number**, while
+  `_setup_glb_spin_body` fits the live body to `maxf(size.x, size.y)` off the identical cfg entry — so
+  editor units == runtime units and `z` passes through raw. (The 32 came from the rig's `target_px`, which
+  only the X/Y/Z **spinbox readout** uses — a separate editor display quirk, not the placement path.)
+  Verified numerically: editor and runtime now compute the identical model-local vector.
+- **New Creep Edit layer "Charge Position"** (Atlantic map). Nautilus's Move 1 pitch used to be a hardcoded
+  Euler that REPLACED the calibrated mount, so it came out crooked ("khi charge cũng bị xoay xéo"). It is
+  now authored: same `Nautilus.glb`, its own `rot`/`rot_base` in `creep_layout.cfg`, dialled with the normal
+  Rotate X/Y/Z sliders. Runtime reads it via `_creep_mount_rot(NB_CHARGE_LAYER)`; **falls back to the rest
+  pose** (no pitch) until it's been saved once.
+  It is a **CHILD LAYER of the Nautilus group**, not a separate palette creep — `_group_nautilus_layers()`
+  parents it, the same shape `_group_metalfly_layers()` uses for the Cocoon. So it carries the **full**
+  layer surface: Rotate X/Y/Z, its own FP + TP (own `[firepoints]`/`[thrustpoints]` rows keyed by the layer
+  name) and its own FRONT arrow. The name itself is declared through `_extra_names()`/`_asset_path_for()`
+  (no file of its own, same hooks Metalfly's bodies use) + `WIRED_3D_CREEPS`. Selecting either row renders
+  BOTH models in the group overlay, so the rest pose and the charge pose can be compared side by side.
+
+## Changelog — 2026-09-02 (c) — glb FP/TP were projected FLAT (points off the model) + Nautilus tuning
+
+- **The real bug** (user: "TP của nautilus đang nằm sai vị trí so với khi hiện trong creep edit"). In Creep
+  Edit a fire/thrust point's marker is a **child of the rotated model**, placed at
+  `Vector3((frac.x−0.5)·target_px, z, (frac.y−0.5)·target_px)`, so it inherits the mount rotation and its
+  authored height. At runtime `_muzzle()` / `_update_plume_xform()` used a flat `(frac−0.5)·_draw_size` —
+  **dropping the mount rotation, the pivot yaw and the whole `z` axis**, so every point sat somewhere the
+  editor never showed it. New **`_glb_point_offset(frac, z)`** runs the same 3D path: model-local → live
+  mount basis (`GlbSpinBody.get_mount_basis()`, NEW) → pivot yaw → project (world X = screen X, world
+  Z = screen Y). `_load_fp_fracs`/`_load_tp_fracs` now carry `z`; `GLB_EDIT_TARGET_PX` (32.0, Creep Edit's
+  `_arena_display_px` fallback) rescales the authored height to the body's real on-screen size.
+  Fixes The Skull's FP muzzles too, not just Nautilus's TP plumes.
+- Move 1: the pitched pose is now explicitly **held for the whole charge** and only unwinds once the dash
+  starts ("khi charge, nautilus vẫn giữ góc xoay").
+- Move 5: lights **every TP** for the spin (like Move 1); new **`fx/nb_beam_trail.gd`** draws the faint
+  fading wake behind the sweeping beam; `NB_M5_BEAM_DMG` 8 → **10**. `_nb_muzzle_spun` deleted — `_muzzle()`
+  now applies the live yaw itself.
+- `ENEMY_DEFS["Nautilus"]` contact damage 40 → **20**.
+
+## Changelog — 2026-09-02 (b) — Nautilus: the 5-move set
+
+`_tick_atlantic_boss` grew from the chase-only shell into a full state machine: 0 approach → 10-14 (one
+move) → 20 recover (3 s plain chase) → a **random** next move (never the same one twice running).
+
+- **Thrust points as state.** New def key **`tp_on`** = the TP ids lit at rest (Nautilus: `[6, 9]`; absent
+  → all, i.e. every other creep is unchanged). `_plume_ids` runs parallel to `_plumes`, so
+  `_set_plume_on(id, bool)` / `_set_all_plumes_on()` / `_reset_plumes_default()` can light one point.
+- **`_setup_plumes` now keys a glb creep by `_type`** (it used to bail out entirely — the 2026-09-01 fix
+  for magma1's plumes leaking onto The Skull). Both glb bosses now show their OWN authored TP jets.
+- **New def keys `plume_from` / `plume_layout`** — borrow another entry's thrust points from another cfg.
+  The Nautilus missile reads `missile`'s authored TP out of `weapon_layout.cfg` (missile.png is a Weapon
+  Edit asset, not a creep). `_load_tp_fracs(cname, layout_path)` + `_layout_cfg(path)` generalise the read.
+- **Move 1 — charge & dash.** All TPs lit + thruster wind-up; `fx/nb_aim_band.gd` draws a red highlight lane
+  that re-aims at the player every frame; body pitches to the absolute editor angle `NB_M1_PITCH` (1°/0°/89°).
+  After 1.5 s the lane is **locked** and the boss dashes it at 600 px/s for 1200 px, unwinding the pitch.
+- **Move 2 — missiles.** 20 out of FP1/FP2 over 5 s (odd shots delayed `NB_M2_FP_OFFSET` so the tubes read
+  as separate). New behavior **`nb_missile`**: coasts its launch heading 0.5 s, then curves onto the player
+  at `NB_M2_TURN`. A real `arena_enemy` (HP 8, `frag`) → every player weapon can shoot it down.
+- **Move 3 — arc waves.** `fx/nb_arc_wave.gd`: a 60° annulus front out of FP3 at 300 px/s, 15 dmg to the
+  ship once, and a one-time outward `_knockback` shove to every creep the front crosses. ×3, 1 s apart.
+- **Move 4 — smokescreen.** Retreats while 5 `SmokeTrail` puffs pour from FP4, drawn OVER the body
+  (`z_index 6`). New `smoke_trail` style keys **`no_fire`** (drop the ember/flame/glow layers) and
+  **`c_shadow`/`c_body`/`c_lit`** (override the shader's 3-tone palette → white-blue). Halves damage taken
+  via new `_nb_dmg_taken_mult` (applied in `take_damage`) and regens 10 hp/s for 5 s.
+- **Move 5 — spin beam.** `vb_charge_vfx.begin()` now takes an optional `{rim, core, ember}` palette (red
+  defaults preserved) → blue charge. Then a 500 px blue `LaserBeamScript` off FP5 while the body spins
+  10 revolutions at 0.5 s each, chasing the player. `_nb_muzzle_spun()` orbits the FP offset with the yaw
+  (plain `_muzzle()` is yaw-agnostic — fine for a still boss, wrong for a spinning one).
+
+## Changelog — 2026-09-02 — Nautilus (Atlantic 3D boss) wired
+
+`assets/map/atlantic/enemies/Nautilus.glb` (2nd glb boss after The Skull). Full mirror of The Skull's
+generic path — no bespoke code, the `boss_glb` def key does the work:
+
+- **`ENEMY_DEFS["Nautilus"]`** (`arena_wave_director.gd`): `behavior:"boss_stub"`, `boss_move:"atlantic"`,
+  `boss_glb` = the model, `sprite_alpha:0`, placeholder icon, hp/speed/etc. **placeholder** (match The
+  Skull). Id `"Nautilus"` (capital) matches the `.glb` basename → the Creep-Edit creep name → the
+  `creep_layout.cfg` key.
+- **`_tick_atlantic_boss()`** (`arena_enemy.gd`): SHELL — chase the player + `_glb_boss_face_player()` to
+  turn the 3D body toward them. No moveset yet (user authors points, then specs moves — The Skull flow).
+- **Generalised the 3D-boss facing**: `_vb_face_body` → `_glb_boss_face_player` (shared), `VB_FRONT_ANGLE`
+  → per-instance `_glb_front_angle` (def `"front_angle"`, default `GLB_FRONT_ANGLE_DEFAULT` = PI/2).
+  `creep_edit_mode.gd`: `BOSS_FRONT_ANGLE`/`BOSS_CREEP_NAME` → `GLB_BOSS_FRONT_ANGLES` dict
+  (`{"boss": PI/2, "Nautilus": PI/2}`); `_front_marker_angle()` reads it. Both front angles are **starting
+  guesses** — calibrate the FRONT arrow by eye, then the def key + the dict entry must stay equal.
+- **`WIRED_3D_CREEPS` += `"Nautilus"`** → Rotate X/Y/Z + FP/TP/SP/LED XYZ surface + FRONT arrow in Creep
+  Edit (select the **Atlantic** map). Folder scan finds `Nautilus.glb` automatically; the two
+  `Nautilus_Baked_*.png` siblings are correctly excluded.
+- **`QUICK_BOSS_IDS` += `"Nautilus"`** → live 3D cell in the Dev → Creep panel's **Boss** tab.
+- **`atlantic.json`**: added `{"is_boss": true, "time": 1200, "type": "Nautilus"}` — Atlantic now has a
+  finale (was "để sau"). All 3 maps' final boss now at t=1200.
+- ⚠️ Not verified in-arena — headless render of the 22 MB glb times out (same wall as The Skull). Model
+  loads + fits clean (probe); wiring is identical to The Skull's working path. Needs a real playtest.
+
+## Changelog — 2026-09-01 (h) — run length cut 30:00 → 20:00
+
+Whole game shortened to 20 minutes. The final boss of each map now spawns at **t=1200** (was ~t=1800 or
+never), and everything from minute 20 onward is gone.
+
+- **Level timelines** (`levels/arena/`, the 4 live V2 files — `elecforest.json`, `vocalnic.json`,
+  `atlantic.json`, `spawnmode2.json`): every `timeline` entry with `time >= 1200` removed; `hp_targets`
+  with `time >= 1200` removed (only vocalnic had any — now ends at the t=1170 milestone).
+- **Final boss @ t=1200** (solo `is_boss` entry, the `_final_boss_entry` the director holds until the field
+  clears): **vocalnic → `boss`** (The Skull, was already at 1200), **elecforest → `metalfly`** (NEW —
+  Electric had no timeline boss before). **atlantic + spawnmode2 have NO finale yet** (user: "để sau") —
+  their run just runs out of spawns near t=1170/540 and relies on the temple landmark boss for a boss beat.
+- **F7 Wave Editor** (`arena_wave_editor.gd`): `GRID_ROWS` 360 → 240 (grid is now 5s…1200s).
+- **Temple landmark bosses** (`electric/atlantic/volcanic_temple_layer.gd`): `SPAWN_WINDOW` 1800 → 1200 —
+  the 2 temples/run now roll their spawn time in [0, 1200).
+- **Quests** (`quest_manager.gd`): `eq11` "The Long Dark" and `eq12` "Apex Predator" survive thresholds
+  1800 → 1200, objective text "30:00" → "20:00".
+
+## Changelog — 2026-09-01 (g) — The Skull Move 3: untargetable instead of fire-suppress
+
+- Move 3 no longer disables player fire at all. User: "người chơi vẫn bắn được, chỉ là không bắn trúng
+  vào boss được, do boss đã hạ xuống terrain rồi, vẫn bắn vào các enemy khác bình thường."
+- `GameManager.player_fire_suppressed` **removed entirely** (declaration, ship-death reset, `reset_run`,
+  the `arena_weapons`/`arena_loadout` gates — all gone).
+- New `arena_enemy.is_untargetable()` → `_vb_grounded`. `arena_weapons._enemies()` (the shared per-frame
+  cache every point/hitscan/AoE weapon + the spatial grid + `_nearest_enemy` read) now filters it out
+  alongside `is_charmed`, so bullets pass over the grounded boss and still hit the ash behind it. Auto-fire
+  keeps running (`_has_enemy_on_screen` short-circuits on `is_boss_alive`). `_check_contact()` also early-
+  returns while `_vb_grounded` (ship flies over the flattened body — no contact damage / crowd push).
+- The `_process` deadline safety valve + `_exit_tree` + `_vb_finish_move`/`_die` now just force-un-ground
+  (restores targetability + body scale) instead of clearing a fire flag; a stun stuck mid-Move-3 would
+  otherwise leave the boss permanently untargetable = unkillable.
+- Death Beam / Predator beam "a boss blocks the beam" checks (which iterate the raw `boss` group, not
+  `_enemies()`) also skip an `is_untargetable()` boss, so the beam passes cleanly over the grounded body
+  instead of stopping short at an invisible wall.
+
+## Changelog — 2026-09-02 — fleet "giật giật" was the CARRIER staggering, not knockback
+
+Reverses the 2026-09-01 (f) fix below — that removed per-unit knockback from fleet escorts, but the real
+cause of "cả fleet bị knockback giật giật" was elsewhere:
+
+- **Fleet CARRIERS now ignore hit-stagger** (`stagger_ok` in `arena_enemy._process` — `or not
+  _fleet_dock.is_empty()`, same exemption bosses have). Every escort is rigidly re-pinned to the carrier's
+  position each frame, so a carrier stagger-stutter under rapid fire read as the whole formation juddering.
+  The carrier now keeps gliding.
+- **Fleet ESCORTS (`dock_kind:"fleet"`) take a real per-unit `_knockback` again** (reverted): only the shot
+  unit strays, `_fleet_update_dock_positions` eases just that one back. `take_damage`'s guard is back to
+  `(_docked and _dock_kind != "fleet") or not _fleet_dock.is_empty()` → `_hit_shake`; `_process`'s
+  knockback-apply back to `(not _docked or _dock_kind == "fleet")`.
+- Mothership escorts + carriers still get `_hit_shake` only (a real push would drag the exact-snap formation).
+
+## Changelog — 2026-09-01 (f) — fleet formations: no per-unit knockback  [SUPERSEDED by 2026-09-02 above]
+
+- User: "các fleet ash khi 1 con bị bắn thì cả fleet bị knockback". A `dock_kind:"fleet"` escort used to
+  take a real positional `_knockback` on hit (the mothership path already didn't). `_fleet_update_dock_positions`
+  re-pins escorts only at `speed × 1.3`, but `KNOCKBACK_SPEED` is 460 px/s — so under Gatling/Nuke fire
+  enough escorts get shoved past the re-pin at once that the whole formation visibly smears backward.
+  Fix (`arena_enemy.take_damage`): **any docked escort (mothership OR fleet) and any carrier now takes
+  `_hit_shake` (visual-only, draw-transform, decays fast) instead of `_knockback`** — a formation moves as
+  one block. `_process`'s knockback-apply is now plain `not _docked`. Affects every fleet, not just ash.
+  Killing the carrier still breaks the squad into free chasers (each re-enables its own knockback then).
+
+## Changelog — 2026-09-01 (e) — The Skull: Move 3 fire-latch bug, beam len/dmg
+
+- **`player_fire_suppressed` could stick ON** (user: "có lúc player bị disable không bắn ra đạn"). Move 3
+  latches this global flag while the boss is grounded; it was only cleared by `_vb_finish_move()` / `_die()`.
+  Gaps: (a) run ends via BOSS ELIMINATED or End Run (not ship death) while grounded → node frees, flag
+  carries into the **next run** → player can't fire all run; (b) boss stunned mid-Move-3 → `_tick_volcanic_boss`
+  frozen, phase never completes → fire-locked until the stun ends. Fixes: `GameManager.reset_run()` now
+  clears it; `arena_enemy._exit_tree()` clears it if freed while grounded; and a `_process` **safety valve**
+  force-releases once `_t` passes `_vb_ground_deadline` (set at grounding = full move duration + 3 s margin;
+  `_t` advances even while stunned).
+- **Move 2 beams**: length `VB_M2_BEAM_LEN` 500 → **800 px**; damage `VB_M2_BEAM_DMG` 6 → **10, now PER beam**
+  touching the ship (both beams on target = 20/tick) on the 0.4 s tick, and `_report_hit_player()` is now
+  called before the beam's `ship_take_damage` (RUN OVER "last hit by" was missing for beam kills).
+
+## Changelog — 2026-09-01 (d) — The Skull FRONT arrow + a real chase-facing sign bug
+
+- **FRONT arrow in Creep Edit** (user: "hướng chỉ front giống như của jeager, nhưng dành cho The Skull") —
+  `creep_edit_mode.gd`'s `_front_marker_angle()` now special-cases `"boss"` (it isn't an `MF_GLB`-style
+  layer group, just one plain `WIRED_3D_CREEPS` entry) and returns `BOSS_FRONT_ANGLE` (`PI*0.5`, canvas
+  DOWN — a starting value, same convention as `MF_FRONT_ANGLE`, not yet confirmed against The Skull's own
+  mesh authoring). Select "boss" as the active creep in Creep Edit to see it — same cyan "FRONT" arrow
+  Jeager/Metalfly get. Compare it to the model's actual face; if they don't line up, that's the one number
+  to change (and re-check the fix below against it).
+- **"boss bị confuse" / won't chase-face the player — TWO bugs in `_vb_face_body()`:**
+  1. **Wrong yaw sign.** `yaw = _facing + PI/2` assumed `GlbSpinBody`'s pivot yaw ADDS to the model's
+     on-screen angle, like a 2D `Sprite2D.rotation`. It doesn't — a Y-axis `Node3D` rotation under this
+     top-down camera SUBTRACTS from canvas angle (a nose at canvas N, pivot-yawed by θ, projects to N − θ;
+     verified with the rotation matrix + camera projection). `metalfly_rig.gd`'s `set_heading()` — the only
+     OTHER live 3D body with this need — already codifies it right: `Basis(UP, PI*0.5 − heading) * mount`.
+  2. **`_facing` has two writers that disagree.** `_tick_volcanic_boss` sets `_facing = dir.angle()` (raw
+     heading); the generic post-move block in `_process` then overwrites it every moving frame with
+     `intended.angle() + PI/2` ("sprite north"). Routing the body yaw through `_facing` meant it chased a
+     moving average of two conventions → "confused".
+  Fix: `_vb_face_body()` now reads the player position **directly** (`_player_pos() − global_position`) and
+  sets `want = VB_FRONT_ANGLE − heading` (`VB_FRONT_ANGLE` renamed from `VB_FACE_YAW_OFFSET`, `PI*0.5`, must
+  equal Creep Edit's `BOSS_FRONT_ANGLE`). Matches metalfly_rig's proven formula exactly.
+
+## Changelog — 2026-09-01 (c) — The Skull polish: stray plumes, Move 2 beam/particles, Move 3 blast, Move 4 TP flare
+
+- **The "5 light points" the user saw around the boss = magma1's thrust-point plumes leaking on.**
+  `_setup_plumes` / `_setup_vortexes` / `_setup_leds` still keyed off the *placeholder icon* basename
+  (`magma1`) for a glb creep — so the boss inherited magma1's 5 authored thrust jets (and would have
+  inherited magma1's LEDs/vortexes if it had any). Same bug class already fixed in `_setup_fire_points` /
+  `_setup_smoke_points`. Fix: all three now `return` early when `_glb_body != null` — a 3D creep gets its
+  ambient VFX from **SP** (smoke points) only; its FP/TP are logic anchors, not persistent sprite jets.
+- **Move 3** — removed the `_spawn_explosion` "landing blast" when the boss descends (user: "loại bỏ vfx
+  nổ khi boss hạ xuống"). The body still darkens + shrinks via `_vb_set_body_grounded`.
+- **Move 2** — beam `beam_thickness` 14 → 46, colors pushed to a near-white core + fuller red glow
+  (`body_glow_width` 1.35, `body_point_boost` 2.2); hit-radius 30 → 34 to match. The charge VFX embers
+  now carry a soft round-dot texture (`VbChargeVfx._round_dot()`) so they render circular, not square.
+- **Move 4** — `_vb_tp_flare()`: every authored TP glows red for ~0.2 s (additive round-dot Sprite2D,
+  tween 0.05 s up / 0.15 s down), fired once as the boss locks the face-up pose and again on **each of
+  the 5 rain waves** (user: "mỗi đợt rải thì các TP sẽ rực sáng lên 0.2 giây"). Replaces the old
+  one-shot FP flare. TP fractions cached into `_vb_tp_fracs` in `_setup_glb_spin_body`.
+
+## Changelog — 2026-09-01 (b) — Volcanic 3D boss (`boss.glb`), the game's first 3D-model enemy + "SP" smoke-point markers
+
+`assets/map/volcanic/enemies/boss.glb` — every other creep is a PNG sprite. Display name **"The Skull"**
+(`ENEMY_DEFS["boss"]["name"]`; shown as the Boss-tab cell tooltip in `arena_debug_spawn.gd` — `"boss"` is
+in `QUICK_BOSS_IDS`, so it renders as a live 3D cell there and quick-spawn passes the `is_boss` cap
+bypass). New pieces:
+
+- **`ENEMY_DEFS["boss"]`** (`arena_wave_director.gd`): `name:"The Skull"`, `behavior:"boss_stub"`, `boss_move:"volcanic"`,
+  `hp:5000`, `sprite_alpha:0.0`, `body_px:150`, `icon` = a placeholder (`magma1.png`, hidden), `boss_glb`
+  = the model. In `vocalnic.json` as the `is_boss:true` row at **t=1200 (20:00)** → the timeline's final
+  boss (field clears → "BOSS ELIMINATED").
+- **Generic 3D body** — `arena_enemy._setup_glb_spin_body()` builds `GlbSpinBody` on `boss_glb` (mirrors the
+  Metalfly cocoon; `_creep_mount_rot("boss")` reads the Creep-Edit angle). NOT a posed rig — a top-down
+  spinner. On success `_draw_size` snaps to `body_px` so every frac-of-rect marker (FP/TP/SP) lands on the
+  visible model. Falls back to the flat icon if the glb won't load. **`BOSS_SPIN_RPM = 0`** — The Skull
+  holds the Creep-Edit orientation exactly (`GlbSpinBody.setup` now skips the random start-yaw/tumble for
+  an axis whose rpm is 0, so a non-spinner == `view_basis(mount_rot)` == the editor's top-down preview).
+- **`boss_move == "volcanic"`** — `_tick_volcanic_boss()`: states 0 approach → 10-13 (one move, each with
+  its own `_vb_phase` telegraph→active machine) → 20 recover (3 s, plain chase) → next. `_vb_enter_move` /
+  `_vb_finish_move` bracket every move; `_vb_finish_move` also runs from `_die()` (drops beams / charge
+  VFX, clears `player_fire_suppressed`, restores the mount angle). The 4 moves (2026-09-01, user spec):
+  (1) **magmafrag cone** — 30 `_vb_spawn_frag` from FP1 in a 60° cone at the player;
+  (2) **charge + beams** — 1.5 s `fx/vb_charge_vfx.gd` (red rings collapsing inward + inward embers), then
+  two `LaserBeamScript` from FP2/FP3, red, 800 px, each sweeping 45° outside→inside onto the player
+  (segment hit-test damages like `_beamer_tick`);
+  (3) **ground slam** — `GameManager.player_fire_suppressed = true` (weapons stand down, ship still moves —
+  one check each in `arena_weapons`/`arena_loadout`), body darkens+shrinks, 20 `ash1-4` over 5 s, rise;
+  (4) **pitch + rain** — `_glb_body.set_mount_rot()` pitches to Rot X −74°, flare FP1/2/3, **holds the
+  face-up pitch through all 5 rain waves** (20 magmafrag each, across `_vb_screen_rect()` top edge), then
+  pitches back. `_vb_face_body()` / `GlbSpinBody.set_yaw()` turn the body flat to face the player while
+  chasing (all states except Move 4); `VB_FACE_YAW_OFFSET` is the canvas-angle→yaw tunable.
+- **`"frag"` def flag** — a `thrown_bomb` that just POPs on the hull (no `_mgr.explode` AoE), `contact`
+  damage only, random `magmafrag (N).png` icon, honours an `"aim"` def key (fixed launch dir vs auto-aim).
+- **FP / SP on a glb boss are keyed by `_type`** ("boss"), not the placeholder icon basename — see
+  `_setup_fire_points` / `_setup_smoke_points`. New: `GlbSpinBody.set_mount_rot()` / `body_sprite()`;
+  `_spawn_sibling` now returns the Node; `GameManager.player_fire_suppressed`.
+- **SP — smoke points** (Creep Edit's 3rd marker type, after FP/TP): a thrust point tagged `"sp":true`.
+  Placed & rotated with the identical 3D machinery as TP (Rotate X/Y/Z sliders, XYZ panel), but it
+  previews / runs as the ash-wake `smoke_trail` VFX (`docs/vfx.md` → Creep Smoke Trail) instead of a fire
+  plume, and saves to its own `[smokepoints]` cfg section. Runtime: `arena_enemy._setup_smoke_points()`
+  spawns one world-space `SmokeTrail` per SP at its body-relative fraction, sprayed along `dir_rot.z`
+  (`smoke_trail.gd` gained a `dir` style key). `"boss"` added to `creep_edit_mode.WIRED_3D_CREEPS`.
+- **FP / LED on a glb creep** get the SAME height (`z` / PgUp-PgDn) + on-model placement as TP —
+  `_pt3_target()` / `_pt3_apply_delta()` generalise the `_tp_xyz_*` machinery, `_make_pt3_marker()`
+  renders a billboarded dot on the model, and `grid_overlay.glb_creep` suppresses the now-wrong flat 2D
+  gizmos. `_tp_xyz_set` bakes the result into `pos`, so the 2D runtime readers need no change. `dir_rot`
+  (spray rotation) stays TP/SP-only. Verify: `tools/screenshot_volcanic_boss.gd`.
+- **On-screen size + hit radius** (user: "set 800 nhưng trên arena vẫn nhỏ"). `_setup_glb_spin_body()` now
+  takes `px` from the Creep-Edit rect (`creep_layout.cfg [creeps] <type>.size`, the value the user drags),
+  falling back to `body_px` → 150. `GlbSpinBody` caps the SubViewport RENDER at `RENDER_CAP = 560` px and
+  scales the Sprite2D up to the requested size (`_base_scale` / `base_scale()`), so an 800 px boss doesn't
+  allocate a ~1200² `UPDATE_ALWAYS` viewport re-rendering the 27 MB model every frame. `_radius = px *
+  hit_frac` (new def key `hit_frac`, 0.33) so bullets + contact (`16 + _radius`) track the visible body,
+  not the tiny `size:72` hitbox number. Move-3 grounded tween multiplies `base_scale()`.
+- **`knockback_mult: 0.3`** in the def — The Skull takes 30% of a normal creep's pushback impulse
+  (`arena_enemy.gd` `_knockback_mult`, was elite-only; a plain boss defaults to 1.0 without this).
+
 ## Changelog — 2026-09-01 — Volcanic: F7 said 5000 HP / 30s, live field showed 11.4k. THREE stacked bugs.
 
 User playtest: t=24, 120 creeps, live "Total HP" **11.4k** — but the F7 wave editor's first 30s milestone is

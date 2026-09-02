@@ -23,6 +23,11 @@ var selected_led_idx:  int    = -1
 var front_markers:    Array   = []
 var zoom:             float   = 1.0
 var canvas_offset:    Vector2 = Vector2.ZERO
+## 2026-09-01: on a 3D (glb, WIRED) creep the FP / LED points are drawn as 3D markers baked into the model's
+## own preview texture (creep_edit_mode.gd::_make_pt3_marker), positioned by frac+z and riding the mount
+## rotation — the flat screen-space dots below are then wrong (no height, no rotation), so skip them. Same
+## reasoning as `_draw_thrust_points` already skips a `dir_rot` TP.
+var glb_creep:        bool    = false
 
 func _process(_delta: float) -> void:
 	queue_redraw()
@@ -139,6 +144,8 @@ func _draw_front_markers() -> void:
 			txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, COL)
 
 func _draw_fire_points() -> void:
+	if glb_creep:
+		return   # drawn as 3D markers on the model instead — see `glb_creep`'s note
 	for i: int in fire_points.size():
 		var fp:     Dictionary = fire_points[i]
 		var vp_pos: Vector2    = _to_vp(fp["pos"] as Vector2)
@@ -282,6 +289,8 @@ func _draw_vortex_points() -> void:
 # ── Led point markers (directionless — a small sunburst/bulb glyph) ──────────────
 
 func _draw_led_points() -> void:
+	if glb_creep:
+		return   # drawn as 3D markers on the model instead — see `glb_creep`'s note
 	for i: int in led_points.size():
 		var led:    Dictionary = led_points[i]
 		var vp_pos: Vector2    = _to_vp(led["pos"] as Vector2)

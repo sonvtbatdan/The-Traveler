@@ -22,6 +22,7 @@ func _ready() -> void:
 	_load()
 	mouse_filter = MOUSE_FILTER_STOP
 	gui_input.connect(_on_panel_input)
+	UiPalette.scanlines(self)
 
 func _apply_style() -> void:
 	_panel_style = StyleBoxFlat.new()
@@ -31,10 +32,10 @@ func _apply_style() -> void:
 	_panel_style.border_width_top    = 1
 	_panel_style.border_width_bottom = 1
 	_panel_style.border_color        = UiPalette.WIRE_2
-	_panel_style.corner_radius_top_left     = 6
-	_panel_style.corner_radius_top_right    = 6
-	_panel_style.corner_radius_bottom_left  = 6
-	_panel_style.corner_radius_bottom_right = 6
+	_panel_style.corner_radius_top_left     = 0
+	_panel_style.corner_radius_top_right    = 0
+	_panel_style.corner_radius_bottom_left  = 0
+	_panel_style.corner_radius_bottom_right = 0
 	add_theme_stylebox_override("panel", _panel_style)
 
 func _build_ui() -> void:
@@ -50,7 +51,7 @@ func _build_ui() -> void:
 	# ── Title (click to expand/collapse) ──────────────────────────────────────
 	_title_lbl = Label.new()
 	_title_lbl.text = "▶ To-Do"
-	_title_lbl.add_theme_color_override("font_color", Color(1.0, 0.88, 0.3))
+	_title_lbl.add_theme_color_override("font_color", UiPalette.AMBER)
 	_title_lbl.add_theme_font_size_override("font_size", 15)
 	_title_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_title_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -62,11 +63,11 @@ func _build_ui() -> void:
 	var chk_border := func() -> StyleBoxFlat:
 		var s := StyleBoxFlat.new()
 		s.bg_color          = UiPalette.SURFACE
-		s.border_color      = Color(0.88, 0.88, 0.88, 0.92)
+		s.border_color      = UiPalette.INK
 		s.border_width_left = 1; s.border_width_right  = 1
 		s.border_width_top  = 1; s.border_width_bottom = 1
-		s.corner_radius_top_left     = 3; s.corner_radius_top_right    = 3
-		s.corner_radius_bottom_left  = 3; s.corner_radius_bottom_right = 3
+		s.corner_radius_top_left     = 0; s.corner_radius_top_right    = 0
+		s.corner_radius_bottom_left  = 0; s.corner_radius_bottom_right = 0
 		return s
 
 	var te_style := StyleBoxFlat.new()
@@ -74,8 +75,8 @@ func _build_ui() -> void:
 	te_style.border_color      = UiPalette.WIRE_2
 	te_style.border_width_left = 1; te_style.border_width_right  = 1
 	te_style.border_width_top  = 1; te_style.border_width_bottom = 1
-	te_style.corner_radius_top_left     = 3; te_style.corner_radius_top_right    = 3
-	te_style.corner_radius_bottom_left  = 3; te_style.corner_radius_bottom_right = 3
+	te_style.corner_radius_top_left     = 0; te_style.corner_radius_top_right    = 0
+	te_style.corner_radius_bottom_left  = 0; te_style.corner_radius_bottom_right = 0
 	te_style.content_margin_left = 4; te_style.content_margin_right  = 4
 	te_style.content_margin_top  = 3; te_style.content_margin_bottom = 3
 
@@ -84,8 +85,8 @@ func _build_ui() -> void:
 	te_focus.border_color      = UiPalette.ACCENT
 	te_focus.border_width_left = 1; te_focus.border_width_right  = 1
 	te_focus.border_width_top  = 1; te_focus.border_width_bottom = 1
-	te_focus.corner_radius_top_left     = 3; te_focus.corner_radius_top_right    = 3
-	te_focus.corner_radius_bottom_left  = 3; te_focus.corner_radius_bottom_right = 3
+	te_focus.corner_radius_top_left     = 0; te_focus.corner_radius_top_right    = 0
+	te_focus.corner_radius_bottom_left  = 0; te_focus.corner_radius_bottom_right = 0
 	te_focus.content_margin_left = 4; te_focus.content_margin_right  = 4
 	te_focus.content_margin_top  = 3; te_focus.content_margin_bottom = 3
 
@@ -121,8 +122,8 @@ func _build_ui() -> void:
 		inp.wrap_mode                = TextEdit.LINE_WRAPPING_BOUNDARY
 		inp.scroll_fit_content_height = true
 		inp.custom_minimum_size      = Vector2(0, 28)
-		inp.add_theme_color_override("font_color",             Color(0.88, 0.88, 0.88))
-		inp.add_theme_color_override("font_placeholder_color", Color(0.38, 0.38, 0.38))
+		inp.add_theme_color_override("font_color",             UiPalette.INK)
+		inp.add_theme_color_override("font_placeholder_color", UiPalette.FAINT)
 		inp.add_theme_stylebox_override("normal",    te_style)
 		inp.add_theme_stylebox_override("focus",     te_focus)
 		inp.add_theme_stylebox_override("read_only", te_style)

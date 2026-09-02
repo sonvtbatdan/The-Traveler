@@ -479,6 +479,21 @@ uniforms (all `hint_range`-annotated). Verified live on Volcanic, ~90–125 FPS 
 **Ceiling:** this is Dead-Cells / Curse-of-the-Dead-Gods tier, not Dota 2 — matching that needs the baked
 fluid-sim flipbook + real 6-way lighting + motion-vector frame blending, which are art-pipeline, not code.
 
+### Reused by the Volcanic ground plumes (2026-09-01)
+
+`volcanic_clouds.gd`'s smoke/flame vents (`VolcanicClouds` — ambient hash-grid + marked-crater + landmark
+sources) now render their **bodies + flame sparks through these same 3 shaders** + `SmokeTrail`'s shared
+baked FBM, via `USE_SMOKETRAIL_FX`. Static accessors on `smoke_trail.gd` (`shared_smoke_shader()` /
+`shared_flame_shader()` / `shared_ember_shader()` / `shared_fbm_tex()` / `shared_puff_tex()` /
+`seed_initial_ramp()`) hand them out **without instancing a SmokeTrail node**. Each kind gets **ONE
+`ShaderMaterial` shared by every vent** (per-vent variation stays in the `color_ramp`) — so it adds zero
+node/particle count over the plain-blob version, and it is NOT the reverted `DynamicFire` route (a
+`GPUParticles2D` + its own `NoiseTexture2D` per vent, which lagged badly while moving). Smoke bodies swap to
+a white-value ramp (`_fx_smoke_ramp`, `peak_alpha` kept in lockstep) so the shader owns the grey volumetric
+colour; flame/spark keep their tinted ramp (`smoke_flame`/`smoke_ember` read `COLOR.rgb`, so the Plume Edit
+palette still applies). Crowd LOD: `>FX_SMOKE_CHEAP_ABOVE` visible smoke vents → the smoke shader's `cheap`
+uniform (one flip, all vents). Verified: ~120–145 FPS with ~600 vent particle systems on screen.
+
 
 ## Thrust Objects Policy
 

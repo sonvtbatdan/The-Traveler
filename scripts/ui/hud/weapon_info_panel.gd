@@ -342,7 +342,7 @@ func _build_ui() -> void:
 	var panel := Panel.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = UiPalette.SURFACE
-	sb.set_corner_radius_all(8)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(2)
 	sb.border_color = UiPalette.ACCENT_DIM
 	sb.set_content_margin_all(12.0)
@@ -371,10 +371,10 @@ func _build_ui() -> void:
 		_tab_btns[t] = b
 		top_row.add_child(b)
 	var save_btn := _mk_button("Save", _on_save_lore)
-	save_btn.add_theme_color_override("font_color", Color(0.35, 0.9, 0.35))
+	save_btn.add_theme_color_override("font_color", UiPalette.GOOD)
 	top_row.add_child(save_btn)
 	var close_btn := _mk_button("Close", toggle)
-	close_btn.add_theme_color_override("font_color", Color(0.95, 0.3, 0.3))
+	close_btn.add_theme_color_override("font_color", UiPalette.DANGER)
 	top_row.add_child(close_btn)
 	_status = _mk_label("", 11)
 	_status.add_theme_color_override("font_color", UiPalette.AMBER)
@@ -569,7 +569,7 @@ func _make_weapon_entry_row(entry: Dictionary, subtab: String) -> Control:
 
 	var code := _mk_label(kind if kind != "" else "—", 10)
 	code.custom_minimum_size = Vector2(120.0, 0.0)
-	code.add_theme_color_override("font_color", Color(0.6, 0.68, 0.8))
+	code.add_theme_color_override("font_color", UiPalette.MUTED)
 	hb.add_child(code)
 
 	var cat_txt := "Not implemented" if is_ph else _fmt_category(String(item_def.get("rarity", "")), bool(item_def.get("craftable_from_fragments", false)))
@@ -625,13 +625,13 @@ func _make_weapon_entry_row(entry: Dictionary, subtab: String) -> Control:
 		# a source weapon — "fusion"/"drop"/"unique" entries' "from" (when set) is the "A × B" recipe.
 		var prefix := "Effect: " if subtab == "evolve" else ("Fuses: " if subtab == "fusion" else "Source: ")
 		var fl := _mk_label(prefix + from_txt, 9)
-		fl.add_theme_color_override("font_color", Color(0.55, 0.62, 0.72))
+		fl.add_theme_color_override("font_color", UiPalette.FAINT)
 		fl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		outer.add_child(fl)
 	var note := String(stats.get("note", ""))
 	if note != "":
 		var nl := _mk_label(note, 9)
-		nl.add_theme_color_override("font_color", Color(0.55, 0.62, 0.72))
+		nl.add_theme_color_override("font_color", UiPalette.FAINT)
 		nl.autowrap_mode = TextServer.AUTOWRAP_WORD
 		outer.add_child(nl)
 
@@ -664,7 +664,7 @@ func _make_aux_row(def: Dictionary) -> Control:
 
 	var code := _mk_label(id, 10)
 	code.custom_minimum_size = Vector2(90.0, 0.0)
-	code.add_theme_color_override("font_color", Color(0.6, 0.68, 0.8))
+	code.add_theme_color_override("font_color", UiPalette.MUTED)
 	hb.add_child(code)
 
 	var cat := _mk_label(_fmt_category(String(item_def.get("rarity", ""))), 10)
@@ -728,7 +728,7 @@ func _make_simple_row(tab: String, id: String, def: Dictionary) -> Control:
 
 	var code := _mk_label(id, 10)
 	code.custom_minimum_size = Vector2(130.0, 0.0)
-	code.add_theme_color_override("font_color", Color(0.6, 0.68, 0.8))
+	code.add_theme_color_override("font_color", UiPalette.MUTED)
 	hb.add_child(code)
 
 	var cat := _mk_label(_fmt_category(String(def.get("rarity", ""))), 10)
@@ -767,8 +767,7 @@ func _make_perk_table(tab: String, owner_id: String, pool: Dictionary, icon_reso
 	sb.set_border_width_all(1)
 	sb.border_color = UiPalette.WIRE_2
 	sb.set_content_margin_all(6.0)
-	sb.corner_radius_top_left = 4; sb.corner_radius_top_right = 4
-	sb.corner_radius_bottom_left = 4; sb.corner_radius_bottom_right = 4
+	sb.set_corner_radius_all(0)
 	var pnl := PanelContainer.new()
 	pnl.add_theme_stylebox_override("panel", sb)
 	pnl.add_child(box)
@@ -793,7 +792,7 @@ func _make_perk_table(tab: String, owner_id: String, pool: Dictionary, icon_reso
 	hdr.add_child(m_hdr)
 	if max_cols > 0:
 		var v_hdr := _mk_label("Value(s) — editable", 10)
-		v_hdr.add_theme_color_override("font_color", Color(0.55, 0.62, 0.72))
+		v_hdr.add_theme_color_override("font_color", UiPalette.FAINT)
 		hdr.add_child(v_hdr)
 	box.add_child(hdr)
 

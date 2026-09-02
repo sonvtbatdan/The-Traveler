@@ -14,16 +14,16 @@
       "type": "fleet:A.Hornet.Diamon.5"
     },
     {
-      "count": 300,
-      "pattern": "ring",
-      "time": 90.0,
-      "type": "fly"
-    },
-    {
       "count": 100,
       "pattern": "ring",
       "time": 90.0,
       "type": "diver"
+    },
+    {
+      "count": 300,
+      "pattern": "ring",
+      "time": 90.0,
+      "type": "fly"
     },
     {
       "count": 400,
@@ -89,17 +89,17 @@
       "type": "fleet:A.Hornet.Diamon.5"
     },
     {
+      "count": 13,
+      "pattern": "ring",
+      "time": 330.0,
+      "type": "fleet:Kingdom2"
+    },
+    {
       "count": 500,
       "duration": 0.0,
       "pattern": "stream",
       "time": 330.0,
       "type": "sentinel3"
-    },
-    {
-      "count": 13,
-      "pattern": "ring",
-      "time": 330.0,
-      "type": "fleet:Kingdom2"
     },
     {
       "count": 120,
@@ -151,22 +151,16 @@
       "type": "centipede"
     },
     {
-      "count": 60,
-      "pattern": "ring",
-      "time": 540.0,
-      "type": "squid"
-    },
-    {
       "count": 30,
       "pattern": "pincer",
       "time": 540.0,
       "type": "sentinel"
     },
     {
-      "count": 9,
+      "count": 60,
       "pattern": "ring",
-      "time": 570.0,
-      "type": "fleet:A.Spider.Rec.16"
+      "time": 540.0,
+      "type": "squid"
     },
     {
       "count": 1,
@@ -175,10 +169,10 @@
       "type": "bee"
     },
     {
-      "count": 50,
-      "pattern": "arc",
-      "time": 600.0,
-      "type": "metalfly_spawn"
+      "count": 9,
+      "pattern": "ring",
+      "time": 570.0,
+      "type": "fleet:A.Spider.Rec.16"
     },
     {
       "count": 10,
@@ -193,16 +187,10 @@
       "type": "fleet:A.Bug.Rec.15"
     },
     {
-      "count": 500,
-      "pattern": "ring",
-      "time": 630.0,
-      "type": "sentinel1"
-    },
-    {
-      "count": 500,
-      "pattern": "portal",
-      "time": 630.0,
-      "type": "sentinel1"
+      "count": 50,
+      "pattern": "arc",
+      "time": 600.0,
+      "type": "metalfly_spawn"
     },
     {
       "count": 5,
@@ -212,9 +200,15 @@
     },
     {
       "count": 500,
+      "pattern": "ring",
+      "time": 630.0,
+      "type": "sentinel1"
+    },
+    {
+      "count": 500,
       "pattern": "portal",
-      "time": 660.0,
-      "type": "sentinelleader"
+      "time": 630.0,
+      "type": "sentinel1"
     },
     {
       "count": 100,
@@ -223,16 +217,22 @@
       "type": "sentinel"
     },
     {
-      "count": 24,
-      "pattern": "wedge",
-      "time": 690.0,
-      "type": "swarm_loop"
+      "count": 500,
+      "pattern": "portal",
+      "time": 660.0,
+      "type": "sentinelleader"
     },
     {
       "count": 20,
       "pattern": "ring",
       "time": 690.0,
       "type": "bug"
+    },
+    {
+      "count": 24,
+      "pattern": "wedge",
+      "time": 690.0,
+      "type": "swarm_loop"
     },
     {
       "count": 500,
@@ -271,12 +271,6 @@
       "type": "centipede"
     },
     {
-      "count": 10,
-      "pattern": "wall",
-      "time": 780.0,
-      "type": "test_charger"
-    },
-    {
       "count": 20,
       "pattern": "ring",
       "time": 780.0,
@@ -295,10 +289,10 @@
       "type": "metalfly_spawn"
     },
     {
-      "count": 20,
-      "pattern": "ring",
-      "time": 810.0,
-      "type": "fleet:A.Swarm.Rec.9"
+      "count": 10,
+      "pattern": "wall",
+      "time": 780.0,
+      "type": "test_charger"
     },
     {
       "count": 400,
@@ -307,22 +301,22 @@
       "type": "dragonfly"
     },
     {
-      "count": 500,
-      "pattern": "pincer",
-      "time": 810.0,
-      "type": "sentinel3"
-    },
-    {
       "count": 1,
       "pattern": "ring",
       "time": 810.0,
       "type": "fleet:A.Spider.Rec.9"
     },
     {
-      "count": 120,
-      "pattern": "random",
-      "time": 840.0,
-      "type": "spider"
+      "count": 20,
+      "pattern": "ring",
+      "time": 810.0,
+      "type": "fleet:A.Swarm.Rec.9"
+    },
+    {
+      "count": 500,
+      "pattern": "pincer",
+      "time": 810.0,
+      "type": "sentinel3"
     },
     {
       "count": 4,
@@ -331,10 +325,22 @@
       "type": "fleet:A.Squid.Arrow.10"
     },
     {
+      "count": 120,
+      "pattern": "random",
+      "time": 840.0,
+      "type": "spider"
+    },
+    {
       "count": 10,
       "pattern": "ring",
       "time": 870.0,
       "type": "beamer"
+    },
+    {
+      "count": 3,
+      "pattern": "ring",
+      "time": 870.0,
+      "type": "fleet:A.Spider.Rec.16"
     },
     {
       "count": 20,
@@ -349,21 +355,9 @@
       "type": "sentinel"
     },
     {
-      "count": 3,
-      "pattern": "ring",
-      "time": 870.0,
-      "type": "fleet:A.Spider.Rec.16"
-    },
-    {
       "count": 6,
       "pattern": "ring",
       "time": 870.0,
-      "type": "spider"
-    },
-    {
-      "count": 120,
-      "pattern": "scatter",
-      "time": 900.0,
       "type": "spider"
     },
     {
@@ -371,6 +365,12 @@
       "pattern": "ring",
       "time": 900.0,
       "type": "fleet:A.Spider.Rec.9"
+    },
+    {
+      "count": 120,
+      "pattern": "scatter",
+      "time": 900.0,
+      "type": "spider"
     },
     {
       "count": 12,
@@ -385,18 +385,6 @@
       "type": "metalfly_spawn"
     },
     {
-      "count": 500,
-      "pattern": "ring",
-      "time": 960.0,
-      "type": "sentinel1"
-    },
-    {
-      "count": 120,
-      "pattern": "pincer",
-      "time": 960.0,
-      "type": "sentinel"
-    },
-    {
       "count": 20,
       "pattern": "ring",
       "time": 960.0,
@@ -409,16 +397,29 @@
       "type": "fleet:Kingdom1"
     },
     {
+      "count": 120,
+      "pattern": "pincer",
+      "time": 960.0,
+      "type": "sentinel"
+    },
+    {
       "count": 500,
-      "pattern": "wedge",
-      "time": 990.0,
-      "type": "sentinel2"
+      "pattern": "ring",
+      "time": 960.0,
+      "type": "sentinel1"
     },
     {
       "count": 10,
       "pattern": "wedge",
       "time": 990.0,
       "type": "beamer"
+    },
+    {
+      "count": 123,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 990.0,
+      "type": "dragonfly"
     },
     {
       "count": 120,
@@ -428,11 +429,10 @@
       "type": "sentinel"
     },
     {
-      "count": 123,
-      "duration": 0.0,
-      "pattern": "stream",
+      "count": 500,
+      "pattern": "wedge",
       "time": 990.0,
-      "type": "dragonfly"
+      "type": "sentinel2"
     },
     {
       "count": 10,
@@ -459,6 +459,24 @@
       "type": "test_flanker"
     },
     {
+      "count": 3,
+      "pattern": "ring",
+      "time": 1080.0,
+      "type": "fleet:A.Bug.Row.10"
+    },
+    {
+      "count": 20,
+      "pattern": "ring",
+      "time": 1080.0,
+      "type": "fleet:A.Diver.Triangle.10"
+    },
+    {
+      "count": 20,
+      "pattern": "ring",
+      "time": 1080.0,
+      "type": "fleet:Kingdom2"
+    },
+    {
       "count": 500,
       "duration": 0.0,
       "pattern": "stream",
@@ -472,22 +490,10 @@
       "type": "sentinel3"
     },
     {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1080.0,
-      "type": "fleet:Kingdom2"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1080.0,
-      "type": "fleet:A.Diver.Triangle.10"
-    },
-    {
       "count": 3,
       "pattern": "ring",
-      "time": 1080.0,
-      "type": "fleet:A.Bug.Row.10"
+      "time": 1110.0,
+      "type": "fleet:A.Bug.Rec.15"
     },
     {
       "count": 20,
@@ -502,24 +508,6 @@
       "type": "swarm"
     },
     {
-      "count": 3,
-      "pattern": "ring",
-      "time": 1110.0,
-      "type": "fleet:A.Bug.Rec.15"
-    },
-    {
-      "count": 500,
-      "pattern": "wall",
-      "time": 1140.0,
-      "type": "sentinel2"
-    },
-    {
-      "count": 500,
-      "pattern": "wall",
-      "time": 1140.0,
-      "type": "sentinel3"
-    },
-    {
       "count": 10,
       "pattern": "wall",
       "time": 1140.0,
@@ -532,34 +520,22 @@
       "type": "sentinel1"
     },
     {
+      "count": 500,
+      "pattern": "wall",
+      "time": 1140.0,
+      "type": "sentinel2"
+    },
+    {
+      "count": 500,
+      "pattern": "wall",
+      "time": 1140.0,
+      "type": "sentinel3"
+    },
+    {
       "count": 19,
       "pattern": "scatter",
       "time": 1140.0,
       "type": "swarm_loop"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1170.0,
-      "type": "fleet:Kingdom2"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1170.0,
-      "type": "fleet:A.Flies.Rec.18"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1170.0,
-      "type": "fleet:A.Flies.Row.10"
-    },
-    {
-      "count": 500,
-      "pattern": "scatter",
-      "time": 1170.0,
-      "type": "sentinel4"
     },
     {
       "count": 8,
@@ -568,349 +544,35 @@
       "type": "fleet:A.Diver.Rec.16"
     },
     {
-      "count": 500,
-      "pattern": "arc",
-      "time": 1200.0,
-      "type": "sentinel2"
-    },
-    {
-      "count": 400,
+      "count": 20,
       "pattern": "ring",
-      "time": 1200.0,
-      "type": "dragonfly"
-    },
-    {
-      "count": 70,
-      "pattern": "wedge",
-      "time": 1200.0,
-      "type": "sentinel"
+      "time": 1170.0,
+      "type": "fleet:A.Flies.Rec.18"
     },
     {
       "count": 20,
       "pattern": "ring",
-      "time": 1230.0,
-      "type": "fleet:A.Swarm.Rec.9"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1230.0,
-      "type": "fleet:Kingdom1"
-    },
-    {
-      "count": 9,
-      "pattern": "ring",
-      "time": 1230.0,
-      "type": "fleet:A.Squid.Arrow.10"
-    },
-    {
-      "count": 12,
-      "pattern": "ring",
-      "time": 1260.0,
-      "type": "bee_dive"
-    },
-    {
-      "count": 2,
-      "pattern": "ring",
-      "time": 1260.0,
-      "type": "fleet:A.Bee.Rec.6"
-    },
-    {
-      "count": 60,
-      "pattern": "random",
-      "time": 1290.0,
-      "type": "bug"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1290.0,
-      "type": "fleet:A.Flies.Rec.12"
-    },
-    {
-      "count": 500,
-      "pattern": "wall",
-      "time": 1290.0,
-      "type": "sentinel2"
-    },
-    {
-      "count": 6,
-      "pattern": "wedge",
-      "time": 1290.0,
-      "type": "bug"
-    },
-    {
-      "count": 500,
-      "pattern": "wall",
-      "time": 1320.0,
-      "type": "sentinel2"
-    },
-    {
-      "count": 400,
-      "pattern": "scatter",
-      "time": 1320.0,
-      "type": "test_flanker"
-    },
-    {
-      "count": 80,
-      "duration": 0.0,
-      "pattern": "stream",
-      "time": 1320.0,
-      "type": "sentinel"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1350.0,
-      "type": "fleet:A.Hornet.Row.10"
-    },
-    {
-      "count": 7,
-      "pattern": "ring",
-      "time": 1350.0,
-      "type": "fleet:A.Squid.Arrow.10"
-    },
-    {
-      "count": 60,
-      "pattern": "wall",
-      "time": 1380.0,
-      "type": "squid"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1380.0,
-      "type": "fleet:A.Diver.Rec.16"
-    },
-    {
-      "count": 500,
-      "pattern": "wall",
-      "time": 1380.0,
-      "type": "sentinel1"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1410.0,
-      "type": "fleet:A.Squid.Arrow.5"
-    },
-    {
-      "count": 40,
-      "pattern": "portal",
-      "time": 1410.0,
-      "type": "sentinel"
-    },
-    {
-      "count": 10,
-      "pattern": "ring",
-      "time": 1440.0,
-      "type": "test_charger"
-    },
-    {
-      "count": 12,
-      "pattern": "wall",
-      "time": 1440.0,
-      "type": "bee_dive"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1470.0,
+      "time": 1170.0,
       "type": "fleet:A.Flies.Row.10"
     },
     {
-      "count": 500,
-      "pattern": "arc",
-      "time": 1470.0,
-      "type": "sentinel3"
-    },
-    {
-      "count": 15,
-      "pattern": "ring",
-      "time": 1470.0,
-      "type": "fleet:A.Squid.Arrow.5"
-    },
-    {
       "count": 20,
       "pattern": "ring",
-      "time": 1500.0,
-      "type": "fleet:A.Flies.Rec.18"
-    },
-    {
-      "count": 120,
-      "pattern": "portal",
-      "time": 1500.0,
-      "type": "spider"
-    },
-    {
-      "count": 12,
-      "duration": 0.0,
-      "pattern": "stream",
-      "time": 1500.0,
-      "type": "swarm_loop"
-    },
-    {
-      "count": 50,
-      "pattern": "scatter",
-      "time": 1530.0,
-      "type": "metalfly_spawn"
-    },
-    {
-      "count": 24,
-      "pattern": "scatter",
-      "time": 1560.0,
-      "type": "swarm_loop"
-    },
-    {
-      "count": 12,
-      "pattern": "random",
-      "time": 1560.0,
-      "type": "bee"
-    },
-    {
-      "count": 24,
-      "pattern": "wall",
-      "time": 1590.0,
-      "type": "swarm_loop"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1590.0,
-      "type": "fleet:A.Hornet.Diamon.5"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1590.0,
-      "type": "fleet:A.Flies.Rec.18"
-    },
-    {
-      "count": 2,
-      "pattern": "portal",
-      "time": 1590.0,
-      "type": "swarm_loop"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1620.0,
+      "time": 1170.0,
       "type": "fleet:Kingdom2"
     },
     {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1620.0,
-      "type": "fleet:A.Hornet.Row.10"
-    },
-    {
-      "count": 10,
-      "pattern": "ring",
-      "time": 1620.0,
-      "type": "missile"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1620.0,
-      "type": "fleet:A.Diver.Rec.16"
-    },
-    {
-      "count": 560,
-      "duration": 0.0,
-      "pattern": "stream",
-      "time": 1620.0,
-      "type": "sentinel3"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1650.0,
-      "type": "fleet:A.Flies.Rec.18"
-    },
-    {
-      "count": 6,
-      "pattern": "ring",
-      "time": 1650.0,
-      "type": "fleet:A.Bug.Rec.15"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1680.0,
-      "type": "fleet:A.Diver.Triangle.10"
-    },
-    {
-      "count": 300,
-      "pattern": "ring",
-      "time": 1680.0,
-      "type": "dragonfly"
-    },
-    {
-      "count": 120,
-      "pattern": "wedge",
-      "time": 1710.0,
-      "type": "spider"
-    },
-    {
-      "count": 60,
-      "pattern": "ring",
-      "time": 1710.0,
-      "type": "bug"
+      "count": 500,
+      "pattern": "scatter",
+      "time": 1170.0,
+      "type": "sentinel4"
     },
     {
       "count": 1,
+      "is_boss": true,
       "pattern": "ring",
-      "time": 1710.0,
-      "type": "fleet:A.Squid.Arrow.5"
-    },
-    {
-      "count": 500,
-      "pattern": "wall",
-      "time": 1740.0,
-      "type": "sentinel3"
-    },
-    {
-      "count": 7,
-      "pattern": "ring",
-      "time": 1740.0,
-      "type": "fleet:A.Bug.Rec.15"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1770.0,
-      "type": "fleet:A.Hornet.Row.10"
-    },
-    {
-      "count": 17,
-      "pattern": "ring",
-      "time": 1770.0,
-      "type": "fleet:A.Spider.Rec.9"
-    },
-    {
-      "count": 500,
-      "pattern": "pincer",
-      "time": 1800.0,
-      "type": "fly"
-    },
-    {
-      "count": 120,
-      "pattern": "wedge",
-      "time": 1800.0,
-      "type": "sentinel"
-    },
-    {
-      "count": 10,
-      "pattern": "ring",
-      "time": 1800.0,
-      "type": "animalhornet"
-    },
-    {
-      "count": 25,
-      "pattern": "portal",
-      "time": 1800.0,
-      "type": "sentinel"
+      "time": 1200.0,
+      "type": "metalfly"
     }
   ]
 }

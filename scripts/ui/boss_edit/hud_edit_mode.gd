@@ -1921,7 +1921,7 @@ class _PaletteCell extends Panel:
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		var sb := StyleBoxFlat.new()
 		sb.bg_color = UiPalette.SURFACE_2
-		sb.set_corner_radius_all(4)
+		sb.set_corner_radius_all(0)
 		sb.set_border_width_all(1)
 		sb.border_color = UiPalette.WIRE_2
 		add_theme_stylebox_override("panel", sb)
@@ -1968,7 +1968,7 @@ class _GroupRow extends Panel:
 		var grip := Label.new()
 		grip.text = "≡"
 		grip.add_theme_font_size_override("font_size", 12)
-		grip.modulate = Color(0.6, 0.7, 0.9)
+		grip.modulate = UiPalette.MUTED
 		grip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		hb.add_child(grip)
 		_lbl = Label.new()
@@ -2000,7 +2000,7 @@ class _GroupRow extends Panel:
 		_caret_btn.text = "▸" if collapsed else "▾"
 		_caret_btn.tooltip_text = "Mở rộng" if collapsed else "Thu gọn"
 		_lock_btn.text = "■" if is_locked else "□"
-		_lock_btn.modulate = Color(1.0, 0.5, 0.45) if is_locked else Color(0.6, 0.65, 0.75)
+		_lock_btn.modulate = UiPalette.DANGER if is_locked else UiPalette.MUTED
 		_lock_btn.tooltip_text = "Đang khóa — bấm để mở" if is_locked else "Bấm để khóa group"
 		_restyle()
 	func set_group_selected(on: bool) -> void:
@@ -2011,10 +2011,10 @@ class _GroupRow extends Panel:
 		if _selected:
 			sb.bg_color = UiPalette.SELECT_WASH
 		elif locked:
-			sb.bg_color = Color(0.22, 0.16, 0.16, 0.95)
+			sb.bg_color = Color(0.28, 0.14, 0.14, 0.95)
 		else:
 			sb.bg_color = UiPalette.SURFACE_3
-		sb.set_corner_radius_all(3)
+		sb.set_corner_radius_all(0)
 		add_theme_stylebox_override("panel", sb)
 	func _on_input(event: InputEvent) -> void:
 		if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
@@ -2069,7 +2069,7 @@ class _ChildRow extends Panel:
 		grip.text = "≡"
 		grip.tooltip_text = "Drag to reorder (Z within group)"
 		grip.add_theme_font_size_override("font_size", 11)
-		grip.modulate = Color(0.55, 0.65, 0.85)
+		grip.modulate = UiPalette.MUTED
 		grip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		hb.add_child(grip)
 		_icon = TextureRect.new()
@@ -2095,12 +2095,12 @@ class _ChildRow extends Panel:
 	func set_visible_state(vis: bool) -> void:
 		_eye_btn.text = "●" if vis else "○"
 		_eye_btn.tooltip_text = "Đang hiện — bấm để ẩn" if vis else "Đang ẩn — bấm để hiện"
-		_eye_btn.modulate = Color(0.8, 0.9, 1.0) if vis else Color(0.45, 0.48, 0.55)
-		_lbl.modulate = Color(1.0, 1.0, 1.0) if vis else Color(0.55, 0.57, 0.62)
+		_eye_btn.modulate = UiPalette.INK if vis else UiPalette.FAINT
+		_lbl.modulate = UiPalette.INK if vis else UiPalette.FAINT
 	func _restyle() -> void:
 		var sb := StyleBoxFlat.new()
-		sb.bg_color = UiPalette.SELECT_WASH if _sel else Color(0.08, 0.10, 0.09, 0.6)
-		sb.set_corner_radius_all(3)
+		sb.bg_color = UiPalette.SELECT_WASH if _sel else UiPalette.SURFACE_2
+		sb.set_corner_radius_all(0)
 		add_theme_stylebox_override("panel", sb)
 	func set_selected(on: bool) -> void:
 		_sel = on

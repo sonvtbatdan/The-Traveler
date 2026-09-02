@@ -38,6 +38,9 @@ const F_BODY         := "res://assets/fonts/ui/IBMPlexSans-VF.ttf"          # bo
 const F_MONO         := "res://assets/fonts/ui/IBMPlexMono-Regular.ttf"     # data / numbers / ids / code
 const F_MONO_MED     := "res://assets/fonts/ui/IBMPlexMono-Medium.ttf"
 
+# ── CRT scanlines ────────────────────────────────────────────────────────────────────────────────────
+const SCANLINE_SHADER := "res://assets/shaders/crt_scanlines.gdshader"
+
 static var _font_cache: Dictionary = {}
 
 static func _font(path: String) -> Font:
@@ -67,31 +70,43 @@ static func stamp(node: Control, font: String, size: int, col: Color = INK) -> v
 		node.add_theme_color_override("font_pressed_color", ACCENT)
 
 # ── StyleBox factories (for code that builds its own PanelContainer / row / field) ────────────────────
-static func panel_style(radius: int = 6) -> StyleBoxFlat:
+## CRT console — corners are always square. `radius` args kept for call-site compat but ignored.
+static func panel_style(_radius: int = 0) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = SURFACE
-	sb.set_corner_radius_all(radius)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(1)
 	sb.border_color = WIRE
 	sb.set_content_margin_all(16.0)
 	return sb
 
-static func inset_style(radius: int = 4) -> StyleBoxFlat:
+static func inset_style(_radius: int = 0) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = SURFACE_2
-	sb.set_corner_radius_all(radius)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(1)
 	sb.border_color = WIRE_2
 	sb.set_content_margin_all(11.0)
 	return sb
 
+## Standard dev-editor floating panel: square, SURFACE body, thin border. `accent` overrides the
+## border for tools that carry a per-tool identity colour (Atlantic / Volcanic edit panels).
+static func edit_panel_style(accent: Color = WIRE_2) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = SURFACE
+	sb.set_corner_radius_all(0)
+	sb.set_border_width_all(1)
+	sb.border_color = accent
+	sb.set_content_margin_all(8.0)
+	return sb
+
 ## A left-accent-bar card (the quest-card / notice look). StyleBoxFlat has ONE border_color, so the accent
 ## edge is drawn as a thicker left border in that colour and the other three sides get a thin WIRE via a
 ## faint inner shadow substitute — good enough; use two stacked panels if a true 2-colour frame is needed.
-static func card_style(accent: Color = ACCENT, radius: int = 5) -> StyleBoxFlat:
+static func card_style(accent: Color = ACCENT, _radius: int = 0) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = SURFACE
-	sb.set_corner_radius_all(radius)
+	sb.set_corner_radius_all(0)
 	sb.border_width_left = 3
 	sb.border_width_top = 1
 	sb.border_width_right = 1
@@ -103,3 +118,27 @@ static func card_style(accent: Color = ACCENT, radius: int = 5) -> StyleBoxFlat:
 
 static func dim_scrim(alpha: float = 0.72) -> Color:
 	return Color(GROUND.r, GROUND.g, GROUND.b, alpha)
+
+## Faint static green CRT scanlines on `host`'s BACKGROUND. Adds a MOUSE_IGNORE, full-rect ColorRect as
+## the FIRST child (drawn right after the panel's own stylebox fill, behind every button / thumbnail /
+## label) — it's chrome, not an overlay. Call once, any time after the panel exists. Safe no-op if
+## `host` is null or already has the overlay. Returns the ColorRect.
+static func scanlines(host: Control, alpha: float = 0.05, spacing_px: float = 3.0) -> ColorRect:
+	if host == null:
+		return null
+	var existing := host.get_node_or_null("CrtScanlines")
+	if existing is ColorRect:
+		return existing
+	var cr := ColorRect.new()
+	cr.name = "CrtScanlines"
+	cr.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var mat := ShaderMaterial.new()
+	mat.shader = load(SCANLINE_SHADER)
+	mat.set_shader_parameter("line_color", ACCENT)
+	mat.set_shader_parameter("spacing_px", spacing_px)
+	mat.set_shader_parameter("line_alpha", alpha)
+	cr.material = mat
+	host.add_child(cr)
+	host.move_child(cr, 0)   # behind all existing + future siblings
+	return cr

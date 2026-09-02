@@ -104,12 +104,13 @@ func _new_panel_shell(pos: Vector2, w: float, max_h: float, title_text: String) 
 	panel.size = Vector2(w, minf(max_h, vp_h - pos.y - 20.0))
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = UiPalette.SURFACE
-	sb.set_corner_radius_all(10)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(2)
 	sb.border_color = Color(0.15, 0.55, 0.65)   # cool teal border — visually distinct from Volcanic's ember/Electric's blue
 	sb.set_content_margin_all(8.0)
 	panel.add_theme_stylebox_override("panel", sb)
 	add_child(panel)
+	UiPalette.scanlines(panel)
 
 	var outer := VBoxContainer.new()
 	outer.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -208,7 +209,7 @@ func _build_terrain_panel() -> void:
 	btn_row.add_child(close_btn)
 
 	_status = Label.new()
-	_font(_status, 12, Color(0.5, 0.9, 0.5))
+	_font(_status, 12, UiPalette.GOOD)
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	outer.add_child(_status)
 
@@ -305,7 +306,7 @@ func _sync_enable_btn_visual(type_name: String) -> void:
 	btn.set_pressed_no_signal(enabled)
 	btn.text = "●" if enabled else "○"
 	btn.tooltip_text = "Enabled — click to disable" if enabled else "Disabled — click to enable"
-	btn.add_theme_color_override("font_color", Color(0.5, 1.0, 0.5) if enabled else Color(1.0, 0.45, 0.4))
+	btn.add_theme_color_override("font_color", UiPalette.GOOD if enabled else UiPalette.DANGER)
 
 func _on_asset_enabled_toggled(on: bool, type_name: String) -> void:
 	var settings: Dictionary = _values["asset_settings"]
@@ -322,7 +323,7 @@ var _last_val_lbl: Label = null
 func _make_labeled_slider(parent: VBoxContainer, label_text: String, min_v: float, max_v: float, step_v: float, on_change: Callable) -> HSlider:
 	var lbl := Label.new()
 	lbl.text = label_text
-	_font(lbl, 13, Color(0.85, 0.95, 0.95))
+	_font(lbl, 13, UiPalette.INK)
 	parent.add_child(lbl)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -396,13 +397,13 @@ func _update_height_label() -> void:
 	var h_max: float = AtlanticTreesScript.DESIRED_HEIGHT_PX * float(entry["scale_max"])
 	var cloud: float = AtlanticTreesScript.CLOUD_ALTITUDE_PX
 	var suffix := ""
-	var col := Color(0.55, 0.9, 0.55)
+	var col := UiPalette.GOOD
 	if h_min > cloud:
 		suffix = "  — ALWAYS POKES THROUGH"
-		col = Color(1.0, 0.4, 0.3)
+		col = UiPalette.DANGER
 	elif h_max > cloud:
 		suffix = "  — SOME POKE THROUGH"
-		col = Color(1.0, 0.7, 0.3)
+		col = UiPalette.AMBER
 	_height_lbl.text = "Height: %.0f–%.0fpx (surface @ %.0fpx)%s" % [h_min, h_max, cloud, suffix]
 	_height_lbl.add_theme_color_override("font_color", col)
 
@@ -454,7 +455,7 @@ func _apply_live_for(type_name: String) -> void:
 func _add_slider(parent: VBoxContainer, key: String, label_text: String, min_v: float, max_v: float, step_v: float) -> void:
 	var lbl := Label.new()
 	lbl.text = label_text
-	_font(lbl, 13, Color(0.85, 0.95, 0.95))
+	_font(lbl, 13, UiPalette.INK)
 	parent.add_child(lbl)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -482,7 +483,7 @@ func _add_color_row(parent: VBoxContainer, key: String, label_text: String) -> v
 	var lbl := Label.new()
 	lbl.text = label_text
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_font(lbl, 13, Color(0.85, 0.95, 0.95))
+	_font(lbl, 13, UiPalette.INK)
 	row.add_child(lbl)
 	var picker := ColorPickerButton.new()
 	picker.custom_minimum_size = Vector2(70.0, 24.0)
@@ -493,7 +494,7 @@ func _add_color_row(parent: VBoxContainer, key: String, label_text: String) -> v
 func _add_dropdown(parent: VBoxContainer, key: String, label_text: String, options: Array) -> void:
 	var lbl := Label.new()
 	lbl.text = label_text
-	_font(lbl, 13, Color(0.85, 0.95, 0.95))
+	_font(lbl, 13, UiPalette.INK)
 	parent.add_child(lbl)
 	var btn := OptionButton.new()
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL

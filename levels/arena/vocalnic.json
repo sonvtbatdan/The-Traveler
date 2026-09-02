@@ -151,90 +151,6 @@
     {
       "hp": 22000.0,
       "time": 1170.0
-    },
-    {
-      "hp": 22000.0,
-      "time": 1200.0
-    },
-    {
-      "hp": 22000.0,
-      "time": 1230.0
-    },
-    {
-      "hp": 23000.0,
-      "time": 1260.0
-    },
-    {
-      "hp": 23000.0,
-      "time": 1290.0
-    },
-    {
-      "hp": 23000.0,
-      "time": 1320.0
-    },
-    {
-      "hp": 23000.0,
-      "time": 1350.0
-    },
-    {
-      "hp": 22000.0,
-      "time": 1380.0
-    },
-    {
-      "hp": 22000.0,
-      "time": 1410.0
-    },
-    {
-      "hp": 23000.0,
-      "time": 1440.0
-    },
-    {
-      "hp": 23000.0,
-      "time": 1470.0
-    },
-    {
-      "hp": 24000.0,
-      "time": 1500.0
-    },
-    {
-      "hp": 24000.0,
-      "time": 1530.0
-    },
-    {
-      "hp": 24000.0,
-      "time": 1560.0
-    },
-    {
-      "hp": 24000.0,
-      "time": 1590.0
-    },
-    {
-      "hp": 25000.0,
-      "time": 1620.0
-    },
-    {
-      "hp": 25000.0,
-      "time": 1650.0
-    },
-    {
-      "hp": 25000.0,
-      "time": 1680.0
-    },
-    {
-      "hp": 25000.0,
-      "time": 1710.0
-    },
-    {
-      "hp": 26000.0,
-      "time": 1740.0
-    },
-    {
-      "hp": 26000.0,
-      "time": 1770.0
-    },
-    {
-      "hp": 27000.0,
-      "time": 1800.0
     }
   ],
   "name": "vocalnic",
@@ -320,17 +236,23 @@
       "type": "stone6"
     },
     {
+      "count": 150,
+      "duration": 0.0,
+      "pattern": "stream",
+      "time": 420.0,
+      "type": "ash3"
+    },
+    {
       "count": 4,
       "pattern": "portal",
       "time": 420.0,
       "type": "metalfly_spawn"
     },
     {
-      "count": 150,
-      "duration": 0.0,
-      "pattern": "stream",
-      "time": 420.0,
-      "type": "ash3"
+      "count": 2,
+      "pattern": "ring",
+      "time": 450.0,
+      "type": "fleet:V.Mag6.Rec.12"
     },
     {
       "count": 200,
@@ -341,25 +263,13 @@
     {
       "count": 2,
       "pattern": "ring",
-      "time": 450.0,
-      "type": "fleet:V.Mag6.Rec.12"
-    },
-    {
-      "count": 240,
-      "pattern": "pincer",
-      "time": 480.0,
-      "type": "magma5"
-    },
-    {
-      "count": 2,
-      "pattern": "ring",
       "time": 480.0,
       "type": "fleet:V.Mag1.Rec.16"
     },
     {
       "count": 240,
       "pattern": "pincer",
-      "time": 540.0,
+      "time": 480.0,
       "type": "magma5"
     },
     {
@@ -368,6 +278,12 @@
       "pattern": "stream",
       "time": 540.0,
       "type": "ash1"
+    },
+    {
+      "count": 240,
+      "pattern": "pincer",
+      "time": 540.0,
+      "type": "magma5"
     },
     {
       "count": 150,
@@ -395,12 +311,6 @@
       "type": "fleet:V.Mag6.Rec.12"
     },
     {
-      "count": 300,
-      "pattern": "scatter",
-      "time": 630.0,
-      "type": "stone6"
-    },
-    {
       "count": 80,
       "duration": 0.0,
       "pattern": "stream",
@@ -408,16 +318,22 @@
       "type": "magma5"
     },
     {
-      "count": 83,
-      "pattern": "wedge",
-      "time": 660.0,
-      "type": "magma2"
+      "count": 300,
+      "pattern": "scatter",
+      "time": 630.0,
+      "type": "stone6"
     },
     {
       "count": 150,
       "pattern": "scatter",
       "time": 660.0,
       "type": "ash2"
+    },
+    {
+      "count": 83,
+      "pattern": "wedge",
+      "time": 660.0,
+      "type": "magma2"
     },
     {
       "count": 10,
@@ -438,16 +354,22 @@
       "type": "magma7"
     },
     {
+      "count": 15,
+      "pattern": "ring",
+      "time": 750.0,
+      "type": "fleet:V.Mag6.Col.10"
+    },
+    {
       "count": 240,
       "pattern": "portal",
       "time": 750.0,
       "type": "stone4"
     },
     {
-      "count": 15,
-      "pattern": "ring",
-      "time": 750.0,
-      "type": "fleet:V.Mag6.Col.10"
+      "count": 140,
+      "pattern": "wedge",
+      "time": 780.0,
+      "type": "stone4"
     },
     {
       "count": 300,
@@ -457,10 +379,10 @@
       "type": "stone7"
     },
     {
-      "count": 140,
+      "count": 88,
       "pattern": "wedge",
-      "time": 780.0,
-      "type": "stone4"
+      "time": 810.0,
+      "type": "ash1"
     },
     {
       "count": 200,
@@ -469,27 +391,15 @@
       "type": "magma2"
     },
     {
-      "count": 88,
-      "pattern": "wedge",
-      "time": 810.0,
-      "type": "ash1"
-    },
-    {
-      "count": 200,
-      "pattern": "random",
-      "time": 840.0,
-      "type": "magma1"
-    },
-    {
       "count": 3,
       "pattern": "ring",
       "time": 840.0,
       "type": "fleet:V.Stone.Row.10"
     },
     {
-      "count": 11,
-      "pattern": "wedge",
-      "time": 870.0,
+      "count": 200,
+      "pattern": "random",
+      "time": 840.0,
       "type": "magma1"
     },
     {
@@ -499,16 +409,22 @@
       "type": "fleet:V.Stone.Row.10"
     },
     {
-      "count": 240,
-      "pattern": "scatter",
-      "time": 900.0,
-      "type": "stone2"
+      "count": 11,
+      "pattern": "wedge",
+      "time": 870.0,
+      "type": "magma1"
     },
     {
       "count": 180,
       "pattern": "arc",
       "time": 900.0,
       "type": "magma5"
+    },
+    {
+      "count": 240,
+      "pattern": "scatter",
+      "time": 900.0,
+      "type": "stone2"
     },
     {
       "count": 20,
@@ -608,294 +524,24 @@
       "type": "stone1"
     },
     {
-      "count": 200,
-      "duration": 0.0,
-      "pattern": "stream",
-      "time": 1170.0,
-      "type": "magma7"
-    },
-    {
       "count": 14,
       "pattern": "ring",
       "time": 1170.0,
       "type": "fleet:V.Mag1.Rec.12"
     },
     {
-      "count": 50,
-      "pattern": "wall",
-      "time": 1200.0,
-      "type": "metalfly_spawn"
-    },
-    {
-      "count": 9,
-      "pattern": "ring",
-      "time": 1200.0,
-      "type": "fleet:V.Stone.Mix.8"
-    },
-    {
       "count": 200,
-      "pattern": "scatter",
-      "time": 1230.0,
-      "type": "magma7"
-    },
-    {
-      "count": 4,
-      "pattern": "ring",
-      "time": 1230.0,
-      "type": "fleet:V.Mag7.Mix.10"
-    },
-    {
-      "count": 108,
-      "pattern": "random",
-      "time": 1260.0,
-      "type": "ash3"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1260.0,
-      "type": "fleet:V.Mag1.Rec.12"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1290.0,
-      "type": "fleet:V.Mag2.Diamond.9"
-    },
-    {
-      "count": 15,
-      "pattern": "ring",
-      "time": 1290.0,
-      "type": "fleet:V.Mag7.Mix.8"
-    },
-    {
-      "count": 240,
-      "pattern": "random",
-      "time": 1320.0,
-      "type": "magma5"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1320.0,
-      "type": "fleet:V.Mag6.Col.10"
-    },
-    {
-      "count": 6,
-      "pattern": "ring",
-      "time": 1320.0,
-      "type": "fleet:V.Mag6.Rec.12"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1350.0,
-      "type": "fleet:V.Mag1.Rec.16"
-    },
-    {
-      "count": 48,
-      "pattern": "wall",
-      "time": 1350.0,
-      "type": "ash1"
-    },
-    {
-      "count": 240,
-      "pattern": "portal",
-      "time": 1380.0,
-      "type": "magma5"
-    },
-    {
-      "count": 167,
       "duration": 0.0,
       "pattern": "stream",
-      "time": 1380.0,
+      "time": 1170.0,
       "type": "magma7"
     },
     {
-      "count": 20,
+      "count": 1,
+      "is_boss": true,
       "pattern": "ring",
-      "time": 1410.0,
-      "type": "fleet:V.Mag7.Mix.8"
-    },
-    {
-      "count": 18,
-      "pattern": "ring",
-      "time": 1410.0,
-      "type": "fleet:V.Mag2.Diamond.5"
-    },
-    {
-      "count": 9,
-      "pattern": "ring",
-      "time": 1440.0,
-      "type": "fleet:V.Ash.Rec.8"
-    },
-    {
-      "count": 220,
-      "pattern": "random",
-      "time": 1470.0,
-      "type": "stone1"
-    },
-    {
-      "count": 200,
-      "pattern": "arc",
-      "time": 1470.0,
-      "type": "magma7"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1500.0,
-      "type": "fleet:V.Mag1.Rec.9"
-    },
-    {
-      "count": 5,
-      "pattern": "ring",
-      "time": 1500.0,
-      "type": "fleet:V.Stone.Row.10"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1530.0,
-      "type": "fleet:V.Mag1.Rec.16"
-    },
-    {
-      "count": 20,
-      "pattern": "portal",
-      "time": 1530.0,
-      "type": "metalfly_spawn"
-    },
-    {
-      "count": 10,
-      "pattern": "ring",
-      "time": 1560.0,
-      "type": "fleet:V.Mag7.Mix.10"
-    },
-    {
-      "count": 9,
-      "pattern": "ring",
-      "time": 1590.0,
-      "type": "fleet:V.Ash.Rec.8"
-    },
-    {
-      "count": 16,
-      "pattern": "pincer",
-      "time": 1590.0,
-      "type": "magma7"
-    },
-    {
-      "count": 150,
-      "pattern": "portal",
-      "time": 1620.0,
-      "type": "ash3"
-    },
-    {
-      "count": 150,
-      "pattern": "ring",
-      "time": 1620.0,
-      "type": "ash2"
-    },
-    {
-      "count": 25,
-      "pattern": "scatter",
-      "time": 1620.0,
-      "type": "stone5"
-    },
-    {
-      "count": 13,
-      "pattern": "ring",
-      "time": 1650.0,
-      "type": "fleet:V.Ash.Col.7"
-    },
-    {
-      "count": 37,
-      "pattern": "random",
-      "time": 1680.0,
-      "type": "magma6"
-    },
-    {
-      "count": 3,
-      "pattern": "ring",
-      "time": 1680.0,
-      "type": "fleet:V.Ash.Mix.12"
-    },
-    {
-      "count": 240,
-      "pattern": "pincer",
-      "time": 1680.0,
-      "type": "stone3"
-    },
-    {
-      "count": 200,
-      "pattern": "wedge",
-      "time": 1710.0,
-      "type": "magma3"
-    },
-    {
-      "count": 240,
-      "pattern": "wall",
-      "time": 1710.0,
-      "type": "magma5"
-    },
-    {
-      "count": 13,
-      "pattern": "random",
-      "time": 1710.0,
-      "type": "ash1"
-    },
-    {
-      "count": 20,
-      "pattern": "ring",
-      "time": 1740.0,
-      "type": "fleet:V.Mag2.Diamond.5"
-    },
-    {
-      "count": 240,
-      "pattern": "scatter",
-      "time": 1740.0,
-      "type": "stone1"
-    },
-    {
-      "count": 160,
-      "pattern": "random",
-      "time": 1740.0,
-      "type": "stone2"
-    },
-    {
-      "count": 300,
-      "pattern": "pincer",
-      "time": 1770.0,
-      "type": "stone5"
-    },
-    {
-      "count": 240,
-      "pattern": "wall",
-      "time": 1770.0,
-      "type": "magma4"
-    },
-    {
-      "count": 33,
-      "pattern": "pincer",
-      "time": 1770.0,
-      "type": "magma1"
-    },
-    {
-      "count": 300,
-      "pattern": "pincer",
-      "time": 1800.0,
-      "type": "stone6"
-    },
-    {
-      "count": 300,
-      "pattern": "portal",
-      "time": 1800.0,
-      "type": "stone7"
-    },
-    {
-      "count": 50,
-      "pattern": "scatter",
-      "time": 1800.0,
-      "type": "magma1"
+      "time": 1200.0,
+      "type": "boss"
     }
   ]
 }

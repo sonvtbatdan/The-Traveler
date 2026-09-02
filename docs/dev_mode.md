@@ -267,6 +267,16 @@ Bottom-center HBox (CanvasLayer). Controls:
 
 **Dev mode default state (2026-06-20):** `const DEV_MODE := false` — panel starts hidden. `arena_hud_buttons.gd` shows `dev:off` icon at game start (clicking toggles to `dev:on` and reveals firerate/level controls). Changed from `true` → `false` so players don't see debug controls by default.
 
+### Creep Edit — "Set 0° here" ↔ "Reset Rotation" (2026-09-02 fix)
+
+`rot` (the editable slider half) + `rot_base` (the banked baseline) compose into the mount angle.
+**Set 0° here** folds `rot` into `rot_base` and zeroes `rot`, so the current pose becomes the new "home".
+**Reset Rotation** now zeroes `rot` while **keeping `rot_base`** → snaps back to that "Set 0° here" home.
+It used to undo the *full* composed angle (baseline included) and land on world-aligned, which — once a
+baseline had been banked — looked exactly like Set 0° never saved (`_on_glb_reset_rotation`, user report
+"reset rotation vẫn chuyển về giá trị lúc đầu"). No baseline banked (`rot_base` == 0) → same as before.
+The whole-group LAYERS branch still uses the old delta path (it must also un-orbit part positions).
+
 ### Creep Edit — Metalfly's two 3D bodies (2026-08-24)
 
 Creep Edit's palette carries the arena Metalfly boss on the **Electric** map: a `Metalfly` group whose root

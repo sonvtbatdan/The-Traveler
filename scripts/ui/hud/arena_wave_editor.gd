@@ -1,5 +1,5 @@
 extends CanvasLayer
-## F7 in-game WAVE EDITOR for the arena. The timeline is authored on a 5-second grid: 360 rows (5s → 1800s).
+## F7 in-game WAVE EDITOR for the arena. The timeline is authored on a 5-second grid: 240 rows (5s → 1200s).
 ## Each row is ONE moment in time that can spawn MANY things at once — up to 10 Unit/Fleet "slots" (a 2×5 grid)
 ## dropped in from the Type popup. Each slot carries its own Count / Pattern / Boss checkbox (Fleets ignore
 ## count/pattern/boss and use their authored formation, but add their own Spawn Angle + Fleet Rotate — see
@@ -152,7 +152,7 @@ func _map_fleets() -> Array:
 	return out
 const TEST_WAVES := 20   # how many repeating time points a Quick-test builds (each spawns COUNT enemies)
 const GRID_STEP := 5.0   # seconds between template rows
-const GRID_ROWS := 360   # 5, 10, … , 1800
+const GRID_ROWS := 240   # 5, 10, … , 1200 (run length capped at 20:00 — final boss spawns at t=1200)
 const SLOTS_PER_ROW := 10 # 2×5 spawn slots per row
 const GEN_HP_TOLERANCE := 0.10   # "Generate Base on HP" aims within ±10% of the row's target field
 const SHOOT_TYPE_CAP := 10   # 2026-08-17 request: ranged/"shoot"-behavior creeps capped at this many
@@ -284,6 +284,7 @@ func _build_ui() -> void:
 	panel.size = Vector2(1000, 700)
 	_style(panel)
 	_root.add_child(panel)
+	UiPalette.scanlines(panel)
 
 	var vb := VBoxContainer.new()
 	vb.position = Vector2(12, 10)
@@ -309,11 +310,11 @@ func _build_ui() -> void:
 	if _font: _file_opt.add_theme_font_override("font", _font)
 	lib.add_child(_file_opt)
 	var load_btn := _mk_button("Load", _on_load)
-	load_btn.add_theme_color_override("font_color", Color(0.35, 0.9, 0.35))
+	load_btn.add_theme_color_override("font_color", UiPalette.GOOD)
 	lib.add_child(load_btn)
 	lib.add_child(_mk_button("Refresh", _refresh_files))
 	_status = _mk_label("", 11)
-	_status.add_theme_color_override("font_color", Color(0.7, 1.0, 0.7))
+	_status.add_theme_color_override("font_color", UiPalette.GOOD)
 	lib.add_child(_status)
 	vb.add_child(lib)
 
@@ -368,20 +369,20 @@ func _build_ui() -> void:
 	btns.add_child(_mk_button("Sort by time", _on_sort))
 	var gen_all_btn := _mk_button("Gen All (HP)", _on_gen_all)
 	gen_all_btn.tooltip_text = "Generate every row whose 'Total HP' field is > 0 (skips rows left at 0)"
-	gen_all_btn.add_theme_color_override("font_color", Color(0.4, 0.75, 1.0))
+	gen_all_btn.add_theme_color_override("font_color", UiPalette.ACCENT)
 	btns.add_child(gen_all_btn)
 	var fill_btn := _mk_button("Targets = Actual", _on_fill_targets)
 	fill_btn.tooltip_text = "Copy every row's Actual HP into its 'Total HP' target field.\n"\
 			+ "One press turns a hand-authored timeline into HP milestones the runtime director\n"\
 			+ "re-composes fresh every run (see arena_wave_director_v2's milestone generator)."
-	fill_btn.add_theme_color_override("font_color", Color(0.55, 0.9, 0.55))
+	fill_btn.add_theme_color_override("font_color", UiPalette.GOOD)
 	btns.add_child(fill_btn)
 	var apply_btn := _mk_button("Apply & Restart", _on_apply)
-	apply_btn.add_theme_color_override("font_color", Color(0.95, 0.85, 0.2))
+	apply_btn.add_theme_color_override("font_color", UiPalette.AMBER)
 	btns.add_child(apply_btn)
-	btns.add_child(_mk_button("Reset (blank 360 grid)", _on_reset))
+	btns.add_child(_mk_button("Reset (blank 240 grid)", _on_reset))
 	var close_btn := _mk_button("Close", _toggle)
-	close_btn.add_theme_color_override("font_color", Color(0.95, 0.3, 0.3))
+	close_btn.add_theme_color_override("font_color", UiPalette.DANGER)
 	btns.add_child(close_btn)
 
 	_readout = TextEdit.new()
@@ -396,7 +397,7 @@ func _build_ui() -> void:
 func _slot_default() -> Dictionary:
 	return {"type": "", "count": 5, "pattern": "ring", "is_boss": false, "duration": 0.0}
 
-## Build the blank 5-second-grid template: GRID_ROWS rows at 5, 10, … , 1800s, all slots empty.
+## Build the blank 5-second-grid template: GRID_ROWS rows at 5, 10, … , 1200s, all slots empty.
 func _build_template_grid() -> void:
 	for c in _rows_box.get_children():
 		_rows_box.remove_child(c)
@@ -405,7 +406,7 @@ func _build_template_grid() -> void:
 	for i in GRID_ROWS:
 		_add_row(GRID_STEP * float(i + 1))
 
-## Open / Reset shows the 360-row template; existing timeline entries are snapped onto the nearest grid row
+## Open / Reset shows the 240-row template; existing timeline entries are snapped onto the nearest grid row
 ## (each becomes one filled slot). Lossless re-open of timelines already authored on the 5s grid.
 func _rebuild_rows() -> void:
 	_build_template_grid()
@@ -443,7 +444,7 @@ func _rebuild_rows() -> void:
 			if sp != null:
 				sp.set_value_no_signal(float(t.get("hp", 0.0)))
 
-## Find the template row whose time matches `t` snapped to the nearest 5s grid point (clamped 5…1800).
+## Find the template row whose time matches `t` snapped to the nearest 5s grid point (clamped 5…1200).
 func _grid_row_for_time(t: float) -> Dictionary:
 	var snapped := clampf(round(t / GRID_STEP) * GRID_STEP, GRID_STEP, GRID_STEP * float(GRID_ROWS))
 	for r: Dictionary in _rows:
@@ -497,7 +498,7 @@ Under %d is read as THOUSANDS on Gen: 13 -> 13,000." % int(HP_SHORTHAND_MAX)
 	# as the Type popup's own "Total HP" header — _row_total_hp()). Kept live by _update_row_hp().
 	var actual_hp_lbl := _mk_label(_fmt_hp(0.0), 12)
 	actual_hp_lbl.custom_minimum_size = Vector2(130, 0)
-	actual_hp_lbl.add_theme_color_override("font_color", Color(0.6, 0.85, 1.0))
+	actual_hp_lbl.add_theme_color_override("font_color", UiPalette.INK)
 	hb.add_child(actual_hp_lbl)
 
 	# Generate Base on HP — per-row Gen button; fills this row's slots with a random creep/fleet mix
@@ -759,7 +760,7 @@ func _update_type_btn(row: Dictionary) -> void:
 			n += 1
 	var btn := row["type_btn"] as Button
 	btn.text = _txt(("Set (%d)" % n) if n > 0 else "Blank")
-	btn.add_theme_color_override("font_color", Color(0.35, 0.9, 0.35) if n > 0 else Color(1.0, 1.0, 1.0))
+	btn.add_theme_color_override("font_color", UiPalette.GOOD if n > 0 else Color(1.0, 1.0, 1.0))
 
 ## Expand every row's filled slots into FLAT timeline entries (one entry per slot, all sharing the row's time).
 func _collect() -> Array:
@@ -818,7 +819,7 @@ func _on_apply() -> void:
 func _on_reset() -> void:
 	_build_template_grid()
 	_refresh_readout()
-	_set_status("Reset to blank 360-row grid (5 → 1800s)")
+	_set_status("Reset to blank 240-row grid (5 → 1200s)")
 
 ## Build a single-type repeating timeline: TEST_WAVES time points, every `interval` seconds, each spawning
 ## COUNT enemies of the picked type. (COUNT is applied to every time point.)
@@ -1038,7 +1039,7 @@ func _open_type_dropdown(row: Dictionary) -> void:
 	# to reflect what was just entered, then closes — same effect as clicking outside, but explicit.
 	var ok_btn := _mk_button("OK", func() -> void: _update_row_hp(row); _refresh_readout(); _close_dropdown())
 	ok_btn.custom_minimum_size = Vector2(70.0, 0.0)
-	ok_btn.add_theme_color_override("font_color", Color(0.35, 0.9, 0.35))
+	ok_btn.add_theme_color_override("font_color", UiPalette.GOOD)
 	tabs.add_child(ok_btn)
 	var unit_tab := _mk_button("Unit", func() -> void: pass)
 	var fleet_tab := _mk_button("Fleet", func() -> void: pass)
@@ -1246,7 +1247,7 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 	if ty == "":
 		var ph := _mk_label("slot %d\n(drag here)" % (idx + 1), 11)
 		ph.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		ph.add_theme_color_override("font_color", Color(0.55, 0.62, 0.72))
+		ph.add_theme_color_override("font_color", UiPalette.MUTED)
 		vb.add_child(ph)
 		return cell
 
@@ -1299,7 +1300,7 @@ func _make_slot_cell(row: Dictionary, idx: int) -> Control:
 		# panel above the slot grid (see _build_fleet_dir_pad()/_select_fleet_pad_slot()), not per-slot here
 		# — click this cell (its background, not the n/HP/x controls) to make the pad operate on it.
 		var hint := _mk_label("(click to edit dir/rotate)" if idx != _pad_slot_idx else "★ editing dir/rotate", 8)
-		hint.add_theme_color_override("font_color", Color(0.5, 0.95, 0.6) if idx == _pad_slot_idx else Color(0.45, 0.5, 0.58))
+		hint.add_theme_color_override("font_color", UiPalette.ACCENT if idx == _pad_slot_idx else UiPalette.FAINT)
 		hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		vb.add_child(hint)
 		return cell
@@ -1431,8 +1432,8 @@ class _FleetPreview extends Control:
 		fleet = f
 		queue_redraw()
 	func _draw() -> void:
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.03, 0.05, 0.08, 0.95))
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.30, 0.40, 0.50, 0.6), false, 1.0)
+		draw_rect(Rect2(Vector2.ZERO, size), UiPalette.SURFACE)
+		draw_rect(Rect2(Vector2.ZERO, size), UiPalette.WIRE_2, false, 1.0)
 		if fleet.is_empty() or editor == null:
 			return
 		var slots: Array = fleet.get("slots", [])
@@ -1469,7 +1470,7 @@ class _FleetPreview extends Control:
 			if r["tex"] != null:
 				draw_texture_rect(r["tex"] as Texture2D, rect, false)
 			else:
-				draw_rect(rect, Color(0.4, 0.5, 0.7, 0.6))
+				draw_rect(rect, Color(UiPalette.ACCENT.r, UiPalette.ACCENT.g, UiPalette.ACCENT.b, 0.6))
 
 # ── Widget helpers ──────────────────────────────────────────────────────────────
 ## MandaloreText.a() substitutes lowercase "a" for every uppercase "A" — a workaround for the
@@ -1491,7 +1492,7 @@ func _mk_label(text: String, sz: int) -> Label:
 	if _font:
 		l.add_theme_font_override("font", _font)
 	l.add_theme_font_size_override("font_size", sz)
-	l.add_theme_color_override("font_color", Color(0.82, 0.9, 1.0))
+	l.add_theme_color_override("font_color", UiPalette.INK)
 	return l
 
 func _mk_spin(lo: float, hi: float, step: float, val: float, w: int) -> SpinBox:
@@ -1517,8 +1518,8 @@ func _style(p: Panel) -> void:
 	var s := StyleBoxFlat.new()
 	s.bg_color = UiPalette.SURFACE
 	s.set_border_width_all(2)
-	s.border_color = Color(0.4, 0.6, 0.4, 0.95)
-	s.set_corner_radius_all(8)
+	s.border_color = UiPalette.WIRE_2
+	s.set_corner_radius_all(0)
 	p.add_theme_stylebox_override("panel", s)
 
 func _style_slot(p: Panel) -> void:
@@ -1526,7 +1527,7 @@ func _style_slot(p: Panel) -> void:
 	s.bg_color = UiPalette.SURFACE_2
 	s.set_border_width_all(1)
 	s.border_color = UiPalette.WIRE_2
-	s.set_corner_radius_all(4)
+	s.set_corner_radius_all(0)
 	p.add_theme_stylebox_override("panel", s)
 
 ## Highlight the Fleet slot the shared direction-pad is currently editing (see _select_fleet_pad_slot()).
@@ -1535,7 +1536,7 @@ func _style_slot_selected(p: Panel) -> void:
 	s.bg_color = Color(0.09, 0.16, 0.12, 0.95)
 	s.set_border_width_all(2)
 	s.border_color = Color(0.4, 0.95, 0.5, 0.95)
-	s.set_corner_radius_all(4)
+	s.set_corner_radius_all(0)
 	p.add_theme_stylebox_override("panel", s)
 
 # ── Shared Fleet direction-pad (spawn-angle 8-button compass + rotate slider) ────────────────────
@@ -1575,7 +1576,7 @@ func _build_fleet_dir_pad() -> Control:
 
 	_pad_hint = _mk_label("Click a Fleet slot on\nthe right to edit its\nspawn direction /\nrotation here.", 11)
 	_pad_hint.position = Vector2(14.0, 236.0)
-	_pad_hint.add_theme_color_override("font_color", Color(0.55, 0.62, 0.72))
+	_pad_hint.add_theme_color_override("font_color", UiPalette.MUTED)
 	box.add_child(_pad_hint)
 
 	# Explicit styleboxes: this editor's base theme leaves default Button chrome nearly invisible at 16px
@@ -1585,12 +1586,12 @@ func _build_fleet_dir_pad() -> Control:
 	sb_dir_off.bg_color = UiPalette.SURFACE_3
 	sb_dir_off.border_color = UiPalette.WIRE_2
 	sb_dir_off.set_border_width_all(1)
-	sb_dir_off.set_corner_radius_all(3)
+	sb_dir_off.set_corner_radius_all(0)
 	var sb_dir_on := StyleBoxFlat.new()
 	sb_dir_on.bg_color = Color(0.25, 0.9, 0.4, 0.95)
 	sb_dir_on.border_color = Color(0.65, 1.0, 0.75, 1.0)
 	sb_dir_on.set_border_width_all(1)
-	sb_dir_on.set_corner_radius_all(3)
+	sb_dir_on.set_corner_radius_all(0)
 
 	_pad_buttons = []
 	_pad_dirs = []

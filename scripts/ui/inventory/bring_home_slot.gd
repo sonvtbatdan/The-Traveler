@@ -30,7 +30,7 @@ func setup() -> void:
 	sb.bg_color = Color(0.06, 0.16, 0.07, 0.9)      # dim green — mirrors extract_slot.gd's red, opposite intent
 	sb.border_color = Color(0.25, 0.8, 0.3, 0.9)
 	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(4)
+	sb.set_corner_radius_all(0)
 	add_theme_stylebox_override("panel", sb)
 
 	_lbl = Label.new()
@@ -51,7 +51,7 @@ func setup() -> void:
 	hsb.bg_color = Color(0.2, 1.0, 0.3, 0.18)
 	hsb.border_color = Color(0.3, 1.0, 0.45, 0.95)
 	hsb.set_border_width_all(2)
-	hsb.set_corner_radius_all(4)
+	hsb.set_corner_radius_all(0)
 	_hl.add_theme_stylebox_override("panel", hsb)
 	_hl.visible = false
 	add_child(_hl)

@@ -88,9 +88,9 @@ func _build_ui() -> void:
 	panel.position = Vector2.ZERO
 	panel.size = Vector2(PANEL_W, 760)
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.05, 0.07, 0.10, 0.97)
+	sb.bg_color = UiPalette.SURFACE
 	sb.set_border_width_all(2)
-	sb.border_color = Color(0.4, 0.6, 0.8, 0.95)
+	sb.border_color = UiPalette.WIRE_2
 	panel.add_theme_stylebox_override("panel", sb)
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_root.add_child(panel)
@@ -111,7 +111,7 @@ func _build_ui() -> void:
 	vb.add_child(btns)
 
 	_status = _label("", 10)
-	_status.add_theme_color_override("font_color", Color(0.7, 1.0, 0.7))
+	_status.add_theme_color_override("font_color", UiPalette.GOOD)
 	vb.add_child(_status)
 
 	var scroll := ScrollContainer.new()
@@ -167,7 +167,7 @@ func _make_viewport_preview(kind: String) -> Control:
 	vpc.add_child(vp)
 	var bg := ColorRect.new()
 	bg.size = Vector2(PREVIEW, PREVIEW)
-	bg.color = Color(0.03, 0.04, 0.07)
+	bg.color = UiPalette.GROUND
 	vp.add_child(bg)
 	if kind == "asteroid_field":
 		for i in 5:
@@ -303,7 +303,7 @@ func _label(text: String, sz: int) -> Label:
 	if _font:
 		l.add_theme_font_override("font", _font)
 	l.add_theme_font_size_override("font_size", sz)
-	l.add_theme_color_override("font_color", Color(0.82, 0.9, 1.0))
+	l.add_theme_color_override("font_color", UiPalette.INK)
 	return l
 
 func _button(text: String, cb: Callable) -> Button:

@@ -229,12 +229,13 @@ func _build_panel_ui() -> void:
 	var pc := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = UiPalette.SURFACE
-	sb.set_corner_radius_all(10)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(2)
 	sb.border_color = UiPalette.ACCENT_DIM
 	sb.set_content_margin_all(20.0)
 	pc.add_theme_stylebox_override("panel", sb)
 	margin.add_child(pc)
+	UiPalette.scanlines(pc)
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 10)
@@ -265,7 +266,7 @@ func _build_panel_ui() -> void:
 	_coin_row.add_child(coin_icon)
 	HudEditRuntime.register(coin_icon, "dock.chrome.coin_icon")
 	_coin_label = Label.new()
-	_font(_coin_label, FONT_TITLE, 26, Color(1.0, 0.86, 0.3))
+	_font(_coin_label, FONT_TITLE, 26, UiPalette.AMBER)
 	_coin_row.add_child(_coin_label)
 	HudEditRuntime.register(_coin_label, "dock.chrome.coin_label")
 	var dbg := Button.new()
@@ -332,7 +333,7 @@ func _refresh() -> void:
 		_coin_row.visible = _tab in ["loadout", "weapon", "hull", "thruster", "shield", "aux"]
 	for id: String in _tab_buttons.keys():
 		var b: Button = _tab_buttons[id]
-		b.modulate = Color(1, 1, 1) if id == _tab else Color(0.6, 0.6, 0.65)
+		b.modulate = UiPalette.INK if id == _tab else UiPalette.MUTED
 	if _content == null or not _panel.visible:
 		return
 	for c in _content.get_children():
@@ -480,8 +481,8 @@ func _merchant_state_text(owned: bool, needs_blueprint: bool, afford: bool) -> S
 	return "Buy"
 
 func _merchant_state_color(owned: bool, needs_blueprint: bool, afford: bool) -> Color:
-	if not owned and needs_blueprint: return Color(0.55, 0.55, 0.58)
-	if not owned and not afford: return Color(1.0, 0.35, 0.3)
+	if not owned and needs_blueprint: return UiPalette.MUTED
+	if not owned and not afford: return UiPalette.DANGER
 	return Color(1, 1, 1)
 
 ## Right-side detail panel: big icon, name, price (icon + number — the ONLY place a Merchant price still
@@ -495,7 +496,7 @@ func _build_merchant_preview(def_id: String, is_gear: bool) -> Control:
 	var panel := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = UiPalette.SURFACE_2
-	sb.set_corner_radius_all(8)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(1)
 	sb.border_color = rarity_col
 	sb.set_content_margin_all(14.0)
@@ -541,7 +542,7 @@ func _build_merchant_preview(def_id: String, is_gear: bool) -> Control:
 		price_row.add_child(pic)
 		HudEditRuntime.register(pic, "dock.merchant.preview.price_icon")
 		var price_lbl := Label.new()
-		_font_sz(price_lbl, 16, Color(1.0, 0.86, 0.3))
+		_font_sz(price_lbl, 16, UiPalette.AMBER)
 		price_lbl.text = str(MetaManager.blueprint_price(def_id))
 		price_row.add_child(price_lbl)
 		HudEditRuntime.register(price_lbl, "dock.merchant.preview.price")
@@ -688,10 +689,10 @@ const MAPSELECT_CARD_W := 300.0   # aspect-ratio reference only (3:4 portrait) �
 const MAPSELECT_CARD_H := 400.0   # computed per-frame by _fit_mapselect_grid() to exactly fill the panel.
 const MAPSELECT_COLS := 3
 const MAPSELECT_GAP := 18.0
-const MAPSELECT_CORNER_RADIUS := 10.0   # must match the card border's own corner_radius below — the shader
-                                         # masks the thumbnail to the SAME rounded rect so its corners don't
-                                         # cover the border's rounding (a plain rectangular image drawn on top
-                                         # of a rounded-corner Panel hides the rounding entirely otherwise).
+const MAPSELECT_CORNER_RADIUS := 0.0    # CRT console — square cards. The thumbnail mask shader still runs
+                                         # (radius 0 → straight edges, just a 1px edge AA that matches the
+                                         # card border) — needs the FULL SDF in MAPSELECT_ROUNDED_SHADER_CODE,
+                                         # or radius 0 dims the whole thumbnail to 50% (2026-09-02 fix).
 const MAPSELECT_HOVER_ZOOM := 1.05      # user feedback: "khi hover thì phóng to ảnh ở trong lên 5%"
                                          # ("(viền giữ nguyên kích thước)" — the border must NOT grow with it;
                                          # only the thumbnail's own node scales, and card.clip_contents crops
@@ -712,7 +713,12 @@ void fragment() {
 	vec2 center = rect_size * 0.5;
 	vec2 half_size = max(center - corner_radius, vec2(0.0));
 	vec2 d = abs(pos - center) - half_size;
-	float dist = length(max(d, vec2(0.0))) - corner_radius;
+	// FULL rounded-box SDF: the `min(max(d.x, d.y), 0.0)` term is what makes `dist` go properly NEGATIVE
+	// inside the shape. Without it (the old version) `dist` was `length(max(d,0)) - corner_radius`, which is
+	// 0 for EVERY interior pixel when corner_radius == 0 (square cards) → smoothstep(-1,1,0)=0.5 → the whole
+	// thumbnail rendered at 50% alpha, i.e. "thumbnail bị tối". Now interior pixels are fully opaque and only
+	// a ~1px edge gets the AA fade, at any radius including 0.
+	float dist = length(max(d, vec2(0.0))) + min(max(d.x, d.y), 0.0) - corner_radius;
 	float alpha = 1.0 - smoothstep(-1.0, 1.0, dist);
 	COLOR = texture(TEXTURE, UV) * alpha;
 }
@@ -806,16 +812,16 @@ func _make_map_card(entry: Dictionary) -> Control:
 	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	if not is_real:
-		card.modulate = Color(0.55, 0.55, 0.58)   # dimmed = reads as locked even before hovering
+		card.modulate = UiPalette.MUTED   # dimmed = reads as locked even before hovering
 
 	var bg := Panel.new()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = UiPalette.SURFACE_2
-	sb.set_corner_radius_all(10)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(2)
-	sb.border_color = UiPalette.ACCENT_DIM if is_real else Color(0.35, 0.35, 0.38)
+	sb.border_color = UiPalette.ACCENT_DIM if is_real else UiPalette.WIRE_2
 	bg.add_theme_stylebox_override("panel", sb)
 	card.add_child(bg)
 
@@ -847,7 +853,7 @@ func _make_map_card(entry: Dictionary) -> Control:
 	else:
 		var q := Label.new()
 		q.text = "?"
-		_font(q, FONT_TITLE, 72, Color(0.4, 0.4, 0.44))
+		_font(q, FONT_TITLE, 72, UiPalette.FAINT)
 		q.set_anchors_preset(Control.PRESET_FULL_RECT)
 		q.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		q.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -869,7 +875,7 @@ func _make_map_card(entry: Dictionary) -> Control:
 
 	var name_lbl := Label.new()
 	name_lbl.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_font(name_lbl, FONT_TITLE, 18, Color(1.0, 1.0, 1.0) if is_real else Color(0.8, 0.8, 0.82))
+	_font(name_lbl, FONT_TITLE, 18, UiPalette.INK if is_real else UiPalette.MUTED)
 	name_lbl.text = display_name if is_real else (display_name + "\nComing soon")
 	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -1049,7 +1055,7 @@ func _make_grid_cell(icon_def_id: String, item_name: String, rarity: String, tag
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg_override if bg_override.a > 0.0 else (GRID_BG_ON if active else GRID_BG_OFF)
-	sb.set_corner_radius_all(8)
+	sb.set_corner_radius_all(0)
 	sb.border_width_left = 1; sb.border_width_right = 1
 	sb.border_width_top  = 1; sb.border_width_bottom = 1
 	sb.border_color = InventoryManager.RARITY_COLORS.get(rarity, Color.WHITE)
@@ -1095,7 +1101,7 @@ func _make_grid_cell(icon_def_id: String, item_name: String, rarity: String, tag
 	vb.add_child(tags)
 	tags.add_child(_tag_chip(String(RARITY_LABEL.get(rarity, rarity)), InventoryManager.RARITY_COLORS.get(rarity, Color.WHITE)))
 	if tag2 != "":
-		tags.add_child(_tag_chip(tag2.capitalize(), Color(0.6, 0.65, 0.75)))
+		tags.add_child(_tag_chip(tag2.capitalize(), UiPalette.MUTED))
 
 	# Always-visible price/status label (Merchant only — Loadout doesn't pass show_persistent_label, so its
 	# LOAD/UNLOAD stays hover-only via `btn` below, unchanged). This is what makes the gray-blueprint / red-
@@ -1177,12 +1183,12 @@ func _item_row(name: String, rarity: String, group: String, right_text: String) 
 	n.custom_minimum_size = Vector2(280, 0)
 	row.add_child(n)
 	var meta := Label.new()
-	_font(meta, FONT_BODY, 13, Color(0.55, 0.58, 0.64))
+	_font(meta, FONT_BODY, 13, UiPalette.MUTED)
 	meta.text = MandaloreText.a("%s · %s" % [String(RARITY_LABEL.get(rarity, rarity)), group.capitalize()])
 	meta.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(meta)
 	var rt := Label.new()
-	_font(rt, FONT_BODY, 16, Color(1.0, 0.86, 0.3))
+	_font(rt, FONT_BODY, 16, UiPalette.AMBER)
 	rt.text = MandaloreText.a(right_text)
 	rt.custom_minimum_size = Vector2(120, 0)
 	rt.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -1193,7 +1199,7 @@ func _card() -> VBoxContainer:
 	var pc := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = UiPalette.SURFACE_2
-	sb.set_corner_radius_all(6)
+	sb.set_corner_radius_all(0)
 	sb.set_content_margin_all(10)
 	pc.add_theme_stylebox_override("panel", sb)
 	_content.add_child(pc)
@@ -1204,14 +1210,14 @@ func _card() -> VBoxContainer:
 
 func _header_row(text: String) -> void:
 	var l := Label.new()
-	_font(l, FONT_BODY, 14, Color(0.6, 0.65, 0.72))
+	_font(l, FONT_BODY, 14, UiPalette.MUTED)
 	l.text = MandaloreText.a(text)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_content.add_child(l)
 
 func _note(text: String) -> void:
 	var l := Label.new()
-	_font(l, FONT_BODY, 16, Color(0.5, 0.5, 0.55))
+	_font(l, FONT_BODY, 16, UiPalette.FAINT)
 	l.text = MandaloreText.a(text)
 	_content.add_child(l)
 
@@ -1327,7 +1333,7 @@ func _show_notice(text: String) -> void:
 
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = UiPalette.SURFACE
-	sb.set_corner_radius_all(8)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(2)
 	sb.border_color = UiPalette.AMBER
 	sb.set_content_margin_all(12.0)

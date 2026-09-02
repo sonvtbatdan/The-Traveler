@@ -27,6 +27,7 @@ const MetalflyPath     := preload("res://scripts/gameplay/fx/metalfly_charge_pat
 const MetalflyRing     := preload("res://scripts/gameplay/fx/metalfly_swarm_ring.gd")
 const ItemDropScript   := preload("res://scripts/gameplay/arena_item_drop.gd")   # Elite/Champion weapon drop, see _drop_tier_weapon()   # ...and its Move 3 gathering ring
 const LaserBeamScript  := preload("res://scripts/gameplay/lasgun_ani_5.gd")   # beamer's beam VFX — same procedural shader beam as the player's death_beam weapon, recolored blue (see _ready()'s "beamer" setup)
+const VbChargeVfx      := preload("res://scripts/gameplay/fx/vb_charge_vfx.gd")   # Volcanic boss Move 2 — converging red energy rings
 # Per-enemy attack SFX (one-shot; played from a lazily-created AudioStreamPlayer on bus "SFX").
 const SFX_SPIDER_JUMP  := preload("res://assets/audio/sfx/dash.wav")      # spider (jump_diag) leap
 const SFX_OCTOPUS_JUMP := preload("res://assets/audio/sfx/chargeby.wav")  # octopus (jump) leap
@@ -187,11 +188,11 @@ const KNOCKBACK_DECAY := 10.0
 const SPAWN_POP_TIME := 0.20    # scale-up-with-overshoot + fade-in on spawn
 const DEATH_POP_TIME := 0.15    # stretch + scale-up + fade-out before freeing
 const SCALE_VAR      := 0.15    # per-enemy base-size variance (±) so the crowd looks individual
-# Docked (mothership/fleet escort) or fleet-carrier hit reaction: a real _knockback displacement here would
-# move global_position, which is exactly what every OTHER docked node re-pins itself to each frame — the
-# whole formation would jerk from a single hit. HIT_SHAKE is a small purely-VISUAL offset (applied only in
-# _draw()'s transform, decays independently) so the specific hit unit still reads as "hit" without moving
-# its actual position or dragging any sibling along.
+# Mothership-escort / carrier hit reaction: a real _knockback on one of these would move global_position,
+# which every OTHER docked node re-pins itself to each frame — the whole formation would jerk from one hit.
+# HIT_SHAKE is a small purely-VISUAL offset (applied only in _draw()'s transform, decays independently) so
+# the hit unit still reads as "hit" without moving its position or dragging any sibling. (A FLEET escort is
+# NOT in this set — it takes a real per-unit knockback; only that one strays and eases back.)
 const HIT_SHAKE_MAG   := 14.0
 const HIT_SHAKE_DECAY := 10.0
 # Fleet Edit escort follow: each escort chases its carrier-relative slot (+ a small continuous positional
@@ -354,6 +355,124 @@ const MF_SWARM_RING     := 110.0   # px from the boss the brood appears at
 const MF_SWARM_SCALE    := 0.25    # of the boss's body size
 const MF_SWARM_HP_FRAC  := 0.05    # of the boss's hp_max
 
+# ── Volcanic boss ("boss_move": "volcanic" — see _tick_volcanic_boss) ───────────────────────────────────
+# 2026-09-01. A generic 3D spinner body (GlbSpinBody on boss.glb, NOT a posed rig) + a 4-move set, authored
+# off FP1/FP2/FP3 in Creep Edit. State machine: 0 = approach, then it cycles moves 1→2→3→4→1… with a 3 s
+# recover beat between each (plain chase during 20). Each move state runs an internal phase machine
+# (`_vb_phase` / `_vb_t` / `_vb_shot_t`) — telegraph → active → done — and hands back to state 20 when done.
+const VB_APPROACH_R    := 460.0   # px — closes to here before it starts using moves
+const VB_RECOVER_T     := 3.0     # rest beat between moves (user spec)
+const VB_CHASE_SPEED    := 0.35    # velocity multiplier while a move is running (never fully disengages)
+# Body facing (shared: The Skull + Nautilus — see _glb_boss_face_player): a glb boss turns flat (about the
+# view-vertical) to face the player while chasing.
+# 2026-09-01 fix ("object bị confuse" — the nose swung the WRONG rotational way as the target moved around
+# it): the old formula (`yaw = _facing + PI/2`) assumed GlbSpinBody's pivot yaw ADDS to the model's on-screen
+# angle, same as a 2D Sprite2D's `rotation`. It doesn't — a Y-axis Node3D rotation under this top-down camera
+# SUBTRACTS from canvas angle (verified: a point at canvas angle 0 rotated by pivot θ=+90° lands at canvas
+# angle -90°, not +90°). That is exactly the relationship metalfly_rig.gd's `set_heading()` already codifies
+# for the OTHER live 3D body in this game (`_carrier.basis = Basis(UP, PI*0.5 - heading) * mount_basis`) — so
+# this now follows that same proven formula instead of re-deriving it wrong. The per-boss `_glb_front_angle`
+# (def "front_angle", default below) is the canvas angle the model's nose points at when the pivot yaw is 0
+# (i.e. under just the calibrated Creep Edit mount rot) — must match creep_edit_mode.gd's per-creep FRONT
+# arrow angle (GLB_BOSS_FRONT_ANGLES), which is what the user calibrates `rot` against by eye.
+const GLB_FRONT_ANGLE_DEFAULT := PI * 0.5
+const VB_FACE_TURN_RATE  := 4.5    # rad/s the body swings toward the heading
+# Move 1 — magmafrag cone
+const VB_M1_FRAGS       := 30
+const VB_M1_CONE_DEG    := 60.0
+const VB_M1_FRAG_SPD    := 340.0
+const VB_M1_FRAG_DMG    := 7
+const VB_M1_TELEGRAPH   := 0.45
+const VB_M1_FIRE_T      := 1.3     # spread the 30 frags across this window
+# Move 2 — charge + sweeping beams
+const VB_M2_CHARGE_T    := 1.5
+const VB_M2_SWEEP_T     := 1.3
+const VB_M2_BEAM_LEN    := 800.0
+const VB_M2_SWEEP_DEG   := 45.0    # each beam sweeps this (90° combined), outside→inside
+const VB_M2_BEAM_DMG    := 10    # per beam touching the ship, per 0.4 s tick (user spec)
+# Move 3 — ground + ash
+const VB_M3_ASH_COUNT   := 20
+const VB_M3_ASH_T       := 5.0
+const VB_M3_ASH_IDS     := ["ash1", "ash2", "ash3", "ash4"]
+const VB_M3_DOWN_T      := 0.5     # descend / rise tween time
+# Move 4 — pitch + FP flare + magmafrag rain
+const VB_M4_PITCH_DEG   := -74.0
+const VB_M4_TURN_T      := 0.8     # rotate-to / rotate-back time
+const VB_M4_FLARE_T     := 0.6
+const VB_M4_RAIN_DELAY  := 1.5
+const VB_M4_RAIN_WAVES  := 5
+const VB_M4_RAIN_PER    := 20
+const VB_M4_RAIN_GAP    := 0.7
+const VB_M4_RAIN_SPD    := 300.0
+const VB_M4_RAIN_DMG    := 6
+const VB_FRAG_ICON := "res://assets/map/volcanic/enemies/magmafrag (%d).png"
+
+# ── Atlantic boss "Nautilus" ("boss_move": "atlantic" — see _tick_atlantic_boss) ────────────────────────
+# 2026-09-02. Second GlbSpinBody boss (Nautilus.glb). 5 moves, picked at RANDOM (never the same one twice in
+# a row) after a 3 s plain-chase recover beat. Thrust points: it idles on TP6+TP9 (def "tp_on") and lights
+# every point for Move 1's charge.
+const NB_FAR_R         := 800.0   # px — past this the next move is FORCED to Move 1 (charge) to close in
+const NB_TWEEN_SPEED   := 120.0   # px/s the boss drifts toward the player during moves that don't drive
+                                   # movement themselves (M2 missiles, M3 arcs, M5 sweep) — the "chase logic
+                                   # between moves" the user asked for, since moves are now back-to-back
+const NB_MOVE_COUNT    := 5
+# Move 1 — charge + dash down a telegraphed lane
+const NB_M1_CHARGE_T   := 1.0
+const NB_M1_DASH_SPD   := 800.0
+const NB_M1_DASH_LEN   := 1200.0   # only the aim-band's drawn length now — the dash itself has no cap
+const NB_M1_ARRIVE_R   := 320.0    # "close enough to count as reaching the player" for the pass test
+const NB_M1_PASS       := 180.0    # px past its closest approach before the dash ends (user: "charge qua
+									# khỏi vị trí player 1 chút" — it barrels THROUGH, not up to, the player)
+const NB_M1_DASH_MAX_T := 4.0      # backstop time cap
+const NB_M1_HOME_RATE  := 1.6      # rad/s the APPROACH charge re-aims toward the player — deliberately slow
+									# so the player can juke it ("có delay nhẹ so với di chuyển của người chơi")
+## Creep Edit palette layer holding the charge POSE (same Nautilus.glb, its own rot/rot_base). Authored with
+## the normal Rotate X/Y/Z sliders instead of a hardcoded Euler, which came out crooked because it replaced
+## the calibrated mount rather than being dialled against it. Falls back to the boss's own rest pose (i.e.
+## no pitch at all) until the layer has been placed + rotated once. See creep_edit_mode.NB_CHARGE_LAYER.
+const NB_CHARGE_LAYER  := "Charge Position"
+const NB_M1_TURN_T     := 0.45    # ease into / out of that pose
+const NB_M1_YAW_RATE   := 9.0     # rad/s the chase yaw unwinds to 0 during the turn-in — fast enough to
+								   # clear a worst-case PI within NB_M1_TURN_T, so the pose settles on time
+const NB_M1_BAND_W     := 120.0   # width of the red aim band, px
+# Move 2 — homing missile salvo out of FP1/FP2
+const NB_M2_COUNT      := 20
+const NB_M2_WINDOW     := 5.0
+const NB_M2_FP_OFFSET  := 0.12    # s — stagger between the two tubes so they don't fire in lockstep
+const NB_M2_ARM_T      := 0.5     # flies straight this long, THEN acquires the player
+const NB_M2_SPD        := 300.0
+const NB_M2_TURN       := 3.2     # rad/s once homing
+const NB_M2_HP         := 8.0
+const NB_M2_DMG        := 12
+const NB_M2_LIFE       := 9.0
+const NB_M2_ICON       := "res://assets/weaponry/missile.png"
+# Move 3 — 60° arc shock-waves out of FP3
+const NB_M3_SHOTS      := 3
+const NB_M3_GAP        := 1.0
+const NB_M3_ARC_DEG    := 60.0
+const NB_M3_SPD        := 300.0
+const NB_M3_RANGE      := 1000.0
+const NB_M3_DMG        := 15
+# Move 4 — back off behind a white-blue smokescreen
+const NB_M4_T          := 5.0     # screen up (emitting, buffs on)
+const NB_M4_FADE       := 5.0     # then the cloud thins out over this long before the move ends
+const NB_M4_BACK_SPD   := 0.65    # × speed, retreating away from the player
+const NB_M4_DMG_MULT   := 0.5     # damage TAKEN while the screen is up
+const NB_M4_REGEN      := 10.0    # hp/s
+const NB_M4_PUFFS      := 7       # SmokeTrail emitters — a ring around the body + one dead centre
+# Move 5 — blue charge, then a 500 px beam swept by spinning the whole body
+const NB_M5_CHARGE_T   := 1.5
+const NB_M5_SPIN_T     := 0.5     # seconds per full revolution
+const NB_M5_SPINS      := 10
+const NB_M5_BEAM_LEN   := 500.0
+const NB_M5_BEAM_DMG   := 10      # per 0.4 s tick while the beam is over the ship (user spec)
+const NB_BLUE_RIM      := Color(0.20, 0.62, 1.0, 0.42)
+const NB_BLUE_CORE     := Color(0.62, 0.92, 1.0, 0.30)
+const NB_BLUE_EMBER    := Color(0.35, 0.72, 1.0)
+const NbAimBand    := preload("res://scripts/gameplay/fx/nb_aim_band.gd")
+const NbArcWave    := preload("res://scripts/gameplay/fx/nb_arc_wave.gd")
+const NbBeamTrail  := preload("res://scripts/gameplay/fx/nb_beam_trail.gd")
+
 # Fallbacks so the enemy is self-sufficient if configured without a def (e.g. manager.spawn_bomb).
 const FALLBACK := {
 	"chase": {"behavior": "chase", "hp": 30.0, "speed": 95.0, "size": 16.0, "contact": 6, "xp": 30.0, "shape": "diamond", "tint": Color(0.95, 0.35, 0.30)},
@@ -372,11 +491,22 @@ static var _plume_cfg: ConfigFile = null
 static var _plume_cfg_tried: bool = false
 
 static func _creep_layout() -> ConfigFile:
-	if not _creep_cfg_tried:
+	return _layout_cfg("res://creep_layout.cfg")
+
+## Any *_layout.cfg, loaded once per path and cached. `creep_layout.cfg` is the default everywhere; the one
+## other caller is a def carrying `plume_layout` — the Nautilus missile borrows `missile`'s authored thrust
+## point out of `weapon_layout.cfg`, because missile.png is a Weapon Edit asset, not a creep (2026-09-02).
+static var _layout_cfgs: Dictionary = {}
+static func _layout_cfg(path: String) -> ConfigFile:
+	if _layout_cfgs.has(path):
+		return _layout_cfgs[path]
+	var c := ConfigFile.new()
+	var out: ConfigFile = c if c.load(path) == OK else null
+	_layout_cfgs[path] = out
+	if path == "res://creep_layout.cfg":
+		_creep_cfg = out
 		_creep_cfg_tried = true
-		var c := ConfigFile.new()
-		_creep_cfg = c if c.load("res://creep_layout.cfg") == OK else null
-	return _creep_cfg
+	return out
 
 ## Public: the on-screen sprite WIDTH (px) a NEW enemy spawned from `def` would resolve to at _load_icon()
 ## time, mirroring that function's exact precedence — def["draw_w"] if already set, else creep_layout.cfg's
@@ -415,6 +545,11 @@ static func reload_layout_cfgs() -> void:
 	_creep_cfg = null
 	_plume_cfg_tried = false
 	_plume_cfg = null
+	# 2026-09-02: `_creep_layout()` reads through `_layout_cfgs` now (it caches ANY *_layout.cfg by path, so
+	# a def's `plume_layout` can point at weapon_layout.cfg). Clearing only the two vars above left that dict
+	# holding the pre-save file, so a Creep Edit save silently did nothing until the game was restarted —
+	# which is what made an edited "Charge Position" angle look like it was never applied.
+	_layout_cfgs.clear()
 	_fp_fracs_cache.clear()
 	_tp_fracs_cache.clear()
 
@@ -425,10 +560,15 @@ var _fp_fracs: Array = []   # Array[{frac:Vector2, dir_angle:float, id:int}]
 # ── Thrust-point plume VFX ────────────────────────────────────────────────────
 static var _tp_fracs_cache: Dictionary = {}
 var _plumes: Array[CPUParticles2D] = []
+var _plume_ids: Array[int] = []     # TP id of each _plumes entry, parallel — lets a move light/kill ONE point
+var _tp_on_default: Array = []      # def "tp_on": TP ids lit at rest ([] = all, the historical behaviour)
+var _plume_from: String = ""        # def "plume_from": borrow another entry's thrust points (see _setup_plumes)
+var _plume_layout: String = "res://creep_layout.cfg"   # def "plume_layout": which *_layout.cfg `plume_from` lives in
 var _vortexes: Array = []   # EnergyVortex children (creep_layout.cfg [vortexpoints] + plume_styles.cfg [vortex_styles])
 var _leds: Array = []       # LedLight children (creep_layout.cfg [ledpoints] + plume_styles.cfg [led_styles])
 var _smoke: Node2D = null   # SmokeTrail child (def flag "smoke_trail") — world-space dark billowing wake
 var _smoke_trail: bool = false
+var _smoke_points_fx: Array[Node2D] = []   # one SmokeTrail per authored SP (Creep Edit [smokepoints])
 var _plume_vrot_applied: float = 0.0   # last rotation pushed to plume emitters; skip the re-rotate when unchanged
 var _plume_vrot_init: bool = false
 const LOD_MARGIN := 180.0   # grow the camera-visible rect by this before the off-screen LOD test (sprite/plume slack)
@@ -457,6 +597,8 @@ var hit_radius: float:
 	get: return _radius
 var contact_damage: int = 6
 var contact_explodes: bool = false
+var _frag: bool = false   # def "frag": a thrown_bomb that just POPs on hit (no AoE) — the Volcanic boss's magmafrag
+var _spawn_aim: Vector2 = Vector2.ZERO   # def "aim": fixed thrown_bomb launch dir (0 = auto-aim at the player)
 var _ship_contact_cd: float = 0.0   # throttles the ship's own contact damage to this enemy (Orbital pool)
 var xp: float = 5.0
 var _color: Color = Color(0.95, 0.35, 0.30)
@@ -577,6 +719,49 @@ var _mf_use_swarm: bool = false        # which special comes after this cruise �
 # ── A live 3D body on a PLAIN enemy (def "body_rig") — the miniatures Move 3 releases ──
 var _body_rig: String = ""             # "" = none; "metalfly" = MetalflyRig, no moveset attached
 var _body_px: float = 0.0              # its on-screen footprint diagonal
+# ── Generic 3D boss body (def "boss_glb") — a plain top-down spinner, NOT a posed rig (see GlbSpinBody). ──
+# Volcanic boss (2026-09-01), the first 3D-model enemy. Mount angle authored in Creep Edit under the creep
+# name "boss" (_creep_mount_rot). Freed by _exit_tree with the node.
+const BOSS_SPIN_RPM := 0.0             # The Skull HOLDS the orientation authored in Creep Edit (no idle spin —
+									   # it has a deliberate facing + Move 4 pitches it to a specific angle)
+var _boss_glb: String = ""            # def "boss_glb" path; "" = ordinary sprite boss
+var _glb_body: Node2D = null          # GlbSpinBody instance; null → the flat sprite draws (fallback)
+var _boss_hit_frac: float = 0.33      # def "hit_frac": glb boss hit radius as a fraction of its on-screen px
+var _glb_front_angle: float = GLB_FRONT_ANGLE_DEFAULT # def "front_angle": canvas angle the model's nose points at pivot-yaw 0 (must match creep_edit_mode's FRONT arrow for this creep). Shared by _glb_boss_face_player.
+var _glb_light_scale: float = 1.0     # def "light_scale": <1 dims the GlbSpinBody rig for a model whose baked albedo is already lit (Nautilus blows out at 1.0)
+# Volcanic boss ("boss_move": "volcanic") — see _tick_volcanic_boss / the VB_* consts.
+var _vb_state: int = 0                # 0 approach · 10-13 the four moves · 20 recover
+var _vb_t: float = 0.0               # seconds in the current state
+var _vb_phase: int = 0               # sub-phase within a move state (telegraph / active / done)
+var _vb_move: int = 0                # which move (0-3) the next recover hands off to — cycles
+var _vb_shot_t: float = 0.0          # within-move firing cadence / spawn timer
+var _vb_fired: int = 0               # count fired so far this move (frags / ash / rain waves)
+var _vb_beams: Array = []            # Move 2: the two LaserBeamScript instances
+var _vb_charge: Node2D = null        # Move 2: the converging-ring charge VFX
+var _vb_grounded: bool = false       # Move 3: boss is on the terrain, player fire suppressed
+var _vb_ground_deadline: float = 0.0 # `_t` past which a stuck/frozen Move 3 force-releases the fire latch
+# Atlantic boss ("boss_move": "atlantic") — see _tick_atlantic_boss / the NB_* consts.
+var _nb_state: int = 0               # 0 approach · 10-14 the five moves · 20 recover
+var _nb_t: float = 0.0               # seconds in the current state
+var _nb_phase: int = 0               # sub-phase within a move
+var _nb_shot_t: float = 0.0          # within-move firing cadence
+var _nb_fired: int = 0               # count fired so far this move
+var _nb_last_move: int = -1          # so the random picker never repeats back-to-back
+var _nb_band: Node2D = null          # Move 1: the red aim band
+var _nb_dash_dir: Vector2 = Vector2.ZERO   # Move 1: the dash lane (locked for a lunge, lagged-homing for approach)
+var _nb_dash_min: float = 0.0             # Move 1: closest the dash has got to the player (overshoot test)
+var _nb_charge_homing: bool = false      # Move 1: true = approach charge (curves toward the player w/ a lag)
+var _nb_beam_prev_ang: float = 0.0       # Move 5: last frame's beam angle — swept hit test
+var _nb_beam_hit_cd: float = 0.0         # Move 5: per-contact damage cooldown
+var _nb_charge: Node2D = null        # Move 5: blue charge rings
+var _nb_beam: Node2D = null          # Move 5: the swept beam
+var _nb_beam_trail: Node2D = null    # Move 5: the faint wake the sweep leaves behind
+var _nb_smoke: Array[Node2D] = []    # Move 4: the smokescreen puffs
+var _nb_dmg_taken_mult: float = 1.0  # Move 4: 0.5 while the screen is up (read in take_damage)
+var _nb_base_kb_mult: float = 1.0    # the def's own knockback_mult, so a move that zeroes _knockback_mult can put it back
+var _vb_mount_rest: Vector3 = Vector3.ZERO   # the authored mount angle — Move 4 pitches from/to this
+var _vb_mount_cur: Vector3 = Vector3.ZERO
+var _vb_tp_fracs: Array = []          # authored thrust-point fractions of the body rect — Move 4 flares these each wave
 # ── Per-def special modifiers (enemies.pdf "Move" column) ──
 var _sprite_alpha: float = 1.0      # ghost: <1 → permanently see-through
 var _evade_chance: float = 0.0      # ghost: chance to dodge a hit entirely once hp ≤ _evade_below × max
@@ -600,7 +785,7 @@ var _gauss_shooter: bool = false    # pros5: fire a gauss orb at the player ever
 var _gauss_t:      float = 0.0
 # ── Mothership carrier state (behavior == "mothership") + docked-escort flag ──
 var _docked: bool = false           # rigidly docked in a carrier: no move, no plume, no collision (vortex stays)
-var _dock_kind: String = ""         # "mothership" | "fleet" — which carrier system docked this escort (see set_docked() callers); mothership escorts keep the original exact-snap/no-knockback behavior, fleet escorts get real per-unit knockback + a catch-up boost back to their slot (see take_damage() and _fleet_update_dock_positions())
+var _dock_kind: String = ""         # "mothership" | "fleet" — which carrier system docked this escort (see set_docked() callers). Mothership escorts snap exactly to their slot & take no knockback; fleet escorts chase it speed-capped with a wander (_fleet_update_dock_positions) AND take a real per-unit knockback so only the shot one recoils (see take_damage()).
 var _force_draw_w: float = 0.0      # >0 → override sprite draw width (world px), set by the carrier deploy
 var _ms_state: int = MS_READY
 var _ms_timer: float = 0.0
@@ -741,6 +926,8 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_radius          = float(d.get("size", 16.0)) * SIZE_TO_RADIUS
 	contact_damage   = int(d.get("contact", 6))
 	contact_explodes = bool(d.get("explodes", false))
+	_frag            = bool(d.get("frag", false))
+	_spawn_aim       = d.get("aim", Vector2.ZERO)   # thrown_bomb: fixed launch dir instead of auto-aim at the player
 	xp               = float(d.get("xp", 5)) * float(lvl_mult) * ENEMY_XP_TUNE   # ×2 XP value (all enemies)
 	_color           = d.get("tint", Color(0.95, 0.35, 0.30))
 	shape_kind       = String(d.get("shape", "diamond"))
@@ -765,6 +952,7 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_is_elite        = bool(d.get("elite", false))
 	_is_champion     = bool(d.get("champion", false))
 	_knockback_mult  = float(d.get("knockback_mult", 0.0 if _is_elite else 1.0))
+	_nb_base_kb_mult = _knockback_mult   # remembered so Move 5 can zero _knockback_mult and put it back after
 	_magma_split     = bool(d.get("magma_split", false))
 	_smoke_trail     = bool(d.get("smoke_trail", false))
 	_anti_magnetic   = bool(d.get("anti_magnetic", false))
@@ -772,6 +960,13 @@ func configure(type_id: String, mgr: Node, def: Dictionary = {}) -> void:
 	_boss_move       = String(d.get("boss_move", ""))   # named boss moveset (metalfly); "" = plain boss_stub chase
 	_body_rig        = String(d.get("body_rig", ""))    # live 3D body on an ordinary enemy — no moveset implied
 	_body_px         = float(d.get("body_px", 0.0))
+	_boss_glb        = String(d.get("boss_glb", ""))    # generic 3D boss body (Volcanic boss); "" = sprite boss
+	_boss_hit_frac   = float(d.get("hit_frac", 0.33))
+	_glb_front_angle = float(d.get("front_angle", GLB_FRONT_ANGLE_DEFAULT))
+	_glb_light_scale = float(d.get("light_scale", 1.0))
+	_tp_on_default   = d.get("tp_on", [])                  # TP ids lit at rest ([] = all)
+	_plume_from      = String(d.get("plume_from", ""))     # borrow another layout entry's thrust points
+	_plume_layout    = String(d.get("plume_layout", "res://creep_layout.cfg"))
 	if _boss_move == "metalfly":
 		# Hold the def's hp/speed back for Phase 2 and drop in the cocoon's own, so the boss ARRIVES as the
 		# cocoon. Captured here rather than re-read from the def later because these values already carry
@@ -833,6 +1028,8 @@ func _ready() -> void:
 		_setup_metalfly()
 	elif _body_rig == "metalfly":
 		_setup_body_rig()
+	elif _boss_glb != "":
+		_setup_glb_spin_body()
 	if behavior == "centipede":
 		_load_centipede()
 	_load_tentacle()
@@ -840,6 +1037,7 @@ func _ready() -> void:
 	_setup_vortexes()
 	_setup_leds()
 	_setup_smoke()
+	_setup_smoke_points()
 	_setup_fire_points()
 	if behavior == "beamer":
 		_setup_laser_beam()
@@ -990,19 +1188,27 @@ func _reload_icon(new_path: String) -> void:
 func _setup_plumes() -> void:
 	if _icon.is_empty() or _draw_size == Vector2.ZERO:
 		return
-	var cname := _icon.get_file().get_basename().to_lower()
+	# WHICH layout entry the thrust points come from:
+	#  • a glb creep (The Skull, Nautilus) carries a PLACEHOLDER icon, so its TPs are keyed by TYPE — keying
+	#    off the icon basename instead is what once hung magma1's own 5 jets on The Skull ("5 điểm sáng").
+	#  • `plume_from` / `plume_layout` (2026-09-02) let a def borrow another entry's TPs from another cfg —
+	#    the Nautilus missile reads `missile`'s authored TP out of weapon_layout.cfg (it's a Weapon Edit
+	#    asset, not a creep), so its exhaust plume is the one the user actually authored.
+	var cname := String(_plume_from) if _plume_from != "" \
+		else (_type if _glb_body != null else _icon.get_file().get_basename().to_lower())
+	var cfg := _layout_cfg(_plume_layout)
 	# Same ratio _setup_vortexes() computes: config-authored body size vs. this instance's actual _draw_size
 	# (already Elite/Champion-scaled by the time this runs — see _load_icon()'s _force_draw_w override,
 	# called before _ready()'s _setup_plumes()). 1.0 for a normal-size creep, ~2.0/~3.0 for Elite/Champion.
-	var cfg := _creep_layout()
 	if cfg != null:
 		var eo: Dictionary = cfg.get_value("creeps", _resolve_cfg_key(cfg, "creeps", cname), {})
 		var eo_size: Vector2 = eo.get("size", Vector2.ZERO)
 		if eo_size.x > 0.0:
 			_plume_body_scale = _draw_size.x / eo_size.x
-	if not _tp_fracs_cache.has(cname):
-		_tp_fracs_cache[cname] = _load_tp_fracs(cname)
-	var fracs: Array = _tp_fracs_cache[cname]
+	var fkey := cname + "@" + _plume_layout
+	if not _tp_fracs_cache.has(fkey):
+		_tp_fracs_cache[fkey] = _load_tp_fracs(cname, _plume_layout)
+	var fracs: Array = _tp_fracs_cache[fkey]
 	if fracs.is_empty():
 		return
 	var all_styles := _load_plume_styles_for(cname)
@@ -1011,8 +1217,22 @@ func _setup_plumes() -> void:
 		var tp_id: int = int(fd.get("id", i + 1))
 		var style: Dictionary = all_styles.get("tp_%d" % tp_id, {})
 		var p := _make_plume(fd["frac"] as Vector2, float(fd["dir_angle"]), style)
+		p.set_meta("tp_z", float(fd.get("z", 0.0)))   # glb creeps place through _glb_point_offset, which needs it
+		if fd.has("dir_rot"):
+			# 3-axis spray rotation → the model-local jet direction, kept as a Vector3 so the per-frame glue
+			# in _process can chain it through the LIVE mount basis + pivot yaw (a move can re-pitch either).
+			var v3: Vector3 = _glb_rig().view_basis(fd["dir_rot"] as Vector3) * Vector3(0.0, 0.0, 1.0)
+			p.set_meta("dir3", v3)
+			p.direction = _glb_dir_canvas(v3)
+			p.set_meta("base_dir", p.direction)
 		add_child(p)
 		_plumes.append(p)
+		_plume_ids.append(tp_id)
+		# def "tp_on": only these TP ids start lit (Nautilus idles on TP6+TP9, lights all of them for Move 1).
+		# Absent/empty → every TP lit, i.e. exactly how every other creep has always behaved.
+		if not _tp_on_default.is_empty() and not _tp_on_default.has(tp_id):
+			p.emitting = false
+			p.visible = false
 	var red := PackedColorArray([
 		Color(1.0, 0.20, 0.10, 1.0), Color(0.85, 0.05, 0.02, 1.0),
 		Color(0.60, 0.00, 0.00, 0.85), Color(0.40, 0.00, 0.00, 0.00),
@@ -1042,9 +1262,9 @@ static func _load_plume_styles_for(cname: String) -> Dictionary:
 		return {}
 	return cfg.get_value("styles", _resolve_cfg_key(cfg, "styles", cname), {})
 
-static func _load_tp_fracs(cname: String) -> Array:
+static func _load_tp_fracs(cname: String, layout_path: String = "res://creep_layout.cfg") -> Array:
 	const SCREEN_ORIGIN := Vector2(15.0, 8.0)
-	var cfg := _creep_layout()
+	var cfg := _layout_cfg(layout_path)
 	if cfg == null:
 		return []
 	var key := _resolve_cfg_key(cfg, "creeps", cname)
@@ -1061,13 +1281,22 @@ static func _load_tp_fracs(cname: String) -> Array:
 		var tp: Dictionary = tps[i]
 		var tp_oc: Vector2 = (tp["pos"] as Vector2) + SCREEN_ORIGIN
 		var frac := (tp_oc - eo_pos) / eo_size
-		result.append({"frac": frac, "dir_angle": float(tp.get("dir_angle", PI * 0.5)), "id": int(tp.get("id", i + 1))})
+		var out := {"frac": frac, "dir_angle": float(tp.get("dir_angle", PI * 0.5)), "id": int(tp.get("id", i + 1)),
+			"z": float(tp.get("z", 0.0))}   # authored height — only a glb creep uses it (see _glb_point_offset)
+		# The 3-axis spray rotation the Creep-Edit "Rotate X/Y/Z" sliders write. Carried through so a glb
+		# creep's plume sprays the direction the editor shows, instead of falling back to the flat dir_angle
+		# (which is what made Nautilus's jets fire INWARD).
+		if tp.has("dir_rot"):
+			out["dir_rot"] = _glb_rig().compose_rot(tp.get("dir_rot_base", Vector3.ZERO), tp["dir_rot"] as Vector3)
+		result.append(out)
 	return result
 
 ## Spawn EnergyVortex VFX children from creep_layout.cfg [vortexpoints] (styled by plume_styles.cfg
 ## [vortex_styles]). Anchored at the point's body-relative fraction, scaled to the in-game draw size.
 func _setup_vortexes() -> void:
 	if _icon.is_empty() or _draw_size == Vector2.ZERO:
+		return
+	if _glb_body != null:   # glb creep — placeholder icon, no 2D sprite VFX (see _setup_plumes)
 		return
 	var cname := _icon.get_file().get_basename().to_lower()
 	var cfg := _creep_layout()
@@ -1119,6 +1348,8 @@ func _setup_leds() -> void:
 		_setup_leds_centipede()
 		return
 	if _icon.is_empty() or _draw_size == Vector2.ZERO:
+		return
+	if _glb_body != null:   # glb creep — placeholder icon, no 2D sprite VFX (see _setup_plumes)
 		return
 	var cname := _icon.get_file().get_basename().to_lower()
 	var cfg := _creep_layout()
@@ -1258,10 +1489,69 @@ func _setup_smoke() -> void:
 	s.call("setup", maxf(_draw_size.x, _draw_size.y))
 	_smoke = s
 
-func _setup_fire_points() -> void:
-	if _icon.is_empty() or _draw_size == Vector2.ZERO:
+## Smoke POINTS (SP) — Creep Edit's third marker type (see creep_edit_mode.gd). One world-space SmokeTrail
+## per authored point, positioned at the point's body-relative fraction and sprayed along its `dir_rot`.
+## Same billowing look as the ash creeps' `smoke_trail`, but placed by hand on the model (built for the
+## Volcanic 3D boss). Keyed by `_type` for a glb boss (its Creep Edit entry has no icon), else by the icon
+## basename like every other point type. LOD-gated + detached with `_smoke` in _process()/_die().
+func _setup_smoke_points() -> void:
+	if _draw_size == Vector2.ZERO:
 		return
-	var cname := _icon.get_file().get_basename().to_lower()
+	var key := _type if _glb_body != null else _icon.get_file().get_basename().to_lower()
+	if key == "":
+		return
+	var cfg := _creep_layout()
+	if cfg == null:
+		return
+	var eo: Dictionary = cfg.get_value("creeps", _resolve_cfg_key(cfg, "creeps", key), {})
+	if eo.is_empty():
+		return
+	var eo_pos: Vector2  = eo.get("pos",  Vector2(480.0, 380.0))
+	var eo_size: Vector2 = eo.get("size", Vector2(60.0, 60.0))
+	if eo_size.x <= 0.0 or eo_size.y <= 0.0:
+		return
+	var sps: Array = cfg.get_value("smokepoints", _resolve_cfg_key(cfg, "smokepoints", key), [])
+	if sps.is_empty():
+		return
+	var styles := _load_smoke_point_styles_for(key)
+	var body_scale := _draw_size.x / eo_size.x
+	const SS_ORIGIN := Vector2(15.0, 8.0)
+	for i: int in sps.size():
+		var sp: Dictionary = sps[i]
+		var sp_id: int = int(sp.get("id", i + 1))
+		var frac := ((sp["pos"] as Vector2) + SS_ORIGIN - eo_pos) / eo_size
+		var style: Dictionary = (styles.get("sp_%d" % sp_id, {}) as Dictionary).duplicate()
+		# `dir_rot` (Vector3, editor Z-up) → a flat 2D spray angle: its Z component is the in-ground-plane
+		# heading, exactly how the TP plume readers treat it (glb_topdown_rig.tp_direction). 0 = straight up.
+		var dr: Vector3 = sp.get("dir_rot", Vector3.ZERO)
+		style["dir"] = dr.z
+		var st: Node2D = SmokeTrail.new()
+		st.position = (frac - Vector2(0.5, 0.5)) * _draw_size
+		add_child(st)
+		st.call("setup", maxf(_draw_size.x, _draw_size.y) * 0.5 * maxf(0.2, body_scale), style)
+		_smoke_points_fx.append(st)
+
+static func _load_smoke_point_styles_for(cname: String) -> Dictionary:
+	var cfg := _smoke_point_styles_cfg()
+	if cfg == null:
+		return {}
+	return cfg.get_value("styles", _resolve_cfg_key(cfg, "styles", cname), {})
+
+static var _sp_styles_cfg_cache: ConfigFile = null
+static func _smoke_point_styles_cfg() -> ConfigFile:
+	if _sp_styles_cfg_cache == null:
+		_sp_styles_cfg_cache = ConfigFile.new()
+		_sp_styles_cfg_cache.load("res://smoke_point_styles.cfg")   # OK if missing → empty styles
+	return _sp_styles_cfg_cache
+
+func _setup_fire_points() -> void:
+	if _draw_size == Vector2.ZERO:
+		return
+	# A glb boss (Volcanic boss) has a placeholder icon — its Creep Edit entry is keyed by TYPE, not the
+	# icon basename, so its FPs (and the smoke points, see _setup_smoke_points) must be looked up that way.
+	var cname := _type if _glb_body != null else _icon.get_file().get_basename().to_lower()
+	if cname == "":
+		return
 	if not _fp_fracs_cache.has(cname):
 		_fp_fracs_cache[cname] = _load_fp_fracs(cname)
 	_fp_fracs = _fp_fracs_cache[cname]
@@ -1285,15 +1575,60 @@ static func _load_fp_fracs(cname: String) -> Array:
 		var fp: Dictionary = fps[i]
 		var fp_oc: Vector2 = (fp["pos"] as Vector2) + SCREEN_ORIGIN
 		var frac := (fp_oc - eo_pos) / eo_size
-		result.append({"frac": frac, "dir_angle": float(fp.get("dir_angle", 0.0)), "id": int(fp.get("id", i + 1))})
+		result.append({"frac": frac, "dir_angle": float(fp.get("dir_angle", 0.0)), "id": int(fp.get("id", i + 1)),
+			"z": float(fp.get("z", 0.0))})   # authored height — only a glb creep uses it (see _glb_point_offset)
 	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["id"]) < int(b["id"]))
 	return result
+
+## Canvas offset from the body centre to an authored point (FP/TP) on a GLB creep, taken through the SAME
+## 3D transform the model itself gets: model-local (frac across the rect, `z` up) → the LIVE mount basis →
+## the pivot yaw → project (world X = screen X, world Z = screen Y).
+##
+## 2026-09-02 bug ("TP của nautilus đang nằm sai vị trí"): the flat `(frac - 0.5) * _draw_size` below is only
+## right for a 2D sprite creep. In Creep Edit the marker is a CHILD of the rotated model, so it inherits the
+## mount rotation and its authored height; at runtime both were being dropped.
+##
+## SCALE — do NOT "correct" this: `creep_edit_mode._build_plume3d_preview` places a marker at
+## `(frac − 0.5) * part_px` with `part_px = maxf(eo.size.x, eo.size.y)` and fits the model to that SAME
+## number, while `_setup_glb_spin_body` fits the live body to `maxf(size.x, size.y)` off the identical cfg
+## entry. So editor units == runtime units and `z` passes through RAW. (The X/Y/Z spinbox readout uses the
+## rig's `target_px`, a DIFFERENT number — that mismatch is the editor's own display quirk, not this path's.
+## A first pass here rescaled `z` by `px/32` off that readout and threw every point 6× off the body.)
+func _glb_body_basis_yaw() -> Array:
+	var basis := Basis.IDENTITY
+	var yaw := 0.0
+	if _glb_body != null and is_instance_valid(_glb_body):
+		if _glb_body.has_method("get_mount_basis"):
+			basis = _glb_body.call("get_mount_basis")
+		if _glb_body.has_method("get_yaw"):
+			yaw = _glb_body.call("get_yaw")
+	return [basis, yaw]
+
+func _glb_point_offset(frac: Vector2, z: float) -> Vector2:
+	var px := _draw_size.x
+	var local := Vector3((frac.x - 0.5) * px, z, (frac.y - 0.5) * px)
+	var by := _glb_body_basis_yaw()
+	var w: Vector3 = ((by[0] as Basis) * local).rotated(Vector3.UP, by[1])
+	return Vector2(w.x, w.z)
+
+## A thrust point's model-local spray vector (`dir3`, from `view_basis(dir_rot) * (0,0,1)`) carried through
+## the LIVE mount basis + pivot yaw and projected to canvas — the same chain `_glb_point_offset` runs for
+## POSITION, and the same one Creep Edit renders the preview plume with (part.basis · pivot.basis · +Z).
+## Fixes the jets firing INWARD: the runtime was falling back to the flat `dir_angle` and ignoring `dir_rot`.
+func _glb_dir_canvas(dir3: Vector3) -> Vector2:
+	var by := _glb_body_basis_yaw()
+	var w: Vector3 = ((by[0] as Basis) * dir3).rotated(Vector3.UP, by[1])
+	var c := Vector2(w.x, w.z)
+	return c.normalized() if c.length() > 0.0001 else Vector2.DOWN
 
 ## World position of fire-point `idx`. Falls back to global_position if FP not configured.
 ## Origin of CharacterBody2D is CENTER; frac offset shifted by -0.5 to match.
 func _muzzle(idx: int = 0) -> Vector2:
 	if idx < _fp_fracs.size() and _draw_size != Vector2.ZERO:
-		return global_position + (_fp_fracs[idx]["frac"] as Vector2 - Vector2(0.5, 0.5)) * _draw_size
+		var fd: Dictionary = _fp_fracs[idx]
+		if _glb_body != null:
+			return global_position + _glb_point_offset(fd["frac"] as Vector2, float(fd.get("z", 0.0)))
+		return global_position + ((fd["frac"] as Vector2) - Vector2(0.5, 0.5)) * _draw_size
 	return global_position
 
 func _make_plume(frac: Vector2, dir_angle: float, style: Dictionary = {}) -> CPUParticles2D:
@@ -1345,6 +1680,32 @@ func _make_plume(frac: Vector2, dir_angle: float, style: Dictionary = {}) -> CPU
 	p.material = cm
 	return p
 
+## Light / kill ONE thrust point by its authored id (Creep Edit "TP<n>"). Nautilus idles on TP6+TP9 and
+## lights every point for Move 1 — see `tp_on` in _setup_plumes.
+func _set_plume_on(tp_id: int, on: bool) -> void:
+	for i: int in _plumes.size():
+		if i < _plume_ids.size() and _plume_ids[i] == tp_id:
+			var p := _plumes[i]
+			if is_instance_valid(p):
+				p.visible = on
+				p.emitting = on
+
+func _set_all_plumes_on(on: bool) -> void:
+	for p: CPUParticles2D in _plumes:
+		if is_instance_valid(p):
+			p.visible = on
+			p.emitting = on
+
+## Back to the `tp_on` rest set (all of them when the def didn't name any).
+func _reset_plumes_default() -> void:
+	for i: int in _plumes.size():
+		var p := _plumes[i]
+		if not is_instance_valid(p):
+			continue
+		var on := _tp_on_default.is_empty() or (i < _plume_ids.size() and _tp_on_default.has(_plume_ids[i]))
+		p.visible = on
+		p.emitting = on
+
 # ── Dynamic plume modulation ──────────────────────────────────────────────────
 func _apply_plume_vel_mult(m: float) -> void:
 	for i: int in _plumes.size():
@@ -1391,6 +1752,8 @@ func _update_plumes() -> void:
 ## emitter NODE is scaled by `uniform` × `_plume_body_scale` so the particles themselves grow/shrink with
 ## the enemy's breathing AND its Elite/Champion body size. Result: plumes stay rigidly stuck to the sprite
 ## at any size — no per-scale re-adjustment needed.
+## UNUSED (2026-09-02): kept for reference only. The LIVE plume glue is the inline block in _process()
+## (search "Glue plume emitters to the sprite") — that is the one to edit; this copy runs nowhere.
 func _update_plume_xform() -> void:
 	if _plumes.is_empty():
 		return
@@ -1607,6 +1970,12 @@ func apply_charm(dur: float) -> void:
 func is_charmed() -> bool:
 	return _charm_t > 0.0
 
+## True while the Volcanic boss is grounded for Move 3 — player weapons skip it entirely (bullets pass over
+## and carry on to whatever's behind), so the ship keeps firing at the ash it spawns. Filtered in
+## arena_weapons._enemies() / arena_loadout, so every point/hitscan/AoE weapon and the auto-aim all honour it.
+func is_untargetable() -> bool:
+	return _vb_grounded
+
 ## Number of distinct active statuses on this enemy — Sensory Overload (Sonic) scales damage by it.
 func status_count() -> int:
 	var n := 0
@@ -1779,6 +2148,9 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore
 		amount *= 1.2             # Orb of Annihilation: +20% damage taken
 	if not ignore_armor and GameManager.has_method("armor_damage_reduction"):
 		amount *= 1.0 - GameManager.armor_damage_reduction(_hit_armor())   # armor DR after pen + reductions
+	# Nautilus Move 4: the smokescreen halves everything that lands while it's up (NB_M4_DMG_MULT). 1.0 for
+	# every other enemy and for Nautilus outside that move, so this is a no-op everywhere else.
+	amount *= _nb_dmg_taken_mult
 	hp -= amount
 	# Drill Bits: Serrated Heads (bleed on kinetic/contact hits) + Critical Break (crit strips armor).
 	if GameManager.has_method("mech_bonus"):
@@ -1816,12 +2188,13 @@ func take_damage(amount: float, stagger: float = 0.0, knock: float = 0.0, ignore
 	if knock > 0.0 and not _no_collide and _knockback_mult > 0.0:
 		var away := global_position - _player_pos()
 		var dir := away.normalized() if away.length() > 0.01 else Vector2.UP
-		# A docked MOTHERSHIP escort, or ANY carrier (fleet or mothership) leading a docked squad: a real
-		# _knockback on the carrier would drag every sibling re-pinned to its global_position each frame —
-		# shake only. A docked FLEET escort (dock_kind "fleet") is the one exception: it gets a real per-unit
-		# knockback below, same as any normal enemy — _fleet_update_dock_positions() eases it back to its
-		# slot afterward (with a catch-up speed boost while it's stray), so only THAT unit visibly recoils
-		# and the rest of the formation is untouched.
+		# A docked MOTHERSHIP escort, or ANY carrier leading a docked squad: a real _knockback would drag every
+		# sibling re-pinned to its global_position each frame — VISUAL shake only. A docked FLEET escort
+		# (dock_kind "fleet") is the exception the user wants: it takes a REAL per-unit knockback like a normal
+		# enemy, so ONLY the shot unit recoils — `_fleet_update_dock_positions()` then eases just that one back
+		# to its slot (with a catch-up speed boost while it's stray). The whole-fleet "giật giật" the user saw
+		# was NOT this — it was the carrier hit-STAGGERING and dragging the pinned formation with its stutter;
+		# fleet carriers now ignore stagger (see stagger_ok in _process).
 		if (_docked and _dock_kind != "fleet") or not _fleet_dock.is_empty():
 			_hit_shake = dir * HIT_SHAKE_MAG
 		else:
@@ -1971,6 +2344,14 @@ func _die() -> void:
 	if _smoke != null and is_instance_valid(_smoke):
 		_smoke.call("detach", get_parent())
 		_smoke = null
+	for stfx: Node2D in _smoke_points_fx:
+		if is_instance_valid(stfx):
+			stfx.call("detach", get_parent())
+	_smoke_points_fx.clear()
+	if _boss_move == "volcanic":
+		_vb_finish_move()   # drop beams / charge VFX, un-ground (restores targetability), restore mount angle
+	elif _boss_move == "atlantic":
+		_nb_finish_move()   # drop the aim band / charge / beam / smokescreen so nothing outlives the boss
 	# Explosion VFX + random boom SFX
 	_spawn_explosion(maxf(_draw_size.x, _radius * 2.0))
 	_play_boom()
@@ -1981,25 +2362,26 @@ func _die() -> void:
 
 ## Spawn another arena enemy by id at `at`, as a sibling (used by stone death-spawn + alien morph).
 ## Reads ENEMY_DEFS from the live wave_director node (no preload → avoids the wave_director↔enemy cycle).
-func _spawn_sibling(id: String, at: Vector2) -> void:
+func _spawn_sibling(id: String, at: Vector2) -> Node:
 	if id == "":
-		return
+		return null
 	var wd := get_tree().get_first_node_in_group("wave_director")
 	if wd == null:
-		return
+		return null
 	var def: Dictionary = (wd.ENEMY_DEFS as Dictionary).get(id, {})
 	if def.is_empty():
-		return
+		return null
 	# This path builds an arena_enemy DIRECTLY, bypassing the director's _spawn_def() and therefore its
 	# ranged ceiling (SHOOT_MAX_ALIVE), which is an absolute rule for non-boss creeps. No def death-spawns a
 	# ranged creep today (every stone→magma target is behavior "chase"), so this is a no-op right now — it's
 	# here so a future def can't silently reopen the hole the way "sentinel" did.
 	if wd.has_method("can_spawn_shooter") and not bool(wd.call("can_spawn_shooter", id)):
-		return
+		return null
 	var e: Node = get_script().new()   # a fresh arena_enemy (no preload needed — same script)
 	e.call("configure", id, _mgr, def)
 	get_parent().add_child(e)
 	e.set("global_position", at)
+	return e
 
 ## Large magma death → burst into MAGMA_SPLIT_N small magma. Each small one is a REAL arena_enemy (shootable,
 ## chases + contact-damages like the parent) at MAGMA_SPLIT_SCALE size, a random magmafrag sprite, and no further
@@ -2408,7 +2790,11 @@ func _process(delta: float) -> void:
 	# (the same stagger-lock the `elif` below already describes). For an ordinary creep that reads as
 	# flinching; for a boss it means holding the fire button cancels the entire fight — it would never reach
 	# its wind-up, so the moveset would exist but be unreachable.
-	var stagger_ok := _stagger_t <= 0.0 or _boss_move != ""
+	# A FLEET CARRIER (`_fleet_dock` non-empty) is exempt for the same reason (2026-09-02, user: "cả fleet bị
+	# knockback giật giật"): every escort is rigidly pinned to the carrier's position each frame, so a carrier
+	# stagger-stutter under rapid fire reads as the WHOLE formation juddering. Let the carrier keep gliding;
+	# the individual hit unit's own recoil is what should read.
+	var stagger_ok := _stagger_t <= 0.0 or _boss_move != "" or not _fleet_dock.is_empty()
 	if stagger_ok and not _docked and _stun_t <= 0.0 and _run_full_tick:   # staggered/docked/stunned/off-turn → movement & attacks frozen (visuals still play)
 		_tick_behavior(delta)
 		if _gauss_shooter:   # pros5 ranged attack, independent of the chase movement
@@ -2431,10 +2817,9 @@ func _process(delta: float) -> void:
 	# Position after intended (pursuit) movement but BEFORE knockback — facing reads from this, so a knockback
 	# push only DISPLACES the enemy, it never turns/reorients it.
 	var pos_pre_knockback := global_position
-	# Knockback recoil (decays). Docked MOTHERSHIP escorts ignore it — the carrier re-pins them exactly each
-	# frame with no easing, so a real push would just get silently overwritten anyway. Docked FLEET escorts
-	# DO apply their own knockback here (dock_kind "fleet") — _fleet_update_dock_positions() eases them back
-	# to their slot afterward instead of snapping, so the recoil actually reads visually.
+	# Knockback recoil (decays). Docked MOTHERSHIP escorts ignore it (the carrier re-pins them exactly each
+	# frame anyway); a docked FLEET escort (dock_kind "fleet") DOES apply its own — only that unit strays,
+	# and _fleet_update_dock_positions() eases it back to its slot afterward, so the recoil actually reads.
 	if (not _docked or _dock_kind == "fleet") and _knockback.length() > 1.0:
 		global_position += _knockback * delta
 		_knockback = _knockback.lerp(Vector2.ZERO, clampf(KNOCKBACK_DECAY * delta, 0.0, 1.0))
@@ -2448,6 +2833,12 @@ func _process(delta: float) -> void:
 	if behavior != "centipede" and behavior != "squid" and behavior != "mothership" and not _docked and intended.length() > 0.5:
 		_facing = lerp_angle(_facing, intended.angle() + PI * 0.5, clampf(TURN_RATE * delta, 0.0, 1.0))
 	_prev_pos = global_position
+	# Move 3 "grounded" safety valve — runs even when a stun/freeze has stopped _tick_volcanic_boss from
+	# advancing the move's own phases. Without this, one badly-timed stun during Move 3 leaves the boss
+	# grounded → untargetable forever (unkillable).
+	if _vb_grounded and _t >= _vb_ground_deadline:
+		_vb_grounded = false
+		_vb_set_body_grounded(false)
 	if not _fleet_dock.is_empty():   # generic Fleet Edit carrier — re-pin its rigidly-docked escorts each frame
 		_fleet_update_dock_positions(delta)
 	if _idle_spin != 0.0:
@@ -2501,6 +2892,9 @@ func _process(delta: float) -> void:
 					p.emitting = plumes_on
 		if _smoke != null and is_instance_valid(_smoke):
 			_smoke.call("set_emitting", plumes_on)
+		for stfx: Node2D in _smoke_points_fx:
+			if is_instance_valid(stfx):
+				stfx.call("set_emitting", plumes_on)
 	if on_screen:
 		# `_docked` escorts (Fleet Edit / mothership) never have their plumes emit-toggled off by `crowded`
 		# above (see the `if not _docked:` guard) — set_docked()/_reenable_plumes() keep them permanently
@@ -2518,16 +2912,36 @@ func _process(delta: float) -> void:
 			# Glue plume emitters to the sprite: same rotation AND scale as the drawn sprite (draw_set_transform
 			# rotates/scales the sprite but not child nodes, so we mirror it here).
 			_update_plumes()
-			var vrot := _spin if behavior == "centipede" else _facing
-			# Only re-rotate the emitters when the rotation actually moved (skips the per-frame .rotated() churn
-			# for the hundreds of near-static swarm enemies that dominate the node count).
-			if not _plume_vrot_init or absf(angle_difference(vrot, _plume_vrot_applied)) > 0.01:
-				_plume_vrot_init = true
-				_plume_vrot_applied = vrot
+			if _glb_body != null and is_instance_valid(_glb_body):
+				# A GLB creep's body is a rotated 3D MODEL, not a rotated sprite: `base_pos` (the flat
+				# `(frac - 0.5) * _draw_size`) and `_facing` describe neither where a point sits on that model nor
+				# how far it has actually turned. Project through the live mount basis + pivot yaw instead — exactly
+				# what Creep Edit's own 3D markers do. 2026-09-02 bug: "TP vẫn bị nằm ở đầu Nautilus".
+				# Unconditionally every frame: a move can re-pitch the MOUNT without `_facing` moving at all, so the
+				# vrot-changed gate in the else-branch would freeze the points mid-move. At most a boss or two of
+				# these is ever alive, so the per-frame cost is nothing.
+				var gyaw: float = _glb_body.call("get_yaw") if _glb_body.has_method("get_yaw") else 0.0
 				for p: CPUParticles2D in _plumes:
 					if is_instance_valid(p):
-						p.position  = (p.get_meta("base_pos") as Vector2).rotated(vrot)
-						p.direction = (p.get_meta("base_dir") as Vector2).rotated(vrot)
+						p.position  = _glb_point_offset(
+							(p.get_meta("frac_centered") as Vector2) + Vector2(0.5, 0.5),
+							float(p.get_meta("tp_z", 0.0)))
+						if p.has_meta("dir3"):
+							# Authored 3-axis spray, chained through the live mount + yaw (see _glb_dir_canvas).
+							p.direction = _glb_dir_canvas(p.get_meta("dir3") as Vector3)
+						else:
+							p.direction = (p.get_meta("base_dir") as Vector2).rotated(-gyaw)
+			else:
+				var vrot := _spin if behavior == "centipede" else _facing
+				# Only re-rotate the emitters when the rotation actually moved (skips the per-frame .rotated() churn
+				# for the hundreds of near-static swarm enemies that dominate the node count).
+				if not _plume_vrot_init or absf(angle_difference(vrot, _plume_vrot_applied)) > 0.01:
+					_plume_vrot_init = true
+					_plume_vrot_applied = vrot
+					for p: CPUParticles2D in _plumes:
+						if is_instance_valid(p):
+							p.position  = (p.get_meta("base_pos") as Vector2).rotated(vrot)
+							p.direction = (p.get_meta("base_dir") as Vector2).rotated(vrot)
 		_update_vortex_xform()   # glue vortexes to the sprite (position + scale + rotation)
 		_update_led_xform()     # glue LEDs to the sprite (position + scale + rotation)
 	if _has_eye:
@@ -2736,6 +3150,8 @@ func _draw_tentacle(alpha: float) -> void:
 func _init_behavior() -> void:
 	var to := _player_pos() - global_position
 	_aim = to.normalized() if to.length() > 0.01 else Vector2.UP
+	if _spawn_aim != Vector2.ZERO:
+		_aim = _spawn_aim.normalized()   # a boss magmafrag flies its authored cone/rain direction, not at the player
 	if _composed:
 		_cm_orbit_r = maxf(20.0, to.length())
 		_cm_orbit_a = (-to).angle()
@@ -2795,6 +3211,12 @@ func _tick_behavior(delta: float) -> void:
 			# off-screen recycling in the v2 director).
 			if _boss_move == "metalfly":
 				_tick_metalfly(delta, dist, dir)
+				return
+			if _boss_move == "volcanic":
+				_tick_volcanic_boss(delta, dist, dir)
+				return
+			if _boss_move == "atlantic":
+				_tick_atlantic_boss(delta, dist, dir)
 				return
 			# Recycle a normal chaser once the player has outrun it far past the screen (bosses never culled).
 			if behavior == "chase" and dist > CHASE_CULL:
@@ -3121,6 +3543,16 @@ func _tick_behavior(delta: float) -> void:
 			_move_step()
 			_orbit_r += speed * delta
 			if _orbit_r >= THROWN_BOMB_RANGE:
+				_die()
+		"nb_missile":
+			# Nautilus Move 2. Coasts along its launch heading for NB_M2_ARM_T, THEN acquires the player and
+			# curves onto them at a capped turn rate. A real enemy (HP, in the group) so it can be shot down.
+			# `_t` is the lifetime clock every enemy already keeps, so it doubles as the arming timer here.
+			if _t >= NB_M2_ARM_T:
+				_aim = Vector2.from_angle(_approach_angle(_aim.angle(), dir.angle(), NB_M2_TURN * delta))
+			velocity = _aim * speed
+			_move_step()
+			if _t >= NB_M2_LIFE:
 				_die()
 		"dummy":
 			pass
@@ -3768,6 +4200,40 @@ func _setup_body_rig() -> void:
 		rig.queue_free()
 		_sprite_alpha = 1.0
 
+## Generic 3D boss body (def "boss_glb"): one top-down .glb spinner via GlbSpinBody — no skeleton, no
+## posing (that's what MetalflyRig is for). Mount angle authored in Creep Edit under the creep name "boss".
+## Falls back to the flat "icon" sprite (un-hidden) if the model can't load, exactly like _setup_metalfly().
+func _setup_glb_spin_body() -> void:
+	# On-screen size, in priority order: the Creep Edit rect ("size" in creep_layout.cfg — what the user
+	# directly drags, and the frame the FP/TP/SP fracs are measured against) → the def's "body_px" → 150.
+	var px := 0.0
+	var cfg := _creep_layout()
+	if cfg != null:
+		var eo: Dictionary = cfg.get_value("creeps", _resolve_cfg_key(cfg, "creeps", _type), {})
+		var eo_sz: Vector2 = eo.get("size", Vector2.ZERO)
+		if eo_sz.x > 0.0:
+			px = maxf(eo_sz.x, eo_sz.y)
+	if px <= 0.0:
+		px = _body_px if _body_px > 0.0 else 150.0
+	# Scale the hit radius to the visible body so bullets connect with the whole boss, not a tiny centre the
+	# def's `size` (a hitbox number, meaningless for a glb) would give. `hit_frac` of the on-screen px — the
+	# model is spiky, not a solid square, so ~0.33 tracks its dense core. Contact range follows (`16 + _radius`).
+	_radius = px * _boss_hit_frac
+	var body: Node2D = GlbSpinBody.new()
+	add_child(body)
+	_vb_mount_rest = _creep_mount_rot(_type)
+	_vb_mount_cur = _vb_mount_rest
+	if body.call("setup", _boss_glb, px, BOSS_SPIN_RPM, 0.0, _vb_mount_rest, _glb_light_scale):
+		_glb_body = body
+		# The fallback sprite's texture drove _draw_size (a placeholder icon, ~25 px). Snap it to the visible
+		# 3D body so every frac-of-rect projection — FP muzzles, TP plumes, SP smoke points — lands on the
+		# model the player actually sees, not on a 25 px ghost. Square: the editor rect for a glb creep is too.
+		_draw_size = Vector2(px, px)
+		_vb_tp_fracs = _load_tp_fracs(_type)   # thrust points as body-rect fractions — Move 4 flares them per wave
+	else:
+		body.queue_free()
+		_sprite_alpha = 1.0
+
 ## Move 1's volley: one shard from each wing TIP, read off the live posed skeleton so the muzzles ride the
 ## wing beat. Falls back to the body centre if the 3D rig never built.
 func _mf_fire_wings() -> void:
@@ -3784,6 +4250,741 @@ func _mf_fire_wings() -> void:
 		var to := pp - m
 		var d := to.normalized() if to.length() > 0.01 else Vector2.DOWN
 		_mgr.spawn_bullet(m, d * MF_SHOT_SPEED, MF_SHOT_DMG, self)
+
+# ── Volcanic boss ("boss_move": "volcanic") — the 4 moves ───────────────────────────────────────────────
+## State: 0 approach → 10/11/12/13 (one move, driven by its own `_vb_phase` machine) → 20 recover (3 s,
+## plain chase) → next move (cycles 0→1→2→3). Each move calls `_vb_finish_move()` to hand back to state 20.
+## Between-move + in-move motion is plain chase (`velocity = dir * speed`, slowed while a move runs).
+func _tick_volcanic_boss(delta: float, dist: float, dir: Vector2) -> void:
+	_vb_t += delta
+	_vb_shot_t += delta
+	# Turn the body flat to face the player while chasing / attacking. Frozen during Move 4 (state 13) —
+	# there the boss holds its face-up pitch until every rain wave lands.
+	if _vb_state != 13:
+		_glb_boss_face_player(delta)
+	if _vb_state == 0:
+		_facing = _approach_angle(_facing, dir.angle(), MF_TURN_CHASE * delta)
+		velocity = dir * speed
+		_move_step()
+		if dist <= VB_APPROACH_R:
+			_vb_enter_move(_vb_move)
+		return
+	if _vb_state == 20:
+		# Recover: chase the player normally for VB_RECOVER_T, then start the next move.
+		_facing = _approach_angle(_facing, dir.angle(), MF_TURN_CHASE * delta)
+		velocity = dir * speed
+		_move_step()
+		if _vb_t >= VB_RECOVER_T:
+			_vb_move = (_vb_move + 1) % 4
+			_vb_enter_move(_vb_move)
+		return
+	# A move is running. Grounded (Move 3) → hold station; otherwise drift toward the player.
+	_facing = _approach_angle(_facing, dir.angle(), MF_TURN_CHASE * delta)
+	if _vb_grounded:
+		velocity = velocity.lerp(Vector2.ZERO, minf(1.0, delta * 8.0))
+	else:
+		velocity = dir * speed * VB_CHASE_SPEED
+	_move_step()
+	match _vb_state:
+		10: _vb_m1_cone(delta, dir)
+		11: _vb_m2_beams(delta, dir)
+		12: _vb_m3_ground(delta, dir)
+		13: _vb_m4_rain(delta, dir)
+
+# ── Atlantic boss "Nautilus" ("boss_move": "atlantic") — the 5 moves ────────────────────────────────────
+## State: 0/20 pick-next → 10-14 (one move, each its own `_nb_phase` machine) → back to 20. NO rest beat —
+## the next move is chosen the same frame the last one ends (user: "Ko có thời gian nghỉ giữa các move").
+## Move 1 (charge) is the APPROACH TOOL ONLY: it is never in the random pool, and any time the player gets
+## past NB_FAR_R the boss INTERRUPTS whatever it's doing and charges in ("ngay lập tức hủy bỏ move hiện tại").
+func _tick_atlantic_boss(delta: float, dist: float, dir: Vector2) -> void:
+	_nb_t += delta
+	_nb_shot_t += delta
+	# Too far → drop the current move and charge in. Skip if it's already charging (state 10) or between
+	# moves. The APPROACH charge homes onto the player (`_nb_charge_homing`); a random-pool charge does not.
+	if dist > NB_FAR_R and _nb_state >= 11 and _nb_state <= 14:
+		_nb_finish_move()          # full teardown; sets state 20
+		_nb_charge_homing = true
+		_nb_enter_move(0)          # → Move 1
+	# Face the player, except while a move is driving the body itself (Move 1's pitch, Move 5's spin).
+	if not (_nb_state == 10 or _nb_state == 14):
+		_glb_boss_face_player(delta)
+	if _nb_state == 0 or _nb_state == 20:
+		_facing = _approach_angle(_facing, dir.angle(), MF_TURN_CHASE * delta)
+		_nb_charge_homing = dist > NB_FAR_R
+		_nb_enter_move(0 if dist > NB_FAR_R else _nb_pick_move())
+		return
+	match _nb_state:
+		10: _nb_m1_dash(delta, dir)
+		11: _nb_m2_missiles(delta, dir)
+		12: _nb_m3_arcs(delta, dir)
+		13: _nb_m4_smoke(delta, dir)
+		14: _nb_m5_beam(delta, dir)
+
+## Random next move (all 5 — Move 1/charge IS back in the pool as a normal lunge when the player is inside
+## NB_FAR_R), never the same one twice running. The FORCED approach-charge is separate (see _tick_… above).
+func _nb_pick_move() -> int:
+	if NB_MOVE_COUNT <= 1:
+		return 0
+	var m := randi_range(0, NB_MOVE_COUNT - 1)
+	while m == _nb_last_move:
+		m = randi_range(0, NB_MOVE_COUNT - 1)
+	return m
+
+func _nb_enter_move(m: int) -> void:
+	_nb_last_move = m
+	_nb_state = 10 + m
+	_nb_phase = 0
+	_nb_t = 0.0
+	_nb_shot_t = 0.0
+	_nb_fired = 0
+
+## Tear down whatever the move raised and go to the recover beat. Safe to call from _die() too.
+func _nb_finish_move() -> void:
+	if _nb_band != null and is_instance_valid(_nb_band):
+		_nb_band.queue_free()
+	_nb_band = null
+	if _nb_charge != null and is_instance_valid(_nb_charge):
+		_nb_charge.queue_free()
+	_nb_charge = null
+	if _nb_beam != null and is_instance_valid(_nb_beam):
+		_nb_beam.call("release")
+		_nb_beam.queue_free()
+	_nb_beam = null
+	if _nb_beam_trail != null and is_instance_valid(_nb_beam_trail):
+		_nb_beam_trail.call("finish")   # stop sampling, let what's on screen fade out, then it frees itself
+	_nb_beam_trail = null
+	_nb_clear_smoke()
+	_nb_dmg_taken_mult = 1.0
+	_knockback_mult = _nb_base_kb_mult   # Move 5 zeros this while sweeping — back to the def value (0.3) here
+	if not _plume_base.is_empty():
+		_apply_plume_vel_mult(1.0)   # undo Move 1's thruster wind-up
+	_reset_plumes_default()
+	if _glb_body != null and is_instance_valid(_glb_body):
+		_glb_body.call("set_mount_rot", _creep_mount_rot(_type))
+		# Move 5 spins the yaw through 10 revolutions — fold it back into [0, TAU) so it never grows unbounded.
+		_glb_body.call("set_yaw", fposmod(float(_glb_body.call("get_yaw")), TAU))
+	_nb_state = 20
+	_nb_t = 0.0
+
+func _nb_clear_smoke() -> void:
+	for s: Node2D in _nb_smoke:
+		if is_instance_valid(s):
+			s.call("detach", get_parent())
+	_nb_smoke.clear()
+
+# ── Move 1 — the order the user specified (2026-09-02): TURN to the "Charge Position" pose FIRST, THEN
+# charge, THEN dash, and only once the dash has LANDED does the body turn back to its default pose.
+# ("trước khi charge, xoay về góc như của charge position, rồi charge và lao tới. Sau khi hoàn thành lao
+# tới mới xoay về mặc định.") Earlier passes unwound the pose during the dash, so on screen it read as
+# "tilts, snaps back to default, then lunges" — the pose was gone for the whole visible part of the move.
+#
+# The pose is MOUNT × PIVOT-YAW, and the two carry different halves of it: the "Charge Position" layer
+# supplies the TILT (mount), while the HEADING keeps tracking the player through the pivot yaw rather than
+# being pinned ("Hướng xoay theo trục Z vẫn cần được xoay về hướng player thay vì fix cứng" — editor Rot Z
+# and the pivot yaw are both pure spins about the world vertical, so the yaw is the right place for it).
+# Phase 0 will not hand over until the mount lerp AND that heading have both settled — a half-turned yaw
+# multiplying onto the mount is exactly what "vẫn bị xéo" was.
+func _nb_m1_dash(delta: float, dir: Vector2) -> void:
+	var rest := _creep_mount_rot(_type)
+	# Whatever the user dialled on the "Charge Position" layer. Vector3.ZERO back from _creep_mount_rot means
+	# that layer has never been saved — hold the rest pose rather than snapping to an arbitrary angle.
+	var charge_rot := _creep_mount_rot(NB_CHARGE_LAYER)
+	var pitched := rest if charge_rot.is_zero_approx() else charge_rot
+	var glb := _glb_body if (_glb_body != null and is_instance_valid(_glb_body)) else null
+	# Every phase but the last holds the charge pose, so compute it once.
+	match _nb_phase:
+		0:   # TURN IN — rotate onto the authored pose (mount + yaw), nothing else happens yet
+			if _nb_band == null:
+				_set_all_plumes_on(true)
+				_apply_plume_vel_mult(1.8)             # thrusters wind up visibly
+				_nb_band = NbAimBand.new()
+				var pp := get_parent()
+				if pp != null:
+					pp.add_child(_nb_band)
+				_nb_band.call("begin", NB_M1_BAND_W)
+			_nb_m1_aim_band(dir, 0.0)
+			velocity = velocity.lerp(Vector2.ZERO, minf(1.0, delta * 5.0))
+			_move_step()
+			var settled := true
+			if glb != null:
+				glb.call("set_mount_rot", rest.lerp(pitched, clampf(_nb_t / NB_M1_TURN_T, 0.0, 1.0)))
+				var want := _nb_m1_track_yaw(dir)
+				var y := _approach_angle(glb.call("get_yaw"), want, NB_M1_YAW_RATE * delta)
+				glb.call("set_yaw", y)
+				settled = absf(wrapf(want - y, -PI, PI)) <= 0.05
+			if _nb_t >= NB_M1_TURN_T and settled:
+				_nb_phase = 1
+				_nb_t = 0.0
+		1:   # CHARGE — tilt HELD, heading still tracking the player, lane not committed yet
+			if glb != null:
+				glb.call("set_mount_rot", pitched)
+				glb.call("set_yaw", _approach_angle(glb.call("get_yaw"),
+					_nb_m1_track_yaw(dir), NB_M1_YAW_RATE * delta))
+			_nb_m1_aim_band(dir, clampf(_nb_t / NB_M1_CHARGE_T, 0.0, 1.0))
+			velocity = velocity.lerp(Vector2.ZERO, minf(1.0, delta * 5.0))   # brace before the lunge
+			_move_step()
+			if _nb_t >= NB_M1_CHARGE_T:
+				var to_p := _player_pos() - global_position
+				_nb_dash_dir = to_p.normalized() if to_p.length() > 1.0 else dir   # LOCKED here
+				_nb_dash_min = to_p.length()                                        # closest approach so far
+				_nb_phase = 2
+				_nb_t = 0.0
+				_play_sfx(SFX_ZAP)
+		2:   # DASH. A LUNGE (random pool) holds the lane locked — dodge it by moving sideways. An APPROACH
+			 # charge (`_nb_charge_homing`) re-aims toward the player at NB_M1_HOME_RATE — slow enough to juke,
+			 # fast enough to eventually corner them. NO fixed length either way (user: "không giới hạn").
+			if _nb_charge_homing:
+				var to_now := _player_pos() - global_position
+				# Re-aim only until we're nearly on top of them — then COMMIT to a straight line so it
+				# barrels through, instead of the constant re-aim curving it into an orbit around the player.
+				if to_now.length() > NB_M1_ARRIVE_R * 0.7:
+					_nb_dash_dir = Vector2.from_angle(
+						_approach_angle(_nb_dash_dir.angle(), to_now.angle(), NB_M1_HOME_RATE * delta))
+			if glb != null:
+				glb.call("set_mount_rot", pitched)
+				glb.call("set_yaw", _approach_angle(glb.call("get_yaw"),
+					_glb_front_angle - _nb_dash_dir.angle(), NB_M1_YAW_RATE * delta))
+			if is_instance_valid(_nb_band):
+				_nb_band.call("aim", global_position, global_position + _nb_dash_dir * NB_M1_DASH_LEN, 1.0)
+			velocity = _nb_dash_dir * NB_M1_DASH_SPD
+			_move_step()
+			var d_now := global_position.distance_to(_player_pos())
+			_nb_dash_min = minf(_nb_dash_min, d_now)
+			# End the dash once it has PASSED the player — got within NB_M1_ARRIVE_R and is now moving away by
+			# NB_M1_PASS. That's true for the homing approach-charge (it barrels through) and for a lunge that
+			# connected. A lunge the player DODGED never gets close, so it also ends when it's this far past
+			# its closest miss. Hard time cap as the backstop.
+			var margin := maxf(_draw_size.x * 0.5, NB_M1_PASS)
+			var passed := d_now > _nb_dash_min + margin and (_nb_dash_min <= NB_M1_ARRIVE_R or not _nb_charge_homing)
+			if passed or _nb_t >= NB_M1_DASH_MAX_T:
+				if _nb_band != null and is_instance_valid(_nb_band):
+					_nb_band.queue_free()
+				_nb_band = null
+				_apply_plume_vel_mult(1.0)
+				_nb_phase = 3
+				_nb_t = 0.0
+		3:   # TURN OUT — the dash has landed, NOW go back to the default pose
+			if glb != null:
+				glb.call("set_mount_rot", pitched.lerp(rest, clampf(_nb_t / NB_M1_TURN_T, 0.0, 1.0)))
+			velocity = velocity.lerp(Vector2.ZERO, minf(1.0, delta * 4.0))
+			_move_step()
+			if _nb_t >= NB_M1_TURN_T:
+				_nb_charge_homing = false
+				_nb_finish_move()
+
+## Move 1's facing target, in GlbSpinBody yaw. The "Charge Position" layer supplies the TILT; the heading
+## (the editor's Rot Z, which is a pure spin about the world vertical — and so is the pivot yaw) still turns
+## onto the player rather than being pinned, per the user: "Hướng xoay theo trục Z vẫn cần được xoay về
+## hướng player thay vì fix cứng". Same mapping `_glb_boss_face_player` uses: a pivot yaw of θ turns the
+## model −θ on the canvas, so θ = front_angle − heading lands the nose on `heading`.
+## NOTE: `_glb_front_angle` is calibrated against the REST pose, so a charge pose with a different X/Y tilt
+## may aim a constant offset out — trim it with the layer's own Rot Z until the dash lines up.
+func _nb_m1_track_yaw(dir: Vector2) -> float:
+	var to_p := _player_pos() - global_position
+	var heading := to_p.angle() if to_p.length() > 1.0 else dir.angle()
+	return _glb_front_angle - heading
+
+## Move 1's red lane telegraph, re-aimed at the player. `charge01` drives its brightness ramp.
+func _nb_m1_aim_band(dir: Vector2, charge01: float) -> void:
+	if not is_instance_valid(_nb_band):
+		return
+	var to_p := _player_pos() - global_position
+	var lane := to_p.normalized() if to_p.length() > 1.0 else dir
+	_nb_band.call("aim", global_position, global_position + lane * NB_M1_DASH_LEN, charge01)
+
+# ── Move 2: 20 homing missiles out of FP1/FP2 across 5 s, the two tubes slightly out of phase ────────────
+func _nb_m2_missiles(_delta: float, dir: Vector2) -> void:
+	velocity = dir * NB_TWEEN_SPEED   # keep closing on the player while the tubes fire
+	_move_step()
+	var gap := NB_M2_WINDOW / float(NB_M2_COUNT)
+	# The odd shots come out of FP2 a fraction late, so the two tubes read as separate launchers.
+	var due := gap + (NB_M2_FP_OFFSET if (_nb_fired % 2) == 1 else 0.0)
+	if _nb_shot_t >= due and _nb_fired < NB_M2_COUNT:
+		_nb_shot_t = 0.0
+		var fp_idx := _nb_fired % 2                    # alternate FP1 / FP2
+		var muzzle := _muzzle(fp_idx)
+		var out := (muzzle - global_position)
+		var launch := out.normalized() if out.length() > 4.0 else dir
+		_nb_spawn_missile(muzzle, launch)
+		_nb_fired += 1
+		_play_sfx(SFX_ZAP)
+	if _nb_fired >= NB_M2_COUNT and _nb_t >= NB_M2_WINDOW:
+		_nb_finish_move()
+
+## One shootable homing missile: flies straight for NB_M2_ARM_T, then turns onto the player. It is a real
+## arena_enemy (HP 20, in the "arena_enemy" group) so every player weapon can shoot it down.
+func _nb_spawn_missile(at: Vector2, aim: Vector2) -> void:
+	# Draw it at the size the user set in Weapon Edit — `weapon_layout.cfg [creeps] missile.size.x` (the
+	# TRANSFORM panel's W); the sprite keeps missile.png's own aspect for the height. Falls back to 20.
+	var msize := 20.0
+	var wcfg := _layout_cfg("res://weapon_layout.cfg")
+	if wcfg != null:
+		var me: Dictionary = wcfg.get_value("creeps", _resolve_cfg_key(wcfg, "creeps", "missile"), {})
+		var mw: Vector2 = me.get("size", Vector2.ZERO)
+		if mw.x > 0.0:
+			msize = mw.x
+	var def := {
+		"behavior": "nb_missile", "frag": true, "explodes": false, "no_collide": true,
+		"hp": NB_M2_HP, "speed": NB_M2_SPD, "size": maxf(6.0, msize * 0.5), "draw_w": msize,
+		"contact": NB_M2_DMG, "xp": 0.0,
+		"aim": aim.normalized(),
+		"icon": NB_M2_ICON,
+		# The exhaust plume is `missile`'s own authored thrust point, which lives in weapon_layout.cfg
+		# (missile.png is a Weapon Edit asset, not a creep) — see _setup_plumes.
+		"plume_from": "missile", "plume_layout": "res://weapon_layout.cfg",
+	}
+	var e: Node = get_script().new()
+	e.call("configure", "nb_missile", _mgr, def)
+	get_parent().add_child(e)
+	e.set("global_position", at)
+
+# ── Move 3: three 60° arc shock-waves out of FP3, 1 s apart ─────────────────────────────────────────────
+func _nb_m3_arcs(_delta: float, dir: Vector2) -> void:
+	velocity = dir * NB_TWEEN_SPEED   # keep closing on the player between the three arc shots
+	_move_step()
+	if _nb_shot_t >= NB_M3_GAP and _nb_fired < NB_M3_SHOTS:
+		_nb_shot_t = 0.0
+		_nb_fired += 1
+		var muzzle := _muzzle(2)                       # FP3
+		var to_p := _player_pos() - muzzle
+		var aim := to_p.normalized() if to_p.length() > 1.0 else dir
+		var w: Node2D = NbArcWave.new()
+		var pp := get_parent()
+		if pp != null:
+			pp.add_child(w)
+		w.call("begin", muzzle, aim, NB_M3_ARC_DEG, NB_M3_SPD, NB_M3_RANGE, NB_M3_DMG, self)
+		_play_sfx(SFX_BEAM)
+	if _nb_fired >= NB_M3_SHOTS and _nb_shot_t >= NB_M3_GAP:
+		_nb_finish_move()
+
+# ── Move 4: retreat behind a white-blue smokescreen — half damage taken + 10 hp/s for NB_M4_T, THEN the
+# cloud thins out over NB_M4_FADE more seconds ("khói phủ tan mờ đi, fade trong 5 giây... cảm giác chậm tự
+# nhiên"). The dmg-reduction + regen END with the emit window, not the fade.
+func _nb_m4_smoke(delta: float, dir: Vector2) -> void:
+	if _nb_phase == 0:                                     # SCREEN UP — emitting, buffs on, retreating
+		if _nb_smoke.is_empty():
+			_nb_dmg_taken_mult = NB_M4_DMG_MULT
+			var w := maxf(_draw_size.x, 120.0)
+			var style := {
+				# lifetime = NB_M4_FADE so each puff takes the full fade window to dissipate → a slow,
+				# natural thin-out rather than a snap-off when the emitters stop.
+				"lifetime": NB_M4_FADE, "no_fire": true, "follow": true,   # follow = cloud rides the boss
+				"scale_min": 2.2, "scale_max": 4.6,
+				"vel_min": 4.0, "vel_max": 22.0, "spread": 180.0,
+				# White-blue coolant cloud (the shader owns all tinting — see smoke_trail._build_smoke).
+				"c_shadow": Color(0.13, 0.19, 0.30),
+				"c_body":   Color(0.58, 0.68, 0.82),
+				"c_lit":    Color(0.90, 0.95, 1.0),
+			}
+			# Ring of emitters covering the whole body, NOT just around FP4 — the cloud has to hide all of
+			# Nautilus. `follow` (local_coords) keeps each one centred on the boss no matter how it moves.
+			for i in NB_M4_PUFFS:
+				var s: Node2D = SmokeTrail.new()
+				var a := TAU * float(i) / float(NB_M4_PUFFS)
+				s.position = Vector2(cos(a), sin(a)) * (w * 0.34) if i < NB_M4_PUFFS - 1 else Vector2.ZERO
+				s.z_index = 6                              # drawn OVER the body — that's what "che khuất" means
+				add_child(s)
+				s.call("setup", w * 1.05, style)
+				_nb_smoke.append(s)
+			_play_sfx(SFX_BEAM)
+		velocity = -dir * speed * NB_M4_BACK_SPD           # back away while the screen builds
+		_move_step()
+		hp = minf(hp_max, hp + NB_M4_REGEN * delta)
+		if _nb_t >= NB_M4_T:
+			_nb_phase = 1
+			_nb_t = 0.0
+			_nb_dmg_taken_mult = 1.0                       # protection ends with the emit window
+			for s: Node2D in _nb_smoke:                    # stop emitting; the puffs already out finish fading
+				if is_instance_valid(s):
+					s.call("set_emitting", false)
+		return
+	# FADE — nothing new spawns, the cloud thins over NB_M4_FADE. Drift gently, no more heal.
+	velocity = velocity.lerp(Vector2.ZERO, minf(1.0, delta * 1.5))
+	_move_step()
+	if _nb_t >= NB_M4_FADE:
+		_nb_finish_move()
+
+# ── Move 5: blue charge, then a 500 px beam swept round by spinning the whole body ──────────────────────
+func _nb_m5_beam(delta: float, dir: Vector2) -> void:
+	if _nb_phase == 0:                                  # charge
+		if _nb_charge == null:
+			_set_all_plumes_on(true)                    # every thruster lit for the spin, like Move 1
+			_nb_charge = VbChargeVfx.new()
+			add_child(_nb_charge)
+			_nb_charge.call("begin", maxf(_draw_size.x, 120.0),
+				{"rim": NB_BLUE_RIM, "core": NB_BLUE_CORE, "ember": NB_BLUE_EMBER})
+			_play_sfx(SFX_BEAM)
+		velocity = velocity.lerp(Vector2.ZERO, minf(1.0, delta * 4.0))
+		_move_step()
+		if _nb_t >= NB_M5_CHARGE_T:
+			if is_instance_valid(_nb_charge):
+				_nb_charge.queue_free()
+			_nb_charge = null
+			_nb_phase = 1
+			_nb_t = 0.0
+			_knockback_mult = 0.0   # no knockback at all while spinning — restored to _nb_base_kb_mult (0.3) in _nb_finish_move
+			var lb: Node2D = LaserBeamScript.new()
+			lb.beam_thickness = 40.0
+			lb.fx_core_color = Color(0.90, 0.98, 1.0)
+			lb.fx_body_color = Color(0.28, 0.68, 1.0)
+			lb.fx_glow_color = Color(0.06, 0.30, 0.95)
+			lb.body_glow_width = 1.3
+			lb.body_point_boost = 2.0
+			lb.z_index = 5
+			var pp := get_parent()
+			if pp != null:
+				pp.add_child(lb)
+				_nb_beam_trail = NbBeamTrail.new()
+				pp.add_child(_nb_beam_trail)
+				_nb_beam_trail.call("begin")
+			_nb_beam = lb
+			_nb_beam_prev_ang = _glb_front_angle   # first frame's swept arc ≈ 0
+			_nb_beam_hit_cd = 0.0
+		return
+	# Sweep: the BODY spins (NB_M5_SPINS revolutions at NB_M5_SPIN_T each) and the beam rides FP5 round with
+	# it. Chases the player the whole time, so the sweep tracks you rather than staying put.
+	var total := NB_M5_SPIN_T * float(NB_M5_SPINS)
+	var spin := TAU * (_nb_t / NB_M5_SPIN_T)
+	if _glb_body != null and is_instance_valid(_glb_body):
+		_glb_body.call("set_yaw", spin)
+	_facing = _approach_angle(_facing, dir.angle(), MF_TURN_CHASE * delta)
+	velocity = dir * NB_TWEEN_SPEED   # drift toward the player while sweeping (the shared between-moves chase)
+	_move_step()
+	# The beam leaves FP5 along the body's CURRENT spin — `_glb_boss_face_player`'s own mapping in reverse
+	# (canvas angle = front_angle − yaw), so the beam is always where the model is actually pointing. The
+	# muzzle OFFSET has to orbit with the body too (plain `_muzzle()` is yaw-agnostic — fine for a boss that
+	# holds still, wrong for one spinning 10 revolutions), hence the −spin rotate.
+	var muzzle := _muzzle(4)                            # FP5 — projected through the live yaw set just above
+	var beam_ang := _glb_front_angle - spin
+	var bdir := Vector2(cos(beam_ang), sin(beam_ang))
+	var beam_to := muzzle + bdir * NB_M5_BEAM_LEN
+	var ppos := _player_pos()
+	var to_p := ppos - muzzle
+	# SWEPT hit test — the beam turns ~11°/frame at 720°/s, far faster than it is thick, so a per-frame
+	# "is the player on the beam right now" check tunnels straight past them (that's why the old time-gated
+	# `fmod(_nb_t,0.4)` version never landed). Instead: did the beam's angle CROSS the player's bearing this
+	# frame, within range + a little slack? Damage is per-contact, capped by _nb_beam_hit_cd.
+	var in_range := to_p.length() <= NB_M5_BEAM_LEN + 34.0
+	var swept := in_range and _ang_swept(to_p.angle(), _nb_beam_prev_ang, beam_ang)
+	var near := swept or (in_range and (muzzle + bdir * clampf(to_p.dot(bdir), 0.0, NB_M5_BEAM_LEN)).distance_to(ppos) <= 34.0)
+	if is_instance_valid(_nb_beam):
+		_nb_beam.call("set_beam", muzzle, beam_to, true, near)
+	if is_instance_valid(_nb_beam_trail):
+		_nb_beam_trail.call("push", muzzle, beam_ang, NB_M5_BEAM_LEN)
+	_nb_beam_hit_cd = maxf(0.0, _nb_beam_hit_cd - delta)
+	if near and _nb_beam_hit_cd <= 0.0:
+		_report_hit_player()
+		GameManager.ship_take_damage(int(round(NB_M5_BEAM_DMG * damage_out_mult())))
+		_nb_beam_hit_cd = 0.35
+	_nb_beam_prev_ang = beam_ang
+	if _nb_t >= total:
+		_nb_finish_move()
+
+func _vb_enter_move(m: int) -> void:
+	_vb_state = 10 + m
+	_vb_phase = 0
+	_vb_t = 0.0
+	_vb_shot_t = 0.0
+	_vb_fired = 0
+
+## Swing the 3D body flat so its nose points AT THE PLAYER while chasing / attacking.
+##
+## Reads the player position DIRECTLY, not `_facing` — `_facing` has two writers that disagree on
+## convention (`_tick_volcanic_boss` sets it to the raw heading `dir.angle()`, the generic post-move block
+## in `_process` overwrites it every frame the boss moves with `intended.angle() + PI/2`), so routing the
+## body yaw through it made the nose chase a moving average of the two, i.e. "confused". The heading to the
+## player is unambiguous.
+##
+## `want` = front_angle − heading: a Y-axis Node3D rotation under this top-down camera SUBTRACTS from the
+## model's on-screen angle (a nose at canvas `_glb_front_angle`, pivot-yawed by θ, projects to
+## `_glb_front_angle` − θ), so θ = `_glb_front_angle` − heading lands the nose exactly on `heading`. Same
+## formula metalfly_rig.gd's set_heading() uses (`Basis(UP, PI*0.5 − heading) * mount`) for the other live
+## 3D body in this game. Shared by The Skull (`_tick_volcanic_boss`) and Nautilus (`_tick_atlantic_boss`).
+func _glb_boss_face_player(delta: float) -> void:
+	if _glb_body == null or not is_instance_valid(_glb_body) or not _glb_body.has_method("set_yaw"):
+		return
+	var to := _player_pos() - global_position
+	if to.length() < 1.0:
+		return
+	var cur: float = _glb_body.call("get_yaw")
+	var want := _glb_front_angle - to.angle()
+	_glb_body.call("set_yaw", _approach_angle(cur, want, VB_FACE_TURN_RATE * delta))
+
+## Tear down whatever the move raised and go to the 3 s recover beat. Safe to call from _die() too.
+func _vb_finish_move() -> void:
+	for b in _vb_beams:
+		if is_instance_valid(b):
+			b.call("release")
+			b.queue_free()
+	_vb_beams.clear()
+	if _vb_charge != null and is_instance_valid(_vb_charge):
+		_vb_charge.queue_free()
+	_vb_charge = null
+	if _vb_grounded:
+		_vb_grounded = false
+		_vb_set_body_grounded(false)
+	if _vb_mount_cur != _vb_mount_rest:
+		_vb_mount_cur = _vb_mount_rest
+		if _glb_body != null and is_instance_valid(_glb_body):
+			_glb_body.call("set_mount_rot", _vb_mount_rest)
+	_vb_state = 20
+	_vb_t = 0.0
+
+## Spawn one magmafrag projectile (a thrown_bomb that just pops on the hull) at `at`, flying `aim`.
+func _vb_spawn_frag(at: Vector2, aim: Vector2, spd: float, dmg: int) -> void:
+	var wd := get_tree().get_first_node_in_group("wave_director")
+	var def := {
+		"behavior": "thrown_bomb", "frag": true, "explodes": false, "no_collide": true,
+		"hp": 6.0, "speed": spd, "size": randf_range(11.0, 16.0), "contact": dmg, "xp": 0.0,
+		"aim": aim.normalized(),
+		"icon": VB_FRAG_ICON % randi_range(1, 16),
+	}
+	var e: Node = get_script().new()
+	e.call("configure", "magmafrag", _mgr, def)
+	get_parent().add_child(e)
+	e.set("global_position", at)
+
+## Bright red one-shot flare at a world point (Move 4's FP glow, and the ground-slam dust tint).
+func _vb_flare(at: Vector2, px: float, col: Color) -> void:
+	var p := CPUParticles2D.new()
+	p.position = at - global_position   # child of the boss
+	p.z_index = 6
+	p.emitting = true
+	p.one_shot = true
+	p.explosiveness = 0.85
+	p.amount = 28
+	p.lifetime = 0.5
+	p.local_coords = false
+	p.direction = Vector2.ZERO
+	p.spread = 180.0
+	p.initial_velocity_min = px * 0.6
+	p.initial_velocity_max = px * 1.8
+	p.damping_min = px * 1.5
+	p.damping_max = px * 3.0
+	p.scale_amount_min = px * 0.05
+	p.scale_amount_max = px * 0.12
+	var g := Gradient.new()
+	g.colors = PackedColorArray([col, Color(col.r, col.g * 0.4, col.b * 0.2, 0.0)])
+	p.color_ramp = g
+	var mat := CanvasItemMaterial.new()
+	mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	p.material = mat
+	add_child(p)
+	var tw := create_tween()
+	tw.tween_interval(1.2)
+	tw.tween_callback(p.queue_free)
+
+## World position of thrust-point `i` on the boss body (mirror of `_muzzle` for FPs). Origin is CENTER.
+func _vb_tp_world(i: int) -> Vector2:
+	if i < 0 or i >= _vb_tp_fracs.size() or _draw_size == Vector2.ZERO:
+		return global_position
+	return global_position + ((_vb_tp_fracs[i]["frac"] as Vector2) - Vector2(0.5, 0.5)) * _draw_size
+
+## Move 4: every authored TP glows bright red for ~0.2 s — fired once per magmafrag rain wave (user:
+## "mỗi đợt rải thì các TP sẽ rực sáng lên 0.2 giây"). A short additive sprite pop, not a particle burst.
+func _vb_tp_flare() -> void:
+	var px := maxf(_draw_size.x, 90.0) * 0.14
+	for i in _vb_tp_fracs.size():
+		var s := Sprite2D.new()
+		s.texture = VbChargeVfx._round_dot()
+		s.position = _vb_tp_world(i) - global_position
+		s.scale = Vector2.ONE * (px / 8.0)   # 16px dot → px-radius blob
+		s.modulate = Color(1.0, 0.35, 0.15, 0.0)
+		s.z_index = 6
+		var mat := CanvasItemMaterial.new()
+		mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+		s.material = mat
+		add_child(s)
+		var tw := create_tween()
+		tw.tween_property(s, "modulate:a", 1.0, 0.05)
+		tw.tween_property(s, "modulate:a", 0.0, 0.15)
+		tw.tween_callback(s.queue_free)
+
+func _vb_set_body_grounded(on: bool) -> void:
+	if _glb_body == null or not is_instance_valid(_glb_body) or not _glb_body.has_method("body_sprite"):
+		return
+	var spr: Sprite2D = _glb_body.call("body_sprite")
+	if spr == null:
+		return
+	var base: Vector2 = _glb_body.call("base_scale") if _glb_body.has_method("base_scale") else Vector2.ONE
+	var tw := create_tween().set_parallel(true)
+	tw.tween_property(spr, "modulate", (Color(0.55, 0.4, 0.4, 1.0) if on else Color.WHITE), VB_M3_DOWN_T)
+	tw.tween_property(spr, "scale", (base * 0.85 if on else base), VB_M3_DOWN_T)
+
+## Camera/screen rect in WORLD space — the camera rides the player, CAM_ZOOM = (1,1). Used by Move 4's rain.
+func _vb_screen_rect() -> Rect2:
+	var vp := get_viewport()
+	var sz := vp.get_visible_rect().size if vp != null else Vector2(1920, 1080)
+	var c := _player_pos()
+	return Rect2(c - sz * 0.5, sz)
+
+# ── Move 1: from FP1, 30 magmafrag in a 60° cone toward the player ──────────────────────────────────────
+func _vb_m1_cone(delta: float, dir: Vector2) -> void:
+	if _mgr == null or not is_instance_valid(_mgr):
+		_vb_finish_move()
+		return
+	if _vb_phase == 0:   # telegraph
+		if _vb_t >= VB_M1_TELEGRAPH:
+			_vb_phase = 1
+			_vb_shot_t = 999.0
+			_play_sfx(SFX_ZAP)
+		return
+	# active: fire the 30 in small bursts across VB_M1_FIRE_T
+	var per_batch := 4
+	var batch_gap := VB_M1_FIRE_T / (float(VB_M1_FRAGS) / float(per_batch))
+	if _vb_shot_t >= batch_gap and _vb_fired < VB_M1_FRAGS:
+		_vb_shot_t = 0.0
+		var muzzle := _muzzle(0)   # FP1
+		var to_player := (_player_pos() - muzzle)
+		var base_ang := to_player.angle() if to_player.length() > 1.0 else dir.angle()
+		var half := deg_to_rad(VB_M1_CONE_DEG * 0.5)
+		for _i in mini(per_batch, VB_M1_FRAGS - _vb_fired):
+			var a := base_ang + randf_range(-half, half)
+			_vb_spawn_frag(muzzle, Vector2(cos(a), sin(a)), VB_M1_FRAG_SPD, VB_M1_FRAG_DMG)
+			_vb_fired += 1
+	if _vb_fired >= VB_M1_FRAGS:
+		_vb_finish_move()
+
+# ── Move 2: charge 1.5 s (converging red rings) → FP2 + FP3 sweep two 800px beams 90° outside→inside ────
+func _vb_m2_beams(delta: float, dir: Vector2) -> void:
+	if _mgr == null or not is_instance_valid(_mgr):
+		_vb_finish_move()
+		return
+	if _vb_phase == 0:   # charge
+		if _vb_charge == null:
+			_vb_charge = VbChargeVfx.new()
+			add_child(_vb_charge)
+			_vb_charge.call("begin", maxf(_draw_size.x, 120.0))
+			_play_sfx(SFX_BEAM)
+		if _vb_t >= VB_M2_CHARGE_T:
+			if is_instance_valid(_vb_charge):
+				_vb_charge.queue_free()
+			_vb_charge = null
+			_vb_phase = 1
+			_vb_t = 0.0
+			# two beams: FP2 (index 1) sweeps from +45° in toward the player, FP3 (index 2) from −45°.
+			for idx in [1, 2]:
+				var lb: Node2D = LaserBeamScript.new()
+				lb.beam_thickness = 46.0                         # was 14 — user: "tia beam dày hơn"
+				lb.fx_core_color = Color(1.0, 0.97, 0.92)        # near-white hot core — "sáng rõ hơn"
+				lb.fx_body_color = Color(1.0, 0.34, 0.16)
+				lb.fx_glow_color = Color(1.0, 0.10, 0.05)
+				lb.body_glow_width = 1.35                        # fatter outer glow halo
+				lb.body_point_boost = 2.2                        # brighter ignition point at the FP
+				lb.z_index = 5
+				var pp := get_parent()
+				if pp != null:
+					pp.add_child(lb)
+				_vb_beams.append(lb)
+		return
+	# sweep phase
+	var prog := clampf(_vb_t / VB_M2_SWEEP_T, 0.0, 1.0)
+	var swing := deg_to_rad(VB_M2_SWEEP_DEG) * (1.0 - prog)   # 45° → 0°: closes onto the player
+	var pp := _player_pos()
+	var hits := 0
+	for i in _vb_beams.size():
+		var lb = _vb_beams[i]
+		if not is_instance_valid(lb):
+			continue
+		var muzzle := _muzzle(1 + i)   # FP2, FP3
+		var to := pp - muzzle
+		var centre := to.angle() if to.length() > 1.0 else dir.angle()
+		var sign := 1.0 if i == 0 else -1.0
+		var bdir := Vector2(cos(centre + sign * swing), sin(centre + sign * swing))
+		var beam_to := muzzle + bdir * VB_M2_BEAM_LEN
+		# player-on-segment hit test (same as _beamer_tick)
+		var proj := clampf((pp - muzzle).dot(bdir), 0.0, VB_M2_BEAM_LEN)
+		var near := (muzzle + bdir * proj).distance_to(pp) <= 34.0   # ~ half the (now thicker) beam + a little
+		lb.call("set_beam", muzzle, beam_to, true, near)
+		if near:
+			hits += 1
+	# VB_M2_BEAM_DMG PER beam currently touching the ship (user: "quét trúng gây 10 dmg/tia"), on a 0.4 s tick.
+	if hits > 0 and fmod(_vb_t, 0.4) < delta:
+		_report_hit_player()
+		GameManager.ship_take_damage(int(round(VB_M2_BEAM_DMG * hits * damage_out_mult())))
+	if prog >= 1.0:
+		_vb_finish_move()
+
+# ── Move 3: descend to the terrain (player fire passes OVER it — untargetable, no contact), pour 20 ash
+# over 5 s, rise. The player keeps shooting normally the whole time; bullets just can't connect with the
+# grounded boss (user: "người chơi vẫn bắn được, chỉ là không bắn trúng vào boss được"). ──────────────────
+func _vb_m3_ground(delta: float, _dir: Vector2) -> void:
+	if _vb_phase == 0:   # descend
+		if not _vb_grounded:
+			_vb_grounded = true
+			# Hard cap on how long "grounded" (= untargetable) can hold — the whole move plus a margin. `_t`
+			# advances even while the boss is stunned/frozen, so `_process`'s safety valve can still lift it
+			# if a stun stops _tick_volcanic_boss from ever finishing phase 1 (else the boss is unkillable).
+			_vb_ground_deadline = _t + VB_M3_DOWN_T + VB_M3_ASH_T + VB_M3_DOWN_T + 3.0
+			_vb_set_body_grounded(true)   # darken + shrink only — no landing blast (user: "loại bỏ vfx nổ khi boss hạ xuống")
+		if _vb_t >= VB_M3_DOWN_T:
+			_vb_phase = 1
+			_vb_t = 0.0
+			_vb_shot_t = 999.0
+		return
+	if _vb_phase == 1:   # spawn ash across the window
+		var gap := VB_M3_ASH_T / float(VB_M3_ASH_COUNT)
+		if _vb_shot_t >= gap and _vb_fired < VB_M3_ASH_COUNT:
+			_vb_shot_t = 0.0
+			var a := randf() * TAU
+			var at := global_position + Vector2(cos(a), sin(a)) * (_draw_size.x * randf_range(0.3, 0.6))
+			var e := _spawn_sibling(String(VB_M3_ASH_IDS[randi_range(0, VB_M3_ASH_IDS.size() - 1)]), at)
+			if e != null:
+				e.set("_knockback", Vector2(cos(a), sin(a)) * 260.0)
+			_vb_fired += 1
+		if _vb_fired >= VB_M3_ASH_COUNT and _vb_t >= VB_M3_ASH_T:
+			_vb_phase = 2
+			_vb_t = 0.0
+			_vb_grounded = false
+			_vb_set_body_grounded(false)
+		return
+	# rise
+	if _vb_t >= VB_M3_DOWN_T:
+		_vb_finish_move()
+
+# ── Move 4: pitch Rot X = -74° (face up), TPs flare red per wave, HOLD up through all 5 rain waves, then pitch back
+func _vb_m4_rain(delta: float, _dir: Vector2) -> void:
+	var pitched := _vb_mount_rest + Vector3(deg_to_rad(VB_M4_PITCH_DEG), 0.0, 0.0)
+	match _vb_phase:
+		0:   # pitch up to -74° (and unwind any chase-yaw so it reads as a clean look-up)
+			var p := clampf(_vb_t / VB_M4_TURN_T, 0.0, 1.0)
+			_vb_mount_cur = _vb_mount_rest.lerp(pitched, p)
+			if _glb_body != null and is_instance_valid(_glb_body):
+				_glb_body.call("set_mount_rot", _vb_mount_cur)
+				_glb_body.call("set_yaw", _approach_angle(_glb_body.call("get_yaw"), 0.0, VB_FACE_TURN_RATE * delta))
+			if p >= 1.0:
+				_vb_phase = 1
+				_vb_t = 0.0
+				_vb_tp_flare()   # initial pump as it locks the face-up pose
+				_play_sfx(SFX_ZAP)
+		1:   # flare — held pitched up
+			if _vb_t >= maxf(VB_M4_FLARE_T, VB_M4_RAIN_DELAY):
+				_vb_phase = 2
+				_vb_t = 0.0
+				_vb_shot_t = 999.0
+		2:   # rain 5 waves — STILL pitched up (user: giữ hướng lên đến khi rải xong hết 5 wave)
+			if _vb_shot_t >= VB_M4_RAIN_GAP and _vb_fired < VB_M4_RAIN_WAVES:
+				_vb_shot_t = 0.0
+				_vb_fired += 1
+				_vb_tp_flare()   # every TP glows red ~0.2 s per wave (user: "mỗi đợt rải thì các TP sẽ rực sáng lên 0.2 giây")
+				_play_sfx(SFX_ZAP)
+				var r := _vb_screen_rect()
+				var top_y := r.position.y - 40.0
+				var step := r.size.x / float(VB_M4_RAIN_PER)
+				for k in VB_M4_RAIN_PER:
+					var x := r.position.x + step * (float(k) + 0.5) + randf_range(-step * 0.4, step * 0.4)
+					_vb_spawn_frag(Vector2(x, top_y + randf_range(-30.0, 30.0)), Vector2.DOWN, VB_M4_RAIN_SPD, VB_M4_RAIN_DMG)
+			if _vb_fired >= VB_M4_RAIN_WAVES and _vb_shot_t >= VB_M4_RAIN_GAP:
+				_vb_phase = 3
+				_vb_t = 0.0
+		3:   # pitch back down to rest, then done
+			var p := clampf(_vb_t / VB_M4_TURN_T, 0.0, 1.0)
+			_vb_mount_cur = pitched.lerp(_vb_mount_rest, p)
+			if _glb_body != null and is_instance_valid(_glb_body):
+				_glb_body.call("set_mount_rot", _vb_mount_cur)
+			if p >= 1.0:
+				_vb_mount_cur = _vb_mount_rest
+				_vb_finish_move()
 
 ## Beamer's beam VFX — an independent LaserBeamScript instance (the SAME procedural shader beam the
 ## player's death_beam weapon uses, arena_weapons.gd), recolored blue. Parented to get_parent() (this
@@ -3837,6 +5038,8 @@ func _exit_tree() -> void:
 	if _missile_volley != null and is_instance_valid(_missile_volley):
 		_missile_volley.queue_free()
 	_missile_volley = null
+	if _boss_move == "volcanic" and _vb_grounded:
+		_vb_grounded = false
 
 ## RUN OVER's "last hit by" — records this enemy as whoever most recently damaged the player. Called right
 ## before every GameManager.ship_take_damage() this file triggers (those are ALWAYS player-damage calls;
@@ -3849,6 +5052,8 @@ func _report_hit_player() -> void:
 ## Contact damages whatever this enemy is aggro'd on: the player (incl. ship-contact-back), or an enemy target
 ## (a charmed ally for normal enemies, or a foe for charmed enemies). Throttled per-enemy for enemy-vs-enemy.
 func _check_contact() -> void:
+	if _vb_grounded:
+		return   # Move 3: the boss is flattened on the terrain — the ship flies over it, no contact
 	if _ship_contact_cd > 0.0:
 		_ship_contact_cd -= get_process_delta_time()
 	# Ship contact-back damage (Orbital pool) — 0 unless GameManager provides the curve.
@@ -3892,6 +5097,10 @@ func _check_contact() -> void:
 		# Only bombs detonate + die on contact; every other enemy survives the touch.
 		if contact_explodes and (behavior == "bomb" or behavior == "thrown_bomb"):
 			_on_contact_death()
+		elif _frag:
+			# A magmafrag just pops on the hull — its damage already landed above, no AoE.
+			_spawn_explosion(_draw_size.x * 0.6 if _draw_size.x > 0.0 else 18.0)
+			_die()
 	else:
 		# enemy-vs-enemy (charm): deal contact damage to the target, throttled.
 		if contact_damage > 0 and t.has_method("take_damage") and _ship_contact_cd <= 0.0:
@@ -3993,6 +5202,13 @@ func _centi_icon_for(k: int, n: int) -> String:
 ## Reads through `_creep_layout()`, whose cache creep_edit_mode.gd invalidates on save — so a rotation
 ## dialled in the editor reaches the next boss that spawns without a restart.
 static var _mount_rot_helper: RefCounted = null
+## Shared glb_topdown_rig instance for the editor-space ↔ view-space rotation maths (compose_rot / view_basis
+## / tp_direction). Cheap and stateless — one is plenty.
+static func _glb_rig() -> RefCounted:
+	if _mount_rot_helper == null:
+		_mount_rot_helper = GlbRigScript.new()
+	return _mount_rot_helper
+
 static func _creep_mount_rot(layer_name: String) -> Vector3:
 	var cfg := _creep_layout()
 	if cfg == null:
@@ -4000,9 +5216,7 @@ static func _creep_mount_rot(layer_name: String) -> Vector3:
 	var entry: Dictionary = cfg.get_value("creeps", layer_name, {})
 	if entry.is_empty():
 		return Vector3.ZERO
-	if _mount_rot_helper == null:
-		_mount_rot_helper = GlbRigScript.new()
-	return _mount_rot_helper.compose_rot(
+	return _glb_rig().compose_rot(
 		entry.get("rot_base", Vector3.ZERO), entry.get("rot", Vector3.ZERO))
 
 func _creep_layout_entry(cfg: ConfigFile, icon_path: String) -> Dictionary:
@@ -4077,6 +5291,15 @@ func _centi_seg_scale(k: int, n: int) -> float:
 func _approach_angle(cur: float, target: float, max_step: float) -> float:
 	var diff := wrapf(target - cur, -PI, PI)
 	return cur + clampf(diff, -max_step, max_step)
+
+## Did the angle `x` fall within the arc the beam swept from `a` to `b` this frame? Handles the shortest
+## direction and the ±PI seam. Used by Nautilus's Move 5 swept-beam hit test.
+func _ang_swept(x: float, a: float, b: float) -> bool:
+	var span := wrapf(b - a, -PI, PI)         # signed sweep, shortest way round
+	var off := wrapf(x - a, -PI, PI)          # x relative to the arc's start
+	if span >= 0.0:
+		return off >= -0.02 and off <= span + 0.02
+	return off <= 0.02 and off >= span - 0.02
 
 ## Trail the body behind the head: head = node position; each segment is pulled to a fixed spacing
 ## behind the one ahead (identical to the Viper's _run_snake follow loop).

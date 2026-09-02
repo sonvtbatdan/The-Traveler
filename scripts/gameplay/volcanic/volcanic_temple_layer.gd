@@ -36,7 +36,7 @@ const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")
 const TEMPLE_GLB_PATH := "res://assets/map/volcanic/landmark/temple.glb"
 const TEMPLE_ICON_PATH := "res://assets/map/volcanic/landmark/temple.png"
 const TEMPLE_COUNT := 2       # total temples for the whole run — "mỗi map chỉ có 2 temple"
-const SPAWN_WINDOW := 1800.0  # 30 minutes, in seconds — matches electric_temple_layer.gd's own window
+const SPAWN_WINDOW := 1200.0  # 20 minutes, in seconds — matches electric_temple_layer.gd's own window
 const TEMPLE_SCALE_MULT := 3.0     # matches electric_temple_layer.gd's TEMPLE_SCALE_MULT — a landmark should
 									# read as much bigger than ordinary scatter decoration
 const DIST_MIN := 10000.0          # matches electric_temple_layer.gd's own range (was 2500-6000, visual-only era)

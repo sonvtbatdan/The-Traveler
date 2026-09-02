@@ -136,7 +136,7 @@ func _build_ui() -> void:
 	var panel := Panel.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = UiPalette.SURFACE
-	sb.set_corner_radius_all(8)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(2)
 	sb.border_color = UiPalette.ACCENT_DIM
 	sb.set_content_margin_all(12.0)
@@ -154,7 +154,7 @@ func _build_ui() -> void:
 	panel.add_child(vb)
 
 	var title := _mk_label("CREEP INFO", 16)
-	title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	title.add_theme_color_override("font_color", UiPalette.AMBER)
 	vb.add_child(title)
 	var hint := _mk_label("Move \"(default)\" + Shoot \"None\" = untouched (keeps original behavior). Overriding only ONE of the two does NOT keep the other's original pattern — the unit falls back to stationary / no shooting for whichever side is left default.", 10)
 	hint.add_theme_color_override("font_color", UiPalette.MUTED)
@@ -172,7 +172,7 @@ func _build_ui() -> void:
 	close_btn.add_theme_color_override("font_color", UiPalette.DANGER)
 	btn_row.add_child(close_btn)
 	_status = _mk_label("", 11)
-	_status.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	_status.add_theme_color_override("font_color", UiPalette.AMBER)
 	btn_row.add_child(_status)
 
 	var tab_row := HBoxContainer.new()
@@ -267,7 +267,7 @@ func _update_map_tab_styles() -> void:
 	for map_id: String in _map_tab_buttons:
 		var btn := _map_tab_buttons[map_id] as Button
 		if map_id == _map_tab_id:
-			btn.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+			btn.add_theme_color_override("font_color", UiPalette.AMBER)
 		else:
 			btn.remove_theme_color_override("font_color")
 

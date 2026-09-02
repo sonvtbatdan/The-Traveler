@@ -17,7 +17,7 @@ func setup(p_slot: String) -> void:
 	sb.bg_color = Color(1.0, 1.0, 1.0, 0.12)     # thin white mask
 	sb.border_color = Color(0.3, 1.0, 0.4, 0.95) # green border hugging the slot
 	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(4)
+	sb.set_corner_radius_all(0)
 	_hl.add_theme_stylebox_override("panel", sb)
 	_hl.visible = false
 	add_child(_hl)

@@ -262,7 +262,7 @@ func _build_asset_panel() -> void:
 	_plume_tp_label = Label.new()
 	_plume_tp_label.text = "– select a TP –"
 	_plume_tp_label.add_theme_font_size_override("font_size", 10)
-	_plume_tp_label.modulate = Color(0.7, 0.7, 0.7)
+	_plume_tp_label.modulate = UiPalette.MUTED
 	root.add_child(_plume_tp_label)
 
 	var vel_row := HBoxContainer.new()
@@ -413,7 +413,7 @@ func _add_section(parent: VBoxContainer, text: String) -> void:
 	var lbl := Label.new()
 	lbl.text = text
 	lbl.add_theme_font_size_override("font_size", 11)
-	lbl.modulate = Color(0.60, 0.63, 0.76)
+	lbl.modulate = UiPalette.MUTED
 	parent.add_child(lbl)
 
 func _small_spin(parent: HBoxContainer, prefix: String, mn: float, mx: float, cb: Callable = Callable()) -> SpinBox:
@@ -854,8 +854,8 @@ func _make_point_row(pt: Dictionary, idx: int) -> Control:
 	row.mouse_filter = Control.MOUSE_FILTER_STOP
 	var style := StyleBoxFlat.new()
 	style.bg_color = col_sel if is_sel else Color(0.0, 0.0, 0.0, 0.0)
-	style.corner_radius_top_left    = 3; style.corner_radius_top_right    = 3
-	style.corner_radius_bottom_left = 3; style.corner_radius_bottom_right = 3
+	style.corner_radius_top_left    = 0; style.corner_radius_top_right    = 0
+	style.corner_radius_bottom_left = 0; style.corner_radius_bottom_right = 0
 	row.add_theme_stylebox_override("panel", style)
 
 	var hbox := HBoxContainer.new()

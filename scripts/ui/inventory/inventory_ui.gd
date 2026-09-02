@@ -118,6 +118,7 @@ func _build_panel() -> void:
 	_panel.offset_right = PANEL_SIZE.x * 0.5 - PANEL_X_SHIFT; _panel.offset_bottom = PANEL_SIZE.y * 0.5
 	_style_panel(_panel)
 	add_child(_panel)
+	UiPalette.scanlines(_panel)
 	_build_panel_contents()
 
 	# Character Sheet — live stats panel, docks itself to the right screen edge.
@@ -232,7 +233,7 @@ func _build_panel_contents() -> void:
 	hint.position = Vector2(40, PANEL_SIZE.y - 40)
 	hint.size = Vector2(PANEL_SIZE.x - 80, 20)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.modulate = Color(0.7, 0.78, 0.9)
+	hint.modulate = UiPalette.MUTED
 	_apply_font(hint, 10)
 	_panel.add_child(hint)
 
@@ -348,7 +349,7 @@ func _make_readonly_slot(bg_color: Color, row_kind: String, index: int) -> Panel
 	sb.bg_color = bg_color
 	sb.set_border_width_all(2)
 	sb.border_color = Color(bg_color.r, bg_color.g, bg_color.b, 0.95)
-	sb.set_corner_radius_all(6)
+	sb.set_corner_radius_all(0)
 	p.add_theme_stylebox_override("panel", sb)
 	return p
 
@@ -379,7 +380,7 @@ func _fill_readonly_slot(slot: Panel, tex: Texture2D, fallback_color: Color, ite
 	lvl_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	lvl_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_apply_font(lvl_lbl, 10)
-	lvl_lbl.add_theme_color_override("font_color", Color(1.0, 0.9, 0.5))
+	lvl_lbl.add_theme_color_override("font_color", UiPalette.AMBER)
 	slot.add_child(lvl_lbl)
 
 ## Registry entry for a weapon kind from either the base weapon map or the fusion map (mirrors
@@ -557,7 +558,7 @@ func flash_message(msg: String) -> void:
 		_msg_label.position = Vector2(0, 44)
 		_msg_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_apply_font(_msg_label, 16)
-		_msg_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.45))
+		_msg_label.add_theme_color_override("font_color", UiPalette.DANGER)
 		_panel.add_child(_msg_label)
 	_msg_label.text = MandaloreText.a(msg)
 	_msg_label.modulate.a = 1.0
@@ -565,7 +566,7 @@ func flash_message(msg: String) -> void:
 	t.tween_interval(1.0)
 	t.tween_property(_msg_label, "modulate:a", 0.0, 0.6)
 
-# ── Styling (dark navy / steel-blue, matching the rest of the game) ───────────
+# ── Styling (CRT phosphor console — UiPalette tokens) ────────────────────────
 
 func _apply_font(c: Control, sz: int) -> void:
 	if _font == null:
@@ -578,7 +579,7 @@ func _style_panel(p: Panel) -> void:
 	s.bg_color = UiPalette.SURFACE
 	s.set_border_width_all(2)
 	s.border_color = UiPalette.ACCENT_DIM
-	s.set_corner_radius_all(10)
+	s.set_corner_radius_all(0)
 	p.add_theme_stylebox_override("panel", s)
 
 ## GEAR slots are flat colour squares like WEAPONS/AUX (no more per-slot sprite art) — but only show
@@ -592,20 +593,19 @@ func _style_slot(p: Panel, occupied: bool) -> void:
 	sb.bg_color = GEAR_SLOT_COLOR
 	sb.set_border_width_all(2)
 	sb.border_color = Color(GEAR_SLOT_COLOR.r, GEAR_SLOT_COLOR.g, GEAR_SLOT_COLOR.b, 0.95)
-	sb.set_corner_radius_all(6)
+	sb.set_corner_radius_all(0)
 	p.add_theme_stylebox_override("panel", sb)
 
 func _style_button(b: Button) -> void:
 	for state: String in ["normal", "hover", "pressed"]:
 		var s := StyleBoxFlat.new()
-		var shade := 0.12
+		s.bg_color = UiPalette.SURFACE_2
 		if state == "hover":
-			shade = 0.18
+			s.bg_color = UiPalette.SURFACE_3
 		elif state == "pressed":
-			shade = 0.08
-		s.bg_color = Color(shade, shade + 0.03, shade + 0.08, 0.95)
+			s.bg_color = UiPalette.ACCENT_DIM
 		s.set_border_width_all(2)
 		s.border_color = UiPalette.WIRE_2
-		s.set_corner_radius_all(6)
+		s.set_corner_radius_all(0)
 		b.add_theme_stylebox_override(state, s)
 	b.add_theme_color_override("font_color", UiPalette.INK)

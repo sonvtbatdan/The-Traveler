@@ -27,9 +27,9 @@ const ROW_GAP   := 8.0
 const MARGIN_RIGHT  := 24.0
 const MARGIN_BOTTOM := 96.0      # clears the bottom-centre HP/Shield/Level HUD bar — same margin
                                   # arena_toast.gd's own "bottom_right" corner already used
-const CARD_BG      := Color(0.05, 0.06, 0.09, 0.88)
+const CARD_BG      := Color(0.063, 0.086, 0.059, 0.9)   # UiPalette.SURFACE @ ~0.9 alpha
 const CARD_ACCENT  := Color(1.0, 0.85, 0.2, 0.9)     # left stripe — same gold as arena_toast.gd's text
-const TEXT_COLOR   := Color(0.92, 0.94, 0.98)
+const TEXT_COLOR   := Color(0.847, 0.894, 0.827)     # UiPalette.INK
 const TEXT_OUTLINE := Color(0.0, 0.0, 0.0, 0.6)
 
 ## Public entry point — mirrors arena_toast.gd's own show(host, text) shape so call sites read the same way.
@@ -76,7 +76,7 @@ static func _build_row(text: String) -> PanelContainer:
 	panel.modulate.a = 0.0
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = CARD_BG
-	sb.set_corner_radius_all(10)
+	sb.set_corner_radius_all(0)
 	sb.border_color = CARD_ACCENT
 	sb.set_border_width_all(0)
 	sb.border_width_left = 4   # left accent stripe only

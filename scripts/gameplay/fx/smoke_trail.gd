@@ -52,6 +52,10 @@ var _glow: Sprite2D = null
 static var _active: int = 0
 
 var _life: float = 3.0
+var _dir_rot: float = 0.0   # radians — style "dir": rotates every layer's emission direction/gravity.
+                            # 0 = the stock "billow downward" wake; a smoke POINT on a 3D boss sets this
+                            # from its authored `dir_rot` so the plume sprays the way the editor showed.
+var _follow: bool = false   # style "follow": layers ride the emitter node (local_coords) so the cloud tracks it
 var _emitting_on: bool = true
 var _detaching: bool = false
 var _detach_t: float = 0.0
@@ -68,12 +72,21 @@ var _glow_base_scale: Vector2 = Vector2.ONE
 func setup(width_px: float, style: Dictionary = {}) -> void:
 	var w: float = maxf(width_px, 8.0)
 	_life = float(style.get("lifetime", 3.0))
+	_dir_rot = float(style.get("dir", 0.0))
+	# style "follow" (2026-09-02): every layer rides the emitter node instead of hanging in world space, so
+	# the cloud stays CENTRED on whatever it's parented to even as that thing moves. Nautilus's Move 4
+	# smokescreen needs this — a world-space cloud trails behind the boss the moment it starts retreating and
+	# stops hiding it ("khói xì ra chưa bao được hết nautilus khi nó chạy lùi").
+	_follow = bool(style.get("follow", false))
 	_ensure_assets()
 	_build_smoke(w, style)
 	_build_ash(w, style)
-	_build_embers(w, style)
-	_build_flame(w, style)
-	_build_glow(w, style)
+	# style "no_fire" (2026-09-02): drop the three FIRE-coloured layers. Nautilus's Move 4 smokescreen is a
+	# cold white-blue coolant cloud — orange embers/flame/glow would read completely wrong on it.
+	if not bool(style.get("no_fire", false)):
+		_build_embers(w, style)
+		_build_flame(w, style)
+		_build_glow(w, style)
 	_slot = _active
 	_active += 1
 	set_process(true)
@@ -122,7 +135,7 @@ func _reconcile_emitters() -> void:
 # ── Smoke ────────────────────────────────────────────────────────────────────
 func _build_smoke(w: float, style: Dictionary) -> void:
 	var p := CPUParticles2D.new()
-	p.local_coords = false
+	p.local_coords = _follow
 	p.emitting = true
 	p.z_as_relative = true
 	p.z_index = -3
@@ -132,7 +145,7 @@ func _build_smoke(w: float, style: Dictionary) -> void:
 	p.randomness = 0.7
 	p.amount = clampi(int(w / 1.5), 26, 84)
 	p.gravity = Vector2.ZERO
-	p.direction = Vector2(0.0, 1.0)
+	p.direction = Vector2(0.0, 1.0).rotated(_dir_rot)
 	p.spread = float(style.get("spread", 42.0))
 	p.initial_velocity_min = float(style.get("vel_min", 2.0))
 	p.initial_velocity_max = float(style.get("vel_max", 13.0))
@@ -178,6 +191,13 @@ func _build_smoke(w: float, style: Dictionary) -> void:
 	mat.shader = _smoke_shader
 	mat.set_shader_parameter("fbm_tex", _fbm_tex)
 	mat.set_shader_parameter("peak_alpha", 0.95)
+	# The shader owns ALL the tinting (the particle ramp above is neutral grey) — so a caller recolours the
+	# smoke by overriding its 3-tone palette here, not by modulating. 2026-09-02: Nautilus's Move 4 passes a
+	# white-blue set; omitting them keeps the stock volcanic soot.
+	for k: String in ["c_shadow", "c_body", "c_lit"]:
+		if style.has(k):
+			var c: Color = style[k]
+			mat.set_shader_parameter(k, Vector3(c.r, c.g, c.b))
 	p.material = mat
 	add_child(p)
 	_smoke = p
@@ -185,7 +205,7 @@ func _build_smoke(w: float, style: Dictionary) -> void:
 # ── Ash motes ────────────────────────────────────────────────────────────────
 func _build_ash(w: float, _style: Dictionary) -> void:
 	var p := CPUParticles2D.new()
-	p.local_coords = false
+	p.local_coords = _follow
 	p.emitting = true
 	p.z_as_relative = true
 	p.z_index = -1
@@ -194,8 +214,8 @@ func _build_ash(w: float, _style: Dictionary) -> void:
 	p.lifetime_randomness = 0.6
 	p.randomness = 0.9
 	p.amount = clampi(int(w / 3.4), 12, 40)
-	p.gravity = Vector2(0.0, -4.0)
-	p.direction = Vector2(0.0, 1.0)
+	p.gravity = Vector2(0.0, -4.0).rotated(_dir_rot)
+	p.direction = Vector2(0.0, 1.0).rotated(_dir_rot)
 	p.spread = 180.0
 	p.initial_velocity_min = 5.0
 	p.initial_velocity_max = 34.0
@@ -240,7 +260,7 @@ func _build_ash(w: float, _style: Dictionary) -> void:
 # ── Embers ───────────────────────────────────────────────────────────────────
 func _build_embers(w: float, _style: Dictionary) -> void:
 	var p := CPUParticles2D.new()
-	p.local_coords = false
+	p.local_coords = _follow
 	p.emitting = true
 	p.z_as_relative = true
 	p.z_index = 0
@@ -249,8 +269,8 @@ func _build_embers(w: float, _style: Dictionary) -> void:
 	p.lifetime_randomness = 0.55
 	p.randomness = 0.85
 	p.amount = clampi(int(w / 5.5), 6, 22)
-	p.gravity = Vector2(0.0, -14.0)
-	p.direction = Vector2(0.0, -1.0)
+	p.gravity = Vector2(0.0, -14.0).rotated(_dir_rot)
+	p.direction = Vector2(0.0, -1.0).rotated(_dir_rot)
 	p.spread = 80.0
 	p.initial_velocity_min = 18.0
 	p.initial_velocity_max = 78.0
@@ -292,7 +312,7 @@ func _build_embers(w: float, _style: Dictionary) -> void:
 # ── Source flame ─────────────────────────────────────────────────────────────
 func _build_flame(w: float, _style: Dictionary) -> void:
 	var p := CPUParticles2D.new()
-	p.local_coords = false
+	p.local_coords = _follow
 	p.emitting = true
 	p.z_as_relative = true
 	p.z_index = -1
@@ -304,8 +324,8 @@ func _build_flame(w: float, _style: Dictionary) -> void:
 	p.explosiveness = 0.0
 	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
 	p.emission_sphere_radius = w * 0.11
-	p.gravity = Vector2(0.0, -26.0)
-	p.direction = Vector2(0.0, -1.0)
+	p.gravity = Vector2(0.0, -26.0).rotated(_dir_rot)
+	p.direction = Vector2(0.0, -1.0).rotated(_dir_rot)
 	p.spread = 30.0
 	p.initial_velocity_min = 14.0
 	p.initial_velocity_max = 50.0
@@ -387,6 +407,30 @@ func _process(delta: float) -> void:
 			queue_free()
 
 # ── Baked assets ─────────────────────────────────────────────────────────────
+## Public static accessors so other VFX (e.g. volcanic_clouds.gd's ground plumes) can reuse the exact same
+## shaders + baked FBM/puff textures without instancing a whole SmokeTrail node.
+static func shared_smoke_shader() -> Shader:
+	if _smoke_shader == null: _smoke_shader = load(SMOKE_SHADER) as Shader
+	return _smoke_shader
+static func shared_flame_shader() -> Shader:
+	if _flame_shader == null: _flame_shader = load(FLAME_SHADER) as Shader
+	return _flame_shader
+static func shared_ember_shader() -> Shader:
+	if _ember_shader == null: _ember_shader = load(EMBER_SHADER) as Shader
+	return _ember_shader
+static func shared_fbm_tex() -> Texture2D:
+	if _fbm_tex == null: _fbm_tex = _bake_fbm2(0.018, 0.030, 5, 1337, 5501)
+	return _fbm_tex
+static func shared_puff_tex() -> Texture2D:
+	if _puff_tex == null: _puff_tex = _bake_puff()
+	return _puff_tex
+## A per-particle-seed gradient — scales only RED 0.5→1.5. Put on a CPUParticles2D's `color_initial_ramp`
+## so the smoke_trail shader can recover a per-particle random from COLOR.r/COLOR.g (see its header).
+static func seed_initial_ramp() -> Gradient:
+	var g := Gradient.new()
+	g.colors = PackedColorArray([Color(0.5, 1.0, 1.0, 1.0), Color(1.5, 1.0, 1.0, 1.0)])
+	return g
+
 func _ensure_assets() -> void:
 	if _smoke_shader == null:
 		_smoke_shader = load(SMOKE_SHADER) as Shader

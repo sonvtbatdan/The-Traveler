@@ -80,13 +80,14 @@ func _build_ui() -> void:
 	_panel.position = Vector2(20.0, 44.0)
 	_panel.size = Vector2(PANEL_W, minf(660.0, vp_h - _panel.position.y - 20.0))
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.08, 0.08, 0.09, 0.98)
-	sb.set_corner_radius_all(10)
+	sb.bg_color = UiPalette.SURFACE
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(2)
-	sb.border_color = Color(0.55, 0.58, 0.62)
+	sb.border_color = UiPalette.MUTED
 	sb.set_content_margin_all(8.0)
 	_panel.add_theme_stylebox_override("panel", sb)
 	add_child(_panel)
+	UiPalette.scanlines(_panel)
 
 	var outer := VBoxContainer.new()
 	outer.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -95,7 +96,7 @@ func _build_ui() -> void:
 
 	var title := Label.new()
 	title.text = "☁ PLUME EDIT"
-	_font(title, 15, Color(0.85, 0.87, 0.9))
+	_font(title, 15, UiPalette.INK)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.tooltip_text = "Drag to move"
 	title.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -133,7 +134,7 @@ func _build_ui() -> void:
 	_add_slider(col, "wind_strength_max", "Wind Strength (ceiling, shared)", 0.0, 80.0, 1.0)
 	var wind_hint := Label.new()
 	wind_hint.text = "Direction + actual strength are ROLLED RANDOMLY — affects smoke AND flame together"
-	_font(wind_hint, 10, Color(0.6, 0.62, 0.65))
+	_font(wind_hint, 10, UiPalette.MUTED)
 	wind_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	wind_hint.autowrap_mode = TextServer.AUTOWRAP_WORD
 	col.add_child(wind_hint)
@@ -165,7 +166,7 @@ func _build_ui() -> void:
 	btn_row.add_child(close_btn)
 
 	_status = Label.new()
-	_font(_status, 12, Color(0.5, 0.9, 0.5))
+	_font(_status, 12, UiPalette.GOOD)
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	outer.add_child(_status)
 
@@ -189,7 +190,7 @@ func _build_kind_section(parent: VBoxContainer, kind: String) -> VBoxContainer:
 	section.add_child(HSeparator.new())
 	var palette_lbl := Label.new()
 	palette_lbl.text = "%s Colors (random pick per plume)" % label_kind
-	_font(palette_lbl, 13, Color(0.85, 0.87, 0.9))
+	_font(palette_lbl, 13, UiPalette.INK)
 	section.add_child(palette_lbl)
 	for i in 6:
 		_add_color_row(section, "%s_color_%d" % [kind, i], "Color %d" % (i + 1))
@@ -204,7 +205,7 @@ func _select_kind(kind: String) -> void:
 func _add_slider(parent: VBoxContainer, key: String, label_text: String, min_v: float, max_v: float, step_v: float) -> void:
 	var lbl := Label.new()
 	lbl.text = label_text
-	_font(lbl, 13, Color(0.85, 0.87, 0.9))
+	_font(lbl, 13, UiPalette.INK)
 	parent.add_child(lbl)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -220,7 +221,7 @@ func _add_slider(parent: VBoxContainer, key: String, label_text: String, min_v: 
 	var val_lbl := Label.new()
 	val_lbl.custom_minimum_size = Vector2(44.0, 0.0)
 	val_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_font(val_lbl, 13, Color(0.75, 0.8, 0.85))
+	_font(val_lbl, 13, UiPalette.MUTED)
 	row.add_child(val_lbl)
 	_sliders[key] = slider
 	_value_lbls[key] = val_lbl
@@ -232,7 +233,7 @@ func _add_color_row(parent: VBoxContainer, key: String, label_text: String) -> v
 	var lbl := Label.new()
 	lbl.text = label_text
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_font(lbl, 13, Color(0.85, 0.87, 0.9))
+	_font(lbl, 13, UiPalette.INK)
 	row.add_child(lbl)
 	var picker := ColorPickerButton.new()
 	picker.custom_minimum_size = Vector2(70.0, 24.0)

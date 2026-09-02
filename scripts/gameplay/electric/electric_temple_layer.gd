@@ -30,7 +30,7 @@ const TEMPLE_GLB_PATH := "res://assets/map/electric/landmark/temple.glb"
 const TEMPLE_ICON_PATH := "res://assets/map/electric/landmark/temple.png"
 
 const TEMPLE_COUNT := 2       # total temples for the whole run — "mỗi map chỉ có 2 temple"
-const SPAWN_WINDOW := 1800.0  # 30 minutes, in seconds — each temple's spawn TIME is rolled uniformly in
+const SPAWN_WINDOW := 1200.0  # 20 minutes, in seconds — each temple's spawn TIME is rolled uniformly in
                                 # [0, SPAWN_WINDOW) against GameManager.run_time (pause-safe, already the
                                 # project's canonical run clock — see GameManager.run_time's own doc comment)
 const DIST_MIN     := 10000.0 # minimum spawn distance from the player's position AT SPAWN TIME (px)

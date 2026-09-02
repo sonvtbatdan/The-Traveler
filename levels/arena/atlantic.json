@@ -196,12 +196,6 @@
       "type": "shark"
     },
     {
-      "count": 35,
-      "pattern": "wall",
-      "time": 330.0,
-      "type": "stingray_elite"
-    },
-    {
       "count": 1,
       "pattern": "ring",
       "time": 330.0,
@@ -220,10 +214,10 @@
       "type": "spermwhale2"
     },
     {
-      "count": 1,
-      "pattern": "ring",
-      "time": 360.0,
-      "type": "fleet:AT.Stingray.Cloud.16"
+      "count": 35,
+      "pattern": "wall",
+      "time": 330.0,
+      "type": "stingray_elite"
     },
     {
       "count": 1,
@@ -268,10 +262,10 @@
       "type": "fleet:AT.Stingray.Cloud.16"
     },
     {
-      "count": 184,
-      "pattern": "wedge",
+      "count": 1,
+      "pattern": "ring",
       "time": 360.0,
-      "type": "shark"
+      "type": "fleet:AT.Stingray.Cloud.16"
     },
     {
       "count": 106,
@@ -280,10 +274,10 @@
       "type": "killerwhale"
     },
     {
-      "count": 451,
-      "pattern": "scatter",
-      "time": 390.0,
-      "type": "stingray_elite"
+      "count": 184,
+      "pattern": "wedge",
+      "time": 360.0,
+      "type": "shark"
     },
     {
       "count": 1,
@@ -340,64 +334,70 @@
       "type": "shark_elite"
     },
     {
-      "count": 294,
-      "pattern": "wedge",
-      "time": 420.0,
-      "type": "stingray"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 420.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 420.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 420.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 420.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 420.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 420.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 420.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 420.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
+      "count": 451,
+      "pattern": "scatter",
+      "time": 390.0,
+      "type": "stingray_elite"
     },
     {
       "count": 136,
       "pattern": "wall",
       "time": 420.0,
       "type": "atlantic_centipede"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 420.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 420.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 420.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 420.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 420.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 420.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 420.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 420.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 294,
+      "pattern": "wedge",
+      "time": 420.0,
+      "type": "stingray"
     },
     {
       "count": 325,
@@ -466,39 +466,45 @@
       "type": "killerwhale"
     },
     {
+      "count": 86,
+      "pattern": "pincer",
+      "time": 540.0,
+      "type": "atlantic_centipede"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 540.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 540.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 540.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 540.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
       "count": 211,
       "pattern": "scatter",
       "time": 540.0,
       "type": "shark"
     },
     {
-      "count": 1,
+      "count": 17,
       "pattern": "ring",
-      "time": 540.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 540.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 540.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 540.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 86,
-      "pattern": "pincer",
-      "time": 540.0,
+      "time": 570.0,
       "type": "atlantic_centipede"
     },
     {
@@ -514,40 +520,34 @@
       "type": "fleet:AT.ChainPack.Elite.10"
     },
     {
-      "count": 17,
-      "pattern": "ring",
-      "time": 570.0,
-      "type": "atlantic_centipede"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 600.0,
-      "type": "fleet:AT.Stingray.Cloud.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 600.0,
-      "type": "fleet:AT.Stingray.Cloud.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 600.0,
-      "type": "fleet:AT.Stingray.Cloud.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 600.0,
-      "type": "fleet:AT.Stingray.Cloud.16"
-    },
-    {
       "count": 34,
       "pattern": "wedge",
       "time": 600.0,
       "type": "atlantic_squid"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 600.0,
+      "type": "fleet:AT.Stingray.Cloud.16"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 600.0,
+      "type": "fleet:AT.Stingray.Cloud.16"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 600.0,
+      "type": "fleet:AT.Stingray.Cloud.16"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 600.0,
+      "type": "fleet:AT.Stingray.Cloud.16"
     },
     {
       "count": 46,
@@ -592,6 +592,12 @@
       "type": "fleet:AT.ChainPack.Elite.10"
     },
     {
+      "count": 266,
+      "pattern": "arc",
+      "time": 630.0,
+      "type": "killer_whale"
+    },
+    {
       "count": 404,
       "pattern": "wedge",
       "time": 630.0,
@@ -610,58 +616,46 @@
       "type": "killerwhale"
     },
     {
-      "count": 266,
-      "pattern": "arc",
-      "time": 630.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 56,
-      "pattern": "arc",
-      "time": 660.0,
-      "type": "stingray_elite"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 660.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 660.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 660.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 660.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 660.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 660.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
       "count": 102,
       "pattern": "pincer",
       "time": 660.0,
       "type": "atlantic_centipede"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 660.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 660.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 660.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 660.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 660.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 660.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
     },
     {
       "count": 23,
@@ -677,28 +671,28 @@
       "type": "stingray"
     },
     {
-      "count": 74,
-      "pattern": "wedge",
-      "time": 690.0,
+      "count": 56,
+      "pattern": "arc",
+      "time": 660.0,
       "type": "stingray_elite"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 690.0,
+      "type": "fleet:AT.KillerWhale.Triangle.3"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 690.0,
+      "type": "fleet:AT.KillerWhale.Triangle.3"
     },
     {
       "count": 111,
       "pattern": "arc",
       "time": 690.0,
       "type": "hammerhead"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 690.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 690.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
     },
     {
       "count": 12,
@@ -713,28 +707,10 @@
       "type": "stingray"
     },
     {
-      "count": 1,
-      "pattern": "ring",
-      "time": 720.0,
-      "type": "fleet:AT.Squid.Grid.15"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 720.0,
-      "type": "fleet:AT.Squid.Grid.15"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 720.0,
-      "type": "fleet:AT.Squid.Grid.15"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 720.0,
-      "type": "fleet:AT.Squid.Grid.15"
+      "count": 74,
+      "pattern": "wedge",
+      "time": 690.0,
+      "type": "stingray_elite"
     },
     {
       "count": 39,
@@ -743,12 +719,6 @@
       "type": "atlantic_squid"
     },
     {
-      "count": 91,
-      "pattern": "wedge",
-      "time": 720.0,
-      "type": "shark_elite"
-    },
-    {
       "count": 1,
       "pattern": "ring",
       "time": 720.0,
@@ -765,6 +735,30 @@
       "pattern": "ring",
       "time": 720.0,
       "type": "fleet:AT.KillerWhale.Triangle.3"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 720.0,
+      "type": "fleet:AT.Squid.Grid.15"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 720.0,
+      "type": "fleet:AT.Squid.Grid.15"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 720.0,
+      "type": "fleet:AT.Squid.Grid.15"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 720.0,
+      "type": "fleet:AT.Squid.Grid.15"
     },
     {
       "count": 8,
@@ -773,10 +767,10 @@
       "type": "killer_whale"
     },
     {
-      "count": 116,
+      "count": 91,
       "pattern": "wedge",
-      "time": 750.0,
-      "type": "stingray"
+      "time": 720.0,
+      "type": "shark_elite"
     },
     {
       "count": 1,
@@ -803,10 +797,10 @@
       "type": "killer_whale"
     },
     {
-      "count": 103,
-      "pattern": "wall",
-      "time": 780.0,
-      "type": "stingray_elite"
+      "count": 116,
+      "pattern": "wedge",
+      "time": 750.0,
+      "type": "stingray"
     },
     {
       "count": 1,
@@ -849,12 +843,6 @@
       "pattern": "ring",
       "time": 780.0,
       "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 67,
-      "pattern": "arc",
-      "time": 780.0,
-      "type": "killerwhale"
     },
     {
       "count": 26,
@@ -863,51 +851,15 @@
       "type": "killer_whale"
     },
     {
-      "count": 1,
-      "pattern": "ring",
-      "time": 810.0,
-      "type": "fleet:AT.Stingray.Cloud.16"
+      "count": 67,
+      "pattern": "arc",
+      "time": 780.0,
+      "type": "killerwhale"
     },
     {
-      "count": 1,
-      "pattern": "ring",
-      "time": 810.0,
-      "type": "fleet:AT.Stingray.Cloud.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 810.0,
-      "type": "fleet:AT.Stingray.Cloud.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 810.0,
-      "type": "fleet:AT.Stingray.Cloud.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 810.0,
-      "type": "fleet:AT.Stingray.Cloud.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 810.0,
-      "type": "fleet:AT.Stingray.Cloud.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 810.0,
-      "type": "fleet:AT.Stingray.Cloud.16"
-    },
-    {
-      "count": 26,
-      "pattern": "pincer",
-      "time": 810.0,
+      "count": 103,
+      "pattern": "wall",
+      "time": 780.0,
       "type": "stingray_elite"
     },
     {
@@ -917,16 +869,58 @@
       "type": "atlantic_centipede"
     },
     {
+      "count": 1,
+      "pattern": "ring",
+      "time": 810.0,
+      "type": "fleet:AT.Stingray.Cloud.16"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 810.0,
+      "type": "fleet:AT.Stingray.Cloud.16"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 810.0,
+      "type": "fleet:AT.Stingray.Cloud.16"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 810.0,
+      "type": "fleet:AT.Stingray.Cloud.16"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 810.0,
+      "type": "fleet:AT.Stingray.Cloud.16"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 810.0,
+      "type": "fleet:AT.Stingray.Cloud.16"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 810.0,
+      "type": "fleet:AT.Stingray.Cloud.16"
+    },
+    {
       "count": 16,
       "pattern": "wedge",
       "time": 810.0,
       "type": "killer_whale"
     },
     {
-      "count": 1,
-      "pattern": "ring",
-      "time": 840.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
+      "count": 26,
+      "pattern": "pincer",
+      "time": 810.0,
+      "type": "stingray_elite"
     },
     {
       "count": 1,
@@ -965,16 +959,22 @@
       "type": "fleet:AT.ChainPack.Elite.10"
     },
     {
-      "count": 205,
-      "pattern": "arc",
+      "count": 1,
+      "pattern": "ring",
       "time": 840.0,
-      "type": "killerwhale"
+      "type": "fleet:AT.ChainPack.Elite.10"
     },
     {
       "count": 56,
       "pattern": "wedge",
       "time": 840.0,
       "type": "killer_whale"
+    },
+    {
+      "count": 205,
+      "pattern": "arc",
+      "time": 840.0,
+      "type": "killerwhale"
     },
     {
       "count": 2,
@@ -986,49 +986,49 @@
       "count": 1,
       "pattern": "ring",
       "time": 870.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 870.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 870.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 870.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 870.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 870.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 870.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 870.0,
       "type": "fleet:AT.Shark.Wedge.12"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 870.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 870.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 870.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 870.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 870.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 870.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 870.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
     },
     {
       "count": 175,
@@ -1041,6 +1041,24 @@
       "pattern": "scatter",
       "time": 870.0,
       "type": "killer_whale"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 900.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 900.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 900.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
     },
     {
       "count": 1,
@@ -1086,60 +1104,6 @@
       "type": "shark_elite"
     },
     {
-      "count": 1,
-      "pattern": "ring",
-      "time": 900.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 900.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 900.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 930.0,
-      "type": "fleet:AT.Spermwhale.Arc.4"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 930.0,
-      "type": "fleet:AT.Spermwhale.Arc.4"
-    },
-    {
-      "count": 15,
-      "pattern": "arc",
-      "time": 930.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 930.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 930.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 930.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
       "count": 58,
       "pattern": "scatter",
       "time": 930.0,
@@ -1164,16 +1128,46 @@
       "type": "fleet:AT.ChainPack.Elite.10"
     },
     {
+      "count": 1,
+      "pattern": "ring",
+      "time": 930.0,
+      "type": "fleet:AT.KillerWhale.Triangle.3"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 930.0,
+      "type": "fleet:AT.KillerWhale.Triangle.3"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 930.0,
+      "type": "fleet:AT.KillerWhale.Triangle.3"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 930.0,
+      "type": "fleet:AT.Spermwhale.Arc.4"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 930.0,
+      "type": "fleet:AT.Spermwhale.Arc.4"
+    },
+    {
+      "count": 15,
+      "pattern": "arc",
+      "time": 930.0,
+      "type": "killer_whale"
+    },
+    {
       "count": 135,
       "pattern": "scatter",
       "time": 960.0,
       "type": "atlantic_squid"
-    },
-    {
-      "count": 114,
-      "pattern": "wedge",
-      "time": 960.0,
-      "type": "shark_elite"
     },
     {
       "count": 32,
@@ -1182,10 +1176,10 @@
       "type": "killer_whale"
     },
     {
-      "count": 16,
-      "pattern": "wall",
+      "count": 114,
+      "pattern": "wedge",
       "time": 960.0,
-      "type": "whale"
+      "type": "shark_elite"
     },
     {
       "count": 2,
@@ -1194,46 +1188,52 @@
       "type": "stingray"
     },
     {
-      "count": 1,
-      "pattern": "ring",
-      "time": 990.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 990.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 990.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 990.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 990.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 990.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
+      "count": 16,
+      "pattern": "wall",
+      "time": 960.0,
+      "type": "whale"
     },
     {
       "count": 87,
       "pattern": "wall",
       "time": 990.0,
       "type": "atlantic_centipede"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 990.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 990.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 990.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 990.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 990.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 990.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
     },
     {
       "count": 32,
@@ -1317,6 +1317,24 @@
       "count": 1,
       "pattern": "ring",
       "time": 1050.0,
+      "type": "fleet:AT.KillerWhale.Triangle.3"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 1050.0,
+      "type": "fleet:AT.KillerWhale.Triangle.3"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 1050.0,
+      "type": "fleet:AT.KillerWhale.Triangle.3"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 1050.0,
       "type": "fleet:AT.Spermwhale.Arc.4"
     },
     {
@@ -1358,24 +1376,6 @@
     {
       "count": 1,
       "pattern": "ring",
-      "time": 1050.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1050.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1050.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
       "time": 1080.0,
       "type": "fleet:AT.ChainPack.Elite.10"
     },
@@ -1408,6 +1408,12 @@
       "pattern": "ring",
       "time": 1080.0,
       "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 30,
+      "pattern": "arc",
+      "time": 1080.0,
+      "type": "killer_whale"
     },
     {
       "count": 56,
@@ -1417,10 +1423,10 @@
       "type": "spermwhale2"
     },
     {
-      "count": 30,
-      "pattern": "arc",
+      "count": 1,
+      "pattern": "wedge",
       "time": 1080.0,
-      "type": "killer_whale"
+      "type": "stingray"
     },
     {
       "count": 15,
@@ -1430,9 +1436,27 @@
     },
     {
       "count": 1,
+      "pattern": "ring",
+      "time": 1110.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
       "pattern": "wedge",
-      "time": 1080.0,
-      "type": "stingray"
+      "time": 1110.0,
+      "type": "hammerhead"
+    },
+    {
+      "count": 3,
+      "pattern": "arc",
+      "time": 1110.0,
+      "type": "killer_whale"
+    },
+    {
+      "count": 17,
+      "pattern": "wall",
+      "time": 1110.0,
+      "type": "shark"
     },
     {
       "count": 4,
@@ -1447,28 +1471,10 @@
       "type": "whale"
     },
     {
-      "count": 3,
-      "pattern": "arc",
-      "time": 1110.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 1,
-      "pattern": "wedge",
-      "time": 1110.0,
-      "type": "hammerhead"
-    },
-    {
       "count": 1,
       "pattern": "ring",
-      "time": 1110.0,
+      "time": 1140.0,
       "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 17,
-      "pattern": "wall",
-      "time": 1110.0,
-      "type": "shark"
     },
     {
       "count": 1,
@@ -1480,7 +1486,31 @@
       "count": 1,
       "pattern": "ring",
       "time": 1140.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
+      "type": "fleet:AT.KillerWhale.Triangle.3"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 1140.0,
+      "type": "fleet:AT.KillerWhale.Triangle.3"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 1140.0,
+      "type": "fleet:AT.KillerWhale.Triangle.3"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 1140.0,
+      "type": "fleet:AT.Spermwhale.Arc.4"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 1140.0,
+      "type": "fleet:AT.Spermwhale.Arc.4"
     },
     {
       "count": 37,
@@ -1489,40 +1519,10 @@
       "type": "hammerhead"
     },
     {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1140.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1140.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1140.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
       "count": 11,
       "pattern": "scatter",
       "time": 1140.0,
       "type": "killer_whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1140.0,
-      "type": "fleet:AT.Spermwhale.Arc.4"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1140.0,
-      "type": "fleet:AT.Spermwhale.Arc.4"
     },
     {
       "count": 7,
@@ -1531,11 +1531,28 @@
       "type": "spermwhale"
     },
     {
-      "count": 208,
-      "duration": 0.0,
-      "pattern": "stream",
+      "count": 1,
+      "pattern": "ring",
       "time": 1170.0,
-      "type": "whale"
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 1170.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 1170.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
+    },
+    {
+      "count": 1,
+      "pattern": "ring",
+      "time": 1170.0,
+      "type": "fleet:AT.ChainPack.Elite.10"
     },
     {
       "count": 415,
@@ -1569,1240 +1586,18 @@
       "type": "spermwhale2"
     },
     {
-      "count": 1,
-      "pattern": "ring",
+      "count": 208,
+      "duration": 0.0,
+      "pattern": "stream",
       "time": 1170.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1170.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1170.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1170.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1200.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1200.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1200.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 16,
-      "pattern": "wedge",
-      "time": 1200.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1200.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1200.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1200.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1200.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1200.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1200.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 25,
-      "pattern": "pincer",
-      "time": 1230.0,
-      "type": "hammerhead"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1230.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1230.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1230.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 5,
-      "pattern": "arc",
-      "time": 1230.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1230.0,
-      "type": "fleet:AT.Spermwhale.Arc.4"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1230.0,
-      "type": "fleet:AT.Spermwhale.Arc.4"
-    },
-    {
-      "count": 6,
-      "pattern": "ring",
-      "time": 1230.0,
-      "type": "spermwhale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1230.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1230.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1260.0,
-      "type": "fleet:AT.Stingray.Cloud.16"
-    },
-    {
-      "count": 82,
-      "pattern": "scatter",
-      "time": 1260.0,
-      "type": "atlantic_squid"
-    },
-    {
-      "count": 194,
-      "pattern": "wall",
-      "time": 1260.0,
-      "type": "atlantic_centipede"
-    },
-    {
-      "count": 36,
-      "pattern": "arc",
-      "time": 1260.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 24,
-      "pattern": "ring",
-      "time": 1260.0,
       "type": "whale"
     },
     {
       "count": 1,
+      "is_boss": true,
       "pattern": "ring",
-      "time": 1260.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1260.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1260.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1260.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1260.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1290.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1290.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1290.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 36,
-      "duration": 0.0,
-      "pattern": "stream",
-      "time": 1290.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1290.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1290.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1290.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1290.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1290.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1290.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1320.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 38,
-      "pattern": "arc",
-      "time": 1320.0,
-      "type": "spermwhale"
-    },
-    {
-      "count": 17,
-      "pattern": "wedge",
-      "time": 1320.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1320.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1320.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1320.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1320.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1320.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1320.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1320.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1350.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1350.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 34,
-      "pattern": "wedge",
-      "time": 1350.0,
-      "type": "spermwhale"
-    },
-    {
-      "count": 16,
-      "pattern": "wedge",
-      "time": 1350.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1350.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1350.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1350.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1350.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1350.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1350.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1380.0,
-      "type": "fleet:AT.Stingray.Cloud.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1380.0,
-      "type": "fleet:AT.Stingray.Cloud.16"
-    },
-    {
-      "count": 39,
-      "pattern": "wedge",
-      "time": 1380.0,
-      "type": "stingray_elite"
-    },
-    {
-      "count": 160,
-      "duration": 0.0,
-      "pattern": "stream",
-      "time": 1380.0,
-      "type": "atlantic_centipede"
-    },
-    {
-      "count": 30,
-      "pattern": "scatter",
-      "time": 1380.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 30,
-      "pattern": "pincer",
-      "time": 1380.0,
-      "type": "spermwhale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1380.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1380.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1380.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1380.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1410.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1410.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1410.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1410.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1410.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1410.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1410.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1410.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 118,
-      "duration": 0.0,
-      "pattern": "stream",
-      "time": 1410.0,
-      "type": "spermwhale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1410.0,
-      "type": "fleet:AT.Spermwhale.Arc.4"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1440.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1440.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1440.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1440.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1440.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1440.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1440.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1440.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 60,
-      "pattern": "wall",
-      "time": 1440.0,
-      "type": "whale"
-    },
-    {
-      "count": 90,
-      "pattern": "ring",
-      "time": 1440.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1470.0,
-      "type": "fleet:AT.StingrayElite.Row.11"
-    },
-    {
-      "count": 1,
-      "pattern": "pincer",
-      "time": 1470.0,
-      "type": "atlantic_centipede"
-    },
-    {
-      "count": 2,
-      "pattern": "wedge",
-      "time": 1470.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1470.0,
-      "type": "fleet:AT.Spermwhale.Arc.4"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1500.0,
-      "type": "fleet:AT.StingrayElite.Row.11"
-    },
-    {
-      "count": 26,
-      "pattern": "pincer",
-      "time": 1500.0,
-      "type": "stingray"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1500.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 17,
-      "pattern": "pincer",
-      "time": 1500.0,
-      "type": "hammerhead"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1500.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 4,
-      "pattern": "pincer",
-      "time": 1500.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 7,
-      "pattern": "arc",
-      "time": 1500.0,
-      "type": "spermwhale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1500.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 12,
-      "pattern": "wedge",
-      "time": 1500.0,
-      "type": "stingray"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1530.0,
-      "type": "fleet:AT.StingrayElite.Row.11"
-    },
-    {
-      "count": 13,
-      "pattern": "wedge",
-      "time": 1530.0,
-      "type": "shark"
-    },
-    {
-      "count": 40,
-      "pattern": "ring",
-      "time": 1530.0,
-      "type": "atlantic_centipede"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1530.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 4,
-      "pattern": "pincer",
-      "time": 1530.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 9,
-      "pattern": "wedge",
-      "time": 1530.0,
-      "type": "spermwhale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1530.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1530.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 11,
-      "pattern": "wall",
-      "time": 1530.0,
-      "type": "stingray"
-    },
-    {
-      "count": 13,
-      "pattern": "wall",
-      "time": 1560.0,
-      "type": "whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1560.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1560.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1560.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1560.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1560.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1560.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1560.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1560.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 97,
-      "pattern": "ring",
-      "time": 1560.0,
-      "type": "stingray"
-    },
-    {
-      "count": 16,
-      "pattern": "arc",
-      "time": 1590.0,
-      "type": "whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1590.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1590.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1590.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1590.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1590.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1590.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1590.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1590.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 26,
-      "pattern": "wall",
-      "time": 1590.0,
-      "type": "stingray"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1620.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 5,
-      "pattern": "pincer",
-      "time": 1620.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1620.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1620.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 8,
-      "pattern": "ring",
-      "time": 1620.0,
-      "type": "spermwhale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1620.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1620.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1620.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1620.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1620.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 500,
-      "pattern": "wedge",
-      "time": 1650.0,
-      "type": "stingray"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1650.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1650.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1650.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1650.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1650.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1650.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1650.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1650.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 122,
-      "pattern": "arc",
-      "time": 1650.0,
-      "type": "spermwhale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1680.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 61,
-      "duration": 0.0,
-      "pattern": "stream",
-      "time": 1680.0,
-      "type": "whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1680.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1680.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1680.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1680.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1680.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1680.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1680.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1680.0,
-      "type": "fleet:AT.Whale.Duo.2"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1710.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1710.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1710.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1710.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1710.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1710.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 9,
-      "pattern": "arc",
-      "time": 1710.0,
-      "type": "whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1710.0,
-      "type": "fleet:AT.Spermwhale.Arc.4"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1710.0,
-      "type": "fleet:AT.Spermwhale.Arc.4"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1710.0,
-      "type": "fleet:AT.Spermwhale.Arc.4"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1740.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1740.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1740.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1740.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1740.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1740.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1740.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1740.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 31,
-      "pattern": "ring",
-      "time": 1740.0,
-      "type": "spermwhale"
-    },
-    {
-      "count": 10,
-      "pattern": "arc",
-      "time": 1740.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1770.0,
-      "type": "fleet:AT.StingrayElite.Row.11"
-    },
-    {
-      "count": 7,
-      "duration": 0.0,
-      "pattern": "stream",
-      "time": 1770.0,
-      "type": "atlantic_squid"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1770.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1770.0,
-      "type": "fleet:AT.ChainPack.Elite.10"
-    },
-    {
-      "count": 6,
-      "duration": 0.0,
-      "pattern": "stream",
-      "time": 1770.0,
-      "type": "killerwhale"
-    },
-    {
-      "count": 7,
-      "pattern": "arc",
-      "time": 1770.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 6,
-      "pattern": "wedge",
-      "time": 1770.0,
-      "type": "whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1770.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1770.0,
-      "type": "fleet:AT.Leviathan.Armada.16"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1800.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1800.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1800.0,
-      "type": "fleet:AT.KillerWhale.Triangle.3"
-    },
-    {
-      "count": 18,
-      "pattern": "wedge",
-      "time": 1800.0,
-      "type": "killer_whale"
-    },
-    {
-      "count": 22,
-      "pattern": "wedge",
-      "time": 1800.0,
-      "type": "whale"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1800.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1800.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1800.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1800.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
-    },
-    {
-      "count": 1,
-      "pattern": "ring",
-      "time": 1800.0,
-      "type": "fleet:AT.WhalePod.Guard.10"
+      "time": 1200.0,
+      "type": "Nautilus"
     }
   ]
 }

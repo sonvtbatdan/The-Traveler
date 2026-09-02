@@ -26,7 +26,7 @@ func setup(p_row_kind: String, p_index: int) -> void:
 	sb.bg_color = Color(1.0, 1.0, 1.0, 0.12)
 	sb.border_color = Color(0.3, 1.0, 0.4, 0.95)
 	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(6)
+	sb.set_corner_radius_all(0)
 	_hl.add_theme_stylebox_override("panel", sb)
 	_hl.visible = false
 	add_child(_hl)

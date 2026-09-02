@@ -36,6 +36,7 @@ func _ready() -> void:
 	_panel.size = Vector2(440, 748)
 	_style(_panel)
 	add_child(_panel)
+	UiPalette.scanlines(_panel)
 	_form = VBoxContainer.new()
 	_form.position = Vector2(10, 10)
 	_form.size = Vector2(420, 728)
@@ -49,6 +50,7 @@ func _ready() -> void:
 	_help_panel.size = Vector2(440, 748)
 	_style(_help_panel)
 	add_child(_help_panel)
+	UiPalette.scanlines(_help_panel)
 	var help_title := _title("CHOREOGRAPHIES  —  what each does")
 	help_title.position = Vector2(10, 8)
 	help_title.size = Vector2(420, 22)
@@ -138,7 +140,7 @@ func _build_form() -> void:
 	save_btn.pressed.connect(_on_save_pressed)
 	save_row.add_child(save_btn)
 	_status = _label("")
-	_status.add_theme_color_override("font_color", Color(0.7, 1.0, 0.7))
+	_status.add_theme_color_override("font_color", UiPalette.GOOD)
 	save_row.add_child(_status)
 	_form.add_child(save_row)
 
@@ -420,11 +422,11 @@ func _help_entry(nm: String, highlighted: bool) -> PanelContainer:
 	var pc := PanelContainer.new()
 	pc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var sb := StyleBoxFlat.new()
-	sb.set_corner_radius_all(6)
+	sb.set_corner_radius_all(0)
 	if highlighted:
-		sb.bg_color = Color(0.16, 0.30, 0.20, 0.96)
+		sb.bg_color = UiPalette.ACCENT_DIM
 		sb.set_border_width_all(2)
-		sb.border_color = Color(0.5, 0.95, 0.6, 0.95)   # bright green = the selected one
+		sb.border_color = UiPalette.ACCENT   # bright green = the selected one
 	else:
 		sb.bg_color = UiPalette.SURFACE_2
 		sb.set_border_width_all(1)
@@ -443,7 +445,7 @@ func _help_entry(nm: String, highlighted: bool) -> PanelContainer:
 	var name_l := Label.new()
 	name_l.text = MandaloreText.a(nm)
 	_apply_font(name_l, 13)
-	name_l.add_theme_color_override("font_color", Color(0.7, 1.0, 0.75) if highlighted else Color(0.7, 0.85, 1.0))
+	name_l.add_theme_color_override("font_color", UiPalette.ACCENT_INK if highlighted else UiPalette.INK)
 	vb.add_child(name_l)
 
 	var desc_l := Label.new()
@@ -451,7 +453,7 @@ func _help_entry(nm: String, highlighted: bool) -> PanelContainer:
 	_apply_font(desc_l, 11)
 	desc_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	desc_l.custom_minimum_size = Vector2(376, 0)   # bound the width so the text wraps inside the scroll box
-	desc_l.add_theme_color_override("font_color", Color(0.80, 0.86, 0.95))
+	desc_l.add_theme_color_override("font_color", UiPalette.MUTED)
 	vb.add_child(desc_l)
 	return pc
 
@@ -622,14 +624,14 @@ func _label(t: String) -> Label:
 	var l := Label.new()
 	l.text = MandaloreText.a(t)
 	_apply_font(l, 12)
-	l.add_theme_color_override("font_color", Color(0.82, 0.9, 1.0))
+	l.add_theme_color_override("font_color", UiPalette.INK)
 	return l
 
 func _title(t: String) -> Label:
 	var l := Label.new()
 	l.text = MandaloreText.a(t)
 	_apply_font(l, 15)
-	l.add_theme_color_override("font_color", Color(0.75, 0.88, 1.0))
+	l.add_theme_color_override("font_color", UiPalette.MUTED)
 	return l
 
 func _apply_font(c: Control, sz: int) -> void:
@@ -641,6 +643,6 @@ func _style(p: Panel) -> void:
 	var s := StyleBoxFlat.new()
 	s.bg_color = UiPalette.SURFACE
 	s.set_border_width_all(2)
-	s.border_color = Color(0.4, 0.6, 0.4, 0.95)   # green-ish so it reads as a dev tool
-	s.set_corner_radius_all(8)
+	s.border_color = UiPalette.WIRE_2
+	s.set_corner_radius_all(0)
 	p.add_theme_stylebox_override("panel", s)

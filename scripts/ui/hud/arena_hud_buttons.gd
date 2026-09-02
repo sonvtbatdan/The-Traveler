@@ -417,8 +417,7 @@ func _make_label_btn(label: String, width: float = BTN_SIZE, height: float = BTN
 	s.bg_color = UiPalette.SURFACE_2
 	s.border_color = UiPalette.WIRE_2
 	s.set_border_width_all(1)
-	s.corner_radius_top_left = 3; s.corner_radius_top_right = 3
-	s.corner_radius_bottom_left = 3; s.corner_radius_bottom_right = 3
+	s.set_corner_radius_all(0)
 	btn.add_theme_stylebox_override("normal", s)
 	var sh := s.duplicate() as StyleBoxFlat
 	sh.bg_color = UiPalette.SURFACE_3
@@ -808,7 +807,7 @@ func _build_end_run_popup() -> void:
 	var panel := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = UiPalette.SURFACE
-	sb.set_corner_radius_all(8)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(2)
 	sb.border_color = UiPalette.ACCENT_DIM
 	sb.set_content_margin_all(18.0)

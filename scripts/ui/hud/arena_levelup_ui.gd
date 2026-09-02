@@ -1560,7 +1560,7 @@ func _make_option_box(c: Dictionary, idx: int, total: int) -> Control:
 	detail.text = dtxt
 	detail.add_theme_font_override("font", load(FONT_PATH))
 	detail.add_theme_font_size_override("font_size", 13)
-	detail.add_theme_color_override("font_color", Color(0.78, 0.82, 0.9))
+	detail.add_theme_color_override("font_color", UiPalette.MUTED)
 	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	detail.anchor_left = 0.06; detail.anchor_right = 0.94
@@ -2049,8 +2049,8 @@ func _confirm_evolve(c: Dictionary) -> void:
 	panel.offset_left = -pw * 0.5; panel.offset_right = pw * 0.5
 	panel.offset_top = -ph * 0.5; panel.offset_bottom = ph * 0.5
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.11, 0.07, 0.06, 0.98)
-	sb.set_border_width_all(2); sb.border_color = Color(1.0, 0.55, 0.2, 0.95); sb.set_corner_radius_all(10)
+	sb.bg_color = UiPalette.SURFACE
+	sb.set_border_width_all(2); sb.border_color = UiPalette.AMBER; sb.set_corner_radius_all(0)
 	panel.add_theme_stylebox_override("panel", sb)
 	overlay.add_child(panel)
 
@@ -2064,7 +2064,7 @@ func _confirm_evolve(c: Dictionary) -> void:
 	title.text = "⚠  EVOLVE IS PERMANENT"
 	title.add_theme_font_override("font", load(FONT_PATH))
 	title.add_theme_font_size_override("font_size", 22)
-	title.add_theme_color_override("font_color", Color(1.0, 0.72, 0.32))
+	title.add_theme_color_override("font_color", UiPalette.AMBER)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(title)
 
@@ -2358,7 +2358,7 @@ func _make_panel() -> Panel:
 	sb.bg_color = UiPalette.SURFACE_2
 	sb.set_border_width_all(2)
 	sb.border_color = UiPalette.ACCENT_DIM
-	sb.set_corner_radius_all(10)
+	sb.set_corner_radius_all(0)
 	p.add_theme_stylebox_override("panel", sb)
 	return p
 
@@ -2431,7 +2431,7 @@ func _make_stat_row(label: String, value: String, row_id: String = "", preview: 
 	l.text = label
 	l.add_theme_font_override("font", load(FONT_PATH))
 	l.add_theme_font_size_override("font_size", 15)
-	l.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
+	l.add_theme_color_override("font_color", UiPalette.INK)
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(l)
 	var v := Label.new()

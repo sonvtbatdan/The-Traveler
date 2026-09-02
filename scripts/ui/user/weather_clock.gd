@@ -102,10 +102,10 @@ func _apply_style() -> void:
 	_panel_style.border_width_top    = 1
 	_panel_style.border_width_bottom = 1
 	_panel_style.border_color        = UiPalette.WIRE_2
-	_panel_style.corner_radius_top_left     = 6
-	_panel_style.corner_radius_top_right    = 6
-	_panel_style.corner_radius_bottom_left  = 6
-	_panel_style.corner_radius_bottom_right = 6
+	_panel_style.corner_radius_top_left     = 0
+	_panel_style.corner_radius_top_right    = 0
+	_panel_style.corner_radius_bottom_left  = 0
+	_panel_style.corner_radius_bottom_right = 0
 	add_theme_stylebox_override("panel", _panel_style)
 
 func _build_ui() -> void:
@@ -118,21 +118,21 @@ func _build_ui() -> void:
 	vbox.add_theme_constant_override("separation", 4)
 	add_child(vbox)
 
-	_city_lbl    = _make_lbl("---",  11, Color(0.75, 0.85, 1.0))
-	_weather_lbl = _make_lbl("---",  11, Color(0.85, 0.95, 0.75))
-	_clock_lbl   = _make_lbl("--:--", 50, Color(1.0, 1.0, 1.0))
+	_city_lbl    = _make_lbl("---",  11, UiPalette.INK)
+	_weather_lbl = _make_lbl("---",  11, UiPalette.MUTED)
+	_clock_lbl   = _make_lbl("--:--", 50, UiPalette.INK)
 
 	_clock_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_clock_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	_clock_lbl.size_flags_vertical  = Control.SIZE_EXPAND_FILL
 
 	var el := _RunLabel.new()
-	el.cfg(14, Color(0.65, 0.75, 0.65), _gameplay_font)
+	el.cfg(14, UiPalette.MUTED, _gameplay_font)
 	el.set_text("ELAPSED: 00:00")
 	_elapsed_lbl = el
 
 	var rm := _RunLabel.new()
-	rm.cfg(14, Color(0.75, 0.65, 0.65), _gameplay_font)
+	rm.cfg(14, UiPalette.MUTED, _gameplay_font)
 	rm.set_text("REMAINING: --:--")
 	_remaining_lbl = rm
 
@@ -152,6 +152,7 @@ func _build_ui() -> void:
 
 	mouse_filter = MOUSE_FILTER_STOP
 	gui_input.connect(_on_gui_input)
+	UiPalette.scanlines(self)
 
 func _make_lbl(txt: String, fsize: int, col: Color) -> Label:
 	var l := Label.new()
@@ -176,8 +177,8 @@ func _build_float_panel() -> void:
 	ps.border_width_left   = 1; ps.border_width_right  = 1
 	ps.border_width_top    = 1; ps.border_width_bottom = 1
 	ps.border_color        = UiPalette.ACCENT_DIM
-	ps.corner_radius_top_left     = 6; ps.corner_radius_top_right    = 6
-	ps.corner_radius_bottom_left  = 6; ps.corner_radius_bottom_right = 6
+	ps.corner_radius_top_left     = 0; ps.corner_radius_top_right    = 0
+	ps.corner_radius_bottom_left  = 0; ps.corner_radius_bottom_right = 0
 	_float_panel.add_theme_stylebox_override("panel", ps)
 
 	var margin := MarginContainer.new()
@@ -261,7 +262,7 @@ func _build_float_panel() -> void:
 	var colon_lbl := Label.new()
 	colon_lbl.text = MandaloreText.a(":")
 	colon_lbl.add_theme_font_size_override("font_size", 16)
-	colon_lbl.add_theme_color_override("font_color", Color(0.80, 0.80, 0.80))
+	colon_lbl.add_theme_color_override("font_color", UiPalette.MUTED)
 	colon_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	if _gameplay_font: colon_lbl.add_theme_font_override("font", _gameplay_font)
 	al_row.add_child(colon_lbl)
@@ -279,7 +280,7 @@ func _build_float_panel() -> void:
 	_alarm_info_lbl = Label.new()
 	_alarm_info_lbl.text = MandaloreText.a("No alarm set")
 	_alarm_info_lbl.add_theme_font_size_override("font_size", 11)
-	_alarm_info_lbl.add_theme_color_override("font_color", Color(0.55, 0.62, 0.78))
+	_alarm_info_lbl.add_theme_color_override("font_color", UiPalette.MUTED)
 	_alarm_info_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	if _gameplay_font: _alarm_info_lbl.add_theme_font_override("font", _gameplay_font)
 	_alarm_box.add_child(_alarm_info_lbl)
@@ -288,7 +289,7 @@ func _build_float_panel() -> void:
 	_flash_lbl = Label.new()
 	_flash_lbl.text = MandaloreText.a("")
 	_flash_lbl.add_theme_font_size_override("font_size", 12)
-	_flash_lbl.add_theme_color_override("font_color", Color(1.0, 0.72, 0.20))
+	_flash_lbl.add_theme_color_override("font_color", UiPalette.AMBER)
 	_flash_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	if _gameplay_font: _flash_lbl.add_theme_font_override("font", _gameplay_font)
 	vbox.add_child(_flash_lbl)
@@ -309,14 +310,14 @@ func _make_fbtn(txt: String) -> Button:
 		s.border_width_left = 1; s.border_width_right  = 1
 		s.border_width_top  = 1; s.border_width_bottom = 1
 		s.border_color = bc
-		s.corner_radius_top_left    = 3; s.corner_radius_top_right    = 3
-		s.corner_radius_bottom_left = 3; s.corner_radius_bottom_right = 3
+		s.corner_radius_top_left    = 0; s.corner_radius_top_right    = 0
+		s.corner_radius_bottom_left = 0; s.corner_radius_bottom_right = 0
 		s.content_margin_top = 3; s.content_margin_bottom = 3
 		return s
-	btn.add_theme_stylebox_override("normal",  mk.call(Color(0.09, 0.12, 0.18, 0.9), Color(0.30, 0.40, 0.60, 0.7)))
-	btn.add_theme_stylebox_override("hover",   mk.call(Color(0.14, 0.18, 0.28, 0.9), Color(0.50, 0.65, 0.90, 0.9)))
-	btn.add_theme_stylebox_override("pressed", mk.call(Color(0.06, 0.08, 0.13, 0.9), Color(0.30, 0.40, 0.60, 0.7)))
-	btn.add_theme_stylebox_override("focus",   mk.call(Color(0.09, 0.12, 0.18, 0.9), Color(0.30, 0.40, 0.60, 0.7)))
+	btn.add_theme_stylebox_override("normal",  mk.call(UiPalette.SURFACE_2, UiPalette.WIRE_2))
+	btn.add_theme_stylebox_override("hover",   mk.call(UiPalette.SURFACE_3, UiPalette.ACCENT_DIM))
+	btn.add_theme_stylebox_override("pressed", mk.call(UiPalette.ACCENT_DIM, UiPalette.ACCENT_DIM))
+	btn.add_theme_stylebox_override("focus",   mk.call(UiPalette.SURFACE_2, UiPalette.WIRE_2))
 	return btn
 
 # ── Alarm audio (880 Hz decaying beep, generated at runtime) ──────────────────
@@ -486,8 +487,8 @@ func _switch_tab(tab: String) -> void:
 	_update_tab_btns()
 
 func _update_tab_btns() -> void:
-	var active   := Color(0.45, 0.85, 1.0)
-	var inactive := Color(0.50, 0.55, 0.65)
+	var active   := UiPalette.ACCENT
+	var inactive := UiPalette.FAINT
 	if is_instance_valid(_tab_timer_btn):
 		_tab_timer_btn.add_theme_color_override("font_color", active if _tab_mode == "timer" else inactive)
 	if is_instance_valid(_tab_alarm_btn):

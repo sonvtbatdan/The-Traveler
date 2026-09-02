@@ -21,8 +21,8 @@ func setup(p_cols: int, p_rows: int, p_cell: int) -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 
 func _draw() -> void:
-	var line_col := Color(0.30, 0.40, 0.60, 0.5)
-	draw_rect(Rect2(Vector2.ZERO, size), Color(0.06, 0.08, 0.12, 0.92), true)
+	var line_col := UiPalette.WIRE_2
+	draw_rect(Rect2(Vector2.ZERO, size), UiPalette.SURFACE, true)
 	for c in range(cols + 1):
 		var x := float(c * cell_size)
 		draw_line(Vector2(x, 0), Vector2(x, rows * cell_size), line_col, 1.0)

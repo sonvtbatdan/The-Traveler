@@ -197,12 +197,13 @@ func _build_ui() -> void:
 	panel.custom_minimum_size = Vector2(480.0, 0.0)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = UiPalette.SURFACE
-	sb.set_corner_radius_all(10)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(2)
 	sb.border_color = UiPalette.ACCENT_DIM
 	sb.set_content_margin_all(22.0)
 	panel.add_theme_stylebox_override("panel", sb)
 	center.add_child(panel)
+	UiPalette.scanlines(panel)
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 16)
@@ -234,7 +235,7 @@ func _build_ui() -> void:
 	_pct_lbl = Label.new()
 	_pct_lbl.custom_minimum_size = Vector2(54.0, 0.0)
 	_pct_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_font(_pct_lbl, FONT_BODY, 16, Color(1.0, 0.86, 0.3))
+	_font(_pct_lbl, FONT_BODY, 16, UiPalette.AMBER)
 	vol_row.add_child(_pct_lbl)
 
 	# ── Graphic ──
@@ -356,7 +357,7 @@ func _build_ui() -> void:
 	reset_profile_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_font_btn(reset_profile_btn, 14)
 	reset_profile_btn.add_theme_color_override("font_color", UiPalette.DANGER)
-	reset_profile_btn.add_theme_color_override("font_hover_color", Color(1.0, 0.5, 0.45))
+	reset_profile_btn.add_theme_color_override("font_hover_color", UiPalette.DANGER)
 	reset_profile_btn.pressed.connect(_on_reset_profile_pressed)
 	col.add_child(reset_profile_btn)
 

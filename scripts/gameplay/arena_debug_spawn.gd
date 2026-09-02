@@ -155,7 +155,7 @@ const QUICK_SPAWN_ORDER: Array[String] = [
 	"atlantic_centipede", "hammerhead", "killerwhale", "shark_elite", "spermwhale2",
 	"elephant", "chromeleon", "metalfly",
 ]
-const QUICK_BOSS_IDS: Array[String] = ["elephant", "chromeleon", "metalfly"]
+const QUICK_BOSS_IDS: Array[String] = ["elephant", "chromeleon", "metalfly", "boss", "Nautilus"]   # "boss" = "The Skull" (Volcanic 3D boss, 2026-09-01); "Nautilus" = Atlantic 3D boss (2026-09-02)
 # Boss-tab cell size. Bigger than the Enemies grid's 48 because a "boss_glb" cell is a live 3D render, and a
 # spinning model in a 48px box reads as a smudge (see _make_quick_cell).
 const BOSS_CELL := 92
@@ -357,10 +357,10 @@ func _skip_run(victory: bool = false) -> void:
 ## Debug: jump straight to the loaded timeline's final-boss finale (arena_hud_buttons.gd's BOSS FIGHT
 ## button, next to END RUN) — clears the field and fast-forwards past every remaining regular wave, so the
 ## boss spawns almost immediately for testing the fight + the BOSS ELIMINATED / RUN OVER screens. No-op if
-## the currently loaded map's timeline doesn't end in a solo is_boss entry (2026-08-06: checked — the
-## "default"/Space and "volcanic"/Volcanic map timelines currently have NO is_boss entry at all, so the
-## button correctly does nothing there; "electric"/Electric's elecforest.json does, at t=1800s, and jumping
-## to it works). Used to only `print()` this (console-only — invisible in a built/played game, which is
+## the currently loaded map's timeline doesn't end in a solo is_boss entry (2026-09-01: Volcanic
+## (`vocalnic.json` → `boss`/The Skull) and Electric (`elecforest.json` → `metalfly`) both end in a solo
+## is_boss entry at t=1200; "default"/Space and Atlantic have none, so the button is a no-op there).
+## Used to only `print()` this (console-only — invisible in a built/played game, which is
 ## exactly why a no-op here read as "the button is broken"); now also surfaces via ArenaToast so the result
 ## is visible on screen either way.
 func _jump_to_boss_fight() -> void:
@@ -435,11 +435,11 @@ func _build_quick_spawn_panel() -> void:
 
 	var panel := Panel.new()
 	var ps := StyleBoxFlat.new()
-	ps.bg_color = Color(0.04, 0.05, 0.08, 0.90)
-	ps.set_corner_radius_all(4)
+	ps.bg_color = UiPalette.SURFACE
+	ps.set_corner_radius_all(0)
 	ps.border_width_left = 1; ps.border_width_right  = 1
 	ps.border_width_top  = 1; ps.border_width_bottom = 1
-	ps.border_color = Color(0.30, 0.40, 0.60, 0.65)
+	ps.border_color = UiPalette.WIRE_2
 	panel.add_theme_stylebox_override("panel", ps)
 	panel.anchor_left   = 0.0; panel.anchor_right  = 0.0
 	panel.anchor_top    = 1.0; panel.anchor_bottom = 1.0
@@ -450,6 +450,7 @@ func _build_quick_spawn_panel() -> void:
 	panel.visible = false               # button-toggled (default hidden even when dev:on)
 	_creep_panel = panel
 	_dev_ui_root.add_child(panel)
+	UiPalette.scanlines(panel)
 
 	var vbox := VBoxContainer.new()
 	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -587,7 +588,7 @@ func _select_creep_tab(tab_id: String) -> void:
 	_creep_tab = tab_id
 	for id: String in _creep_tab_btns.keys():
 		var active: bool = id == tab_id
-		(_creep_tab_btns[id] as Button).modulate = Color(1, 1, 1, 1) if active else Color(0.62, 0.66, 0.78, 1)
+		(_creep_tab_btns[id] as Button).modulate = UiPalette.INK if active else UiPalette.MUTED
 	if _creep_enemies_content != null:
 		_creep_enemies_content.visible = (tab_id == "enemies")
 	if _creep_fleet_content != null:
@@ -684,7 +685,7 @@ func _rebuild_fleet_list() -> void:
 		var lbl := Label.new()
 		lbl.text = "(no fleets saved)"
 		lbl.add_theme_font_size_override("font_size", 10)
-		lbl.add_theme_color_override("font_color", Color(0.6, 0.6, 0.65))
+		lbl.add_theme_color_override("font_color", UiPalette.MUTED)
 		_fleet_list_vbox.add_child(lbl)
 		return
 	for fl: Dictionary in fleets:
@@ -784,13 +785,13 @@ func _make_quick_cell(type_id: String, cell_size: int) -> Control:
 	var btn := Button.new()
 	btn.custom_minimum_size = Vector2(cell_size, cell_size)
 	btn.focus_mode    = Control.FOCUS_NONE
-	btn.tooltip_text  = type_id
+	btn.tooltip_text  = String(def.get("name", type_id))   # e.g. "The Skull" for the Volcanic boss
 	btn.clip_contents = true
 
 	var _make_style := func(bg: Color, border: Color) -> StyleBoxFlat:
 		var s := StyleBoxFlat.new()
 		s.bg_color = bg
-		s.set_corner_radius_all(2)
+		s.set_corner_radius_all(0)
 		s.border_width_left = 1; s.border_width_right  = 1
 		s.border_width_top  = 1; s.border_width_bottom = 1
 		s.border_color = border
@@ -809,9 +810,9 @@ func _make_quick_cell(type_id: String, cell_size: int) -> Control:
 		btn.add_theme_stylebox_override("hover",   _make_style.call(Color(0.65, 0.10, 0.08, 0.92), Color(1.00, 0.35, 0.25, 1.00)))
 		btn.add_theme_stylebox_override("pressed", _make_style.call(Color(0.25, 0.03, 0.03, 0.95), Color(0.65, 0.15, 0.10, 0.80)))
 	else:
-		btn.add_theme_stylebox_override("normal",  _make_style.call(Color(0.08, 0.10, 0.15, 0.82), Color(0.25, 0.30, 0.48, 0.55)))
-		btn.add_theme_stylebox_override("hover",   _make_style.call(Color(0.14, 0.18, 0.26, 0.92), Color(0.50, 0.65, 1.00, 0.90)))
-		btn.add_theme_stylebox_override("pressed", _make_style.call(Color(0.05, 0.07, 0.10, 0.95), Color(0.25, 0.30, 0.48, 0.55)))
+		btn.add_theme_stylebox_override("normal",  _make_style.call(UiPalette.SURFACE_2, UiPalette.WIRE_2))
+		btn.add_theme_stylebox_override("hover",   _make_style.call(UiPalette.SURFACE_3, UiPalette.ACCENT_DIM))
+		btn.add_theme_stylebox_override("pressed", _make_style.call(UiPalette.ACCENT_DIM, UiPalette.WIRE_2))
 	btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 
 	# A boss whose def carries "boss_glb" shows the LIVE 3D model, slowly spinning, instead of a flat
@@ -992,7 +993,7 @@ func _update_spawn_stop_btn() -> void:
 		return
 	_creep_stop_btn.text = "Resume" if _spawn_stopped else "Stop"
 	_creep_stop_btn.add_theme_color_override("font_color",
-		Color(0.45, 0.95, 0.45) if _spawn_stopped else Color(1.0, 0.72, 0.42))
+		UiPalette.GOOD if _spawn_stopped else UiPalette.AMBER)
 
 # ── Weapon Spawn panel ──────────────────────────────────────────────────────────
 
@@ -1009,11 +1010,11 @@ func _build_weapon_spawn_panel() -> void:
 
 	var panel := Panel.new()
 	var ps := StyleBoxFlat.new()
-	ps.bg_color = Color(0.04, 0.05, 0.08, 0.90)
-	ps.set_corner_radius_all(4)
+	ps.bg_color = UiPalette.SURFACE
+	ps.set_corner_radius_all(0)
 	ps.border_width_left = 1; ps.border_width_right  = 1
 	ps.border_width_top  = 1; ps.border_width_bottom = 1
-	ps.border_color = Color(0.30, 0.40, 0.60, 0.65)
+	ps.border_color = UiPalette.WIRE_2
 	panel.add_theme_stylebox_override("panel", ps)
 	# Bottom-left, just to the RIGHT of the creep panel so both can be open together.
 	panel.anchor_left   = 0.0; panel.anchor_right  = 0.0
@@ -1025,6 +1026,7 @@ func _build_weapon_spawn_panel() -> void:
 	panel.visible = false
 	_weapon_panel = panel
 	_dev_ui_root.add_child(panel)
+	UiPalette.scanlines(panel)
 
 	var vbox := VBoxContainer.new()
 	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1043,7 +1045,7 @@ func _build_weapon_spawn_panel() -> void:
 	lbl_title.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	lbl_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lbl_title.add_theme_font_size_override("font_size", 11)
-	lbl_title.add_theme_color_override("font_color", Color(0.75, 0.87, 1.00))
+	lbl_title.add_theme_color_override("font_color", UiPalette.INK)
 	hdr.add_child(lbl_title)
 
 	var btn_all := Button.new()
@@ -1109,7 +1111,7 @@ func _select_weapon_tab(tab_id: String) -> void:
 	_weapon_tab = tab_id
 	for id: String in _weapon_tab_btns.keys():
 		var active: bool = id == tab_id
-		(_weapon_tab_btns[id] as Button).modulate = Color(1, 1, 1, 1) if active else Color(0.62, 0.66, 0.78, 1)
+		(_weapon_tab_btns[id] as Button).modulate = UiPalette.INK if active else UiPalette.MUTED
 	_rebuild_weapon_grid()
 
 func _rebuild_weapon_grid() -> void:
@@ -1152,15 +1154,15 @@ func _make_weapon_cell(w: Dictionary, cell_size: int) -> Control:
 	var mk := func(bg: Color, border: Color) -> StyleBoxFlat:
 		var s := StyleBoxFlat.new()
 		s.bg_color = bg
-		s.set_corner_radius_all(2)
+		s.set_corner_radius_all(0)
 		s.border_width_left = 1; s.border_width_right  = 1
 		s.border_width_top  = 1; s.border_width_bottom = 1
 		s.border_color = border
 		return s
-	btn.add_theme_stylebox_override("normal",   mk.call(Color(0.08, 0.10, 0.15, 0.82), Color(0.25, 0.30, 0.48, 0.55)))
-	btn.add_theme_stylebox_override("hover",    mk.call(Color(0.14, 0.18, 0.26, 0.92), Color(0.50, 0.65, 1.00, 0.90)))
-	btn.add_theme_stylebox_override("pressed",  mk.call(Color(0.05, 0.07, 0.10, 0.95), Color(0.25, 0.30, 0.48, 0.55)))
-	btn.add_theme_stylebox_override("disabled", mk.call(Color(0.07, 0.08, 0.11, 0.70), Color(0.22, 0.25, 0.34, 0.45)))
+	btn.add_theme_stylebox_override("normal",   mk.call(UiPalette.SURFACE_2, UiPalette.WIRE_2))
+	btn.add_theme_stylebox_override("hover",    mk.call(UiPalette.SURFACE_3, UiPalette.ACCENT_DIM))
+	btn.add_theme_stylebox_override("pressed",  mk.call(UiPalette.ACCENT_DIM, UiPalette.WIRE_2))
+	btn.add_theme_stylebox_override("disabled", mk.call(UiPalette.SURFACE, UiPalette.WIRE))
 	btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 
 	# Prefer an explicit `icon` path (used for placeholder weapons whose art exists but aren't in ITEM_DEFS yet);
@@ -1192,7 +1194,7 @@ func _make_weapon_cell(w: Dictionary, cell_size: int) -> Control:
 	name_lbl.vertical_alignment   = VERTICAL_ALIGNMENT_CENTER
 	name_lbl.add_theme_font_size_override("font_size", 7)
 	name_lbl.add_theme_color_override("font_color",
-		Color(0.55, 0.60, 0.70) if is_ph else Color(0.82, 0.88, 1.00))
+		UiPalette.MUTED if is_ph else UiPalette.INK)
 	name_lbl.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
 	name_lbl.add_theme_constant_override("shadow_outline_size", 2)
 	name_lbl.clip_text = true
@@ -1290,8 +1292,8 @@ func _build_hotkey_panel() -> void:
 	panel.offset_top    = 8.0
 	panel.offset_bottom = 8.0 + 232.0
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.04, 0.04, 0.08, 0.72)
-	sb.set_corner_radius_all(4)
+	sb.bg_color = Color(0.063, 0.086, 0.059, 0.85)
+	sb.set_corner_radius_all(0)
 	sb.content_margin_left   = 10.0
 	sb.content_margin_right  = 10.0
 	sb.content_margin_top    = 7.0
@@ -1325,7 +1327,7 @@ func _build_hotkey_panel() -> void:
 		lbl.text = row
 		lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		lbl.add_theme_font_size_override("font_size", 11)
-		lbl.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95, 0.90))
+		lbl.add_theme_color_override("font_color", UiPalette.INK)
 		vbox.add_child(lbl)
 
 # ── Fleet formation preview ──────────────────────────────────────────────────────
@@ -1339,8 +1341,8 @@ class _FleetPreview extends Control:
 		fleet = f
 		queue_redraw()
 	func _draw() -> void:
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.03, 0.05, 0.08, 0.95))
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.30, 0.40, 0.50, 0.6), false, 1.0)
+		draw_rect(Rect2(Vector2.ZERO, size), UiPalette.SURFACE)
+		draw_rect(Rect2(Vector2.ZERO, size), UiPalette.WIRE_2, false, 1.0)
 		if fleet.is_empty() or editor == null:
 			return
 		var slots: Array = fleet.get("slots", [])
@@ -1375,4 +1377,4 @@ class _FleetPreview extends Control:
 			if r["tex"] != null:
 				draw_texture_rect(r["tex"] as Texture2D, rect, false)
 			else:
-				draw_rect(rect, Color(0.4, 0.5, 0.7, 0.6))
+				draw_rect(rect, Color(UiPalette.ACCENT.r, UiPalette.ACCENT.g, UiPalette.ACCENT.b, 0.6))

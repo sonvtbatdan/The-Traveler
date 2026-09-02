@@ -242,6 +242,7 @@ func _mk_panel(x: float, width: float = PANEL_W) -> VBoxContainer:
 	panel.size = Vector2(width, 760.0)
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_root.add_child(panel)
+	UiPalette.scanlines(panel)
 	var vb := VBoxContainer.new()
 	vb.set_anchors_preset(Control.PRESET_FULL_RECT)
 	vb.offset_left = 6; vb.offset_top = 6; vb.offset_right = -6; vb.offset_bottom = -6
@@ -467,7 +468,7 @@ func _rebuild_fleet_list() -> void:
 		var hp_lbl := Label.new()
 		hp_lbl.text = MandaloreText.a(_fmt_hp(_fleet_total_hp(fl)))
 		hp_lbl.add_theme_font_size_override("font_size", 11)
-		hp_lbl.modulate = Color(0.6, 0.85, 1.0)
+		hp_lbl.modulate = UiPalette.INK
 		hp_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		hp_lbl.custom_minimum_size = Vector2(64.0, 0.0)
 		hp_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -865,14 +866,14 @@ func _draw_canvas(c: Control) -> void:
 		if tex != null:
 			c.draw_texture_rect(tex, rect, false)
 		else:
-			c.draw_rect(rect, Color(0.4, 0.5, 0.7, 0.5))
+			c.draw_rect(rect, Color(UiPalette.ACCENT.r, UiPalette.ACCENT.g, UiPalette.ACCENT.b, 0.5))
 		if si in _sel_slots:
 			c.draw_rect(rect, Color(1.0, 0.85, 0.2, 0.9), false, 2.0)
 	c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if _box_selecting:
 		var box := Rect2(_box_start, Vector2.ZERO).expand(_box_end)
-		c.draw_rect(box, Color(0.3, 0.6, 1.0, 0.15))
-		c.draw_rect(box, Color(0.4, 0.75, 1.0, 0.9), false, 1.5)
+		c.draw_rect(box, Color(UiPalette.ACCENT.r, UiPalette.ACCENT.g, UiPalette.ACCENT.b, 0.15))
+		c.draw_rect(box, UiPalette.ACCENT, false, 1.5)
 
 func _canvas_input(c: Control, event: InputEvent) -> void:
 	if not _open:
@@ -1015,7 +1016,7 @@ class _FleetLabel extends Label:
 		if owner_editor != null:
 			owner_editor._hide_fleet_preview()
 	func set_active(on: bool) -> void:
-		modulate = Color(1.0, 0.9, 0.4) if on else Color(0.85, 0.88, 0.95)
+		modulate = UiPalette.AMBER if on else UiPalette.INK
 	func _on_input(event: InputEvent) -> void:
 		if event is InputEventMouseButton and event.pressed:
 			var mb := event as InputEventMouseButton
@@ -1033,7 +1034,7 @@ class _PaletteCell extends Panel:
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		var sb := StyleBoxFlat.new()
 		sb.bg_color = UiPalette.SURFACE_2
-		sb.set_corner_radius_all(4)
+		sb.set_corner_radius_all(0)
 		sb.set_border_width_all(1)
 		sb.border_color = UiPalette.WIRE_2
 		add_theme_stylebox_override("panel", sb)
@@ -1085,9 +1086,9 @@ class _SlotCell extends Panel:
 	func _restyle() -> void:
 		var sb := StyleBoxFlat.new()
 		sb.bg_color = UiPalette.SURFACE
-		sb.set_corner_radius_all(4)
+		sb.set_corner_radius_all(0)
 		sb.set_border_width_all(2 if _selected else 1)
-		sb.border_color = Color(1.0, 0.85, 0.2) if _selected else Color(0.28, 0.36, 0.5)
+		sb.border_color = UiPalette.AMBER if _selected else UiPalette.WIRE_2
 		add_theme_stylebox_override("panel", sb)
 	func set_selected(on: bool) -> void:
 		_selected = on
@@ -1188,8 +1189,8 @@ class _FleetPreview extends Control:
 		fleet = f
 		queue_redraw()
 	func _draw() -> void:
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.03, 0.05, 0.08, 0.95))
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.30, 0.40, 0.50, 0.6), false, 1.0)
+		draw_rect(Rect2(Vector2.ZERO, size), UiPalette.SURFACE)
+		draw_rect(Rect2(Vector2.ZERO, size), UiPalette.WIRE_2, false, 1.0)
 		if fleet.is_empty() or editor == null:
 			return
 		var slots: Array = fleet.get("slots", [])
@@ -1224,4 +1225,4 @@ class _FleetPreview extends Control:
 			if r["tex"] != null:
 				draw_texture_rect(r["tex"] as Texture2D, rect, false)
 			else:
-				draw_rect(rect, Color(0.4, 0.5, 0.7, 0.6))
+				draw_rect(rect, Color(UiPalette.ACCENT.r, UiPalette.ACCENT.g, UiPalette.ACCENT.b, 0.6))

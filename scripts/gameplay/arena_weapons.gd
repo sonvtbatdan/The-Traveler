@@ -3474,7 +3474,9 @@ func _enemies() -> Array[Node]:
 		_enemy_cache_frame = f
 		var out: Array[Node] = []
 		for e in get_tree().get_nodes_in_group("arena_enemy"):
-			if is_instance_valid(e) and not (e.has_method("is_charmed") and e.call("is_charmed")):
+			if is_instance_valid(e) \
+					and not (e.has_method("is_charmed") and e.call("is_charmed")) \
+					and not (e.has_method("is_untargetable") and e.call("is_untargetable")):
 				out.append(e)
 		_enemy_cache = out
 	return _enemy_cache
@@ -4555,6 +4557,8 @@ func _fire_death_beam(delta: float) -> void:
 	for b in get_tree().get_nodes_in_group("boss"):
 		if not is_instance_valid(b):
 			continue
+		if b.has_method("is_untargetable") and b.call("is_untargetable"):
+			continue   # grounded Volcanic boss (Move 3): the beam passes over it like every other shot
 		var tb: Vector2 = (b as Node2D).global_position - from
 		var balong := tb.dot(dir)
 		if balong < 0.0 or balong > DEATHBEAM_RANGE:
@@ -10564,6 +10568,8 @@ func _tick_predator(delta: float, enemy_on_screen: bool) -> void:
 	for b in get_tree().get_nodes_in_group("boss"):
 		if not is_instance_valid(b):
 			continue
+		if b.has_method("is_untargetable") and b.call("is_untargetable"):
+			continue   # grounded Volcanic boss (Move 3)
 		var tb: Vector2 = (b as Node2D).global_position - head
 		var balong := tb.dot(dir)
 		if balong < 0.0 or balong > DEATHBEAM_RANGE:

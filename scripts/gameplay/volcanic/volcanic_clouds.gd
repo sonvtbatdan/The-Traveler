@@ -46,6 +46,17 @@ class_name VolcanicClouds
 
 const VolcanicNoise := preload("res://scripts/gameplay/volcanic/volcanic_noise.gd")
 const VolcanicTerrainSettings := preload("res://scripts/gameplay/volcanic/volcanic_terrain_settings.gd")
+const SmokeTrail := preload("res://scripts/gameplay/fx/smoke_trail.gd")
+
+## 2026-09-01 (user: "áp dụng code phun khói lửa cho ash enemy để thay vào các plume của map volcanic"): the
+## plume BODIES + flame SPARKS now render through the ash-creep SmokeTrail shaders (smoke_trail /
+## smoke_flame / smoke_ember .gdshader) + its shared baked FBM texture — domain-warped "boil", relief
+## lighting, licking-tongue erosion — WITHOUT adding node/particle count: still one CPUParticles2D per vent,
+## CPU-simulated, and ONE ShaderMaterial per kind shared by every vent. This is NOT the reverted DynamicFire
+## route (a GPUParticles2D + its own NoiseTexture2D per vent — THAT is what lagged when moving). Flip
+## USE_SMOKETRAIL_FX to false for the plain GradientTexture2D + CanvasItemMaterial bodies.
+const USE_SMOKETRAIL_FX := true
+const FX_SMOKE_CHEAP_ABOVE := 9   # this many visible smoke vents → smoke shader drops to its `cheap` path
 
 const KINDS := ["smoke", "flame"]
 
@@ -98,6 +109,10 @@ var _view_size: Vector2 = Vector2(1440.0, 780.0)
 var _puff_tex: GradientTexture2D
 var _flame_tex: GradientTexture2D
 var _additive_mat: CanvasItemMaterial
+var _fx_smoke_mat: ShaderMaterial = null    # SmokeTrail shaders, shared across every vent of that kind
+var _fx_flame_mat: ShaderMaterial = null
+var _fx_ember_mat: ShaderMaterial = null
+var _fx_cheap: bool = false
 
 var _opacity: Dictionary = {}     # kind -> float
 var _brightness: Dictionary = {}  # kind -> float
@@ -118,6 +133,17 @@ func _ready() -> void:
 	_flame_tex = _make_flame_tex()
 	_additive_mat = CanvasItemMaterial.new()
 	_additive_mat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	if USE_SMOKETRAIL_FX:
+		var fbm := SmokeTrail.shared_fbm_tex()
+		_fx_smoke_mat = ShaderMaterial.new()
+		_fx_smoke_mat.shader = SmokeTrail.shared_smoke_shader()
+		_fx_smoke_mat.set_shader_parameter("fbm_tex", fbm)
+		_fx_smoke_mat.set_shader_parameter("evolve", 0.28)   # gentler boil than the fast-moving ash creep
+		_fx_flame_mat = ShaderMaterial.new()
+		_fx_flame_mat.shader = SmokeTrail.shared_flame_shader()
+		_fx_flame_mat.set_shader_parameter("fbm_tex", fbm)
+		_fx_ember_mat = ShaderMaterial.new()
+		_fx_ember_mat.shader = SmokeTrail.shared_ember_shader()
 
 	var s := VolcanicTerrainSettings.load_settings()
 	_canopy_size = float(s["canopy_size"])
@@ -152,6 +178,14 @@ func _regenerate() -> void:
 	for kind: String in KINDS:
 		_regen_grid(kind, min_p, max_p)
 		_regen_marked(kind, min_p, max_p)
+	# Crowd LOD: once enough smoke vents are on screen at once, drop the smoke shader to its `cheap` path
+	# (skips the relief-lighting texture reads). One shared uniform → flips every vent together.
+	if USE_SMOKETRAIL_FX and _fx_smoke_mat != null:
+		var n := (_placed["smoke"] as Dictionary).size() + (_marked_placed["smoke"] as Dictionary).size()
+		var want_cheap := n > FX_SMOKE_CHEAP_ABOVE
+		if want_cheap != _fx_cheap:
+			_fx_cheap = want_cheap
+			_fx_smoke_mat.set_shader_parameter("cheap", want_cheap)
 
 func _regen_grid(kind: String, min_p: Vector2, max_p: Vector2) -> void:
 	var pool: Dictionary = _placed[kind]
@@ -282,14 +316,20 @@ func _make_body(pos: Vector2, kind: String) -> CPUParticles2D:
 		p.tangential_accel_max = FLAME_TANGENTIAL_ACCEL
 		p.radial_accel_min = -FLAME_RADIAL_ACCEL
 		p.radial_accel_max = FLAME_RADIAL_ACCEL
-		p.material = _additive_mat   # glowing/HDR-bloomy fire look — smoke stays normal alpha blend
+		# smoke_flame.gdshader carries its own blend_add render_mode; else the plain additive material.
+		p.material = _fx_flame_mat if USE_SMOKETRAIL_FX else _additive_mat
 	else:
-		p.texture = _puff_tex
 		p.scale_amount_min = 0.65
 		p.scale_amount_max = 1.0
 		p.scale_amount_curve = _make_growth_curve()   # billows outward as it rises
 		p.angular_velocity_min = -12.0
 		p.angular_velocity_max = 12.0
+		if USE_SMOKETRAIL_FX:
+			p.texture = SmokeTrail.shared_puff_tex()          # FBM "cauliflower" puff, not the soft blob
+			p.color_initial_ramp = SmokeTrail.seed_initial_ramp()   # per-particle seed for the shader
+			p.material = _fx_smoke_mat
+		else:
+			p.texture = _puff_tex
 	add_child(p)
 	return p
 
@@ -324,7 +364,7 @@ func _make_flame_spark(pos: Vector2) -> CPUParticles2D:
 	sp.scale_amount_min = 0.16
 	sp.scale_amount_max = 0.34
 	sp.scale_amount_curve = _make_spark_curve()
-	sp.material = _additive_mat
+	sp.material = _fx_ember_mat if USE_SMOKETRAIL_FX else _additive_mat
 	add_child(sp)
 	return sp
 
@@ -338,13 +378,36 @@ func _style_entry(entry: Dictionary, kind: String) -> void:
 	var base: Color = color * brightness
 	var body: CPUParticles2D = entry["body"]
 	if is_instance_valid(body):
-		body.color_ramp = _make_ramp(base, opacity, kind)
+		if USE_SMOKETRAIL_FX and kind == "smoke":
+			body.color_ramp = _fx_smoke_ramp(opacity, brightness)   # value+alpha → smoke_trail.gdshader owns hue
+		else:
+			body.color_ramp = _make_ramp(base, opacity, kind)
 	var spark: CPUParticles2D = entry.get("spark")
 	if is_instance_valid(spark):
 		# Sparks read as the HOTTEST point of the fire — push toward white regardless of the body's own
 		# palette pick, same idea as a real ember glowing whiter/hotter than the flame around it.
 		var hot: Color = base.lerp(Color(1.0, 1.0, 0.92), 0.5)
 		spark.color_ramp = _make_ramp(hot, opacity, "flame")
+
+## Ramp for a SmokeTrail-shaded smoke body: the shader does all the colouring itself (grey volumetric relief,
+## warm-lit rim) and derives the puff's age from `1 - COLOR.a/peak_alpha`. So RGB just carries the Brightness
+## slider (shader reads COLOR.g as an overall value multiplier) and A carries a brief fade-in + long fade-out
+## scaled by Opacity. `peak_alpha` is kept in lockstep on the shared material so age reads right at any opacity.
+func _fx_smoke_ramp(opacity: float, brightness: float) -> Gradient:
+	var pk := minf(0.95, 0.9 * opacity)
+	var val := clampf(brightness, 0.2, 2.0)
+	if _fx_smoke_mat != null:
+		_fx_smoke_mat.set_shader_parameter("peak_alpha", pk)
+	var g := Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.08, 0.5, 0.8, 1.0])
+	g.colors = PackedColorArray([
+		Color(val, val, val, 0.0),
+		Color(val, val, val, pk),
+		Color(val, val, val, pk * 0.78),
+		Color(val, val, val, pk * 0.38),
+		Color(val, val, val, 0.0),
+	])
+	return g
 
 func _make_ramp(base: Color, opacity: float, kind: String) -> Gradient:
 	var ramp := Gradient.new()

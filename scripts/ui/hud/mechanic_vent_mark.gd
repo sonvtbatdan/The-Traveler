@@ -98,13 +98,14 @@ func _build_ui() -> void:
 	_panel.size = Vector2(minf(PANEL_W, vp_size.x - SCREEN_MARGIN * 2.0), vp_size.y - SCREEN_MARGIN * 2.0)
 	_panel.position = ((vp_size - _panel.size) * 0.5).round()   # centered on screen — see header
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.07, 0.08, 0.98)
-	sb.set_corner_radius_all(10)
+	sb.bg_color = UiPalette.SURFACE
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(2)
-	sb.border_color = Color(0.30, 0.70, 0.80)   # energy-cyan border — distinct from the other 3 Mechanic panels
+	sb.border_color = UiPalette.WIRE_2   # energy-cyan border — distinct from the other 3 Mechanic panels
 	sb.set_content_margin_all(8.0)
 	_panel.add_theme_stylebox_override("panel", sb)
 	add_child(_panel)
+	UiPalette.scanlines(_panel)
 
 	var outer := VBoxContainer.new()
 	outer.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -113,7 +114,7 @@ func _build_ui() -> void:
 
 	var title := Label.new()
 	title.text = "♨ VENT MARK"
-	_font(title, 15, Color(0.75, 0.95, 1.0))
+	_font(title, 15, UiPalette.INK)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.tooltip_text = "Drag to move"
 	title.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -122,7 +123,7 @@ func _build_ui() -> void:
 
 	var hint := Label.new()
 	hint.text = "Click = mark vent  ·  Right-click near a mark = remove it"
-	_font(hint, 10, Color(0.6, 0.6, 0.65))
+	_font(hint, 10, UiPalette.MUTED)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	outer.add_child(hint)
 	outer.add_child(HSeparator.new())
@@ -173,7 +174,7 @@ func _build_ui() -> void:
 	image_holder.add_child(_marker_layer)
 
 	_count_lbl = Label.new()
-	_font(_count_lbl, 12, Color(0.8, 0.85, 0.9))
+	_font(_count_lbl, 12, UiPalette.INK)
 	_count_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	outer.add_child(_count_lbl)
 
@@ -209,7 +210,7 @@ func _build_ui() -> void:
 	btn_row.add_child(close_btn)
 
 	_status = Label.new()
-	_font(_status, 12, Color(0.5, 0.9, 0.5))
+	_font(_status, 12, UiPalette.GOOD)
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	outer.add_child(_status)
 

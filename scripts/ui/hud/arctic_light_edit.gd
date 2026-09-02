@@ -70,13 +70,14 @@ func _build_ui() -> void:
 	_panel.position = Vector2(20.0, 44.0)
 	_panel.size = Vector2(PANEL_W, minf(560.0, vp_h - _panel.position.y - 20.0))
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.05, 0.07, 0.10, 0.98)
-	sb.set_corner_radius_all(10)
+	sb.bg_color = UiPalette.SURFACE
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(2)
-	sb.border_color = Color(0.55, 0.80, 0.90)   # icy border — visually distinct from Terrain Edit's own accent
+	sb.border_color = UiPalette.WIRE_2   # icy border — visually distinct from Terrain Edit's own accent
 	sb.set_content_margin_all(8.0)
 	_panel.add_theme_stylebox_override("panel", sb)
 	add_child(_panel)
+	UiPalette.scanlines(_panel)
 
 	var outer := VBoxContainer.new()
 	outer.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -140,14 +141,14 @@ func _build_ui() -> void:
 	btn_row.add_child(close_btn)
 
 	_status = Label.new()
-	_font(_status, 12, Color(0.5, 0.9, 0.5))
+	_font(_status, 12, UiPalette.GOOD)
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	outer.add_child(_status)
 
 func _add_slider(parent: VBoxContainer, key: String, label_text: String, min_v: float, max_v: float, step_v: float) -> void:
 	var lbl := Label.new()
 	lbl.text = label_text
-	_font(lbl, 13, Color(0.8, 0.85, 0.95))
+	_font(lbl, 13, UiPalette.INK)
 	parent.add_child(lbl)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -163,7 +164,7 @@ func _add_slider(parent: VBoxContainer, key: String, label_text: String, min_v: 
 	var val_lbl := Label.new()
 	val_lbl.custom_minimum_size = Vector2(44.0, 0.0)
 	val_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_font(val_lbl, 13, Color(1.0, 0.86, 0.3))
+	_font(val_lbl, 13, UiPalette.AMBER)
 	row.add_child(val_lbl)
 	_sliders[key] = slider
 	_value_lbls[key] = val_lbl
@@ -175,7 +176,7 @@ func _add_color_row(parent: VBoxContainer, key: String, label_text: String) -> v
 	var lbl := Label.new()
 	lbl.text = label_text
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_font(lbl, 13, Color(0.8, 0.85, 0.95))
+	_font(lbl, 13, UiPalette.INK)
 	row.add_child(lbl)
 	var picker := ColorPickerButton.new()
 	picker.custom_minimum_size = Vector2(70.0, 24.0)

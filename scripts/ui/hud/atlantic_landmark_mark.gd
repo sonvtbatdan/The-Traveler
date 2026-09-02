@@ -95,12 +95,13 @@ func _build_ui() -> void:
 	                                                              # atlantic_crater_mark.gd's header
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = UiPalette.SURFACE
-	sb.set_corner_radius_all(10)
+	sb.set_corner_radius_all(0)
 	sb.set_border_width_all(2)
 	sb.border_color = Color(0.35, 0.65, 0.55)   # sea-green border — distinct from the other 4 Atlantic panels
 	sb.set_content_margin_all(8.0)
 	_panel.add_theme_stylebox_override("panel", sb)
 	add_child(_panel)
+	UiPalette.scanlines(_panel)
 
 	var outer := VBoxContainer.new()
 	outer.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -217,7 +218,7 @@ func _build_ui() -> void:
 	btn_row.add_child(close_btn)
 
 	_status = Label.new()
-	_font(_status, 12, Color(0.5, 0.9, 0.5))
+	_font(_status, 12, UiPalette.GOOD)
 	_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	outer.add_child(_status)
 

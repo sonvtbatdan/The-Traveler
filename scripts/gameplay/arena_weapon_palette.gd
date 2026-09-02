@@ -73,10 +73,10 @@ func _build_ui() -> void:
 	_panel.offset_top = 18
 	_panel.offset_bottom = 18 + panel_h
 	var ps := StyleBoxFlat.new()
-	ps.bg_color = Color(0.08, 0.09, 0.13, 0.96)
+	ps.bg_color = UiPalette.SURFACE
 	ps.set_border_width_all(1)
-	ps.border_color = Color(0.4, 0.55, 0.85, 0.9)
-	ps.set_corner_radius_all(8)
+	ps.border_color = UiPalette.WIRE_2
+	ps.set_corner_radius_all(0)
 	_panel.add_theme_stylebox_override("panel", ps)
 	add_child(_panel)
 
@@ -88,7 +88,8 @@ func _build_ui() -> void:
 
 	var title := Label.new()
 	title.text = "WEAPONS  [F12]  —  drag onto the ground"
-	title.add_theme_color_override("font_color", Color(0.8, 0.88, 1.0))
+	title.add_theme_color_override("font_color", UiPalette.INK)
+	UiPalette.scanlines(_panel)
 	vb.add_child(title)
 
 	var grid := GridContainer.new()
@@ -141,8 +142,8 @@ func _make_thumb(w: Dictionary) -> Control:
 		var shade := 0.12 if state == "normal" else (0.18 if state == "hover" else 0.08)
 		s.bg_color = Color(shade, shade + 0.02, shade + 0.06, 0.95)
 		s.set_border_width_all(1)
-		s.border_color = Color(0.4, 0.55, 0.85, 0.9)
-		s.set_corner_radius_all(6)
+		s.border_color = UiPalette.WIRE_2
+		s.set_corner_radius_all(0)
 		btn.add_theme_stylebox_override(state, s)
 	box.add_child(btn)
 

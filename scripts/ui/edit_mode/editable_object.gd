@@ -122,10 +122,10 @@ func _setup_desc_panel() -> void:
 
 	var style := StyleBoxFlat.new()
 	style.bg_color = UiPalette.SURFACE
-	style.corner_radius_top_left    = 4
-	style.corner_radius_top_right   = 4
-	style.corner_radius_bottom_left  = 4
-	style.corner_radius_bottom_right = 4
+	style.corner_radius_top_left    = 0
+	style.corner_radius_top_right   = 0
+	style.corner_radius_bottom_left  = 0
+	style.corner_radius_bottom_right = 0
 	style.content_margin_left   = 7.0
 	style.content_margin_right  = 7.0
 	style.content_margin_top    = 6.0
@@ -275,7 +275,7 @@ func _draw() -> void:
 		return
 	if is_group_layer():
 		draw_rect(Rect2(Vector2.ZERO, size), Color(0.06, 0.08, 0.12, 0.30), true)
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.3, 0.4, 0.6, 0.85), false, 2.0)
+		draw_rect(Rect2(Vector2.ZERO, size), UiPalette.ACCENT, false, 2.0)
 	if selected:
 		draw_rect(Rect2(Vector2.ZERO, size), Color(1.0, 1.0, 1.0, 0.35), true)
 

@@ -198,6 +198,17 @@ static var ENEMY_DEFS := {
 	# Scorpion — full 4-move 3D boss (boss_scorpion.gd renders its own model). 100 armor.
 	# "gate_waves": pauses the whole timeline the instant it spawns and resumes only when it dies.
 	"scorpion":  {"behavior": "boss_stub", "hp": 4000.0, "speed": 110.0, "size": 126.0, "contact": 0, "xp": 3000.0, "armor": 100.0, "boss_script": "res://scripts/gameplay/boss_scorpion.gd", "gate_waves": true},
+	# Volcanic boss (2026-09-01) — the game's FIRST 3D-model enemy (boss.glb, not a sprite). Renders via the
+	# generic GlbSpinBody path in arena_enemy.gd (not a bespoke rig like Metalfly); its Creep Edit "boss"
+	# entry owns the mount angle + the FP / TP / SP (smoke-point) markers. `boss_move: "volcanic"` = the
+	# 4-move set (magmafrag spray / FP bullets / hellfire beam / ground-slam ash), currently a stubbed shell —
+	# see arena_enemy.gd's _tick_volcanic_boss. `sprite_alpha: 0.0` hides the fallback icon while the glb is up.
+	"boss": {"name": "The Skull", "behavior": "boss_stub", "boss_move": "volcanic", "sprite_alpha": 0.0, "hp": 5000.0, "speed": 58.0, "size": 72.0, "contact": 40, "xp": 3000.0, "armor": 20.0, "knockback_mult": 0.3, "hit_frac": 0.33, "shape": "triangle", "tint": Color(0.95, 0.55, 0.32), "body_px": 150.0, "icon": "res://assets/map/volcanic/enemies/magma1.png", "boss_glb": "res://assets/map/volcanic/enemies/boss.glb"},
+	# Atlantic boss (2026-09-02) — 2nd glb boss, same generic GlbSpinBody path as The Skull. Creep Edit entry
+	# "Nautilus" (Atlantic map) owns the mount angle + FP/TP/SP/LED markers. `boss_move: "atlantic"` currently
+	# = a plain chase-and-face shell (arena_enemy.gd's _tick_atlantic_boss); the real moveset is TODO — the
+	# user will spec it after authoring the points. hp/speed/etc. are placeholders matching The Skull.
+	"Nautilus": {"name": "Nautilus", "behavior": "boss_stub", "boss_move": "atlantic", "sprite_alpha": 0.0, "hp": 5000.0, "speed": 52.0, "size": 72.0, "contact": 20, "xp": 3000.0, "armor": 20.0, "knockback_mult": 0.3, "hit_frac": 0.33, "tp_on": [6, 9], "light_scale": 0.55, "shape": "circle", "tint": Color(0.40, 0.70, 0.88), "body_px": 150.0, "icon": "res://assets/map/atlantic/enemies/hammerhead head.png", "boss_glb": "res://assets/map/atlantic/enemies/Nautilus.glb"},
 }
 
 # ══ 3. AUTHORED TIMELINE ═══════════════════════════════════════════════════════

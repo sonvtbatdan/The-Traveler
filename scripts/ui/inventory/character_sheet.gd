@@ -12,9 +12,9 @@ const EDGE_GAP := 6.0
 
 const COL_TITLE := UiPalette.ACCENT_INK
 const COL_LABEL := UiPalette.MUTED
-const COL_VALUE := Color(0.82, 0.95, 0.85)
+const COL_VALUE := Color(0.82, 0.95, 0.85)   # stat values — phosphor off-white
 const COL_NOTE  := UiPalette.FAINT
-const COL_ATTR  := Color(1.0, 0.85, 0.55)   # attribute values (warm gold)
+const COL_ATTR  := UiPalette.AMBER            # attribute values (terminal amber)
 
 const ROW_PITCH := 32.0   # vertical px per stat row
 
@@ -67,7 +67,7 @@ func _style() -> void:
 	s.bg_color = UiPalette.SURFACE
 	s.set_border_width_all(2)
 	s.border_color = UiPalette.ACCENT_DIM
-	s.set_corner_radius_all(10)
+	s.set_corner_radius_all(0)
 	add_theme_stylebox_override("panel", s)
 
 func _mk_label(txt: String, sz: int, col: Color) -> Label:
@@ -87,17 +87,16 @@ func _mk_btn(txt: String, sz: int) -> Button:
 	b.add_theme_font_size_override("font_size", sz)
 	for state: String in ["normal", "hover", "pressed", "disabled"]:
 		var s := StyleBoxFlat.new()
-		var shade := 0.16
-		if state == "hover": shade = 0.24
-		elif state == "pressed": shade = 0.10
-		elif state == "disabled": shade = 0.08
-		s.bg_color = Color(shade, shade + 0.03, shade + 0.08, 0.95)
+		s.bg_color = UiPalette.SURFACE_2
+		if state == "hover": s.bg_color = UiPalette.SURFACE_3
+		elif state == "pressed": s.bg_color = UiPalette.ACCENT_DIM
+		elif state == "disabled": s.bg_color = UiPalette.SURFACE
 		s.set_border_width_all(1)
 		s.border_color = UiPalette.WIRE_2
-		s.set_corner_radius_all(4)
+		s.set_corner_radius_all(0)
 		b.add_theme_stylebox_override(state, s)
 	b.add_theme_color_override("font_color", UiPalette.INK)
-	b.add_theme_color_override("font_disabled_color", Color(0.4, 0.45, 0.55))
+	b.add_theme_color_override("font_disabled_color", UiPalette.FAINT)
 	return b
 
 func _build() -> void:
@@ -165,6 +164,8 @@ func _build() -> void:
 	reset_btn.size = Vector2(PANEL_W - 80, 24)
 	reset_btn.pressed.connect(GameManager.reset_points)
 	add_child(reset_btn)
+
+	UiPalette.scanlines(self)
 
 func _on_spend(attr: String) -> void:
 	GameManager.spend_point(attr)
