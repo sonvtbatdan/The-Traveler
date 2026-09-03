@@ -49,7 +49,7 @@ const GAT_REFLECT_FRAC := 0.5      # fraction of gatling bullets reflected (50%)
 const GAT_REFLECT_DMG  := 5        # damage a reflected bullet does to the player
 const GAT_REFLECT_PAD  := 12.0     # extra hit padding when a reflected bullet meets the player
 const GAT_REFLECT_SPEED := 280.0   # reflected bullet's speed — slowed to match a jetfighter shot (arena_enemy.gd's
-                                    # "shooter"/KITE_BULLET_SPEED), not full GAT_SPEED (900) — much easier to dodge
+									# "shooter"/KITE_BULLET_SPEED), not full GAT_SPEED (900) — much easier to dodge
 
 # ── TUNABLES: Gauss cannon (auto-charge → heavy piercing orb) ─────────────────
 const GAUSS_ENABLED     := false    # disabled for now

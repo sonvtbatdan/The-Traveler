@@ -7,6 +7,7 @@ extends Node2D
 
 const RuinScript := preload("res://scripts/gameplay/arena_ruin.gd")
 const RuinPointerScript := preload("res://scripts/ui/hud/arena_ruin_pointer.gd")  # edge-of-screen icon + distance
+const EnemyScript := preload("res://scripts/gameplay/arena_enemy.gd")   # wrecks are stationary "dummy" arena_enemy instances
 
 const SHIP_COUNT   := 2       # wrecks spawned at run start
 const DIST_MIN     := 10000.0 # minimum spawn distance from player (px)
@@ -14,6 +15,9 @@ const DIST_MAX     := 15000.0 # maximum spawn distance from player (px)
 const ANGLE_MIN    := 60.0    # minimum angle (deg) between the two run-start wrecks, as seen from the player
 const ANGLE_MAX    := 120.0   # maximum angle (deg) between the two run-start wrecks
 const PERIODIC_INTERVAL := 180.0   # seconds between each additional wreck after the run-start pair (3 min)
+const GIANT_HP     := 5000.0  # ×2 ENEMY_HP_TUNE (non-boss) → ~10,000 effective HP
+const GIANT_SIZE   := 80.0    # ~4× a normal ship; scales BOTH the sprite and the hitbox
+const GIANT_SPIN   := deg_to_rad(8.0)   # slow idle rotation (rad/s)
 
 var _mgr: Node = null
 var _player: Node2D = null
@@ -49,6 +53,13 @@ func _spawn_wrecks() -> void:
 		var dist := randf_range(DIST_MIN, DIST_MAX)
 		var pos: Vector2 = origin + Vector2(cos(a), sin(a)) * dist
 		_spawn_wreck(pos, randi_range(1, 4))
+
+## One periodic wreck: a random distance out from `origin` along `angle` (used by _process, near the player's
+## current position). Delegates to _spawn_wreck so the spawn path stays identical to the run-start pair.
+func _spawn_one_wreck(origin: Vector2, angle: float) -> void:
+	var dist := randf_range(DIST_MIN, DIST_MAX)
+	var pos: Vector2 = origin + Vector2(cos(angle), sin(angle)) * dist
+	_spawn_wreck(pos, randi_range(1, 4))
 
 func _spawn_wreck(pos: Vector2, variant: int) -> void:
 	var e: Node2D = EnemyScript.new()
